@@ -270,13 +270,14 @@ class MarkdownComposeText(
             } else {
                 withStyle(style) { append(span.text) }
             }
-            // #EDE-95: the match fills behind this span's part of each mark (the text keeps its colour).
+            // #EDE-95: this span's part of each mark, filled in its glyph box by
+            // [MarkdownPills] (never a span background: that is the line height).
             if (highlight != null) {
                 val end = searched + span.text.length
                 for (m in marks) {
                     val a = maxOf(m.start, searched)
                     val b = minOf(m.end, end)
-                    if (a < b) addStyle(SpanStyle(background = if (m.current) highlight.matchCurrent else highlight.match), at + a - searched, at + b - searched)
+                    if (a < b) addStringAnnotation(HIGHLIGHT_MARK_TAG, highlightMarkValue(if (m.current) highlight.matchCurrent else highlight.match, code = span.code), at + a - searched, at + b - searched)
                 }
             }
             searched += span.text.length
@@ -285,6 +286,25 @@ class MarkdownComposeText(
                 pop()
             }
         }
+    }
+
+    /**
+     * #EDE-95: the ascent and descent (dp) of [spec]'s own font, or with
+     * [code] of inline code's (mono at the code size; without a code style,
+     * mono at [spec]'s size): a match fill's glyph box.
+     */
+    fun glyphMetrics(spec: MarkdownTextSpec, code: MarkdownCodeStyle?, mono: Boolean): Pair<Float, Float> {
+        if (mono && code != null) return codeMetrics(code, spec)
+        val r = measurer.measure(
+            "x",
+            style = TextStyle(
+                fontFamily = fonts.family(if (mono) monoFamily else spec.family, mono = mono),
+                fontSize = spec.size.sp,
+                fontWeight = FontWeight(spec.weight),
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+        return (r.firstBaseline / density) to ((r.size.height - r.firstBaseline) / density)
     }
 
     /** Round 9: the ascent and descent of [code]'s font at its size on [spec] (dp): the pill's height, as the web's inline box. */
@@ -917,7 +937,9 @@ private fun TaskBox(checked: Boolean, size: Dp, colors: MarkdownColors) {
  * Round 9: a text block over its inline code's fills: each code span's
  * `Markdown/code` box from its side padding to its side padding, per line it
  * crosses, from the font's descent to its ascent around the baseline (+
- * `paddingVertical`), as the web's inline box. Under the text and its chips.
+ * `paddingVertical`), as the web's inline box. #EDE-95: the search marks'
+ * fills over those, each in its glyph box ([drawHighlightFills]: the run's
+ * font's ascent and descent, no padding). Under the text and its chips.
  */
 @Composable
 private fun MarkdownPills(
@@ -931,30 +953,42 @@ private fun MarkdownPills(
     shaper: MarkdownComposeText,
 ) {
     val fill = colors.codeBackground
-    val ranges = remember(text) { text.getStringAnnotations(MARKDOWN_CODE_TAG, 0, text.length) }
-    if (ranges.isEmpty() || fill == null) {
+    val ranges = remember(text, fill) { if (fill == null) emptyList() else text.getStringAnnotations(MARKDOWN_CODE_TAG, 0, text.length) }
+    val marked = remember(text) { text.hasStringAnnotations(HIGHLIGHT_MARK_TAG, 0, text.length) }
+    if (ranges.isEmpty() && !marked) {
         BasicText(text, modifier, style = style, inlineContent = inlineContent)
         return
     }
     val code = styles.chip.code
     val metrics = remember(code, spec, shaper) { shaper.codeMetrics(code, spec) }
+    val glyphs = remember(code, spec, shaper, marked) {
+        if (!marked) null else shaper.glyphMetrics(spec, code, mono = false) to shaper.glyphMetrics(spec, code, mono = true)
+    }
     val laid = remember { mutableStateOf<TextLayoutResult?>(null) }
     BasicText(
         text,
         modifier.drawBehind {
             val r = laid.value ?: return@drawBehind
-            val radius = CornerRadius(code.radius.dp.toPx())
-            val up = (metrics.first + code.padV).dp.toPx()
-            val down = (metrics.second + code.padV).dp.toPx()
-            for (range in ranges) {
-                val last = range.end - 1
-                for (line in r.getLineForOffset(range.start)..r.getLineForOffset(last)) {
-                    val from = maxOf(range.start, r.getLineStart(line))
-                    val to = minOf(last, r.getLineEnd(line, visibleEnd = true) - 1)
-                    val a = r.getHorizontalPosition(from, usePrimaryDirection = true)
-                    val b = r.getBoundingBox(to).right
-                    val baseline = r.getLineBaseline(line)
-                    drawRoundRect(fill, Offset(minOf(a, b), baseline - up), Size(kotlin.math.abs(b - a), up + down), radius)
+            if (fill != null && ranges.isNotEmpty()) {
+                val radius = CornerRadius(code.radius.dp.toPx())
+                val up = (metrics.first + code.padV).dp.toPx()
+                val down = (metrics.second + code.padV).dp.toPx()
+                for (range in ranges) {
+                    val last = range.end - 1
+                    for (line in r.getLineForOffset(range.start)..r.getLineForOffset(last)) {
+                        val from = maxOf(range.start, r.getLineStart(line))
+                        val to = minOf(last, r.getLineEnd(line, visibleEnd = true) - 1)
+                        val a = r.getHorizontalPosition(from, usePrimaryDirection = true)
+                        val b = r.getBoundingBox(to).right
+                        val baseline = r.getLineBaseline(line)
+                        drawRoundRect(fill, Offset(minOf(a, b), baseline - up), Size(kotlin.math.abs(b - a), up + down), radius)
+                    }
+                }
+            }
+            if (glyphs != null) {
+                drawHighlightFills(r) { mono ->
+                    val (up, down) = if (mono) glyphs.second else glyphs.first
+                    up.dp.toPx() to down.dp.toPx()
                 }
             }
         },

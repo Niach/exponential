@@ -1,5 +1,6 @@
 package at.exponential.ui.primitives
 
+import androidx.compose.ui.graphics.toArgb
 import java.text.Normalizer
 import java.util.Locale
 
@@ -150,5 +151,66 @@ internal fun markdownHighlightMarks(blocks: List<MarkdownBlock>, query: String, 
         markdownHighlightGroups(listOf(block)).map { group ->
             highlightRanges(markdownHighlightText(group), query).map { r -> HighlightMark(r.first, r.last + 1, n++ == current) }
         }
+    }
+}
+
+/**
+ * #EDE-95: the annotation tag a painted text carries over each mark (or each
+ * piece of one, per run); its value = [highlightMarkValue]. The fills are
+ * drawn behind the text ([drawHighlightFills]), never as a span background
+ * (that spans the line height): layout never changes.
+ */
+const val HIGHLIGHT_MARK_TAG: String = "exp-highlight-mark"
+
+/** A mark annotation's value: its fill (ARGB) and whether the piece is inline code (the code font's box). */
+fun highlightMarkValue(fill: androidx.compose.ui.graphics.Color, code: Boolean = false): String =
+    "${fill.toArgb()}${if (code) ":code" else ""}"
+
+/** The fill of a [highlightMarkValue]. */
+fun highlightMarkFill(value: String): androidx.compose.ui.graphics.Color =
+    androidx.compose.ui.graphics.Color(value.substringBefore(':').toInt())
+
+/** Whether a [highlightMarkValue] marks inline code. */
+fun highlightMarkIsCode(value: String): Boolean = value.endsWith(":code")
+
+/**
+ * THE FILL BOX (`fixtures/text-highlight.json`): the glyph box of [start, end)
+ * in [layout], one rect per line it crosses: horizontally the run (its first
+ * character's leading edge to its last visible character's right edge),
+ * vertically the line's baseline − [ascent] .. baseline + [descent] (the
+ * font's own, px), never the line height; inline code's fill box without
+ * its padding.
+ */
+fun highlightFillRects(layout: androidx.compose.ui.text.TextLayoutResult, start: Int, end: Int, ascent: Float, descent: Float): List<androidx.compose.ui.geometry.Rect> {
+    val n = layout.layoutInput.text.length
+    val last = minOf(end, n) - 1
+    if (start < 0 || last < start) return emptyList()
+    val out = ArrayList<androidx.compose.ui.geometry.Rect>()
+    for (line in layout.getLineForOffset(start)..layout.getLineForOffset(last)) {
+        val from = maxOf(start, layout.getLineStart(line))
+        val to = minOf(last, layout.getLineEnd(line, visibleEnd = true) - 1)
+        if (to < from) continue
+        val a = layout.getHorizontalPosition(from, usePrimaryDirection = true)
+        val b = layout.getBoundingBox(to).right
+        val baseline = layout.getLineBaseline(line)
+        out += androidx.compose.ui.geometry.Rect(minOf(a, b), baseline - ascent, maxOf(a, b), baseline + descent)
+    }
+    return out
+}
+
+/**
+ * #EDE-95: every [HIGHLIGHT_MARK_TAG] piece of [layout]'s text filled in its
+ * glyph box ([highlightFillRects]); [metrics] = the (ascent, descent) in px
+ * of the piece's font (code = inline code's). Behind the text.
+ */
+fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHighlightFills(
+    layout: androidx.compose.ui.text.TextLayoutResult,
+    metrics: (code: Boolean) -> Pair<Float, Float>,
+) {
+    val text = layout.layoutInput.text
+    for (mark in text.getStringAnnotations(HIGHLIGHT_MARK_TAG, 0, text.length)) {
+        val (up, down) = metrics(highlightMarkIsCode(mark.item))
+        val fill = highlightMarkFill(mark.item)
+        for (r in highlightFillRects(layout, mark.start, mark.end, up, down)) drawRect(fill, r.topLeft, r.size)
     }
 }
