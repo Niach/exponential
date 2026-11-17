@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-17-computer-use-follows-the-device-switch`,
+    date: `2026-11-17`,
+    title: `Computer use follows your device's switch`,
+    summary: `Computer use runs only while the device's Computer use switch is on. A new session follows the switch, and you can turn it off for that one session in the + menu; an agent cannot turn it on for itself.`,
+    body: `- **The device's switch decides**: a session gets computer use only while its device's Computer use switch is on. Turning the switch off ends computer use in every running session on that device at once.
+- **Off for one session**: the + menu shows Computer use only where the device's switch is on and it can drive the screen. It starts on; turn it off to start that session without computer use.
+- **Agents cannot turn it on**: a session or agent can turn computer use off for itself, never on.
+- **Why a device cannot**: a device that cannot drive its screen (a Wayland session, no display) says why under its Computer use switch.`,
+  },
+  {
     id: `2026-11-17-desktop-cli-0-14-168-waiting-on-offline-chats-computer-use`,
     date: `2026-11-17`,
     title: `What a session waits on, offline chats you can read, and steadier computer use`,

@@ -108,10 +108,11 @@ class DeviceDoctorTest {
                 val label = item.strOrNull("label") ?: fixtureLabels[key]
                 assertEquals("$name/$key", label, row.label)
                 if (key == "computer_use") {
-                    // The switch row: label + switch, no glyph, no detail.
+                    // The switch row: label + switch, no glyph, no detail
+                    // but the device's reason while it cannot drive (#EXP-1899).
                     assertTrue(row.isSwitch)
                     assertEquals(DoctorGlyph.None, row.glyph)
-                    assertNull(row.detail)
+                    assertEquals(name, case.strOrNull("switchDescription"), row.detail)
                     assertEquals(state != "off", row.switchOn)
                     assertNull(row.action)
                 } else {

@@ -385,13 +385,17 @@ data class SteerDevice(
     // gate the server still applies.
 
     /**
-     * EXP-1249: the machine reads the per-run `computerUse` flag (contract
-     * `codingSessionComputerUseCap`, a RUN cap: advertised only while an
-     * agent there is runnable), so the composer offers the toggle and sends
-     * the key only with it.
+     * EXP-1249/#EXP-1899: the composer offers the per-run Computer use toggle
+     * for this machine: it reads the flag (contract
+     * `codingSessionComputerUseCap`), its switch is on and it can drive
+     * (`ComposerMenu.computerUseOffered`); otherwise the key never rides out.
      */
     val canToggleComputerUse: Boolean
-        get() = caps?.contains(com.exponential.app.domain.DomainContract.codingSessionComputerUseCap) == true
+        get() = com.exponential.app.domain.ComposerMenu.computerUseOffered(
+            caps = caps,
+            doctor = doctor,
+            switchOn = launchDefaults?.computerUse == true,
+        )
 
     companion object {
         const val KIND_DESKTOP = "desktop"

@@ -10,6 +10,7 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.McpServersApi
 import com.exponential.app.data.api.toSkillOption
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.McpServerOption
 import com.exponential.app.domain.mcpServerReady
 import com.exponential.app.domain.preselectMcpServerIds
@@ -882,15 +883,15 @@ class AgentComposerViewModel @Inject constructor(
         _skillPick.value = if (id in current) current - id else current + id
     }
 
-    /** Web M12: the person's explicit flip; null = untouched (the device's
-     *  default shows and nothing rides the wire). Cleared per device. */
+    /** #EXP-1899: the person's pick; null = untouched (on, the run follows
+     *  the device's switch, nothing rides the wire). Cleared per device. */
     private val _computerUsePick = MutableStateFlow<Boolean?>(null)
 
-    /** The per-run computer use toggle: the flip, else the device's CURRENT
-     *  `launch_defaults.computerUse`. */
-    val computerUse: StateFlow<Boolean> = combine(_computerUsePick, device) { pick, d ->
-        pick ?: (d?.launchDefaults?.computerUse == true)
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /** The per-run computer use toggle: on until the person opts out (the
+     *  row shows only where the device's switch is on). */
+    val computerUse: StateFlow<Boolean> = _computerUsePick
+        .map { ComposerMenu.computerUseShown(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     fun setComputerUse(value: Boolean) {
         _computerUsePick.value = value
@@ -967,9 +968,12 @@ class AgentComposerViewModel @Inject constructor(
             model = draft.model.takeIf { it.isNotEmpty() },
             effort = draft.effort.takeIf { it.isNotEmpty() },
             ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
-            // The row stores what was sent (NOT NULL, default off), so send the
-            // SHOWN value, device default included, not only an explicit flip.
-            computerUse = computerUse.value.takeIf { device.value?.canToggleComputerUse == true },
+            // #EXP-1899: only an opt-out rides; untouched = the server stores
+            // "follows the device's switch".
+            computerUse = ComposerMenu.computerUseWire(
+                _computerUsePick.value,
+                offered = device.value?.canToggleComputerUse == true,
+            ),
             mcpServerIds = _mcpServerIds.value,
             skillIds = skillIds.value,
         )

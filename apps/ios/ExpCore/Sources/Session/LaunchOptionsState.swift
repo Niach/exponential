@@ -235,10 +235,11 @@ public final class LaunchOptionsState {
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
             // S-3: no plan mode (contract `launchKeys`).
-            // EXP-1249: set only after the person FLIPPED it (web M12 rule);
-            // the composer clears the flip on every device change, and the
-            // row exists only on a device with `codingSessionComputerUseCap`.
-            computerUse: computerUse,
+            // #EXP-1899: only an opt-out rides out (untouched or switched
+            // back on = the run follows the device's switch); the composer
+            // clears the pick on every device change, and the row exists only
+            // where `ComposerMenu.computerUseOffered`.
+            computerUse: computerUse == false ? false : nil,
             ultracode: isClaude ? ultracode : nil,
             // EXP-792: omitted when nothing is picked.
             mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds,
@@ -260,7 +261,7 @@ public final class LaunchOptionsState {
     /// #EXP-1661: the team skills this run gets (`Skills.preselectSkillIds`
     /// seeds it).
     public var skillIds: [String] = []
-    /// Per-run computer use: the person's explicit flip; nil = untouched =
-    /// the device's own default (and the key stays off the wire).
+    /// Per-run computer use: the person's explicit pick; nil = untouched =
+    /// on, following the device's switch (only `false` goes on the wire).
     public var computerUse: Bool?
 }

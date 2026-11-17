@@ -201,12 +201,16 @@ public enum DeviceReadiness {
 
     /// The item that IS the switch row (writes `launch_defaults.computerUse`).
     public static let switchKey = "computer_use"
+    /// Fixture `copy.unavailable`: the switch row's second line while the
+    /// machine cannot drive and gave no reason of its own (#EXP-1899).
+    public static let unavailable = "Not available here"
 
     public struct Row: Equatable, Sendable, Identifiable {
         public let key: String
         public let label: String
         public let state: String
-        /// Nil on the switch row (label + switch only).
+        /// Nil on the switch row (label + switch only), except the device's
+        /// reason while it cannot drive (#EXP-1899: the row's second line).
         public let detail: String?
         public let glyph: Glyph?
         public let tone: Tone?
@@ -336,7 +340,8 @@ public enum DeviceReadiness {
             key: item.key,
             label: item.label ?? labels[item.key] ?? item.key,
             state: item.state,
-            detail: isSwitch ? nil : item.detail,
+            detail: !isSwitch ? item.detail
+                : item.state == "missing" ? (item.detail ?? unavailable) : nil,
             glyph: isSwitch ? nil : presentation.glyph,
             tone: isSwitch ? nil : presentation.tone,
             indented: item.parent != nil,
@@ -346,5 +351,20 @@ public enum DeviceReadiness {
             actionLabel: action.map { actions[$0]?.label ?? $0 },
             primary: primary && action != nil
         )
+    }
+}
+
+// Here, not in ComposerMenu.swift: the share extension compiles that file
+// without the readiness types.
+extension ComposerMenu {
+    /// #EXP-1899 (`conditions.computerUse`, replayed off `computerUse.offered`):
+    /// the toggle shows only where the device takes the pick AND computer use
+    /// runs there: its doctor's computer_use row is `ok`/`action` (switch on,
+    /// it can drive), else, with no doctor, its `launch_defaults.computerUse`.
+    public static func computerUseOffered(caps: [String]?, doctor: DeviceDoctor?, switchOn: Bool) -> Bool {
+        guard caps?.contains(computerUseRunCap) == true else { return false }
+        guard let doctor else { return switchOn }
+        let state = doctor.items.first { $0.key == DeviceReadiness.switchKey }?.state
+        return state == "ok" || state == "action"
     }
 }

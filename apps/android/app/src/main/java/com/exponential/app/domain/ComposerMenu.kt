@@ -149,18 +149,30 @@ object ComposerMenu {
     /** The per-run payload key and the device cap that reads it. */
     const val COMPUTER_USE_PAYLOAD_KEY = "computerUse"
 
-    /** The toggle's shown value: the person's flip, else the device default. */
-    fun computerUseShown(pick: Boolean?, deviceDefault: Boolean): Boolean = pick ?: deviceDefault
+    /** #EXP-1899: the toggle's shown value: on (the run follows the
+     *  device's switch) until the person opts out. */
+    fun computerUseShown(pick: Boolean?): Boolean = pick ?: true
 
     /**
-     * Web M12 ×4 (iOS/desktop `computer_use_pick`): `computerUse` rides the
-     * start only after an explicit flip, i.e. the person's [pick] verbatim;
-     * an untouched toggle sends nothing, so the device's own
-     * `launch_defaults.computerUse` applies. Null too on a device that does
-     * not read the flag ([canToggle] false).
+     * #EXP-1899 (`conditions.computerUse`, replayed off `computerUse.offered`):
+     * the toggle shows only where the device takes the pick AND computer use
+     * runs there: its doctor's computer_use row is `ok`/`action` (switch on,
+     * it can drive), else, with no doctor, its `launch_defaults.computerUse`.
      */
-    fun computerUseWire(pick: Boolean?, canToggle: Boolean): Boolean? =
-        if (canToggle) pick else null
+    fun computerUseOffered(caps: List<String>?, doctor: DeviceDoctor?, switchOn: Boolean): Boolean {
+        if (caps?.contains(COMPUTER_USE_RUN_CAP) != true) return false
+        if (doctor == null) return switchOn
+        val state = doctor.items.firstOrNull { it.key == DeviceReadiness.KEY_COMPUTER_USE }?.state
+        return state == "ok" || state == "action"
+    }
+
+    /**
+     * #EXP-1899 ×4: only an opt-out rides the start (`false`); untouched or
+     * switched back on sends nothing, so the run follows the device's
+     * switch. Null too where the toggle is not offered ([offered] false).
+     */
+    fun computerUseWire(pick: Boolean?, offered: Boolean): Boolean? =
+        if (offered && pick == false) false else null
 
     val COMPUTER_USE_RUN_CAP: String = DomainContract.codingSessionComputerUseCap
 
