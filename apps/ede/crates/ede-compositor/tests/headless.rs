@@ -704,6 +704,136 @@ fn the_first_x11_window_takes_keys_without_a_click() {
     }
 }
 
+/// What still keeps the X11 window `win` from being typed into, or `None`:
+/// the seat's keyboard is on its live surface, `windows` lists it focused,
+/// and X's own input focus is the window.
+#[cfg(feature = "xwayland")]
+fn x11_keyboard_gap(h: &Harness, conn: &x11rb::rust_connection::RustConnection, ipc: &mut ede_protocol::Client, win: u32) -> Option<String> {
+    use smithay::{utils::IsAlive, wayland::seat::WaylandFocus};
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    let seat = h.with(move |ede| {
+        let focus = ede.desk.seat.get_keyboard().unwrap().current_focus().filter(|f| f.alive());
+        let surface = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).and_then(|w| w.wl_surface().map(|s| s.into_owned()));
+        focus.is_some() && focus == surface
+    });
+    if !seat {
+        return Some("the seat's keyboard is not on its surface".into());
+    }
+    if !ipc.windows().unwrap().iter().any(|w| w.focused && w.title.as_deref() == Some("xclient")) {
+        return Some("`windows` does not list it focused".into());
+    }
+    let x = conn.get_input_focus().unwrap().reply().unwrap().focus;
+    (x != win).then(|| format!("X's input focus is {x:#x}, not the window {win:#x}"))
+}
+
+#[cfg(feature = "xwayland")]
+fn wait_for_x11_keyboard(h: &Harness, conn: &x11rb::rust_connection::RustConnection, ipc: &mut ede_protocol::Client, win: u32, when: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Some(gap) = x11_keyboard_gap(h, conn, ipc, win) {
+        assert!(Instant::now() < deadline, "{when}: {gap}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // And it stays: nothing that arrives late (the surface Xwayland
+    // associates after a restore) takes it away again.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(x11_keyboard_gap(h, conn, ipc, win), None, "{when}");
+}
+
+/// #EDE-122: an X11 window that is the only window, minimized and brought
+/// back (the taskbar's click = `focus_window`, or `restore_window`), has
+/// the keyboard again without a click. Xwayland
+/// gives a restored window a new surface, so the focus has to wait for it.
+#[cfg(feature = "xwayland")]
+#[test]
+fn a_restored_x11_window_that_is_the_only_window_has_the_keyboard_again() {
+    use ede_protocol::Request;
+    use x11rb::{connection::Connection, protocol::Event};
+    let h = harness(&[(1280, 800), (1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    // Away from the window, as in the first-window test: keys that follow
+    // X's pointer would miss it.
+    h.with(|ede| ede.pointer_motion_to((2500.0, 5.0).into(), 0));
+    let win = map_x11(&h, &conn, None);
+    let mut ipc = h.ipc();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "the first X11 window");
+    let id = ipc.windows().unwrap()[0].id.clone();
+    let minimize = |ipc: &mut ede_protocol::Client| {
+        ipc.call(Request::MinimizeWindow { window: id.clone() }).unwrap();
+        // Until Xwayland has taken the unmap in (its surface is gone).
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while h.with(|ede| ede.desk.minimized.iter().any(|w| smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some_and(|s| smithay::utils::IsAlive::alive(&*s)))) {
+            assert!(Instant::now() < deadline, "the minimized X11 window kept its surface");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(h.with(|ede| (ede.desk.space.elements().count(), ede.desk.minimized.len())), (0, 1));
+    };
+
+    minimize(&mut ipc);
+    ipc.call(Request::FocusWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back by focus_window (the taskbar's click)");
+
+    minimize(&mut ipc);
+    ipc.call(Request::RestoreWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back by restore_window");
+
+    // Right after the minimize, before Xwayland answered it.
+    ipc.call(Request::MinimizeWindow { window: id.clone() }).unwrap();
+    ipc.call(Request::FocusWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back at once after the minimize");
+
+    // The key typed next arrives.
+    const KEY_A: u32 = 30 + 8;
+    while conn.poll_for_event().unwrap().is_some() {}
+    key(&h, KEY_A, KeyState::Pressed);
+    key(&h, KEY_A, KeyState::Released);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match conn.poll_for_event().unwrap() {
+            Some(Event::KeyPress(e)) if e.event == win && u32::from(e.detail) == KEY_A => break,
+            Some(_) => continue,
+            None => {}
+        }
+        assert!(Instant::now() < deadline, "the restored X11 window never got the key");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-122, the cases that worked: with a second window the restored X11
+/// window takes the keyboard from it, and a Wayland window alone comes
+/// back focused.
+#[cfg(feature = "xwayland")]
+#[test]
+fn a_restored_window_takes_the_keyboard_beside_another_and_as_a_wayland_window() {
+    use ede_protocol::Request;
+    let h = harness(&[(1280, 800)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    let mut ipc = h.ipc();
+    let notes = ipc.windows().unwrap()[0].id.clone();
+    let focused = |ipc: &mut ede_protocol::Client| ipc.windows().unwrap().into_iter().find(|w| w.focused).map(|w| w.id);
+    assert_eq!(focused(&mut ipc), Some(notes.clone()));
+    for restore in [Request::FocusWindow { window: notes.clone() }, Request::RestoreWindow { window: notes.clone() }] {
+        ipc.call(Request::MinimizeWindow { window: notes.clone() }).unwrap();
+        assert_eq!(focused(&mut ipc), None);
+        ipc.call(restore).unwrap();
+        assert_eq!(focused(&mut ipc), Some(notes.clone()), "a Wayland window alone comes back focused");
+    }
+
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, None);
+    let x = ipc.windows().unwrap().into_iter().find(|w| w.title.as_deref() == Some("xclient")).unwrap().id;
+    for restore in [Request::FocusWindow { window: x.clone() }, Request::RestoreWindow { window: x.clone() }] {
+        ipc.call(Request::FocusWindow { window: x.clone() }).unwrap();
+        wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "focused beside the Wayland window");
+        ipc.call(Request::MinimizeWindow { window: x.clone() }).unwrap();
+        assert_eq!(focused(&mut ipc), Some(notes.clone()), "the keyboard falls to the window left");
+        std::thread::sleep(Duration::from_millis(200));
+        ipc.call(restore).unwrap();
+        wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "restored beside the Wayland window");
+    }
+}
+
 /// #EDE-88 (`ede-core-9`): an X11 window gets the compositor's title bar
 /// (the same frame as a Wayland window's); one whose Motif hints ask for
 /// no decorations keeps none.
@@ -1112,6 +1242,61 @@ fn click_a_panel_popup_over_a_close_button(grab: bool) -> (bool, bool) {
     app.roundtrip();
     shell.roundtrip();
     (app.state.toplevels[t.index].closed, shell.state.press_serial.is_some())
+}
+
+/// #EDE-123: a press inside the start menu (a popup of the panel) where a
+/// window lies beneath is the menu's: that window is neither focused nor
+/// raised, and the menu keeps the keyboard it had.
+#[test]
+fn a_press_on_a_layer_popup_over_a_window_leaves_the_window_and_the_keyboard_alone() {
+    let h = harness(&[(800, 600)]);
+    let mut under = Session::connect(h.connect());
+    let _under_pointer = under.pointer();
+    under.keyboard();
+    let b = under.toplevel("Browser");
+    under.draw(&b, 300, 200, RED);
+    wait_for(&mut under, |_| windows(&h).len() == 1);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.draw(&t, 200, 100, BLUE);
+    wait_for(&mut app, |_| windows(&h).len() == 2);
+    // The browser where the menu will open, the terminal beside it, in
+    // front and typed into.
+    h.with(|ede| {
+        let title = |w: &smithay::desktop::Window| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone());
+        let browser = ede.desk.space.elements().find(|w| title(w).as_deref() == Some("Browser")).cloned().unwrap();
+        let terminal = ede.desk.space.elements().find(|w| title(w).as_deref() == Some("Terminal")).cloned().unwrap();
+        ede.desk.space.map_element(browser, (50, 300), false);
+        ede.desk.space.map_element(terminal.clone(), (500, 50), false);
+        ede.focus(DeskId::PERSON, Some(terminal));
+    });
+    let order = |h: &Harness| windows(h).into_iter().map(|(title, _)| title).collect::<Vec<_>>();
+    assert_eq!(order(&h), ["Browser", "Terminal"]);
+
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    shell.keyboard();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let menu = shell.layer_popup(&panel, (300, 300), true, 0xffff_ff00);
+    wait_for(&mut shell, |_| h.capture(0).at(100, 450) == 0xffff_ff00);
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&menu.surface));
+    assert!(windows(&h)[0].1.to_f64().contains((100.0, 450.0)), "the browser lies under that spot of the menu");
+
+    h.with(|ede| {
+        ede.pointer_motion_to((100.0, 450.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+    under.roundtrip();
+    app.roundtrip();
+    shell.roundtrip();
+    assert_eq!(under.state.press_serial, None, "the window under the menu got the press");
+    assert_eq!(order(&h), ["Browser", "Terminal"], "the window under the menu was raised");
+    assert!(h.with(|ede| ede.focused_window(DeskId::PERSON).is_none()), "a window took the keyboard from the menu");
+    assert_eq!(shell.state.keyboard_focus.as_ref(), Some(&menu.surface), "the menu lost the keyboard");
+    assert_eq!(under.state.keyboard_focus, None, "the window under the menu took the keyboard");
 }
 
 /// #EDE-119: the same for a popup of a layer above the windows.
