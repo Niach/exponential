@@ -100,6 +100,30 @@ fn the_endpoint_wants_a_live_token() {
     assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Http(401))));
 }
 
+/// A run whose grant ended reads why on its next call (a bare 401 reads as
+/// "sign in" to an MCP client); the call never reaches the provider. A token
+/// that was never granted stays a 401, and so does a new handshake.
+#[test]
+fn a_revoked_run_reads_why_its_tools_stopped() {
+    let fake = Arc::new(Fake::default());
+    let server = Server::serve(info(), fake.clone()).unwrap();
+    for all in [false, true] {
+        let token = server.grant(&id("s1"), "EXP-1");
+        let client = Client::connect(&upstream(server.url(), token.as_str()), "test", T).unwrap();
+        match all {
+            false => server.revoke(&id("s1")),
+            true => server.revoke_all(),
+        }
+        let refused = client.call("echo", json!({}), T).unwrap();
+        assert_eq!(refused["isError"], json!(true));
+        let text = refused["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("fake") && text.contains("ended this session's access"), "{text}");
+        assert!(matches!(client.list_tools(T), Err(ClientError::Http(401))));
+        assert!(matches!(Client::connect(&upstream(server.url(), token.as_str()), "test", T), Err(ClientError::Http(401))));
+    }
+    assert!(fake.calls.lock().unwrap().is_empty());
+}
+
 /// A provider whose call says it began and returns when told to.
 struct Slow {
     began: Mutex<std::sync::mpsc::Sender<()>>,

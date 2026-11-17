@@ -2,8 +2,9 @@
 //! JSON responses (a `GET` stream is refused, which the transport allows),
 //! on `127.0.0.1:<free port>/mcp`. One listener per [`Server`]; each run
 //! reaches it with its own bearer token ([`Server::grant`]), which is what
-//! names the run: an unknown or revoked token is a 401 before rmcp sees
-//! the request. The tools are a [`ToolProvider`]'s, called on the blocking
+//! names the run: an unknown token is a 401 before rmcp sees the request,
+//! and a revoked one reads why on its next `tools/call` (#EXP-1918). The
+//! tools are a [`ToolProvider`]'s, called on the blocking
 //! pool with the run as [`Caller`].
 //!
 //! [`RawRoute`]s share the listener for what is not an MCP server of ours
@@ -12,7 +13,7 @@
 //! #EXP-1517: the token, the session id and the refusal are eCore's
 //! ([`Token`], [`SessionId`], [`Failure`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +33,10 @@ use crate::runtime::runtime;
 
 /// A raw route's request body cap; an MCP POST's is rmcp's (4 MiB).
 const RAW_BODY_MAX_BYTES: usize = 4 * 1024 * 1024;
+/// How long a failed accept waits before the next one.
+const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
+/// How many revoked tokens are remembered, the newest kept.
+const ENDED_KEPT: usize = 256;
 
 /// Who `initialize` says this server is.
 #[derive(Clone, Debug)]
@@ -136,6 +141,9 @@ pub trait RawRoute: Send + Sync + 'static {
 #[derive(Default)]
 struct Grants {
     runs: Mutex<HashMap<Token, Caller>>,
+    /// The tokens [`Server::revoke`] ended, oldest first: their run's next
+    /// call is told so instead of a bare 401.
+    ended: Mutex<VecDeque<Token>>,
 }
 
 impl Grants {
@@ -146,6 +154,33 @@ impl Grants {
     /// Whether `session_id` holds a grant.
     fn admits(&self, session_id: &SessionId) -> bool {
         self.runs.lock().unwrap().values().any(|run| run.session_id == *session_id)
+    }
+
+    /// Take the runs `ends` names out; their tokens are remembered as ended.
+    fn end(&self, ends: impl Fn(&Caller) -> bool) -> Vec<Caller> {
+        let mut gone = Vec::new();
+        self.runs.lock().unwrap().retain(|token, run| {
+            let ended = ends(run);
+            if ended {
+                gone.push((token.clone(), run.clone()));
+            }
+            !ended
+        });
+        let mut ended = self.ended.lock().unwrap();
+        let mut runs = Vec::new();
+        for (token, run) in gone {
+            ended.push_back(token);
+            runs.push(run);
+        }
+        while ended.len() > ENDED_KEPT {
+            ended.pop_front();
+        }
+        runs
+    }
+
+    /// Whether `token` was a run's until it was revoked.
+    fn ended(&self, token: &Token) -> bool {
+        self.ended.lock().unwrap().contains(token)
     }
 }
 
@@ -194,6 +229,7 @@ impl Server {
             .block_on(async { tokio::net::TcpListener::bind("127.0.0.1:0").await })
             .map_err(|err| format!("Could not start the {name} server: {err}"))?;
         let port = listener.local_addr().map_err(|err| format!("The {name} server has no address: {err}"))?.port();
+        let listener = Arc::new(listener);
         let grants = Arc::new(Grants::default());
         let handler = Handler { info: Arc::new(info), provider: provider.clone(), grants: grants.clone() };
         let config = StreamableHttpServerConfig::default()
@@ -205,10 +241,14 @@ impl Server {
             Arc::new(NeverSessionManager::default()),
             config,
         ));
-        let state = Arc::new(Listener { grants: grants.clone(), service, routes, path: path.to_string() });
-        runtime().spawn(async move {
-            loop {
-                let Ok((stream, _)) = listener.accept().await else { continue };
+        let state = Arc::new(Listener { grants: grants.clone(), service, routes, path: path.to_string(), name: name.clone() });
+        runtime().spawn(accept_loop(
+            name,
+            move || {
+                let listener = listener.clone();
+                async move { listener.accept().await.map(|(stream, _)| stream) }
+            },
+            move |stream| {
                 let state = state.clone();
                 tokio::spawn(async move {
                     let io = hyper_util::rt::TokioIo::new(stream);
@@ -218,8 +258,8 @@ impl Server {
                     });
                     let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).await;
                 });
-            }
-        });
+            },
+        ));
         Ok(Server { url: format!("http://127.0.0.1:{port}{path}"), base: format!("http://127.0.0.1:{port}"), grants, provider })
     }
 
@@ -244,14 +284,13 @@ impl Server {
 
     /// The run's token dies and the provider hears it ended.
     pub fn revoke(&self, session_id: &SessionId) {
-        self.grants.runs.lock().unwrap().retain(|_, run| run.session_id != *session_id);
+        self.grants.end(|run| run.session_id == *session_id);
         self.provider.ended(session_id);
     }
 
     /// Every run ends (the host is shutting down).
     pub fn revoke_all(&self) {
-        let runs = std::mem::take(&mut *self.grants.runs.lock().unwrap());
-        for run in runs.values() {
+        for run in self.grants.end(|_| true) {
             self.provider.ended(&run.session_id);
         }
     }
@@ -259,6 +298,31 @@ impl Server {
     /// The run a token admits.
     pub fn admitted(&self, token: &Token) -> Option<Caller> {
         self.grants.get(token)
+    }
+}
+
+/// The listener's loop: every accepted connection goes to `serve`. A failed
+/// accept (the process is out of file descriptors: the connection stays
+/// pending, so the next accept fails at once) waits [`ACCEPT_RETRY`] and is
+/// logged once per run of failures.
+async fn accept_loop<S, F>(name: String, mut accept: impl FnMut() -> F, mut serve: impl FnMut(S))
+where
+    F: std::future::Future<Output = std::io::Result<S>>,
+{
+    let mut failing = false;
+    loop {
+        match accept().await {
+            Ok(stream) => {
+                failing = false;
+                serve(stream);
+            }
+            Err(err) => {
+                if !std::mem::replace(&mut failing, true) {
+                    log::warn!("[emcp] {name}: accept failed, trying again every {ACCEPT_RETRY:?}: {err}");
+                }
+                tokio::time::sleep(ACCEPT_RETRY).await;
+            }
+        }
     }
 }
 
@@ -275,6 +339,8 @@ struct Listener {
     service: Arc<StreamableHttpService<Handler, NeverSessionManager>>,
     routes: Vec<(String, Arc<dyn RawRoute>)>,
     path: String,
+    /// The server's name, for what a revoked run reads.
+    name: String,
 }
 
 impl Listener {
@@ -291,8 +357,11 @@ impl Listener {
             .get(http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(Token::from_header);
-        let Some(caller) = token.and_then(|token| self.grants.get(&token)) else {
-            return status(401);
+        let Some(caller) = token.as_ref().and_then(|token| self.grants.get(token)) else {
+            return match token.is_some_and(|token| self.grants.ended(&token)) {
+                true => ended(&self.name, request).await,
+                false => status(401),
+            };
         };
         let (mut parts, body) = request.into_parts();
         // rmcp hands the request's parts to the handler: the caller rides in
@@ -300,6 +369,30 @@ impl Listener {
         parts.extensions.insert(caller);
         self.service.handle(Request::from_parts(parts, body)).await
     }
+}
+
+/// #EXP-1918: the answer to a run whose grant was revoked (its switch went
+/// off, or the session ended). An MCP client reads a bare 401 as "sign in"
+/// and the model never learns why its tools stopped: a `tools/call` gets a
+/// result the agent reads; anything else stays a 401, the reason its body.
+async fn ended(name: &str, request: Request<Incoming>) -> Response<Body> {
+    let text = format!(
+        "The {name} server ended this session's access: it was switched off on this device, or the session ended. Its tools stay unavailable; do not retry."
+    );
+    let body = Limited::new(request.into_body(), RAW_BODY_MAX_BYTES).collect().await.ok().map(|collected| collected.to_bytes());
+    let message: Option<Value> = body.and_then(|body| serde_json::from_slice(&body).ok());
+    let call_id = message
+        .filter(|message| message.get("method").and_then(Value::as_str) == Some("tools/call"))
+        .and_then(|message| message.get("id").cloned());
+    let Some(id) = call_id else {
+        let mut response = Response::new(Full::new(Bytes::from(text)).boxed());
+        *response.status_mut() = StatusCode::UNAUTHORIZED;
+        return response;
+    };
+    let answer = json!({ "jsonrpc": "2.0", "id": id, "result": error_result(text) });
+    let mut response = Response::new(Full::new(Bytes::from(answer.to_string())).boxed());
+    response.headers_mut().insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static("application/json"));
+    response
 }
 
 async fn raw(route: Arc<dyn RawRoute>, request: Request<Incoming>) -> Response<Body> {
@@ -422,5 +515,44 @@ impl ServerHandler for Handler {
         let result = serde_json::from_value::<CallToolResult>(result)
             .unwrap_or_else(|err| error_result(format!("The tool answered a malformed result: {err}")));
         Ok(CallToolResponse::Complete(result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A failing accept (the process is out of file descriptors) is tried
+    /// again after a pause, never in a busy loop.
+    #[test]
+    fn a_failing_accept_waits_before_the_next_one() {
+        let tries = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let seen = tries.clone();
+        let accept = move || {
+            let seen = seen.clone();
+            async move {
+                let nth = {
+                    let mut seen = seen.lock().unwrap();
+                    seen.push(Instant::now());
+                    seen.len()
+                };
+                if nth > 3 {
+                    std::future::pending::<()>().await;
+                }
+                Err::<(), _>(std::io::Error::from_raw_os_error(24))
+            }
+        };
+        let task = runtime().spawn(accept_loop("test".to_string(), accept, |_| {}));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while tries.lock().unwrap().len() < 4 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        task.abort();
+        let tries = tries.lock().unwrap().clone();
+        assert_eq!(tries.len(), 4);
+        for pair in tries.windows(2) {
+            assert!(pair[1] - pair[0] >= Duration::from_millis(50), "accept was tried again after {:?}", pair[1] - pair[0]);
+        }
     }
 }

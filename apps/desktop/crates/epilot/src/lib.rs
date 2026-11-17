@@ -205,6 +205,11 @@ pub fn set_work_display(id: Option<String>) {
     work_screen::set_picked(id);
 }
 
+/// The Work screen setting as the hub reads it now ([`set_work_display`]).
+pub fn work_display() -> Option<String> {
+    work_screen::picked()
+}
+
 /// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): the id
 /// among `ids` (the reported displays, in order) a stored Work screen pick
 /// names: itself, or for an id stored before twins carried their connector

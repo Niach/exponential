@@ -18,6 +18,7 @@ mod ecode_jobs;
 mod launch;
 mod prefs;
 mod registry;
+mod session_env;
 mod session_host;
 mod term;
 mod voice_host;
