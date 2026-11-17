@@ -472,6 +472,5 @@ mod tests {
     fn string_is_latin1_or_absent() {
         assert_eq!(latin1("abc é"), Some(b"abc \xe9".to_vec()));
         assert_eq!(latin1("snow ☃"), None);
-        panic!("EXP-1905 experiment: the gate must go red on a broken ePilot test (removed before merge)");
     }
 }
