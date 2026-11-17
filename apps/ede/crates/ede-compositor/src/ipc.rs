@@ -479,7 +479,10 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::Capture { target, since } => {
-                if since == Some(self.frame_serial) {
+                // An output's pixels change only with a presented frame; a
+                // window capture is always drawn (a parked window's commits
+                // are never presented, #EDE-100).
+                if since == Some(self.frame_serial) && matches!(target, CaptureTarget::Output { .. }) {
                     let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
                     return Ok(Some((serde_json::to_value(info).unwrap(), None)));
                 }

@@ -254,22 +254,54 @@ pub fn watch_main_loop(handle: &smithay::reexports::calloop::LoopHandle<'static,
     }
 }
 
-/// After a frame went out: frame callbacks so clients draw the next one,
-/// then housekeeping and a flush.
-pub fn frame_done(state: &mut Ede, output: &Output) {
-    state.frame_serial += 1;
-    let now = state.start_time.elapsed();
-    for window in state.space.elements() {
-        window.send_frame(output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));
+/// How often a surface an output does not show (behind the lock, under a
+/// fullscreen window, off every output) still gets a frame callback, so a
+/// client blocked on one never hangs (#EDE-100).
+pub const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_secs(1);
+
+/// After `output`'s frame: frame callbacks so clients draw the next one,
+/// then housekeeping and a flush. `presented` = the frame showed something
+/// new; only then does [`Ede::frame_serial`] move, so a `since` capture of
+/// an idle desktop is unchanged (#EDE-100). A surface gets this output's
+/// callbacks at the refresh rate only when the output shows it and it is
+/// its primary output (most of the window on it); every other surface at
+/// most once per [`HIDDEN_FRAME_INTERVAL`].
+pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
+    if presented {
+        state.frame_serial += 1;
     }
+    let now = state.start_time.elapsed();
+    let locked = state.is_locked();
+    let fullscreen = state.fullscreen_on(output);
+    for window in state.space.elements() {
+        let shown = !locked && fullscreen.as_ref().is_none_or(|f| f == window) && primary_output(state, window).as_ref() == Some(output);
+        let primary = shown.then(|| output.clone());
+        window.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
+    }
+    let layers = (!locked && fullscreen.is_none()).then(|| output.clone());
     for layer in layer_map_for_output(output).layers() {
-        layer.send_frame(output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));
+        layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| layers.clone());
     }
     state.lock_frame_done(output, now);
     state.space.refresh();
     state.popups.cleanup();
     layer_map_for_output(output).cleanup();
     let _ = state.display_handle.flush_clients();
+}
+
+/// The output most of `window` is on (`None` = on none).
+fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> Option<Output> {
+    let bbox = state.space.element_bbox(window)?;
+    state
+        .space
+        .outputs()
+        .filter_map(|o| {
+            let overlap = state.space.output_geometry(o)?.intersection(bbox)?;
+            Some((overlap.size.w as i64 * overlap.size.h as i64, o))
+        })
+        .filter(|(area, _)| *area > 0)
+        .max_by_key(|(area, _)| *area)
+        .map(|(_, o)| o.clone())
 }
 
 smithay::backend::renderer::element::render_elements! {

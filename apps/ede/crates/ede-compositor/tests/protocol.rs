@@ -877,3 +877,29 @@ fn the_clipboard_crosses_xwayland_both_ways() {
         let _ = win;
     }
 }
+
+/// #EDE-100: a `since` capture of an idle output carries no pixels (a
+/// stream polls it without a re-render); once a client drew, it does.
+#[test]
+fn a_since_capture_is_unchanged_until_something_is_drawn() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |_| h.with(|e| e.space.elements().count()) == 1);
+    let mut ipc = h.ipc();
+    let target = CaptureTarget::Output { name: "HEADLESS-1".into() };
+    // The window's first frames go out.
+    std::thread::sleep(Duration::from_millis(100));
+    let first = ipc.capture_since(target.clone(), None).unwrap().expect("a first capture has pixels");
+    assert_eq!(first.at(400, 300), RED);
+
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(ipc.capture_since(target.clone(), Some(first.info.serial)).unwrap().is_none(), "nothing drawn since: unchanged");
+
+    app.draw(&t, 300, 200, BLUE);
+    std::thread::sleep(Duration::from_millis(100));
+    let next = ipc.capture_since(target, Some(first.info.serial)).unwrap().expect("drawn since: pixels");
+    assert_eq!(next.at(400, 300), BLUE);
+    assert!(next.info.serial > first.info.serial);
+}

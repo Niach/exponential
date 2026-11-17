@@ -7,7 +7,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -60,6 +60,11 @@ pub struct Client {
     pub source_data: Vec<(String, Vec<u8>)>,
     pub held: Vec<std::os::fd::OwnedFd>,
     pub source_cancelled: bool,
+    /// Frame callbacks received through [`Session::count_frames`].
+    pub frames: u32,
+    /// The callback [`Session::count_frames`] waits on (another surface's
+    /// earlier one is not counted).
+    pub frame_pending: Option<wl_callback::WlCallback>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -243,6 +248,22 @@ impl Session {
         p.xdg_surface.destroy();
         p.surface.destroy();
         self.roundtrip();
+    }
+
+    /// Frame callbacks `surface` gets during `period`, asked for again after
+    /// each one like a client that animates (#EDE-100).
+    pub fn count_frames(&mut self, surface: &wl_surface::WlSurface, period: std::time::Duration) -> u32 {
+        let (start, until) = (self.state.frames, std::time::Instant::now() + period);
+        self.state.frame_pending = None;
+        while std::time::Instant::now() < until {
+            if self.state.frame_pending.is_none() {
+                self.state.frame_pending = Some(surface.frame(&self.qh, ()));
+                surface.commit();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            self.roundtrip();
+        }
+        self.state.frames - start
     }
 
     /// An empty input region: no pointer event reaches `surface`, what is
@@ -573,6 +594,15 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
             },
             wl_data_source::Event::Cancelled => state.source_cancelled = true,
             _ => {}
+        }
+    }
+}
+
+impl Dispatch<wl_callback::WlCallback, ()> for Client {
+    fn event(state: &mut Self, callback: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if matches!(event, wl_callback::Event::Done { .. }) && state.frame_pending.as_ref() == Some(callback) {
+            state.frames += 1;
+            state.frame_pending = None;
         }
     }
 }

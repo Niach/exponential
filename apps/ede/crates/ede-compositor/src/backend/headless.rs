@@ -101,6 +101,33 @@ impl Headless {
     }
 }
 
+/// The headless frame clock: every tick ends a frame on each output; it
+/// counts as presented when the output's scene changed since the last tick
+/// (#EDE-100: a `since` capture of an idle output is unchanged).
+pub struct FrameClock {
+    renderer: PixmanRenderer,
+    trackers: std::collections::HashMap<String, smithay::backend::renderer::damage::OutputDamageTracker>,
+}
+
+impl FrameClock {
+    /// How often it ticks (60 Hz).
+    pub const TICK: Duration = Duration::from_millis(16);
+
+    pub fn new() -> Result<Self, String> {
+        Ok(Self { renderer: PixmanRenderer::new().map_err(|e| e.to_string())?, trackers: Default::default() })
+    }
+
+    pub fn tick(&mut self, state: &mut Ede, outputs: &[Output]) {
+        self.trackers.retain(|name, _| outputs.iter().any(|o| o.name() == *name));
+        for output in outputs {
+            let tracker = self.trackers.entry(output.name()).or_insert_with(|| smithay::backend::renderer::damage::OutputDamageTracker::from_output(output));
+            let elements = super::output_elements(state, output, &mut self.renderer);
+            let presented = matches!(tracker.damage_output(1, &elements), Ok((Some(damage), _)) if !damage.is_empty());
+            super::frame_done(state, output, presented);
+        }
+    }
+}
+
 type Command = Box<dyn FnOnce(&mut Ede, &mut Headless) + Send>;
 
 /// A headless compositor on its own thread. Tests talk Wayland to it over
@@ -139,13 +166,13 @@ impl Harness {
 
                 // 60 Hz frame clock: without frame callbacks clients stall.
                 let h = headless.clone();
+                let mut clock = FrameClock::new().expect("pixman");
                 event_loop
                     .handle()
-                    .insert_source(Timer::from_duration(Duration::from_millis(16)), move |_, _, state| {
-                        for output in h.borrow().outputs.clone() {
-                            super::frame_done(state, &output);
-                        }
-                        TimeoutAction::ToDuration(Duration::from_millis(16))
+                    .insert_source(Timer::from_duration(FrameClock::TICK), move |_, _, state| {
+                        let outputs = h.borrow().outputs.clone();
+                        clock.tick(state, &outputs);
+                        TimeoutAction::ToDuration(FrameClock::TICK)
                     })
                     .expect("frame timer");
 
