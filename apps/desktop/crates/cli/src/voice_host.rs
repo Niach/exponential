@@ -152,8 +152,9 @@ pub trait Net: Send {
     fn answer(&self, call_id: String, agent_id: String);
     /// Send `text` to the agent (`root` = its conversation, None = new).
     fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, text: String);
-    /// The rows of `root` (opened), for the reply watch.
-    fn messages(&self, root: &str) -> Vec<domain::rows::MessageRow>;
+    /// The rows of `root` (opened), for the reply watch: EXP-1930 only those
+    /// created at or after `since` (None = all, once at the answer).
+    fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow>;
 }
 
 /// The voice's state as the doctor reads it.
@@ -372,7 +373,7 @@ impl Host {
         let mut seen = HashSet::new();
         let mut armed_at: Option<(i64, String)> = None;
         if let Some(root) = answered.root.as_deref() {
-            for row in self.net.messages(root) {
+            for row in self.net.messages(root, None) {
                 if let Some(at) = row.created_at.as_deref().and_then(|at| etalk::voice::parse_instant(at).map(|ms| (ms, at.to_string()))) {
                     if armed_at.as_ref().is_none_or(|(mark, _)| at.0 > *mark) {
                         armed_at = Some(at);
@@ -707,7 +708,8 @@ impl Host {
         let Some(call) = self.call.as_mut() else { return };
         call.polled = now;
         let Some(root) = call.root.clone() else { return };
-        let rows = self.net.messages(&root);
+        // EXP-1930: only the call's own rows, never the whole conversation.
+        let rows = self.net.messages(&root, Some(&call.armed_at));
         let fresh: Vec<domain::rows::MessageRow> = rows.into_iter().filter(|row| call.seen.insert(row.id.clone())).collect();
         if fresh.is_empty() {
             return;
@@ -769,8 +771,9 @@ pub struct Deps {
     pub device_id: String,
     /// The synced teams (the agents of each are read).
     pub teams: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
-    /// The synced message rows of a session (opened).
-    pub messages: Arc<dyn Fn(&str) -> Vec<domain::rows::MessageRow> + Send + Sync>,
+    /// The synced message rows of a session (opened), created at or after
+    /// the instant when one is given.
+    pub messages: Arc<dyn Fn(&str, Option<&str>) -> Vec<domain::rows::MessageRow> + Send + Sync>,
     /// Raised when the `speech` row changed (the next beat carries it).
     pub beat_soon: Arc<AtomicBool>,
 }
@@ -806,15 +809,31 @@ impl VoiceHost {
 struct DaemonNet {
     deps: Arc<Deps>,
     tx: flume::Sender<Input>,
-    /// The conversation's key per root (sealing a send).
-    keys: Arc<Mutex<std::collections::HashMap<String, (u32, [u8; 32])>>>,
+}
+
+/// EXP-1930: an utterance's body. Into a known conversation it is sealed at
+/// SEND time with the tree's current key (`seal`, created when the tree has
+/// none and this install may), so a tree keyed after the call's first send
+/// gets the next one sealed; a first send (no conversation yet) and a tree
+/// that cannot be sealed for go out plain (the server takes plaintext only
+/// where it is legal).
+fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> Result<String, coding::sealing::SealError>) -> String {
+    let Some(root) = root else { return text.to_string() };
+    match seal(root, text) {
+        Ok(body) => body,
+        Err(coding::sealing::SealError::NoService) => text.to_string(),
+        Err(err) => {
+            log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
+            text.to_string()
+        }
+    }
 }
 
 impl Net for DaemonNet {
     fn answer(&self, call_id: String, agent_id: String) {
-        let (deps, tx, keys) = (Arc::clone(&self.deps), self.tx.clone(), Arc::clone(&self.keys));
+        let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-answer".into()).spawn(move || {
-            match answer(&deps, &tx, &keys, &call_id, &agent_id) {
+            match answer(&deps, &tx, &call_id, &agent_id) {
                 Ok(answered) => {
                     let _ = tx.send(Input::Answered(answered));
                 }
@@ -827,16 +846,9 @@ impl Net for DaemonNet {
     }
 
     fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, text: String) {
-        let (deps, tx, keys) = (Arc::clone(&self.deps), self.tx.clone(), Arc::clone(&self.keys));
+        let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-send".into()).spawn(move || {
-            let key = root.as_ref().and_then(|root| keys.lock().ok()?.get(root).copied());
-            let body = match key {
-                Some((epoch, public)) => enet_core::sealed::seal_body(&public, epoch, &text).unwrap_or_else(|err| {
-                    log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
-                    text.clone()
-                }),
-                None => text.clone(),
-            };
+            let body = utterance_body(root.as_deref(), &text, &coding::sealing::seal_body_for_tree);
             let input = match root.as_deref() {
                 Some(root) => api::sessions::SendInput::message(root, &body, Vec::new()),
                 None => api::sessions::SendInput {
@@ -856,17 +868,16 @@ impl Net for DaemonNet {
         });
     }
 
-    fn messages(&self, root: &str) -> Vec<domain::rows::MessageRow> {
-        (self.deps.messages)(root)
+    fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {
+        (self.deps.messages)(root, since)
     }
 }
 
 /// The ring's network half: the agent (it must run HERE), its voice and
-/// clip, its conversation and key, the host ticket and the socket.
+/// clip, its conversation, the host ticket and the socket.
 fn answer(
     deps: &Arc<Deps>,
     tx: &flume::Sender<Input>,
-    keys: &Mutex<std::collections::HashMap<String, (u32, [u8; 32])>>,
     call_id: &str,
     agent_id: &str,
 ) -> Result<Answered, String> {
@@ -876,11 +887,6 @@ fn answer(
     }
     let voice = agent_voice(deps, &agent);
     let target = api::sessions::send_target(&deps.trpc, Some(agent_id), None).map_err(|err| format!("the conversation could not be read: {err}"))?;
-    if let (Some(root), Some(epoch), Some(public)) = (target.root_id.as_ref(), target.epoch, target.public_key.as_deref()) {
-        if let (Ok(public), Ok(mut keys)) = (enet_core::sealed::public_key_from_b64(public), keys.lock()) {
-            keys.insert(root.clone(), (epoch, public));
-        }
-    }
     let ticket = api::voice::voice_call_host_ticket(&deps.trpc, call_id, Some(&deps.device_id)).map_err(|err| format!("the call host ticket was refused: {err}"))?;
     let events = tx.clone();
     let id = call_id.to_string();
@@ -970,7 +976,7 @@ pub fn spawn(deps: Deps) -> Option<VoiceHost> {
     let client = etalk::SpeechClient::new(exe, deps.data_dir.clone(), move |event| {
         let _ = events.send(Input::Worker(event));
     });
-    let net = DaemonNet { deps: Arc::clone(&deps), tx: tx.clone(), keys: Arc::default() };
+    let net = DaemonNet { deps: Arc::clone(&deps), tx: tx.clone() };
     let speech = Arc::new(Mutex::new(None));
     let handle = VoiceHost { tx: tx.clone(), speech: Arc::clone(&speech) };
     let agents_tx = tx.clone();
@@ -1084,6 +1090,8 @@ mod tests {
 
     struct FakeNet {
         log: Log,
+        /// The store reads (`messages`).
+        reads: Log,
         rows: Arc<Mutex<Vec<domain::rows::MessageRow>>>,
     }
 
@@ -1094,8 +1102,10 @@ mod tests {
         fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, text: String) {
             self.log.push(format!("send {call_id} {} {text}", root.unwrap_or_default()));
         }
-        fn messages(&self, _root: &str) -> Vec<domain::rows::MessageRow> {
-            self.rows.lock().unwrap().clone()
+        fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {
+            self.reads.push(format!("messages {root} {}", since.unwrap_or("all")));
+            let rows = self.rows.lock().unwrap().clone();
+            rows.into_iter().filter(|row| since.is_none_or(|since| row.created_at.as_deref().is_some_and(|at| at >= since))).collect()
         }
     }
 
@@ -1116,6 +1126,7 @@ mod tests {
         net: Log,
         link: Log,
         rows: Arc<Mutex<Vec<domain::rows::MessageRow>>>,
+        reads: Log,
         now: Instant,
     }
 
@@ -1124,8 +1135,9 @@ mod tests {
             let (speech, net, link) = (Log::default(), Log::default(), Log::default());
             let rows = Arc::new(Mutex::new(Vec::new()));
             let now = Instant::now();
-            let host = Host::new(Box::new(FakeSpeech(speech.clone())), Box::new(FakeNet { log: net.clone(), rows: Arc::clone(&rows) }), now);
-            Rig { host, speech, net, link, rows, now }
+            let reads = Log::default();
+            let host = Host::new(Box::new(FakeSpeech(speech.clone())), Box::new(FakeNet { log: net.clone(), reads: reads.clone(), rows: Arc::clone(&rows) }), now);
+            Rig { host, speech, net, link, rows, reads, now }
         }
 
         fn handle(&mut self, input: Input) {
@@ -1418,5 +1430,55 @@ mod tests {
         rig.speech.take();
         rig.advance(Duration::from_millis(VOICE_CALL.constants.server_idle_ms));
         assert_eq!(rig.speech.take(), ["shutdown"], "idle: the worker exits");
+    }
+
+    /// EXP-1930 (voice-hosts-1): the first utterance creates (or wakes) the
+    /// conversation in clear; the daemon then keys the tree; the second one
+    /// is sealed with that key, never refused as plaintext in a keyed tree.
+    #[test]
+    fn an_utterance_is_sealed_with_the_trees_key_at_send_time() {
+        use coding::sealing::SealError;
+        let keyed = std::sync::atomic::AtomicBool::new(false);
+        let seal = |root: &str, text: &str| -> Result<String, SealError> {
+            if keyed.load(Ordering::SeqCst) {
+                Ok(format!("sealed({root}):{text}"))
+            } else {
+                Err(SealError::NotReader)
+            }
+        };
+        assert_eq!(utterance_body(None, "hello", &seal), "hello", "a new conversation: the send makes it");
+        assert_eq!(utterance_body(Some("root-1"), "hello", &seal), "hello", "a keyless tree nobody may key: plain");
+        keyed.store(true, Ordering::SeqCst);
+        assert_eq!(utterance_body(Some("root-1"), "and now?", &seal), "sealed(root-1):and now?");
+        assert_eq!(utterance_body(Some("root-1"), "x", &|_: &str, _: &str| Err(SealError::NoService)), "x", "no key holder: plain");
+    }
+
+    /// EXP-1930 (voice-hosts-8): the reply watch reads only the rows since
+    /// the call was answered, never the whole conversation every poll.
+    #[test]
+    fn the_reply_watch_reads_only_the_calls_rows() {
+        let mut rig = Rig::ready();
+        rig.rows.lock().unwrap().push(row("old", "agent", "Earlier reply.", "2020-01-01T00:00:00Z"));
+        rig.answered();
+        assert_eq!(rig.reads.take(), ["messages root-1 all"], "the history, once");
+        rig.advance(REPLY_POLL);
+        assert_eq!(rig.reads.take(), ["messages root-1 2020-01-01T00:00:00Z"]);
+    }
+
+    /// EXP-1930 (voice-hosts-2, voice-hosts-10): a call whose socket went
+    /// silent (`call_host`'s liveness deadline: `Dropped`) fails `dropped`
+    /// and the server answers the next ring, never busy until a restart.
+    #[test]
+    fn a_silent_link_ends_the_call_and_frees_the_server() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.net.take();
+        rig.link.take();
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Dropped("the call went silent".into()) });
+        let events = rig.link.take();
+        assert_eq!(events.first().map(String::as_str), Some(r#"event {"t":"failed","code":"dropped"}"#), "{events:?}");
+        assert!(rig.host.call.is_none());
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        assert_eq!(rig.net.take(), ["answer c2 agent-1"]);
     }
 }

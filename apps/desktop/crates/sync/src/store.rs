@@ -433,6 +433,17 @@ impl ShapeStore {
         Ok(out)
     }
 
+    /// EXP-1930: the messages of ONE session created at or after `since`
+    /// (an RFC 3339 instant): a voice call's reply watch reads only the
+    /// call's own rows, never the whole conversation, off
+    /// [`MESSAGES_SESSION_INDEX`].
+    pub fn read_session_messages_since(&self, session_id: &str, since: &str) -> Result<Vec<Map<String, Value>>> {
+        self.read_rows(
+            r#"SELECT * FROM "messages" WHERE "session_id" = ?1 AND "created_at" >= ?2"#,
+            &[&session_id as &dyn rusqlite::ToSql, &since],
+        )
+    }
+
     /// results-tab.json: `root_id`'s result CANDIDATES over the whole chat
     /// = its session-authored card rows, oldest first (Android
     /// `rawObserveResultCardsByRoot`).
