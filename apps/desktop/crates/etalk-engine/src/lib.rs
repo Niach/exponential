@@ -1079,17 +1079,79 @@ pub fn speech_chunks(text: &str, streaming: bool) -> Vec<&str> {
 /// NEW-55: a remote call's reply: every pushed sample goes to the host as
 /// `SpeechAudio` (i16 LE, at most [`etalk::SPEECH_AUDIO_CHUNK_MS`] each),
 /// never to a speaker. Stopped (Stop, barge-in), it sends nothing more; a
-/// chunk being sent finishes before `stop` returns.
+/// chunk being sent finishes before `stop` returns. EXP-1929: the audio
+/// leaves at real time, at most [`REMOTE_LEAD`] ahead of the clock (the
+/// relay forwards at most `maxFramesPerSecond`), and `finish` waits out the
+/// lead, so the reply ends when the caller has heard it.
 pub struct StreamSink {
     id: String,
     rate: u32,
     stopped: Mutex<bool>,
     emit: Emitter,
+    clock: Arc<dyn Clock>,
+    /// When the audio sent so far started (on `clock`), and how many samples.
+    sent: Mutex<Option<(Duration, u64)>>,
+}
+
+/// EXP-1929: how far a remote reply may run ahead of real time.
+pub(crate) const REMOTE_LEAD: Duration = Duration::from_millis(200);
+
+/// The time a remote reply is paced by (a fake one in the tests).
+pub(crate) trait Clock: Send + Sync {
+    fn now(&self) -> Duration;
+    fn sleep(&self, duration: Duration);
+}
+
+struct WallClock(Instant);
+
+impl Clock for WallClock {
+    fn now(&self) -> Duration {
+        self.0.elapsed()
+    }
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 impl StreamSink {
     fn new(id: &str, rate: u32, emit: Emitter) -> Self {
-        StreamSink { id: id.into(), rate, stopped: Mutex::new(false), emit }
+        Self::with_clock(id, rate, emit, Arc::new(WallClock(Instant::now())))
+    }
+
+    fn with_clock(id: &str, rate: u32, emit: Emitter, clock: Arc<dyn Clock>) -> Self {
+        StreamSink { id: id.into(), rate, stopped: Mutex::new(false), emit, clock, sent: Mutex::new(None) }
+    }
+
+    fn is_stopped(&self) -> bool {
+        *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// How far the audio sent so far runs ahead of the clock; a stream that
+    /// fell behind (synthesis slower than real time, a pause between
+    /// sentences) starts over from now, never sending a backlog at once.
+    fn lead(&self) -> Duration {
+        let now = self.clock.now();
+        let mut sent = self.sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (start, samples) = *sent.get_or_insert((now, 0));
+        let end = start + Duration::from_micros(samples * 1_000_000 / u64::from(self.rate.max(1)));
+        if end <= now {
+            *sent = Some((now, 0));
+            return Duration::ZERO;
+        }
+        end - now
+    }
+
+    /// Wait (in steps of at most one frame, Stop ends it) until the lead is
+    /// at most `lead`.
+    fn wait_for_lead(&self, lead: Duration) {
+        let step = Duration::from_millis(u64::from(etalk::call::VOICE_CALL.constants.frame_ms));
+        loop {
+            let ahead = self.lead();
+            if ahead <= lead || self.is_stopped() {
+                return;
+            }
+            self.clock.sleep((ahead - lead).min(step));
+        }
     }
 }
 
@@ -1097,17 +1159,23 @@ impl sink::Sink for StreamSink {
     fn push(&self, samples: &[f32]) -> Result<(), String> {
         let chunk = (self.rate * etalk::SPEECH_AUDIO_CHUNK_MS / 1000).max(1) as usize;
         for part in samples.chunks(chunk) {
+            self.wait_for_lead(REMOTE_LEAD);
             let stopped = self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if *stopped {
                 return Ok(());
             }
             let pcm: Vec<i16> = part.iter().map(|sample| etalk::to_i16(*sample)).collect();
             (self.emit)(&Event::SpeechAudio { id: self.id.clone(), pcm: etalk::encode_pcm(&pcm), rate: self.rate });
+            if let Some((_, sent)) = self.sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_mut() {
+                *sent += part.len() as u64;
+            }
         }
         Ok(())
     }
 
-    fn finish(&self) {}
+    fn finish(&self) {
+        self.wait_for_lead(Duration::ZERO);
+    }
 
     fn stop(&self) {
         *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
@@ -1401,6 +1469,91 @@ mod tests {
         stream.stop();
         stream.push(&pcm).unwrap();
         assert_eq!(events.lock().unwrap().len(), 3, "a stopped stream sends nothing");
+    }
+
+    /// A clock the test moves: `sleep` advances it.
+    #[derive(Default)]
+    struct FakeClock(Mutex<Duration>);
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Duration {
+            *self.0.lock().unwrap()
+        }
+        fn sleep(&self, duration: Duration) {
+            *self.0.lock().unwrap() += duration;
+        }
+    }
+
+    /// The relay's budget per socket (hub.ts `takeFrameToken`): a bucket of
+    /// `maxFramesPerSecond` refilled at `maxFramesPerSecond` per second.
+    struct FakeRelay {
+        tokens: f64,
+        at: Duration,
+        forwarded: u64,
+        dropped: u64,
+    }
+
+    impl FakeRelay {
+        fn frame(&mut self, now: Duration) {
+            let rate = f64::from(etalk::call::VOICE_CALL.constants.max_frames_per_second);
+            self.tokens = (self.tokens + (now - self.at).as_secs_f64() * rate).min(rate);
+            self.at = now;
+            if self.tokens >= 1.0 {
+                self.tokens -= 1.0;
+                self.forwarded += 1;
+            } else {
+                self.dropped += 1;
+            }
+        }
+    }
+
+    /// EXP-1929: a 30 s reply synthesised far faster than real time reaches
+    /// the caller whole through the relay's 60 frames/s budget, and the
+    /// stream finishes when it has played, not when synthesis ended.
+    #[test]
+    fn a_long_remote_reply_is_paced_through_the_relays_budget() {
+        use sink::Sink as _;
+        let clock = Arc::new(FakeClock::default());
+        let rate = f64::from(etalk::call::VOICE_CALL.constants.max_frames_per_second);
+        let relay = Arc::new(Mutex::new(FakeRelay { tokens: rate, at: Duration::ZERO, forwarded: 0, dropped: 0 }));
+        let frame = (24_000 * etalk::call::VOICE_CALL.constants.frame_ms / 1000) as usize;
+        let emitter: Emitter = {
+            let (clock, relay) = (clock.clone(), relay.clone());
+            Arc::new(move |event: &Event| {
+                let Event::SpeechAudio { pcm, .. } = event else { return };
+                // The host frames each chunk at once (call_host), 20 ms per frame.
+                for _ in 0..etalk::decode_pcm(pcm).unwrap().len() / frame {
+                    relay.lock().unwrap().frame(clock.now());
+                }
+            })
+        };
+        let stream = StreamSink::with_clock("m1", 24_000, emitter, clock.clone());
+        // Thirty one-second sentences, each synthesised in no time.
+        for _ in 0..30 {
+            stream.push(&vec![0.1; 24_000]).unwrap();
+        }
+        assert!(clock.now() <= Duration::from_secs(30) - Duration::from_millis(100), "the push leads the clock");
+        stream.finish();
+        let relay = relay.lock().unwrap();
+        assert_eq!((relay.forwarded, relay.dropped), (1500, 0), "every frame of the 30 s reply arrives");
+        assert!(clock.now() >= Duration::from_secs(30), "finished once played: {:?}", clock.now());
+        assert!(clock.now() <= Duration::from_secs(30) + Duration::from_millis(40));
+    }
+
+    /// EXP-1929: Stop ends a paced wait at once.
+    #[test]
+    fn a_stopped_paced_reply_ends_at_once() {
+        use sink::Sink as _;
+        let clock = Arc::new(FakeClock::default());
+        let (emitter, events) = recording();
+        let stream = StreamSink::with_clock("m1", 24_000, emitter, clock.clone());
+        stream.push(&vec![0.1; 24_000]).unwrap();
+        stream.stop();
+        let before = clock.now();
+        stream.push(&vec![0.1; 24_000]).unwrap();
+        stream.finish();
+        assert_eq!(clock.now(), before, "a stopped stream waits for nothing");
+        assert_eq!(events.lock().unwrap().len(), 10);
     }
 
     /// NEW-55: the first clause of a reply is synthesized on its own.
