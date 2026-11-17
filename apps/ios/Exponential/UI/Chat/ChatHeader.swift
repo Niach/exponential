@@ -187,7 +187,7 @@ struct ChatHeaderTitle: View {
                 blocked: blocked?.kind,
                 // #FEED-263: a device back is no wall; a wall names its device.
                 resumed: !(blocked?.resumeSince ?? "").isEmpty,
-                device: session.deviceId.flatMap { rows.deviceLabels[$0] },
+                device: rows.deviceLabels[session.deviceId],
                 root: session.id == rows.root.id
             )
         }
