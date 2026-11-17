@@ -10,11 +10,16 @@ use smithay::{
     utils::SERIAL_COUNTER,
 };
 
-use super::{AgentSpace, Spaces};
+use super::{scope::Scope, AgentSpace, Spaces};
 use crate::{
     desk::{Desk, DeskId},
     state::Ede,
 };
+
+/// A grant lives 15 minutes by the wall clock and the ticks stand still
+/// during a suspend: without a grace the first tick after a long one
+/// would close every space before its owner could renew.
+pub const EXPIRY_GRACE: u32 = 30;
 
 /// The seat of a closed space. smithay's handles look their seat up and
 /// panic when it is missing, so it stays until nothing shares it.
@@ -114,10 +119,46 @@ impl Ede {
         true
     }
 
+    /// Does `session` hold a `[space]` grant that has not expired?
+    fn has_space_grant(&self, session: &ede_protocol::SessionId) -> bool {
+        let now = crate::ipc::now_ms();
+        self.ipc.grants.iter().any(|g| g.expires_at.is_none_or(|e| now < e) && Scope::of(g) == Scope::Space(session.clone()))
+    }
+
+    /// A grant of `session` was revoked: its space closes at once, unless
+    /// the session still holds another live space grant.
+    pub(crate) fn space_grant_revoked(&mut self, session: &ede_protocol::SessionId) {
+        if self.has_space_grant(session) {
+            return;
+        }
+        let desk = self.spaces.iter().find(|s| &s.owner == session).map(|s| s.desk.id);
+        if let Some(desk) = desk {
+            self.close_space(desk);
+        }
+    }
+
+    /// A space whose owner has had no live space grant for
+    /// `expiry_grace` ticks in a row closes; a grant in time starts the
+    /// count over.
+    fn spaces_expire(&mut self) {
+        let owners: Vec<_> = self.spaces.iter().map(|s| (s.desk.id, s.owner.clone())).collect();
+        for (desk, owner) in owners {
+            let granted = self.has_space_grant(&owner);
+            let grace = self.spaces.expiry_grace;
+            let Some(space) = self.spaces.get_mut(desk) else { continue };
+            space.expired_ticks = if granted { 0 } else { space.expired_ticks + 1 };
+            if space.expired_ticks >= grace {
+                tracing::info!("{}: no grant for {grace} ticks", space.id.as_str());
+                self.close_space(desk);
+            }
+        }
+    }
+
     /// Once a second: a closed space's seat leaves smithay's list as soon
     /// as nothing but that list and we hold it. One that stays shared is
     /// kept: a leaked seat is cheap, a handle without its seat panics.
     pub fn spaces_tick(&mut self) {
+        self.spaces_expire();
         let mut closing = std::mem::take(&mut self.spaces.closing);
         closing.retain_mut(|c| {
             if self.seat_state.remove_seat(&c.seat) {

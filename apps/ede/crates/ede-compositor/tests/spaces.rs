@@ -10,7 +10,7 @@ use common::{
     Session,
 };
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
-use ede_protocol::{ErrorCode, SessionId};
+use ede_protocol::{Capability, Error, ErrorCode, Request, SessionId, SpaceId};
 use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
@@ -438,4 +438,118 @@ fn driven_input_lands_on_its_desk() {
     assert!(h.with(|state| state.layer_popups_open()));
     h.with(|state| state.keyboard_key((KEY_LEFTSHIFT + 8).into(), KeyState::Released, 0));
     wait_for(&mut a, |a| a.state.modifiers.last() == Some(&0));
+}
+
+fn code<T: std::fmt::Debug>(reply: Result<T, Error>) -> ErrorCode {
+    match reply {
+        Err(Error::Failed(f)) => f.code,
+        other => panic!("expected a failure, got {other:?}"),
+    }
+}
+
+/// A `[space]` grant for `session`, living `ms` from now (`None` = for
+/// good), and a connection that said hello with it.
+fn space_grant(h: &Harness, session: &str, ms: Option<i64>) -> (ede_protocol::Grant, ede_protocol::Client) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let grant = h.ipc().mint(owner(session), vec![Capability::Space], ms.map(|ms| now + ms)).unwrap();
+    (grant.clone(), h.ipc_with(grant.token).unwrap())
+}
+
+/// A space grant makes its session's one space; the fifth session finds
+/// no room; a dropped connection closes nothing; the owner or `system`
+/// destroys it, another session cannot.
+#[test]
+fn a_space_grant_creates_its_one_space() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let (_, mut agent) = space_grant(&h, "run-1", None);
+    assert_eq!(agent.spaces().unwrap(), []);
+    let space = agent.create_space(640, 480).unwrap();
+    let socket = dir.path().join("wayland-test.spaces/space-1/wayland-0");
+    assert_eq!((space.id.as_str(), space.session_id.as_str(), space.output.as_str(), space.width, space.height), ("space-1", "run-1", "space-1", 640, 480));
+    assert_eq!(space.wayland_display, socket.to_string_lossy());
+    Session::connect(UnixStream::connect(&space.wayland_display).expect("the space's socket"));
+    // Again is the same space, whatever size is asked for, also on a new connection.
+    assert_eq!(agent.create_space(800, 600).unwrap(), space);
+    assert_eq!(code(agent.create_space(1, 1)), ErrorCode::Invalid);
+    drop(agent);
+    let (_, mut agent) = space_grant(&h, "run-1", None);
+    assert_eq!(agent.create_space(640, 480).unwrap(), space);
+    assert_eq!(agent.spaces().unwrap(), [space.clone()]);
+
+    // Four spaces at most; each session lists its own, `system` lists all.
+    let mut others: Vec<_> = (2..=4).map(|n| space_grant(&h, &format!("run-{n}"), None).1).collect();
+    for other in &mut others {
+        other.create_space(320, 240).unwrap();
+    }
+    assert_eq!(others[0].spaces().unwrap().iter().map(|s| s.id.as_str().to_string()).collect::<Vec<_>>(), ["space-2"]);
+    assert_eq!(root.spaces().unwrap().len(), 4);
+    let (_, mut fifth) = space_grant(&h, "run-5", None);
+    assert_eq!(code(fifth.create_space(320, 240)), ErrorCode::Limit);
+
+    // Another session cannot destroy it; its owner can, and so can `system`.
+    assert_eq!(code(others[0].destroy_space(space.id.clone())), ErrorCode::Forbidden);
+    assert_eq!(code(others[0].destroy_space(SpaceId::new("space-9").unwrap())), ErrorCode::NotFound);
+    agent.destroy_space(space.id.clone()).unwrap();
+    assert!(!socket.exists());
+    assert_eq!(agent.spaces().unwrap(), []);
+    root.destroy_space(SpaceId::new("space-2").unwrap()).unwrap();
+    assert_eq!(root.spaces().unwrap().len(), 2);
+    fifth.create_space(320, 240).expect("room again");
+    spaces_settled(&h);
+}
+
+/// A space ends with its grant: at once when the session's last space
+/// grant is revoked, and when it expired, after the grace, unless the
+/// session was granted anew meanwhile.
+#[test]
+fn a_space_ends_with_its_grant() {
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    h.with(|state| state.spaces.expiry_grace = 3);
+    let mut root = h.ipc();
+    let listed = |root: &mut ede_protocol::Client| root.spaces().unwrap().iter().map(|s| s.session_id.as_str().to_string()).collect::<Vec<_>>();
+    let tick = |n: u32| h.with(move |state| (0..n).for_each(|_| state.spaces_tick()));
+
+    // Revoked: with a second grant of the session alive the space stays,
+    // with the last one gone it closes at once.
+    let (first, mut agent) = space_grant(&h, "run-1", None);
+    let (second, _) = space_grant(&h, "run-1", None);
+    let space = agent.create_space(640, 480).unwrap();
+    let mut b = Session::connect(UnixStream::connect(&space.wayland_display).unwrap());
+    root.call(Request::RevokeGrant { token: first.token }).unwrap();
+    assert_eq!(listed(&mut root), ["run-1"]);
+    root.call(Request::RevokeGrant { token: second.token }).unwrap();
+    assert_eq!(listed(&mut root), Vec::<String>::new());
+    assert!(!std::path::Path::new(&space.wayland_display).exists());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while b.queue.roundtrip(&mut b.state).is_ok() {
+        assert!(std::time::Instant::now() < deadline, "the space's client is still connected");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    // Expired: the space outlives its grant by the grace, counted in the
+    // compositor's own ticks, and no longer.
+    let (_, mut agent) = space_grant(&h, "run-2", Some(150));
+    agent.create_space(640, 480).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(code(agent.spaces()), ErrorCode::Unauthorized);
+    tick(1);
+    assert_eq!(listed(&mut root), ["run-2"]);
+    // A new grant for the session inside the grace keeps it, and the count starts over.
+    let (_, mut renewed) = space_grant(&h, "run-2", Some(60_000));
+    tick(5);
+    assert_eq!(renewed.spaces().unwrap().len(), 1);
+    // A connection that goes closes nothing.
+    drop((agent, renewed));
+    tick(5);
+    assert_eq!(listed(&mut root), ["run-2"]);
+
+    let (_, mut short) = space_grant(&h, "run-3", Some(150));
+    short.create_space(640, 480).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    tick(1);
+    assert_eq!(listed(&mut root), ["run-2", "run-3"]);
+    tick(3);
+    assert_eq!(listed(&mut root), ["run-2"]);
+    spaces_settled(&h);
 }

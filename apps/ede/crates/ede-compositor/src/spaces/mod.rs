@@ -12,6 +12,7 @@
 mod close;
 pub mod frames;
 mod input;
+pub mod ipc;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
@@ -60,12 +61,23 @@ pub struct Spaces {
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
     /// Software, for the damage check and the captures ([`frames`]).
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
+    /// How many 1 s ticks in a row a space outlives its owner's last
+    /// space grant ([`close`]).
+    pub expiry_grace: u32,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None }
+        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, expiry_grace: close::EXPIRY_GRACE }
     }
+}
+
+pub(crate) fn size_ok(width: i32, height: i32) -> bool {
+    (MIN_SIZE.0..=MAX_SIZE.0).contains(&width) && (MIN_SIZE.1..=MAX_SIZE.1).contains(&height)
+}
+
+pub(crate) fn size_refused() -> Failure {
+    Failure::new(ErrorCode::Invalid, &format!("a space is {}x{} to {}x{}", MIN_SIZE.0, MIN_SIZE.1, MAX_SIZE.0, MAX_SIZE.1))
 }
 
 pub struct AgentSpace {
@@ -93,6 +105,8 @@ pub struct AgentSpace {
     pub serial: u64,
     /// When it was last driven or captured.
     pub(crate) last_use: Option<std::time::Instant>,
+    /// The ticks in a row that found its owner without a live space grant.
+    pub(crate) expired_ticks: u32,
 }
 
 impl AgentSpace {
@@ -169,8 +183,8 @@ impl Ede {
     /// first and the globals last, so a failure never has to take a global
     /// back (a removal is told to every client, the person's too).
     pub fn create_space(&mut self, owner: SessionId, width: i32, height: i32) -> Result<DeskId, Failure> {
-        if !(MIN_SIZE.0..=MAX_SIZE.0).contains(&width) || !(MIN_SIZE.1..=MAX_SIZE.1).contains(&height) {
-            return Err(Failure::new(ErrorCode::Invalid, &format!("a space is {}x{} to {}x{}", MIN_SIZE.0, MIN_SIZE.1, MAX_SIZE.0, MAX_SIZE.1)));
+        if !size_ok(width, height) {
+            return Err(size_refused());
         }
         let unavailable = |what: &str, e: &dyn std::fmt::Debug| Failure::new(ErrorCode::Unavailable, &format!("{what}: {e:?}"));
         let Some(root) = self.spaces.dir.clone() else {
@@ -248,7 +262,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0 });
         Ok(id)
     }
 }

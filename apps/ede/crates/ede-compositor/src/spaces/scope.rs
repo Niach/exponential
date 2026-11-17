@@ -53,8 +53,7 @@ impl Ede {
     pub(crate) fn desk_of_scope(&self, scope: &Scope) -> Option<DeskId> {
         match scope {
             Scope::Person => Some(DeskId::PERSON),
-            // No compositor makes a space yet.
-            Scope::Space(_) => None,
+            Scope::Space(session) => self.spaces.iter().find(|s| &s.owner == session).map(|s| s.desk.id),
         }
     }
 
@@ -72,9 +71,16 @@ impl Ede {
         let bound = self.desk_of_scope(&Scope::Space(session.clone()));
         match request {
             Request::Hello { .. } => unreachable!("hello is answered before the scope"),
-            Request::CreateSpace { .. } | Request::ListSpaces => fail(ErrorCode::Unavailable, "this compositor has no agent spaces"),
-            Request::DestroySpace { .. } | Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
-                debug_assert!(bound.is_none(), "a bound space connection has no ops yet");
+            Request::CreateSpace { width, height } => Ok(Some((serde_json::to_value(self.space_create(session, width, height)?).unwrap(), None))),
+            Request::ListSpaces => Ok(Some((serde_json::to_value(self.space_infos(Some(session))).unwrap(), None))),
+            Request::DestroySpace { space } => {
+                self.space_destroy(Some(session), &space)?;
+                Ok(Some((serde_json::Value::Null, None)))
+            }
+            Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
+                if bound.is_some() {
+                    return fail(ErrorCode::Unavailable, "not served in a space yet");
+                }
                 fail(ErrorCode::NotFound, "this grant has no space")
             }
             // `in_space` refused these above; named so that a new op has to
