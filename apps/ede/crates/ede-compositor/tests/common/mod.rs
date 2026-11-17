@@ -16,6 +16,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboa
 use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1};
 use wayland_protocols::{
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
+    wp::fractional_scale::v1::client::{wp_fractional_scale_manager_v1, wp_fractional_scale_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
     xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base},
 };
@@ -70,6 +71,11 @@ pub struct Client {
     pub source_data: Vec<(String, Vec<u8>)>,
     pub held: Vec<std::os::fd::OwnedFd>,
     pub source_cancelled: bool,
+    pub fractional_scale_manager: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
+    /// Every preferred scale a surface of ours was told, in 120ths.
+    pub preferred_scales: Vec<u32>,
+    /// Every popup configure: x, y (in its parent's geometry), width, height.
+    pub popup_configures: Vec<(i32, i32, i32, i32)>,
     /// Frame callbacks received through [`Session::count_frames`].
     pub frames: u32,
     /// The callback [`Session::count_frames`] waits on (another surface's
@@ -421,6 +427,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
                 "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
+                "wp_fractional_scale_manager_v1" => state.fractional_scale_manager = Some(registry.bind(name, 1, qh, ())),
                 _ => {}
             }
         }
@@ -667,5 +674,66 @@ delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(Client: xdg_positioner::XdgPositioner);
-delegate_noop!(Client: ignore xdg_popup::XdgPopup);
+delegate_noop!(Client: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
+
+impl Dispatch<wp_fractional_scale_v1::WpFractionalScaleV1, ()> for Client {
+    fn event(state: &mut Self, _: &wp_fractional_scale_v1::WpFractionalScaleV1, event: wp_fractional_scale_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
+            state.preferred_scales.push(scale);
+        }
+    }
+}
+
+impl Dispatch<xdg_popup::XdgPopup, ()> for Client {
+    fn event(state: &mut Self, _: &xdg_popup::XdgPopup, event: xdg_popup::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_popup::Event::Configure { x, y, width, height } = event {
+            state.popup_configures.push((x, y, width, height));
+        }
+    }
+}
+
+impl Session {
+    /// The preferred scale of `surface` (in 120ths), as the compositor says it now.
+    pub fn preferred_scale(&mut self, surface: &wl_surface::WlSurface) -> Option<u32> {
+        let told = self.state.preferred_scales.len();
+        let scale = self.state.fractional_scale_manager.as_ref().expect("fractional scale advertised").get_fractional_scale(surface, &self.qh, ());
+        self.roundtrip();
+        scale.destroy();
+        self.state.preferred_scales[told..].last().copied()
+    }
+
+    /// A drawn `w`x`h` `xdg_popup` of the window `parent`, its top left
+    /// corner asked for at `at` in the window (the compositor may slide
+    /// it); `grab` = it asks for the grab. Its configure, when one came,
+    /// is the last of [`Client::popup_configures`].
+    pub fn window_popup(&mut self, parent: &Toplevel, at: (i32, i32), (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.toplevels.len();
+        self.state.toplevels.push(ToplevelState::default());
+        let wm_base = self.state.wm_base.clone().unwrap();
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
+        let positioner = wm_base.create_positioner(&self.qh, ());
+        positioner.set_size(w, h);
+        positioner.set_anchor_rect(at.0, at.1, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+        positioner.set_constraint_adjustment(xdg_positioner::ConstraintAdjustment::SlideX | xdg_positioner::ConstraintAdjustment::SlideY);
+        let popup = xdg_surface.get_popup(Some(&parent.xdg_surface), &positioner, &self.qh, ());
+        positioner.destroy();
+        if grab {
+            popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
+        }
+        surface.commit();
+        self.roundtrip();
+        if let Some(serial) = self.state.toplevels[index].pending_serial.take() {
+            xdg_surface.ack_configure(serial);
+            let buffer = self.buffer(w, h, argb);
+            surface.attach(Some(&buffer), 0, 0);
+            surface.damage_buffer(0, 0, w, h);
+            surface.commit();
+            self.roundtrip();
+        }
+        Popup { surface, xdg_surface, popup }
+    }
+}
 

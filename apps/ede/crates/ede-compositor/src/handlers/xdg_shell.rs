@@ -288,6 +288,9 @@ impl Ede {
     }
 
     fn unconstrain_popup(&self, popup: &PopupSurface) {
+        if let Some(id) = space_of_surface(popup.wl_surface()) {
+            return self.space_unconstrain_popup(id, popup);
+        }
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
         let Some(window) = self.window_for_surface(&root) else { return };
         let Some(window_geo) = self.desk.space.element_geometry(&window) else { return };

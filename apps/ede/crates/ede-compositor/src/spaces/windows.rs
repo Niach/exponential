@@ -2,17 +2,21 @@
 //! space's output as a maximized window, one with a parent is centred on
 //! it; each takes the space's keyboard as it maps. No frames, no tiles,
 //! no workspaces, no events: none of the person's window code runs.
+//!
+//! #EDE-126: a space's popups are configured here and kept inside the
+//! space's own output; they take no keyboard of their own (a window's
+//! popup keeps its window's focus).
 
 use smithay::{
     backend::renderer::utils::with_renderer_surface_state,
-    desktop::Window,
+    desktop::{find_popup_root_surface, get_popup_toplevel_coords, PopupKind, Window},
     input::pointer::CursorImageStatus,
     reexports::{wayland_protocols::xdg::shell::server::xdg_toplevel, wayland_server::protocol::wl_surface::WlSurface},
-    utils::SERIAL_COUNTER,
+    utils::{Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{get_parent, is_sync_subsurface},
         seat::WaylandFocus,
-        shell::xdg::ToplevelSurface,
+        shell::xdg::{PopupSurface, ToplevelSurface},
     },
 };
 
@@ -74,6 +78,14 @@ impl Ede {
                 window.on_commit();
             }
         }
+        // #EDE-126: the person's commit path never runs for a space's
+        // surface, so its popups get their state and first configure here.
+        self.popups.commit(surface);
+        if let Some(PopupKind::Xdg(popup)) = self.popups.find_popup(surface) {
+            if !popup.is_initial_configure_sent() {
+                let _ = popup.send_configure();
+            }
+        }
         let Some(window) = self.desk(id).unmapped.iter().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned() else { return };
         let toplevel = window.toplevel().unwrap().clone();
         let fills = toplevel.parent().is_none();
@@ -94,6 +106,21 @@ impl Ede {
             desk.space.map_element(window.clone(), at, true);
             self.space_focus(id, Some(window));
         }
+    }
+
+    /// #EDE-126: a popup of space `id` stays inside the space's output
+    /// (the person's rule looks its window up on the person's desk and
+    /// would leave it where the client asked).
+    pub(crate) fn space_unconstrain_popup(&self, id: DeskId, popup: &PopupSurface) {
+        let kind = PopupKind::Xdg(popup.clone());
+        let Ok(root) = find_popup_root_surface(&kind) else { return };
+        let Some(size) = self.spaces.get(id).and_then(|s| s.output.current_mode()).map(|m| m.size.to_logical(1)) else { return };
+        let Some(at) = self.space_window(id, &root).and_then(|window| self.desk(id).space.element_location(&window)) else { return };
+        // The positioner's target is relative to the parent's geometry.
+        let mut target = Rectangle::new((0, 0).into(), size);
+        target.loc -= get_popup_toplevel_coords(&kind);
+        target.loc -= at;
+        popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));
     }
 
     /// Raises `window` in space `id` and gives it the space's keyboard;
