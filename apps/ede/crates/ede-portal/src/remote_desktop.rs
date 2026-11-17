@@ -27,7 +27,20 @@ impl RemoteDesktop {
                 return Err(PortalError::NotAllowed("the session has no such device".into()));
             }
         }
-        self.ctx.ede(|c| c.input(event.clone())).map_err(|e| PortalError::NotAllowed(e.to_string()))
+        self.ctx.ede(|c| c.input(event.clone())).map_err(|e| PortalError::NotAllowed(e.to_string()))?;
+        // What is down now is released when the session closes.
+        let (press, release) = match event {
+            InputEvent::Key { key, pressed } => (pressed, InputEvent::Key { key, pressed: false }),
+            InputEvent::PointerButton { button, pressed } => (pressed, InputEvent::PointerButton { button, pressed: false }),
+            _ => return Ok(()),
+        };
+        if let Some(s) = self.ctx.sessions.lock().unwrap().get_mut(session.as_str()) {
+            s.pressed.retain(|e| *e != release);
+            if press {
+                s.pressed.push(release);
+            }
+        }
+        Ok(())
     }
 
     fn stream_origin(&self, session: &OwnedObjectPath, node: u32) -> Result<(f64, f64), PortalError> {
@@ -148,5 +161,33 @@ impl RemoteDesktop {
     #[zbus(property(emits_changed_signal = "const"), name = "version")]
     fn version(&self) -> u32 {
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ede_compositor::backend::headless::Harness;
+
+    /// #EDE-73: a session that closes lets go of what it holds down.
+    #[test]
+    fn a_closed_session_releases_what_it_pressed() {
+        let h = Harness::start(ede_compositor::Config::default(), &[(800, 600)]);
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = dir.path().to_path_buf();
+        let socket = h.with(move |ede| ede.ipc_listen(&runtime, "wayland-test")).unwrap();
+        let token = ede_protocol::Token::new(std::fs::read_to_string(dir.path().join("exponential-desktop/wayland-test.token")).unwrap()).unwrap();
+        let ctx = Ctx::new(Arc::new(move || ede_protocol::Client::connect(&socket, token.clone())), None);
+        let path = OwnedObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/rd").unwrap();
+        let mut session = Session::new(Kind::RemoteDesktop, "org.example.Remote");
+        (session.started, session.devices) = (true, KEYBOARD | POINTER);
+        ctx.sessions.lock().unwrap().insert(path.to_string(), session);
+        let remote = RemoteDesktop { ctx: ctx.clone() };
+        remote.drive(&path, KEYBOARD, InputEvent::Key { key: 29, pressed: true }).unwrap();
+        remote.drive(&path, POINTER, InputEvent::PointerButton { button: 0x110, pressed: true }).unwrap();
+        let down = || h.with(|ede| (ede.seat.get_keyboard().unwrap().pressed_keys().len(), ede.seat.get_pointer().unwrap().is_grabbed()));
+        assert_eq!(down(), (1, true));
+        ctx.close_session(path.as_str());
+        assert_eq!(down(), (0, false), "still down after the session closed");
     }
 }
