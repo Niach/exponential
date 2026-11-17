@@ -57,6 +57,17 @@ Dropped plain text is NOT delivered to the app. gpui has no text-drop input
 event (`FileDropEvent` carries paths only), and delivering dropped text would
 need a new gpui API, which this patch does not add.
 
+## Popup grab before any press (#EDE-86)
+
+Marked `Exponential patch (#EDE-86)` in the source.
+
+- **`src/linux/wayland/client.rs`:** an `AnchoredPopup` opened with
+  `grab: true` sends `xdg_popup.grab` even when the client has seen no key
+  or pointer press yet, with serial 0. Before, it sent no grab then. eDE's
+  shell opens its start menu from a compositor hotkey (Super), and the
+  grab is how the popup asks eDE's compositor for the keyboard. Nothing
+  else opens a popup with `grab: true`.
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the

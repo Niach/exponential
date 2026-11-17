@@ -1305,18 +1305,21 @@ impl WaylandConnection {
                     .find(|window| window.handle() == options.parent)
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("popup parent window not found"))?;
-                // A popup grab must reference a press event or the compositor declines it and
-                // immediately dismisses the popup, so use the most recent press serial, or no
-                // grab before any press.
+                // A popup grab should reference a press event, so use the most recent press
+                // serial.
+                // Exponential patch (#EDE-86): before any press the grab is still sent, with
+                // serial 0. A popup opened from a compositor hotkey (eDE's start menu on
+                // Super) asks for the keyboard with it, and the client may never have seen
+                // a press.
                 let popup_grab = options.grab.then(|| {
                     let serial = state
                         .serial_tracker
                         .get(SerialKind::MousePress)
                         .as_raw()
                         .max(state.serial_tracker.get(SerialKind::KeyPress).as_raw());
-                    (serial != 0).then(|| (serial, state.wl_seat.clone()))
+                    (serial, state.wl_seat.clone())
                 });
-                (Some(parent), popup_grab.flatten())
+                (Some(parent), popup_grab)
             }
             _ => (state.keyboard_focused_window.clone(), None),
         };
