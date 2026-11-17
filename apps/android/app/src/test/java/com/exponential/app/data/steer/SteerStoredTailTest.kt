@@ -43,10 +43,11 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * #PERF-9: fixtures/steer-enet.json STORED TAIL. The tail a viewer keeps per
- * opened session: sealed for a keyed tree (never in clear), as is for a
- * keyless one, capped at `storedTail`, replaced by every join's replay, and
- * painted on open until that replay replaces it.
+ * #PERF-9: fixtures/steer-enet.json STORED TAIL, the old on-disk tail (sealed
+ * for a keyed tree, never in clear) that #EDE-114's chat store reads in once
+ * (ChatStoreManagerTest); and the session view's side of the chat store: the
+ * store's tail painted on open until the join's replay replaces it, every
+ * received event recorded, Load earlier paging the store before the device.
  */
 class SteerStoredTailTest {
     private val dir: File = Files.createTempDirectory("steer-tail").toFile()
@@ -126,37 +127,6 @@ class SteerStoredTailTest {
         assertEquals(clear, StoredTailCodec.open(clear, keyless, emptyMap(), failing))
     }
 
-    @Test
-    fun theRecorderKeepsTheNewest200() = runBlocking {
-        val writes = mutableListOf<List<TailEvent>>()
-        val recorder = SteerTailRecorder(scope, persist = { writes += it }, debounceMs = 60_000)
-        events(1..250).forEach(recorder::append)
-        assertEquals((51L..250L).toList(), recorder.snapshot().map { it.seq })
-        recorder.replace(events(1000..1299))
-        assertEquals((1100L..1299L).toList(), recorder.snapshot().map { it.seq })
-        recorder.replace(events(1..3))
-        assertEquals(listOf(1L, 2L, 3L), recorder.snapshot().map { it.seq })
-        // Debounced: nothing written yet; a flush writes the latest once.
-        assertTrue(writes.isEmpty())
-        recorder.flush()
-        waitUntil("the flush") { writes.size == 1 }
-        assertEquals(listOf(1L, 2L, 3L), writes.single().map { it.seq })
-    }
-
-    @Test
-    fun aLatestWinsSlotKeepsOnlyItsNewestEvent() {
-        val recorder = SteerTailRecorder(scope, persist = {}, debounceMs = 60_000)
-        events(1..150).forEach(recorder::append)
-        // A working agent's `turn` every couple of seconds never pushes rows out.
-        repeat(500) { i ->
-            recorder.append(TailEvent(buildJsonObject { put("kind", "turn"); put("state", "started"); put("tokens", i) }, null))
-        }
-        val kept = recorder.snapshot()
-        assertEquals(151, kept.size)
-        assertEquals((1L..150L).toList(), kept.dropLast(1).map { it.seq })
-        assertEquals(JsonPrimitive(499), kept.last().event["tokens"])
-    }
-
     private val day = 24L * 60L * 60L * 1000L
     private val now = 1_800_000_000_000L
 
@@ -229,10 +199,24 @@ class SteerStoredTailTest {
         assertTrue(files.write("acct", "s-1", "again", files.generation("acct")))
     }
 
+    /** #EDE-114: what a session view hands the chat store, and the store's pages. */
+    private class FakeFeedStore(private val held: List<TailEvent> = emptyList()) : SteerFeedStore {
+        val recorded = mutableListOf<TailEvent>()
+        val asked = mutableListOf<Long>()
+
+        override fun record(events: List<TailEvent>) {
+            recorded += events
+        }
+
+        override suspend fun older(beforeSeq: Long, limit: Int): List<TailEvent> {
+            asked += beforeSeq
+            return held.filter { (it.seq ?: 0) < beforeSeq }.takeLast(limit)
+        }
+    }
+
     @Test
-    fun theReplayReplacesThePaintedTailAndBecomesTheTail() = runBlocking {
-        val writes = mutableListOf<List<TailEvent>>()
-        val recorder = SteerTailRecorder(scope, persist = { writes += it }, debounceMs = 60_000)
+    fun theReplayReplacesThePaintedTailAndEverythingGoesToTheStore() = runBlocking {
+        val store = FakeFeedStore()
         val transport = OneSocketTransport()
         val connection = SteerConnection(
             codingSessionId = "s-1",
@@ -241,10 +225,10 @@ class SteerStoredTailTest {
             json = Json { ignoreUnknownKeys = true },
             dispatcher = Dispatchers.Unconfined,
             nowMs = { System.currentTimeMillis() },
-            tail = recorder,
+            store = store,
         )
         try {
-            // The stored tail (seqs 300..309) paints at once.
+            // The store's tail (seqs 300..309) paints at once.
             val painted = foldStoredTail(events(300..309))
             connection.seedStoredTail(painted)
             assertEquals((300L..309L).toList(), connection.activity.value.feed.map { it.seq })
@@ -268,17 +252,68 @@ class SteerStoredTailTest {
             for (seq in 300L..309L) assertEquals(paintedIds[seq], feed.first { it.seq == seq }.id)
             assertEquals(feed.map { it.id }.sorted(), feed.map { it.id })
             assertEquals(feed.size, feed.map { it.id }.toSet().size)
-            // The replay is the new tail: its newest 200.
-            assertEquals((111L..310L).toList(), recorder.snapshot().map { it.seq })
+            // The WHOLE replay went to the store, with its seqs.
+            assertEquals((1L..310L).toList(), store.recorded.map { it.seq })
 
-            // A live event appends; a later reset + replay replaces it all.
+            // A live event too; a later reset + replay goes in as it came.
             socket.emit("""{"t":"activity","seq":311,"event":${narration(311)}}""")
-            assertEquals(311L, recorder.snapshot().last().seq)
+            assertEquals(311L, store.recorded.last().seq)
             socket.emit("""{"t":"activity_reset"}""")
             for (i in 400..402) socket.emit("""{"t":"activity","seq":$i,"event":${narration(i)}}""")
             socket.emit("""{"t":"activity_synced","firstSeq":400,"lastSeq":402}""")
             waitUntil("the second commit") { connection.activity.value.feed.lastOrNull()?.seq == 402L }
-            assertEquals(listOf(400L, 401L, 402L), recorder.snapshot().map { it.seq })
+            assertEquals(listOf(400L, 401L, 402L), store.recorded.takeLast(3).map { it.seq })
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun loadEarlierPagesTheStoreFirstThenTheDevice() = runBlocking {
+        // The store holds 1..99 below the painted tail (100..109), cut: Load earlier pages it.
+        val store = FakeFeedStore(held = events(1..99))
+        val sent = Channel<String>(Channel.UNLIMITED)
+        val transport = OneSocketTransport(sent)
+        val connection = SteerConnection(
+            codingSessionId = "s-1",
+            transport = transport,
+            sessionFlow = MutableStateFlow(runningRow()),
+            json = Json { ignoreUnknownKeys = true },
+            dispatcher = Dispatchers.Unconfined,
+            nowMs = { System.currentTimeMillis() },
+            store = store,
+        )
+        try {
+            connection.seedStoredTail(foldStoredTail(events(100..109)), truncated = true)
+            assertTrue("a cut store tail offers older rows without a feed", connection.canLoadEarlier())
+            assertTrue(connection.loadEarlier())
+            waitUntil("the store page") { connection.activity.value.feed.size == 109 }
+            assertEquals(listOf(100L), store.asked)
+            assertEquals((1L..109L).toList(), connection.activity.value.feed.map { it.seq })
+            // The store has nothing below 1: no feed, nothing more to ask.
+            connection.loadEarlier()
+            waitUntil("the empty store page") { store.asked.size == 2 }
+            assertFalse(connection.canLoadEarlier())
+
+            // Live, with a TRUNCATED replay: the store is asked first, then the device.
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            for (i in 200..202) socket.emit("""{"t":"activity","seq":$i,"event":${narration(i)}}""")
+            socket.emit("""{"t":"activity_synced","firstSeq":200,"lastSeq":202,"truncated":true}""")
+            waitUntil("the replay commit") { connection.activity.value.feed.firstOrNull()?.seq == 200L }
+            assertTrue(connection.canLoadEarlier())
+            assertTrue(connection.loadEarlier())
+            waitUntil("the store page below the replay") { connection.activity.value.feed.firstOrNull()?.seq == 1L }
+            assertEquals(200L, store.asked.last())
+            // Nothing older in the store: this ask goes to the device.
+            assertTrue(connection.loadEarlier())
+            val page = withTimeout(5_000) {
+                var frame: String
+                do frame = sent.receive() while (!frame.contains("history_page"))
+                frame
+            }
+            assertTrue(page.contains("\"beforeSeq\":1"))
         } finally {
             connection.close()
         }
@@ -334,10 +369,12 @@ class SteerStoredTailTest {
         override fun installSecret(identity: ByteArray): ByteArray = error("unused")
     }
 
-    private class FakeSocket : SteerSocket {
+    private class FakeSocket(private val sent: Channel<String>?) : SteerSocket {
         private val frames = Channel<String>(Channel.UNLIMITED)
         override val incoming: ReceiveChannel<String> get() = frames
-        override suspend fun send(text: String) = Unit
+        override suspend fun send(text: String) {
+            sent?.trySend(text)
+        }
         override fun cancel() {
             frames.close()
         }
@@ -347,9 +384,9 @@ class SteerStoredTailTest {
         }
     }
 
-    private class OneSocketTransport : SteerTransport {
+    private class OneSocketTransport(private val sent: Channel<String>? = null) : SteerTransport {
         private val opens = Channel<FakeSocket>(Channel.UNLIMITED)
-        override suspend fun open(codingSessionId: String): SteerSocket = FakeSocket().also { opens.send(it) }
+        override suspend fun open(codingSessionId: String): SteerSocket = FakeSocket(sent).also { opens.send(it) }
         suspend fun awaitOpen(): FakeSocket = withTimeout(5_000) { opens.receive() }
     }
 

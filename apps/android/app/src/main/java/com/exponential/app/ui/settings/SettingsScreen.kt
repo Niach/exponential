@@ -53,6 +53,12 @@ import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.data.chatstore.ChatStoreSettings
+import com.exponential.app.data.chatstore.KeepToolSteps
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TopBarBackButton
@@ -76,8 +82,14 @@ class SettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val selection: TeamSelection,
     multiAccountTeams: MultiAccountTeamRepository,
+    private val chatStoreSettings: ChatStoreSettings,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
+
+    /** #EDE-114 (chat-store.json THE STORAGE SETTING): this device's `Keep tool steps` (null = Forever). */
+    val keepToolStepsDays: StateFlow<Int?> = chatStoreSettings.days
+
+    fun setKeepToolSteps(days: Int?) = chatStoreSettings.setDays(days)
     val serverGroups: StateFlow<List<ServerTeamGroup>> =
         multiAccountTeams.serverGroups.stateIn(
             viewModelScope,
@@ -210,6 +222,7 @@ fun SettingsScreen(
                                 }
                             },
                         )
+                        KeepToolStepsRow(viewModel)
                     }
                 }
 
@@ -228,6 +241,31 @@ fun SettingsScreen(
         GettingStartedSheet(
             onOpenAgent = onOpenAgentHome,
             onDismiss = { gettingStartedOpen = false },
+        )
+    }
+}
+
+/**
+ * #EDE-114 (chat-store.json THE STORAGE SETTING): `Keep tool steps`, this
+ * device's chat store window, THE picker row + `Picker` sheet the settings
+ * pages already use (label, value + chevron; no subtitle).
+ */
+@Composable
+private fun KeepToolStepsRow(viewModel: SettingsViewModel) {
+    val days by viewModel.keepToolStepsDays.collectAsStateWithLifecycle()
+    val selected = KeepToolSteps.option(days)
+    Picker(
+        items = KeepToolSteps.OPTIONS.map { PickerItem(value = it.id, label = it.label) },
+        mode = PickerMode.Single,
+        value = setOf(selected.id),
+        onChange = { picked -> picked.firstOrNull()?.let(KeepToolSteps::fromId)?.let { viewModel.setKeepToolSteps(it.days) } },
+        title = KeepToolSteps.LABEL,
+    ) { open ->
+        PickerValueRow(
+            label = KeepToolSteps.LABEL,
+            value = selected.label,
+            onClick = open,
+            modifier = Modifier.testTag(KeepToolSteps.TEST_ID),
         )
     }
 }
@@ -710,6 +748,7 @@ fun TeamTabScreen(
                             if (!PlayStore.openListing(context)) toaster.error("Couldn't open Google Play")
                         },
                     )
+                    KeepToolStepsRow(viewModel)
                 }
             }
             PersonalGroup(
