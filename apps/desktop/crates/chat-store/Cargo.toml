@@ -20,3 +20,8 @@ rusqlite = { workspace = true, optional = true }
 [features]
 default = ["sqlite"]
 sqlite = ["dep:rusqlite"]
+
+# The open bench (`tests/open_bench.rs`) folds what it reads the way a session
+# view does; the crate itself never links steer.
+[dev-dependencies]
+steer = { path = "../steer" }

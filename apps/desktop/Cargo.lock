@@ -1538,6 +1538,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "steer",
  "unicode-normalization",
 ]
 
@@ -13831,6 +13832,7 @@ dependencies = [
  "anyhow",
  "api",
  "base64 0.22.1",
+ "chat-store",
  "chrono",
  "cocoa 0.26.0",
  "coding",

@@ -53,6 +53,19 @@ pub fn result_cards(sqlite: &ShapeStore, root_id: &str) -> Result<Vec<MessageRow
     Ok(decode_messages(maps))
 }
 
+/// #EDE-105: the messages created at or after `created_at` (ISO; `""` =
+/// all), decoded and opened, for the chat store's catch-up.
+pub fn messages_since(sqlite: &ShapeStore, created_at: &str) -> Result<Vec<MessageRow>, StoreError> {
+    let spec = crate::shapes::shape_by_name("messages").expect("the messages shape");
+    Ok(decode_messages(sqlite.read_where_ge(spec, "created_at", created_at)?))
+}
+
+/// #EDE-105: the messages `ids` names, decoded and opened (a row stored
+/// before its chat key arrived, tried again).
+pub fn messages_by_ids(sqlite: &ShapeStore, ids: &[&str]) -> Result<Vec<MessageRow>, StoreError> {
+    Ok(decode_messages(sqlite.read_messages_by_ids(ids)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
