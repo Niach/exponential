@@ -16,3 +16,8 @@ png = "0.17"
 [[bin]]
 name = "exponential-ctl"
 path = "src/main.rs"
+
+[dev-dependencies]
+# The headless compositor the space commands run against.
+ede-compositor = { path = "../ede-compositor" }
+tempfile = "3"
