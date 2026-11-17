@@ -6,7 +6,8 @@
 //! holder that disconnects lets go, so a crashed agent never leaves the
 //! person locked out. The session lock screen always gets their input.
 //!
-//! Releases of keys and buttons the person pressed before the hold still
+//! A hold starts on a clean seat: what the person has down is released
+//! first. Releases of keys and buttons they pressed under the lock still
 //! go through, so nothing stays stuck down.
 
 use ede_protocol::{events, Envelope, Message, EVENT_SOURCE};
@@ -36,8 +37,27 @@ impl Ede {
     }
 
     pub(crate) fn hold_input(&mut self, conn: u64) {
-        if !self.ipc.hold.holders.contains(&conn) {
-            self.ipc.hold.holders.push(conn);
+        if self.ipc.hold.holders.contains(&conn) {
+            return;
+        }
+        self.ipc.hold.holders.push(conn);
+        if self.ipc.hold.holders.len() == 1 && !self.is_locked() {
+            self.release_person_input();
+        }
+    }
+
+    /// A hold starts on a clean seat (#EDE-73): the keys and buttons the
+    /// person has down are released as theirs (a drag ends, a switcher
+    /// commits), so they never merge with the agent's input.
+    fn release_person_input(&mut self) {
+        let time = crate::ipc::now_ms() as u32;
+        let mut keys: Vec<Keycode> = self.seat.get_keyboard().unwrap().pressed_keys().into_iter().filter(|k| !self.ipc.driven.has_key(*k)).collect();
+        keys.sort_by_key(|k| k.raw());
+        for key in keys {
+            self.key(key, KeyState::Released, time, true);
+        }
+        for button in std::mem::take(&mut self.ipc.hold.buttons) {
+            self.pointer_button(button, ButtonState::Released, time);
         }
     }
 
@@ -67,7 +87,8 @@ impl Ede {
             }
             return false;
         }
-        self.seat.get_keyboard().unwrap().pressed_keys().contains(&keycode)
+        // Their release of a key the agent has down is not the agent's.
+        !self.ipc.driven.has_key(keycode) && self.seat.get_keyboard().unwrap().pressed_keys().contains(&keycode)
     }
 
     /// A pointer button from the person's mouse.

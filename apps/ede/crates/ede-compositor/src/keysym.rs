@@ -18,6 +18,13 @@ pub struct Keysyms {
     mods: Vec<(Keycode, Vec<Keycode>)>,
 }
 
+impl Keysyms {
+    /// The keys of a connection that went: their modifiers went with them.
+    pub(crate) fn forget(&mut self, keys: &[(u64, Keycode)]) {
+        self.mods.retain(|(key, _)| !keys.iter().any(|(_, k)| k == key));
+    }
+}
+
 impl Ede {
     /// The key making `keysym` on the active layout and the modifier keys
     /// its level needs (Shift, AltGr), found by trying each on a fresh xkb
