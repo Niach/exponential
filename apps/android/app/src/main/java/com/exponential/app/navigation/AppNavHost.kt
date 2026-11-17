@@ -14,6 +14,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -789,14 +790,14 @@ private fun AuthenticatedNav(
             if (isTabSwap(tabSwitch)) ExitTransition.None
             else slideOutOfContainer(SlideDirection.Start, pushSpec)
         },
-        popEnterTransition = {
-            if (isTabSwap(tabSwitch)) EnterTransition.None
-            else slideIntoContainer(SlideDirection.End, pushSpec)
-        },
-        popExitTransition = {
-            if (isTabSwap(tabSwitch)) ExitTransition.None
-            else slideOutOfContainer(SlideDirection.End, pushSpec)
-        },
+        popEnterTransition = { popSlideIn(tabSwitch, pushSpec) },
+        popExitTransition = { popSlideOut(tabSwitch, pushSpec) },
+        // FEED-265: the back GESTURE (predictive back, on by default at
+        // targetSdk 36) does not use popEnter/popExit — navigation-compose
+        // gives it its own pair, defaulting to a fade-in under a scale-out.
+        // Pin it to the same reverse slide, which the gesture then scrubs.
+        predictivePopEnterTransition = { popSlideIn(tabSwitch, pushSpec) },
+        predictivePopExitTransition = { popSlideOut(tabSwitch, pushSpec) },
     ) {
         composable("onboarding") {
             OnboardingScreen(
@@ -1621,6 +1622,23 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
 ): Boolean =
     MainTabs.isRootSwap(initialState.destination.route, targetState.destination.route) ||
         tabSwitch.matches(initialState, targetState)
+
+/** FEED-265: going back = the push slide reversed (the previous page returns
+ *  from the start edge, the leaving one slides out to the end). One pair for
+ *  every way back: the back button, the toolbar arrow and the back gesture. */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popSlideIn(
+    tabSwitch: TabSwitchMarker,
+    spec: FiniteAnimationSpec<IntOffset>,
+): EnterTransition =
+    if (isTabSwap(tabSwitch)) EnterTransition.None
+    else slideIntoContainer(SlideDirection.End, spec)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.popSlideOut(
+    tabSwitch: TabSwitchMarker,
+    spec: FiniteAnimationSpec<IntOffset>,
+): ExitTransition =
+    if (isTabSwap(tabSwitch)) ExitTransition.None
+    else slideOutOfContainer(SlideDirection.End, spec)
 
 /** EXP-1170: the New issue page — `drafts/{draftId}?board=&status=&parent=`. */
 private const val ISSUE_DRAFT_ROUTE =
