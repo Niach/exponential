@@ -196,11 +196,57 @@ fn start_enet_catch_up(cx: &mut App) {
     cx.global_mut::<ChatStoreGlobal>().enet = Some(handle);
 }
 
-/// Sign-out: nothing more is written (the file stays, like the sync store).
+/// An account switch (or an expiry's re-sign-in as someone else): nothing
+/// more is written; the file stays for the account's next sign-in.
 pub(crate) fn stop(cx: &mut App) {
     *lock(&serving_slot()) = None;
     if cx.has_global::<ChatStoreGlobal>() {
         cx.remove_global::<ChatStoreGlobal>();
+    }
+}
+
+/// #EDE-120 SIGN-OUT (`chat-store.json` `signOut`): a DELIBERATE sign-out
+/// stops `account_id`'s store (the writer thread, the catch-up loop, the
+/// store this device serves pages from) and deletes its files
+/// (`accounts/<id>/chat-store.sqlite` + `-wal`/`-shm`), never another
+/// account's. Off the main thread: once every holder let go of the store (its
+/// connection closed), at most [`CLOSE_WAIT`]; a file still held is tried
+/// again [`WIPE_TRIES`] times. A session expiry never comes here.
+pub(crate) fn sign_out(account_id: &str, cx: &mut App) {
+    let held = cx
+        .try_global::<ChatStoreGlobal>()
+        .filter(|global| global.account_id == account_id)
+        .map(|global| Arc::downgrade(&global.store));
+    if held.is_some() {
+        stop(cx);
+    }
+    let Some(data_dir) = cx.try_global::<AuthContext>().map(|auth| auth.data_dir.clone()) else { return };
+    let account = account_id.to_string();
+    let spawned = std::thread::Builder::new()
+        .name("chat-store-wipe".into())
+        .spawn(move || wipe(&data_dir, &account, held.as_ref()));
+    if let Err(err) = spawned {
+        log::warn!("[chat-store] no thread to delete the store: {err}");
+    }
+}
+
+/// How long a sign-out waits for the store's holders to let go.
+const CLOSE_WAIT: Duration = Duration::from_secs(10);
+/// Attempts at deleting a store file that is still held.
+const WIPE_TRIES: u32 = 5;
+
+/// Deletes `account`'s store once `held` (the stopped store) is closed.
+fn wipe(data_dir: &Path, account: &str, held: Option<&std::sync::Weak<SqliteStore>>) {
+    let deadline = Instant::now() + CLOSE_WAIT;
+    while held.is_some_and(|store| store.strong_count() > 0) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    for attempt in 1..=WIPE_TRIES {
+        match chat_store::sqlite::delete_account_store(data_dir, account) {
+            Ok(_) => return,
+            Err((_, err)) if attempt == WIPE_TRIES => log::warn!("[chat-store] deleting the signed-out store failed: {err}"),
+            Err(_) => std::thread::sleep(Duration::from_millis(500) * attempt),
+        }
     }
 }
 
@@ -396,6 +442,33 @@ pub(crate) fn read_events(store: &SqliteStore, session_id: &str, device_id: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-120: a sign-out's wipe waits for the writer to let go of the
+    /// store, then deletes it (and its WAL/SHM) and nothing else.
+    #[test]
+    fn sign_out_wipes_the_store_once_the_writer_let_go() {
+        let data_dir = std::env::temp_dir().join(format!("ui-chat-store-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        let store = Arc::new(SqliteStore::open(&store_path(&data_dir, "u1")).unwrap());
+        store.set_meta("k", "v").unwrap();
+        let other = SqliteStore::open(&store_path(&data_dir, "u2")).unwrap();
+        other.set_meta("k", "v").unwrap();
+        std::fs::write(data_dir.join("accounts/u1/sync.sqlite"), b"sync").unwrap();
+        let held = Arc::downgrade(&store);
+        let (writes, rx) = flume::unbounded::<Write>();
+        let writer = std::thread::spawn(move || run_writer(&store, &rx));
+        drop(writes);
+        wipe(&data_dir, "u1", Some(&held));
+        writer.join().unwrap();
+        assert_eq!(held.strong_count(), 0);
+        for name in ["chat-store.sqlite", "chat-store.sqlite-wal", "chat-store.sqlite-shm"] {
+            assert!(!data_dir.join("accounts/u1").join(name).exists(), "{name}");
+        }
+        assert!(data_dir.join("accounts/u1/sync.sqlite").exists());
+        assert!(store_path(&data_dir, "u2").exists());
+        drop(other);
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
 
     #[test]
     fn a_feed_round_trips_through_the_store() {

@@ -11,8 +11,10 @@
 // * the eNet catch-up in the Web Lock tab (catch-up.ts).
 //
 // A chat opens from it (`openStoredTail`) before the live feed attaches.
-// Signing out stops it; the files stay (no wipe yet: the sign-out question
-// is open).
+// #EDE-120 SIGN-OUT: a deliberate sign-out (`signOutChatStore`) stops the
+// worker in EVERY tab (the `exp-chat-store` BroadcastChannel) and deletes the
+// account's OPFS files (sign-out.ts, loaded then); a session expiry only
+// unmounts the signed-in layout (`stopChatStore`): the files stay.
 
 import { contract } from "@exp/domain-contract"
 import { sessionCollection } from "@/lib/collections"
@@ -97,11 +99,25 @@ export function lastActiveAt(): number {
   return Math.max(activeAt, shared)
 }
 
+/** Every tab's store hears a deliberate sign-out here. */
+const CHANNEL = `exp-chat-store`
+type ChannelMessage = { t: `signed-out`; account: string }
+let channel: BroadcastChannel | undefined
+
+function listen() {
+  if (channel || typeof BroadcastChannel === `undefined`) return
+  channel = new BroadcastChannel(CHANNEL)
+  channel.onmessage = (event: MessageEvent<ChannelMessage>) => {
+    if (event.data?.t === `signed-out` && event.data.account === account) stopChatStore()
+  }
+}
+
 /** Sign-in: this account's store (started once the tab is idle). */
 export function startChatStore(userId: string): void {
   if (account === userId) return
   stopChatStore()
   account = userId
+  listen()
   if (!activityBound && typeof window !== `undefined`) {
     activityBound = true
     for (const type of [`pointerdown`, `keydown`, `wheel`]) window.addEventListener(type, noteActive, { passive: true, capture: true })
@@ -111,7 +127,22 @@ export function startChatStore(userId: string): void {
   else setTimeout(warm, 1_000)
 }
 
-/** Sign-out (or unmount): nothing more is written; the files stay. */
+/** #EDE-120: a DELIBERATE sign-out: every tab's worker stops, then the
+ *  account's files go (best-effort, bounded: never holds the sign-out up). */
+export async function signOutChatStore(): Promise<void> {
+  const user = account
+  stopChatStore()
+  if (!user) return
+  listen()
+  channel?.postMessage({ t: `signed-out`, account: user } satisfies ChannelMessage)
+  if (typeof navigator === `undefined` || !navigator.storage?.getDirectory || !navigator.locks) return
+  const { deleteChatStoreFiles, browserWipeDeps } = await import(`./sign-out`)
+  const left = await deleteChatStoreFiles(user, browserWipeDeps())
+  if (left.length > 0) console.warn(`chat store: ${left.length} file(s) still held after sign-out`)
+}
+
+/** Account switch or unmount (a session expiry included): nothing more is
+ *  written; the files stay. */
 export function stopChatStore(): void {
   worker?.terminate()
   worker = undefined

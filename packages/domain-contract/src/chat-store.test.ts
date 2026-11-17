@@ -10,6 +10,7 @@ import {
   catchUpProgress,
   catchUpRetryMs,
   catchUpWalk,
+  chatStoreOnLeave,
   eventDocs,
   haveRuns,
   ingest,
@@ -99,5 +100,11 @@ describe(`chat store catch-up (#EDE-108)`, () => {
   }
   for (const entry of c.bucketCases) {
     test(`bucket: ${entry.name}`, () => expect(catchUpBucket(entry.ops as never)).toEqual(entry.waits))
+  }
+})
+
+describe(`chat store sign-out`, () => {
+  for (const entry of fixture.signOut.cases) {
+    test(entry.name, () => expect(chatStoreOnLeave(entry.reason as never, entry.account, entry.files)).toEqual(entry.expect))
   }
 })

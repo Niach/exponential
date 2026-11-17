@@ -8,7 +8,7 @@
 //! drift from the reference. Blocking: callers run it off their UI thread.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -469,6 +469,41 @@ fn delete_docs(tx: &rusqlite::Transaction<'_>, filter: &str, args: impl rusqlite
     Ok(())
 }
 
+/// #EDE-120 SIGN-OUT: deletes `account`'s store files under `data_dir`
+/// (`accounts/<account>/chat-store.sqlite` and its `-wal`/`-shm`/`-journal`,
+/// picked by [`crate::leave::plan`]: never the account's sync store, never
+/// another account's). Call it only after the store is closed. Returns the
+/// files that are gone; one that would not go is left (logged by the caller).
+pub fn delete_account_store(data_dir: &Path, account: &str) -> Result<Vec<PathBuf>, (Vec<PathBuf>, std::io::Error)> {
+    if !crate::leave::safe_account(account) {
+        return Ok(Vec::new());
+    }
+    let dir = data_dir.join("accounts").join(account);
+    let files: Vec<String> = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .map(|name| format!("accounts/{account}/{name}"))
+            .collect(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err((Vec::new(), err)),
+    };
+    let plan = crate::leave::plan(crate::leave::LeaveReason::SignOut, account, &files);
+    let mut gone = Vec::new();
+    let mut failed = None;
+    for relative in plan.delete {
+        let path = relative.split('/').fold(data_dir.to_path_buf(), |path, part| path.join(part));
+        match std::fs::remove_file(&path) {
+            Ok(()) => gone.push(path),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => failed = Some(err),
+        }
+    }
+    match failed {
+        Some(err) => Err((gone, err)),
+        None => Ok(gone),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,5 +676,39 @@ mod tests {
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EDE-120: a deliberate sign-out deletes the account's store, its WAL
+    /// and SHM, and nothing else: not its sync store, not another account's.
+    #[test]
+    fn sign_out_deletes_only_the_accounts_store() {
+        let data_dir = std::env::temp_dir().join(format!("chat-store-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        let store = SqliteStore::open(&data_dir.join("accounts/u1/chat-store.sqlite")).unwrap();
+        store.set_meta("k", "v").unwrap();
+        let other = SqliteStore::open(&data_dir.join("accounts/u10/chat-store.sqlite")).unwrap();
+        other.set_meta("k", "v").unwrap();
+        std::fs::write(data_dir.join("accounts/u1/sync.sqlite"), b"sync").unwrap();
+        assert!(data_dir.join("accounts/u1/chat-store.sqlite-wal").exists());
+        drop(store);
+        // The WAL/SHM a closed store left (a crash leaves them behind too).
+        std::fs::write(data_dir.join("accounts/u1/chat-store.sqlite-wal"), b"").unwrap();
+        std::fs::write(data_dir.join("accounts/u1/chat-store.sqlite-shm"), b"").unwrap();
+        let mut gone = delete_account_store(&data_dir, "u1").unwrap();
+        gone.sort();
+        let expect: Vec<PathBuf> = ["chat-store.sqlite", "chat-store.sqlite-shm", "chat-store.sqlite-wal"]
+            .iter()
+            .map(|name| data_dir.join("accounts/u1").join(name))
+            .collect();
+        assert_eq!(gone, expect);
+        assert!(data_dir.join("accounts/u1/sync.sqlite").exists());
+        assert!(data_dir.join("accounts/u10/chat-store.sqlite").exists());
+        assert_eq!(other.meta("k").unwrap().as_deref(), Some("v"));
+        // Nothing there (or no such account) is not an error.
+        assert_eq!(delete_account_store(&data_dir, "u1").unwrap(), Vec::<PathBuf>::new());
+        assert_eq!(delete_account_store(&data_dir, "nobody").unwrap(), Vec::<PathBuf>::new());
+        assert_eq!(delete_account_store(&data_dir, "../u10").unwrap(), Vec::<PathBuf>::new());
+        drop(other);
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 }
