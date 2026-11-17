@@ -755,52 +755,142 @@ mod tests {
         (Ede { client: Mutex::new(client), session, run: None }, server)
     }
 
+    /// What [`fake_socket_of`] plays.
+    #[derive(Clone, Copy)]
+    struct Fake {
+        /// Its hello offers `spaces`.
+        spaces: bool,
+        /// The token file's grant holds `system`.
+        root_system: bool,
+    }
+
+    /// The fake's handles: the mints, revokes and every other op it saw
+    /// (`mint <session> <expiry?>`, `revoke <token>`, else the op's name,
+    /// `create_space WxH`), and a switch that ends every space.
+    struct Faked {
+        session: Session,
+        log: Arc<Mutex<Vec<String>>>,
+        dir: PathBuf,
+        end_spaces: Arc<AtomicBool>,
+    }
+
     /// #EXP-1925: a fake compositor on a socket of its own: the root token
-    /// mints, every mint and revoke is logged (`mint <session> <expiry?>`,
-    /// `revoke <token>`).
-    fn fake_socket() -> (Session, std::sync::Arc<Mutex<Vec<String>>>, PathBuf) {
+    /// mints, every mint and revoke is logged.
+    fn fake_socket() -> (Session, Arc<Mutex<Vec<String>>>, PathBuf) {
+        let faked = fake_socket_of(Fake { spaces: false, root_system: true });
+        (faked.session, faked.log, faked.dir)
+    }
+
+    /// #EDE-126: the same with agent spaces: a minted grant says hello with
+    /// what it was minted (its session, its capabilities), a space grant
+    /// has a space once it made one, and an op in no space is `not_found`.
+    fn fake_socket_of(fake: Fake) -> Faked {
+        use ede_protocol::{ErrorCode, Failure, SpaceId, SpaceInfo};
         let dir = std::env::temp_dir().join(format!("epilot-grants-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let (socket, token_file) = (dir.join("ede.sock"), dir.join("token"));
         let root = "f".repeat(64);
         std::fs::write(&token_file, &root).unwrap();
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let log = std::sync::Arc::new(Mutex::new(Vec::new()));
-        let minted = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let seen = log.clone();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let end_spaces = Arc::new(AtomicBool::new(false));
+        let minted = Arc::new(Mutex::new(HashMap::<String, (SessionId, Vec<Capability>)>::new()));
+        let spaces = Arc::new(Mutex::new((0u32, HashMap::<String, SpaceInfo>::new())));
+        let (seen, end) = (log.clone(), end_spaces.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
-                let (log, minted, root) = (seen.clone(), minted.clone(), root.clone());
-                std::thread::spawn(move || loop {
-                    let Ok(frame) = read_frame(&mut stream) else { return };
-                    let call: Call = serde_json::from_slice(&frame).unwrap();
-                    let result = match call.request {
-                        Request::Hello { token, .. } => {
-                            let mut capabilities = vec!["capture", "input:person", "ui"];
-                            if token.as_str() == root {
-                                capabilities.push("system");
+                let (log, minted, spaces, end, root) = (seen.clone(), minted.clone(), spaces.clone(), end.clone(), root.clone());
+                std::thread::spawn(move || {
+                    let mut me = SessionId::new("s").unwrap();
+                    loop {
+                        let Ok(frame) = read_frame(&mut stream) else { return };
+                        let call: Call = serde_json::from_slice(&frame).unwrap();
+                        if end.swap(false, Ordering::SeqCst) {
+                            spaces.lock().unwrap().1.clear();
+                        }
+                        let op = serde_json::to_value(&call.request).unwrap()["op"].as_str().unwrap().to_string();
+                        let space = spaces.lock().unwrap().1.get(me.as_str()).cloned();
+                        let result = match call.request {
+                            Request::Hello { token, .. } => {
+                                let mut capabilities = vec![Capability::Capture, Capability::InputPerson, Capability::Ui];
+                                if token.as_str() == root && fake.root_system {
+                                    capabilities.push(Capability::System);
+                                }
+                                if let Some((session, held)) = minted.lock().unwrap().get(token.as_str()).cloned() {
+                                    (me, capabilities) = (session, held);
+                                }
+                                let features: &[&str] = if fake.spaces { &["spaces"] } else { &[] };
+                                Ok(serde_json::json!({"version": 1, "capabilities": capabilities, "session_id": me, "features": features}))
                             }
-                            serde_json::json!({"version": 1, "capabilities": capabilities, "session_id": "s"})
-                        }
-                        Request::MintGrant { session_id, expires_at, capabilities, .. } => {
-                            log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
-                            let token = format!("{:064x}", minted.fetch_add(1, Ordering::SeqCst) + 1);
-                            let token = Token::new(token).unwrap();
-                            serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap()
-                        }
-                        Request::RevokeGrant { token } => {
-                            log.lock().unwrap().push(format!("revoke {}", token.as_str()));
-                            serde_json::Value::Null
-                        }
-                        other => panic!("unexpected {other:?}"),
-                    };
-                    let message = Message::Reply { id: call.id, result };
-                    write_frame(&mut stream, &serde_json::to_vec(&message).unwrap()).unwrap();
+                            Request::MintGrant { session_id, expires_at, capabilities, .. } => {
+                                log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
+                                let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + 1)).unwrap();
+                                minted.lock().unwrap().insert(token.as_str().to_string(), (session_id.clone(), capabilities.clone()));
+                                Ok(serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap())
+                            }
+                            Request::RevokeGrant { token } => {
+                                log.lock().unwrap().push(format!("revoke {}", token.as_str()));
+                                Ok(serde_json::Value::Null)
+                            }
+                            Request::CreateSpace { width, height } => {
+                                log.lock().unwrap().push(format!("create_space {width}x{height}"));
+                                let mut spaces = spaces.lock().unwrap();
+                                spaces.0 += 1;
+                                let name = format!("space-{}", spaces.0);
+                                let info = SpaceInfo { id: SpaceId::new(&name).unwrap(), session_id: me.clone(), output: name, width, height, wayland_display: "/nonexistent/wayland-0".into() };
+                                spaces.1.insert(me.as_str().to_string(), info.clone());
+                                Ok(serde_json::to_value(info).unwrap())
+                            }
+                            other => {
+                                log.lock().unwrap().push(op);
+                                match (other, space) {
+                                    (Request::ListSpaces, space) => Ok(serde_json::to_value(space.into_iter().collect::<Vec<_>>()).unwrap()),
+                                    (_, None) => Err(Failure::new(ErrorCode::NotFound, "this grant has no space")),
+                                    (Request::FocusWindow { .. }, _) => Err(Failure::new(ErrorCode::NotFound, "no such window")),
+                                    _ => Ok(serde_json::Value::Null),
+                                }
+                            }
+                        };
+                        let message = match result {
+                            Ok(result) => Message::Reply { id: call.id, result },
+                            Err(error) => Message::Error { id: call.id, error },
+                        };
+                        write_frame(&mut stream, &serde_json::to_vec(&message).unwrap()).unwrap();
+                    }
                 });
             }
         });
-        (Session { socket, token_file, token: None }, log, dir)
+        Faked { session: Session { socket, token_file, token: None }, log, dir, end_spaces }
+    }
+
+    fn logged(faked: &Faked) -> Vec<String> {
+        faked.log.lock().unwrap().clone()
+    }
+
+    /// The fake itself: a minted grant says hello with what it was minted,
+    /// and a space lives until the switch ends it.
+    #[test]
+    fn the_fake_compositor_speaks_spaces() {
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let mut root = faked.session.connect_token(faked.session.root_token().unwrap()).unwrap();
+        assert!(root.hello.offers_spaces() && root.hello.capabilities.contains(&Capability::System));
+        let grant = root.mint(SessionId::new("fake-run").unwrap(), vec![Capability::Space], None).unwrap();
+        let mut run = faked.session.connect_token(grant.token).unwrap();
+        assert_eq!((run.hello.capabilities.clone(), run.hello.session_id.as_str()), (vec![Capability::Space], "fake-run"));
+        assert!(run.input(InputEvent::Key { key: 30, pressed: true }).is_err(), "no space yet");
+        let space = run.create_space(640, 480).unwrap();
+        run.input(InputEvent::Key { key: 30, pressed: false }).unwrap();
+        assert_eq!(run.spaces().unwrap(), [space]);
+        faked.end_spaces.store(true, Ordering::SeqCst);
+        assert!(run.spaces().unwrap().is_empty());
+        assert_eq!(logged(&faked), ["mint fake-run false", "input", "create_space 640x480", "input", "list_spaces", "list_spaces"]);
+        let narrow = fake_socket_of(Fake { spaces: false, root_system: false });
+        let root = narrow.session.connect_token(narrow.session.root_token().unwrap()).unwrap();
+        assert!(!root.hello.offers_spaces() && !root.hello.capabilities.contains(&Capability::System));
+        for dir in [faked.dir, narrow.dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     /// #EXP-1925: two runs mint two grants (each its own, with an expiry;
