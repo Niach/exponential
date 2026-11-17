@@ -1,5 +1,209 @@
-//! Agent spaces (#EDE-24): a desk of its own for an agent, beside the
-//! person's. What a space is lives here; the person's functions get a guard
-//! or a dispatch, never an edit.
+//! #EDE-125: agent spaces. A space is a second [`Desk`] beside the
+//! person's: its own seat, its own virtual output, its own Wayland socket.
+//! What connects to that socket belongs to the space's desk and sees that
+//! seat and that output, never the person's ([`crate::desk::on_desk`]).
+//!
+//! Three rules. A space is new code in this module; an existing function
+//! gets a guard that is `None` for the person. A tag never falls back to
+//! the person: what a space tagged never enters the person's branch, also
+//! after the space closed. Nothing of a space is listed, emitted or drawn
+//! on the person's side.
 
 pub mod scope;
+
+use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
+
+use ede_protocol::{ErrorCode, Failure, SessionId, SpaceId};
+use smithay::{
+    desktop::Space,
+    input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat},
+    output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
+    reexports::{
+        calloop::{generic::Generic, Interest, Mode as LoopMode, PostAction, RegistrationToken},
+        wayland_server::{backend::GlobalId, protocol::wl_surface::WlSurface, ListeningSocket, Resource},
+    },
+    utils::Transform,
+    wayland::compositor::with_states,
+};
+
+use crate::{
+    desk::{desk_of_client, on_desk, Desk, DeskId, DeskTag},
+    state::{ClientState, Ede},
+};
+
+/// The sizes a space's output may have. The upper bound is part of the
+/// design: a capture is one software pass over the whole output on the
+/// thread that serves the person's frames.
+pub const MIN_SIZE: (i32, i32) = (320, 240);
+pub const MAX_SIZE: (i32, i32) = (1920, 1200);
+
+#[derive(Default)]
+pub struct Spaces {
+    list: Vec<AgentSpace>,
+    /// The last number given out; they count from 1 and are never reused.
+    next: u32,
+    /// Where the spaces' directories live
+    /// (`<runtime>/exponential-desktop/<wayland-N>.spaces`); `None` = no
+    /// space can be made.
+    pub dir: Option<PathBuf>,
+}
+
+pub struct AgentSpace {
+    /// `space-n`; its desk's id is number n.
+    pub id: SpaceId,
+    pub desk: Desk,
+    /// The session whose grant made it.
+    pub owner: SessionId,
+    /// Its virtual output `space-n`, at (0, 0) of its desk's own space and
+    /// in nothing of the person's: no layout, no pointer clamp, no list.
+    pub output: Output,
+    // Both are read when a space closes; nothing closes one yet.
+    #[allow(dead_code)]
+    pub(crate) output_global: GlobalId,
+    /// Its own directory (0700), holding its socket `wayland-0`.
+    pub(crate) dir: PathBuf,
+    #[allow(dead_code)]
+    pub(crate) listener: RegistrationToken,
+}
+
+impl AgentSpace {
+    /// The absolute path its clients connect to (`WAYLAND_DISPLAY`).
+    pub fn socket(&self) -> PathBuf {
+        self.dir.join("wayland-0")
+    }
+}
+
+impl Spaces {
+    pub fn iter(&self) -> impl Iterator<Item = &AgentSpace> {
+        self.list.iter()
+    }
+
+    pub fn get(&self, desk: DeskId) -> Option<&AgentSpace> {
+        self.list.iter().find(|s| s.desk.id == desk)
+    }
+}
+
+/// Copies the desk of a new surface's client onto the surface: a dead
+/// client leaves the store before its surfaces' destructors run, so a
+/// lookup by client would come too late.
+pub(crate) fn tag_surface(state: &Ede, surface: &WlSurface) {
+    let desk = state.display_handle.get_client(surface.id()).ok().and_then(|c| desk_of_client(&c));
+    if let Some(desk) = desk {
+        with_states(surface, |states| states.data_map.insert_if_missing_threadsafe(|| DeskTag(desk)));
+    }
+}
+
+/// The space a surface was made in, whether that space still lives or
+/// not; `None` for the person's (and for nobody's).
+pub fn space_of_surface(surface: &WlSurface) -> Option<DeskId> {
+    with_states(surface, |states| states.data_map.get::<DeskTag>().map(|tag| tag.0)).filter(|id| *id != DeskId::PERSON)
+}
+
+/// The space a seat belongs to, live or not; `None` for the person's.
+pub fn space_of_seat(seat: &Seat<Ede>) -> Option<DeskId> {
+    seat.user_data().get::<DeskTag>().map(|tag| tag.0).filter(|id| *id != DeskId::PERSON)
+}
+
+impl Ede {
+    /// The desk `id` names, if it is the person's or a space that lives.
+    /// Everything that keeps an id across a turn of the loop asks here.
+    pub fn try_desk(&self, id: DeskId) -> Option<&Desk> {
+        if id == DeskId::PERSON {
+            return Some(&self.desk);
+        }
+        self.spaces.get(id).map(|s| &s.desk)
+    }
+
+    pub fn try_desk_mut(&mut self, id: DeskId) -> Option<&mut Desk> {
+        if id == DeskId::PERSON {
+            return Some(&mut self.desk);
+        }
+        self.spaces.list.iter_mut().find(|s| s.desk.id == id).map(|s| &mut s.desk)
+    }
+
+    /// A new space of `width`×`height` for `owner`: its directory and
+    /// socket, its desk, its output and its seat. What can fail comes
+    /// first and the globals last, so a failure never has to take a global
+    /// back (a removal is told to every client, the person's too).
+    pub fn create_space(&mut self, owner: SessionId, width: i32, height: i32) -> Result<DeskId, Failure> {
+        if !(MIN_SIZE.0..=MAX_SIZE.0).contains(&width) || !(MIN_SIZE.1..=MAX_SIZE.1).contains(&height) {
+            return Err(Failure::new(ErrorCode::Invalid, &format!("a space is {}x{} to {}x{}", MIN_SIZE.0, MIN_SIZE.1, MAX_SIZE.0, MAX_SIZE.1)));
+        }
+        let unavailable = |what: &str, e: &dyn std::fmt::Debug| Failure::new(ErrorCode::Unavailable, &format!("{what}: {e:?}"));
+        let Some(root) = self.spaces.dir.clone() else {
+            return Err(Failure::new(ErrorCode::Unavailable, "no runtime directory for spaces"));
+        };
+        self.spaces.next += 1;
+        let n = self.spaces.next;
+        let (id, name) = (DeskId::numbered(n), format!("space-{n}"));
+
+        let dir = root.join(&name);
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| unavailable("the space's directory", &e))?;
+        let listening = (|| {
+            let socket = ListeningSocket::bind_absolute(dir.join("wayland-0")).map_err(|e| unavailable("the space's socket", &e))?;
+            self.loop_handle
+                .insert_source(Generic::new(socket, Interest::READ, LoopMode::Level), move |_, socket, state| {
+                    while let Some(stream) = socket.accept()? {
+                        let client = ClientState { desk: id, ..Default::default() };
+                        if let Err(e) = state.display_handle.insert_client(stream, Arc::new(client)) {
+                            tracing::warn!("space client refused: {e}");
+                        }
+                    }
+                    Ok(PostAction::Continue)
+                })
+                .map_err(|e| unavailable("the space's socket", &e.error))
+        })();
+        let listener = match listening {
+            Ok(token) => token,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+        };
+
+        let output = Output::new(
+            name.clone(),
+            PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (space)".into(), serial_number: "Unknown".into() },
+        );
+        let mode = Mode { size: (width, height).into(), refresh: 60_000 };
+        output.change_current_state(Some(mode), Some(Transform::Normal), Some(Scale::Integer(1)), Some((0, 0).into()));
+        output.set_preferred(mode);
+        let mut space = Space::default();
+        space.map_output(&output, (0, 0));
+
+        let dh = self.display_handle.clone();
+        let mut seat = self.seat_state.new_wl_seat_with_filter(&dh, format!("seat-{name}"), on_desk(id));
+        seat.user_data().insert_if_missing(|| DeskTag(id));
+        let kb = &self.config.keyboard;
+        let xkb = XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
+        if seat.add_keyboard(xkb, kb.repeat_delay, kb.repeat_rate).is_err() {
+            seat.add_keyboard(XkbConfig::default(), kb.repeat_delay, kb.repeat_rate).expect("default xkb keymap");
+        }
+        seat.add_pointer();
+        let output_global = output.create_global_with_filter::<Ede, _>(&dh, on_desk(id));
+
+        let desk = Desk {
+            id,
+            cursor_status: CursorImageStatus::default_named(),
+            virtual_keymap: None,
+            #[cfg(feature = "xwayland")]
+            pending_x11_focus: None,
+            // No X11 in a space yet: the slot holds its own seat.
+            #[cfg(feature = "xwayland")]
+            x11_focus: (seat.clone(), None),
+            seat,
+            keysyms: Default::default(),
+            hold: Default::default(),
+            driven: Default::default(),
+            clipboard: Default::default(),
+            space,
+            unmapped: Vec::new(),
+            minimized: Vec::new(),
+            workspaces: Default::default(),
+            title_click: None,
+        };
+        tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener });
+        Ok(id)
+    }
+}

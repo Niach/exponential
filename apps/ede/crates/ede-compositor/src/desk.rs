@@ -1,10 +1,11 @@
 //! #EDE-90: a desk is what belongs to one person (or, later, one agent
 //! space): the seat and what it holds down, the windows and their
 //! workspaces, the clipboard, the cursor.
-//! [`crate::state::Ede`] holds exactly one, the person's ([`Ede::desk`]).
-//! What acts on a desk takes its [`DeskId`] (focus, the `drive_*` paths,
-//! the clipboard, placement, the hold, the protected and lock checks) and
-//! finds the desk with [`Ede::desk`]; today every id is [`DeskId::PERSON`].
+//! [`crate::state::Ede`] holds the person's as a field ([`Ede::desk`]) and
+//! the agent spaces' beside it ([`crate::spaces`]). What acts on a desk
+//! takes its [`DeskId`] (focus, the `drive_*` paths, the clipboard,
+//! placement, the hold, the protected and lock checks) and finds the desk
+//! with [`Ede::desk`].
 //!
 //! [`Ede::desk`]: crate::state::Ede::desk
 
@@ -105,14 +106,17 @@ pub struct Desk {
 
 impl Ede {
     /// The desk `id` names.
+    ///
+    /// A space's id is good only while the space lives: this is called
+    /// with [`DeskId::PERSON`], or with an id found in the same call
+    /// (nothing in between can close a space). What keeps an id across a
+    /// turn of the loop asks [`Ede::try_desk`] and returns on `None`.
     pub fn desk(&self, id: DeskId) -> &Desk {
-        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
-        &self.desk
+        self.try_desk(id).expect("the person's desk or a live space")
     }
 
     pub fn desk_mut(&mut self, id: DeskId) -> &mut Desk {
-        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
-        &mut self.desk
+        self.try_desk_mut(id).expect("the person's desk or a live space")
     }
 
     /// The desk a window lives on: the person's, the only one.
