@@ -17,7 +17,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// How long a launch may take to show its window (a cold start of a large
 /// app on a loaded machine).
@@ -97,7 +97,7 @@ impl XdgActivationHandler for Ede {
         }
         let mapped = self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned();
         if let Some(window) = mapped {
-            self.focus(Some(window));
+            self.focus(DeskId::PERSON, Some(window));
         } else if let Some(window) = self.desk.unmapped.iter().find(|w| w.wl_surface().is_some_and(|s| *s == surface)) {
             window.user_data().insert_if_missing(|| Activated);
         }

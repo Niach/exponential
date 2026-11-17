@@ -40,7 +40,7 @@ use smithay::{
     wayland::selection::data_device::{clear_data_device_selection, request_data_device_client_selection, set_data_device_selection},
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// A whole snapshot gives up after this long, whatever is left unread.
 const SNAPSHOT_MS: u64 = 3000;
@@ -212,24 +212,24 @@ enum Step {
 
 impl Ede {
     /// Owns the selection with `items` (empty = clears it): its serial.
-    pub fn clipboard_set(&mut self, items: Vec<ClipboardItem>, sensitive: bool) -> Result<u64, Failure> {
+    pub fn clipboard_set(&mut self, desk: DeskId, items: Vec<ClipboardItem>, sensitive: bool) -> Result<u64, Failure> {
         let items = owned_items(items, sensitive)?;
         if items.is_empty() {
-            let serial = self.desk.clipboard.changed(Owner::Empty);
-            clear_data_device_selection(&self.display_handle, &self.desk.seat);
+            let serial = self.desk_mut(desk).clipboard.changed(Owner::Empty);
+            clear_data_device_selection(&self.display_handle, &self.desk(desk).seat);
             self.xwm_selection(None);
             return Ok(serial);
         }
         let mimes: Vec<String> = items.iter().map(|item| item.mime.clone()).collect();
-        let owned = Arc::new(Owned { serial: self.desk.clipboard.serial + 1, items, sensitive });
-        let serial = self.desk.clipboard.changed(Owner::Ours(owned.clone()));
-        set_data_device_selection(&self.display_handle, &self.desk.seat, mimes.clone(), Selection::Ours(owned));
+        let owned = Arc::new(Owned { serial: self.desk(desk).clipboard.serial + 1, items, sensitive });
+        let serial = self.desk_mut(desk).clipboard.changed(Owner::Ours(owned.clone()));
+        set_data_device_selection(&self.display_handle, &self.desk(desk).seat, mimes.clone(), Selection::Ours(owned));
         self.xwm_selection(Some(mimes));
         Ok(serial)
     }
 
-    pub fn clipboard_taken(&self, serial: u64) -> ClipboardTaken {
-        self.desk.clipboard.taken(serial)
+    pub fn clipboard_taken(&self, desk: DeskId, serial: u64) -> ClipboardTaken {
+        self.desk(desk).clipboard.taken(serial)
     }
 
     /// Xwayland's CLIPBOARD follows ours (`None` = we cleared it).
@@ -281,9 +281,9 @@ impl Ede {
 
     /// `clipboard_snapshot` / `clipboard_text`: the reply now (`Some`),
     /// or later once the source's pipes are read (`None`).
-    pub(crate) fn clipboard_read(&mut self, conn: u64, call_id: u64, want: Want) -> Option<serde_json::Value> {
-        let serial = self.desk.clipboard.serial;
-        let (from, offered) = match self.desk.clipboard.owner.clone() {
+    pub(crate) fn clipboard_read(&mut self, desk: DeskId, conn: u64, call_id: u64, want: Want) -> Option<serde_json::Value> {
+        let serial = self.desk(desk).clipboard.serial;
+        let (from, offered) = match self.desk(desk).clipboard.owner.clone() {
             Owner::Empty => return Some(reply(want, serial, Vec::new(), Vec::new())),
             Owner::Ours(owned) => {
                 let items = wanted(&owned.items.iter().map(|item| item.mime.clone()).collect::<Vec<_>>(), want)
@@ -299,9 +299,9 @@ impl Ede {
         if mimes.is_empty() {
             return Some(reply(want, serial, Vec::new(), Vec::new()));
         }
-        self.desk.clipboard.next_job += 1;
-        let id = self.desk.clipboard.next_job;
-        self.desk.clipboard.jobs.push(Job {
+        self.desk_mut(desk).clipboard.next_job += 1;
+        let id = self.desk(desk).clipboard.next_job;
+        self.desk_mut(desk).clipboard.jobs.push(Job {
             id,
             conn,
             call_id,

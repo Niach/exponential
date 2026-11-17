@@ -14,7 +14,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// The keyboard a layer surface holds (#EDE-71): an Exclusive one takes it
 /// once, with its first buffer, and whatever had it before gets it back
@@ -91,7 +91,7 @@ impl Ede {
     /// is the sealed lock client, whose own surface is about to close.
     pub(crate) fn focus_after_unlock(&mut self, lock_pid: Option<u32>) {
         let top = self.desk.space.elements().last().cloned();
-        self.focus(top);
+        self.focus(DeskId::PERSON, top);
         let prompt = self.desk.space.outputs().find_map(|o| {
             let map = layer_map_for_output(o);
             let found = [Layer::Overlay, Layer::Top].into_iter().find_map(|on| map.layers_on(on).rev().find(|l| Some(crate::sealed::layer_origin(l).pid) != lock_pid && shows_exclusive(l)).cloned());
@@ -118,11 +118,11 @@ impl Ede {
         let previous = previous.filter(|p| p.alive());
         let window = previous.as_ref().and_then(|p| self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *p)).cloned());
         match (window, previous) {
-            (Some(window), _) => self.focus(Some(window)),
+            (Some(window), _) => self.focus(DeskId::PERSON, Some(window)),
             (None, Some(surface)) if self.layer_takes_keyboard(&surface) => keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial()),
             _ => {
                 let top = self.desk.space.elements().last().cloned();
-                self.focus(top);
+                self.focus(DeskId::PERSON, top);
             }
         }
     }

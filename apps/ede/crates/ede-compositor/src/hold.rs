@@ -18,7 +18,7 @@ use smithay::{
     utils::{Logical, Point},
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// xkb's keycode for Esc (evdev `KEY_ESC` 1 + 8).
 pub const ESC: u32 = 9;
@@ -37,12 +37,12 @@ impl Ede {
         !self.desk.hold.holders.is_empty() && !self.is_locked()
     }
 
-    pub(crate) fn hold_input(&mut self, conn: u64) {
-        if self.desk.hold.holders.contains(&conn) {
+    pub(crate) fn hold_input(&mut self, desk: DeskId, conn: u64) {
+        if self.desk(desk).hold.holders.contains(&conn) {
             return;
         }
-        self.desk.hold.holders.push(conn);
-        if self.desk.hold.holders.len() == 1 && !self.is_locked() {
+        self.desk_mut(desk).hold.holders.push(conn);
+        if self.desk(desk).hold.holders.len() == 1 && !self.desk_locked(desk) {
             self.release_person_input();
         }
     }
@@ -66,11 +66,11 @@ impl Ede {
         }
     }
 
-    pub(crate) fn release_input(&mut self, conn: u64) {
-        let held = !self.desk.hold.holders.is_empty();
-        self.desk.hold.holders.retain(|c| *c != conn);
-        if held && self.desk.hold.holders.is_empty() {
-            self.release_driven_of(None);
+    pub(crate) fn release_input(&mut self, desk: DeskId, conn: u64) {
+        let held = !self.desk(desk).hold.holders.is_empty();
+        self.desk_mut(desk).hold.holders.retain(|c| *c != conn);
+        if held && self.desk(desk).hold.holders.is_empty() {
+            self.release_driven_of(desk, None);
         }
     }
 
@@ -78,7 +78,7 @@ impl Ede {
     fn person_escape(&mut self) {
         let holders = std::mem::take(&mut self.desk.hold.holders);
         tracing::info!("Esc: the person took their input back from {} holder(s)", holders.len());
-        self.release_driven_of(None);
+        self.release_driven_of(DeskId::PERSON, None);
         let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event_id()), events::INPUT_ESCAPE, crate::ipc::now_ms(), EVENT_SOURCE, None, serde_json::Value::Null);
         let message = Message::Event { event: envelope };
         for conn in holders {

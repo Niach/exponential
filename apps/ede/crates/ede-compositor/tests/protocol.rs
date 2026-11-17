@@ -8,7 +8,7 @@ use std::{
 };
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, Config};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use ede_protocol::{events, Capability, CaptureTarget, Client, Error, ErrorCode, InputEvent, Request, SessionId, Token};
 
 const RED: u32 = 0xffff_0000;
@@ -805,7 +805,7 @@ fn the_clipboard_crosses_xwayland_both_ways() {
     conn.map_window(win).unwrap();
     conn.flush().unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
         assert!(Instant::now() < deadline, "the X11 window never took focus");
         std::thread::sleep(Duration::from_millis(20));
     }

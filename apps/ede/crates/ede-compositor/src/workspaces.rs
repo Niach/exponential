@@ -9,7 +9,10 @@
 use serde_json::json;
 use smithay::desktop::Window;
 
-use crate::state::{set_window_state, window_state, Ede};
+use crate::{
+    desk::DeskId,
+    state::{set_window_state, window_state, Ede},
+};
 
 /// Never more than this many.
 pub const MAX: usize = 9;
@@ -59,7 +62,7 @@ impl Ede {
             self.desk.space.map_element(w.clone(), at, false);
         }
         let top = arriving.last().cloned();
-        self.focus(top);
+        self.focus(DeskId::PERSON, top);
         let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
         self.emit(ede_protocol::events::WORKSPACE_SWITCHED, json!({ "workspace": index }));
@@ -87,23 +90,23 @@ impl Ede {
         } else if index != self.desk.workspaces.active {
             st.parked_at = self.desk.space.element_location(window);
             set_window_state(window, st);
-            let had_focus = self.focused_window().as_ref() == Some(window);
+            let had_focus = self.focused_window(DeskId::PERSON).as_ref() == Some(window);
             self.desk.space.unmap_elem(window);
             self.desk.workspaces.parked.push(window.clone());
             if had_focus {
                 let next = self.desk.space.elements().last().cloned();
-                self.focus(next);
+                self.focus(DeskId::PERSON, next);
             }
             if follow {
                 self.switch_workspace(index);
-                self.focus(Some(window.clone()));
+                self.focus(DeskId::PERSON, Some(window.clone()));
             }
         } else {
             set_window_state(window, st);
             self.desk.workspaces.parked.retain(|w| w != window);
             let at = st.parked_at.unwrap_or_default();
             self.desk.space.map_element(window.clone(), at, true);
-            self.focus(Some(window.clone()));
+            self.focus(DeskId::PERSON, Some(window.clone()));
         }
         self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
     }

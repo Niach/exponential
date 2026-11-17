@@ -28,6 +28,7 @@ use smithay::{
 };
 
 use crate::{
+    desk::DeskId,
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
@@ -146,7 +147,7 @@ impl XwmHandler for Ede {
         st.decorated = decorated;
         set_window_state(&window, st);
         // Same rules as a Wayland toplevel's first frame.
-        self.place_new_window(window.clone());
+        self.place_new_window(self.desk_of_window(&window), window.clone());
         if wants_fullscreen {
             self.set_fullscreen(&window, true);
         }
@@ -168,14 +169,15 @@ impl XwmHandler for Ede {
             self.forget_minimized(&minimized);
         }
         if let Some(window) = self.x11_window(&surface) {
-            let had_focus = self.focused_window().as_ref() == Some(&window);
+            let desk = self.desk_of_window(&window);
+            let had_focus = self.focused_window(desk).as_ref() == Some(&window);
             if !surface.is_override_redirect() {
                 self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
             }
             self.desk.space.unmap_elem(&window);
             if had_focus {
                 let next = self.desk.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
-                self.focus(next);
+                self.focus(desk, next);
             }
         }
         if !surface.is_override_redirect() {
@@ -264,7 +266,7 @@ impl XwmHandler for Ede {
             // #EDE-82: a client's own request brings it in front only when
             // its app is the one typed into.
             if self.takes_keyboard(&w) {
-                self.focus(Some(w));
+                self.focus(self.desk_of_window(&w), Some(w));
             } else {
                 self.keep_behind(&w);
             }
@@ -288,7 +290,7 @@ impl XwmHandler for Ede {
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         // Only the focused X11 client may read the clipboard.
-        self.focused_window().and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
+        self.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {

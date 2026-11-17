@@ -16,7 +16,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 impl InputMethodHandler for Ede {
     fn new_popup(&mut self, surface: PopupSurface) {
@@ -95,7 +95,7 @@ impl VirtualKeyboardHandler for Ede {
         let keyboard = self.desk.seat.get_keyboard().unwrap();
         match event {
             InputEvent::Keyboard { event } => {
-                if self.keyboard_focus_protected() {
+                if self.keyboard_focus_protected(DeskId::PERSON) {
                     return;
                 }
                 let device = event.device();
@@ -105,7 +105,7 @@ impl VirtualKeyboardHandler for Ede {
                 keyboard.input_forward_bypassing_grab(self, code, state, SERIAL_COUNTER.next_serial(), event.time(), mods_changed);
             }
             InputEvent::Special(VirtualKeyboardSpecialEvent::Modifiers { device, mods_depressed, mods_latched, mods_locked, group }) => {
-                if self.keyboard_focus_protected() {
+                if self.keyboard_focus_protected(DeskId::PERSON) {
                     return;
                 }
                 self.use_virtual_keymap(&device);

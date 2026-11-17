@@ -2,6 +2,9 @@
 //! space): the seat and what it holds down, the windows and their
 //! workspaces, the clipboard, the cursor.
 //! [`crate::state::Ede`] holds exactly one, the person's ([`Ede::desk`]).
+//! What acts on a desk takes its [`DeskId`] (focus, the `drive_*` paths,
+//! the clipboard, placement, the hold, the protected and lock checks) and
+//! finds the desk with [`Ede::desk`]; today every id is [`DeskId::PERSON`].
 //!
 //! [`Ede::desk`]: crate::state::Ede::desk
 
@@ -14,7 +17,16 @@ use smithay::{
 
 use crate::state::Ede;
 
+/// Which desk: the person's, the only one so far (#EDE-90).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeskId(u32);
+
+impl DeskId {
+    pub const PERSON: DeskId = DeskId(0);
+}
+
 pub struct Desk {
+    pub id: DeskId,
     pub seat: Seat<Ede>,
     /// What the pointer looks like (a client's cursor surface, hidden, or
     /// the default arrow); backends that draw their own cursor read it.
@@ -52,4 +64,32 @@ pub struct Desk {
     pub workspaces: crate::workspaces::Workspaces,
     /// The last press on a title bar, for the double-click.
     pub title_click: Option<(Window, Instant)>,
+}
+
+impl Ede {
+    /// The desk `id` names.
+    pub fn desk(&self, id: DeskId) -> &Desk {
+        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
+        &self.desk
+    }
+
+    pub fn desk_mut(&mut self, id: DeskId) -> &mut Desk {
+        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
+        &mut self.desk
+    }
+
+    /// The desk a window lives on: the person's, the only one.
+    pub fn desk_of_window(&self, _window: &smithay::desktop::Window) -> DeskId {
+        self.desk.id
+    }
+
+    /// The desk an ede-protocol connection drives: the person's, the only one.
+    pub(crate) fn desk_of_conn(&self, _conn: u64) -> DeskId {
+        self.desk.id
+    }
+
+    /// The session lock covers the person's desk.
+    pub fn desk_locked(&self, id: DeskId) -> bool {
+        id == DeskId::PERSON && self.is_locked()
+    }
 }

@@ -12,7 +12,7 @@ use smithay::{
     wayland::seat::WaylandFocus,
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 impl Ede {
     /// The window being typed into: the focused one, or the one that gets
@@ -22,7 +22,7 @@ impl Ede {
         let pending = self.desk.pending_x11_focus.as_ref().and_then(|x| self.desk.space.elements().find(|w| w.x11_surface() == Some(x)).cloned());
         #[cfg(not(feature = "xwayland"))]
         let pending = None;
-        self.focused_window().or(pending).or_else(|| self.prompt_previous_window())
+        self.focused_window(DeskId::PERSON).or(pending).or_else(|| self.prompt_previous_window())
     }
 
     /// May `window`, mapping or asking to come in front, take the keyboard?
