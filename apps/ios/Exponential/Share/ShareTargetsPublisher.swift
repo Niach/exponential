@@ -216,7 +216,8 @@ final class ShareTargetsPublisher {
             deviceId: root.deviceId,
             shared: root.shared,
             publicKey: root.sealKey?.publicKey,
-            epoch: root.sealKey?.epoch
+            epoch: root.sealKey?.epoch,
+            clearTree: root.clearTree
         )
     }
 }

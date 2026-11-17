@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-17-chats-encrypted-by-default`,
+    date: `2026-11-17`,
+    title: `Chats are encrypted by default`,
+    summary: `Every new chat is end-to-end encrypted, including chats a trigger, a schedule or an app starts. Only a chat an MCP client outside Exponential starts stays in clear.`,
+    body: `- **Every new chat is encrypted**: messages, cards and titles are sealed before they leave your device. A device that holds no key yet waits a moment, then says so; your draft stays.
+- **Started for you, sealed too**: a chat a trigger, a schedule, an app or a suggestion starts is sealed by the device that picks it up.
+- **Outside MCP clients**: a chat an MCP client outside Exponential starts stays in clear for life, so that client can keep reading and writing it.
+- **Older chats**: chats already in clear stay as they are.
+- **Update your desktop app and CLI**: version 0.14.96 or later is required.`,
+  },
+  {
     id: `2026-11-17-computer-use-follows-the-device-switch`,
     date: `2026-11-17`,
     title: `Computer use follows your device's switch`,

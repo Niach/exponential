@@ -51,6 +51,8 @@ export const SESSION_COLUMNS = [
   // #FEED-177: a private turn's rotation flag (the holders rotate).
   `seal_rotate_epoch`,
   `sealed_title`,
+  // #EDE-97: an outside-MCP tree stays in clear for life (writers read it).
+  `clear_tree`,
   // #EXP-1730 phase A: the list digest (mirrored from conversations).
   `digest`,
   // #EXP-1720: the Assistant conversation root's Teams pick (null = all).

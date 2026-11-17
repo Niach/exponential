@@ -81,6 +81,9 @@ public actor TreeKeyHolder {
     private let ring: SealedKeyRing
     private let identity: @Sendable () -> Data?
     private let installId: @Sendable (String) async -> String?
+    /// #EDE-97: nudges this install's registration on an account it has
+    /// none for yet (a writer is waiting for it).
+    private let register: @Sendable (String) -> Void
     private let now: @Sendable () -> Date
     private var requested: [String: Date] = [:]
     private var synced: Set<String> = []
@@ -93,8 +96,10 @@ public actor TreeKeyHolder {
         ring: SealedKeyRing,
         identity: @escaping @Sendable () -> Data?,
         installId: @escaping @Sendable (String) async -> String?,
+        register: @escaping @Sendable (String) -> Void = { _ in },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.register = register
         self.keys = keys
         self.installs = installs
         self.crypto = crypto
@@ -183,6 +188,26 @@ public actor TreeKeyHolder {
     }
 
     // MARK: writing
+
+    /// #EDE-97 (sealed-content.json `clearTree`, holder `late`): this
+    /// install's id on `accountId`, waiting up to `wait` for a holder still
+    /// coming up (its registration nudged once); nil = none within the wait
+    /// (signed out, no eNet, registration refused).
+    public func readyInstall(accountId: String, wait: Duration) async -> String? {
+        guard crypto.isAvailable else { return nil }
+        if let install = await installId(accountId) { return install }
+        register(accountId)
+        let clock = ContinuousClock()
+        let deadline = clock.now + wait
+        while clock.now < deadline {
+            try? await Task.sleep(for: min(Self.readyPoll, deadline - clock.now))
+            if Task.isCancelled { return nil }
+            if let install = await installId(accountId) { return install }
+        }
+        return nil
+    }
+
+    static let readyPoll: Duration = .seconds(1)
 
     /// The key a NEW chat starts with: a fresh keypair, held here, with
     /// wraps for the readers this install can resolve. Store the secret under

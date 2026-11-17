@@ -17,8 +17,12 @@
 //!   and reader uses: the engine's replies, the pickup, the brief, the
 //!   device MCP gateway and the desktop UI.
 //!
-//! No service installed (eNet off, signed out) = nothing seals (writers
-//! send plaintext, which stays legal) and only plaintext opens.
+//! #EDE-97 (`sealed-content.json` `clearTree`): NO SILENT PLAINTEXT. Every
+//! writer seals ([`seal_body_for_session`], [`seal_card_for_session`]);
+//! plaintext is the wire ONLY into a clear tree (an outside MCP client's
+//! root, `sessions.clear_tree`, [`tree_clear`]). Without a key holder (eNet
+//! off, signed out) or a key, a write FAILS ([`SealError`]) and nothing
+//! leaves; only plaintext opens then. The pure decision is [`send_wire`].
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -185,6 +189,9 @@ impl Keyring {
                 let root = row.root_id.as_deref().filter(|r| !r.is_empty()).unwrap_or(&row.id);
                 if state.roots.get(&row.id).map(String::as_str) != Some(root) {
                     state.roots.insert(row.id.clone(), root.to_string());
+                }
+                if row.is_root() && row.clear_tree {
+                    note_clear_tree(&row.id);
                 }
                 if row.is_root() {
                     match row.seal_rotate_epoch.and_then(|e| u32::try_from(e).ok()) {
@@ -446,8 +453,9 @@ pub fn service_expected() -> bool {
 }
 
 /// #FEED-184: how long a writer waits for an expected key holder (a boot
-/// that launched sessions before the install registered).
-pub const SERVICE_WAIT: Duration = Duration::from_secs(60);
+/// that launched sessions before the install registered); #EDE-97:
+/// `sealed-content.json` `clearTree.holderWaitMs`.
+pub const SERVICE_WAIT: Duration = Duration::from_secs(20);
 const SERVICE_POLL: Duration = Duration::from_millis(250);
 static SERVICE_WAIT_MS: AtomicU64 = AtomicU64::new(SERVICE_WAIT.as_millis() as u64);
 
@@ -508,6 +516,25 @@ fn with_keyring<R>(f: impl FnOnce(&Keyring) -> R) -> R {
 /// process knows (synced rows feed it even without a key holder).
 pub fn tree_keyed(root_id: &str) -> bool {
     with_keyring(|keyring| keyring.current(root_id).is_some())
+}
+
+/// #EDE-97: the roots known to be CLEAR trees (`sessions.clear_tree`, roots
+/// only, never changes): process-global, independent of the key holder (a
+/// clear tree needs none).
+static CLEAR: RwLock<Option<std::collections::HashSet<String>>> = RwLock::new(None);
+
+/// Records `root_id` as a clear tree (the synced row says `clear_tree`).
+pub fn note_clear_tree(root_id: &str) {
+    if root_id.is_empty() || tree_clear(root_id) {
+        return;
+    }
+    write(&CLEAR).get_or_insert_with(Default::default).insert(root_id.to_string());
+}
+
+/// #EDE-97: `root_id` is a clear tree: plaintext is its legal wire, nobody
+/// keys it.
+pub fn tree_clear(root_id: &str) -> bool {
+    read(&CLEAR).as_ref().is_some_and(|clear| clear.contains(root_id))
 }
 
 /// [`Keyring::changed`] of the installed keyring, moved by every service
@@ -578,6 +605,9 @@ pub enum SealError {
     /// #FEED-185: the tree is sealed but this process has no key holder
     /// and none is coming (signed out, eNet off, registration refused).
     NoHolder,
+    /// #EDE-97: a clear tree (`sessions.clear_tree`): nobody keys it and
+    /// plaintext IS its legal wire (not a failure for a writer).
+    ClearTree,
     Invalid(String),
 }
 
@@ -593,6 +623,7 @@ impl std::fmt::Display for SealError {
                 f,
                 "this chat is end-to-end encrypted and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
             ),
+            SealError::ClearTree => write!(f, "{CLEAR_REFUSAL}"),
             SealError::Invalid(why) => write!(f, "{why}"),
         }
     }
@@ -600,7 +631,15 @@ impl std::fmt::Display for SealError {
 
 impl std::error::Error for SealError {}
 
+/// `sealed-content.json` `clearTree.clearRefusal`.
+pub const CLEAR_REFUSAL: &str = "This chat stays in clear: an MCP client outside Exponential started it";
+/// `sealed-content.json` `clearTree.noKeyRefusal`.
+pub const NO_KEY_REFUSAL: &str = "This chat is end-to-end encrypted and this device holds no key for it yet. Try again in a moment.";
+
 fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
+    if tree_clear(root_id) {
+        return Err(SealError::ClearTree);
+    }
     let service = sealer()?;
     match service.ensure_key(root_id) {
         Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
@@ -621,6 +660,9 @@ pub fn set_send_key_wait(wait: Duration) {
 }
 
 fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
+    if tree_clear(root_id) {
+        return Err(SealError::ClearTree);
+    }
     let service = sealer()?;
     if let Some(current) = service.keyring().current(root_id) {
         return Ok(current);
@@ -634,7 +676,8 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         other => return other,
     }
     // Not a reader: only a claim can key it. Wait for one rather than send
-    // in clear (EXP-1472); after that plaintext stays legal in a keyless tree.
+    // in clear (EXP-1472); #EDE-97: after that the send FAILS (NotReader),
+    // never plaintext.
     let deadline = Instant::now() + Duration::from_millis(SEND_KEY_WAIT_MS.load(Ordering::SeqCst));
     loop {
         if let Some(key) = service.public_key(root_id).map_err(SealError::NoKey)? {
@@ -654,11 +697,11 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
 pub fn ensure_tree_key(root_id: &str) {
     // Never waits for a coming key holder: the claim goes on, the first
     // sealed write keys the root instead.
-    if service().is_none() {
+    if service().is_none() || tree_clear(root_id) {
         return;
     }
     match key_for_writing(root_id) {
-        Ok(_) | Err(SealError::NoService) => {}
+        Ok(_) | Err(SealError::NoService | SealError::ClearTree) => {}
         Err(err) => log::warn!("sealing: the tree key of {root_id} was not created at its claim: {err}"),
     }
 }
@@ -690,37 +733,126 @@ pub fn seal_card_for_tree(root_id: &str, card: &Value) -> Result<Value, SealErro
     enet_core::sealed::seal_card(&public, epoch, card).map_err(|e| SealError::Invalid(e.to_string()))
 }
 
-/// [`seal_body`] for a session (its root resolved), or the plaintext when
-/// sealing is impossible (logged): what a writer posts.
-pub fn seal_body_or_plain(session_id: &str, text: &str) -> String {
+/// #EDE-97: what a writer posts into `session_id`'s tree: the body SEALED
+/// to its tree (a keyless tree is keyed first, or waits for its device's
+/// claim to key it, [`SEND_KEY_WAIT`]; a coming key holder is waited for,
+/// [`SERVICE_WAIT`]). Plaintext ONLY into a clear tree ([`tree_clear`]);
+/// empty and already-sealed text go as given. Any other failure is an
+/// `Err` and the caller sends NOTHING (no silent plaintext). BLOCKING.
+pub fn seal_body_for_session(session_id: &str, text: &str) -> Result<String, SealError> {
     if text.is_empty() || matches!(parse_body_envelope(text), BodyEnvelope::Value(_)) {
-        return text.to_string();
+        return Ok(text.to_string());
     }
-    let sealed = root_of(session_id).ok_or(SealError::UnknownRoot).and_then(|root| seal_body(&root, text));
-    match sealed {
-        Ok(body) => body,
-        Err(SealError::NoService) => text.to_string(),
-        Err(err) => {
-            log::warn!("sealing: session {session_id} body goes out plaintext: {err}");
-            text.to_string()
-        }
+    match session_root(session_id).and_then(|root| seal_body_for_tree(&root, text)) {
+        Err(SealError::ClearTree) => Ok(text.to_string()),
+        other => other,
     }
 }
 
-/// [`seal_card`] for a session, or the card as is (logged).
-pub fn seal_card_or_plain(session_id: &str, card: &Value) -> Value {
+/// [`seal_body_for_session`] for a card (`{...clear, sealed}`); a sealed
+/// card goes as given, a clear tree takes it plaintext. BLOCKING.
+pub fn seal_card_for_session(session_id: &str, card: &Value) -> Result<Value, SealError> {
     if card.get("sealed").is_some() {
-        return card.clone();
+        return Ok(card.clone());
     }
-    let sealed = root_of(session_id).ok_or(SealError::UnknownRoot).and_then(|root| seal_card(&root, card));
-    match sealed {
-        Ok(card) => card,
-        Err(SealError::NoService) => card.clone(),
-        Err(err) => {
-            log::warn!("sealing: session {session_id} card goes out plaintext: {err}");
-            card.clone()
+    match session_root(session_id).and_then(|root| seal_card_for_tree(&root, card)) {
+        Err(SealError::ClearTree) => Ok(card.clone()),
+        other => other,
+    }
+}
+
+/// The root a session writes into; [`SealError::ClearTree`] when the
+/// session itself is a known clear root (no lookup, no holder needed).
+fn session_root(session_id: &str) -> Result<String, SealError> {
+    if tree_clear(session_id) {
+        return Err(SealError::ClearTree);
+    }
+    #[cfg(test)]
+    if test_support::plain_is_legal() {
+        return Err(SealError::ClearTree);
+    }
+    let root = match with_keyring(|k| k.root_of(session_id)) {
+        Some(root) => root,
+        None => {
+            // The holder's lookup; no holder (or one that never comes) is
+            // the failure, not an unknown root.
+            let service = sealer()?;
+            let root = service.resolve_root(session_id).ok_or(SealError::UnknownRoot)?;
+            service.keyring().note_root(session_id, &root);
+            root
         }
+    };
+    if tree_clear(&root) {
+        return Err(SealError::ClearTree);
     }
+    Ok(root)
+}
+
+// --- the writer's decision (`clearTree.writerCases` / `claimCases`) ------
+
+/// Where a send's text goes (`sendWire`'s `tree`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendTree {
+    /// A `clear_tree` root.
+    Clear,
+    /// The send creates the root.
+    New,
+    Keyed,
+    /// An existing root without a key.
+    Keyless,
+}
+
+/// This process's key holder (`sendWire`'s `holder`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holder {
+    Ready,
+    /// Coming up within [`SERVICE_WAIT`]: the writer waits for it.
+    Late,
+    /// None within the wait (signed out, eNet off, registration refused).
+    None,
+}
+
+/// What leaves (`sendWire`'s result).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendWire {
+    /// Only into a clear tree.
+    Plain,
+    /// A new root's key rides as `seal`.
+    Inline,
+    /// `sessionKeys.create` first, then sealed.
+    Create,
+    /// The tree's current key.
+    Sealed,
+    /// Nothing leaves: the send fails.
+    Failed,
+}
+
+/// #EDE-97: the pure writer decision of every writer x4 (the TS reference
+/// `sendWire`, `packages/domain-contract/src/sealed-content.ts`): `reader`
+/// = this install may key a keyless tree, `key_arrives` = its device's
+/// claim keys it within [`SEND_KEY_WAIT`].
+pub fn send_wire(tree: SendTree, holder: Holder, reader: bool, key_arrives: bool) -> SendWire {
+    match (tree, holder) {
+        (SendTree::Clear, _) => SendWire::Plain,
+        (_, Holder::None) => SendWire::Failed,
+        (SendTree::New, _) => SendWire::Inline,
+        (SendTree::Keyed, _) => SendWire::Sealed,
+        (SendTree::Keyless, _) if reader => SendWire::Create,
+        (SendTree::Keyless, _) if key_arrives => SendWire::Sealed,
+        (SendTree::Keyless, _) => SendWire::Failed,
+    }
+}
+
+/// #EDE-97 `claimCases`: the device keys a root it claims without a key,
+/// unless it is a clear tree.
+pub fn claim_keys(clear_tree: bool, keyed: bool) -> bool {
+    !clear_tree && !keyed
+}
+
+/// #EDE-97 `claimCases`: the device re-seals the session's first message
+/// when it is still plaintext and the tree is not clear (keyed by then).
+pub fn claim_reseals(clear_tree: bool, first_plain: bool) -> bool {
+    !clear_tree && first_plain
 }
 
 // --- opening -------------------------------------------------------------
@@ -919,6 +1051,28 @@ pub(crate) mod test_support {
         }
     }
 
+    static PLAIN: AtomicBool = AtomicBool::new(false);
+
+    /// Tests about something else than sealing (pickup's control flow)
+    /// write as if every tree were clear while the guard lives.
+    pub(crate) fn plain_is_legal() -> bool {
+        PLAIN.load(Ordering::SeqCst)
+    }
+
+    pub struct PlainGuard;
+
+    impl Drop for PlainGuard {
+        fn drop(&mut self) {
+            PLAIN.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// Hold [`serial`] too: the flag is process-global.
+    pub fn allow_plain() -> PlainGuard {
+        PLAIN.store(true, Ordering::SeqCst);
+        PlainGuard
+    }
+
     pub fn serial() -> Serial {
         if HELD.with(|held| held.get()) {
             return Serial(None);
@@ -1044,10 +1198,10 @@ mod tests {
             SessionRow { id: "root".into(), root_id: Some("root".into()), ..Default::default() },
             SessionRow { id: "child".into(), root_id: Some("root".into()), parent_id: Some("root".into()), ..Default::default() },
         ]);
-        let body = seal_body_or_plain("child", "hello child");
+        let body = seal_body_for_session("child", "hello child").unwrap();
         assert!(body.starts_with("exp-sealed:v1:1:"), "{body}");
         assert_eq!(fake.created.lock().unwrap().as_slice(), ["root"]);
-        let card = seal_card_or_plain("child", &serde_json::json!({"kind": "report", "sessionId": "child", "summary": "done"}));
+        let card = seal_card_for_session("child", &serde_json::json!({"kind": "report", "sessionId": "child", "summary": "done"})).unwrap();
         assert!(card.get("summary").is_none());
         let row = MessageRow { id: "m".into(), session_id: "child".into(), body: Some(body), card: Some(card), ..Default::default() };
         let opened = open_message(&row);
@@ -1067,10 +1221,14 @@ mod tests {
     }
 
     #[test]
-    fn locked_content_reads_the_placeholder_and_no_service_stays_plain() {
+    fn locked_content_reads_the_placeholder_and_no_service_never_sends_plain() {
         let _serial = serial();
         uninstall();
-        assert_eq!(seal_body_or_plain("s", "plain"), "plain");
+        // #EDE-97: no key holder = the write fails, never plaintext...
+        assert_eq!(seal_body_for_session("s", "plain"), Err(SealError::NoService));
+        assert_eq!(seal_card_for_session("s", &serde_json::json!({"kind": "report"})), Err(SealError::NoService));
+        // ...except empty or already sealed text.
+        assert_eq!(seal_body_for_session("s", "").as_deref(), Ok(""));
         let fake = install_fake();
         let other = generate_tree_key();
         let body = enet_core::sealed::seal_body(&other.public, 1, "secret").unwrap();
@@ -1207,5 +1365,110 @@ mod tests {
         assert!(fake.created.lock().unwrap().is_empty());
         uninstall();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EDE-97: `clearTree.writerCases` and `claimCases` replayed through
+    /// the pure decisions; the waits are the fixture's.
+    #[test]
+    fn the_writer_and_claim_decisions_replay_the_clear_tree_fixture() {
+        let fx = fixture();
+        let clear = &fx["clearTree"];
+        assert_eq!(SERVICE_WAIT.as_millis() as u64, clear["holderWaitMs"].as_u64().unwrap());
+        assert_eq!(SEND_KEY_WAIT.as_millis() as u64, clear["keyWaitMs"].as_u64().unwrap());
+        assert_eq!(CLEAR_REFUSAL, clear["clearRefusal"].as_str().unwrap());
+        assert_eq!(NO_KEY_REFUSAL, clear["noKeyRefusal"].as_str().unwrap());
+        for case in clear["writerCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let tree = match case["tree"].as_str().unwrap() {
+                "clear" => SendTree::Clear,
+                "new" => SendTree::New,
+                "keyed" => SendTree::Keyed,
+                "keyless" => SendTree::Keyless,
+                other => panic!("{name}: tree {other}"),
+            };
+            let holder = match case["holder"].as_str().unwrap() {
+                "ready" => Holder::Ready,
+                "late" => Holder::Late,
+                "none" => Holder::None,
+                other => panic!("{name}: holder {other}"),
+            };
+            let wire = send_wire(tree, holder, case["reader"].as_bool().unwrap_or(false), case["keyArrives"].as_bool().unwrap_or(false));
+            let want = match case["wire"].as_str().unwrap() {
+                "plain" => SendWire::Plain,
+                "inline" => SendWire::Inline,
+                "create" => SendWire::Create,
+                "sealed" => SendWire::Sealed,
+                "failed" => SendWire::Failed,
+                other => panic!("{name}: wire {other}"),
+            };
+            assert_eq!(wire, want, "{name}");
+        }
+        for case in clear["claimCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let (clear_tree, keyed, first_plain) =
+                (case["clearTree"].as_bool().unwrap(), case["keyed"].as_bool().unwrap(), case["firstPlain"].as_bool().unwrap());
+            assert_eq!(claim_keys(clear_tree, keyed), case["keys"].as_bool().unwrap(), "{name}: keys");
+            assert_eq!(claim_reseals(clear_tree, first_plain), case["reseals"].as_bool().unwrap(), "{name}: reseals");
+        }
+    }
+
+    /// #EDE-97: a clear tree (its synced root says `clear_tree`) takes
+    /// plaintext from every writer, with or without a key holder, and is
+    /// never keyed; any other tree without a holder fails.
+    #[test]
+    fn a_clear_tree_takes_plaintext_and_is_never_keyed() {
+        let _serial = serial();
+        uninstall();
+        note_sessions(&[
+            SessionRow { id: "clear-root".into(), root_id: Some("clear-root".into()), clear_tree: true, ..Default::default() },
+            SessionRow { id: "clear-child".into(), root_id: Some("clear-root".into()), parent_id: Some("clear-root".into()), ..Default::default() },
+        ]);
+        assert!(tree_clear("clear-root"));
+        assert_eq!(seal_body_for_session("clear-root", "hello").as_deref(), Ok("hello"));
+        let card = serde_json::json!({"kind": "report", "summary": "done"});
+        assert_eq!(seal_card_for_session("clear-root", &card), Ok(card.clone()));
+
+        let fake = install_fake();
+        note_sessions(&[
+            SessionRow { id: "clear-root".into(), root_id: Some("clear-root".into()), clear_tree: true, ..Default::default() },
+            SessionRow { id: "clear-child".into(), root_id: Some("clear-root".into()), parent_id: Some("clear-root".into()), ..Default::default() },
+            SessionRow { id: "sealed-root".into(), root_id: Some("sealed-root".into()), ..Default::default() },
+        ]);
+        assert_eq!(seal_body_for_session("clear-child", "hi").as_deref(), Ok("hi"));
+        assert_eq!(seal_card_for_session("clear-child", &card), Ok(card.clone()));
+        assert_eq!(seal_body("clear-root", "hi"), Err(SealError::ClearTree));
+        assert_eq!(seal_body_for_tree("clear-root", "hi"), Err(SealError::ClearTree));
+        ensure_tree_key("clear-root");
+        assert!(fake.created.lock().unwrap().is_empty(), "nobody keys a clear tree");
+        // Another tree seals (keyed by this writer).
+        let body = seal_body_for_session("sealed-root", "secret").unwrap();
+        assert!(body.starts_with(SEALED_BODY_PREFIX), "{body}");
+        assert_eq!(fake.created.lock().unwrap().as_slice(), ["sealed-root"]);
+        uninstall();
+        // The same tree without a holder: nothing leaves.
+        assert_eq!(seal_body_for_session("sealed-root", "secret"), Err(SealError::NoService));
+    }
+
+    /// #EDE-97: a keyless tree this install may not key and no claim keys
+    /// within the wait FAILS (was: plaintext); a holder still coming that
+    /// never arrives fails too.
+    #[test]
+    fn no_key_and_no_holder_fail_instead_of_plaintext() {
+        let _serial = serial();
+        let fake = install_fake();
+        fake.keyring.note_root("nr-child", "nr-root");
+        fake.not_reader_of.lock().unwrap().push("nr-root".into());
+        set_send_key_wait(Duration::from_millis(300));
+        let refused = seal_body_for_session("nr-child", "hello");
+        set_send_key_wait(SEND_KEY_WAIT);
+        assert_eq!(refused, Err(SealError::NotReader));
+        uninstall();
+
+        expect_service(true);
+        set_service_wait(Duration::from_millis(300));
+        let late = seal_body_for_session("nr-child", "hello");
+        set_service_wait(SERVICE_WAIT);
+        expect_service(false);
+        assert_eq!(late, Err(SealError::NotReady));
     }
 }

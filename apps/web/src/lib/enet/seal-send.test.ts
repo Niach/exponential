@@ -112,12 +112,22 @@ describe(`sealSendInput`, () => {
     expect(openBody(sealed.input.text!, holder.keysFor(`r1`)).text).toBe(`hi`)
   })
 
-  it(`a keyless root this install cannot key stays plaintext (legal), mentions still clear`, async () => {
+  it(`a keyless root this install cannot key waits for its device's key, never plaintext (EDE-97)`, async () => {
     const { holder } = holderWith({ create: vi.fn(async () => Promise.reject(new Error(`NOT_FOUND`))) })
     const root = { ...keyedRoot, userId: `u-other`, sealPublicKey: null, sealEpoch: null }
-    const sealed = await sealSendInput({ sessionId: `r1`, text: `hey @dana@acme.dev` }, deps(holder, [root]))
-    expect(sealed.input.text).toBe(`hey @dana@acme.dev`)
+    let polls = 0
+    const waiting = {
+      ...deps(holder, [root]),
+      waits: { holderMs: 10, keyMs: 50, pollMs: 1 },
+      sleep: async () => {},
+      publicKey: async () => (++polls >= 3 ? { epoch: 1, publicKey: fixture.tree.publicKey } : undefined),
+    }
+    const sealed = await sealSendInput({ sessionId: `r1`, text: `hey @dana@acme.dev` }, waiting)
+    expect(openBody(sealed.input.text!, new Map([[1, hex(fixture.tree.secret)]]))).toMatchObject({ status: `opened`, text: `hey @dana@acme.dev` })
     expect(sealed.input.mentionUserIds).toEqual([`u-dana`])
+    // No key within the wait: the send fails, nothing leaves in clear.
+    const never = { ...waiting, publicKey: async () => undefined, waits: { holderMs: 1, keyMs: 0, pollMs: 1 } }
+    await expect(sealSendInput({ sessionId: `r1`, text: `hey` }, never)).rejects.toThrow(fixture.clearTree.noKeyRefusal)
   })
 
   it(`the first message to an agent creates its conversation's key inline`, async () => {
@@ -129,9 +139,33 @@ describe(`sealSendInput`, () => {
     expect(again.input.seal).toBeUndefined()
   })
 
-  it(`without a key holder nothing changes`, async () => {
+  it(`without a key holder the send fails (EDE-97), a holder coming up is waited for`, async () => {
     const input = { sessionId: `r1`, text: `plain` }
-    expect((await sealSendInput(input, deps(undefined, [keyedRoot]))).input).toBe(input)
+    const none = { ...deps(undefined, [keyedRoot]), waits: { holderMs: 1, keyMs: 1, pollMs: 1 } }
+    await expect(sealSendInput(input, none)).rejects.toThrow(fixture.clearTree.noKeyRefusal)
+    await expect(sealSendInput(input, { ...none, awaitHolder: async () => undefined })).rejects.toThrow(fixture.clearTree.noKeyRefusal)
+    const late = { ...none, awaitHolder: async () => holderWith().holder }
+    expect((await sealSendInput(input, late)).input.text).toMatch(/^exp-sealed:v1:1:/)
+    // An attachment-only send is not sealed (unchanged).
+    const bare = { sessionId: `r1`, attachmentIds: [`a`] }
+    expect((await sealSendInput(bare, none)).input).toBe(bare)
+  })
+
+  it(`an outside-MCP (clear) tree takes plaintext and is never keyed (EDE-97)`, async () => {
+    const { holder, api } = holderWith()
+    const clear = { ...keyedRoot, sealPublicKey: null, sealEpoch: null, clearTree: true }
+    for (const h of [undefined, holder]) {
+      const sealed = await sealSendInput({ sessionId: `r1`, text: `hi @dana@acme.dev` }, deps(h, [clear]))
+      expect(sealed.input.text).toBe(`hi @dana@acme.dev`)
+      expect(sealed.input.seal).toBeUndefined()
+    }
+    expect(api.create).not.toHaveBeenCalled()
+    // A clear conversation the store has not synced yet: the server says so.
+    const unsynced = { ...deps(holder), sendTarget: async () => ({ rootId: `r1`, epoch: null, publicKey: null, clearTree: true }) }
+    const sealed = await sealSendInput({ agentId: `a1`, teamId: `t1`, text: `hi` }, unsynced)
+    expect(sealed.input.text).toBe(`hi`)
+    expect(sealed.input.seal).toBeUndefined()
+    expect(api.create).not.toHaveBeenCalled()
   })
 })
 

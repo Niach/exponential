@@ -147,7 +147,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
+             "v111_session_clear_tree"]
         )
     }
 
@@ -216,7 +217,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
+             "v111_session_clear_tree"]
         )
     }
 
@@ -757,7 +759,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
+             "v111_session_clear_tree"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -874,7 +877,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v100_app_record_share_name", "v101_merge_train",
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
-             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching"]
+             "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
+             "v111_session_clear_tree"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1922,7 +1926,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
              "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids", "digest",
-             "watching"]
+             "watching", "clear_tree"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -2004,7 +2008,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(
             sessionBools,
-            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared", "background"]
+            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared", "background", "clear_tree"]
         )
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table

@@ -269,7 +269,8 @@ final class AppDependencies: @unchecked Sendable {
             crypto: opener.crypto,
             ring: keyRing,
             identity: { identityStore.load() },
-            installId: { accountId in await installNode?.installId(accountId: accountId) }
+            installId: { accountId in await installNode?.installId(accountId: accountId) },
+            register: { _ in installNode?.wake() }
         )
         self.treeKeyHolder = treeKeyHolder
         self.treeKeys = TreeKeyCoordinator(holder: treeKeyHolder, opener: opener, auth: auth, db: db)

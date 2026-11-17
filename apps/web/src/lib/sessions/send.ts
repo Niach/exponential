@@ -97,7 +97,7 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
-import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
+import { isSealedBody, startsClearTree, validSealedBody } from "@/lib/sessions/sealed"
 import { forwardMessageFiles, retargetBody } from "@/lib/sessions/forward-attachments"
 import { parseVersionTuple } from "@/lib/client-version"
 import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
@@ -2050,6 +2050,9 @@ async function startRoot(
       shared: device.shared,
       ...(title ? { title: title.slice(0, 255) } : {}),
       ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
+      // #EDE-97: an outside MCP client's chat stays in clear for life.
+      // An app's tool (the broker, `viaAppId`) is the server, never outside.
+      ...(startsClearTree({ viaMcp: viaMcp && !sendViaApp.getStore(), caller, seal: !!input.seal }) ? { clearTree: true } : {}),
     })
 
     if (input.issueIds?.length) {

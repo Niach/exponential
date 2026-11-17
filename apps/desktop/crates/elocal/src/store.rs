@@ -50,6 +50,7 @@ const COLUMN_TYPES: &[(&str, ColumnType)] = &[
     ("busy", ColumnType::Bool),
     ("needs_input", ColumnType::Bool),
     ("shared", ColumnType::Bool),
+    ("clear_tree", ColumnType::Bool),
     ("plan_mode", ColumnType::Bool),
     ("computer_use", ColumnType::Bool),
     ("ultracode", ColumnType::Bool),

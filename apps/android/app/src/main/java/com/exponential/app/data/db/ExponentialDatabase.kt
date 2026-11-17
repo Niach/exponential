@@ -113,7 +113,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_128_129]; only the agents shape refetches.
     // v130 (#NEW-49): sessions.watching (what a session waits on), explicit
     //      [MIGRATION_129_130]; only the sessions shape refetches.
-    version = 130,
+    // v131 (#EDE-97): sessions.clear_tree (a tree that stays in clear),
+    //      explicit [MIGRATION_130_131]; only the sessions shape refetches.
+    version = 131,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

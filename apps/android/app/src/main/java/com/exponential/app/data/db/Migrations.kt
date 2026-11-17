@@ -459,3 +459,18 @@ val MIGRATION_129_130: Migration = object : Migration(129, 130) {
         )
     }
 }
+
+/**
+ * v131 (#EDE-97, sealed-content.json `clearTree`): `sessions.clear_tree`, a
+ * root an outside MCP client started stays in clear for life (absent = false).
+ * Only the sessions shape refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_130_131: Migration = object : Migration(130, 131) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `clear_tree` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}

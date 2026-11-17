@@ -428,6 +428,41 @@ export function isStaleTreeRefusal(message: string | null | undefined): boolean 
   return message === STALE_TREE_REFUSAL || /^The tree is at epoch \d+$/.test(message)
 }
 
+// ── sealed by default (fixtures/sealed-content.json `clearTree`, #EDE-97) ──
+
+/** The failed send's description when a text cannot be sealed (no key holder,
+ *  no key within the wait): nothing leaves in clear. */
+export const NO_KEY_REFUSAL: string = placeholderFixture.clearTree.noKeyRefusal
+/** The server's refusal of a key for a tree an outside MCP client started. */
+export const CLEAR_TREE_REFUSAL: string = placeholderFixture.clearTree.clearRefusal
+/** How long a writer waits for its key holder / a keyless tree's key. */
+export const SEAL_HOLDER_WAIT_MS: number = placeholderFixture.clearTree.holderWaitMs
+export const SEAL_KEY_WAIT_MS: number = placeholderFixture.clearTree.keyWaitMs
+/** Devices (desktop, CLI) below it never key a tree: the minimum-version floor. */
+export const SEALING_DEVICE_MIN_VERSION: string = placeholderFixture.clearTree.deviceMinVersion
+
+export type SendTree = `clear` | `new` | `keyed` | `keyless`
+export type SendWire = `plain` | `inline` | `create` | `sealed` | `failed`
+
+/** #EDE-97: what a writer's text goes out as. No silent plaintext: only a
+ *  clear tree takes it; everything else seals or fails (the failed-action
+ *  toast with `NO_KEY_REFUSAL`). `holder`: `late` = it came up within the
+ *  wait; `reader` = this install may key a keyless tree; `keyArrives` = the
+ *  device's claim keyed it within the wait. */
+export function sendWire(input: {
+  tree: SendTree
+  holder: `ready` | `late` | `none`
+  reader?: boolean
+  keyArrives?: boolean
+}): SendWire {
+  if (input.tree === `clear`) return `plain`
+  if (input.holder === `none`) return `failed`
+  if (input.tree === `new`) return `inline`
+  if (input.tree === `keyed`) return `sealed`
+  if (input.reader) return `create`
+  return input.keyArrives ? `sealed` : `failed`
+}
+
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
 
 /** Why content stays locked here: `noKey` = waiting for a holder's wrap

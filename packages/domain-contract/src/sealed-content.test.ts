@@ -27,6 +27,10 @@ import {
   WRAPPED_TREE_KEY_BYTES,
   withAttachmentEmbeds,
   type AttachmentUpload,
+  NO_KEY_REFUSAL,
+  SEALING_DEVICE_MIN_VERSION,
+  sendWire,
+  type SendTree,
 } from "./sealed-content"
 
 const hex = (text: string) => new Uint8Array(Buffer.from(text, `hex`))
@@ -144,4 +148,23 @@ describe(`card envelope`, () => {
       expect(opened.card).toEqual(c.opened as Card)
     })
   }
+})
+
+describe(`sealed by default (clearTree, #EDE-97)`, () => {
+  for (const c of fixture.clearTree.writerCases) {
+    test(c.name, () => {
+      expect(
+        sendWire({
+          tree: c.tree as SendTree,
+          holder: c.holder as `ready` | `late` | `none`,
+          reader: (c as { reader?: boolean }).reader,
+          keyArrives: (c as { keyArrives?: boolean }).keyArrives,
+        })
+      ).toBe(c.wire as never)
+    })
+  }
+  test(`the copy and the floor come from the fixture`, () => {
+    expect(NO_KEY_REFUSAL).toBe(fixture.clearTree.noKeyRefusal)
+    expect(SEALING_DEVICE_MIN_VERSION).toBe(`0.14.96`)
+  })
 })

@@ -473,6 +473,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// as its JSON text; `SessionWatching.parseList` reads it). nil =
     /// nothing.
     public let watching: String?
+    /// #EDE-97 (sealed-content.json `clearTree`): ROOT rows only: an outside
+    /// MCP client started this tree, it stays in clear for life (writers
+    /// send plaintext into it, nobody keys it).
+    public let clearTree: Bool
 
     public init(
         id: String,
@@ -514,8 +518,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         viaAppId: String? = nil,
         scopeTeamIds: [String]? = nil,
         digest: String? = nil,
-        watching: String? = nil
+        watching: String? = nil,
+        clearTree: Bool = false
     ) {
+        self.clearTree = clearTree
         self.scopeTeamIds = scopeTeamIds
         self.digest = digest
         self.watching = watching
@@ -593,6 +599,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case sealedTitle = "sealed_title"
         case viaAppId = "via_app_id"
         case scopeTeamIds = "scope_team_ids"
+        case clearTree = "clear_tree"
     }
 }
 
@@ -659,6 +666,8 @@ extension SessionEntity: Codable {
         // #NEW-49: the jsonb as JSON text; absent on a pre-v110 row / an
         // older server = nothing watched.
         watching = c.decodeWireJsonString(forKey: .watching)
+        // #EDE-97: absent on a pre-v111 row / an older server = sealed.
+        clearTree = c.decodeWireBool(forKey: .clearTree, default: false)
     }
 }
 
