@@ -1199,6 +1199,28 @@ describe(`devices.setLaunchDefaults`, () => {
     )
   })
 
+  // #EXP-1899: a build without the `computer-use-switch` cap lets a session's
+  // row win over its switch, so switching off clears its live sessions; a
+  // build with the cap applies the gate itself and its rows stay.
+  it(`switching computer use off clears the live sessions of a build without the gate`, async () => {
+    const dropped = () => h.state.updates.filter((update) => (update.set as { computerUse?: boolean }).computerUse === false)
+    h.state.selectQueue = [[{ id: `row-1`, caps: [], launchDefaults: { computerUse: true }, launchDefaultsUpdatedAt: null }]]
+    await caller.setLaunchDefaults({ deviceId: `dev-1`, launchDefaults: { computerUse: false } })
+    expect(dropped()).toHaveLength(1)
+
+    h.state.updates.length = 0
+    h.state.selectQueue = [[{ id: `row-1`, caps: [], launchDefaults: { computerUse: false }, launchDefaultsUpdatedAt: null }]]
+    await caller.setLaunchDefaults({ deviceId: `dev-1`, launchDefaults: { computerUse: true } })
+    expect(dropped()).toHaveLength(0)
+
+    h.state.updates.length = 0
+    h.state.selectQueue = [
+      [{ id: `row-1`, caps: [`computer-use-switch`], launchDefaults: { computerUse: true }, launchDefaultsUpdatedAt: null }],
+    ]
+    await caller.setLaunchDefaults({ deviceId: `dev-1`, launchDefaults: { computerUse: false } })
+    expect(dropped()).toHaveLength(0)
+  })
+
   // NEW-67: `voice` left launch_defaults for user_voice_settings; an older
   // client that still sends it has the key dropped, never a 400.
   it(`drops a voice key an older client still sends`, async () => {
