@@ -648,6 +648,9 @@ pub struct SpeechClient {
     data_dir: PathBuf,
     on_event: Callback,
     worker: Arc<Mutex<Option<Worker>>>,
+    /// #EXP-1936: set = no worker ever runs; every request goes here.
+    #[cfg(feature = "test-support")]
+    record: Option<Arc<dyn Fn(&Request) + Send + Sync>>,
 }
 
 impl SpeechClient {
@@ -655,7 +658,22 @@ impl SpeechClient {
     /// lives (`{data_dir}/talk/…`), `on_event` runs on the worker's reader
     /// thread (keep it short; hand off to the UI thread).
     pub fn new(exe: PathBuf, data_dir: PathBuf, on_event: impl Fn(Event) + Send + Sync + 'static) -> Self {
-        Self { exe, data_dir, on_event: Arc::new(on_event), worker: Arc::new(Mutex::new(None)) }
+        Self {
+            exe,
+            data_dir,
+            on_event: Arc::new(on_event),
+            worker: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "test-support")]
+            record: None,
+        }
+    }
+
+    /// #EXP-1936: a client WITHOUT a worker, for a host's tests: nothing is
+    /// ever spawned, every request (the ones only a running worker gets
+    /// included) is handed to `record`, and no event comes back.
+    #[cfg(feature = "test-support")]
+    pub fn recording(data_dir: PathBuf, record: impl Fn(&Request) + Send + Sync + 'static) -> Self {
+        Self { exe: PathBuf::new(), data_dir, on_event: Arc::new(|_| {}), worker: Arc::new(Mutex::new(None)), record: Some(Arc::new(record)) }
     }
 
     pub fn prepare(&self, voice: VoiceChoice) {
@@ -716,6 +734,10 @@ impl SpeechClient {
     /// #NEW-54: bring the worker up without a request (push to talk wants
     /// it resident and its `Ready` known before the first key-down).
     pub fn start(&self) {
+        #[cfg(feature = "test-support")]
+        if self.record.is_some() {
+            return;
+        }
         let failed = {
             let Ok(mut guard) = self.worker.lock() else { return };
             if guard.is_some() {
@@ -799,6 +821,10 @@ impl SpeechClient {
     /// Requests that mean nothing to a worker that is not running never
     /// spawn one.
     fn send_if_running(&self, request: &Request) {
+        #[cfg(feature = "test-support")]
+        if let Some(record) = self.record.as_ref() {
+            return record(request);
+        }
         // Never spawn a worker for these: there is nothing to end.
         let Ok(mut guard) = self.worker.lock() else { return };
         if let Some(worker) = guard.as_mut() {
@@ -865,6 +891,10 @@ impl SpeechClient {
     }
 
     fn send(&self, request: &Request) {
+        #[cfg(feature = "test-support")]
+        if let Some(record) = self.record.as_ref() {
+            return record(request);
+        }
         let Ok(mut guard) = self.worker.lock() else { return };
         // One retry: a worker that died since the last request is replaced.
         for _ in 0..2 {

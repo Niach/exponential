@@ -41,6 +41,8 @@ rusqlite = { workspace = true }
 resvg = { version = "0.45", default-features = false }
 
 [dev-dependencies]
+# #EXP-1936: the speaker over a client that records its requests (no worker).
+etalk = { path = "../etalk", features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
