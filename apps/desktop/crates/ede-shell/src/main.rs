@@ -289,6 +289,9 @@ struct Shell {
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// #EDE-89: when each popup document last opened (epoch ms, the clock of
+    /// the compositor's event stamps).
+    popups_opened: HashMap<String, i64>,
     /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
     switcher_generation: u64,
     notifications: Notifications,
@@ -1662,6 +1665,7 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
     }
     let Some(doc) = document(&shell.borrow(), name) else { return };
     let feed = shell.borrow().feed.clone();
+    shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
 }
 
@@ -2662,8 +2666,17 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
     }
 }
 
-/// A key the compositor kept for the shell (#EDE-12).
-fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
+/// The popup documents a press outside them closes (`popups.dismiss`):
+/// those open when it was pressed (`pressed_at`, the event's stamp). One the
+/// press itself opened (the start menu from its button) stays: its press
+/// reaches the shell before the event does, or after (#EDE-89).
+fn popups_to_dismiss(open: &[(String, Option<i64>)], pressed_at: i64) -> Vec<String> {
+    open.iter().filter(|(_, opened)| opened.is_none_or(|at| at < pressed_at)).map(|(name, _)| name.clone()).collect()
+}
+
+/// A key the compositor kept for the shell (#EDE-12), at the compositor's
+/// stamp `at` (epoch ms).
+fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
     tracing::info!(name, "hotkey");
     match name {
         "switcher.next" => switcher_step(shell, ShellEvent::AltTabNext, cx),
@@ -2687,10 +2700,13 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
         },
         "screenshot" => screenshot(shell),
         "popups.dismiss" => {
-            let names: Vec<String> = {
+            let (names, menu_stays) = {
                 let s = shell.borrow();
                 let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
-                s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(String::from).collect()
+                let open: Vec<(String, Option<i64>)> = s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(|n| (n.to_string(), s.popups_opened.get(n).copied())).collect();
+                let names = popups_to_dismiss(&open, at);
+                let menu_stays = open.iter().any(|(n, _)| (n == "start-menu" || n == "menu") && !names.contains(n));
+                (names, menu_stays)
             };
             for n in &names {
                 close(shell, n, cx);
@@ -2703,7 +2719,9 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
                 (s.model.taskbar.previews.is_some(), s.model.start_menu.open)
             };
             if !names.is_empty() || previews || menu_open {
-                dispatch(shell, ShellEvent::StartMenuClose, cx);
+                if !menu_stays {
+                    dispatch(shell, ShellEvent::StartMenuClose, cx);
+                }
                 previews_set(shell, None, cx);
             }
         }
@@ -3143,7 +3161,7 @@ fn main() {
 
     // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
-    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<String>();
+    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
@@ -3168,7 +3186,7 @@ fn main() {
                 }
                 if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
-                        if hotkeys_tx.send(name.to_string()).is_err() {
+                        if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                             return;
                         }
                     }
@@ -3397,6 +3415,7 @@ fn main() {
             capturing: thumbs::Captures::default(),
             thumbs_tx,
             osd_until: None,
+            popups_opened: HashMap::new(),
             switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
@@ -3517,8 +3536,8 @@ fn main() {
                 while let Ok((windows, workspaces)) = windows_rx.try_recv() {
                     cx.update(|cx| windows_changed(&s, windows, workspaces, cx));
                 }
-                while let Ok(name) = hotkeys_rx.try_recv() {
-                    cx.update(|cx| hotkey(&s, &name, cx));
+                while let Ok((name, at)) = hotkeys_rx.try_recv() {
+                    cx.update(|cx| hotkey(&s, &name, at, cx));
                 }
                 while let Ok((id, url)) = thumbs_rx.try_recv() {
                     thumbnail_arrived(&s, id, url);
@@ -3953,7 +3972,22 @@ mod layer_sizes {
 
 #[cfg(test)]
 mod previews {
-    use super::previews_after;
+    use super::{popups_to_dismiss, previews_after};
+
+    /// #EDE-89: a press on Start while a preview is open: the compositor's
+    /// `popups.dismiss` for that press reaches the shell after the press
+    /// opened the start menu (the main loop drains it up to 100 ms later).
+    /// The menu opened after the press and stays; a popup open before it goes.
+    #[test]
+    fn a_press_that_opens_the_start_menu_does_not_dismiss_it() {
+        let pressed_at = 1_000;
+        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("tray-menu".to_string(), Some(pressed_at - 4_000))];
+        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["tray-menu".to_string()]);
+        // Escape in the open menu (or a press outside it) still closes it.
+        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "tray-menu".to_string()]);
+        // A popup the shell has no stamp for goes, as before.
+        assert_eq!(popups_to_dismiss(&[("menu".to_string(), None)], pressed_at), vec!["menu".to_string()]);
+    }
 
     /// #EDE-75: leaving a taskbar button closes its previews (the capture
     /// thread stops with them); the next button's stay when its open came first.

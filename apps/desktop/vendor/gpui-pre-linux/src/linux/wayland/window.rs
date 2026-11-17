@@ -1830,12 +1830,15 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn mouse_position(&self) -> Point<Pixels> {
-        self.borrow()
-            .client
-            .get_client()
-            .borrow()
-            .mouse_location
-            .unwrap_or_default()
+        // Exponential patch (#EDE-89): only the window the pointer is over
+        // has it; every other one has it far outside. The client's one
+        // location is in the coordinates of the surface the pointer is over:
+        // a popup mapping above its parent (gpui reads this on its first
+        // bounds) put the pointer inside itself at the parent's coordinates,
+        // its hover turned on and, with no pointer event of its own, stayed.
+        let client = self.borrow().client.get_client();
+        let location = client.borrow().mouse_location_in(&self.0);
+        location.unwrap_or(super::client::POINTER_OUTSIDE)
     }
 
     fn modifiers(&self) -> Modifiers {
