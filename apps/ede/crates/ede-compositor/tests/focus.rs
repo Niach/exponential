@@ -462,7 +462,7 @@ fn a_click_under_a_still_pointer_reaches_the_window_now_on_top() {
     let at = h.with(|ede| {
         let geos: Vec<_> = ede.space.elements().map(|w| ede.space.element_geometry(w).unwrap()).collect();
         let both = geos[0].intersection(geos[1]).expect("the windows overlap");
-        both.loc.to_f64() + (10.0, 10.0).into()
+        smithay::utils::Point::<f64, smithay::utils::Logical>::from(((both.loc.x + 10) as f64, (both.loc.y + 10) as f64))
     });
     // The editor on top has the pointer.
     h.with(move |ede| ede.pointer_motion_to(at, 0));
