@@ -169,7 +169,7 @@ impl Ede {
         tracing::info!("session unlocked (sealed)");
         self.emit(ede_protocol::events::SESSION_UNLOCKED, serde_json::Value::Null);
         self.focus_after_unlock(Some(pid));
-        let pos = self.seat.get_pointer().unwrap().current_location();
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
         Ok(())
     }
@@ -288,11 +288,11 @@ impl Ede {
 
     /// Focus the sealed lock surface under the pointer (else any).
     pub fn focus_sealed_lock(&mut self) {
-        let pointer = self.seat.get_pointer().unwrap().current_location();
+        let pointer = self.desk.seat.get_pointer().unwrap().current_location();
         let output = self.output_at(pointer);
         let surfaces = self.sealed_lock_surfaces();
         let target = surfaces.iter().find(|(o, _)| Some(o) == output.as_ref()).or_else(|| surfaces.first()).map(|(_, s)| s.clone());
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if keyboard.current_focus() != target {
             keyboard.set_focus(self, target, SERIAL_COUNTER.next_serial());
         }

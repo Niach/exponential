@@ -60,7 +60,7 @@ impl Ede {
         }
         let top = arriving.last().cloned();
         self.focus(top);
-        let pos = self.seat.get_pointer().unwrap().current_location();
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
         self.emit(ede_protocol::events::WORKSPACE_SWITCHED, json!({ "workspace": index }));
         true

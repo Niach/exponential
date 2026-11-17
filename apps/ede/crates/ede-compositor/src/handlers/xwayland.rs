@@ -88,12 +88,12 @@ impl Ede {
         let x11 = focused.and_then(|f| {
             self.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned())
         });
-        if self.x11_focus.1 == x11 {
+        if self.desk.x11_focus.1 == x11 {
             return;
         }
-        let seat = self.x11_focus.0.clone();
+        let seat = self.desk.x11_focus.0.clone();
         let serial = SERIAL_COUNTER.next_serial();
-        if let Some(old) = std::mem::replace(&mut self.x11_focus.1, x11.clone()) {
+        if let Some(old) = std::mem::replace(&mut self.desk.x11_focus.1, x11.clone()) {
             KeyboardTarget::leave(&old, &seat, self, serial);
         }
         if let Some(new) = x11 {
@@ -112,9 +112,9 @@ impl XWaylandShellHandler for Ede {
     }
 
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
-        if self.pending_x11_focus.as_ref() == Some(&surface) {
-            self.pending_x11_focus = None;
-            let keyboard = self.seat.get_keyboard().unwrap();
+        if self.desk.pending_x11_focus.as_ref() == Some(&surface) {
+            self.desk.pending_x11_focus = None;
+            let keyboard = self.desk.seat.get_keyboard().unwrap();
             keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
         }
     }
@@ -279,7 +279,7 @@ impl XwmHandler for Ede {
     fn move_request(&mut self, _xwm: XwmId, surface: X11Surface, _button: u32) {
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.space.element_location(&window) else { return };
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let start = pointer
             .grab_start_data()
             .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
@@ -297,29 +297,29 @@ impl XwmHandler for Ede {
         }
         // Ours ([`crate::clipboard`]) is served from memory; a Wayland
         // client's through its source.
-        let ours = match current_data_device_selection_userdata(&self.seat).as_deref() {
+        let ours = match current_data_device_selection_userdata(&self.desk.seat).as_deref() {
             Some(crate::clipboard::Selection::Ours(owned)) => Some(owned.clone()),
             _ => None,
         };
         if let Some(owned) = ours {
             self.serve_owned(&owned, &mime_type, fd);
-        } else if let Err(e) = request_data_device_client_selection(&self.seat, mime_type, fd) {
+        } else if let Err(e) = request_data_device_client_selection(&self.desk.seat, mime_type, fd) {
             tracing::warn!("clipboard to X11: {e:?}");
         }
     }
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
         if selection == SelectionTarget::Clipboard {
-            self.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
-            set_data_device_selection(&self.display_handle, &self.seat, mime_types, crate::clipboard::Selection::X11);
+            self.desk.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
+            set_data_device_selection(&self.display_handle, &self.desk.seat, mime_types, crate::clipboard::Selection::X11);
         }
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
-        let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(crate::clipboard::Selection::X11));
+        let x11 = matches!(current_data_device_selection_userdata(&self.desk.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
-            self.clipboard.changed(crate::clipboard::Owner::Empty);
-            clear_data_device_selection(&self.display_handle, &self.seat);
+            self.desk.clipboard.changed(crate::clipboard::Owner::Empty);
+            clear_data_device_selection(&self.display_handle, &self.desk.seat);
         }
     }
 }

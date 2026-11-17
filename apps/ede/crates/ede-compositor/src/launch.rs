@@ -85,7 +85,7 @@ impl XdgActivationHandler for Ede {
     // A client's own token counts only while that client has the keyboard:
     // the focused app may bring another window forward, nobody else.
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
-        let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
+        let focus = self.desk.seat.get_keyboard().and_then(|k| k.current_focus());
         focus.and_then(|f| f.client()).is_some_and(|c| Some(c.id()) == data.client_id)
     }
 

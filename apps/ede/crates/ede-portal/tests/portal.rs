@@ -309,7 +309,7 @@ fn an_allowed_app_drives_the_pointer_and_keyboard() {
     let streams = <Vec<(u32, Vardict)>>::try_from(results["streams"].try_clone().unwrap()).unwrap();
     let node = streams[0].0;
     let () = w.call(REMOTE, "NotifyPointerMotionAbsolute", &(path(session), none(), node, 120.0f64, 80.0f64)).unwrap();
-    let at = w.h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let at = w.h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((at.x, at.y), (120.0, 80.0));
     let () = w.call(REMOTE, "NotifyPointerMotion", &(path(session), none(), 5.0f64, -5.0f64)).unwrap();
     let () = w.call(REMOTE, "NotifyKeyboardKeycode", &(path(session), none(), 30i32, 1u32)).unwrap();

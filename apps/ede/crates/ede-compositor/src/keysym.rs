@@ -46,7 +46,7 @@ impl Ede {
     /// wins. The active layout first, then the others: `Some(layout)` = the
     /// key is that layout's, not the active one's.
     pub fn key_for_keysym(&mut self, keysym: u32) -> Option<(Keycode, Vec<Keycode>, Option<Layout>)> {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(self, |ctx| {
             let xkb = ctx.xkb().lock().unwrap();
             let active = xkb.active_layout().0;
@@ -89,7 +89,7 @@ impl Ede {
 
     /// Make `layout` the active one; the one it replaces comes back.
     pub fn swap_layout(&mut self, layout: Layout) -> Layout {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         keyboard.with_xkb_state(self, |mut ctx| {
             let was = ctx.xkb().lock().unwrap().active_layout();
             ctx.set_layout(layout);
@@ -111,7 +111,7 @@ impl Ede {
             }
         };
         if pressed {
-            let down = self.seat.get_keyboard().unwrap().pressed_keys();
+            let down = self.desk.seat.get_keyboard().unwrap().pressed_keys();
             let added: Vec<Keycode> = mods.into_iter().filter(|m| !down.contains(m)).collect();
             // Another layout's key: that layout for the length of the stroke.
             let restore = layout.map(|layout| self.swap_layout(layout));
@@ -122,12 +122,12 @@ impl Ede {
                 }
                 return Err(refused);
             }
-            self.ipc.keysyms.mods.retain(|(k, _, _)| *k != key);
-            self.ipc.keysyms.mods.push((key, added, restore));
+            self.desk.keysyms.mods.retain(|(k, _, _)| *k != key);
+            self.desk.keysyms.mods.push((key, added, restore));
         } else {
             send(self, key, KeyState::Released)?;
-            let at = self.ipc.keysyms.mods.iter().position(|(k, _, _)| *k == key);
-            let (_, added, restore) = at.map(|i| self.ipc.keysyms.mods.remove(i)).unwrap_or((key, Vec::new(), None));
+            let at = self.desk.keysyms.mods.iter().position(|(k, _, _)| *k == key);
+            let (_, added, restore) = at.map(|i| self.desk.keysyms.mods.remove(i)).unwrap_or((key, Vec::new(), None));
             if let Some(layout) = restore {
                 self.swap_layout(layout);
             }

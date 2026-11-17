@@ -140,7 +140,7 @@ impl Ede {
     /// The keyboard goes to a protected surface (or the lock screen): no
     /// input method, no virtual keyboard, no agent keys.
     pub fn keyboard_focus_protected(&self) -> bool {
-        self.is_locked() || self.seat.get_keyboard().and_then(|k| k.current_focus()).is_some_and(|s| self.is_protected_surface(&s))
+        self.is_locked() || self.desk.seat.get_keyboard().and_then(|k| k.current_focus()).is_some_and(|s| self.is_protected_surface(&s))
     }
 
     /// May `window` be lent to another seat (an agent's space)?
@@ -157,7 +157,7 @@ impl Ede {
     /// Compositor bindings never fire from it, and it does not count as the
     /// person being active. The release of a key it has down always lands.
     pub fn drive_key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) -> Result<(), Refused> {
-        if state == KeyState::Released && self.ipc.driven.has_key(keycode) {
+        if state == KeyState::Released && self.desk.driven.has_key(keycode) {
             self.key(keycode, state, time, bindings);
             return Ok(());
         }
@@ -178,8 +178,8 @@ impl Ede {
     }
 
     pub fn drive_pointer_button(&mut self, button: u32, state: ButtonState, time: u32) -> Result<(), Refused> {
-        let pos = self.seat.get_pointer().unwrap().current_location();
-        if state == ButtonState::Pressed || !self.ipc.driven.buttons.iter().any(|(_, b)| *b == button) {
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
+        if state == ButtonState::Pressed || !self.desk.driven.buttons.iter().any(|(_, b)| *b == button) {
             self.may_drive_at(pos)?;
         }
         self.pointer_button(button, state, time);
@@ -189,8 +189,8 @@ impl Ede {
     /// After `conn` drove the seat: the keys that went down since `before`
     /// are its own; what is no longer down is nobody's.
     pub(crate) fn note_driven(&mut self, conn: u64, before: &std::collections::HashSet<Keycode>) {
-        let down = self.seat.get_keyboard().unwrap().pressed_keys();
-        let driven = &mut self.ipc.driven;
+        let down = self.desk.seat.get_keyboard().unwrap().pressed_keys();
+        let driven = &mut self.desk.driven;
         driven.keys.retain(|(_, k)| down.contains(k));
         driven.keys.extend(down.difference(before).map(|k| (conn, *k)));
     }
@@ -203,15 +203,15 @@ impl Ede {
     /// `None` = every connection's: the last hold ended (#EDE-80).
     pub(crate) fn release_driven_of(&mut self, conn: Option<u64>) {
         let time = crate::ipc::now_ms() as u32;
-        let (keys, kept) = std::mem::take(&mut self.ipc.driven.keys).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
-        self.ipc.driven.keys = kept;
-        let (buttons, kept) = std::mem::take(&mut self.ipc.driven.buttons).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
-        self.ipc.driven.buttons = kept;
-        let down = self.seat.get_keyboard().unwrap().pressed_keys();
+        let (keys, kept) = std::mem::take(&mut self.desk.driven.keys).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
+        self.desk.driven.keys = kept;
+        let (buttons, kept) = std::mem::take(&mut self.desk.driven.buttons).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
+        self.desk.driven.buttons = kept;
+        let down = self.desk.seat.get_keyboard().unwrap().pressed_keys();
         for (_, key) in keys.iter().rev().filter(|(_, k)| down.contains(k)) {
             self.key(*key, KeyState::Released, time, false);
         }
-        if let Some(layout) = self.ipc.keysyms.forget(&keys) {
+        if let Some(layout) = self.desk.keysyms.forget(&keys) {
             self.swap_layout(layout);
         }
         for (_, button) in buttons {
@@ -221,7 +221,7 @@ impl Ede {
 
     /// Scrolls where the pointer is: smooth (`v120` = None) or wheel clicks.
     pub fn drive_pointer_axis(&mut self, (dx, dy): (f64, f64), v120: Option<(i32, i32)>, time: u32) -> Result<(), Refused> {
-        let pos = self.seat.get_pointer().unwrap().current_location();
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.may_drive_at(pos)?;
         let source = if v120.is_some() { AxisSource::Wheel } else { AxisSource::Continuous };
         let mut frame = AxisFrame::new(smithay::backend::input::InputTime::from_millis(time)).source(source);
@@ -233,7 +233,7 @@ impl Ede {
                 }
             }
         }
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         pointer.axis(self, frame);
         pointer.frame(self);
         Ok(())
@@ -255,8 +255,8 @@ impl Ede {
     /// activates it.
     pub(crate) fn release_ime_grab_if_protected(&mut self) {
         use smithay::wayland::input_method::InputMethodSeat;
-        let keyboard = self.seat.get_keyboard().unwrap();
-        if keyboard.is_grabbed() && self.seat.input_method().keyboard_grabbed() && self.keyboard_focus_protected() {
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
+        if keyboard.is_grabbed() && self.desk.seat.input_method().keyboard_grabbed() && self.keyboard_focus_protected() {
             keyboard.unset_grab(self);
         }
     }

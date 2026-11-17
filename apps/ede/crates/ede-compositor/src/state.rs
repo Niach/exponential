@@ -60,10 +60,8 @@ pub struct Ede {
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<Ede>,
     pub data_device_state: DataDeviceState,
-    pub seat: Seat<Ede>,
-    /// What the pointer looks like (a client's cursor surface, hidden, or
-    /// the default arrow); backends that draw their own cursor read it.
-    pub cursor_status: CursorImageStatus,
+    /// The person's desk: seat, clipboard, cursor ([`crate::desk`]).
+    pub desk: crate::desk::Desk,
 
     /// Set by a backend that owns a seat session: switch to VT n.
     pub vt_switch: Option<Box<dyn FnMut(i32)>>,
@@ -88,17 +86,6 @@ pub struct Ede {
     /// Xwayland's display number (`DISPLAY=:N`).
     #[cfg(feature = "xwayland")]
     pub xdisplay: Option<u32>,
-    /// An X11 window that was focused before it had a wl_surface.
-    #[cfg(feature = "xwayland")]
-    pub pending_x11_focus: Option<smithay::xwayland::X11Surface>,
-    /// #EDE-88: the X side of the keyboard focus. X delivers keys to its
-    /// own input focus, not to the surface Wayland focused, so the X11
-    /// window holding the keyboard is entered as an X11 keyboard target
-    /// (SetInputFocus or WM_TAKE_FOCUS, then `_NET_ACTIVE_WINDOW`)
-    /// through this seat, which no client binds: the Wayland enter itself
-    /// stays with `seat` ([`Ede::sync_x11_focus`]).
-    #[cfg(feature = "xwayland")]
-    pub x11_focus: (Seat<Ede>, Option<smithay::xwayland::X11Surface>),
 
     /// ext-session-lock: while locked only the lock client is shown and
     /// gets input ([`crate::lock`]).
@@ -114,12 +101,8 @@ pub struct Ede {
     pub input_method_state: smithay::wayland::input_method::InputMethodManagerState,
     pub text_input_state: smithay::wayland::text_input::TextInputManagerState,
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
-    /// The virtual keyboard whose keymap the seat holds (until a real key).
-    pub virtual_keymap: Option<smithay::input::keyboard::KeyboardSource>,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
-    /// The seat's CLIPBOARD serial, owner and reads ([`crate::clipboard`]).
-    pub clipboard: crate::clipboard::Clipboard,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
     /// The active workspace and the parked windows ([`crate::workspaces`]).
@@ -234,8 +217,19 @@ impl Ede {
             output_manager_state,
             seat_state,
             data_device_state,
-            seat,
-            cursor_status: CursorImageStatus::default_named(),
+            desk: crate::desk::Desk {
+                seat,
+                cursor_status: CursorImageStatus::default_named(),
+                virtual_keymap: None,
+                #[cfg(feature = "xwayland")]
+                pending_x11_focus: None,
+                #[cfg(feature = "xwayland")]
+                x11_focus: (x11_focus_seat, None),
+                keysyms: Default::default(),
+                hold: Default::default(),
+                driven: Default::default(),
+                clipboard: Default::default(),
+            },
             vt_switch: None,
             autostart: Vec::new(),
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
@@ -249,10 +243,6 @@ impl Ede {
             xwm: None,
             #[cfg(feature = "xwayland")]
             xdisplay: None,
-            #[cfg(feature = "xwayland")]
-            pending_x11_focus: None,
-            #[cfg(feature = "xwayland")]
-            x11_focus: (x11_focus_seat, None),
             session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
             lock: crate::lock::LockState::default(),
             idle_notifier,
@@ -261,9 +251,7 @@ impl Ede {
             input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
-            virtual_keymap: None,
             ipc: crate::ipc::Ipc::default(),
-            clipboard: Default::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             workspaces: crate::workspaces::Workspaces::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
@@ -505,7 +493,7 @@ impl Ede {
             return;
         }
         let serial = SERIAL_COUNTER.next_serial();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if let Some(window) = &window {
             self.space.raise_element(window, true);
             #[cfg(feature = "xwayland")]
@@ -522,7 +510,7 @@ impl Ede {
         // one; focus follows then (see the xwayland shell handler).
         #[cfg(feature = "xwayland")]
         {
-            self.pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
+            self.desk.pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
         keyboard.set_focus(self, surface, serial);
         if let Some(w) = &window {
@@ -536,7 +524,7 @@ impl Ede {
     }
 
     pub fn focused_window(&self) -> Option<Window> {
-        let focus = self.seat.get_keyboard()?.current_focus()?;
+        let focus = self.desk.seat.get_keyboard()?.current_focus()?;
         self.window_for_surface(&focus)
     }
 
@@ -553,7 +541,7 @@ impl Ede {
     /// First buffer arrived: pick a spot on the pointer's output and map.
     pub fn place_new_window(&mut self, window: Window) {
         self.unmapped.retain(|w| w != &window);
-        let pointer = self.seat.get_pointer().unwrap().current_location();
+        let pointer = self.desk.seat.get_pointer().unwrap().current_location();
         let mut st = window_state(&window);
         st.workspace = self.workspaces.active;
         set_window_state(&window, st);
@@ -681,7 +669,7 @@ impl Ede {
         }
         if on {
             let Some(geo) = self.space.element_geometry(window).or_else(|| {
-                let p = self.seat.get_pointer().unwrap().current_location();
+                let p = self.desk.seat.get_pointer().unwrap().current_location();
                 Some(Rectangle::new(p.to_i32_round(), window.geometry().size))
             }) else {
                 return;

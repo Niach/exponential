@@ -19,7 +19,7 @@ impl Ede {
     /// the keyboard back when the Exclusive prompt holding it closes.
     pub fn keyboard_window(&self) -> Option<Window> {
         #[cfg(feature = "xwayland")]
-        let pending = self.pending_x11_focus.as_ref().and_then(|x| self.space.elements().find(|w| w.x11_surface() == Some(x)).cloned());
+        let pending = self.desk.pending_x11_focus.as_ref().and_then(|x| self.space.elements().find(|w| w.x11_surface() == Some(x)).cloned());
         #[cfg(not(feature = "xwayland"))]
         let pending = None;
         self.focused_window().or(pending).or_else(|| self.prompt_previous_window())
@@ -35,7 +35,7 @@ impl Ede {
         }
         // A shell surface (the menu, a search) or the lock holds it: theirs.
         // Nothing holds it: nobody loses what they type.
-        self.seat.get_keyboard().unwrap().current_focus().is_none_or(|f| !f.alive())
+        self.desk.seat.get_keyboard().unwrap().current_focus().is_none_or(|f| !f.alive())
     }
 
     /// Did the app of `holder` open `window`? The same Wayland client, a
