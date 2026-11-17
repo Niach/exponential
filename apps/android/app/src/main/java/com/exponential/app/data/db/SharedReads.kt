@@ -36,6 +36,11 @@ internal fun <T> Flow<T>.sharedRead(
 ): Flow<T> =
     map { Result.success(it) }
         .catch { emit(Result.failure(it)) }
+        // #ERR-28: a newer table REPLACES the one a slow reader hasn't taken
+        // yet: the upstream never waits holding a finished copy, so a write
+        // burst keeps two copies at most (the one being read + the newest),
+        // never a third parked in the share's buffer.
+        .conflate()
         .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMs, 0), replay = 1)
         .map { it.getOrThrow() }
 
@@ -68,4 +73,39 @@ internal object SharedReads {
     /** The fastest a whole table is re-read while the sync keeps writing it. */
     const val MIN_INTERVAL_MS = 1_000L
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+}
+
+/**
+ * #ERR-28: a whole table re-read hands back NEW row objects for every row,
+ * though a synced write changed one or two; [read] maps only the rows that
+ * differ from the last read ([equals]) and hands the unchanged rows' mapped
+ * values back as the same instances (no re-parse, no new garbage, and
+ * downstream equality checks short-circuit). Not thread-safe: one flow's
+ * sequential map.
+ */
+internal class MappedRows<R : Any, V>(private val key: (R) -> String, private val transform: (R) -> V) {
+    private var last: Map<String, Pair<R, V>> = emptyMap()
+
+    /** Rows mapped since the cache was made (the memory-budget tests read it). */
+    var mapped: Int = 0
+        private set
+
+    fun read(rows: List<R>): List<V> {
+        val next = HashMap<String, Pair<R, V>>(rows.size * 2)
+        val out = ArrayList<V>(rows.size)
+        for (row in rows) {
+            val id = key(row)
+            val previous = last[id]
+            val entry = if (previous != null && previous.first == row) {
+                previous
+            } else {
+                mapped++
+                row to transform(row)
+            }
+            next[id] = entry
+            out.add(entry.second)
+        }
+        last = next
+        return out
+    }
 }

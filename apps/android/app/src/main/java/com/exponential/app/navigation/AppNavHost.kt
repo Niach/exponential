@@ -274,7 +274,11 @@ fun AppNavHost() {
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfIssue(target.id))
                 guarded {
                     teamSwitch?.let(viewModel::applyTeamSwitch)
-                    navController.navigateIssueDeepLink(target.id, target.comment)
+                    if (target.rooted) {
+                        navController.launchIssueOnAgentRoot(target.id, tabSwitch, target.comment)
+                    } else {
+                        navController.navigateIssueDeepLink(target.id, target.comment)
+                    }
                 }
             }
             is DeepLinkBus.Target.Invite -> guarded {
@@ -286,7 +290,10 @@ fun AppNavHost() {
                 navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
-            is DeepLinkBus.Target.Session -> openSession(target.id, target.card)
+            // #ERR-27: a notification tap lands by THE back stack rule, so
+            // chat after chat opened from the shade never stacks (each kept
+            // its ChatViewModel, its tree and its transcript alive).
+            is DeepLinkBus.Target.Session -> openSession(target.id, target.card, onAgentRoot = target.rooted)
             // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
             // onto the pages the app already has.
             // #EXP-1830 THE BACK STACK RULE: every entry lands on the Agent
@@ -364,7 +371,11 @@ fun AppNavHost() {
             // Devices page with that device's settings open
             // (fixtures/inbox-route.json `device`). Team-less: no switch.
             is DeepLinkBus.Target.Device -> guarded {
-                navController.navigateDeepLink(Routes.deviceSettings(target.deviceId))
+                if (target.rooted) {
+                    navController.launchOnAgentRoot(Routes.deviceSettings(target.deviceId), tabSwitch)
+                } else {
+                    navController.navigateDeepLink(Routes.deviceSettings(target.deviceId))
+                }
             }
             // #EXP-1674: ONE LINK SYSTEM: a tapped link and a verified App Link
             // alike, by the one open rule (app-link.json `openCases`).

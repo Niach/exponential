@@ -18,7 +18,11 @@ class DeepLinkBus @Inject constructor() {
         // EXP-933: [face] = the Work screen face to open on (`results` for an
         // agent message's report); null = the default Issue face.
         // EXP-1241: [comment] = scroll to that comment and highlight it.
-        data class Issue(val id: String, val face: String? = null, val comment: String? = null) : Target
+        // #ERR-27: [rooted] = opened from OUTSIDE the app's own screens (a
+        // notification or push link, an app intent): it lands by THE back
+        // stack rule (#EXP-1830: the Agent root, then the target), never
+        // stacked over whatever was open. An in-app row (the inbox) pushes.
+        data class Issue(val id: String, val face: String? = null, val comment: String? = null, val rooted: Boolean = false) : Target
         data class Invite(val token: String) : Target
 
         // exponential://inbox — an agent_message push tap (EXP-801). The row
@@ -29,12 +33,12 @@ class DeepLinkBus @Inject constructor() {
         // straight to the run that hit the wall.
         // waiting-cards.json DEEP LINKS: [card] = the card a push is about
         // (null = the session's own waiting card, if any).
-        data class Session(val id: String, val card: PushDeepLinks.Card? = null) : Target
+        data class Session(val id: String, val card: PushDeepLinks.Card? = null, val rooted: Boolean = false) : Target
 
         // exponential://device/{id} — an agent_signed_out push tap or inbox
         // row (#EXP-1534): the Devices page with that device's (devices row
         // id) settings open.
-        data class Device(val deviceId: String) : Target
+        data class Device(val deviceId: String, val rooted: Boolean = false) : Target
 
         // #EXP-1674: ONE LINK SYSTEM (app-link.json). Any in-app link, a tapped
         // one or a verified https App Link: AppNavHost resolves it against the
@@ -95,8 +99,8 @@ class DeepLinkBus @Inject constructor() {
     private val _githubConnected = MutableStateFlow(GithubConnected())
     val githubConnected: StateFlow<GithubConnected> = _githubConnected.asStateFlow()
 
-    fun openIssue(id: String, face: String? = null, comment: String? = null) {
-        _target.value = Target.Issue(id, face, comment)
+    fun openIssue(id: String, face: String? = null, comment: String? = null, rooted: Boolean = false) {
+        _target.value = Target.Issue(id, face, comment, rooted)
     }
 
     fun openInvite(token: String) {
@@ -107,12 +111,12 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.Inbox
     }
 
-    fun openSession(id: String, card: PushDeepLinks.Card? = null) {
-        _target.value = Target.Session(id, card)
+    fun openSession(id: String, card: PushDeepLinks.Card? = null, rooted: Boolean = false) {
+        _target.value = Target.Session(id, card, rooted)
     }
 
-    fun openDevice(deviceId: String) {
-        _target.value = Target.Device(deviceId)
+    fun openDevice(deviceId: String, rooted: Boolean = false) {
+        _target.value = Target.Device(deviceId, rooted)
     }
 
     fun openLink(link: AppLink, uri: android.net.Uri, host: String) {
