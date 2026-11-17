@@ -146,7 +146,16 @@ fn run(mut safe_mode: bool) -> ExitCode {
             cmd.env_remove("EDE_SAFE_MODE");
         }
         let started = Instant::now();
-        let status = cmd.spawn().and_then(wait_or_terminate);
+        // #EDE-109: a run that held ends the streak while it runs, so a
+        // shutdown, a reboot or a power loss later cannot keep it.
+        let held = |policy: &mut Policy| {
+            if policy.running_for(started.elapsed()) {
+                if let Some(path) = &crashes_path {
+                    store_crashes(path, policy.quick_crashes_in_a_row);
+                }
+            }
+        };
+        let status = cmd.spawn().and_then(|child| wait_or_terminate(child, || held(&mut policy)));
         let ran = started.elapsed();
         if TERMINATED.load(Ordering::SeqCst) {
             tracing::info!("the session was ended; stopping");
@@ -177,7 +186,7 @@ fn run(mut safe_mode: bool) -> ExitCode {
         if exit != Exit::Clean {
             // What happened, on the displays (#EDE-40): no GPU needed, so it
             // shows even when rendering is what failed.
-            let shown = Command::new(&compositor).args(recovery_args(exit, next, &detail)).spawn().and_then(wait_or_terminate);
+            let shown = Command::new(&compositor).args(recovery_args(exit, next, &detail)).spawn().and_then(|child| wait_or_terminate(child, || {}));
             if let Err(e) = shown {
                 tracing::warn!("the recovery message could not show: {e}");
             }
@@ -198,12 +207,14 @@ fn run(mut safe_mode: bool) -> ExitCode {
 
 /// Waits for `child`; when the session is being ended meanwhile, the child
 /// gets SIGTERM (then SIGKILL after five seconds) and its status is returned.
-fn wait_or_terminate(mut child: Child) -> std::io::Result<ExitStatus> {
+/// `tick` runs at every poll while the child runs.
+fn wait_or_terminate(mut child: Child, mut tick: impl FnMut()) -> std::io::Result<ExitStatus> {
     let mut asked: Option<Instant> = None;
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
         }
+        tick();
         if TERMINATED.load(Ordering::SeqCst) {
             match asked {
                 None => {

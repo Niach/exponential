@@ -145,7 +145,7 @@ impl Ede {
         let key = text::key_of(&(&title, width, focused, maximized, scale.to_bits()));
         let bar_top: Point<i32, Logical> = (loc.x, loc.y - HEIGHT).into();
         let at = bar_top.to_f64().to_physical(scale);
-        let element = cache.borrow_mut().element(renderer, key, scale.round().max(1.0) as i32, at, || draw_bar(&title, width, focused, maximized, scale));
+        let element = cache.borrow_mut().element(renderer, key, (width, HEIGHT).into(), at, || draw_bar(&title, width, focused, maximized, scale));
         element.into_iter().collect()
     }
 }

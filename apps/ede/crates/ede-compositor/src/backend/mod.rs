@@ -534,6 +534,18 @@ impl FrameHealth {
         self.failures = 0;
     }
 
+    /// #EDE-109: only a flip the kernel took is a shown frame; a refused
+    /// one is a failed frame like a failed render.
+    pub fn flipped(&mut self, queued: Result<(), String>) -> Result<(), (Failure, String)> {
+        match queued {
+            Ok(()) => {
+                self.drew();
+                Ok(())
+            }
+            Err(error) => Err((self.failed(&error), error)),
+        }
+    }
+
     pub fn failed(&mut self, _error: &str) -> Failure {
         self.failures += 1;
         if !self.drawn && self.failures >= FATAL_FAILURES {
@@ -543,6 +555,23 @@ impl FrameHealth {
         } else {
             Failure::Quiet
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resume {
+    Scan,
+    Render,
+}
+
+/// What a device does when the session comes back, in order (#EDE-109): a
+/// monitor plugged or a mode changed while away was missed, so an activated
+/// device scans its connectors first; then every output draws.
+pub fn on_resume(activated: bool) -> &'static [Resume] {
+    if activated {
+        &[Resume::Scan, Resume::Render]
+    } else {
+        &[Resume::Render]
     }
 }
 
@@ -628,6 +657,33 @@ mod tests {
             assert_eq!(h.failed("x"), Failure::Quiet);
         }
         assert_eq!(h.failed("x"), Failure::Fatal);
+    }
+
+    /// #EDE-109: a frame that rendered but whose flip the kernel refused
+    /// is not a shown frame: refused every time, the session stops with
+    /// the reason; a flip that went through is.
+    #[test]
+    fn a_rendered_frame_whose_flip_failed_is_a_failed_frame() {
+        let mut health = FrameHealth::default();
+        let refused = || Err::<(), _>("card0-DP-1: queue_frame: EACCES".to_string());
+        assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Log);
+        for _ in 1..FATAL_FAILURES - 1 {
+            assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Quiet);
+        }
+        assert!(!health.drawn);
+        assert_eq!(health.flipped(refused()).unwrap_err().0, Failure::Fatal);
+        let mut shown = FrameHealth::default();
+        assert!(shown.flipped(Ok(())).is_ok());
+        assert!(shown.drawn);
+    }
+
+    /// #EDE-109: connectors that changed while the session was paused (a
+    /// monitor plugged on another VT) are scanned on resume, before the
+    /// first frame.
+    #[test]
+    fn a_resumed_device_scans_its_connectors_before_it_draws() {
+        assert_eq!(on_resume(true), [Resume::Scan, Resume::Render]);
+        assert_eq!(on_resume(false), [Resume::Render], "not activated: nothing to scan with");
     }
 
     #[test]
