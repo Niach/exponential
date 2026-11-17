@@ -853,6 +853,7 @@ async function main() {
           agents: AGENTS,
           acpAgents: AGENTS,
           caps: CAPS,
+          launchDefaults: { computerUse: true },
           agentAccounts: report.agentAccounts,
           agentUsage: report.agentUsage,
           agentUsageAt: now,
