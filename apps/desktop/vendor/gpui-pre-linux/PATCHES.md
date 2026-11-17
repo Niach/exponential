@@ -87,6 +87,8 @@ Marked `Exponential patch (#EDE-89)` in the source.
   on a window's first bounds: the taskbar's hover preview, a popup mapping
   above the button, started with the pointer inside its card at the
   button's coordinates, so its hover was on and held the preview open.
+- **Test:** `pointer_left_tests::a_leave_moves_the_pointer_out_of_the_window_first`
+  (`client.rs`), in the gate's vendored patch test step (`test.yml`).
 
 ## Packaging
 
