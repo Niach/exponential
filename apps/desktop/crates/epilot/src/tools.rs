@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, Pasted, WindowInfo};
+use crate::backend::{Backend, Button, DisplayInfo, Image, Pasted, Target, WindowInfo};
 use crate::keys::{parse_combo, Key, Named};
 use crate::work_screen;
 
@@ -187,6 +187,14 @@ impl Screen {
         if displays.is_empty() {
             return Err("No display.".to_string());
         }
+        // #EDE-126: a space is the run's own: all of it is its work screen,
+        // whatever is fullscreen there, and no pick of the person's applies.
+        if in_space(backend) {
+            let windows = if name == "list_windows" { backend.list_windows() } else { Ok(Vec::new()) };
+            let state = work_screen::state_of(&displays, &[], None);
+            let work = (0..displays.len()).collect();
+            return Ok(Screen { displays, windows, state, work });
+        }
         // #FEED-161: the stored id names the display, whatever its index now.
         let picked = work_screen::resolve(&displays, picked);
         // A connected pick is the work screen whatever is fullscreen: only
@@ -231,8 +239,16 @@ fn refusal(refusal: work_screen::Refusal, work: &[usize]) -> Value {
     })
 }
 
+/// #EDE-126: the backend drives an agent space, not the person's seat:
+/// no work-screen gate, no banner, no second focus read, and the clipboard
+/// there is the run's own.
+fn in_space(backend: &dyn Backend) -> bool {
+    backend.target() != Target::Person
+}
+
 /// One call: the work-screen gate, the lease, the tool.
 pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut CallContext<'_>) -> Value {
+    let space = in_space(backend);
     let screen = match Screen::read(backend, name, ctx.picked.as_deref()) {
         Ok(screen) => screen,
         Err(text) => return error(text),
@@ -255,9 +271,11 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
         _ => None,
     };
     let id = args.get("id").and_then(Value::as_u64);
-    let verdict = work_screen::gate(&screen.state, work_screen::Call { tool: name, id, display: shown, window_display });
-    if let Err(refused) = verdict {
-        return refusal(refused, &screen.work);
+    if !space {
+        let verdict = work_screen::gate(&screen.state, work_screen::Call { tool: name, id, display: shown, window_display });
+        if let Err(refused) = verdict {
+            return refusal(refused, &screen.work);
+        }
     }
     if shown.is_some() {
         *ctx.display = shown;
@@ -265,7 +283,9 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
     let current = work_screen::current(&screen.work, screen.primary(), *ctx.display);
     if current.is_some() {
         *ctx.display = current;
-        work_screen::set_banner(backend.target(), current);
+        if !space {
+            work_screen::set_banner(backend.target(), current);
+        }
     }
     // #EXP-1898: looking and waiting leave the person's input alone.
     if work_screen::drives(name) {
@@ -275,7 +295,7 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
     }
     // #EXP-1895: the gate read the focus before the hold was taken, and it
     // may have moved since: the keys go where the focus is NOW.
-    if work_screen::is_key(name) {
+    if work_screen::is_key(name) && !space {
         let now = match Screen::read(backend, name, ctx.picked.as_deref()) {
             Ok(now) => now,
             Err(text) => return error(text),
@@ -312,14 +332,18 @@ fn dispatch(
         let screen = Screen::read(backend, "screenshot", ctx.picked.as_deref())?;
         // The screenshot it answers with passes the gate too (#FEED-161: in
         // Auto without a window list no display is known to be free).
-        if let Err(refused) = work_screen::gate(&screen.state, work_screen::Call { tool: "screenshot", ..Default::default() }) {
+        let space = in_space(backend);
+        let gated = if space { Ok(()) } else { work_screen::gate(&screen.state, work_screen::Call { tool: "screenshot", ..Default::default() }) };
+        if let Err(refused) = gated {
             return Ok(ok(refused.text, json!({ "work": [] })));
         }
         let Some(current) = work_screen::current(&screen.work, screen.primary(), *ctx.display) else {
             return Ok(ok("No work screen.".to_string(), json!({ "work": [] })));
         };
         *ctx.display = Some(current);
-        work_screen::set_banner(backend.target(), Some(current));
+        if !space {
+            work_screen::set_banner(backend.target(), Some(current));
+        }
         return screenshot(backend, &screen, current, Frame::fit(&screen.displays[current]));
     }
     // Every other tool passed the gate, so a work display exists.
@@ -466,6 +490,12 @@ fn dispatch(
             *ctx.copy_mark = None;
             copy(backend, &combo, interrupted)
         }
+        // #EDE-126: a space's clipboard holds only what the run put there.
+        "read_clipboard" if in_space(backend) => {
+            let text = backend.clipboard()?.text()?.ok_or("The clipboard holds no text.")?;
+            let count = text.chars().count();
+            Ok(ok(text, json!({ "characters": count })))
+        }
         "read_clipboard" => {
             let Some(mark) = ctx.copy_mark.take() else {
                 return Err(READ_REFUSED.to_string());
@@ -571,8 +601,12 @@ fn shortcut(args: &Value, default: &str) -> Result<crate::keys::Combo, String> {
     parse_combo(args.get("shortcut").and_then(Value::as_str).map(str::trim).filter(|combo| !combo.is_empty()).unwrap_or(default))
 }
 
-/// The clipboard's change count now, where the desktop has one.
+/// The clipboard's change count now, where the desktop has one (a space
+/// run reads its clipboard without a mark).
 fn clipboard_mark(backend: &dyn Backend) -> Option<u64> {
+    if in_space(backend) {
+        return None;
+    }
     backend.clipboard().and_then(|clipboard| clipboard.change_count()).ok()
 }
 
@@ -638,9 +672,49 @@ fn save_whole(clipboard: &dyn crate::backend::Clipboard, nothing: &str, instead:
     Ok(saved)
 }
 
+/// `paste_text` and `copy_selection` in an agent space (#EDE-126): the
+/// clipboard there is the run's own, so nothing is saved or put back.
+fn space_paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    let clipboard = backend.clipboard()?;
+    clipboard.set_text(text, sensitive)?;
+    if interrupted() {
+        return Err(ABORTED.to_string());
+    }
+    press_combo(backend, combo)?;
+    match clipboard.wait_pasted(CLIPBOARD_TIMEOUT) {
+        Pasted::Missed => return Err("The focused window did not take the paste (is a text field focused?).".to_string()),
+        Pasted::Taken => std::thread::sleep(PASTE_SETTLE),
+        Pasted::Settled => {}
+    }
+    let what = if sensitive { "the sensitive text".to_string() } else { format!("{} characters", text.chars().count()) };
+    Ok(ok(format!("Pasted {what}."), json!({})))
+}
+
+fn space_copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    let clipboard = backend.clipboard()?;
+    let before = clipboard.change_count()?;
+    press_combo(backend, combo)?;
+    let until = std::time::Instant::now() + CLIPBOARD_TIMEOUT;
+    while clipboard.change_count()? == before {
+        if interrupted() {
+            return Err(ABORTED.to_string());
+        }
+        if std::time::Instant::now() >= until {
+            return Err("Nothing was copied: the selection is empty, not text, or the window ignored the shortcut.".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let text = clipboard.text()?.ok_or("What was copied is not text.")?;
+    let count = text.chars().count();
+    Ok(ok(text, json!({ "characters": count })))
+}
+
 /// Save, set, press once, put back. The person's clipboard is back
 /// whatever happens after it was saved.
 fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    if in_space(backend) {
+        return space_paste(backend, text, sensitive, combo, interrupted);
+    }
     let clipboard = backend.clipboard()?;
     let saved = save_whole(&*clipboard, "nothing was pasted", "Use `type` for this text.")?;
     let pasted = (|| {
@@ -670,6 +744,9 @@ fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys
 
 /// Press copy, wait for the clipboard to change, read it, put it back.
 fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
+    if in_space(backend) {
+        return space_copy(backend, combo, interrupted);
+    }
     let clipboard = backend.clipboard()?;
     let saved = save_whole(&*clipboard, "nothing was copied", "Read the text from a screenshot instead.")?;
     let copied = (|| {
@@ -782,6 +859,8 @@ pub(crate) mod tests {
         pub steps: AtomicUsize,
         /// The person's fullscreen game took the focus mid-call.
         pub focus_moved: AtomicBool,
+        /// It drives this agent space, not the person's seat (#EDE-126).
+        pub space: Option<u32>,
     }
 
     impl FakeBackend {
@@ -851,6 +930,9 @@ pub(crate) mod tests {
     }
 
     impl Backend for FakeBackend {
+        fn target(&self) -> crate::backend::Target {
+            self.space.map_or(crate::backend::Target::Person, crate::backend::Target::Space)
+        }
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
                 DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into(), connector: None },
@@ -930,6 +1012,49 @@ pub(crate) mod tests {
     fn one(backend: &dyn Backend, name: &str, args: Value) -> Value {
         let mut display = None;
         call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged })
+    }
+
+    /// #EDE-126: a space is the run's own: no work-screen gate (nothing of
+    /// the person's is on it), every display of it is its work screen, no
+    /// banner, and input never fails closed on the person's window list.
+    #[test]
+    fn a_space_run_passes_no_gate_and_sets_no_banner() {
+        use crate::backend::Target;
+        let key = json!({ "combo": "a" });
+        // On the person's seat this is refused: their fullscreen game has the focus.
+        let person = FakeBackend { gaming: true, ..Default::default() };
+        assert_eq!(one(&person, "key", key.clone())["isError"], true);
+        let space = FakeBackend { gaming: true, space: Some(41), ..Default::default() };
+        let reply = one(&space, "key", key);
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        let listed = one(&space, "list_windows", json!({}));
+        assert_eq!(listed["structuredContent"]["displays"].as_array().unwrap().len(), 2, "{listed}");
+        assert_eq!(listed["structuredContent"]["windows"].as_array().unwrap().len(), 2, "{listed}");
+        let waited = one(&space, "wait", json!({ "seconds": 0 }));
+        assert_eq!(waited["content"][1]["type"], "image", "{waited}");
+        assert_eq!(work_screen::banner_index(Target::Space(41)), None);
+        let blind = FakeBackend { no_windows: true, space: Some(41), ..Default::default() };
+        let reply = one(&blind, "left_click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+    }
+
+    /// #EDE-126: a space's clipboard is the run's own: a paste and a copy
+    /// save and restore nothing, and a read needs no copy of its own first.
+    #[test]
+    fn a_space_runs_paste_copy_and_read_keep_no_clipboard() {
+        let clip = || Mutex::new(FakeClip { text: Some("old".into()), copies: Some("picked".into()), ..Default::default() });
+        let space = FakeBackend { space: Some(42), clip: clip(), ..Default::default() };
+        let pasted = one(&space, "paste_text", json!({ "text": "hi" }));
+        assert_eq!(pasted["content"][0]["text"], "Pasted 2 characters.", "{pasted}");
+        assert_eq!(space.clip.lock().unwrap().text.as_deref(), Some("hi"), "nothing was put back");
+        let copied = one(&space, "copy_selection", json!({}));
+        assert_eq!(copied["content"][0]["text"], "picked", "{copied}");
+        let log = space.log.lock().unwrap().clone();
+        assert!(!log.iter().any(|line| line.starts_with("clip save") || line.starts_with("clip restore")), "{log:?}");
+        assert_eq!(one(&space, "read_clipboard", json!({}))["content"][0]["text"], "picked");
+        // The person's clipboard is never read without the run's own copy.
+        let person = FakeBackend { clip: clip(), ..Default::default() };
+        assert_eq!(one(&person, "read_clipboard", json!({}))["content"][0]["text"], READ_REFUSED);
     }
 
     #[test]

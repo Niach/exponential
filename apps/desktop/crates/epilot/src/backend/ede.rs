@@ -515,14 +515,19 @@ impl Backend for Ede {
     }
 
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
-        // #EDE-91: the person's desk only.
-        let outputs = ede_protocol::persons(self.ask("eDE outputs", Client::outputs)?);
+        // #EDE-91: the person's desk only. #EDE-126: a space run is
+        // listed its own space's output and nothing else.
+        let outputs = self.ask("eDE outputs", Client::outputs)?;
+        let outputs = if self.space.is_some() { outputs } else { ede_protocol::persons(outputs) };
         if outputs.is_empty() {
             return Err("eDE has no output.".to_string());
         }
         let connectors: Vec<Option<String>> = outputs.iter().map(|output| Some(output.name.clone())).collect();
-        *PIXELS.lock().unwrap_or_else(|p| p.into_inner()) =
-            outputs.iter().map(|output| ((output.x, output.y, output.width.max(1) as u32, output.height.max(1) as u32), pixels_of(output))).collect();
+        // The person's displays only: nothing reads a space's by its rect.
+        if self.space.is_none() {
+            *PIXELS.lock().unwrap_or_else(|p| p.into_inner()) =
+                outputs.iter().map(|output| ((output.x, output.y, output.width.max(1) as u32, output.height.max(1) as u32), pixels_of(output))).collect();
+        }
         let mut displays: Vec<DisplayInfo> = outputs
             .into_iter()
             .enumerate()
@@ -554,15 +559,17 @@ impl Backend for Ede {
 
     fn list_windows(&self) -> Result<Vec<WindowInfo>, String> {
         let windows = self.ask("eDE windows", Client::windows)?;
-        // An eDE without workspaces parks nothing.
-        let active = self.client.lock().unwrap().workspaces().ok().and_then(|all| all.into_iter().find(|workspace| workspace.active)).map(|workspace| workspace.index);
+        // An eDE without workspaces parks nothing; a space has none (the
+        // op is the person's and never sent from one).
+        let space = self.space.is_some();
+        let active = if space { None } else { self.client.lock().unwrap().workspaces().ok().and_then(|all| all.into_iter().find(|workspace| workspace.active)).map(|workspace| workspace.index) };
         // The compositor lists bottom to top, then parked and minimized
         // ones: neither is on screen (#EXP-1897); an agent space's is not
         // the person's (#EDE-91).
         Ok(windows
             .into_iter()
             .rev()
-            .filter(|window| window.is_persons() && !window.minimized && active.is_none_or(|active| window.workspace == active))
+            .filter(|window| (space || window.is_persons()) && !window.minimized && active.is_none_or(|active| window.workspace == active))
             .filter_map(|window| {
                 Some(WindowInfo {
                     id: window_number(&window.id)?,
@@ -1012,6 +1019,8 @@ mod tests {
                                 match (other, space) {
                                     (Request::ListSpaces, space) => Ok(serde_json::to_value(space.into_iter().collect::<Vec<_>>()).unwrap()),
                                     (_, None) => Err(Failure::new(ErrorCode::NotFound, "this grant has no space")),
+                                    (Request::ListOutputs, Some(space)) => Ok(serde_json::json!([{"name": space.output, "x": 0, "y": 0, "width": space.width, "height": space.height, "scale": 1.0, "space": space.id}])),
+                                    (Request::ListWindows, Some(space)) => Ok(serde_json::json!([{"id": "w5", "title": "term", "app_id": "foot", "x": 0, "y": 0, "width": space.width, "height": space.height, "focused": true, "fullscreen": false, "protected": false, "x11": false, "space": space.id}])),
                                     (Request::FocusWindow { .. }, _) => Err(Failure::new(ErrorCode::NotFound, "no such window")),
                                     _ => Ok(serde_json::Value::Null),
                                 }
@@ -1144,6 +1153,25 @@ mod tests {
         let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
         assert!(ede.lock(Box::new(|| {})).is_err());
         assert_eq!(logged(&faked), [format!("mint {run} true"), "create_space 1280x800".to_string()]);
+        faked.session.end_run(run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EDE-126: a space run's screen is its space's output and its
+    /// windows are the space's; it asks for no workspaces (the person's)
+    /// and its output never enters the person's display sizes.
+    #[test]
+    fn a_space_backend_lists_its_space_and_nothing_of_the_persons_desk() {
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let run = "epilot-test-space-l";
+        let before = PIXELS.lock().unwrap().clone();
+        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        let displays = ede.displays().unwrap();
+        assert_eq!(displays.iter().map(|display| (display.name.as_str(), display.width, display.height, display.primary)).collect::<Vec<_>>(), [("space-1", 1280, 800, true)]);
+        assert_eq!(ede.list_windows().unwrap().iter().map(|window| (window.id, window.active)).collect::<Vec<_>>(), [(5, true)]);
+        assert_eq!(*PIXELS.lock().unwrap(), before);
+        assert_eq!(logged(&faked)[1..], ["create_space 1280x800", "list_outputs", "list_windows"]);
         faked.session.end_run(run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
