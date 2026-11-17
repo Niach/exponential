@@ -85,6 +85,49 @@ fn tools_and_calls_reach_the_run() {
     assert_eq!(fake.calls.lock().unwrap()[0], r#"s1/EXP-1 echo {"x":1}"#);
 }
 
+/// A raw `initialize` (the client keeps no instructions): the result.
+fn initialize(url: &str, token: &str) -> Value {
+    use std::io::{Read, Write};
+    let (host, path) = url.strip_prefix("http://").unwrap().split_once('/').unwrap();
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "raw", "version": "1" } } }).to_string();
+    let mut stream = std::net::TcpStream::connect(host).unwrap();
+    stream.set_read_timeout(Some(T)).unwrap();
+    write!(stream, "POST /{path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).unwrap();
+    let json = &answer[answer.find("{\"jsonrpc\"").unwrap_or_else(|| panic!("no JSON-RPC answer in {answer}"))..];
+    serde_json::from_str::<Value>(json[..=json.rfind('}').unwrap()].trim()).unwrap()["result"].clone()
+}
+
+/// #EDE-126: a provider may give ONE run its own `initialize` text (a run
+/// in an agent space is told another story than one on the person's
+/// screen); every other run reads the server's, byte for byte.
+#[test]
+fn a_run_reads_its_own_instructions_or_the_servers() {
+    struct PerRun;
+    impl ToolProvider for PerRun {
+        fn tools(&self) -> Result<Vec<Value>, String> {
+            Ok(Vec::new())
+        }
+        fn call(&self, _caller: &Caller, _name: &str, _arguments: Value) -> Value {
+            json!({})
+        }
+        fn instructions_for(&self, caller: &Caller) -> Option<String> {
+            (caller.session_id.as_str() == "s2").then(|| format!("Only for {}.", caller.label))
+        }
+    }
+    let server = Server::serve(info(), Arc::new(PerRun)).unwrap();
+    let (one, two) = (server.grant(&id("s1"), "EXP-1"), server.grant(&id("s2"), "EXP-2"));
+    let plain = initialize(server.url(), one.as_str());
+    assert_eq!(plain["instructions"], "Be kind.", "{plain}");
+    assert_eq!(plain["serverInfo"]["name"], "fake");
+    assert_eq!(initialize(server.url(), two.as_str())["instructions"], "Only for EXP-2.");
+    // The default hook: the server's text for everyone.
+    let server = Server::serve(info(), Arc::new(Fake::default())).unwrap();
+    let token = server.grant(&id("s2"), "EXP-2");
+    assert_eq!(initialize(server.url(), token.as_str())["instructions"], "Be kind.");
+}
+
 #[test]
 fn the_endpoint_wants_a_live_token() {
     let fake = Arc::new(Fake::default());

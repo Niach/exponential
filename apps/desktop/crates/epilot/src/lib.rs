@@ -323,6 +323,11 @@ pub fn banner_index() -> Option<usize> {
 /// `label` is what the banner shows for the run (the issue's identifier,
 /// the action's name).
 pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
+    // #EDE-126: a development switch until a run can ask for a space
+    // itself. It never falls back to the person's seat.
+    if std::env::var("EXPONENTIAL_COMPUTER_SPACE").is_ok_and(|on| on == "1") {
+        return grant_space(session_id, label);
+    }
     if let Some(reason) = backend::unsupported() {
         return Err(reason);
     }
@@ -330,6 +335,20 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     let live = live()?;
     live.host.admit(id.as_str(), backend::Target::Person);
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
+}
+
+/// #EDE-126: whether a run can get an agent space here: an eDE whose hello
+/// offers `spaces` (asks the compositor; an older one reads as none).
+pub fn spaces_offered() -> bool {
+    backend::spaces_offered().is_ok()
+}
+
+/// The doctor line for agent spaces: [`Readiness::Ready`], or why not.
+pub fn space_readiness() -> Readiness {
+    match backend::unsupported().map_or_else(backend::spaces_offered, Err) {
+        Ok(()) => Readiness::Ready,
+        Err(reason) => Readiness::Unsupported(reason),
+    }
 }
 
 /// #EDE-126: admit the run `session_id` into an agent space of its own
