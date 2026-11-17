@@ -1207,18 +1207,39 @@ impl SteerSessionView {
     ///
     /// #EXP-1412: the file is read off the UI thread. The memo's slots wait
     /// for the answer: a journal is fresher and keeps them out.
+    ///
+    /// #EDE-105: any other session with a row opens from the CHAT STORE (what
+    /// this desktop received of it before, on the device it is on now),
+    /// read the same way; the room's replay replaces it the same way.
     fn seed_from_journal(&mut self, cx: &mut gpui::Context<Self>) {
         let row = crate::session_data::session(&self.session_id, cx).filter(|_| self.feed.is_empty());
-        let seeds = match row {
-            // The device id is asked for only with a row: no row, no store.
-            Some(row) => may_seed_from_journal(&row, &crate::queries::own_device_id(cx)),
-            None => false,
-        };
-        if !seeds {
+        let Some(row) = row else {
             self.seed_stream_slots(cx);
             return;
+        };
+        // The device id is asked for only with a row: no row, no store.
+        if may_seed_from_journal(&row, &crate::queries::own_device_id(cx)) {
+            self.read_journal(cx);
+            return;
         }
-        self.read_journal(cx);
+        let (Some(store), Some(device_id)) = (crate::chat_store::store(cx), row.device_id.clone().filter(|device| !device.is_empty())) else {
+            self.seed_stream_slots(cx);
+            return;
+        };
+        let session_id = self.session_id.clone();
+        let read = cx.background_spawn(async move {
+            let started = Instant::now();
+            let read = crate::chat_store::read_events(&store, &session_id, &device_id).map(fold_tail);
+            if read.is_some() {
+                log::info!("[chat-store] {session_id} opened from the store in {} ms", started.elapsed().as_millis());
+            }
+            read
+        });
+        cx.spawn(async move |this, cx| {
+            let read = read.await;
+            let _ = this.update(cx, |this, cx| this.apply_journal_read(read, cx));
+        })
+        .detach();
     }
 
     /// Large chats: this device's journal for the session, read, cut to its
@@ -2590,6 +2611,8 @@ impl SteerSessionView {
 
     fn apply_events(&mut self, events: impl IntoIterator<Item = ViewerEvent>, cx: &mut gpui::Context<Self>) {
         let pulse = feed_pulse(&self.feed);
+        let events: Vec<ViewerEvent> = events.into_iter().collect();
+        self.record_feed(&events, cx);
         for event in events {
             // Per event: a compaction may start and end inside one batch.
             let was_compacting = self.feed.compacting().is_some();
@@ -2600,6 +2623,26 @@ impl SteerSessionView {
         self.note_feed_moved(pulse);
         self.keep_stream_slots(cx);
         cx.notify();
+    }
+
+    /// #EDE-105: what a relay view receives goes into the chat store (its
+    /// live events and the older pages it scrolls in), so the chat opens
+    /// from disk next time and its text is searchable offline.
+    fn record_feed(&self, events: &[ViewerEvent], cx: &App) {
+        if !matches!(self.source, FeedSource::Remote { .. }) {
+            return;
+        }
+        let mut wire = Vec::new();
+        for event in events {
+            match event {
+                ViewerEvent::Activity(seq, activity) => wire.push((*seq, activity.clone())),
+                ViewerEvent::HistoryPage { events, .. } => {
+                    wire.extend(events.iter().filter_map(|(seq, activity)| Some(((*seq)?, activity.clone()))));
+                }
+                _ => {}
+            }
+        }
+        crate::chat_store::record(&self.session_id, wire, cx);
     }
 
     fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
@@ -10433,13 +10476,18 @@ pub(crate) struct JournalTail {
 /// into a feed, and the whole read kept for paging. Runs off the main
 /// thread; `None` when there is no journal.
 pub(crate) fn read_journal_tail(data_dir: &std::path::Path, session_id: &str) -> Option<JournalTail> {
-    let events = steer::read_journal_seq(data_dir, session_id)?;
+    steer::read_journal_seq(data_dir, session_id).map(fold_tail)
+}
+
+/// A transcript read (a journal's, #EDE-105 the chat store's), seq order:
+/// its REPLAY TAIL folded, the whole read kept for paging when it is longer.
+pub(crate) fn fold_tail(events: Vec<(u64, steer::frames::ActivityEvent)>) -> JournalTail {
     let (kept, truncated) = steer::replay_tail(events.iter().map(|(seq, event)| (*seq, event)).collect(), steer::REPLAY_TAIL);
     let mut feed = SteerFeed::new();
     for (seq, event) in kept {
         feed.apply_seq(Some(seq), event.clone());
     }
-    Some(JournalTail { feed, older: truncated.then(|| Arc::new(events)) })
+    JournalTail { feed, older: truncated.then(|| Arc::new(events)) }
 }
 
 /// One older page off a journal read: the newest `limit` events below

@@ -1,0 +1,995 @@
+{
+  "$comment": "EDE-105 (approved on EDE-94): THE CHAT STORE, one Rust crate for every client (apps/desktop/crates/chat-store: a pure core + a SQLite adapter, no async runtime in the core) that keeps every chat on every device, offline, opened from disk, plus a local search index. This TS reference (src/chat-store.ts) and the crate (its in-memory core AND its SQLite adapter) replay every case below. WHAT IT HOLDS, per account (desktop: `{data_dir}/accounts/<account>/chat-store.sqlite`, beside the sync store, kept across sign-out like it, gone with the account's data): (1) the synced `messages` rows of every chat the member can see (the `messages` shape's own visibility rule), OPENED with the chat key (EXP-1459, `sealed-content.json`); a row whose key is not held yet is stored with `body: null`, never indexed, and replaced (latest wins, by id) once the key arrives and it opens; (2) the TRANSCRIPT EVENTS of every session of those chats (the wire `activity` events with their seq, exactly as on the wire: already scrubbed by the emitter, never more than a viewer sees), with `rootId`, `sessionId`, `deviceId` (the device that ran it), `seq` and `storedAt` (ms the store took it). TRANSCRIPTS NEVER TOUCH THE SERVER: events reach a store only from the device running the session or another reader device, over eNet (steer-enet.json); the server keeps carrying the messages only. DECRYPTED ONLY WHERE THE PLATFORM STORE IS PROTECTED: desktop = the per-account data dir, user-only (0600 file, like the journal and the keyring); iOS = Data Protection (complete until first unlock) in the app container; Android = app-private storage; web = OPFS (origin-private). A platform without a protected store keeps the bodies sealed as synced and indexes nothing sealed. DEDUP: an event is keyed by (sessionId, deviceId, seq): the first write wins, a repeat (a history page overlapping the live feed, a second reader answering the same page) is dropped; a session moved in place (session-device-move.json) restarts its seqs on its new device, so each device's events are their own sequence; events read back per session and device in seq order (`ingest.cases`). INDEX SCOPE (`docs`): user inputs (`user_message`), narration, tool titles (`name` + ` ` + `detail`, or `name`), tool output as on the wire (`tool_update` `output`, else its `diff`; the hit lands on the tool's row: the lowest seq of a `tool` with that id in the session on that device, else the update's own seq) and synced message bodies (`message`); NEVER thoughts, never slots (usage, config, diff snapshots) or card payloads. A doc's time = the event's `at`, else `storedAt` (a message: `createdAt`). QUERY SEMANTICS = steer-enet.json SEARCH (find in chat, EDE-96): a case- and diacritics-insensitive LITERAL: the query and the text collapse every run of ASCII whitespace to one space (trimmed), fold per code point (NFD, marks dropped, lowercased), the query keeps its first `queryMaxChars` code points, an empty query searches nothing; one hit per doc (its first match; an event's hit names its `deviceId` and `seq`, a message's its `messageId`), `snippet` = the collapsed text from `snippetLeadChars` before the match, `snippetChars` wide (more only for a longer match), `…` where cut, `matchStart`/`matchLen` in code points of the snippet. DEDUP OF HITS: a `message` hit whose collapsed body equals a `user_message`/`narration` hit's text in the same session is dropped (the final reply and the person's input exist twice; the transcript row is the one a reader lands on). ORDER: newest first by time, then session id ascending, then device id ascending, then seq descending (a message, without a seq, after the events of the same instant), then message id. FIND IN CHAT (`search.chatCases`): one chat (`rootId`, every session of its tree), at most `limit` hits (clamped to [1, hitsMax]), `total` = every hit. GLOBAL (`search.allCases`, S5): one row per chat {rootId, count, hit = its newest hit}, newest chat first, at most `limit` rows, `total` = chats matched. OPEN: a chat opens from the store before any live feed attaches: per session, the stored events of the device it is on now through the same REPLAY TAIL rule a join replays by (steer-enet.json), older ones paged from the store; the live feed's `activity_reset` replay then replaces the seed and everything it carries is stored as it arrives. RETENTION (`retention`): per form factor (`constants.retentionDays`): desktop keeps everything (null); phones and web keep prose (inputs, narration) and every synced message forever and every other event (tool steps, their output, slots) for the last `retentionDays` days by its time (the cutoff instant kept); a storage setting changes the window; an older tool step is fetched over eNet when its chat is opened (S2). PHASES: S1 = this spec + the crate + desktop (the store fed from the device's own journals, the synced messages and every feed the desktop views; a chat opens from it). S2 = background catch-up over eNet: a reader asks the running device or ANY reader device holding the events (its store answers `history_page` and the EDE-96 `search` frame like a journal does) for the seqs it lacks below and above its span, deduped by seq. S3 = phones through `exponential-mobile-ffi` (the same crate; iOS + Android retention 30 days). S4 = web through wasm with the store in OPFS. S5 = the Chats section in global search (EDE-99) reading `searchAll`.",
+  "constants": {
+    "queryMaxChars": 200,
+    "hitsMax": 50,
+    "snippetChars": 120,
+    "snippetLeadChars": 40,
+    "retentionDays": {
+      "desktop": null,
+      "phone": 30,
+      "web": 30
+    }
+  },
+  "docs": {
+    "cases": [
+      {
+        "name": "an input is a user_message doc",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 3,
+          "storedAt": 900,
+          "event": {
+            "kind": "user_message",
+            "text": "Fix the café menu",
+            "at": 500
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 3,
+            "at": 500,
+            "kind": "user_message",
+            "text": "Fix the café menu"
+          }
+        ]
+      },
+      {
+        "name": "narration is a narration doc; storedAt stands in for a missing at",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 4,
+          "storedAt": 900,
+          "event": {
+            "kind": "narration",
+            "text": "Looking at it",
+            "messageId": "m1"
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 4,
+            "at": 900,
+            "kind": "narration",
+            "text": "Looking at it"
+          }
+        ]
+      },
+      {
+        "name": "a thought is never indexed",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 5,
+          "storedAt": 900,
+          "event": {
+            "kind": "thought",
+            "state": "ended",
+            "durationMs": 1200,
+            "at": 501
+          }
+        },
+        "expect": []
+      },
+      {
+        "name": "a tool is its title: name + detail",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 6,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool",
+            "name": "Bash",
+            "detail": "cargo test -p sync",
+            "id": "t1",
+            "at": 502
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 6,
+            "at": 502,
+            "kind": "tool",
+            "text": "Bash cargo test -p sync"
+          }
+        ]
+      },
+      {
+        "name": "a tool without detail is its name",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 7,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool",
+            "name": "Read",
+            "at": 503
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 7,
+            "at": 503,
+            "kind": "tool",
+            "text": "Read"
+          }
+        ]
+      },
+      {
+        "name": "tool output as on the wire, keyed by its tool id",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 8,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "status": "completed",
+            "output": "test result: ok. 12 passed",
+            "at": 504
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 8,
+            "at": 504,
+            "kind": "tool_output",
+            "text": "test result: ok. 12 passed",
+            "toolId": "t1"
+          }
+        ]
+      },
+      {
+        "name": "a diff stands in for missing output",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 9,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t2",
+            "diff": "+fn main() {}",
+            "at": 505
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 9,
+            "at": 505,
+            "kind": "tool_output",
+            "text": "+fn main() {}",
+            "toolId": "t2"
+          }
+        ]
+      },
+      {
+        "name": "a status-only update has nothing to index",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 10,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "status": "completed",
+            "at": 506
+          }
+        },
+        "expect": []
+      },
+      {
+        "name": "slots and cards are not indexed (the synced message carries a card)",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 11,
+          "storedAt": 900,
+          "event": {
+            "kind": "usage",
+            "used": 10,
+            "size": 100
+          }
+        },
+        "expect": []
+      }
+    ],
+    "messageCases": [
+      {
+        "name": "an opened body is a message doc",
+        "message": {
+          "id": "msg1",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": "Shipped the fix.",
+          "createdAt": 700
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "kind": "message",
+            "text": "Shipped the fix.",
+            "at": 700,
+            "messageId": "msg1"
+          }
+        ]
+      },
+      {
+        "name": "a body still sealed (no chat key yet) is not indexed",
+        "message": {
+          "id": "msg2",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": null,
+          "createdAt": 701
+        },
+        "expect": []
+      },
+      {
+        "name": "an empty body is not indexed",
+        "message": {
+          "id": "msg3",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "user",
+          "body": "",
+          "createdAt": 702
+        },
+        "expect": []
+      }
+    ]
+  },
+  "ingest": {
+    "cases": [
+      {
+        "name": "the live feed and a history page overlap: each (session, seq) once, first write wins, seq order",
+        "batches": [
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 5,
+                "storedAt": 10,
+                "event": {
+                  "kind": "narration",
+                  "text": "live five"
+                }
+              },
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 6,
+                "storedAt": 10,
+                "event": {
+                  "kind": "narration",
+                  "text": "live six"
+                }
+              }
+            ]
+          },
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 4,
+                "storedAt": 20,
+                "event": {
+                  "kind": "user_message",
+                  "text": "page four"
+                }
+              },
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 5,
+                "storedAt": 20,
+                "event": {
+                  "kind": "narration",
+                  "text": "page five"
+                }
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 4,
+              "text": "page four"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 5,
+              "text": "live five"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 6,
+              "text": "live six"
+            }
+          ],
+          "messages": []
+        }
+      },
+      {
+        "name": "a session moved in place restarts its seqs on the new device: both devices' events are kept",
+        "batches": [
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 0,
+                "storedAt": 10,
+                "event": {
+                  "kind": "user_message",
+                  "text": "on the laptop"
+                }
+              }
+            ]
+          },
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d2",
+                "seq": 0,
+                "storedAt": 20,
+                "event": {
+                  "kind": "user_message",
+                  "text": "on the server"
+                }
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 0,
+              "text": "on the laptop"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d2",
+              "seq": 0,
+              "text": "on the server"
+            }
+          ],
+          "messages": []
+        }
+      },
+      {
+        "name": "a message re-synced (its body opened once the key arrived) replaces the stored one",
+        "batches": [
+          {
+            "messages": [
+              {
+                "id": "m1",
+                "rootId": "r1",
+                "sessionId": "s1",
+                "authorKind": "agent",
+                "body": null,
+                "createdAt": 100
+              }
+            ]
+          },
+          {
+            "messages": [
+              {
+                "id": "m1",
+                "rootId": "r1",
+                "sessionId": "s1",
+                "authorKind": "agent",
+                "body": "Opened now",
+                "createdAt": 100
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [],
+          "messages": [
+            {
+              "id": "m1",
+              "body": "Opened now"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "search": {
+    "state": {
+      "events": [
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "user_message",
+            "text": "Fix the CAFÉ menu please",
+            "at": 1000
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 2,
+          "storedAt": 9000,
+          "event": {
+            "kind": "thought",
+            "state": "started",
+            "at": 1001
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 3,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool",
+            "name": "Grep",
+            "detail": "cafe in src/",
+            "id": "t1",
+            "at": 1002
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 4,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "output": "src/menu.rs:12: // the café   list\nsrc/menu.rs:40: let cafe = Menu::new();",
+            "at": 1003
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 5,
+          "storedAt": 9000,
+          "event": {
+            "kind": "narration",
+            "text": "Done: the café menu is fixed.",
+            "at": 1004
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s2",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool_update",
+            "id": "t9",
+            "output": "Cafe opened at 9",
+            "at": 1005
+          }
+        },
+        {
+          "rootId": "r2",
+          "sessionId": "s3",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "narration",
+            "text": "Nothing about coffee shops here, only a long preamble that goes on and on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both ends of the text",
+            "at": 2000
+          }
+        }
+      ],
+      "messages": [
+        {
+          "id": "m1",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "user",
+          "body": "Fix the  CAFÉ menu please",
+          "createdAt": 999
+        },
+        {
+          "id": "m2",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": "Done: the café menu is fixed.",
+          "createdAt": 1004
+        },
+        {
+          "id": "m3",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "system",
+          "body": "PR #12 checks: café build green",
+          "createdAt": 1006
+        },
+        {
+          "id": "m4",
+          "rootId": "r3",
+          "sessionId": "s4",
+          "authorKind": "agent",
+          "body": null,
+          "createdAt": 3000
+        }
+      ]
+    },
+    "chatCases": [
+      {
+        "name": "find in chat: case + diacritics-insensitive literal, newest first, messages that repeat an event dropped",
+        "rootId": "r1",
+        "query": "cafe",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "kind": "message",
+              "at": 1006,
+              "messageId": "m3",
+              "snippet": "PR #12 checks: café build green",
+              "matchStart": 15,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s2",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1005,
+              "seq": 1,
+              "snippet": "Cafe opened at 9",
+              "matchStart": 0,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "narration",
+              "at": 1004,
+              "seq": 5,
+              "snippet": "Done: the café menu is fixed.",
+              "matchStart": 10,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "src/menu.rs:12: // the café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 23,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool",
+              "at": 1002,
+              "seq": 3,
+              "snippet": "Grep cafe in src/",
+              "matchStart": 5,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "user_message",
+              "at": 1000,
+              "seq": 1,
+              "snippet": "Fix the CAFÉ menu please",
+              "matchStart": 8,
+              "matchLen": 4
+            }
+          ],
+          "total": 6
+        }
+      },
+      {
+        "name": "the limit cuts the hits, total counts them all",
+        "rootId": "r1",
+        "query": "Café",
+        "limit": 2,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "kind": "message",
+              "at": 1006,
+              "messageId": "m3",
+              "snippet": "PR #12 checks: café build green",
+              "matchStart": 15,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s2",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1005,
+              "seq": 1,
+              "snippet": "Cafe opened at 9",
+              "matchStart": 0,
+              "matchLen": 4
+            }
+          ],
+          "total": 6
+        }
+      },
+      {
+        "name": "whitespace in the query collapses like the text's",
+        "rootId": "r1",
+        "query": "  the   café  ",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "narration",
+              "at": 1004,
+              "seq": 5,
+              "snippet": "Done: the café menu is fixed.",
+              "matchStart": 6,
+              "matchLen": 8
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "src/menu.rs:12: // the café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 19,
+              "matchLen": 8
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "user_message",
+              "at": 1000,
+              "seq": 1,
+              "snippet": "Fix the CAFÉ menu please",
+              "matchStart": 4,
+              "matchLen": 8
+            }
+          ],
+          "total": 3
+        }
+      },
+      {
+        "name": "a tool's output lands on its tool row",
+        "rootId": "r1",
+        "query": "menu::new",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "…he café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 41,
+              "matchLen": 9
+            }
+          ],
+          "total": 1
+        }
+      },
+      {
+        "name": "a literal, never a pattern",
+        "rootId": "r1",
+        "query": "c.fe",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      },
+      {
+        "name": "an empty query searches nothing",
+        "rootId": "r1",
+        "query": "   ",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      },
+      {
+        "name": "another chat's text never leaks into find in chat",
+        "rootId": "r2",
+        "query": "menu",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      }
+    ],
+    "allCases": [
+      {
+        "name": "global: one row per chat, its newest hit and its count, newest chat first; a sealed body is not found",
+        "query": "café",
+        "limit": 50,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…nd on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both en…",
+                "matchStart": 41,
+                "matchLen": 4
+              }
+            },
+            {
+              "rootId": "r1",
+              "count": 6,
+              "hit": {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "kind": "message",
+                "at": 1006,
+                "messageId": "m3",
+                "snippet": "PR #12 checks: café build green",
+                "matchStart": 15,
+                "matchLen": 4
+              }
+            }
+          ],
+          "total": 2
+        }
+      },
+      {
+        "name": "global: the limit cuts chats, total counts them",
+        "query": "cafe",
+        "limit": 1,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…nd on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both en…",
+                "matchStart": 41,
+                "matchLen": 4
+              }
+            }
+          ],
+          "total": 2
+        }
+      },
+      {
+        "name": "global: a snippet cut on both ends",
+        "query": "the word we want",
+        "limit": 50,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…ong preamble that goes on and on before the word we want, which is Café, and then it keeps going for a while after so th…",
+                "matchStart": 41,
+                "matchLen": 16
+              }
+            }
+          ],
+          "total": 1
+        }
+      }
+    ]
+  },
+  "retention": {
+    "events": [
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 1,
+        "storedAt": 1,
+        "event": {
+          "kind": "user_message",
+          "text": "old input",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 2,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool",
+          "name": "Bash",
+          "id": "t1",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 3,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool_update",
+          "id": "t1",
+          "output": "old output",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 4,
+        "storedAt": 1,
+        "event": {
+          "kind": "narration",
+          "text": "old prose",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 5,
+        "storedAt": 2592000000,
+        "event": {
+          "kind": "tool",
+          "name": "Read",
+          "id": "t2"
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 6,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool_update",
+          "id": "t2",
+          "output": "fresh",
+          "at": 2592000001
+        }
+      }
+    ],
+    "cases": [
+      {
+        "name": "desktop keeps everything",
+        "now": 5184000000,
+        "windowDays": null,
+        "expect": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "name": "a phone keeps prose always and tool steps of the last 30 days (at, else storedAt; the cutoff itself is kept)",
+        "now": 5184000000,
+        "windowDays": 30,
+        "expect": [
+          1,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "name": "a larger storage setting keeps more",
+        "now": 5184000000,
+        "windowDays": 90,
+        "expect": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    ]
+  }
+}
