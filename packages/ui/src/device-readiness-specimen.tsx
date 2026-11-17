@@ -5,14 +5,17 @@ import { DeviceReadiness, deviceReadinessWarning, type DeviceReadinessDoctor } f
 // (iOS StyleguideScreenshots, Android DeviceReadinessSpecimenScreen): the
 // fixture's low-disk case as web draws it (always another device), the block
 // in Device settings, then the composer's low-disk row. The app's
-// `?dev=device-readiness` capture renders it.
+// `?dev=device-readiness` capture renders it. #EXP-1899: then the case whose
+// machine cannot drive: its Computer use switch row with the device's reason.
 
 interface DoctorCase {
   name: string
   doctor: DeviceReadinessDoctor
+  switchDescription?: string
 }
 const CASES = deviceDoctor.cases as unknown as DoctorCase[]
 const LOW_DISK = CASES[CASES.length - 1]
+const CANNOT_DRIVE = CASES.find((fixtureCase) => fixtureCase.switchDescription)
 const noop = () => {}
 
 function Caption({ children }: { children: string }) {
@@ -29,6 +32,17 @@ export function DeviceReadinessSpecimen() {
         <>
           <Caption>Composer</Caption>
           <DeviceReadiness doctor={LOW_DISK.doctor} remote only={[warning]} onAction={noop} />
+        </>
+      ) : null}
+      {CANNOT_DRIVE ? (
+        <>
+          <Caption>{CANNOT_DRIVE.name}</Caption>
+          <DeviceReadiness
+            doctor={CANNOT_DRIVE.doctor}
+            remote
+            only={[`computer_use`]}
+            onAction={noop}
+          />
         </>
       ) : null}
     </div>

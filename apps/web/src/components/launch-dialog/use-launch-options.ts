@@ -20,7 +20,6 @@ import {
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
-  deviceComputerUseDefault,
   deviceDefaultAgent,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -32,7 +31,7 @@ import {
   lastUsedAccountOption,
   type AccountOption,
 } from "@/lib/accounts/account-option"
-import { COMPUTER_USE_RUN_CAP } from "@/components/launch-dialog/composer-menu"
+import { computerUseOffered } from "@/components/launch-dialog/composer-menu"
 import { agentLabel } from "@exp/ui"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
@@ -88,12 +87,11 @@ export interface LaunchOptions {
    * `enabledByDefault` skills; every change is persisted per team. */
   skillIds: string[]
   toggleSkill: (id: string) => void
-  /** EXP-1249: a device is settled, so the composer's "+" offers the
-   * per-run `computerUse` toggle. */
+  /** EXP-1249: the composer's "+" offers the per-run `computerUse` toggle
+   * (#EXP-1899: the settled device's switch is on and it can drive). */
   computerUseAvailable: boolean
-  /** EXP-1249: computer use for this run — the device's own (live)
-   * `launch_defaults.computerUse` until the person flips it; a device change
-   * drops the flip. */
+  /** EXP-1249: computer use for this run — on (follows the device's switch)
+   * until the person opts out; a device change drops the opt-out. */
   computerUse: boolean
   setComputerUse: (value: boolean) => void
   /** EXP-872: the ONE list the composer's account picker offers — every
@@ -329,10 +327,10 @@ export function useLaunchOptions({
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
-  // composer-menu.json `conditions.computerUse`: only a device advertising
-  // the per-run cap takes the toggle (older builds would ignore it).
-  const computerUseAvailable = device?.caps?.includes(COMPUTER_USE_RUN_CAP) ?? false
-  const computerUse = computerUsePick ?? deviceComputerUseDefault(device)
+  // composer-menu.json `conditions.computerUse`: only a device that takes
+  // the per-run pick, with its switch on and able to drive (#EXP-1899).
+  const computerUseAvailable = computerUseOffered(device)
+  const computerUse = computerUsePick ?? true
   const availableAgentsKey = availableAgents.join(`,`)
 
   // EXP-872: the flattened login list of the settled device. The heartbeat
@@ -402,14 +400,9 @@ export function useLaunchOptions({
       : {}),
     // #EXP-1659: only while the pick is non-empty.
     ...(skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
-    // EXP-1249: only a picked device gets it, and only
-    // once the person flipped it (or it differs from the device's CURRENT
-    // default); otherwise the key is omitted so the machine's own setting
-    // applies, never a stale seed.
-    ...(computerUseAvailable &&
-    (computerUsePick !== null || computerUse !== deviceComputerUseDefault(device))
-      ? { computerUse }
-      : {}),
+    // #EXP-1899: only an opt-out rides out; otherwise the key is omitted
+    // and the session follows the device's switch.
+    ...(computerUseAvailable && !computerUse ? { computerUse: false } : {}),
     // EXP-1158: the picked profile rides out VERBATIM; an unpinned option
     // (id ``) sends none = the machine's last used profile.
     ...(pickedOption && pickedOption.agent === agent && pickedOption.id
