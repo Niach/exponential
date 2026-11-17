@@ -527,15 +527,9 @@ impl Surfaces {
         }
     }
 
-    /// The compositor dismissed every popup (a press outside): the hosted
-    /// layers close in their surfaces (which then tells [`Self::sync_hosted`]).
-    pub fn dismiss_hosted(&mut self, cx: &mut App) {
-        let keys: Vec<(String, String)> = self.hosted.keys().cloned().collect();
-        for (doc, owner) in keys {
-            if let Some(region) = self.open.get(&doc).cloned() {
-                let _ = region.handle.update(cx, |_, window, cx| region.view.update(cx, |v, cx| v.dismiss_hosted_popup(&owner, window, cx)));
-            }
-        }
+    /// The hosted layers [`dismiss_hosted`] closes, each with its surface.
+    pub fn hosted_layers(&self) -> Vec<(Region, String)> {
+        self.hosted.keys().filter_map(|(doc, owner)| Some((self.open.get(doc)?.clone(), owner.clone()))).collect()
     }
 
     /// Redraws an open document from its (edited) source and data.
@@ -636,6 +630,18 @@ pub fn load(view: &mut SurfaceView, doc: &Document, feed: &Feed, cx: &mut gpui::
         }
     }
     push_feed(view, feed, cx);
+}
+
+/// The compositor dismissed every popup (a press outside): the hosted layers
+/// ([`Surfaces::hosted_layers`]) close in their surfaces (which then tells
+/// [`Surfaces::sync_hosted`]). A closing Popover fires its `change` into the
+/// host plugin, which reads the shell: the caller collects the layers under
+/// a short borrow and calls this with the shell free (#EDE-75: under the
+/// borrow it was a `RefCell` panic, the shell died with a press).
+pub fn dismiss_hosted(layers: Vec<(Region, String)>, cx: &mut App) {
+    for (region, owner) in layers {
+        let _ = region.handle.update(cx, |_, window, cx| region.view.update(cx, |v, cx| v.dismiss_hosted_popup(&owner, window, cx)));
+    }
 }
 
 /// Every path of the feed into the view.

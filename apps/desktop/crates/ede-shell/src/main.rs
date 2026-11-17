@@ -95,10 +95,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
-    },
+    sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -288,7 +285,7 @@ struct Shell {
     /// The windows the capture thread photographs.
     capture_ids: Arc<Mutex<Vec<String>>>,
     /// The thumbnail thread runs while this is set.
-    capturing: Arc<AtomicBool>,
+    capturing: thumbs::Captures,
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
@@ -373,6 +370,7 @@ type SharedShell = Rc<RefCell<Shell>>;
 /// popup document; the `ede_*` host functions go to the compositor, the
 /// system and the shell model, each only from a document whose header
 /// allows it; the hosted popups of the document reach the main loop.
+#[derive(Clone)]
 struct Host {
     shell: SharedShell,
     document: String,
@@ -504,6 +502,12 @@ impl HostPlugin for Host {
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
+        // #EDE-75: fired by a view the shell updates while it is borrowed: after that borrow.
+        if self.shell.try_borrow_mut().is_err() {
+            let (host, event) = (self.clone(), event.clone());
+            cx.defer(move |cx| host.on_action(&event, cx));
+            return;
+        }
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
@@ -545,6 +549,15 @@ impl HostPlugin for Host {
             });
             return;
         }
+        // #EDE-75: the hover previews' change is an event: its {open} reaches
+        // a context, never a function's args, and a close ends the thumbnails.
+        if event.name == "ede_previews" && allowed(&self.shell.borrow(), &event.surface_id, "ede_previews") {
+            let shell = self.shell.clone();
+            let app = event.context["app"].as_str().map(String::from);
+            let open = event.context["open"].as_bool().unwrap_or(app.is_some());
+            cx.defer(move |cx| previews_changed(&shell, app, open, cx));
+            return;
+        }
         let popups = popups_of(&self.shell.borrow(), &event.surface_id, &event.component_id);
         if !popups.is_empty() {
             let shell = self.shell.clone();
@@ -557,6 +570,12 @@ impl HostPlugin for Host {
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
+        // #EDE-75: as `on_action`.
+        if self.shell.try_borrow_mut().is_err() {
+            let (host, event) = (self.clone(), event.clone());
+            cx.defer(move |cx| host.on_function_call(&event, cx));
+            return;
+        }
         let (name, args) = (event.name.as_str(), &event.args);
         if !allowed(&self.shell.borrow(), &event.surface_id, name) {
             tracing::warn!(document = %event.surface_id, function = name, "refused: not in the document's surface.functions");
@@ -807,17 +826,11 @@ impl HostPlugin for Host {
                 }
             }
             "ede_previews" => {
-                // A hover Popover's change: open with the app, closed = that app's previews go.
+                // A hover Popover's change as a function (a document from before
+                // #EDE-75, whose `open` never arrives): the event in `on_action` is the factory's.
                 let app = args.get("app").and_then(Value::as_str).map(String::from);
                 let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
-                cx.defer(move |cx| {
-                    let current = shell.borrow().model.taskbar.previews.clone();
-                    if open {
-                        previews_set(&shell, app, cx);
-                    } else if current == app || app.is_none() {
-                        previews_set(&shell, None, cx);
-                    }
-                });
+                cx.defer(move |cx| previews_changed(&shell, app, open, cx));
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
             "ede_settings" => match settings_pages::handle(args) {
@@ -840,7 +853,8 @@ impl HostPlugin for Host {
                         let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
                         if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
                             // #EDE-65: the menu goes with the pick (it stayed open, the pick looked like nothing).
-                            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+                            let hosted = shell.borrow().surfaces.hosted_layers();
+                            uicore_gpui::dismiss_hosted(hosted, cx);
                             switcher_picked(&shell, entry_kind, id, cx);
                         }
                     }
@@ -1788,6 +1802,26 @@ fn previews_set(shell: &SharedShell, app: Option<String>, cx: &mut App) {
     refresh(shell, cx);
 }
 
+/// A previews Popover opened or closed: open shows its app's, closed hides
+/// them unless another app's already show.
+fn previews_changed(shell: &SharedShell, app: Option<String>, open: bool, cx: &mut App) {
+    let current = shell.borrow().model.taskbar.previews.clone();
+    if let Some(next) = previews_after(&current, app, open) {
+        previews_set(shell, next, cx);
+    }
+}
+
+/// The previews after a Popover's change, `None` = as they are.
+fn previews_after(current: &Option<String>, app: Option<String>, open: bool) -> Option<Option<String>> {
+    if open {
+        Some(app)
+    } else if *current == app || app.is_none() {
+        Some(None)
+    } else {
+        None
+    }
+}
+
 fn previews_refresh(shell: &SharedShell) {
     let mut s = shell.borrow_mut();
     let value = match s.model.taskbar.previews.clone() {
@@ -2638,7 +2672,9 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
             for n in &names {
                 close(shell, n, cx);
             }
-            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+            // #EDE-75: a closing Popover's change reads the shell: the borrow ends first.
+            let hosted = shell.borrow().surfaces.hosted_layers();
+            uicore_gpui::dismiss_hosted(hosted, cx);
             let (previews, menu_open) = {
                 let s = shell.borrow();
                 (s.model.taskbar.previews.is_some(), s.model.start_menu.open)
@@ -2778,29 +2814,27 @@ fn thumbnails_retarget(shell: &SharedShell) {
             Vec::new()
         }
     };
-    let (flag, targets, tx) = {
+    let (captures, targets, tx) = {
         let s = shell.borrow();
         (s.capturing.clone(), s.capture_ids.clone(), s.thumbs_tx.clone())
     };
     *targets.lock().unwrap_or_else(|p| p.into_inner()) = ids.clone();
     if ids.is_empty() {
-        flag.store(false, Ordering::SeqCst);
+        captures.stop();
         return;
     }
-    if flag.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    let Some(run) = captures.start() else { return };
     // Thumbnails at about 5 fps on a thread with its own ede-protocol connection.
     let _ = std::thread::Builder::new().name("ede-shell-thumbs".into()).spawn(move || {
         let Ok(mut ede) = ede_protocol::Client::connect_env() else {
-            flag.store(false, Ordering::SeqCst);
+            run.fail();
             return;
         };
-        while flag.load(Ordering::SeqCst) {
+        while run.live() {
             let started = Instant::now();
             let ids = targets.lock().unwrap_or_else(|p| p.into_inner()).clone();
             for id in &ids {
-                if !flag.load(Ordering::SeqCst) {
+                if !run.live() {
                     return;
                 }
                 let Ok(window) = ede_protocol::WindowId::new(id) else { continue };
@@ -3332,7 +3366,7 @@ fn main() {
             windows: Vec::new(),
             thumbnails: HashMap::new(),
             capture_ids: Arc::new(Mutex::new(Vec::new())),
-            capturing: Arc::new(AtomicBool::new(false)),
+            capturing: thumbs::Captures::default(),
             thumbs_tx,
             osd_until: None,
             switcher_generation: 0,
@@ -3886,6 +3920,30 @@ mod layer_sizes {
             walk.extend(node["children"].as_array().into_iter().flatten());
         }
         assert_eq!((composers, rows), (2, 2));
+    }
+}
+
+#[cfg(test)]
+mod previews {
+    use super::previews_after;
+
+    /// #EDE-75: leaving a taskbar button closes its previews (the capture
+    /// thread stops with them); the next button's stay when its open came first.
+    #[test]
+    fn a_close_hides_only_its_own_apps_previews() {
+        let (firefox, nemo) = (Some("firefox".to_string()), Some("nemo".to_string()));
+        assert_eq!(previews_after(&None, firefox.clone(), true), Some(firefox.clone()));
+        assert_eq!(previews_after(&firefox, firefox.clone(), false), Some(None));
+        assert_eq!(previews_after(&nemo, firefox.clone(), false), None);
+        assert_eq!(previews_after(&firefox, None, false), Some(None));
+    }
+
+    /// The factory taskbar tells the shell with an event (its context gets `open`).
+    #[test]
+    fn the_factory_previews_change_is_an_event() {
+        let doc = uicore_docs::doc("taskbar").unwrap().source;
+        assert!(doc.contains(r#""name": "ede_previews""#), "the event");
+        assert!(!doc.contains(r#""@call": "ede_previews""#), "no function call: its args never get `open`");
     }
 }
 

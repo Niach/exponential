@@ -194,14 +194,11 @@
                     },
                     "on": {
                       "change": {
-                        "functionCall": {
-                          "@call": "ede_previews",
-                          "args": {
+                        "event": {
+                          "name": "ede_previews",
+                          "context": {
                             "app": {
                               "@path": "app"
-                            },
-                            "open": {
-                              "@path": "open"
                             }
                           }
                         }
