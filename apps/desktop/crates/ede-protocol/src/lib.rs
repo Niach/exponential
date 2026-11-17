@@ -27,7 +27,7 @@ use std::{
 #[cfg(unix)]
 use std::{collections::VecDeque, os::unix::net::UnixStream};
 
-pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, Token, WindowId};
+pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -447,6 +447,17 @@ pub struct WindowInfo {
     /// geometry kept for the restore.
     #[serde(default)]
     pub minimized: bool,
+    /// The agent space it lives in; `None` = the person's desk (#EDE-91).
+    /// Absent on the wire when `None`: a reply reads as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+impl WindowInfo {
+    /// On the person's desk, not in an agent space.
+    pub fn is_persons(&self) -> bool {
+        self.space.is_none()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -485,6 +496,64 @@ pub struct OutputInfo {
     /// Physical size in mm, `[0, 0]` when unknown.
     #[serde(default)]
     pub physical_mm: [i32; 2],
+    /// The agent space it shows; `None` = the person's desk (#EDE-91).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+impl OutputInfo {
+    /// One of the person's outputs, not an agent space's.
+    pub fn is_persons(&self) -> bool {
+        self.space.is_none()
+    }
+}
+
+/// `data` of the `window.*` events.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowEvent {
+    pub window: WindowId,
+    pub app_id: Option<String>,
+    /// As [`WindowInfo::space`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+/// `data` of [`events::OUTPUT_CHANGED`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OutputEvent {
+    pub output: String,
+    /// As [`OutputInfo::space`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+/// The person's windows or outputs of a list (#EDE-91).
+pub fn persons<T: OnDesk>(list: Vec<T>) -> Vec<T> {
+    list.into_iter().filter(OnDesk::is_persons).collect()
+}
+
+/// An event about the person's desk: its `data` names no `space` (every
+/// event without one, the hotkeys and the session's too).
+pub fn is_persons_event(event: &Envelope) -> bool {
+    event.data.get("space").is_none_or(serde_json::Value::is_null)
+}
+
+/// What [`persons`] filters.
+pub trait OnDesk {
+    fn is_persons(&self) -> bool;
+}
+
+impl OnDesk for WindowInfo {
+    fn is_persons(&self) -> bool {
+        WindowInfo::is_persons(self)
+    }
+}
+
+impl OnDesk for OutputInfo {
+    fn is_persons(&self) -> bool {
+        OutputInfo::is_persons(self)
+    }
 }
 
 /// A capture reply; the pixels follow as the next frame unless `unchanged`.
@@ -959,6 +1028,114 @@ mod tests {
         assert!(!w.minimized && w.workspace == 0);
         let call = Call { id: 1, request: Request::MinimizeWindow { window: w.id } };
         assert_eq!(serde_json::to_value(&call).unwrap(), serde_json::json!({"id": 1, "op": "minimize_window", "window": "w1"}));
+    }
+
+    /// #EDE-91: `WindowInfo` and `OutputInfo` as they were before `space`,
+    /// field for field: what an old client parses a reply into.
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct OldWindowInfo {
+        id: WindowId,
+        title: Option<String>,
+        app_id: Option<String>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        focused: bool,
+        fullscreen: bool,
+        protected: bool,
+        x11: bool,
+        #[serde(default)]
+        workspace: usize,
+        #[serde(default)]
+        minimized: bool,
+    }
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct OldOutputInfo {
+        name: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        scale: f64,
+        #[serde(default)]
+        modes: Vec<ModeInfo>,
+        #[serde(default)]
+        make: String,
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        physical_mm: [i32; 2],
+    }
+
+    fn window(space: Option<&str>) -> WindowInfo {
+        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
+    }
+
+    fn output(space: Option<&str>) -> OutputInfo {
+        OutputInfo { name: "DP-1".into(), x: 0, y: 0, width: 800, height: 600, scale: 1.0, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0], space: space.map(|s| SpaceId::new(s).unwrap()) }
+    }
+
+    /// #EDE-91: the person's entries go out byte for byte as before `space`.
+    #[test]
+    fn a_person_entry_is_written_as_before_space() {
+        assert_eq!(
+            serde_json::to_string(&window(None)).unwrap(),
+            r#"{"id":"w1","title":"a","app_id":null,"x":0,"y":0,"width":1,"height":1,"focused":true,"fullscreen":false,"protected":false,"x11":false,"workspace":0,"minimized":false}"#
+        );
+        assert_eq!(serde_json::to_string(&output(None)).unwrap(), r#"{"name":"DP-1","x":0,"y":0,"width":800,"height":600,"scale":1.0,"modes":[],"make":"","model":"","physical_mm":[0,0]}"#);
+        let opened = WindowEvent { window: WindowId::new("w1").unwrap(), app_id: None, space: None };
+        assert_eq!(serde_json::to_value(&opened).unwrap(), serde_json::json!({ "window": "w1", "appId": null }));
+        let changed = OutputEvent { output: "DP-1".into(), space: None };
+        assert_eq!(serde_json::to_value(&changed).unwrap(), serde_json::json!({ "output": "DP-1" }));
+    }
+
+    /// #EDE-91: `space` round trips; an old reply (none) reads as the person's.
+    #[test]
+    fn space_round_trips_and_an_old_reply_is_the_persons() {
+        for w in [window(None), window(Some("sp1"))] {
+            assert_eq!(serde_json::from_value::<WindowInfo>(serde_json::to_value(&w).unwrap()).unwrap(), w);
+        }
+        for o in [output(None), output(Some("sp1"))] {
+            assert_eq!(serde_json::from_value::<OutputInfo>(serde_json::to_value(&o).unwrap()).unwrap(), o);
+        }
+        assert_eq!(serde_json::to_value(window(Some("sp1"))).unwrap()["space"], "sp1");
+        let old = r#"{"id":"w1","title":"a","app_id":null,"x":0,"y":0,"width":1,"height":1,"focused":true,"fullscreen":false,"protected":false,"x11":false}"#;
+        let w: WindowInfo = serde_json::from_str(old).unwrap();
+        assert!(w.space.is_none() && w.is_persons());
+        let o: OutputInfo = serde_json::from_str(r#"{"name":"DP-1","x":0,"y":0,"width":800,"height":600,"scale":1.0}"#).unwrap();
+        assert!(o.space.is_none() && o.is_persons());
+        assert!(!window(Some("sp1")).is_persons() && !output(Some("sp1")).is_persons());
+    }
+
+    /// #EDE-91: an old client parses a reply and an event that name a space.
+    #[test]
+    fn an_old_client_parses_entries_with_a_space() {
+        let windows = serde_json::to_string(&vec![window(None), window(Some("sp1"))]).unwrap();
+        let old: Vec<OldWindowInfo> = serde_json::from_str(&windows).unwrap();
+        assert_eq!(old.len(), 2);
+        let outputs = serde_json::to_string(&vec![output(Some("sp1"))]).unwrap();
+        let old: Vec<OldOutputInfo> = serde_json::from_str(&outputs).unwrap();
+        assert_eq!(old[0].name, "DP-1");
+        let event = Envelope::new("ev-1", events::WINDOW_OPENED, 1, EVENT_SOURCE, None, serde_json::to_value(WindowEvent { window: WindowId::new("w1").unwrap(), app_id: Some("a".into()), space: Some(SpaceId::new("sp1").unwrap()) }).unwrap());
+        let wire = serde_json::to_string(&Message::Event { event }).unwrap();
+        let Message::Event { event } = serde_json::from_str(&wire).unwrap() else { panic!("an event") };
+        assert_eq!(event.data["window"], "w1", "what an old shell reads of it");
+    }
+
+    /// #EDE-91: an event's space; one without (every event today) is the person's.
+    #[test]
+    fn an_event_without_a_space_is_the_persons() {
+        let event = |data: serde_json::Value| Envelope::new("ev-1", events::OUTPUT_CHANGED, 1, EVENT_SOURCE, None, data);
+        assert!(is_persons_event(&event(serde_json::json!({ "output": "DP-1" }))));
+        assert!(is_persons_event(&event(serde_json::json!({ "name": "switcher.next" }))));
+        assert!(is_persons_event(&event(serde_json::Value::Null)));
+        assert!(!is_persons_event(&event(serde_json::to_value(OutputEvent { output: "DP-1".into(), space: Some(SpaceId::new("sp1").unwrap()) }).unwrap())));
+        let both = vec![window(None), window(Some("sp1"))];
+        assert_eq!(persons(both), vec![window(None)]);
     }
 
     /// A peer that answers hello and then nothing, and never reads again.
