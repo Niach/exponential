@@ -15,6 +15,7 @@ use wayland_client::{
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
 use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1};
 use wayland_protocols::{
+    ext::idle_notify::v1::client::{ext_idle_notification_v1, ext_idle_notifier_v1},
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
     xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base},
@@ -53,6 +54,16 @@ pub struct Client {
     /// The surface our keyboard is on, and the keys it received (evdev codes).
     pub keyboard_focus: Option<wl_surface::WlSurface>,
     pub keys: Vec<u32>,
+    /// The depressed modifiers of every `modifiers` event (Shift = 1).
+    pub modifiers: Vec<u32>,
+    /// What our pointer heard: enters, motions, and each button with its state.
+    pub pointer_enters: u32,
+    pub pointer_motions: u32,
+    pub buttons: Vec<(u32, bool)>,
+    pub idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
+    /// `idled` and `resumed` on our idle notifications.
+    pub idled: u32,
+    pub resumed: u32,
     /// The keymap the compositor sent (format, fd, size), for a virtual
     /// keyboard to upload.
     pub keymap: Option<(u32, std::os::fd::OwnedFd, u32)>,
@@ -413,6 +424,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "ext_session_lock_manager_v1" => state.lock_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_idle_inhibit_manager_v1" => state.idle_inhibit_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_virtual_keyboard_manager_v1" => state.virtual_keyboard_manager = Some(registry.bind(name, 1, qh, ())),
+                "ext_idle_notifier_v1" => state.idle_notifier = Some(registry.bind(name, 1, qh, ())),
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), qh, ())),
                 "wl_compositor" => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
@@ -545,6 +557,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
             wl_keyboard::Event::Enter { surface, .. } => state.keyboard_focus = Some(surface),
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),
+            wl_keyboard::Event::Modifiers { mods_depressed, .. } => state.modifiers.push(mods_depressed),
             _ => {}
         }
     }
@@ -552,8 +565,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Client {
     fn event(state: &mut Self, _: &wl_pointer::WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_pointer::Event::Button { serial, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } = event {
-            state.press_serial = Some(serial);
+        match event {
+            wl_pointer::Event::Enter { .. } => state.pointer_enters += 1,
+            wl_pointer::Event::Motion { .. } => state.pointer_motions += 1,
+            wl_pointer::Event::Button { serial, button, state: WEnum::Value(pressed), .. } => {
+                let pressed = pressed == wl_pointer::ButtonState::Pressed;
+                state.buttons.push((button, pressed));
+                if pressed {
+                    state.press_serial = Some(serial);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -566,6 +588,23 @@ impl Session {
         let device = self.state.data_device_manager.as_ref().expect("data device manager advertised").get_data_device(&seat, &self.qh, ());
         self.roundtrip();
         device
+    }
+
+    /// Starts a drag of one text type from `origin` with the last press.
+    pub fn start_drag(&mut self, device: &wl_data_device::WlDataDevice, origin: &wl_surface::WlSurface) -> wl_data_source::WlDataSource {
+        let source = self.state.data_device_manager.as_ref().unwrap().create_data_source(&self.qh, ());
+        source.offer("text/plain".into());
+        device.start_drag(Some(&source), origin, None, self.state.press_serial.expect("a press"));
+        self.roundtrip();
+        source
+    }
+
+    /// An idle notification on our seat after `ms` without input.
+    pub fn idle_notification(&mut self, ms: u32) -> ext_idle_notification_v1::ExtIdleNotificationV1 {
+        let seat = self.state.seat.clone().expect("seat advertised");
+        let notification = self.state.idle_notifier.as_ref().expect("idle notify advertised").get_idle_notification(ms, &seat, &self.qh, ());
+        self.roundtrip();
+        notification
     }
 
     /// Sets the clipboard to a source offering `types` (`None` data = never answered).
@@ -644,6 +683,16 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
     }
 }
 
+impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Client {
+    fn event(state: &mut Self, _: &ext_idle_notification_v1::ExtIdleNotificationV1, event: ext_idle_notification_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            ext_idle_notification_v1::Event::Idled => state.idled += 1,
+            ext_idle_notification_v1::Event::Resumed => state.resumed += 1,
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<wl_callback::WlCallback, ()> for Client {
     fn event(state: &mut Self, callback: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if matches!(event, wl_callback::Event::Done { .. }) && state.frame_pending.as_ref() == Some(callback) {
@@ -654,6 +703,7 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
+delegate_noop!(Client: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);

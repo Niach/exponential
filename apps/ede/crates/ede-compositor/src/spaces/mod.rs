@@ -11,6 +11,7 @@
 
 mod close;
 pub mod frames;
+mod input;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
