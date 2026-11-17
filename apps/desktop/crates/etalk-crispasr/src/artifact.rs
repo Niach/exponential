@@ -81,6 +81,40 @@ fn cancelled() -> Result<(), Error> {
     if CANCELLED.load(Ordering::SeqCst) { Err(Error::Io("the download was cancelled".into())) } else { Ok(()) }
 }
 
+/// EXP-1934: the lock file of a download directory. The IDE's and the
+/// daemon's speech workers share the speech data, so a download and its
+/// install hold this file's lock (the OS's, freed when the process ends):
+/// two processes never write the same `<id>.part`, and the hosts' sweep of
+/// partial downloads (`etalk::remove_partial_downloads`) skips a directory
+/// while it is held.
+pub const LOCK_FILE: &str = ".lock";
+
+/// Take `dir`'s download lock, waiting for another process's (or thread's)
+/// download to end; a cancel ends the wait. `None` = this filesystem has no
+/// locks: the download runs as it did before them.
+fn lock_dir(dir: &Path) -> Result<Option<File>, Error> {
+    let path = dir.join(LOCK_FILE);
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|err| io_error(format!("open {}", path.display()), err))?;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(file)),
+            Err(fs::TryLockError::WouldBlock) => {
+                cancelled()?;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(fs::TryLockError::Error(err)) => {
+                log::warn!("no download lock in {} ({err})", dir.display());
+                return Ok(None);
+            }
+        }
+    }
+}
+
 fn manifest_path(dir: &Path, artifact: &Artifact) -> PathBuf {
     dir.join(format!(".{}.sha256", artifact.id))
 }
@@ -192,6 +226,11 @@ pub fn ensure(dir: &Path, artifact: &Artifact, mut progress: impl FnMut(u64)) ->
         return Ok(());
     }
     fs::create_dir_all(dir).map_err(|err| io_error(format!("create {}", dir.display()), err))?;
+    let _lock = lock_dir(dir)?;
+    // Another process fetched it while this one waited for the lock.
+    if is_ready(dir, artifact) {
+        return Ok(());
+    }
     let part = dir.join(format!("{}.part", artifact.id));
     let result = download(artifact, &part, &mut progress).and_then(|()| install(dir, artifact, &part));
     let _ = fs::remove_file(&part);
@@ -469,6 +508,82 @@ mod tests {
         assert!(!is_ready(&dir, &LIB));
         assert!(verify(&dir, &LIB).is_err());
         assert_eq!(fs::read(dir.join("precious")).unwrap(), b"keep me", "verify never deletes a name it read");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// One local HTTP server: every GET gets `body`, dripped over ~0.8 s
+    /// (so two downloads overlap); answers its URL and the request count.
+    fn serve(body: Vec<u8>) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/model.gguf", listener.local_addr().unwrap());
+        let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counting = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let (Ok(mut stream), body) = (stream, body.clone()) else { continue };
+                counting.fetch_add(1, Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    let mut request = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !request.ends_with(b"\r\n\r\n") && stream.read(&mut byte).is_ok_and(|read| read == 1) {
+                        request.push(byte[0]);
+                    }
+                    let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                    for chunk in body.chunks(body.len() / 8) {
+                        if stream.write_all(chunk).and_then(|()| stream.flush()).is_err() {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                });
+            }
+        });
+        (url, requests)
+    }
+
+    const RACE_ENV: &str = "CRISPASR_TEST_RACE";
+
+    /// The child of the race below (a plain pass when run by itself): one
+    /// `ensure` of the artifact the parent describes.
+    #[test]
+    fn a_racing_download() {
+        let Ok(spec) = std::env::var(RACE_ENV) else { return };
+        let mut lines = spec.lines().map(|line| &*Box::leak(line.to_string().into_boxed_str()));
+        let (dir, url, sha256, size) = (lines.next().unwrap(), lines.next().unwrap(), lines.next().unwrap(), lines.next().unwrap());
+        let model = Artifact { id: "model", url, sha256, size: size.parse().unwrap(), pack: Pack::File, keep: &[("", "m.gguf")] };
+        ensure(Path::new(dir), &model, |_| {}).unwrap();
+    }
+
+    /// EXP-1934: the IDE's and the daemon's workers share the speech data:
+    /// two processes that want the same artifact download it ONCE, and both
+    /// find it installed.
+    #[test]
+    fn two_processes_fetch_one_artifact_once() {
+        let dir = temp_dir("race");
+        let body: Vec<u8> = (0..512 * 1024u32).map(|index| (index % 251) as u8).collect();
+        let (url, requests) = serve(body.clone());
+        let spec = format!("{}\n{url}\n{}\n{}", dir.display(), sha(&body), body.len());
+        let racing: Vec<std::process::Child> = (0..2)
+            .map(|_| {
+                std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "artifact::tests::a_racing_download", "--nocapture"])
+                    .env(RACE_ENV, &spec)
+                    .env("NO_PROXY", "127.0.0.1")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for process in racing {
+            let output = process.wait_with_output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+        assert_eq!(fs::read(dir.join("m.gguf")).unwrap(), body);
+        assert_eq!(requests.load(Ordering::SeqCst), 1, "the one that waited found it installed");
+        let mut names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, [".lock", ".model.sha256", "m.gguf"]);
         let _ = fs::remove_dir_all(&dir);
     }
 

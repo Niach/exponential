@@ -606,15 +606,24 @@ pub fn remove_leftover_voice_data(data_dir: &std::path::Path) -> usize {
 /// verified downloads stay. Call only with no worker running
 /// ([`SpeechClient::remove_partial_downloads`] makes sure). Answers how many
 /// files went.
+/// EXP-1934: the lock file a download holds in its directory (the name of
+/// `etalk_crispasr::artifact::LOCK_FILE`, which this crate cannot name).
+const DOWNLOAD_LOCK: &str = ".lock";
+
 pub fn remove_partial_downloads(data_dir: &std::path::Path) -> usize {
     fn sweep(dir: &std::path::Path, removed: &mut usize) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
+        // EXP-1934: another process (the other host's worker) downloads
+        // into this directory right now: its files stay.
+        let lock = std::fs::File::open(dir.join(DOWNLOAD_LOCK)).ok();
+        let busy = lock.as_ref().is_some_and(|lock| matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
         for entry in entries.flatten() {
             let Ok(kind) = entry.file_type() else { continue };
             let path = entry.path();
             if kind.is_dir() {
                 sweep(&path, removed);
-            } else if kind.is_file()
+            } else if !busy
+                && kind.is_file()
                 && path.extension().is_some_and(|extension| extension == "part" || extension == "tmp")
                 && std::fs::remove_file(&path).is_ok()
             {
@@ -1345,6 +1354,97 @@ mod tests {
         client.shutdown();
         assert!(exited.try_recv().is_err(), "reported once");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1934: a client whose FIRST worker dies after its first request
+    /// (later ones live); `pids` and `lines` log every start and request.
+    #[cfg(unix)]
+    fn dying_worker(tag: &str) -> (SpeechClient, std::sync::mpsc::Receiver<()>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("talk-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = format!(
+            r#"echo $$ >> "{dir}/pids"; read -r line; echo "$line" >> "{dir}/lines"; [ "$(wc -l < "{dir}/pids")" -gt 1 ] && exec sleep 30"#,
+            dir = dir.display()
+        );
+        fake_worker(&dir.join("worker"), &body);
+        let (tx, exited) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let client = SpeechClient::new(dir.join("worker"), dir.clone(), move |event| {
+            if event == Event::Exited {
+                let _ = tx.lock().unwrap().send(());
+            }
+        });
+        (client, exited, dir)
+    }
+
+    #[cfg(unix)]
+    fn logged(path: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(path).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    /// EXP-1934: a request after a death is the recovery: the dead worker
+    /// is replaced, the request reaches the new one, and the one death is
+    /// one `Exited`.
+    #[cfg(unix)]
+    #[test]
+    fn a_request_after_a_death_reaches_a_new_worker() {
+        let (client, exited, dir) = dying_worker("respawn");
+        let minute = std::time::Duration::from_secs(60);
+        client.speak("r1", "one");
+        exited.recv_timeout(minute).expect("the first worker died after its request");
+        client.speak("r2", "two");
+        let deadline = std::time::Instant::now() + minute;
+        while logged(&dir.join("lines")).len() < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let (pids, lines) = (logged(&dir.join("pids")), logged(&dir.join("lines")));
+        assert_eq!(pids.len(), 2, "one worker replaced the dead one: {pids:?}");
+        assert_ne!(pids[0], pids[1]);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].contains(r#""id":"r1""#) && lines[1].contains(r#""id":"r2""#), "the request reached it: {lines:?}");
+        client.shut_down().expect("the new worker runs").join().unwrap();
+        assert!(exited.try_recv().is_err(), "one death, one Exited");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1934: after a death a request that never spawns (Stop, Hangup)
+    /// only clears the dead worker.
+    #[cfg(unix)]
+    #[test]
+    fn a_request_that_never_spawns_clears_a_dead_worker() {
+        let (client, exited, dir) = dying_worker("dead-slot");
+        client.speak("r1", "one");
+        exited.recv_timeout(std::time::Duration::from_secs(60)).expect("the worker died after its request");
+        client.stop();
+        assert!(client.worker.lock().unwrap().is_none(), "the dead worker is cleared");
+        client.hangup("c1");
+        assert_eq!(logged(&dir.join("pids")).len(), 1, "no worker was started");
+        assert!(client.shut_down().is_none());
+        assert!(exited.try_recv().is_err(), "one death, one Exited");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1934: the sweep leaves the downloads of a directory whose lock
+    /// another process (the other host's worker) holds.
+    #[test]
+    fn the_sweep_skips_a_download_in_progress_elsewhere() {
+        let data = std::env::temp_dir().join(format!("talk-sweep-locked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let (busy, idle) = (voice_data_dir(&data).join("models"), voice_data_dir(&data).join("runtime"));
+        for dir in [&busy, &idle] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("model.part"), "half").unwrap();
+            std::fs::write(dir.join(DOWNLOAD_LOCK), "").unwrap();
+        }
+        let held = std::fs::File::open(busy.join(DOWNLOAD_LOCK)).unwrap();
+        held.lock().unwrap();
+        assert_eq!(remove_partial_downloads(&data), 1);
+        assert!(busy.join("model.part").exists(), "a download in progress stays");
+        assert!(!idle.join("model.part").exists(), "a killed one goes");
+        drop(held);
+        assert_eq!(remove_partial_downloads(&data), 1, "and once its lock is free");
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     /// Wave review of #1263/#1278: a worker that never SPAWNS is reported
