@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { cleanup, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, highlightSpec, reduceNested } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, highlightSpec, reduceNested, type NestedNode } from "@exponential_app/eui"
 import { highlightPieces, HIGHLIGHT_NAMES } from "@exponential_app/eui/web"
 import fixture from "@exponential_app/eui/fixtures/text-highlight.json"
 import { ExponentialSurface } from "./surface"
@@ -21,7 +21,7 @@ beforeEach(() => {
   ;(window as unknown as { CSS: unknown }).CSS = { ...(window as unknown as { CSS?: object }).CSS, highlights: registry }
 })
 
-const paint = (node: Record<string, unknown>) => render(<ExponentialSurface root={reduceNested(node, { catalogId: CORE_CATALOG_ID }).root} theme="neutral" id="hl" />).container
+const paint = (node: NestedNode) => render(<ExponentialSurface root={reduceNested(node, { catalogId: CORE_CATALOG_ID }).root} theme="neutral" id="hl" />).container
 
 const texts = (name: string) => [...(registry.get(name) ?? [])].map((r) => r.toString())
 
