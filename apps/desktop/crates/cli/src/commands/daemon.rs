@@ -2193,6 +2193,9 @@ fn reconcile_defaults_with(
     server_has_defaults: bool,
 ) {
     let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    // #EXP-1899: before the server's copy is applied and after: whatever
+    // moved the switch (that copy, a hand-edited file), its grants follow.
+    watch_computer_switch(&settings_path);
     // #FEED-164 TWINS UPGRADE: an old twin pick becomes its connector id
     // first, so the reconcile below pushes it.
     if coding::upgrade_display_pick(&settings_path) {
@@ -2213,6 +2216,25 @@ fn reconcile_defaults_with(
             push_local_defaults(ctx, device_id, &settings, &marker)
         }
     }
+    watch_computer_switch(&settings_path);
+}
+
+/// #EXP-1899: act on a move of THIS device's Computer use switch as its
+/// settings file reads now: on = ask this machine's permissions now, not in
+/// the middle of a run; off = end every grant, stop the calls in flight and
+/// give the person their input back. Once per move, whoever wrote the file.
+fn watch_computer_switch(settings_path: &std::path::Path) {
+    static WATCH: Mutex<coding::ComputerSwitchWatch> =
+        Mutex::new(coding::ComputerSwitchWatch::new());
+    let on = coding::Settings::load(settings_path).computer_use;
+    let moved = WATCH.lock().unwrap().observe(on);
+    match moved {
+        Some(coding::ComputerSwitchMove::On) => coding::computer::prepare_in_background(),
+        Some(coding::ComputerSwitchMove::Off) => {
+            std::thread::spawn(coding::computer::shutdown);
+        }
+        None => {}
+    }
 }
 
 fn apply_server_defaults(
@@ -2230,7 +2252,6 @@ fn apply_server_defaults(
         }
     };
     let mut settings = coding::Settings::load(&settings_path);
-    let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
     // NEW-59: the computer hub reads the Work screen from here.
     coding::computer::set_work_display(settings.computer_use_display_id.clone());
@@ -2240,14 +2261,8 @@ fn apply_server_defaults(
             return;
         }
         log::info!("launch defaults: applied the server copy");
-        // EXP-1196: the switch flipped from another client: on = ask this
-        // machine's permissions now, not in the middle of a run; off = end
-        // every grant and give the person their input back.
-        if settings.computer_use && !was_on {
-            coding::computer::prepare_in_background();
-        } else if !settings.computer_use && was_on {
-            std::thread::spawn(coding::computer::shutdown);
-        }
+        // #EXP-1899: the switch's move is acted on by the caller's watch
+        // (`watch_computer_switch`), whatever wrote the settings.
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
     // recording the stamp stops a re-apply loop either way. #FEED-161
