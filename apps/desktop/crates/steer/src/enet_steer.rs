@@ -494,7 +494,7 @@ impl FeedPeer {
 
     /// One envelope of `frames`: eNet waits for the ack (at most
     /// [`SEND_TIMEOUT`]); a tunnel queues it sealed on the control socket.
-    async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
+    pub(crate) async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
         match self {
             FeedPeer::Enet(peer) => send_envelope(&peer.node, peer.id, session_id, frames).await,
             FeedPeer::Tunnel(peer) => peer.send(&envelope_bytes(session_id, frames)),
@@ -510,7 +510,7 @@ impl FeedPeer {
         }
     }
 
-    fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match self {
             FeedPeer::Enet(peer) => crate::enet::endpoint_hex(&peer.id),
             FeedPeer::Tunnel(peer) => format!("tunnel {}", peer.tunnel_id),
@@ -641,10 +641,24 @@ fn serve_envelope(
     user_of: &dyn Fn(&str) -> Option<String>,
     stored: Option<&StoredJournals>,
 ) {
+    let mut envelope = envelope;
     let session_id = envelope.session_id.clone();
     let room = lock(rooms())
         .get(&session_id)
         .and_then(|room| Some((room.audience.clone(), room.cmd_tx.upgrade()?)));
+    // #EDE-108 CATCH-UP: a page that names a device needs no join; it is
+    // answered to the asker alone (journal or chat store), never queued to a
+    // feed.
+    let (pages, frames): (Vec<Value>, Vec<Value>) =
+        std::mem::take(&mut envelope.frames).into_iter().partition(crate::enet_catchup::is_page);
+    envelope.frames = frames;
+    if !pages.is_empty() {
+        let audience = room.as_ref().map(|(audience, _)| audience.clone());
+        crate::enet_catchup::serve(&peer, &session_id, pages, audience, user_of, stored);
+        if envelope.frames.is_empty() {
+            return;
+        }
+    }
     let Some((audience, cmd_tx)) = room else {
         match stored.and_then(|stored| Some((stored, stored.lookup(&session_id)?))) {
             Some((stored, session)) => {
@@ -839,6 +853,12 @@ pub struct StoredJournals {
     pub data_dir: PathBuf,
     /// Session id → its synced row's [`StoredSession`]; `None` = no row.
     pub session: Arc<dyn Fn(&str) -> Option<StoredSession> + Send + Sync>,
+    /// #EDE-108: this machine's `devices.device_id` (a catch-up page for its
+    /// own runs is answered off the journal).
+    pub device_id: Option<String>,
+    /// #EDE-108: the account's chat store, once open (a catch-up page for
+    /// any other device's run is answered off it).
+    pub chat_store: Option<crate::enet_catchup::ChatStoreSlot>,
 }
 
 /// What STORED REPLAY reads off a session's synced row.
@@ -1123,7 +1143,12 @@ pub fn subscribe(session_id: &str, device: EndpointId) -> ViewerSubscription {
     ViewerSubscription { key, generation, frames }
 }
 
-fn deliver_to_viewer(from: EndpointId, envelope: Envelope) {
+fn deliver_to_viewer(from: EndpointId, mut envelope: Envelope) {
+    // #EDE-108: a catch-up page's answer goes to its asker, never a viewer.
+    crate::enet_catchup::take_answers(&mut envelope.frames);
+    if envelope.frames.is_empty() {
+        return;
+    }
     let key = (envelope.session_id, from);
     let mut viewers = lock(viewers());
     let Some(subs) = viewers.get_mut(&key) else {

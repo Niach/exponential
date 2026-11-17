@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod catchup;
 pub mod text;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;

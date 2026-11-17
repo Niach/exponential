@@ -15,15 +15,22 @@
 //!
 //! A session view of another device's session opens FROM it ([`read_tail`])
 //! before the live feed attaches; the room's replay replaces that seed.
+//!
+//! #EDE-108 S2: a BACKGROUND CATCH-UP (`steer::enet_catchup`) fills it over
+//! eNet for every chat the account reads, from the device running each
+//! session or another of the account's devices, and this device answers the
+//! same pages off this store ([`serving_slot`]) for its other devices.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chat_store::sqlite::SqliteStore;
 use chat_store::{StoredEvent, StoredMessage};
 use domain::rows::MessageRow;
 use gpui::{App, Subscription, Task};
+use steer::enet_catchup::{CatchUpHandle, CatchUpSession, ChatStoreSlot};
 use steer::frames::ActivityEvent;
 use sync::store::ShapeStore;
 use sync::Store;
@@ -37,6 +44,9 @@ const SLOW_CATCH_UP: Duration = Duration::from_secs(5 * 60);
 /// Message ids read per retry of the sealed ones.
 const LOCKED_CHUNK: usize = 500;
 const MESSAGES_MARK: &str = "messages.createdAt";
+/// How often the app looks at whether one of its windows is active (the
+/// catch-up's idleness on battery).
+const ACTIVITY_POLL: Duration = Duration::from_secs(30);
 
 /// The active account's store and its writer.
 struct ChatStoreGlobal {
@@ -45,6 +55,14 @@ struct ChatStoreGlobal {
     writes: flume::Sender<Write>,
     catch_up: Option<Task<()>>,
     _messages: Option<Subscription>,
+    /// #EDE-108: the eNet catch-up loop, once the account's node is up.
+    enet: Option<CatchUpHandle>,
+    /// The chats the loop walks (the synced `sessions` rows).
+    sessions: Arc<Mutex<Vec<CatchUpSession>>>,
+    /// Ms of the last time an app window was active.
+    last_active: Arc<AtomicU64>,
+    _sessions: Option<Subscription>,
+    _activity: Option<Task<()>>,
 }
 
 impl gpui::Global for ChatStoreGlobal {}
@@ -85,12 +103,102 @@ pub(crate) fn start(account_id: &str, cx: &mut App) {
     }
     let messages = Store::try_global(cx).map(|sync| sync.collections().messages.clone());
     let messages = messages.map(|messages| cx.observe(&messages, |_, cx| schedule_catch_up(cx)));
-    cx.set_global(ChatStoreGlobal { account_id: account_id.to_string(), store, writes, catch_up: None, _messages: messages });
+    let sessions = Store::try_global(cx).map(|sync| sync.collections().sessions.clone());
+    let sessions = sessions.map(|sessions| cx.observe(&sessions, |_, cx| sessions_changed(cx)));
+    *lock(&serving_slot()) = Some(Arc::clone(&store));
+    let last_active = Arc::new(AtomicU64::new(now_ms() as u64));
+    let activity = {
+        let last_active = Arc::clone(&last_active);
+        cx.spawn(async move |cx| loop {
+            if cx.update(|cx| cx.active_window().is_some()) {
+                last_active.store(now_ms() as u64, Ordering::Relaxed);
+            }
+            cx.background_executor().timer(ACTIVITY_POLL).await;
+        })
+    };
+    cx.set_global(ChatStoreGlobal {
+        account_id: account_id.to_string(),
+        store,
+        writes,
+        catch_up: None,
+        _messages: messages,
+        enet: None,
+        sessions: Arc::new(Mutex::new(Vec::new())),
+        last_active,
+        _sessions: sessions,
+        _activity: Some(activity),
+    });
+    sessions_changed(cx);
     schedule_catch_up(cx);
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// #EDE-108: the store this device answers other devices' catch-up pages
+/// from (the node's `StoredJournals` holds the same slot).
+pub(crate) fn serving_slot() -> ChatStoreSlot {
+    static SLOT: OnceLock<ChatStoreSlot> = OnceLock::new();
+    Arc::clone(SLOT.get_or_init(Default::default))
+}
+
+/// #EDE-108: the account's chats changed: the loop gets the new list (and
+/// starts, once the account's eNet node is up) and runs a pass.
+fn sessions_changed(cx: &mut App) {
+    let Some(global) = cx.try_global::<ChatStoreGlobal>() else { return };
+    let list: Vec<CatchUpSession> = Store::try_global(cx)
+        .map(|sync| {
+            sync.collections()
+                .sessions
+                .read(cx)
+                .iter()
+                .filter_map(|row| {
+                    Some(CatchUpSession {
+                        session_id: row.id.clone(),
+                        root_id: row.root_id_or_self().to_string(),
+                        device_id: row.device_id.clone().filter(|device| !device.is_empty())?,
+                        updated_at: row.updated_at.clone(),
+                        busy: row.busy,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    *lock(&global.sessions) = list;
+    match &global.enet {
+        Some(enet) => enet.kick(),
+        None => start_enet_catch_up(cx),
+    }
+}
+
+/// Starts the eNet catch-up for the active account once its node runs.
+fn start_enet_catch_up(cx: &mut App) {
+    let Some(global) = cx.try_global::<ChatStoreGlobal>() else { return };
+    let (Some(install), Some(runtime)) = (crate::enet_wiring::node(&global.account_id, cx), crate::steer_wiring::runtime(cx)) else {
+        return;
+    };
+    let sessions = Arc::clone(&global.sessions);
+    let last_active = Arc::clone(&global.last_active);
+    let deps = steer::enet_catchup::CatchUpDeps {
+        user_id: install.user_id().to_string(),
+        install,
+        store: Arc::clone(&global.store),
+        own_device_id: crate::queries::own_device_id(cx),
+        sessions: Arc::new(move || lock(&sessions).clone()),
+        may_run: Arc::new(move || {
+            let idle = (now_ms() as u64).saturating_sub(last_active.load(Ordering::Relaxed));
+            steer::enet_catchup::may_run_now(idle)
+        }),
+        on_stored: None,
+    };
+    let handle = steer::enet_catchup::spawn(runtime.handle(), deps);
+    cx.global_mut::<ChatStoreGlobal>().enet = Some(handle);
 }
 
 /// Sign-out: nothing more is written (the file stays, like the sync store).
 pub(crate) fn stop(cx: &mut App) {
+    *lock(&serving_slot()) = None;
     if cx.has_global::<ChatStoreGlobal>() {
         cx.remove_global::<ChatStoreGlobal>();
     }
@@ -121,6 +229,9 @@ fn schedule_catch_up(cx: &mut App) {
             }
             if cx.has_global::<ChatStoreGlobal>() {
                 cx.global_mut::<ChatStoreGlobal>().catch_up = None;
+                if cx.global::<ChatStoreGlobal>().enet.is_none() {
+                    start_enet_catch_up(cx);
+                }
             }
         });
     });

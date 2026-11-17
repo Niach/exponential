@@ -13,6 +13,7 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::catchup::{self, Answer, Ask, SeqRun};
 use crate::{
     all_result, chat_result, collect_hits, docs_of_event, docs_of_message, text, AllResult, ChatResult, Doc, DocKind, Hit,
     StoredEvent, StoredMessage, ToolKey,
@@ -356,6 +357,83 @@ impl SqliteStore {
     pub fn set_meta(&self, key: &str, value: &str) -> Result<(), Error> {
         self.conn().execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value]).map(|_| ())
     }
+
+    // -- #EDE-108 S2 CATCH-UP (`catchUp` in the fixture) ---------------------
+
+    /// How far this store holds every event of `session_id` on `device_id`
+    /// (`completeTo`; `None` = not known complete anywhere).
+    pub fn complete_to(&self, session_id: &str, device_id: &str) -> Result<Option<u64>, Error> {
+        Ok(self.meta(&complete_key(session_id, device_id))?.and_then(|value| value.parse().ok()))
+    }
+
+    pub fn set_complete_to(&self, session_id: &str, device_id: &str, seq: u64) -> Result<(), Error> {
+        self.set_meta(&complete_key(session_id, device_id), &seq.to_string())
+    }
+
+    /// The asker's `have`: the runs of seqs it holds above `after_seq`, the
+    /// lowest `max`.
+    pub fn have_runs(&self, session_id: &str, device_id: &str, after_seq: Option<u64>, max: usize) -> Result<Vec<SeqRun>, Error> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached("SELECT seq FROM events WHERE session_id = ?1 AND device_id = ?2 AND seq > ?3 ORDER BY seq")?;
+        let after = after_seq.map_or(-1, |seq| seq as i64);
+        let mut rows = stmt.query(params![session_id, device_id, after])?;
+        let mut runs: Vec<SeqRun> = Vec::new();
+        while let Some(row) = rows.next()? {
+            let seq = row.get::<_, i64>(0)? as u64;
+            if let Some(last) = runs.last_mut().filter(|last| last[1] + 1 == seq) {
+                last[1] = seq;
+            } else if runs.len() == max {
+                break;
+            } else {
+                runs.push([seq, seq]);
+            }
+        }
+        Ok(runs)
+    }
+
+    /// THE HOLDER's page off this store (`fullTo` = its own `completeTo`):
+    /// the answer and the events it takes, in seq order.
+    pub fn answer_page(&self, session_id: &str, device_id: &str, ask: &Ask) -> Result<(Answer, Vec<StoredEvent>), Error> {
+        let full_to = self.complete_to(session_id, device_id)?;
+        let conn = self.conn();
+        let last: Option<i64> = conn.query_row(
+            "SELECT max(seq) FROM events WHERE session_id = ?1 AND device_id = ?2",
+            params![session_id, device_id],
+            |row| row.get(0),
+        )?;
+        let mut sql = String::from(
+            "SELECT root_id, seq, stored_at, event FROM events WHERE session_id = ?1 AND device_id = ?2 AND seq > ?3",
+        );
+        for [from, to] in &ask.have {
+            sql.push_str(&format!(" AND seq NOT BETWEEN {from} AND {to}"));
+        }
+        if let Some(min_at) = ask.min_at {
+            sql.push_str(&format!(" AND (kind IN ('user_message', 'narration') OR at >= {min_at})"));
+        }
+        sql.push_str(" ORDER BY seq LIMIT ?4");
+        let after = ask.after_seq.map_or(-1, |seq| seq as i64);
+        let limit = ask.limit();
+        let mut stmt = conn.prepare(&sql)?;
+        let events: Vec<StoredEvent> = stmt
+            .query_map(params![session_id, device_id, after, limit as i64], |row| {
+                let json: String = row.get(3)?;
+                Ok(StoredEvent {
+                    root_id: row.get(0)?,
+                    session_id: session_id.to_string(),
+                    device_id: device_id.to_string(),
+                    seq: row.get::<_, i64>(1)? as u64,
+                    stored_at: row.get(2)?,
+                    event: serde_json::from_str(&json).unwrap_or_default(),
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        let seqs = events.iter().map(|event| event.seq).collect();
+        Ok((catchup::finish(seqs, limit, last.map(|seq| seq as u64), full_to, ask), events))
+    }
+}
+
+fn complete_key(session_id: &str, device_id: &str) -> String {
+    format!("catchup.complete.{session_id}.{device_id}")
 }
 
 fn insert_doc(tx: &rusqlite::Transaction<'_>, doc: &Doc) -> Result<(), Error> {
@@ -511,6 +589,43 @@ mod tests {
         let page: Vec<u64> = store.read_events("s", "d", Some(8), Some(3)).unwrap().iter().map(|e| e.seq).collect();
         assert_eq!(page, [5, 6, 7]);
         assert_eq!(store.put_events(&events).unwrap(), 0);
+    }
+
+    /// #EDE-108: the fixture's catch-up answers, off the store (its
+    /// `completeTo` = the case's `fullTo`), and the asker's runs.
+    #[test]
+    fn catch_up_answer_cases() {
+        for case in spec()["catchUp"]["answerCases"].as_array().unwrap() {
+            let events: Vec<StoredEvent> = crate::catchup::tests::case_events(case)
+                .into_iter()
+                .map(|(seq, kind, at)| StoredEvent {
+                    root_id: "r".into(),
+                    session_id: "s".into(),
+                    device_id: "d".into(),
+                    seq,
+                    stored_at: at,
+                    event: json!({ "kind": kind, "at": at, "text": "x" }),
+                })
+                .collect();
+            let store = store_of(&events, &[]);
+            if let Some(full) = case["fullTo"].as_u64() {
+                store.set_complete_to("s", "d", full).unwrap();
+            }
+            let ask: Ask = from(&case["ask"]);
+            let (answer, taken) = store.answer_page("s", "d", &ask).unwrap();
+            assert_eq!(serde_json::to_value(&answer).unwrap(), case["expect"], "{}", case["name"]);
+            assert_eq!(taken.iter().map(|e| e.seq).collect::<Vec<_>>(), answer.seqs, "{}", case["name"]);
+        }
+        for case in spec()["catchUp"]["haveRunsCases"].as_array().unwrap() {
+            let seqs: Vec<u64> = from(&case["seqs"]);
+            let events: Vec<StoredEvent> = seqs
+                .iter()
+                .map(|seq| StoredEvent { root_id: "r".into(), session_id: "s".into(), device_id: "d".into(), seq: *seq, stored_at: 0, event: json!({ "kind": "narration" }) })
+                .collect();
+            let store = store_of(&events, &[]);
+            let got = store.have_runs("s", "d", from(&case["afterSeq"]), from(&case["max"])).unwrap();
+            assert_eq!(json!(got), case["expect"], "{}", case["name"]);
+        }
     }
 
     /// On disk the store is the user's only.

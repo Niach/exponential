@@ -12213,6 +12213,7 @@ name = "steer"
 version = "0.14.168"
 dependencies = [
  "api",
+ "chat-store",
  "coding",
  "data-encoding",
  "domain",

@@ -290,3 +290,152 @@ export function retain(events: StoredEvent[], now: number, windowDays: number | 
   const cutoff = now - windowDays * 86_400_000
   return events.filter((e) => PROSE.has(e.event.kind) || (num(e.event.at) ?? e.storedAt) >= cutoff)
 }
+
+// ---------------------------------------------------------------------------
+// #EDE-108 S2 BACKGROUND CATCH-UP (`catchUp` in the fixture): device to device
+// over eNet, a reader walks every chat's events it lacks from the runner or
+// another reader device. These are the pure rules every client replays.
+// ---------------------------------------------------------------------------
+
+export const CHAT_STORE_CATCH_UP = fixture.catchUp.constants
+
+/** A run of consecutive seqs, both ends included. */
+export type SeqRun = [number, number]
+
+/** `have`: the runs of `seqs` above `afterSeq` (all when null), the lowest `max`. */
+export function haveRuns(seqs: number[], afterSeq: number | null, max: number): SeqRun[] {
+  const runs: SeqRun[] = []
+  for (const seq of [...new Set(seqs)].sort((a, b) => a - b)) {
+    if (afterSeq !== null && seq <= afterSeq) continue
+    const last = runs[runs.length - 1]
+    if (last && last[1] === seq - 1) last[1] = seq
+    else {
+      if (runs.length === max) break
+      runs.push([seq, seq])
+    }
+  }
+  return runs
+}
+
+/** One held event as the answer reads it. */
+export type HeldEvent = { seq: number; kind: string; at: number }
+
+/** A device-naming `history_page`'s fields that shape the answer. */
+export type CatchUpAsk = { afterSeq: number | null; limit: number; have: SeqRun[]; minAt?: number | null }
+
+export type CatchUpAnswer = {
+  seqs: number[]
+  throughSeq: number | null
+  done: boolean
+  lastSeq: number | null
+  fullTo: number | null
+}
+
+/** THE HOLDER's page: the first `limit` events above `afterSeq` the asker lacks. */
+export function catchUpAnswer(events: HeldEvent[], fullTo: number | null, ask: CatchUpAsk): CatchUpAnswer {
+  const limit = Math.max(1, Math.min(CHAT_STORE_CATCH_UP.pageMax, ask.limit))
+  const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  const lastSeq = sorted.length ? sorted[sorted.length - 1].seq : null
+  const minAt = ask.minAt ?? null
+  const seqs: number[] = []
+  for (const event of sorted) {
+    if (ask.afterSeq !== null && event.seq <= ask.afterSeq) continue
+    if (ask.have.some(([from, to]) => from <= event.seq && event.seq <= to)) continue
+    if (minAt !== null && !PROSE.has(event.kind) && event.at < minAt) continue
+    seqs.push(event.seq)
+    if (seqs.length === limit) break
+  }
+  const full = seqs.length === limit
+  const ends = [ask.afterSeq, lastSeq].filter((seq): seq is number => seq !== null)
+  const throughSeq = full ? seqs[seqs.length - 1] : ends.length ? Math.max(...ends) : null
+  const done = lastSeq === null || (throughSeq !== null && throughSeq >= lastSeq)
+  return { seqs, throughSeq, done, lastSeq, fullTo }
+}
+
+const below = (a: number | null, b: number | null) => (a ?? -1) < (b ?? -1)
+
+/** THE ASKER's PROGRESS after one answer. `nextAfter` null = the walk of this holder ends. */
+export function catchUpProgress(
+  completeTo: number | null,
+  afterSeq: number | null,
+  answer: Pick<CatchUpAnswer, `throughSeq` | `done` | `fullTo`>
+): { completeTo: number | null; nextAfter: number | null } {
+  const reach = answer.throughSeq === null || answer.fullTo === null ? null : Math.min(answer.throughSeq, answer.fullTo)
+  let next = completeTo
+  if (!below(completeTo, afterSeq) && reach !== null && below(completeTo, reach)) next = reach
+  return { completeTo: next, nextAfter: answer.done ? null : answer.throughSeq }
+}
+
+export type WalkHolder = { name: string; runner?: boolean; reachable?: boolean; seqs: number[]; fullTo: number | null }
+
+/** WALK one session over its holders in order (the fixture's `walkCases`). */
+export function catchUpWalk(
+  asker: { seqs: number[]; completeTo: number | null },
+  holders: WalkHolder[],
+  limit: number
+): { seqs: number[]; completeTo: number | null; asks: Record<string, number>; caughtUp: boolean } {
+  const seqs = new Set(asker.seqs)
+  let completeTo = asker.completeTo
+  const asks: Record<string, number> = {}
+  for (const holder of holders) {
+    if (holder.reachable === false) continue
+    const events = holder.seqs.map((seq) => ({ seq, kind: `narration`, at: 0 }))
+    let cursor = completeTo
+    let answer: CatchUpAnswer
+    for (;;) {
+      answer = catchUpAnswer(events, holder.fullTo, { afterSeq: cursor, limit, have: haveRuns([...seqs], cursor, CHAT_STORE_CATCH_UP.haveRunsMax) })
+      asks[holder.name] = (asks[holder.name] ?? 0) + 1
+      for (const seq of answer.seqs) seqs.add(seq)
+      const step = catchUpProgress(completeTo, cursor, answer)
+      completeTo = step.completeTo
+      if (step.nextAfter === null) break
+      cursor = step.nextAfter
+    }
+    if (holder.runner && (answer.lastSeq === null || !below(completeTo, answer.lastSeq))) {
+      return { seqs: [...seqs].sort((a, b) => a - b), completeTo, asks, caughtUp: true }
+    }
+  }
+  return { seqs: [...seqs].sort((a, b) => a - b), completeTo, asks, caughtUp: false }
+}
+
+export type CatchUpInstall = { endpointId: string; userId: string; deviceId: string | null; lastSeenAt: string | null }
+
+/** HOLDERS: the runner's installs, then the asker's own other installs, newest seen first. */
+export function catchUpHolders(
+  installs: CatchUpInstall[],
+  deviceId: string,
+  selfEndpoint: string,
+  userId: string,
+  skip: string[]
+): { endpointId: string; runner: boolean }[] {
+  const newest = (a: CatchUpInstall, b: CatchUpInstall) => cmp(b.lastSeenAt ?? ``, a.lastSeenAt ?? ``)
+  const askable = installs.filter((i) => i.endpointId !== selfEndpoint && !skip.includes(i.endpointId))
+  const runner = askable.filter((i) => i.deviceId === deviceId).sort(newest)
+  const own = askable.filter((i) => i.deviceId !== deviceId && i.userId === userId).sort(newest)
+  return [...runner.map((i) => ({ endpointId: i.endpointId, runner: true })), ...own.map((i) => ({ endpointId: i.endpointId, runner: false }))]
+}
+
+/** POWER: on battery only once idle; on mains or unknown always. */
+export function catchUpMayRun(power: `ac` | `battery` | `unknown`, idleMs: number): boolean {
+  return power !== `battery` || idleMs >= CHAT_STORE_CATCH_UP.idleAfterMs
+}
+
+/** A session served by readers alone is tried again after this long. */
+export function catchUpRetryMs(attempts: number): number {
+  return Math.min(CHAT_STORE_CATCH_UP.retryMaxMs, CHAT_STORE_CATCH_UP.passIntervalMs * 2 ** attempts)
+}
+
+/** The TOKEN BUCKET: `spend` an answer's bytes, `wait` = ms until the balance is back to zero. */
+export function catchUpBucket(ops: ({ at: number; spend: number } | { at: number; wait: true })[]): number[] {
+  const { bytesPerSecond: rate, burstBytes: cap } = CHAT_STORE_CATCH_UP
+  let tokens = cap
+  let at = 0
+  const waits: number[] = []
+  for (const op of ops) {
+    tokens = Math.min(cap, tokens + Math.floor(((op.at - at) * rate) / 1000))
+    at = op.at
+    if (`spend` in op) tokens -= op.spend
+    else waits.push(tokens >= 0 ? 0 : Math.ceil((-tokens * 1000) / rate))
+  }
+  return waits
+}
