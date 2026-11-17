@@ -617,7 +617,7 @@ private fun rememberAppEditorTree(chat: ChatViewModel?): AppEditorTree {
     val pullRequests by (chat?.pullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
     val teamPullRequests by (chat?.teamPullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
     val pullRequestIssues by (chat?.pullRequestIssues ?: remember { MutableStateFlow(emptyList<PullRequestIssueEntity>()) }).collectAsStateWithLifecycle()
-    val issues by (chat?.syncedIssues ?: remember { MutableStateFlow(emptyList<IssueEntity>()) }).collectAsStateWithLifecycle()
+    val issues by (chat?.syncedIssues ?: remember { MutableStateFlow(emptyList<IssueEntity>()) }).collectAsStateWithLifecycle(emptyList())
     return AppEditorTree(view, sessions, messages, resultCards, results, pullRequests, teamPullRequests, pullRequestIssues, issues)
 }
 

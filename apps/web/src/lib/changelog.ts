@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-android-notification-taps-and-big-chats`,
+    date: `2026-11-16`,
+    title: `A notification opens its chat on the Agent tab`,
+    summary: `Android: tapping a notification opens its chat or issue over the Agent tab, so Back goes there instead of through every chat opened before, and opening a very large chat uses less than half the memory it did.`,
+    body: `- **Notifications open over the Agent tab**: a notification or push link replaces what was open instead of stacking on it; Back returns to the Agent tab, then leaves the app.
+- **Large accounts use less memory**: opening the biggest chat on a large account peaks at about 107 MB instead of about 234 MB, and the app no longer asks Android for its larger memory allowance.`,
+  },
+  {
     id: `2026-11-16-phones-issue-chip-punctuation`,
     date: `2026-11-16`,
     title: `An issue reference keeps its punctuation`,

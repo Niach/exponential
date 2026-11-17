@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-16-android-notification-taps-and-big-chats",
+    date: "2026-11-16",
+    title: "A notification opens its chat on the Agent tab",
+    summary: "Android: tapping a notification opens its chat or issue over the Agent tab, so Back goes there instead of through every chat opened before, and opening a very large chat uses less than half the memory it did.",
+    body: r##"- **Notifications open over the Agent tab**: a notification or push link replaces what was open instead of stacking on it; Back returns to the Agent tab, then leaves the app.
+- **Large accounts use less memory**: opening the biggest chat on a large account peaks at about 107 MB instead of about 234 MB, and the app no longer asks Android for its larger memory allowance."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_316: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-phones-issue-chip-punctuation",
     date: "2026-11-16",
     title: "An issue reference keeps its punctuation",

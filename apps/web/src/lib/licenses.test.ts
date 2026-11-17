@@ -361,6 +361,8 @@ describe(`coverage — Android`, () => {
     `androidx.compose.ui:ui-test-junit4`,
     `io.ktor:ktor-client-mock`,
     `org.jetbrains.kotlinx:kotlinx-coroutines-test`,
+    // #ERR-27: the back-stack budget test's NavController.
+    `androidx.navigation:navigation-testing`,
     // debugImplementation — apps/android/app/build.gradle.kts:196,199
     `androidx.compose.ui:ui-tooling`,
     `androidx.compose.ui:ui-test-manifest`,

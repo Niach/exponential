@@ -551,6 +551,37 @@ object Chats {
         return runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
     }
 
+    /**
+     * #ERR-28: [digestMessages] per session, re-parsed only when a row's
+     * digest TEXT changed: a synced write touches one or two of a large
+     * account's thousands of rows, but every sessions read handed back every
+     * digest, and re-parsing them all (JSON trees, cards, timestamps) was
+     * most of the churn that ran a phone's heap out. Unchanged rows keep
+     * their message instances. Not thread-safe: one flow's sequential map.
+     */
+    class DigestMessagesCache {
+        private var last: Map<String, Pair<String?, List<SessionTree.Message>>> = emptyMap()
+
+        /** Rows parsed since the cache was made (the memory-budget test reads it). */
+        var parsed: Int = 0
+            private set
+
+        fun read(rows: List<Pair<String, String?>>): Map<String, List<SessionTree.Message>> {
+            val next = HashMap<String, Pair<String?, List<SessionTree.Message>>>(rows.size * 2)
+            for ((id, digest) in rows) {
+                val previous = last[id]
+                next[id] = if (previous != null && previous.first == digest) {
+                    previous
+                } else {
+                    parsed++
+                    digest to digestMessages(id, parseDigest(digest))
+                }
+            }
+            last = next
+            return next.mapValues { it.value.second }
+        }
+    }
+
     /** A digest back as the tree messages the list reads: its first /
      *  preview / waiting messages, then every `waits` entry (once each by
      *  id, #FEED-191), one bodiless agent message

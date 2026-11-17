@@ -606,18 +606,39 @@ object SessionTree {
         createdAt = m.createdAt,
     )
 
+    /** #ERR-28: a row [SessionTitle.firstPrompt] may read: card-less, from a
+     *  person or another session. The rest never titles a session, so it is
+     *  never converted (a big chat's agent rows are most of it). */
+    private fun mayPrompt(m: Message) =
+        m.card == null && (m.authorKind == DomainContract.messageAuthorKindUser || !m.authorSessionId.isNullOrEmpty())
+
+    /**
+     * #ERR-28: titles for many sessions over one set of rows, each row
+     * converted and indexed ONCE ([SessionTitle.Titler]): only the linked
+     * issues, only the rows that may prompt. A per-session [sessionTitle] in
+     * a loop re-converted every row per session.
+     */
+    fun titler(
+        sessionIssues: List<SessionIssue>,
+        issues: List<Issue>,
+        messages: List<Message>,
+    ): (Session) -> String {
+        val linked = sessionIssues.mapTo(HashSet()) { it.issueId }
+        val titler = SessionTitle.Titler(
+            sessionIssues.map(::titleLink),
+            issues.filter { it.id in linked }.map(::titleIssue),
+            messages.filter(::mayPrompt).map(::titleMessage),
+        )
+        return { titler.title(titleSession(it)) }
+    }
+
     /** THE display title of [session] (fixture `session-title.json`). */
     fun sessionTitle(
         session: Session,
         sessionIssues: List<SessionIssue>,
         issues: List<Issue>,
         messages: List<Message>,
-    ): String = SessionTitle.sessionTitle(
-        titleSession(session),
-        sessionIssues.map(::titleLink),
-        issues.map(::titleIssue),
-        messages.map(::titleMessage),
-    )
+    ): String = titler(sessionIssues.filter { it.sessionId == session.id }, issues, messages.filter { it.sessionId == session.id })(session)
 
     /** Every given session's title, keyed by id. */
     fun sessionTitles(
@@ -625,12 +646,10 @@ object SessionTree {
         sessionIssues: List<SessionIssue>,
         issues: List<Issue>,
         messages: List<Message>,
-    ): Map<String, String> = SessionTitle.sessionTitles(
-        sessions.map(::titleSession),
-        sessionIssues.map(::titleLink),
-        issues.map(::titleIssue),
-        messages.map(::titleMessage),
-    )
+    ): Map<String, String> {
+        val titleOf = titler(sessionIssues, issues, messages)
+        return sessions.associate { it.id to titleOf(it) }
+    }
 
     /** A session chip's lead ×4: THAT session's display state (S-3). */
     fun sessionTabMarkState(session: Session): SessionState = sessionState(session)
@@ -1483,11 +1502,8 @@ object SessionTree {
             newestAgentInTree[rootId] = maxOf(newestAgentInTree[rootId] ?: 0L, at)
         }
         fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
-        // Converted once: titles are resolved per row below.
-        val titleLinks = sessionIssues.map(::titleLink)
-        val titleIssues = issues.map(::titleIssue)
-        val titleMessages = messages.map(::titleMessage)
-        fun titleOf(s: Session) = SessionTitle.sessionTitle(titleSession(s), titleLinks, titleIssues, titleMessages)
+        // #ERR-28: converted and indexed once: titles are resolved per row below.
+        val titleOf = titler(sessionIssues, issues, messages)
         val roots = sessions.filter {
             it.parentId == null &&
                 // NEW-2: an agent's conversation (a root with `agentId`) is no chat;
