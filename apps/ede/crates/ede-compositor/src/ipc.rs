@@ -25,7 +25,11 @@ use smithay::{
     reexports::calloop::{generic::Generic, Interest, Mode, PostAction},
 };
 
-use crate::{desk::DeskId, spaces::scope::Scope, state::Ede};
+use crate::{
+    desk::DeskId,
+    spaces::scope::{Scope, Scoped},
+    state::Ede,
+};
 
 /// The writes (a frame's length, its bytes) one connection may have
 /// waiting. Replies never pile up (a call waits for an empty queue, however
@@ -415,15 +419,23 @@ impl Ede {
             return Err(fail(ErrorCode::Unauthorized, "the grant expired"));
         }
         // #EDE-126: a space connection never reaches the arms below.
-        if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
-            return self.space_scope_call(&session, &grant, now, request);
-        }
-        if let Some(cap) = request.capability() {
-            if !grant.admits(cap, now) {
-                return Err(fail(ErrorCode::Forbidden, &format!("needs the {} capability", cap.as_str())));
+        let (desk, request) = if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
+            match self.space_scope_call(&session, &grant, now, request)? {
+                Scoped::Reply(reply) => return Ok(reply),
+                // #EDE-125: the few ops whose arm below takes any desk.
+                Scoped::Through(desk, request) => {
+                    debug_assert!(matches!(request, Request::Input { bindings: false, .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardSnapshot | Request::ClipboardText));
+                    (desk, request)
+                }
             }
-        }
-        let desk = self.desk_of_conn(id);
+        } else {
+            if let Some(cap) = request.capability() {
+                if !grant.admits(cap, now) {
+                    return Err(fail(ErrorCode::Forbidden, &format!("needs the {} capability", cap.as_str())));
+                }
+            }
+            (self.desk_of_conn(id), request)
+        };
         let json = |v: serde_json::Value| Ok(Some((v, None)));
         match request {
             Request::Hello { .. } => unreachable!(),
@@ -503,9 +515,12 @@ impl Ede {
                         let output = self.desk.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
                         crate::backend::capture_output(self, &output)
                     }
-                    // #EDE-126: named by the protocol, made by no compositor yet.
+                    // #EDE-125: any space, for `system` alone.
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
-                    CaptureTarget::Space { .. } => return Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
+                    CaptureTarget::Space { space } => {
+                        let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
+                        return self.space_capture(desk, since);
+                    }
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
                         // frame (the taskbar's hover preview).
@@ -808,7 +823,7 @@ pub fn window_title_of(window: &Window) -> String {
     title.filter(|t| !t.is_empty()).or(app_id).unwrap_or_default()
 }
 
-fn window_title(window: &Window) -> (Option<String>, Option<String>) {
+pub(crate) fn window_title(window: &Window) -> (Option<String>, Option<String>) {
     if let Some(t) = window.toplevel() {
         return smithay::wayland::compositor::with_states(t.wl_surface(), |s| {
             s.data_map

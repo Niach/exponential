@@ -84,6 +84,12 @@ impl Ede {
         self.spaces.renderer = Some(renderer);
     }
 
+    /// Space `id`'s serial, counting what changed up to now.
+    pub(crate) fn space_serial(&mut self, id: DeskId) -> Option<u64> {
+        self.space_damage(id);
+        self.spaces.get(id).map(|s| s.serial)
+    }
+
     /// The spaces' one software renderer, taken out while it is used.
     fn space_renderer(&mut self) -> Option<PixmanRenderer> {
         self.spaces.renderer.take().or_else(|| PixmanRenderer::new().map_err(|e| tracing::warn!("no software renderer for spaces: {e}")).ok())
