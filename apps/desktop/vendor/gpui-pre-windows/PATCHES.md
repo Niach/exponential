@@ -1,4 +1,4 @@
-# Vendored gpui-pre-windows (Exponential patch, #ERR-2 / #ERR-3)
+# Vendored gpui-pre-windows (Exponential patch, #ERR-2 / #ERR-3 / #EXP-1923)
 
 Source: the `gpui-pre-windows` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_windows` crate (`crates/gpui_windows`) of
@@ -39,6 +39,15 @@ Each is marked `Exponential patch (#ERR-…)` in the source.
   in `handle_destroy_msg`, while the handle is valid on every path, and the
   drop, `calculate_window_bounds`, `mouse_position` and the Direct
   Manipulation drop skip a handle `is_live_window` (`IsWindow`) reports gone.
+
+- **#EXP-1923, `src/util.rs`, `src/window.rs`:** `set_input_region` is
+  implemented. Upstream ignored it off Linux. An empty region (the
+  computer-use banner) makes the window click-through and never active:
+  `WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE`, with layered
+  attributes at full opacity so it looks the same (`set_click_through`).
+  Any other region, or none, takes those styles back off. The X11 twin is
+  in `vendor/gpui-pre-linux` (#EXP-1915); macOS is the `ui` crate's
+  `macos_window::ignore_mouse`.
 
 ## Packaging
 
