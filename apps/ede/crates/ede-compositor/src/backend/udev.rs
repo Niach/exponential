@@ -825,7 +825,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 if let Some(t) = surface.idle_timer.take() {
                     state.loop_handle.remove(t);
                 }
-                super::frame_done(state, &output);
+                super::frame_done(state, &output, true);
                 ede_observability::record_frame(&output.name(), frame_started.elapsed());
             }
             Err(e) => {
@@ -852,7 +852,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                         if let Some(s) = ud.borrow_mut().devices.get_mut(&node).and_then(|d| d.surfaces.get_mut(&crtc)) {
                             s.idle_timer = None;
                         }
-                        super::frame_done(state, &o);
+                        super::frame_done(state, &o, false);
                         TimeoutAction::Drop
                     })
                     .ok();

@@ -458,6 +458,39 @@ fn fullscreen_covers_the_panel_and_the_output_shows_only_that_window() {
     assert_eq!(h.capture(0).at(640, 790), GREEN, "the panel is back");
 }
 
+/// #EDE-100: frame callbacks go to what an output shows. A window under a
+/// fullscreen window or behind the lock gets at most one a second, not one
+/// per refresh; the window on top keeps the refresh rate.
+#[test]
+fn hidden_windows_get_frame_callbacks_at_most_once_a_second() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let behind = c.toplevel("behind");
+    c.draw(&behind, 300, 200, BLUE);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    let shown = c.count_frames(&behind.surface, Duration::from_millis(500));
+    assert!(shown >= 10, "a shown window gets one per refresh: {shown}");
+
+    let t = c.toplevel("game");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+    t.toplevel.set_fullscreen(None);
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[1].states.contains(&XdgState::Fullscreen));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[1].1 == Rectangle::new((0, 0).into(), (1280, 800).into()));
+    let covered = c.count_frames(&behind.surface, Duration::from_millis(1500));
+    assert!(covered <= 2, "under a fullscreen window: {covered} in 1.5 s");
+    let top = c.count_frames(&t.surface, Duration::from_millis(500));
+    assert!(top >= 10, "the fullscreen window gets one per refresh: {top}");
+
+    let mut locker = Session::connect(h.connect());
+    let _lock = locker.lock();
+    wait_for(&mut locker, |c| c.state.locked);
+    let locked = c.count_frames(&t.surface, Duration::from_millis(1500));
+    assert!(locked <= 2, "behind the lock: {locked} in 1.5 s");
+}
+
 /// Xwayland must be installed (CI installs it); skipped otherwise.
 ///
 /// #EXP-1806: with `EDE_XWAYLAND_VERDICT=<file>` a missing Xwayland fails

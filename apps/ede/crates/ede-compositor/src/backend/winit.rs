@@ -87,6 +87,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
             // the swap paces the next frame. A clean frame swaps nothing, so
             // look again one refresh later instead of spinning (a spin
             // starves winit's input).
+            let presented = damage.is_some();
             match damage {
                 Some(damage) => {
                     if let Err(e) = backend_mut.submit(Some(&damage)) {
@@ -103,7 +104,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
                     });
                 }
             }
-            super::frame_done(state, &output);
+            super::frame_done(state, &output, presented);
         }
         WinitEvent::CloseRequested => state.loop_signal.stop(),
         _ => (),
