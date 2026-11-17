@@ -215,6 +215,20 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
+      # #EDE-83: the lock's end-to-end tests against the REAL lock client
+      # (`exponential-sealed lock`, a stub libpam.so.0 built with cc): a wrong
+      # password stays locked, the right one unlocks, a stolen grant is
+      # refused, the prompt covers every output. `#[ignore]` elsewhere: they
+      # need the binary from the desktop workspace, which only this job has
+      # next to the compositor (the capture below builds the same ede-shell).
+      - name: Build the lock client (exponential-sealed)
+        working-directory: apps/desktop
+        run: cargo build --locked -p ede-shell --bin exponential-sealed
+      - name: The lock's end-to-end tests (real lock client, stub PAM)
+        working-directory: apps/ede
+        run: |
+          EDE_SEALED_BIN="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/exponential-sealed" \
+            cargo test --locked -p ede-compositor --test sealed_unlock --test sealed_client -- --ignored
       - name: Capture the eDE views
         run: bun run shots -- --platform ede --skip-seed
       - name: The store did not move
