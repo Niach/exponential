@@ -1684,15 +1684,28 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
                     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
                     tracing::info!(document = %name, "redrawn");
                 }
-                // An on-demand surface (the switcher, the OSD) waits for its hotkey.
                 (false, SurfaceHeader::Layer { on_demand: false, .. }) => open_layer(shell, &doc, cx),
-                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {}
+                // An on-demand surface (the switcher, the OSD) waits for its hotkey, a popup for its anchor.
+                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {
+                    if let Some(line) = loaded_frame(false, &doc) {
+                        println!("{line}");
+                    }
+                }
             }
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
         Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
     }
+}
+
+/// The frame line a change owes the supervisor without drawing (#EDE-110):
+/// a closed popup or on-demand layer is loaded, not drawn, and loading it
+/// proves the edit (one that breaks once opened crashes the shell, and
+/// three crashes revert it). An open or opening surface reports its frame.
+fn loaded_frame(open: bool, doc: &Document) -> Option<String> {
+    let closed = !open && matches!(doc.surface, SurfaceHeader::Layer { on_demand: true, .. } | SurfaceHeader::Popup { .. });
+    closed.then(|| FrameLine::line_for_digest(&doc.name, &doc.digest))
 }
 
 /// Pushes the feed into every open view.
@@ -3959,6 +3972,27 @@ mod previews {
         let doc = uicore_docs::doc("taskbar").unwrap().source;
         assert!(doc.contains(r#""name": "ede_previews""#), "the event");
         assert!(!doc.contains(r#""@call": "ede_previews""#), "no function call: its args never get `open`");
+    }
+}
+
+#[cfg(test)]
+mod loaded_frame {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    /// #EDE-110: an edit to a closed popup or on-demand layer is proven by
+    /// loading it; the supervisor rolled it back after 2 s for want of a frame.
+    #[test]
+    fn a_closed_popup_or_on_demand_layer_reports_the_document_loaded() {
+        for name in ["start-menu", "switcher", "settings"] {
+            let doc = factory(name);
+            assert_eq!(loaded_frame(false, &doc), Some(FrameLine::line_for_digest(name, &doc.digest)), "{name}");
+            assert_eq!(loaded_frame(true, &doc), None, "{name}: an open surface reports its drawn frame");
+        }
+        assert_eq!(loaded_frame(false, &factory("taskbar")), None, "a layer that opens reports its drawn frame");
     }
 }
 
