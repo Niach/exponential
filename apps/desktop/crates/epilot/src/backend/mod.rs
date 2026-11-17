@@ -135,6 +135,81 @@ pub(crate) enum Button {
     Right,
 }
 
+/// #EXP-1921: the keys and buttons the person held when a lock engaged,
+/// by the backend's own index (Windows a VK, macOS a keycode or a button).
+/// A lock swallows all of the person's input except each one's release,
+/// once: a button swallowed on its way up would stay down, and the agent's
+/// next move would drag what the person was dragging.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) struct HeldAtEngage<const N: usize>(pub [bool; N]);
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+impl<const N: usize> HeldAtEngage<N> {
+    pub(crate) const NONE: Self = Self([false; N]);
+
+    /// Whether the person's press (`down`) or release of `index` passes
+    /// the lock: only the first release of one held at engage.
+    pub(crate) fn passes(&mut self, index: usize, down: bool) -> bool {
+        match self.0.get_mut(index) {
+            Some(slot) if *slot && !down => {
+                *slot = false;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// #EXP-1921: the start of a lock on its own thread, both ends. `take`
+/// waits a while for the thread's answer; a thread that gets there after
+/// `take` gave up must tear its lock down at once, since no guard will
+/// ever release it.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn lock_start<T>() -> (LockReady<T>, LockStart<T>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let abandoned = std::sync::Arc::new(std::sync::Mutex::new(false));
+    (LockReady { tx, abandoned: abandoned.clone() }, LockStart { rx, abandoned })
+}
+
+/// The lock thread's end of [`lock_start`].
+pub(crate) struct LockReady<T> {
+    tx: std::sync::mpsc::Sender<T>,
+    abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+impl<T> LockReady<T> {
+    /// Hand `value` to `take`. `false` = `take` gave up: tear the lock down.
+    pub(crate) fn send(self, value: T) -> bool {
+        let abandoned = self.abandoned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        !*abandoned && self.tx.send(value).is_ok()
+    }
+}
+
+/// `take`'s end of [`lock_start`].
+pub(crate) struct LockStart<T> {
+    rx: std::sync::mpsc::Receiver<T>,
+    abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+impl<T> LockStart<T> {
+    /// The thread's answer within `timeout`. On a timeout the thread hears
+    /// it was abandoned; an answer sent before it heard is handed to `late`,
+    /// which tears that lock down.
+    pub(crate) fn wait(self, timeout: std::time::Duration, late: impl FnOnce(T)) -> Result<T, std::sync::mpsc::RecvTimeoutError> {
+        let answer = self.rx.recv_timeout(timeout);
+        if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = answer {
+            *self.abandoned.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
+            if let Ok(value) = self.rx.try_recv() {
+                late(value);
+            }
+        }
+        answer
+    }
+}
+
 /// Released on drop. Dropping from the lock's own thread (inside `on_esc`)
 /// must not join that thread.
 pub(crate) trait LockGuard: Send {}
@@ -416,6 +491,39 @@ mod tests {
         let mut after = [display("uuid"), display("uuid")];
         finish_ids(&mut after, &[Some("2".into()), Some("1".into())]);
         assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
+    }
+
+    #[test]
+    fn what_was_held_at_engage_passes_its_release_once() {
+        let mut held = HeldAtEngage::<4>::NONE;
+        held.0[1] = true;
+        assert!(!held.passes(1, true), "a press never passes");
+        assert!(held.passes(1, false));
+        assert!(!held.passes(1, false), "only once");
+        assert!(!held.passes(2, false), "not held at engage");
+        assert!(!held.passes(9, false), "out of range");
+    }
+
+    /// #EXP-1921: a lock thread that answers after `take` gave up hears so
+    /// and tears its lock down; one that answers in time is taken.
+    #[test]
+    fn a_lock_that_started_after_take_gave_up_is_torn_down() {
+        let (ready, start) = lock_start::<u32>();
+        let (sent_tx, sent_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            sent_tx.send(ready.send(7)).unwrap();
+        });
+        let mut late = None;
+        let answer = start.wait(std::time::Duration::from_millis(20), |value| late = Some(value));
+        assert_eq!(answer, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        assert!(!sent_rx.recv().unwrap(), "the late thread must tear down");
+        assert_eq!(late, None);
+        thread.join().unwrap();
+
+        let (ready, start) = lock_start::<u32>();
+        assert!(ready.send(7));
+        assert_eq!(start.wait(std::time::Duration::from_secs(5), |_| panic!("not late")), Ok(7));
     }
 
     #[test]

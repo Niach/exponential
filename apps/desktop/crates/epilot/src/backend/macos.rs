@@ -11,9 +11,14 @@
 //! The lock is an active event tap at the HID level on its own thread:
 //! every keyboard and pointer event passes it, ours (tagged with
 //! [`MAGIC`] in the event source's user data) go through, the person's are
-//! swallowed; their Esc fires `on_esc`. Needs Accessibility; the screenshot
+//! swallowed except the release of a key or button they held when the lock
+//! engaged (#EXP-1921); their Esc fires `on_esc`. Needs Accessibility; the screenshot
 //! needs Screen Recording. Coordinates are points of the global display
 //! space (origin top-left of the main display, y down).
+//!
+//! Nothing here may depend on the host's main run loop (#EXP-1921): the
+//! daemon has none, and AppKit state that only moves while it turns
+//! (NSWorkspace's frontmost app) goes stale there.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -47,11 +52,11 @@ use foreign_types::ForeignType;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{
-    NSApplicationActivationOptions, NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
+    NSApplicationActivationOptions, NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication,
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -85,6 +90,8 @@ extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> u8;
     fn AXUIElementCreateApplication(pid: Pid) -> CFTypeRef;
+    fn AXUIElementCreateSystemWide() -> CFTypeRef;
+    fn AXUIElementGetPid(element: CFTypeRef, pid: *mut Pid) -> i32;
     fn AXUIElementCopyAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: *mut CFTypeRef) -> i32;
     fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: CFTypeRef) -> i32;
     fn AXUIElementPerformAction(element: CFTypeRef, action: CFStringRef) -> i32;
@@ -104,6 +111,8 @@ extern "C" {
     ) -> CFMachPortRef;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventGetIntegerValueField(event: core_graphics::sys::CGEventRef, field: u32) -> i64;
+    fn CGEventSourceKeyState(state: CGEventSourceStateID, key: CGKeyCode) -> bool;
+    fn CGEventSourceButtonState(state: CGEventSourceStateID, button: u32) -> bool;
 }
 
 #[link(name = "ColorSync", kind = "framework")]
@@ -321,10 +330,8 @@ impl Backend for Mac {
                 app.activateWithOptions(options)
             })
         });
-        if !activated {
-            log::debug!("[computer] macOS did not activate the app of window {id}");
-        }
-        Ok(())
+        let front = u32::try_from(pid).ok();
+        settle_activation(id, activated, ACTIVATE_WAIT, || frontmost_pid() == front)
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -627,6 +634,29 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
             .is_some_and(bool::from)
 }
 
+/// How long an accepted activation may take to put the app in front.
+const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
+
+/// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
+/// one that did not put the window's app in front within `wait`, is an
+/// error (the agent's keys would go to the app in front).
+fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
+    let refused = || Err(format!("macOS did not activate window {id}."));
+    if !activated {
+        return refused();
+    }
+    let until = Instant::now() + wait;
+    loop {
+        if in_front() {
+            return Ok(());
+        }
+        if Instant::now() >= until {
+            return refused();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
 /// RGBA8, opaque; `None` when `data` is short.
 fn bgra_to_rgba(data: &[u8], width: usize, height: usize, stride: usize) -> Option<Vec<u8>> {
@@ -695,10 +725,37 @@ pub(crate) fn app_id(pid: u32) -> Option<String> {
     id
 }
 
+/// The app in front, asked fresh (#EXP-1921): Accessibility's focused
+/// application, else the owner of the frontmost window. Never NSWorkspace,
+/// whose answer only moves while the host's main run loop turns.
 fn frontmost_pid() -> Option<u32> {
-    objc2::rc::autoreleasepool(|_| {
-        let pid = NSWorkspace::sharedWorkspace().frontmostApplication()?.processIdentifier();
-        u32::try_from(pid).ok()
+    focused_by_accessibility().or_else(front_window_owner)
+}
+
+fn focused_by_accessibility() -> Option<u32> {
+    // SAFETY: returns a new AXUIElement (create rule), never null.
+    let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide()) };
+    let app = ax_copy(&system, "AXFocusedApplication")?;
+    let mut pid: Pid = 0;
+    // SAFETY: `app` is a live AXUIElement; `pid` receives its process id.
+    let err = unsafe { AXUIElementGetPid(app.as_CFTypeRef(), &mut pid) };
+    (err == 0).then(|| u32::try_from(pid).ok()).flatten().filter(|&pid| pid != 0)
+}
+
+/// The owner of the topmost app window (layer 0) on screen.
+fn front_window_owner() -> Option<u32> {
+    let list = copy_window_info(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID)?;
+    list.iter().find_map(|item| {
+        // SAFETY: every entry of the window list is a CFDictionary with
+        // CFString keys, alive as long as `list`.
+        let entry: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
+        if number(&entry, window_key(KeyName::Layer)) != Some(0) {
+            return None;
+        }
+        if text(&entry, window_key(KeyName::OwnerName)).is_some_and(|owner| owner == "Window Server" || owner == "Dock") {
+            return None;
+        }
+        number(&entry, window_key(KeyName::OwnerPid)).and_then(|pid| u32::try_from(pid).ok())
     })
 }
 
@@ -1012,11 +1069,24 @@ struct TapState {
     fired: Cell<bool>,
     stop: Arc<AtomicBool>,
     port: Cell<CFMachPortRef>,
+    /// What the person held when the tap went in ([`TAP_HELD`]).
+    held: Cell<HeldAtEngage<TAP_HELD>>,
 }
+
+/// [`TapState::held`]: keycodes 0..128, then mouse buttons 0..32 from
+/// [`TAP_BUTTONS`].
+const TAP_BUTTONS: usize = 128;
+const TAP_HELD: usize = TAP_BUTTONS + 32;
 
 /// The tap thread: install the tap, report, run until `stop`, tear down.
 fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::sync::mpsc::Sender<Result<CFRunLoop, String>>) {
-    let state = Box::new(TapState { on_esc, fired: Cell::new(false), stop: stop.clone(), port: Cell::new(std::ptr::null_mut()) });
+    let state = Box::new(TapState {
+        on_esc,
+        fired: Cell::new(false),
+        stop: stop.clone(),
+        port: Cell::new(std::ptr::null_mut()),
+        held: Cell::new(HeldAtEngage::NONE),
+    });
     let mask = LOCKED_EVENTS.iter().fold(0 as CGEventMask, |mask, &kind| mask | 1 << kind as CGEventMask);
     // SAFETY: `state` outlives the tap (invalidated below before `state`
     // drops); the callback matches CGEventTapCallBack.
@@ -1049,6 +1119,9 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     run_loop.add_source(&source, common);
     // SAFETY: `port_ref` is the live tap.
     unsafe { CGEventTapEnable(port_ref, true) };
+    // After the tap: a release between this snapshot and the tap cannot be
+    // missed. No callback runs before the run loop below.
+    state.held.set(held_now());
     if ready.send(Ok(run_loop.clone())).is_err() {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
@@ -1083,24 +1156,76 @@ unsafe extern "C" fn tap_callback(
         return event;
     }
     // SAFETY: `event` is the live event this callback was handed.
-    let tag = unsafe { CGEventGetIntegerValueField(event, EventField::EVENT_SOURCE_USER_DATA) };
-    if tag == MAGIC {
-        return event;
-    }
-    if kind == CGEventType::KeyDown as u32 {
-        // SAFETY: as above.
-        let keycode = unsafe { CGEventGetIntegerValueField(event, EventField::KEYBOARD_EVENT_KEYCODE) };
-        if keycode == i64::from(ESCAPE) && !state.fired.replace(true) {
-            log::info!("[computer] Esc from the keyboard");
-            // A panic must not unwind into the window server's callback.
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (state.on_esc)())).is_err() {
-                log::warn!("[computer] the Esc handler panicked");
+    let field = |field: u32| unsafe { CGEventGetIntegerValueField(event, field) };
+    let ours = field(EventField::EVENT_SOURCE_USER_DATA) == MAGIC;
+    let mut held = state.held.get();
+    let verdict = tap_verdict(ours, kind, field(EventField::KEYBOARD_EVENT_KEYCODE), field(EventField::MOUSE_EVENT_BUTTON_NUMBER), &mut held);
+    state.held.set(held);
+    match verdict {
+        Verdict::Pass => return event,
+        Verdict::Swallow => {}
+        Verdict::Esc => {
+            if !state.fired.replace(true) {
+                log::info!("[computer] Esc from the keyboard");
+                // A panic must not unwind into the window server's callback.
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (state.on_esc)())).is_err() {
+                    log::warn!("[computer] the Esc handler panicked");
+                }
+                state.stop.store(true, Ordering::Release);
+                CFRunLoop::get_current().stop();
             }
-            state.stop.store(true, Ordering::Release);
-            CFRunLoop::get_current().stop();
         }
     }
     std::ptr::null_mut()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verdict {
+    Pass,
+    Swallow,
+    Esc,
+}
+
+/// The tap's decision on one event of `kind` (its keycode and mouse
+/// button number read whatever the kind).
+/// `held` = what the person held when the tap went in: each one's release
+/// passes, once (a modifier's next FlagsChanged is its release).
+fn tap_verdict(ours: bool, kind: u32, keycode: i64, button: i64, held: &mut HeldAtEngage<TAP_HELD>) -> Verdict {
+    if ours {
+        return Verdict::Pass;
+    }
+    if kind == CGEventType::KeyDown as u32 && keycode == i64::from(ESCAPE) {
+        return Verdict::Esc;
+    }
+    let index = |value: i64, base: usize| usize::try_from(value).ok().map(|value| base + value);
+    let released = match kind {
+        k if k == CGEventType::KeyUp as u32 || k == CGEventType::FlagsChanged as u32 => index(keycode, 0).filter(|&key| key < TAP_BUTTONS),
+        k if k == CGEventType::LeftMouseUp as u32 => Some(TAP_BUTTONS),
+        k if k == CGEventType::RightMouseUp as u32 => Some(TAP_BUTTONS + 1),
+        k if k == CGEventType::OtherMouseUp as u32 => index(button, TAP_BUTTONS),
+        _ => None,
+    };
+    if released.is_some_and(|index| held.passes(index, false)) {
+        Verdict::Pass
+    } else {
+        Verdict::Swallow
+    }
+}
+
+/// Every key and mouse button down right now ([`TAP_HELD`]'s indexes), as
+/// the HID system sees them.
+fn held_now() -> HeldAtEngage<TAP_HELD> {
+    let mut held = HeldAtEngage::NONE;
+    for (index, slot) in held.0.iter_mut().enumerate() {
+        // SAFETY: plain queries of the HID system's state.
+        *slot = unsafe {
+            match index.checked_sub(TAP_BUTTONS) {
+                None => CGEventSourceKeyState(CGEventSourceStateID::HIDSystemState, index as CGKeyCode),
+                Some(button) => CGEventSourceButtonState(CGEventSourceStateID::HIDSystemState, button as u32),
+            }
+        };
+    }
+    held
 }
 
 #[cfg(test)]
@@ -1125,6 +1250,79 @@ mod tests {
         };
         assert!(ax_window(ours, &window).is_none());
         assert!(ax_reachable(1));
+    }
+
+    /// #EXP-1921: a button or key the person held when the lock engaged
+    /// gets its release through, once; everything else of theirs stays out.
+    #[test]
+    fn the_tap_passes_the_release_of_what_was_held_at_engage_once() {
+        let mut held = HeldAtEngage::<TAP_HELD>::NONE;
+        held.0[56] = true; // kVK_Shift
+        held.0[TAP_BUTTONS] = true; // the left button
+        held.0[TAP_BUTTONS + 3] = true; // a side button
+        let mut verdict = |kind: CGEventType, keycode: i64, button: i64| tap_verdict(false, kind as u32, keycode, button, &mut held);
+        assert_eq!(verdict(CGEventType::LeftMouseDragged, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::LeftMouseUp, 0, 0), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::LeftMouseUp, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::RightMouseUp, 0, 1), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::OtherMouseUp, 0, 2), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::OtherMouseUp, 0, 3), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::FlagsChanged, 56, 0), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::FlagsChanged, 56, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::KeyUp, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::LeftMouseDown, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::KeyDown, i64::from(ESCAPE), 0), Verdict::Esc);
+        assert_eq!(tap_verdict(true, CGEventType::LeftMouseDown as u32, 0, 0, &mut held), Verdict::Pass);
+        // The snapshot's FFI answers (what is down is the person's business).
+        let _ = held_now();
+    }
+
+    /// The pid `lsappinfo` (Launch Services, asked fresh) says is in front.
+    fn front_by_launch_services() -> Option<u32> {
+        let run = |args: &[&str]| String::from_utf8(std::process::Command::new("lsappinfo").args(args).output().ok()?.stdout).ok();
+        let asn = run(&["front"])?;
+        let info = run(&["info", asn.trim()])?;
+        let after = info.split("pid").nth(1)?;
+        after.trim_start_matches(|c: char| !c.is_ascii_digit()).split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    }
+
+    /// A window of its own in front for two seconds (JXA).
+    const FRONT_WINDOW: &str = "ObjC.import('Cocoa'); var app = $.NSApplication.sharedApplication; app.setActivationPolicy(0); \
+        var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 320, 120), 1, 2, false); \
+        w.title = 'epilot test'; w.makeKeyAndOrderFront(null); app.activateIgnoringOtherApps(true); \
+        $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(2));";
+
+    /// #EXP-1921, LIVE (`--ignored`): shows a window of its own for two
+    /// seconds, types and clicks nothing. A host without a main run loop
+    /// (the daemon, this test) still reads the app in front now.
+    #[test]
+    #[ignore = "drives the real screen"]
+    fn the_focused_app_is_read_fresh_without_a_main_run_loop() {
+        let before = frontmost_pid();
+        let mut dialog = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", FRONT_WINDOW]).spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(1200));
+        let (now, truth) = (frontmost_pid(), front_by_launch_services());
+        dialog.wait().unwrap();
+        assert_eq!(truth, Some(dialog.id()), "the window came to the front");
+        assert_ne!(truth, before);
+        assert_eq!(now, truth);
+    }
+
+    /// #EXP-1921: activate_window answers success only once the window's
+    /// app is in front.
+    #[test]
+    fn an_activation_counts_once_the_app_is_in_front() {
+        let wait = Duration::from_millis(100);
+        assert!(settle_activation(4, false, wait, || true).is_err(), "macOS refused");
+        assert!(settle_activation(4, true, wait, || false).is_err(), "never in front");
+        let mut polls = 0;
+        assert_eq!(
+            settle_activation(4, true, wait, || {
+                polls += 1;
+                polls == 3
+            }),
+            Ok(())
+        );
     }
 
     #[test]
