@@ -102,6 +102,7 @@ impl Ede {
                         frame = frame.stop(axis);
                     }
                 }
+                self.refresh_pointer_focus(event.time().millis());
                 let pointer = self.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
@@ -119,11 +120,29 @@ impl Ede {
         pointer.frame(self);
     }
 
+    /// #EDE-103: a raise, a map or a close changes what lies under a still
+    /// pointer; a press or the wheel goes to what is there now, not to the
+    /// surface the last motion found.
+    pub fn refresh_pointer_focus(&mut self, time: u32) {
+        let pointer = self.seat.get_pointer().unwrap();
+        if pointer.is_grabbed() || self.is_locked() {
+            return;
+        }
+        let location = pointer.current_location();
+        let under = self.surface_under(location);
+        if under.as_ref().map(|(s, _)| s) == pointer.current_focus().as_ref() {
+            return;
+        }
+        pointer.motion(self, under, &MotionEvent { location, serial: SERIAL_COUNTER.next_serial(), time: smithay::backend::input::InputTime::from_millis(time) });
+        pointer.frame(self);
+    }
+
     pub fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
 
         if state == ButtonState::Pressed {
+            self.refresh_pointer_focus(time);
             let hit = self.surface_under(pointer.current_location()).map(|(s, _)| s);
             self.hotkeys_pointer_pressed(hit.as_ref());
         }

@@ -39,7 +39,11 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height, data: vec![0; (width * height * 4) as usize] }
+        // #EDE-103: sized in usize; a size past the address space is empty.
+        match (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4)) {
+            Some(len) => Self { width, height, data: vec![0; len] },
+            None => Self { width: 0, height: 0, data: Vec::new() },
+        }
     }
 
     pub fn fill(&mut self, colour: [u8; 4]) {
@@ -53,7 +57,7 @@ impl Canvas {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 || alpha == 0 {
             return;
         }
-        let i = ((y as u32 * self.width + x as u32) * 4) as usize;
+        let i = (y as usize * self.width as usize + x as usize) * 4;
         let a = (alpha as u32 * colour[3] as u32) / 255;
         let dst = &mut self.data[i..i + 4];
         let da = dst[3] as u32;
@@ -148,10 +152,18 @@ impl TextureCache {
     {
         use smithay::backend::renderer::element::{texture::TextureRenderElement, Id, Kind};
         let context = format!("{:?}", renderer.context_id());
-        let fresh = self.key != key || self.context.as_deref() != Some(&context) || self.texture.as_ref().and_then(|t| t.downcast_ref::<R::TextureId>()).is_none();
+        // A key whose import failed (#EDE-103: too big for the renderer)
+        // stays without a texture until the key or the renderer changes,
+        // instead of being drawn and refused again every frame.
+        let fresh = self.key != key || self.context.as_deref() != Some(&context) || self.texture.as_ref().is_some_and(|t| t.downcast_ref::<R::TextureId>().is_none());
         if fresh {
             let canvas = draw();
-            let texture = renderer.import_memory(&canvas.premultiplied(), smithay::backend::allocator::Fourcc::Abgr8888, (canvas.width as i32, canvas.height as i32).into(), false).ok()?;
+            let Ok(texture) = renderer.import_memory(&canvas.premultiplied(), smithay::backend::allocator::Fourcc::Abgr8888, (canvas.width as i32, canvas.height as i32).into(), false) else {
+                self.key = key;
+                self.context = Some(context);
+                self.texture = None;
+                return None;
+            };
             if self.key != key {
                 self.id = Id::new();
             }

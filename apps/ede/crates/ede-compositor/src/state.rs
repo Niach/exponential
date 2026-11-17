@@ -450,6 +450,12 @@ impl Ede {
             let lock = self.lock_surface_on(output)?;
             return Some((lock, output_geo.loc.to_f64()));
         }
+        if let Some(window) = self.fullscreen_on(output) {
+            // #EDE-103: the output draws only that window (and its popups):
+            // nothing hidden behind it takes the pointer.
+            let location = self.space.element_location(&window)? - window.geometry().loc;
+            return window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64()));
+        }
         let layers = layer_map_for_output(output);
         let layer_hit = |layer| {
             layers.layer_under(layer, pos - output_geo.loc.to_f64()).and_then(|l| {
@@ -465,17 +471,18 @@ impl Ede {
                 l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
             })
         };
-        popup_hit(Layer::Overlay)
-            .or_else(|| popup_hit(Layer::Top))
-            .or_else(|| layer_hit(Layer::Overlay))
-            .or_else(|| layer_hit(Layer::Top))
-            .or_else(|| {
-                self.space.element_under(pos).and_then(|(window, location)| {
-                    window
-                        .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
-                        .map(|(s, p)| (s, (p + location).to_f64()))
-                })
-            })
+        let above = popup_hit(Layer::Overlay).or_else(|| popup_hit(Layer::Top)).or_else(|| layer_hit(Layer::Overlay)).or_else(|| layer_hit(Layer::Top));
+        if above.is_some() {
+            return above;
+        }
+        // #EDE-103: a server-side bar (or its resize band) is the
+        // compositor's: the window drawn under it takes neither press nor hover.
+        if self.frame_under(pos).is_some() {
+            return None;
+        }
+        self.space
+            .element_under(pos)
+            .and_then(|(window, location)| window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64())))
             .or_else(|| layer_hit(Layer::Bottom))
             .or_else(|| layer_hit(Layer::Background))
     }
