@@ -127,6 +127,45 @@ public func isStaleTreeRefusal(_ message: String?) -> Bool {
     return olderStaleTreeRefusal.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)) != nil
 }
 
+// ── sealed by default (sealed-content.json `clearTree`) ───────────────────
+
+/// #EDE-97: a writer that cannot seal fails the send with it (the
+/// failed-action toast's description); the draft stays.
+public let noKeyRefusal = "This chat is end-to-end encrypted and this device holds no key for it yet. Try again in a moment."
+/// The server's refusal of a key for a tree an outside MCP client started.
+public let clearTreeRefusal = "This chat stays in clear: an MCP client outside Exponential started it"
+/// How long a writer waits for its key holder / a keyless tree's key.
+public let sealHolderWait: Duration = .milliseconds(20_000)
+public let sealKeyWait: Duration = .milliseconds(20_000)
+
+/// The send that could not be sealed: nothing left this install.
+public struct SealRefusal: LocalizedError, Equatable, Sendable {
+    public init() {}
+    public var errorDescription: String? { noKeyRefusal }
+}
+
+/// Where a writer's text goes: `clear` = a clear_tree root, `new` = the send
+/// creates the root, `keyed`, `keyless` = an existing root without a key.
+public enum SendTree: String, Sendable, CaseIterable { case clear, new, keyed, keyless }
+/// This process's key holder: `late` = it comes up within the wait.
+public enum SendHolder: String, Sendable, CaseIterable { case ready, late, none }
+/// What the text goes out as; `failed` = nothing leaves.
+public enum SendWire: String, Sendable, CaseIterable { case plain, inline, create, sealed, failed }
+
+/// #EDE-97: no silent plaintext: only a clear tree takes it; everything else
+/// seals or fails (`noKeyRefusal`). `reader` = this install may key a keyless
+/// tree; `keyArrives` = the device's claim keyed it within the wait.
+public func sendWire(tree: SendTree, holder: SendHolder, reader: Bool = false, keyArrives: Bool = false) -> SendWire {
+    if tree == .clear { return .plain }
+    if holder == .none { return .failed }
+    switch tree {
+    case .clear: return .plain
+    case .new: return .inline
+    case .keyed: return .sealed
+    case .keyless: return reader ? .create : keyArrives ? .sealed : .failed
+    }
+}
+
 public enum SealedCryptoError: Error, Equatable {
     case unavailable
 }
