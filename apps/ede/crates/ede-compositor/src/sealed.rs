@@ -33,7 +33,8 @@ use crate::{lock::LockState, state::Ede};
 
 /// The grant's session name for the lock child.
 pub const SEALED_SESSION: &str = "exponential-sealed";
-/// Give up starting the lock client after this many quick deaths.
+/// After this many quick deaths the lock client is started again only
+/// after a pause.
 pub const MAX_RESPAWNS: u32 = 5;
 /// A lock client that lived this long was healthy: its deaths count anew.
 pub const HEALTHY: Duration = Duration::from_secs(30);
@@ -60,6 +61,8 @@ pub struct Sealed {
     pub command: Vec<String>,
     /// When a lock surface was last mapped (or the client started).
     pub seen: Instant,
+    /// A lock client that keeps dying is not started again before this.
+    pub retry_at: Instant,
     /// The outputs that showed a locked frame.
     pub shown_on: Vec<Output>,
     /// Lock surfaces whose output went away, until the next output comes.
@@ -110,7 +113,7 @@ impl Ede {
             Some(child) => {
                 let pid = child.id();
                 tracing::info!(pid, "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
             }
             None => {
                 tracing::error!("exponential-sealed could not start: the session stays unlocked");
@@ -136,17 +139,22 @@ impl Ede {
     /// A test's lock: the test's own process plays the lock client.
     pub fn begin_sealed_lock_as(&mut self, pid: u32) -> ede_protocol::Token {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         grant.token
     }
 
-    /// `unlock` over ede-protocol: only the lock child's grant opens it.
-    pub fn sealed_unlock(&mut self, token: &ede_protocol::Token) -> Result<(), &'static str> {
+    /// `unlock` over ede-protocol: only the lock child's grant opens it,
+    /// and only on a connection of that child (`peer` = the caller's pid):
+    /// a grant read from its stdin or its memory opens nothing.
+    pub fn sealed_unlock(&mut self, token: &ede_protocol::Token, peer: Option<u32>) -> Result<(), &'static str> {
         let LockState::Sealed(s) = &mut self.lock else { return Err("the session is not sealed-locked") };
         if &s.token != token {
             return Err("only the lock client's grant unlocks");
+        }
+        if !s.command.is_empty() && peer != Some(s.pid) {
+            return Err("only the lock client's own connection unlocks");
         }
         let (token, pid) = (s.token.clone(), s.pid);
         if let Some(mut child) = s.child.take() {
@@ -232,7 +240,7 @@ impl Ede {
     /// [`NO_SURFACE`], is started again (the session stays locked
     /// meanwhile), and one that could not start is tried again. After
     /// [`MAX_RESPAWNS`] deaths in a row, none of them after [`HEALTHY`],
-    /// the screen stays black until the next login.
+    /// the next starts wait: 5 s, doubling up to a minute.
     pub fn sealed_tick(&mut self) {
         // With no output there is nowhere to show: nothing is missing.
         let shows = self.space.outputs().next().is_none() || !self.sealed_lock_surfaces().is_empty();
@@ -259,10 +267,12 @@ impl Ede {
             }
             s.respawns += 1;
             if s.respawns > MAX_RESPAWNS {
-                tracing::error!("the lock client keeps dying; the session stays locked");
+                let pause = Duration::from_secs(60.min(5 << (s.respawns - MAX_RESPAWNS - 1).min(4)));
+                tracing::error!(?pause, "the lock client keeps dying; the session stays locked");
+                s.retry_at = Instant::now() + pause;
             }
         }
-        if s.respawns > MAX_RESPAWNS {
+        if s.respawns > MAX_RESPAWNS && Instant::now() < s.retry_at {
             return;
         }
         let (argv, token) = (s.command.clone(), s.token.clone());

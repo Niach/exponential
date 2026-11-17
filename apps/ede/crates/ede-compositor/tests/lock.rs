@@ -718,6 +718,43 @@ fn a_lock_client_that_could_not_start_is_tried_again() {
     assert!(is_locked(&h));
 }
 
+/// #EDE-79: a lock client that keeps dying is started again after a pause
+/// that grows, not never: the screen does not stay black until the next
+/// login.
+#[test]
+fn a_lock_client_that_keeps_dying_is_started_again_after_a_pause() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.respawns = MAX_RESPAWNS;
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the dead lock client was never noticed", || lock_child(&h) == 0);
+    assert!(!runs(first));
+    h.with(|ede| ede.sealed_tick());
+    assert_eq!(lock_child(&h), 0, "started again without a pause");
+    sealed(&h, |s| s.retry_at = Instant::now());
+    tick_until(&h, "a lock client that kept dying was never started again", || lock_child(&h) != 0);
+    assert!(is_locked(&h));
+}
+
+/// #EDE-79: the grant alone does not unlock: `unlock` counts only on the
+/// lock client's own connection (a process that read the grant from the
+/// client's stdin or memory is another pid).
+#[test]
+fn only_the_lock_clients_own_connection_unlocks() {
+    let h = harness(Config::default());
+    lock_with(&h, &["sleep", "30"]);
+    let token = sealed(&h, |s| s.token.clone());
+    let mut thief = h.ipc_with(token).unwrap();
+    assert_eq!(code(thief.unlock().unwrap_err()), ErrorCode::Forbidden);
+    assert!(is_locked(&h), "a stolen grant unlocked the session");
+    // The lock client's own pid on the connection: it unlocks.
+    let (token, pid) = sealed(&h, |s| (s.token.clone(), s.pid));
+    h.with(move |ede| ede.sealed_unlock(&token, Some(pid))).unwrap();
+    assert!(!is_locked(&h));
+}
+
 /// #EDE-72: the unlock grant reaches the lock client over its stdin, never
 /// in its environment (`/proc/<pid>/environ` is every process's to read).
 #[test]
