@@ -351,7 +351,8 @@ impl Ede {
 
 impl Backend for Ede {
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
-        let outputs = self.client.lock().unwrap().outputs().map_err(e("eDE outputs"))?;
+        // #EDE-91: the person's desk only.
+        let outputs = ede_protocol::persons(self.client.lock().unwrap().outputs().map_err(e("eDE outputs"))?);
         if outputs.is_empty() {
             return Err("eDE has no output.".to_string());
         }
@@ -396,11 +397,12 @@ impl Backend for Ede {
             (windows, active)
         };
         // The compositor lists bottom to top, then parked and minimized
-        // ones: neither is on screen (#EXP-1897).
+        // ones: neither is on screen (#EXP-1897); an agent space's is not
+        // the person's (#EDE-91).
         Ok(windows
             .into_iter()
             .rev()
-            .filter(|window| !window.minimized && active.is_none_or(|active| window.workspace == active))
+            .filter(|window| window.is_persons() && !window.minimized && active.is_none_or(|active| window.workspace == active))
             .filter_map(|window| {
                 Some(WindowInfo {
                     id: window_number(&window.id)?,
@@ -926,6 +928,30 @@ mod tests {
         ]);
         let listed: Vec<(u64, bool, bool)> = ede.list_windows().unwrap().into_iter().map(|window| (window.id, window.active, window.fullscreen)).collect();
         assert_eq!(listed, [(2, true, false), (1, false, false)], "top first, the active workspace only");
+    }
+
+    /// #EDE-91: the person's run (and screen memory, which reads through
+    /// this backend) sees the person's desk only: no window or output of
+    /// an agent space.
+    #[test]
+    fn a_space_is_not_the_persons_desk() {
+        use serde_json::json;
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let window = |id: &str, space: Option<&str>| {
+            let mut window = json!({"id": id, "title": id, "app_id": "app", "x": 0, "y": 0, "width": 640, "height": 480, "focused": false, "fullscreen": false, "protected": false, "x11": false, "workspace": 0, "minimized": false});
+            if let Some(space) = space {
+                window["space"] = json!(space);
+            }
+            window
+        };
+        let (ede, _server) = fake_compositor(vec![
+            Ok(json!([window("w1", None), window("w2", Some("sp1"))])),
+            Ok(json!([{"index": 0, "active": true, "windows": ["w1", "w2"]}])),
+            Ok(json!([{"name": "SPACE-1", "x": 0, "y": 0, "width": 1024, "height": 768, "scale": 1.0, "space": "sp1"}, {"name": "DP-1", "x": 0, "y": 0, "width": 1280, "height": 800, "scale": 1.0}])),
+        ]);
+        assert_eq!(ede.list_windows().unwrap().into_iter().map(|window| window.id).collect::<Vec<_>>(), [1]);
+        let displays = ede.displays().unwrap();
+        assert_eq!(displays.iter().map(|display| (display.name.as_str(), display.primary)).collect::<Vec<_>>(), [("DP-1", true)]);
     }
 
     /// The displays cache [`pixel_size`] reads is one per process.

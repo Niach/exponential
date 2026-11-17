@@ -2935,7 +2935,7 @@ fn screenshot(shell: &SharedShell) {
     let path = system::screenshot_path();
     let saved = with_ede(shell, |ede| {
         let outputs = ede.outputs()?;
-        let Some(first) = outputs.first() else { return Ok(false) };
+        let Some(first) = outputs.iter().find(|o| o.is_persons()) else { return Ok(false) };
         let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
         Ok(thumbs::write_png(&path, &capture).is_ok())
     });
@@ -3042,7 +3042,7 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 /// The outputs as the Displays page binds them (#EDE-14).
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
-    shell.borrow_mut().feed.set("/outputs", Value::Array(outputs.iter().map(settings::output_json).collect()));
+    shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
 /// Reads the tray items again (a short blocking round on the bus).
@@ -3090,16 +3090,17 @@ fn pins_persist(shell: &SharedShell) {
     settings::persist_shell(json!({"pinned": pinned}));
 }
 
-/// The compositor's window and workspace lists (one round trip each).
+/// The compositor's window and workspace lists (one round trip each); the
+/// person's windows only (#EDE-91).
 fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)> {
-    let windows = calls.windows().ok()?;
+    let windows = ede_protocol::persons(calls.windows().ok()?);
     let workspaces = calls.workspaces().unwrap_or_default();
     Some((windows, workspaces))
 }
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false };
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
@@ -3148,6 +3149,10 @@ fn main() {
                 return;
             }
             while let Ok(event) = events.next_event() {
+                // #EDE-91: an agent space's windows and outputs are not the person's.
+                if !ede_protocol::is_persons_event(&event) {
+                    continue;
+                }
                 if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
                         if hotkeys_tx.send(name.to_string()).is_err() {
