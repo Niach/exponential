@@ -89,7 +89,7 @@ impl Ede {
             request @ (Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText) => {
                 let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
                 match request {
-                    Request::Launch { .. } => fail(ErrorCode::Unavailable, "launch is not served yet"),
+                    Request::Launch { argv, env, cwd } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_launch(desk, argv, env, cwd)?).unwrap(), None)))),
                     Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request).map(Scoped::Reply),
                     through => Ok(Scoped::Through(desk, through)),
                 }

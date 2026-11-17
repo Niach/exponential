@@ -64,6 +64,7 @@ impl Drop for Spaces {
     /// The compositor ends: the sockets go with their sources, the
     /// directories here.
     fn drop(&mut self) {
+        self.kill_launches();
         // Everything under the spaces' directory is a space's: the live
         // ones and what a close left behind.
         if let Some(dir) = &self.dir {
@@ -98,6 +99,8 @@ impl Ede {
 
         // No new client, no old one, nothing on disk.
         self.loop_handle.remove(listener);
+        // What was launched is told to end first: its home is in `dir`.
+        self.space_launches_closed(id);
         if !self.spaces.remove(&dir) {
             self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
         }
@@ -159,6 +162,7 @@ impl Ede {
     /// kept: a leaked seat is cheap, a handle without its seat panics.
     pub fn spaces_tick(&mut self) {
         self.spaces_expire();
+        self.space_launches_tick();
         let mut closing = std::mem::take(&mut self.spaces.closing);
         closing.retain_mut(|c| {
             if self.seat_state.remove_seat(&c.seat) {
