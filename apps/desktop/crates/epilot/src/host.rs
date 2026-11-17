@@ -105,8 +105,11 @@ struct Run {
     hook: Option<AbortHook>,
     /// The display the run works on (`tools::CallContext`).
     display: Option<usize>,
-    /// `tools::CallContext::copy_mark`.
-    copy_mark: Option<u64>,
+    /// `tools::CallContext::copy_mark` and the hold it was armed under
+    /// ([`LockState::seq`]). #EXP-1920: good only while that hold lasts;
+    /// once it went the person had their input back, and a changed
+    /// clipboard is theirs.
+    copy_mark: Option<(u64, u64)>,
 }
 
 /// Why a call did not get the lock.
@@ -205,8 +208,9 @@ impl Host {
     }
 
     /// Hold the lock for `session_id`'s call, until the call's end
-    /// ([`Host::call_on`]): engage it if nobody does.
-    fn lease(&self, session_id: &str, label: &str, backend: &dyn backend::Backend) -> Result<(), Refused> {
+    /// ([`Host::call_on`]): engage it if nobody does. Answers the hold's
+    /// [`LockState::seq`].
+    fn lease(&self, session_id: &str, label: &str, backend: &dyn backend::Backend) -> Result<u64, Refused> {
         let mut lock = self.lock.lock().unwrap();
         // Read under the lock's mutex, where `abort` writes it: an Esc that
         // landed since the call's first check never gets the lock re-taken.
@@ -241,7 +245,7 @@ impl Host {
             self.announce(seq, Some(label));
             self.start_janitor();
         }
-        Ok(())
+        Ok(seq)
     }
 
     /// Take the lock out of `lock`, under its mutex (whoever decides the
@@ -417,19 +421,33 @@ impl Host {
         }
         // NEW-59: the lock engages only once the work-screen gate let the
         // call through: a refusal leaves the person's input alone.
+        // #EXP-1920: the hold as it is now; the run's copy mark is good
+        // only when it was armed under this very hold.
+        let hold = {
+            let lock = self.lock.lock().unwrap();
+            lock.held.as_ref().map(|_| lock.seq)
+        };
+        let (mut display, armed) =
+            self.runs.lock().unwrap().get(session_id).map(|run| (run.display, run.copy_mark)).unwrap_or_default();
+        let mut copy_mark = armed.filter(|(_, under)| hold == Some(*under)).map(|(mark, _)| mark);
+        let leased = std::cell::Cell::new(None);
         let engage = || {
-            self.lease(session_id, label, backend).map_err(|refused| match refused {
+            let seq = self.lease(session_id, label, backend).map_err(|refused| match refused {
                 Refused::Aborted => tools::ABORTED.to_string(),
                 Refused::Ended => ENDED.to_string(),
                 Refused::Os(reason) => {
                     format!("Could not lock the person's input ({reason}); nothing was done. Tell them and try again.")
                 }
-            })
+            })?;
+            leased.set(Some(seq));
+            // The hold went and came back since the mark was read above.
+            if name == "read_clipboard" && hold.is_some_and(|hold| hold != seq) {
+                return Err(tools::READ_REFUSED.to_string());
+            }
+            Ok(())
         };
         // The person's Esc, or the run's end (#EXP-1894).
         let interrupted = || self.aborted(session_id) || self.stopped(session_id);
-        let (mut display, mut copy_mark) =
-            self.runs.lock().unwrap().get(session_id).map(|run| (run.display, run.copy_mark)).unwrap_or_default();
         let mut ctx = tools::CallContext {
             interrupted: &interrupted,
             display: &mut display,
@@ -445,7 +463,17 @@ impl Host {
             run.display = display;
             // A look runs beside the run's driving call: the mark is not its.
             if drives {
-                run.copy_mark = copy_mark;
+                let under = leased.get().or(hold).unwrap_or_default();
+                run.copy_mark = copy_mark.map(|mark| (mark, under));
+            }
+        }
+        // #EXP-1920: a paste or a copy changes the clipboard and leaves the
+        // person's on it: no other run's mark may read that as its own copy.
+        if matches!(name, "paste_text" | "copy_selection") {
+            for (other, run) in self.runs.lock().unwrap().iter_mut() {
+                if other != session_id {
+                    run.copy_mark = None;
+                }
             }
         }
         // The driving call is over: the idle clock starts now.
@@ -592,6 +620,9 @@ mod tests {
         fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
             self.inner.lock(on_esc)
         }
+        fn clipboard(&self) -> Result<Box<dyn backend::Clipboard + '_>, String> {
+            self.inner.clipboard()
+        }
     }
 
     /// A host whose runs `s1` and `s2` hold a grant.
@@ -631,6 +662,50 @@ mod tests {
         assert!(host.engaged());
         host.sweep(Instant::now() + Duration::from_secs(40));
         assert!(!host.engaged(), "an idle hold still releases");
+    }
+
+    /// #EXP-1920: `read_clipboard`'s mark is good for the hold it was armed
+    /// under and until another run's paste or copy: once the person had
+    /// their input back, or another run put their clipboard back, a changed
+    /// clipboard is theirs, never the run's own copy.
+    #[test]
+    fn read_clipboard_never_reads_past_the_hold_or_another_runs_paste() {
+        let host = granted();
+        let backend = Hooked::default();
+        let person_copies = |text: &str| {
+            let mut clip = backend.inner.clip.lock().unwrap();
+            clip.text = Some(text.to_string());
+            clip.count += 1;
+        };
+        let refused = |reply: &Value| reply["isError"] == true && !reply.to_string().contains("password");
+        // A click that copies nothing; the hold goes (idle); the person
+        // copies; the run reads.
+        host.call_on(&backend, "s1", "EXP-1", "left_click", json!({ "x": 1, "y": 1 }));
+        host.sweep(Instant::now() + Duration::from_secs(40));
+        assert!(!host.engaged());
+        person_copies("the person's password");
+        let reply = host.call_on(&backend, "s1", "EXP-1", "read_clipboard", json!({}));
+        assert!(refused(&reply), "after the hold went: {reply}");
+        // The same through a call that arms nothing in between.
+        host.call_on(&backend, "s1", "EXP-1", "left_click", json!({ "x": 1, "y": 1 }));
+        host.sweep(Instant::now() + Duration::from_secs(40));
+        person_copies("another password");
+        host.call_on(&backend, "s1", "EXP-1", "mouse_move", json!({ "x": 2, "y": 2 }));
+        let reply = host.call_on(&backend, "s1", "EXP-1", "read_clipboard", json!({}));
+        assert!(refused(&reply), "after a later hold: {reply}");
+        // Under one hold: run 1 clicks, run 2 pastes (its set and restore
+        // change the clipboard and leave the person's on it), run 1 reads.
+        host.call_on(&backend, "s1", "EXP-1", "left_click", json!({ "x": 1, "y": 1 }));
+        let pasted = host.call_on(&backend, "s2", "EXP-2", "paste_text", json!({ "text": "hello" }));
+        assert_eq!(pasted["isError"], Value::Null, "{pasted}");
+        let reply = host.call_on(&backend, "s1", "EXP-1", "read_clipboard", json!({}));
+        assert!(refused(&reply), "after another run's paste: {reply}");
+        // The run's own copy under the hold still reads, once.
+        backend.inner.clip.lock().unwrap().copies = Some("a token".into());
+        host.call_on(&backend, "s1", "EXP-1", "key", json!({ "combo": "ctrl+c" }));
+        assert!(host.engaged());
+        assert_eq!(host.call_on(&backend, "s1", "EXP-1", "read_clipboard", json!({}))["content"][0]["text"], "a token");
+        assert_eq!(host.call_on(&backend, "s1", "EXP-1", "read_clipboard", json!({}))["isError"], true);
     }
 
     /// #EXP-1893: calls queue; two runs never drive the one pointer and

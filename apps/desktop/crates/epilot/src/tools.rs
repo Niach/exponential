@@ -488,7 +488,7 @@ fn dispatch(
 const DEFAULT_PASTE: &str = if cfg!(target_os = "macos") { "cmd+v" } else { "ctrl+v" };
 const DEFAULT_COPY: &str = if cfg!(target_os = "macos") { "cmd+c" } else { "ctrl+c" };
 
-const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
+pub(crate) const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
 
 /// One thing a tool holds down.
 #[derive(Clone, Copy)]
