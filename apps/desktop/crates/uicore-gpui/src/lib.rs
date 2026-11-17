@@ -275,7 +275,10 @@ impl ShellHost for LayerShellHost {
     fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), _cx: &mut App) -> Placed {
         let (anchor, gravity) = placement_anchor(placement);
         let parent_handle: AnyWindowHandle = parent.handle.into();
-        let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect, anchor, gravity, constraint_adjustment: PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_Y, offset: point(px(0.0), px(POPUP_GAP)), grab: false });
+        // A popup document grabs: it takes the keyboard as it maps, whatever
+        // its parent layer does (#EDE-86: the start menu under the taskbar).
+        // A hosted popover (a hover preview) never does.
+        let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect, anchor, gravity, constraint_adjustment: PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_Y, offset: point(px(0.0), px(POPUP_GAP)), grab: true });
         Placed { kind, bounds: popup_bounds(anchor_rect, (size.0 as f32, size.1 as f32)) }
     }
 

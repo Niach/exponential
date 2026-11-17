@@ -15,7 +15,7 @@ use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1
 use wayland_protocols::{
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
-    xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+    xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base},
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
@@ -89,6 +89,12 @@ pub struct Layer {
     pub index: usize,
     pub surface: wl_surface::WlSurface,
     pub layer: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+}
+
+pub struct Popup {
+    pub surface: wl_surface::WlSurface,
+    pub xdg_surface: xdg_surface::XdgSurface,
+    pub popup: xdg_popup::XdgPopup,
 }
 
 pub struct LockSurface {
@@ -198,6 +204,45 @@ impl Session {
         surface.commit();
         self.roundtrip();
         Layer { index, surface, layer }
+    }
+
+    /// A drawn `w`×`h` `xdg_popup` under the layer surface `l` (the shell's
+    /// start menu under its taskbar); `grab` = it asks for the grab, that
+    /// is for the keyboard (#EDE-86).
+    pub fn layer_popup(&mut self, l: &Layer, (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.toplevels.len();
+        self.state.toplevels.push(ToplevelState::default());
+        let wm_base = self.state.wm_base.clone().unwrap();
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
+        let positioner = wm_base.create_positioner(&self.qh, ());
+        positioner.set_size(w, h);
+        positioner.set_anchor_rect(0, 0, 1, 1);
+        let popup = xdg_surface.get_popup(None, &positioner, &self.qh, ());
+        l.layer.get_popup(&popup);
+        positioner.destroy();
+        if grab {
+            // No press to name: a hotkey opened it.
+            popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
+        }
+        surface.commit();
+        self.roundtrip();
+        if let Some(serial) = self.state.toplevels[index].pending_serial.take() {
+            xdg_surface.ack_configure(serial);
+        }
+        let buffer = self.buffer(w, h, argb);
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, w, h);
+        surface.commit();
+        self.roundtrip();
+        Popup { surface, xdg_surface, popup }
+    }
+
+    pub fn close_popup(&mut self, p: Popup) {
+        p.popup.destroy();
+        p.xdg_surface.destroy();
+        p.surface.destroy();
+        self.roundtrip();
     }
 
     /// An empty input region: no pointer event reaches `surface`, what is
@@ -547,4 +592,6 @@ delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
 delegate_noop!(Client: ignore wl_output::WlOutput);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Client: xdg_positioner::XdgPositioner);
+delegate_noop!(Client: ignore xdg_popup::XdgPopup);
 

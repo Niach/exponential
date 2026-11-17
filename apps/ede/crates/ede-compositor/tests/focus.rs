@@ -139,6 +139,107 @@ fn no_window_takes_the_keyboard_from_an_exclusive_prompt() {
     wait_for(&mut app, |c| c.state.keys == [KEY_A]);
 }
 
+const KEY_ESC: u32 = 1;
+const KEY_LEFTMETA: u32 = 125;
+
+/// The `hotkey` events the shell heard, until none comes for a moment.
+fn hotkeys(shell: &mut ede_protocol::Client) -> Vec<String> {
+    let mut names = Vec::new();
+    while let Ok(e) = shell.next_event() {
+        if e.kind == ede_protocol::events::HOTKEY {
+            names.push(e.data["name"].as_str().unwrap().to_string());
+        }
+    }
+    names
+}
+
+/// The shell: its ede-protocol subscription, and a 400×48 taskbar that
+/// never takes the keyboard itself.
+fn shell_with_taskbar(h: &Harness) -> (ede_protocol::Client, Session, common::Layer) {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let mut ipc = h.ipc();
+    ipc.subscribe().unwrap();
+    ipc.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    let mut shell = Session::connect(h.connect());
+    shell.keyboard();
+    let bar = shell.keyboard_layer("taskbar", Layer::Top, (400, 48), KeyboardInteractivity::None);
+    shell.draw_layer(&bar, GREEN);
+    (ipc, shell, bar)
+}
+
+/// #EDE-86: the start menu is an `xdg_popup` of the taskbar, a layer that
+/// never takes the keyboard. Opened on Super while a window is typed into,
+/// the menu gets the next keys, Esc included, and the window gets them back
+/// when it closes.
+#[test]
+fn a_layer_popup_opened_on_a_hotkey_takes_the_keys_from_the_window_until_it_closes() {
+    let h = harness();
+    let (mut app, a) = focused_app(&h, "terminal", RED);
+    let (mut ipc, mut shell, bar) = shell_with_taskbar(&h);
+
+    press(&h, KEY_LEFTMETA);
+    assert_eq!(hotkeys(&mut ipc), ["menu.toggle"]);
+    let menu = shell.layer_popup(&bar, (300, 200), true, BLUE);
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&menu.surface));
+    assert_eq!(stack(&h), [("terminal".to_string(), false)]);
+    // Super itself went to the window, as any modifier does.
+    wait_for(&mut app, |c| c.state.keys == [KEY_LEFTMETA]);
+
+    press(&h, KEY_A);
+    wait_for(&mut shell, |c| c.state.keys == [KEY_A]);
+    // Esc in the menu is the shell's to close it with.
+    press(&h, KEY_ESC);
+    assert_eq!(hotkeys(&mut ipc), ["popups.dismiss"]);
+    app.roundtrip();
+    assert_eq!(app.state.keys, [KEY_LEFTMETA], "the window got what was typed into the menu");
+
+    shell.close_popup(menu);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_LEFTMETA, KEY_A]);
+    shell.roundtrip();
+    assert_eq!(shell.state.keys, [KEY_A]);
+}
+
+/// A popup that does not grab (a hover preview of the taskbar) leaves the
+/// keyboard with the window.
+#[test]
+fn a_layer_popup_that_does_not_grab_leaves_the_keyboard_with_the_window() {
+    let h = harness();
+    let (mut app, a) = focused_app(&h, "terminal", RED);
+    let (_ipc, mut shell, bar) = shell_with_taskbar(&h);
+    let _preview = shell.layer_popup(&bar, (300, 200), false, BLUE);
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    shell.roundtrip();
+    assert!(shell.state.keys.is_empty());
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&a.surface));
+}
+
+/// #EDE-86: the menu opened over an Exclusive prompt and closed again: the
+/// keyboard is with the prompt again, not with the window behind it.
+#[test]
+fn a_menu_closed_over_an_exclusive_prompt_gives_the_keyboard_back_to_the_prompt() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness();
+    let (mut app, _a) = focused_app(&h, "terminal", RED);
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    prompt.draw_layer(&l, GREEN);
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+
+    let (_ipc, mut shell, bar) = shell_with_taskbar(&h);
+    let menu = shell.layer_popup(&bar, (300, 200), true, BLUE);
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&menu.surface));
+    shell.close_popup(menu);
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A);
+    wait_for(&mut prompt, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the window behind the prompt got the key");
+}
+
 /// A left click at `(x, y)`.
 fn click(h: &Harness, x: f64, y: f64) {
     h.with(move |ede| {

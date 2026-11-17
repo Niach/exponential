@@ -164,23 +164,29 @@ impl XdgShellHandler for Ede {
         self.mapped_window_changed(surface.wl_surface());
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        // Popup grabs (menus that close on an outside click) come with the shell.
+    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        // A popup that grabs asks for the keyboard (#EDE-86: the shell's
+        // start menu hangs off the taskbar, a layer that never takes it
+        // itself); it gets it as it maps (`handle_commit`). An outside
+        // click reaches the shell as `popups.dismiss`.
+        with_states(surface.wl_surface(), |states| states.data_map.insert_if_missing(|| PopupGrab));
     }
 
     fn popup_destroyed(&mut self, surface: PopupSurface) {
         // The shell's menu closed while it held the keyboard: the top window
-        // gets it back.
+        // gets it back, then an Exclusive prompt that is still up (#EDE-86).
         let keyboard = self.seat.get_keyboard().unwrap();
         if keyboard.current_focus().as_ref() == Some(surface.wl_surface()) {
-            let top = self.space.elements().last().cloned();
-            self.focus(top);
+            self.focus_after_unlock(None);
         }
     }
 }
 
 /// Marks a shell popup that already took the keyboard once.
 struct PopupFocused;
+
+/// Marks a popup that asked for the grab (`xdg_popup.grab`).
+struct PopupGrab;
 
 impl Ede {
     pub fn mapped_window_changed(&mut self, surface: &WlSurface) {
@@ -241,10 +247,11 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
             xdg.send_configure().expect("initial configure failed");
         } else if with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false) {
             // A popup of a layer surface that takes the keyboard (the shell's
-            // menu with its search box, #EDE-12) gets it when it maps; a
-            // window's popup keeps its window's focus.
-            let first = with_states(surface, |states| states.data_map.insert_if_missing(|| PopupFocused));
-            if first && state.layer_root_takes_keyboard(&PopupKind::Xdg(xdg.clone())) {
+            // menu with its search box, #EDE-12), or one that grabs under
+            // any layer surface (#EDE-86), gets it when it maps; a window's
+            // popup keeps its window's focus.
+            let (first, grabs) = with_states(surface, |states| (states.data_map.insert_if_missing(|| PopupFocused), states.data_map.get::<PopupGrab>().is_some()));
+            if first && state.layer_root_takes_keyboard(&PopupKind::Xdg(xdg.clone()), grabs) {
                 let keyboard = state.seat.get_keyboard().unwrap();
                 keyboard.set_focus(state, Some(surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
             }
@@ -254,12 +261,12 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
 
 impl Ede {
     /// Is `popup` under a layer surface whose keyboard interactivity is not
-    /// `none`?
-    pub fn layer_root_takes_keyboard(&self, popup: &PopupKind) -> bool {
+    /// `none`, or under any layer surface when it `grabs`?
+    pub fn layer_root_takes_keyboard(&self, popup: &PopupKind, grabs: bool) -> bool {
         let Ok(root) = find_popup_root_surface(popup) else { return false };
         self.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
-            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| l.can_receive_keyboard_focus())
+            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| grabs || l.can_receive_keyboard_focus())
         })
     }
 
