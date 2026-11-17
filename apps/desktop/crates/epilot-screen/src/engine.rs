@@ -10,8 +10,9 @@
 //! next tick retries the change, re-grabbing those displays' latest frame
 //! (SKIP IF BUSY). STALE: a display coming back into capture (the pause
 //! ends, its top window leaves the denylist, it turns a work display again)
-//! takes only frames delivered one interval after that, and once that
-//! interval is over a still display is captured FRESH once (the OS stream
+//! takes only frames delivered one interval after that (within it the
+//! capturer is not asked at all: one that reads live cannot tell), and once
+//! that interval is over a still display is captured FRESH once (the OS stream
 //! delivers only changes). LABEL and MASK read the window list nearest the
 //! frame's capture time (a short ring of readings), so a frame the OS
 //! captured before a focus change is labelled (and masked) as it was then.
@@ -280,7 +281,7 @@ impl Loop {
                 let key = focus.as_ref().map(|window| (window.app.clone(), window.title.clone()));
                 if key.is_some() && key != self.last_focus {
                     let display = focus.as_ref().expect("a focused window").display;
-                    if capturing.contains(&display) {
+                    if capturing.contains(&display) && !self.held_back(display) {
                         let grabbed = self.capturer.grab(self.want(display));
                         let epoch = (self.epoch)();
                         match grabbed {
@@ -350,18 +351,27 @@ impl Loop {
         Want { display, since: self.since.get(&display).copied() }
     }
 
+    /// STALE: `display` is still within its interval after a resume. It is
+    /// not asked for a frame at all then (#EXP-1908): a stream has none that
+    /// new, and a capturer that reads live (the X11 root, Windows' live
+    /// read) would hand out the screen as it is NOW, which may still show
+    /// the window that paused it.
+    fn held_back(&self, display: u32) -> bool {
+        self.since.get(&display).is_some_and(|since| Instant::now() < *since)
+    }
+
     fn tick(&mut self, capturing: &[u32]) {
         // No work display (a picked one gone, every one fullscreen): no grab.
         if capturing.is_empty() {
             self.retry.clear();
             return;
         }
-        let wanted: Vec<Want> = capturing.iter().map(|display| self.want(*display)).collect();
+        let wanted: Vec<Want> = capturing.iter().filter(|display| !self.held_back(**display)).map(|display| self.want(*display)).collect();
         let grabbed = self.capturer.grab_all(&wanted);
         match grabbed {
             Ok(mut frames) => {
                 for display in std::mem::take(&mut self.retry) {
-                    if capturing.contains(&display) && !frames.iter().any(|frame| frame.display == display) {
+                    if capturing.contains(&display) && !self.held_back(display) && !frames.iter().any(|frame| frame.display == display) {
                         if let Ok(Some(frame)) = self.capturer.grab(self.want(display)) {
                             frames.push(frame);
                         }
