@@ -162,6 +162,8 @@ enum Download {
     #[default]
     Idle,
     Running,
+    /// EXP-1930: not up YET (a slow warm-up): probed again, never NoGpu.
+    Slow,
     Failed,
     /// Crashed [`MAX_CRASHES`] times in a row: given up until a restart.
     Unavailable,
@@ -174,8 +176,10 @@ fn speech_row(hosting: bool, download: &Download, voices: Option<&[String]>) -> 
     }
     match download {
         Download::Unavailable => return Some(SpeechState::Failed),
-        Download::Running => return Some(SpeechState::Downloading),
-        Download::Failed if voices.is_none() => return Some(SpeechState::Failed),
+        Download::Running | Download::Slow => return Some(SpeechState::Downloading),
+        // EXP-1930: nothing stays loaded on a server: a voice that failed to
+        // load is failed whatever answered before, until a probe answers.
+        Download::Failed => return Some(SpeechState::Failed),
         _ => {}
     }
     Some(if voices?.is_empty() { SpeechState::NoGpu } else { SpeechState::Ready })
@@ -272,8 +276,10 @@ impl Host {
         self.retry_at = Some(now + delay);
     }
 
-    fn probe(&mut self) {
+    fn probe(&mut self, now: Instant) {
         self.up = true;
+        // EXP-1930: a probe is use: the idle exit never kills it.
+        self.last_used = now;
         self.speech.prepare(etalk::VoiceChoice { language: self.settings.language().to_string(), ..Default::default() });
     }
 
@@ -331,7 +337,7 @@ impl Host {
             if self.download == Download::Unavailable {
                 self.download = Download::Idle;
             }
-            self.probe();
+            self.probe(now);
         }
     }
 
@@ -471,11 +477,30 @@ impl Host {
         let call_owns = |id: &str| current.as_deref() == Some(id);
         match event {
             etalk::Event::Downloading { .. } => self.download = Download::Running,
-            // Still not spoken for: `Voices` settles it (no flap to no row).
-            etalk::Event::ModelReady => {}
+            // Before the first `Voices` it is not spoken for yet (no flap to
+            // no row); after it, it is the recognizer's download ending.
+            etalk::Event::ModelReady => {
+                if self.voices.is_some() && self.download == Download::Running {
+                    self.download = Download::Idle;
+                }
+            }
+            // EXP-1930: a slow warm-up (or backing off after one): the empty
+            // `Voices` that follows is "not yet", never "no usable GPU".
+            etalk::Event::VoiceRetry { .. } => {
+                if self.download != Download::Failed {
+                    self.download = Download::Slow;
+                }
+            }
             etalk::Event::Voices { voices } => {
-                // A failed download settles as no voices: it is not "no GPU".
-                let failed = self.download == Download::Failed && voices.is_empty();
+                // A failed download (or a slow warm-up) settles as no voices:
+                // it is not "no GPU".
+                let failed = matches!(self.download, Download::Failed | Download::Slow) && voices.is_empty();
+                // EXP-1930: a call whose voice did not come up is unavailable,
+                // never a mute call.
+                if voices.is_empty() && self.call.is_some() {
+                    log::warn!("[voice] the voice did not load for the call");
+                    self.fail("unavailable", now);
+                }
                 if !failed {
                     self.download = Download::Idle;
                     if voices.is_empty() && self.voices.as_ref().is_none_or(|known| !known.is_empty()) {
@@ -491,6 +516,7 @@ impl Host {
                 let speaks = self.voices.as_ref().is_some_and(|voices| !voices.is_empty());
                 if self.call.is_none() && self.up {
                     if speaks && !self.ears {
+                        self.last_used = now;
                         self.speech.call(PROBE_CALL, self.settings.language());
                     } else {
                         self.speech.shutdown();
@@ -557,6 +583,10 @@ impl Host {
             }
             etalk::Event::Failed { id, error } => {
                 log::warn!("[voice] not spoken: {error}");
+                // EXP-1930: a greeting that cannot be spoken: nothing will be.
+                if self.call.as_ref().is_some_and(|call| call.greeting_id == id) {
+                    return self.fail("unavailable", now);
+                }
                 self.reply_done(&id);
             }
             etalk::Event::ListenFailed { reason: etalk::ListenFailure::Downloading, .. } => {}
@@ -631,7 +661,7 @@ impl Host {
         if self.call.is_none() && !self.up && self.hosting() && self.download != Download::Unavailable && self.retry_at.is_some_and(|at| now >= at) {
             self.retry_at = None;
             self.download = Download::Idle;
-            self.probe();
+            self.probe(now);
         }
         if self.call.is_none() {
             if self.up && self.voices.is_some() && self.download != Download::Running && now.duration_since(self.last_used) >= self.idle_after {
@@ -1287,5 +1317,106 @@ mod tests {
         rig.advance(Duration::from_millis(VOICE_CALL.constants.max_ring_ms));
         let events = rig.link.take();
         assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+    }
+
+    /// EXP-1930 (voice-hosts-3): a voice that fails to load inside the ring
+    /// fails the call `unavailable` (never a mute call), and the row says
+    /// failed, so the next ring falls back instead of ringing a mute server.
+    #[test]
+    fn a_voice_that_fails_to_load_in_the_ring_fails_the_call() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::DownloadFailed { error: "out of memory".into() }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert!(rig.host.call.is_none());
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Failed), "nothing stays loaded on a server");
+        rig.net.take();
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        assert!(rig.net.take().is_empty(), "the next caller falls back");
+    }
+
+    /// EXP-1930 (voice-hosts-3): a greeting that cannot be spoken fails the
+    /// call `unavailable`.
+    #[test]
+    fn a_greeting_that_fails_fails_the_call() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
+        assert!(rig.speech.take().contains(&"speak call-1-greeting Hallo?".to_string()));
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::Failed { id: "call-1-greeting".into(), error: "the voice is unavailable for now".into() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert!(rig.host.call.is_none());
+    }
+
+    /// EXP-1930 (voice-engine-speak-2, voice-hosts-4): a slow warm-up at the
+    /// probe is not "no usable GPU": the row says preparing, rings are still
+    /// answered, and the probe runs again until the voice answers.
+    #[test]
+    fn a_slow_warm_up_is_probed_again_not_no_gpu() {
+        let mut rig = Rig::new();
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.handle(Input::Worker(etalk::Event::VoiceRetry { in_ms: 60_000 }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Downloading), "not up yet, never NoGpu");
+        assert_eq!(rig.speech.take(), ["prepare en", "shutdown"]);
+        rig.advance(Duration::from_secs(30));
+        assert_eq!(rig.speech.take(), ["prepare en"], "probed again");
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Ready));
+        assert_eq!(rig.speech.take(), ["call probe en"]);
+    }
+
+    /// EXP-1930 (voice-hosts-3 variant): a slow warm-up inside a ring fails
+    /// that call `unavailable` and leaves no "no usable GPU" behind.
+    #[test]
+    fn a_slow_warm_up_in_the_ring_fails_the_call_and_tries_again() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::VoiceRetry { in_ms: 60_000 }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert_ne!(rig.host.speech_state(), Some(SpeechState::NoGpu));
+        assert!(rig.host.retry_at.is_some(), "probed again later");
+    }
+
+    /// EXP-1930 (voice-hosts-5): a probe that starts long after the daemon
+    /// (or the last call) is never killed by the idle exit.
+    #[test]
+    fn a_late_probe_survives_the_idle_exit() {
+        let mut rig = Rig::new();
+        rig.advance(Duration::from_secs(11 * 60));
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.advance(TICK);
+        assert_eq!(rig.speech.take(), ["prepare en"], "the probe runs");
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        rig.advance(TICK);
+        assert_eq!(rig.speech.take(), ["call probe en"], "the recognizer loads, the worker stays");
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "probe".into() }));
+        assert_eq!(rig.speech.take(), ["hangup probe", "shutdown"]);
+    }
+
+    /// EXP-1930 (voice-hosts-6): the recognizer's download after a known
+    /// voice ends with `ModelReady`: the row is Ready again and the idle
+    /// exit works.
+    #[test]
+    fn model_ready_ends_the_recognizers_download() {
+        let mut rig = Rig::new();
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        rig.handle(Input::Worker(etalk::Event::Downloading { received: 1, total: 10 }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Downloading));
+        rig.handle(Input::Worker(etalk::Event::ModelReady));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Ready));
+        rig.speech.take();
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.server_idle_ms));
+        assert_eq!(rig.speech.take(), ["shutdown"], "idle: the worker exits");
     }
 }

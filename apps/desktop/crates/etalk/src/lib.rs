@@ -254,6 +254,10 @@ pub enum Event {
     /// NEW-74: the languages this machine can speak now; empty = no usable
     /// GPU (replies are shown, never spoken). Sent after every Prepare.
     Voices { voices: Vec<String> },
+    /// EXP-1930: the voice is not up YET (a slow warm-up, or backing off
+    /// after one or a failed load): tried again in `in_ms`. Comes before the
+    /// empty [`Event::Voices`], which then never means "no usable GPU".
+    VoiceRetry { in_ms: u64 },
     /// The first audio of `id` is playing.
     Started { id: String },
     /// `id` ended: played to the end, or `stopped`.
