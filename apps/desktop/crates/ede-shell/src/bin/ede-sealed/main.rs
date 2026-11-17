@@ -6,7 +6,9 @@
 //! - `exponential-sealed lock`: the lock screen. The compositor starts it (no
 //!   `[lock] command`), shows nothing but this process's surfaces while
 //!   locked, and takes `unlock` only with the grant it minted for this
-//!   process (`EDE_TOKEN`). The password goes to PAM in this process.
+//!   process, handed over the descriptor `EDE_TOKEN_FD` names (never the
+//!   environment, which `/proc` shows). The password goes to PAM in this
+//!   process.
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
 //!   the prompt, `polkit-agent-helper-1` checks the password.
@@ -220,9 +222,20 @@ fn run_app(f: impl FnOnce(&mut App) + 'static) {
     });
 }
 
+/// The grant the compositor wrote to the inherited descriptor `fd`.
+fn grant_from(fd: std::os::fd::RawFd) -> Option<ede_protocol::Token> {
+    use std::os::fd::FromRawFd;
+    // SAFETY: the compositor handed this descriptor to this process for this one read; nothing else here owns it.
+    let mut pipe = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut pipe, &mut text).ok()?;
+    ede_protocol::Token::new(text.trim()).ok()
+}
+
 /// The lock screen: PAM, then the compositor's `unlock`.
 fn lock() {
     let user = user_name();
+    let grant = std::env::var("EDE_TOKEN_FD").ok().and_then(|fd| fd.parse().ok()).and_then(grant_from);
     run_app(move |cx| {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         let (auth_tx, auth_rx) = mpsc::channel::<Result<(), String>>();
@@ -256,7 +269,7 @@ fn lock() {
                 }
                 while let Ok(result) = auth_rx.try_recv() {
                     match result {
-                        Ok(()) => match ede_protocol::Client::connect_env().and_then(|mut c| c.unlock()) {
+                        Ok(()) => match grant.clone().map_or_else(ede_protocol::Client::connect_env, ede_protocol::Client::connect_with_token).and_then(|mut c| c.unlock()) {
                             Ok(()) => {
                                 tracing::info!("unlocked");
                                 cx.update(|cx| cx.quit());
@@ -545,6 +558,17 @@ mod tests {
             Value::Array(a) => a.iter().for_each(|v| calls(v, out)),
             _ => {}
         }
+    }
+
+    /// The unlock grant is read from the descriptor the compositor passed.
+    #[test]
+    fn the_grant_is_read_from_the_inherited_descriptor() {
+        use std::{io::Write, os::fd::IntoRawFd};
+        let (read, mut write) = std::io::pipe().unwrap();
+        let grant = "5e".repeat(32);
+        writeln!(write, "{grant}").unwrap();
+        drop(write);
+        assert_eq!(grant_from(read.into_raw_fd()).map(|t| t.as_str().to_string()), Some(grant));
     }
 
     /// Every call a sealed document makes is one this binary handles, and

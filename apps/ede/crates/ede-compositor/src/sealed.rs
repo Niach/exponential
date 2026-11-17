@@ -8,19 +8,25 @@
 //!   [`LockState::Sealed`] every output shows only that process's layer
 //!   surfaces (black until one arrives), only they get input, bindings are
 //!   off but VT switching, and the session unlocks only through the
-//!   `unlock` op with the grant minted for that child (`EDE_TOKEN`). A lock
-//!   client that dies keeps the session locked and is started again.
+//!   `unlock` op with the grant minted for that child, written to its
+//!   stdin (`EDE_TOKEN_FD=0`; never its environment, which `/proc` shows).
+//!   A lock client that dies, or shows nothing, keeps the session locked
+//!   and is started again; it ends with the lock and with the compositor.
 //! - **Sealed surfaces**: a layer surface from a process whose executable
 //!   is `exponential-sealed` (the polkit prompt, consent) is protected: black in
 //!   captures, never driven by an agent, no input method on it.
 
-use std::{process::Child, time::Instant};
+use std::{
+    io::Write,
+    process::{Child, Stdio},
+    time::{Duration, Instant},
+};
 
 use smithay::{
     desktop::{layer_map_for_output, LayerSurface},
     output::Output,
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource},
-    utils::SERIAL_COUNTER,
+    utils::{IsAlive, SERIAL_COUNTER},
 };
 
 use crate::{lock::LockState, state::Ede};
@@ -29,6 +35,10 @@ use crate::{lock::LockState, state::Ede};
 pub const SEALED_SESSION: &str = "exponential-sealed";
 /// Give up starting the lock client after this many quick deaths.
 pub const MAX_RESPAWNS: u32 = 5;
+/// A lock client that lived this long was healthy: its deaths count anew.
+pub const HEALTHY: Duration = Duration::from_secs(30);
+/// A running lock client with no surface for this long is started again.
+pub const NO_SURFACE: Duration = Duration::from_secs(10);
 
 /// A layer surface's origin, decided once when it maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,8 +56,25 @@ pub struct Sealed {
     pub token: ede_protocol::Token,
     pub respawns: u32,
     pub started: Instant,
+    /// What starts the lock client; empty = a test's own process.
+    pub command: Vec<String>,
+    /// When a lock surface was last mapped (or the client started).
+    pub seen: Instant,
     /// The outputs that showed a locked frame.
     pub shown_on: Vec<Output>,
+    /// Lock surfaces whose output went away, until the next output comes.
+    pub homeless: Vec<LayerSurface>,
+}
+
+impl Drop for Sealed {
+    /// The lock client never outlives its lock (unlocking takes it out
+    /// first: it exits on its own then).
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 /// Where `exponential-sealed` is: next to this binary, else on `PATH`.
@@ -73,13 +100,17 @@ pub fn layer_origin(layer: &LayerSurface) -> LayerOrigin {
 impl Ede {
     /// Starts the sealed lock: a grant for the child, the child, the locked state.
     pub fn begin_sealed_lock(&mut self) {
+        self.begin_sealed_lock_with(vec![sealed_binary(), "lock".to_string()]);
+    }
+
+    /// [`Self::begin_sealed_lock`] with `argv` as the lock client.
+    pub fn begin_sealed_lock_with(&mut self, argv: Vec<String>) {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        let argv = [sealed_binary(), "lock".to_string()];
-        match self.spawn_with_env(&argv, &[("EDE_TOKEN", grant.token.as_str())]) {
+        match self.spawn_lock_client(&argv, &grant.token) {
             Some(child) => {
                 let pid = child.id();
                 tracing::info!(pid, "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), shown_on: Vec::new() });
+                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
             }
             None => {
                 tracing::error!("exponential-sealed could not start: the session stays unlocked");
@@ -91,10 +122,21 @@ impl Ede {
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
     }
 
+    /// Starts the lock client with the unlock grant on its stdin.
+    fn spawn_lock_client(&self, argv: &[String], token: &ede_protocol::Token) -> Option<Child> {
+        let mut command = self.client_command(argv)?;
+        let mut child = command.env("EDE_TOKEN_FD", "0").stdin(Stdio::piped()).spawn().map_err(|e| tracing::warn!("{}: {e}", argv[0])).ok()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            // A client that already ended reads nothing: the tick sees it.
+            let _ = writeln!(stdin, "{}", token.as_str());
+        }
+        Some(child)
+    }
+
     /// A test's lock: the test's own process plays the lock client.
     pub fn begin_sealed_lock_as(&mut self, pid: u32) -> ede_protocol::Token {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), shown_on: Vec::new() });
+        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         grant.token
@@ -154,27 +196,83 @@ impl Ede {
         })
     }
 
-    /// Once a second: a dead lock client is started again (the session
-    /// stays locked meanwhile); after [`MAX_RESPAWNS`] quick deaths the
-    /// screen stays black until the next login.
-    pub fn sealed_tick(&mut self) {
+    /// The lock's output went away: its surfaces move to an output that is
+    /// left, or wait for the next one.
+    pub fn sealed_output_removed(&mut self, output: &Output) {
         let LockState::Sealed(s) = &mut self.lock else { return };
-        let Some(child) = s.child.as_mut() else { return };
-        let Ok(Some(status)) = child.try_wait() else { return };
-        tracing::warn!(%status, "the lock client ended while locked");
-        s.child = None;
-        if s.respawns >= MAX_RESPAWNS {
-            tracing::error!("the lock client keeps dying; the session stays locked");
+        s.shown_on.retain(|o| o != output);
+        let mut map = layer_map_for_output(output);
+        let layers: Vec<LayerSurface> = map.layers().filter(|l| layer_origin(l).pid == s.pid).cloned().collect();
+        for layer in &layers {
+            map.unmap_layer(layer);
+        }
+        drop(map);
+        s.homeless.extend(layers);
+        self.sealed_rehome();
+    }
+
+    /// Lock surfaces without an output go onto the first one there is.
+    pub fn sealed_rehome(&mut self) {
+        let Some(output) = self.space.outputs().next().cloned() else { return };
+        let LockState::Sealed(s) = &mut self.lock else { return };
+        let layers = std::mem::take(&mut s.homeless);
+        if layers.is_empty() {
             return;
         }
-        s.respawns += 1;
-        let token = s.token.clone();
-        let argv = [sealed_binary(), "lock".to_string()];
-        if let Some(child) = self.spawn_with_env(&argv, &[("EDE_TOKEN", token.as_str())]) {
+        let mut map = layer_map_for_output(&output);
+        for layer in layers.iter().filter(|l| l.alive()) {
+            if let Err(e) = map.map_layer(layer) {
+                tracing::warn!("the lock surface did not move to {}: {e}", output.name());
+            }
+        }
+        drop(map);
+        self.focus_sealed_lock();
+    }
+
+    /// Once a second: a lock client that died, or runs with no surface for
+    /// [`NO_SURFACE`], is started again (the session stays locked
+    /// meanwhile), and one that could not start is tried again. After
+    /// [`MAX_RESPAWNS`] deaths in a row, none of them after [`HEALTHY`],
+    /// the screen stays black until the next login.
+    pub fn sealed_tick(&mut self) {
+        // With no output there is nowhere to show: nothing is missing.
+        let shows = self.space.outputs().next().is_none() || !self.sealed_lock_surfaces().is_empty();
+        let LockState::Sealed(s) = &mut self.lock else { return };
+        if s.command.is_empty() {
+            return;
+        }
+        if shows {
+            s.seen = Instant::now();
+        }
+        if let Some(child) = s.child.as_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => tracing::warn!(%status, "the lock client ended while locked"),
+                _ if s.seen.elapsed() < NO_SURFACE => return,
+                _ => {
+                    tracing::warn!("the lock client shows nothing; starting it again");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            s.child = None;
+            if s.started.elapsed() >= HEALTHY {
+                s.respawns = 0;
+            }
+            s.respawns += 1;
+            if s.respawns > MAX_RESPAWNS {
+                tracing::error!("the lock client keeps dying; the session stays locked");
+            }
+        }
+        if s.respawns > MAX_RESPAWNS {
+            return;
+        }
+        let (argv, token) = (s.command.clone(), s.token.clone());
+        if let Some(child) = self.spawn_lock_client(&argv, &token) {
             if let LockState::Sealed(s) = &mut self.lock {
                 s.pid = child.id();
                 s.child = Some(child);
                 s.started = Instant::now();
+                s.seen = s.started;
             }
         }
     }

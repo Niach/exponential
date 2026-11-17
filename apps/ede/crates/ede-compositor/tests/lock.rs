@@ -8,8 +8,10 @@ use std::time::{Duration, Instant};
 use common::Session;
 use ede_compositor::{
     backend::headless::Harness,
+    lock::LockState,
     logind::{self, Held, Listener, Signal},
     protected::Refused,
+    sealed::{Sealed, HEALTHY, MAX_RESPAWNS, NO_SURFACE},
     Config,
 };
 use ede_protocol::{Error, ErrorCode};
@@ -533,4 +535,160 @@ fn suspend_is_held_only_until_the_sealed_lock_showed() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(h.with(|ede| ede.lock_confirmed()));
+}
+
+/// The sealed lock's state, on the compositor thread.
+fn sealed<R: Send + 'static>(h: &Harness, f: impl FnOnce(&mut Sealed) -> R + Send + 'static) -> R {
+    h.with(|ede| match &mut ede.lock {
+        LockState::Sealed(s) => f(s),
+        _ => panic!("not sealed-locked"),
+    })
+}
+
+/// The pid of the lock client the compositor runs (0 = none).
+fn lock_child(h: &Harness) -> u32 {
+    sealed(h, |s| s.child.as_ref().map_or(0, |c| c.id()))
+}
+
+fn runs(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| !s.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
+}
+
+/// Locks with `argv` standing in for `exponential-sealed lock`.
+fn lock_with(h: &Harness, argv: &[&str]) -> u32 {
+    let argv: Vec<String> = argv.iter().map(|a| a.to_string()).collect();
+    h.with(move |ede| ede.begin_sealed_lock_with(argv));
+    assert!(is_locked(h));
+    lock_child(h)
+}
+
+/// Ticks (the compositor's once-a-second check) until `ok`.
+fn tick_until(h: &Harness, what: &str, mut ok: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        h.with(|ede| ede.sealed_tick());
+        if ok() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-72: the lock screen's output goes (monitor off, KVM, undock): the
+/// prompt moves to an output that is left, or shows on the next one, and
+/// takes the keys there.
+#[test]
+fn the_sealed_lock_survives_its_output_going_and_coming_back() {
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let h = Harness::start(Config::default(), &[(800, 600), (1024, 768)]);
+    let pid = std::process::id();
+    h.with(move |ede| ede.begin_sealed_lock_as(pid));
+    let mut locker = Session::connect(h.connect());
+    locker.keyboard();
+    let l = locker.layer("exponential-sealed", Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 0), -1);
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(790, 590) == BLUE);
+    assert_eq!(h.capture(1).at(5, 5), BLACK);
+    wait_for(&mut locker, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+
+    // Its output goes while another is left: the prompt moves there.
+    h.with_backend(|ede, backend| backend.remove_output(ede, 0));
+    assert!(is_locked(&h));
+    wait_for(&mut locker, |c| c.state.layers[l.index].size == (1024, 768));
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(1000, 700) == BLUE);
+    press(&h, KEY_A + 8);
+    wait_for(&mut locker, |c| c.state.keys == [KEY_A]);
+
+    // The last output goes and a new one comes: the prompt shows on it.
+    h.with_backend(|ede, backend| backend.remove_output(ede, 0));
+    assert!(is_locked(&h));
+    h.with_backend(|ede, backend| {
+        backend.add_output(ede, "HEADLESS-3", (1600, 900));
+    });
+    wait_for(&mut locker, |c| c.state.layers[l.index].size == (1600, 900));
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(1500, 800) == BLUE);
+    press(&h, KEY_A + 8);
+    wait_for(&mut locker, |c| c.state.keys == [KEY_A, KEY_A]);
+}
+
+/// #EDE-72: a lock client that runs but shows nothing (its surface closed,
+/// it hangs) is started again after [`NO_SURFACE`].
+#[test]
+fn a_lock_client_that_shows_nothing_is_started_again() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    h.with(|ede| ede.sealed_tick());
+    assert_eq!(lock_child(&h), first, "restarted before it had the time to show");
+    sealed(&h, |s| s.seen = Instant::now() - NO_SURFACE);
+    tick_until(&h, "a lock client without a surface kept running", || ![0, first].contains(&lock_child(&h)));
+    assert!(!runs(first), "the old lock client still runs");
+    assert!(is_locked(&h));
+}
+
+/// #EDE-72: quick deaths count up to [`MAX_RESPAWNS`], but a client that
+/// lived [`HEALTHY`] starts the count anew (#NEW-106).
+#[test]
+fn a_lock_client_that_was_healthy_is_started_again_whatever_died_before() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.respawns = MAX_RESPAWNS;
+        s.started = Instant::now() - HEALTHY;
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the lock client was not started again", || ![0, first].contains(&lock_child(&h)));
+    assert!(runs(lock_child(&h)));
+}
+
+/// #EDE-72: a lock client that could not start is tried again on the next
+/// tick, not never.
+#[test]
+fn a_lock_client_that_could_not_start_is_tried_again() {
+    let h = harness(Config::default());
+    lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.command = vec!["/nonexistent/exponential-sealed".into()];
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the dead lock client was never noticed", || lock_child(&h) == 0);
+    sealed(&h, |s| s.command = vec!["sleep".into(), "30".into()]);
+    tick_until(&h, "a failed start ended respawning", || lock_child(&h) != 0);
+    assert!(is_locked(&h));
+}
+
+/// #EDE-72: the unlock grant reaches the lock client over its stdin, never
+/// in its environment (`/proc/<pid>/environ` is every process's to read).
+#[test]
+fn the_unlock_grant_is_not_in_the_lock_clients_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let got = dir.path().join("grant");
+    let h = harness(Config::default());
+    let pid = lock_with(&h, &["sh", "-c", r#"IFS= read -r grant; printf %s "$grant" > "$0.part"; mv "$0.part" "$0"; exec sleep 30"#, got.to_str().unwrap()]);
+    let token = sealed(&h, |s| s.token.as_str().to_string());
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).unwrap();
+    assert!(!String::from_utf8_lossy(&environ).contains(&token), "the unlock grant is in the lock client's environment");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !got.exists() {
+        assert!(Instant::now() < deadline, "the lock client was handed nothing on its stdin");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(std::fs::read_to_string(&got).unwrap(), token);
+}
+
+/// #EDE-72: the lock client never outlives the compositor.
+#[test]
+fn the_lock_client_ends_with_the_compositor() {
+    let h = harness(Config::default());
+    let pid = lock_with(&h, &["sleep", "30"]);
+    assert!(runs(pid));
+    drop(h);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while runs(pid) {
+        assert!(Instant::now() < deadline, "the lock client outlived the compositor");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

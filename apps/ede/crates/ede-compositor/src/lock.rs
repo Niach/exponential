@@ -129,9 +129,7 @@ impl Ede {
             l.surfaces.retain(|(o, _)| o != output);
             l.shown_on.retain(|o| o != output);
         }
-        if let LockState::Sealed(s) = &mut self.lock {
-            s.shown_on.retain(|o| o != output);
-        }
+        self.sealed_output_removed(output);
         self.confirm_lock_if_shown();
     }
 
