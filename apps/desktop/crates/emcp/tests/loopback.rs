@@ -100,6 +100,48 @@ fn the_endpoint_wants_a_live_token() {
     assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Http(401))));
 }
 
+/// A provider whose call says it began and returns when told to.
+struct Slow {
+    began: Mutex<std::sync::mpsc::Sender<()>>,
+    finish: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl ToolProvider for Slow {
+    fn tools(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+
+    fn call(&self, _caller: &Caller, _name: &str, _arguments: Value) -> Value {
+        self.began.lock().unwrap().send(()).unwrap();
+        self.finish.lock().unwrap().recv_timeout(T).unwrap();
+        json!({ "content": [{ "type": "text", "text": "the screen" }] })
+    }
+}
+
+/// #EXP-1894: a run that ended while its call ran never gets the result.
+#[test]
+fn a_result_for_a_run_that_ended_meanwhile_is_dropped() {
+    let (began, has_begun) = std::sync::mpsc::channel();
+    let (finish, finished) = std::sync::mpsc::channel();
+    let server = Server::serve(info(), Arc::new(Slow { began: Mutex::new(began), finish: Mutex::new(finished) })).unwrap();
+    for ends in [false, true] {
+        let token = server.grant(&id("s1"), "EXP-1");
+        let client = Client::connect(&upstream(server.url(), token.as_str()), "test", T).unwrap();
+        let call = std::thread::spawn(move || client.call("look", json!({}), T));
+        has_begun.recv_timeout(T).unwrap();
+        if ends {
+            server.revoke(&id("s1"));
+        }
+        finish.send(()).unwrap();
+        let reply = call.join().unwrap();
+        if ends {
+            assert!(matches!(reply, Err(ClientError::Rpc { .. })), "{reply:?}");
+        } else {
+            assert_eq!(reply.unwrap()["content"][0]["text"], "the screen");
+        }
+    }
+}
+
 /// The bearer is eCore's: the scheme matched case-insensitively, anything
 /// but a 64-hex token refused before a lookup, and a refused call never ran.
 #[test]

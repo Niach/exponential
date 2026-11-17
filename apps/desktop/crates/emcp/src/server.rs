@@ -142,6 +142,11 @@ impl Grants {
     fn get(&self, token: &Token) -> Option<Caller> {
         self.runs.lock().unwrap().get(token).cloned()
     }
+
+    /// Whether `session_id` holds a grant.
+    fn admits(&self, session_id: &SessionId) -> bool {
+        self.runs.lock().unwrap().values().any(|run| run.session_id == *session_id)
+    }
 }
 
 /// A fresh bearer token: 64 hex characters of two v4 UUIDs (eCore does no
@@ -190,7 +195,7 @@ impl Server {
             .map_err(|err| format!("Could not start the {name} server: {err}"))?;
         let port = listener.local_addr().map_err(|err| format!("The {name} server has no address: {err}"))?.port();
         let grants = Arc::new(Grants::default());
-        let handler = Handler { info: Arc::new(info), provider: provider.clone() };
+        let handler = Handler { info: Arc::new(info), provider: provider.clone(), grants: grants.clone() };
         let config = StreamableHttpServerConfig::default()
             .with_legacy_session_mode(false)
             .with_json_response(true)
@@ -330,6 +335,7 @@ async fn raw(route: Arc<dyn RawRoute>, request: Request<Incoming>) -> Response<B
 struct Handler {
     info: Arc<ServerInfo>,
     provider: Arc<dyn ToolProvider>,
+    grants: Arc<Grants>,
 }
 
 /// A tool object as rmcp's type; a missing `inputSchema` is an empty object
@@ -401,12 +407,18 @@ impl ServerHandler for Handler {
         let name = request.name.to_string();
         let arguments = request.arguments.map(Value::Object).unwrap_or_else(|| json!({}));
         let called = name.clone();
+        let session_id = caller.session_id.clone();
         let result = tokio::task::spawn_blocking(move || provider.try_call(&caller, &called, arguments))
             .await
             .map_err(|err| ErrorData::internal_error(err.to_string(), None))?
             .map_err(|Refusal::UnknownTool| {
                 ErrorData::new(rmcp::model::ErrorCode(UNKNOWN_TOOL_CODE), format!("Unknown tool: {name}"), None)
             })?;
+        // #EXP-1894: the run ended while its call ran: what the call saw
+        // or did is not its to read any more.
+        if !self.grants.admits(&session_id) {
+            return Err(refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")));
+        }
         let result = serde_json::from_value::<CallToolResult>(result)
             .unwrap_or_else(|err| error_result(format!("The tool answered a malformed result: {err}")));
         Ok(CallToolResponse::Complete(result))
