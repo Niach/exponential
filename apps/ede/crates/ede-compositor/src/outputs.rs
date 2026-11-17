@@ -70,7 +70,7 @@ impl Ede {
         for l in layer_map_for_output(&output).layers() {
             set_surface_scale(l.wl_surface(), output.current_scale().fractional_scale());
         }
-        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": name }));
+        self.output_changed(name.to_string());
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl Ede {
             }
         }
         self.rehome_lost_windows(&[]);
-        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
+        self.output_changed(output.name());
     }
 
     /// Re-applies every `[[outputs]]` entry (a config reload).

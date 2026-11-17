@@ -55,12 +55,12 @@ impl Feed {
 }
 
 /// `/windows` as the taskbar binds it: the active workspace's windows in
-/// the compositor's order (bottom to top), protected ones without their
-/// title, each with the app it belongs to.
+/// the compositor's order (bottom to top), protected ones and an agent
+/// space's left out (#EDE-91), each with the app it belongs to.
 pub fn windows_feed(windows: &[ede_protocol::WindowInfo], active_workspace: usize) -> Vec<Value> {
     windows
         .iter()
-        .filter(|w| !w.protected && w.workspace == active_workspace)
+        .filter(|w| !w.protected && w.is_persons() && w.workspace == active_workspace)
         .map(|w| {
             let app = w.app_id.clone().unwrap_or_default();
             let title = w.title.clone().unwrap_or_else(|| if app.is_empty() { "Window".into() } else { app.clone() });
@@ -116,7 +116,7 @@ mod tests {
     use ede_protocol::{WindowId, WindowInfo};
 
     fn window(id: &str, app: Option<&str>, workspace: usize, focused: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, space: None }
     }
 
     #[test]
@@ -138,6 +138,15 @@ mod tests {
         assert_eq!(feed[1]["id"], "w3");
         assert_eq!(feed[1]["focused"], true);
         assert_eq!(feed[1]["minimized"], false);
+    }
+
+    /// #EDE-91: the taskbar lists the person's windows only.
+    #[test]
+    fn windows_feed_leaves_a_space_out() {
+        let mut agents = window("w2", Some("firefox"), 0, false);
+        agents.space = Some(ede_protocol::SpaceId::new("sp1").unwrap());
+        let feed = windows_feed(&[window("w1", Some("terminal"), 0, true), agents], 0);
+        assert_eq!(feed.iter().map(|w| w["id"].clone()).collect::<Vec<_>>(), [json!("w1")]);
     }
 
     #[test]

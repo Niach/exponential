@@ -94,7 +94,7 @@ fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option
     let (w, h) = ede_protocol::Client::connect_env()
         .ok()
         .and_then(|mut c| c.outputs().ok())
-        .and_then(|o| o.first().map(|o| (o.width as f32, o.height as f32)))
+        .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
     open_on(doc, data, acts, None, (w, h), cx)
 }
@@ -263,7 +263,7 @@ struct Shown {
 /// compositor reports for the output of that name (gpui's own bounds
 /// round a fractional scale up).
 fn lock_outputs(cx: &App) -> Vec<(DisplayId, (i32, i32))> {
-    let outputs = ede_protocol::Client::connect_env().ok().and_then(|mut c| c.outputs().ok()).unwrap_or_default();
+    let outputs = ede_protocol::persons(ede_protocol::Client::connect_env().ok().and_then(|mut c| c.outputs().ok()).unwrap_or_default());
     cx.displays()
         .into_iter()
         .map(|d| {

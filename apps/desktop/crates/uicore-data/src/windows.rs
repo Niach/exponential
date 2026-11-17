@@ -8,10 +8,11 @@ use ede_protocol::{WindowInfo, WorkspaceInfo};
 use uicore_model::{ShellEvent, ShellState};
 
 /// The events that take `model` from `prev` to `next` (protected windows
-/// are not shell windows: they never appear), in an order the reducer
-/// accepts: closed, opened, then the changed ones, then the focus.
+/// are not shell windows, nor an agent space's (#EDE-91): they never
+/// appear), in an order the reducer accepts: closed, opened, then the
+/// changed ones, then the focus.
 pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent> {
-    let next: Vec<&WindowInfo> = next.iter().filter(|w| !w.protected).collect();
+    let next: Vec<&WindowInfo> = next.iter().filter(|w| !w.protected && w.is_persons()).collect();
     let mut out = Vec::new();
     for w in &model.windows {
         if !next.iter().any(|n| n.id.to_string() == w.id) {
@@ -72,7 +73,7 @@ mod tests {
     use uicore_model::reduce;
 
     fn info(id: &str, app: &str, title: &str, focused: bool, workspace: usize) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, space: None }
     }
 
     fn apply(model: &ShellState, events: &[ShellEvent]) -> ShellState {
@@ -106,6 +107,17 @@ mod tests {
         assert_eq!(after.windows[0].workspace, 1);
         // Nothing changed: no events.
         assert!(window_events(&after, &next).is_empty());
+    }
+
+    /// #EDE-91: a window in an agent space is not the person's: the shell never shows it.
+    #[test]
+    fn a_window_in_a_space_is_left_out() {
+        let mut agents = info("w2", "firefox", "Agent", true, 0);
+        agents.space = Some(ede_protocol::SpaceId::new("sp1").unwrap());
+        let model = ShellState::default();
+        let after = apply(&model, &window_events(&model, &[info("w1", "terminal", "T", false, 0), agents]));
+        assert_eq!(after.windows.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w1"]);
+        assert!(after.mru.iter().all(|id| id != "w2"), "its focus is not the person's");
     }
 
     #[test]

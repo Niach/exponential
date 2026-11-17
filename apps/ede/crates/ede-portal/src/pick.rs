@@ -152,11 +152,11 @@ mod tests {
     use super::*;
 
     fn output(name: &str, x: i32) -> OutputInfo {
-        OutputInfo { name: name.into(), x, y: 0, width: 800, height: 600, scale: 1.0, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0] }
+        OutputInfo { name: name.into(), x, y: 0, width: 800, height: 600, scale: 1.0, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0], space: None }
     }
 
     fn window(id: &str, x: i32, focused: bool, protected: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: None, app_id: None, x, y: 10, width: 100, height: 100, focused, fullscreen: false, protected, x11: false, workspace: 0, minimized: false }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: None, app_id: None, x, y: 10, width: 100, height: 100, focused, fullscreen: false, protected, x11: false, workspace: 0, minimized: false, space: None }
     }
 
     #[test]
