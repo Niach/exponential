@@ -198,7 +198,7 @@ impl Ede {
             Hotkey::SwitcherNext => self.cycle_focus(false),
             Hotkey::SwitcherPrev => self.cycle_focus(true),
             // No shell to launch one: the compositor opens the terminal itself.
-            Hotkey::Terminal => self.spawn(&["x-terminal-emulator".to_string()]),
+            Hotkey::Terminal => self.spawn_for_person(&["x-terminal-emulator".to_string()]),
             _ => {}
         }
     }

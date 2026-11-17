@@ -193,6 +193,20 @@ pub enum Request {
     /// The selection's UTF-8 text ([`CLIPBOARD_TEXT_MIMES`], the first one
     /// offered): [`ClipboardText`].
     ClipboardText,
+    /// A one-shot token for a launch the person made (the shell's menu,
+    /// taskbar and hotkeys; #EDE-76): [`LaunchToken`]. The shell's root
+    /// grant only. In the launched process's `XDG_ACTIVATION_TOKEN` and
+    /// `DESKTOP_STARTUP_ID` it lets that app's window take the keyboard,
+    /// for [`LAUNCH_TOKEN_SECS`]; any other new window opens without it.
+    LaunchToken,
+}
+
+/// How long a [`Request::LaunchToken`] waits for its window.
+pub const LAUNCH_TOKEN_SECS: u64 = 120;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchToken {
+    pub token: String,
 }
 
 /// The mime that marks a selection as a secret (KDE's, the one clipboard
@@ -342,7 +356,7 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
                 Some(Capability::InputPerson)
             }
-            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
         }
     }
 }
@@ -811,6 +825,11 @@ impl Client {
         self.call_as(Request::ClipboardText)
     }
 
+    /// [`Request::LaunchToken`]: for the environment of a launch the person made.
+    pub fn launch_token(&mut self) -> Result<String, Error> {
+        self.call_as::<LaunchToken>(Request::LaunchToken).map(|t| t.token)
+    }
+
     pub fn set_output(&mut self, name: &str, mode: Option<&str>, scale: Option<f64>, position: Option<(i32, i32)>) -> Result<(), Error> {
         self.call(Request::SetOutput { name: name.into(), mode: mode.map(String::from), scale, position }).map(|_| ())
     }
@@ -856,6 +875,8 @@ mod tests {
         assert_eq!(Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] }.capability(), Some(Capability::Ui));
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
+        assert_eq!(Request::LaunchToken.capability(), Some(Capability::System));
+        assert_eq!(serde_json::to_value(Call { id: 6, request: Request::LaunchToken }).unwrap(), serde_json::json!({"id": 6, "op": "launch_token"}));
         assert_eq!(Request::ListWindows.capability(), None);
         assert_eq!(Request::PointerPosition.capability(), None);
         assert_eq!(Request::HoldInput.capability(), Some(Capability::InputPerson));

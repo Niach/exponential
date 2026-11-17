@@ -119,6 +119,8 @@ pub struct Ede {
     pub set_mode: Option<Box<dyn FnMut(&Output, smithay::output::Mode) -> Result<(), String>>>,
     /// xdg-decoration: who draws a window's frame ([`crate::frames`]).
     pub xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState,
+    /// xdg-activation and the person's launch tokens ([`crate::launch`]).
+    pub xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState,
     /// The recovery screen's state ([`crate::recovery`]).
     pub recovery: crate::recovery::Recovery,
     /// Why the backend stopped the loop (#EDE-40: the outputs never drew);
@@ -247,6 +249,7 @@ impl Ede {
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
             xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
+            xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
             title_click: None,
@@ -538,8 +541,10 @@ impl Ede {
             }
             None => (0, fh).into(),
         };
-        // #EDE-82: only a window of the focused app takes the keyboard.
-        let takes = self.takes_keyboard(&window);
+        // #EDE-82, #EDE-76: only a window of the focused app, or one the
+        // person launched, takes the keyboard; never from a prompt.
+        let person = self.person_started(&window);
+        let takes = self.takes_keyboard(&window) || (person && self.exclusive_prompt().is_none());
         self.move_window(&window, loc, takes);
         self.send_preferred_scale(&window);
         self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
