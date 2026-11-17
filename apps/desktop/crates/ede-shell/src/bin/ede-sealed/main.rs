@@ -428,7 +428,7 @@ fn polkit_agent() {
                                 if *c == cookie {
                                     cx.update(|cx| {
                                         set(open, "/busy", json!(false), cx);
-                                        set(open, "/password", json!(""), cx);
+                                        assign(open, "/password", json!(""), cx);
                                         set(open, "/error", json!(if error.contains("wrong") { "Wrong password".to_string() } else { error }), cx);
                                         focus(open, "password", cx);
                                     });
