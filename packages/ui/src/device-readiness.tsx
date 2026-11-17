@@ -59,7 +59,9 @@ export interface DeviceReadinessRowModel {
   primary: boolean
   /** A permission row under its parent. */
   child: boolean
-  /** The computer_use switch row: label + switch, no glyph, no detail. */
+  /** The computer_use switch row: label + switch, no glyph, no detail
+   *  (#EXP-1899: but `detail` = the device's reason while `missing`, drawn
+   *  as the row's description). */
   isSwitch: boolean
 }
 export interface DeviceReadinessGroupModel {
@@ -141,7 +143,11 @@ export function deviceReadinessModel(
           state: item.state,
           glyph: state.glyph,
           tone: state.tone,
-          detail: isSwitch ? null : (item.detail ?? null),
+          detail: !isSwitch
+            ? (item.detail ?? null)
+            : item.state === `missing`
+              ? (item.detail ?? DEVICE_READINESS_COPY.unavailable)
+              : null,
           action,
           actionLabel: action ? ACTIONS[action]!.label : null,
           primary: action !== null && item.key === primaryKey,
@@ -252,6 +258,7 @@ export function DeviceReadiness({
           key={row.key}
           id={`device-readiness-${row.key}`}
           label={row.label}
+          description={row.detail ?? undefined}
           checked={computerUse?.checked ?? row.state !== `off`}
           onCheckedChange={computerUse?.onCheckedChange ?? (() => {})}
           disabled={computerUse ? computerUse.disabled : true}

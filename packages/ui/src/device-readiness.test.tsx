@@ -23,6 +23,8 @@ interface Case {
   remotePills: Record<string, string>
   /** EXP-1375: the composer's non-blocking row (absent = null). */
   composerWarning?: string | null
+  /** #EXP-1899: the switch row's second line (absent = none). */
+  switchDescription?: string
 }
 const cases = spec.cases as unknown as Case[]
 
@@ -74,15 +76,19 @@ describe.each(cases)(`device-doctor.json: $name`, (fixtureCase) => {
       ...container.querySelectorAll(`[data-item], [data-slot=glass-toggle-row]`),
     ].map((row) => row.getAttribute(`data-item`) ?? `computer_use`)
     expect(rendered).toEqual(visibleKeys(doctor))
-    // The switch reflects the state and carries no description.
+    // The switch reflects the state and carries no description, except the
+    // device's reason while it cannot drive (#EXP-1899).
     const toggle = container.querySelector(`[data-slot=glass-toggle-row]`)!
-    expect(toggle.textContent).toBe(spec.labels.computer_use)
+    expect(toggle.textContent).toBe(
+      `${spec.labels.computer_use}${fixtureCase.switchDescription ?? ``}`
+    )
     const cu = doctor.items.find((item) => item.key === `computer_use`)!
     expect(toggle.querySelector(`[role=switch]`)!.getAttribute(`aria-checked`)).toBe(
       String(cu.state !== `off`)
     )
     // Labels + details come from the fixture / the device.
     for (const item of doctor.items) {
+      if (item.key === `computer_use`) continue
       const row = container.querySelector(`[data-item=${item.key}]`)
       if (!row) continue
       expect(row.textContent).toContain(
