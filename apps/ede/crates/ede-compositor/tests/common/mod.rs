@@ -7,7 +7,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -198,6 +198,25 @@ impl Session {
         surface.commit();
         self.roundtrip();
         Layer { index, surface, layer }
+    }
+
+    /// An empty input region: no pointer event reaches `surface`, what is
+    /// under it gets them (#EXP-1912: the computer-use banner).
+    pub fn no_input(&mut self, surface: &wl_surface::WlSurface) {
+        self.input_region(surface, None);
+    }
+
+    /// The input region of `surface` is `rect` (x, y, w, h) alone (#EXP-1912:
+    /// the call pill inside its layer surface); `None` = empty.
+    pub fn input_region(&mut self, surface: &wl_surface::WlSurface, rect: Option<(i32, i32, i32, i32)>) {
+        let region = self.state.compositor.as_ref().unwrap().create_region(&self.qh, ());
+        if let Some((x, y, w, h)) = rect {
+            region.add(x, y, w, h);
+        }
+        surface.set_input_region(Some(&region));
+        region.destroy();
+        surface.commit();
+        self.roundtrip();
     }
 
     pub fn draw_layer(&mut self, l: &Layer, argb: u32) {
@@ -522,6 +541,7 @@ delegate_noop!(Client: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManager
 delegate_noop!(Client: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
 delegate_noop!(Client: ignore wl_compositor::WlCompositor);
 delegate_noop!(Client: ignore wl_surface::WlSurface);
+delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
 delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
