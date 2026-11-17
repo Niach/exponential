@@ -186,6 +186,20 @@ impl Session {
         Layer { index, surface, layer }
     }
 
+    /// A layer surface on `on` with no anchors (the compositor centres it)
+    /// and the keyboard interactivity a prompt or a shell surface asks for.
+    pub fn keyboard_layer(&mut self, namespace: &str, on: zwlr_layer_shell_v1::Layer, size: (u32, u32), keyboard: zwlr_layer_surface_v1::KeyboardInteractivity) -> Layer {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.layers.len();
+        self.state.layers.push(LayerState::default());
+        let layer = self.state.layer_shell.as_ref().expect("layer shell advertised").get_layer_surface(&surface, None, on, namespace.into(), &self.qh, index);
+        layer.set_size(size.0, size.1);
+        layer.set_keyboard_interactivity(keyboard);
+        surface.commit();
+        self.roundtrip();
+        Layer { index, surface, layer }
+    }
+
     pub fn draw_layer(&mut self, l: &Layer, argb: u32) {
         let st = self.state.layers[l.index].clone();
         if let Some(serial) = st.pending_serial {
