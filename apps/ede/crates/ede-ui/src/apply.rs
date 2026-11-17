@@ -86,6 +86,19 @@ impl ApplyState {
         state
     }
 
+    /// `name` starts as edited before this run (#EDE-110): a suspect whose
+    /// newest commit is a new `c<n>`, returned; `reverted` when that commit
+    /// was itself a rollback.
+    pub fn edited_before(&mut self, name: &str, reverted: bool) -> String {
+        let id = self.next_commit();
+        let d = self.documents.entry(name.to_string()).or_insert_with(|| DocumentState { shown: factory_commit(name), commits: vec![factory_commit(name)], pending: None, crashes: 0, rejected: None, reverted: false, from_factory: true });
+        d.commits.push(id.clone());
+        d.shown = id.clone();
+        d.reverted = reverted;
+        d.from_factory = false;
+        id
+    }
+
     fn next_commit(&mut self) -> String {
         self.commit_count += 1;
         format!("c{}", self.commit_count)

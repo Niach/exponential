@@ -86,6 +86,17 @@ impl Repo {
         Ok(out.status.success().then_some(out.stdout))
     }
 
+    /// The newest commit that touched `file`, `None` when none did.
+    pub fn newest_of(&self, file: &str) -> io::Result<Option<Commit>> {
+        let out = self.ok(&["log", "-1", "--format=%H%x09%ct%x09%s", "--", file], "log")?;
+        Ok(String::from_utf8_lossy(&out.stdout).lines().next().and_then(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let id = parts.next()?.to_string();
+            let time = parts.next()?.parse().ok()?;
+            Some(Commit { id, summary: parts.next().unwrap_or("").to_string(), time })
+        }))
+    }
+
     /// Commit exactly `files` (added, changed or deleted in the working
     /// tree) with `message`. `None` when nothing differed from HEAD.
     pub fn commit(&self, files: &[String], message: &str) -> io::Result<Option<String>> {
