@@ -602,18 +602,23 @@ where
             // self-update parks behind it. The guard flips it on an unwind.
             let mut guard = ExitGuard::arm(&thread_ctx.exit, &thread_ctx.session_id);
             let runtime = thread_ctx.runtime.clone();
-            let result = runtime
-                .block_on(super::host::run_session(
-                    Arc::clone(&thread_ctx),
-                    adapter,
-                    inbox,
-                ));
+            // EXP-1910: a panic under `run_session` still runs the END
+            // sequence below (the unwind has already dropped the adapter, so
+            // the child is gone): the grants, the abort hook, the publisher,
+            // the kill watch and the tickers all hang off `backend.end`. The
+            // guard stays the last resort for a panic inside `end` itself.
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(super::host::run_session(Arc::clone(&thread_ctx), adapter, inbox))
+            }));
             // FEED-25: a watchdog end is not a connection error, but it has
             // a reason the banner must show.
-            let error = result
-                .err()
-                .map(|err| err.to_string())
-                .or_else(|| thread_ctx.take_failure());
+            let error = match run {
+                Ok(result) => result.err().map(|err| err.to_string()).or_else(|| thread_ctx.take_failure()),
+                Err(_) => {
+                    log::error!("engine: session {}'s engine thread panicked", thread_ctx.session_id);
+                    Some(ENGINE_PANIC_ERROR.to_string())
+                }
+            };
             let outcome = thread_ctx.end_outcome();
             let child = thread_ctx.child_exit.get();
             backend.end(&thread_ctx, &outcome, child, error);
@@ -628,6 +633,9 @@ where
         Err(err) => Err(EngineError::Spawn(err)),
     }
 }
+
+/// EXP-1910: the error of a run whose engine thread panicked.
+const ENGINE_PANIC_ERROR: &str = "the engine thread panicked";
 
 /// The engine thread's last resort: an exit for a run that never reached
 /// its backend's `end`.
