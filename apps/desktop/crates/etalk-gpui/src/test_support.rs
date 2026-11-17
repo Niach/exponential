@@ -40,6 +40,8 @@ struct State {
     notices: Vec<Notice>,
     /// The streamed call the next `connect_call` answers with.
     call: Option<CallConnection>,
+    /// #EXP-1938: computer use holds the person's input.
+    input_held: bool,
 }
 
 /// A streamed call's link that writes down what the host did with it.
@@ -120,6 +122,9 @@ impl TalkHost for TestHost {
         self.state.borrow_mut().notices.push(notice);
     }
     fn readiness_changed(&self, _: &mut App) {}
+    fn input_held(&self, _: &App) -> bool {
+        self.state.borrow().input_held
+    }
 }
 
 /// The installed surfaces, from the outside.
@@ -193,6 +198,11 @@ impl Rig {
         let log = Rc::new(RefCell::new(Vec::new()));
         self.state.borrow_mut().call = Some(CallConnection { link: Box::new(LinkLog(log.clone())), events });
         (tx, log)
+    }
+
+    /// #EXP-1938: computer use takes (or lets go of) the person's input.
+    pub(crate) fn hold_input(&self, held: bool) {
+        self.state.borrow_mut().input_held = held;
     }
 
     pub(crate) fn notices(&self) -> Vec<Notice> {

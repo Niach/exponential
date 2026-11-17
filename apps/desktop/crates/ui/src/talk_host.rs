@@ -375,6 +375,10 @@ impl TalkHost for ExponentialHost {
         self.data_dir.clone()
     }
 
+    fn input_held(&self, _: &App) -> bool {
+        crate::computer_indicator::input_held()
+    }
+
     fn device_id(&self) -> String {
         steer::persistent_device_id(&self.data_dir)
     }

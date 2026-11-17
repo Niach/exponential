@@ -350,6 +350,12 @@ pub trait TalkHost: 'static {
     /// Talk's readiness changed (the speech state, the listening device):
     /// a host with a device doctor reports it again.
     fn readiness_changed(&self, cx: &mut App);
+    /// #EXP-1938: the person's keyboard and pointer are held (computer use
+    /// drives this desktop): a key that arrives now is an agent's, never the
+    /// person's. True from before the hold's first synthetic key.
+    fn input_held(&self, _cx: &App) -> bool {
+        false
+    }
 }
 
 struct HostGlobal(Rc<dyn TalkHost>);
@@ -421,6 +427,11 @@ pub(crate) fn open(surface: Surface, cx: &mut App) {
 
 pub(crate) fn icon(icon: TalkIcon<'_>, cx: &App) -> Icon {
     host(cx).map(|host| host.icon(icon)).unwrap_or_else(Icon::empty)
+}
+
+/// #EXP-1938: [`TalkHost::input_held`] (false without a host).
+pub(crate) fn input_held(cx: &App) -> bool {
+    host(cx).is_some_and(|host| host.input_held(cx))
 }
 
 pub(crate) fn readiness_changed(cx: &mut App) {

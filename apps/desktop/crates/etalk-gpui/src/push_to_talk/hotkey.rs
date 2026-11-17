@@ -352,6 +352,57 @@ pub fn grab_as(value: &str, id: &'static str, description: &str, tx: flume::Send
     grab
 }
 
+/// #EXP-1938: what a GlobalShortcuts portal's answer to BindShortcuts says
+/// about shortcut `id`; `bound` = the reply's rows (id, trigger
+/// description). The reply lists the shortcuts that were bound: a
+/// success without ours (unticked in the desktop's dialog, a trigger the
+/// compositor refuses) binds nothing, and reads as the portal declining.
+/// An EMPTY description is no refusal: xdg-desktop-portal-hyprland answers
+/// every bound shortcut with one.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn portal_status(bound: &[(String, String)], id: &str) -> Status {
+    match bound.iter().find(|(bound, _)| bound == id) {
+        Some((_, trigger)) => Status::Portal { trigger: Some(trigger.clone()) },
+        None => Status::FocusedOnly(ShortcutReason::Declined),
+    }
+}
+
+/// #EXP-1938: hand the portal's presses and releases on until `stop`; a
+/// held key ends with the loop. `true` = the portal's signals ended first
+/// (it restarted or went away): nothing is bound any more.
+#[cfg(target_os = "linux")]
+async fn forward_portal(
+    mut events: impl futures_util::Stream<Item = HotkeyEvent> + Unpin,
+    tx: &flume::Sender<HotkeyEvent>,
+    stop: &AtomicBool,
+    tick: std::time::Duration,
+) -> bool {
+    use futures_util::future::Either;
+    use futures_util::StreamExt as _;
+    let mut held = false;
+    let mut ended = false;
+    while !stop.load(Ordering::SeqCst) {
+        let wait = std::pin::pin!(async_io::Timer::after(tick));
+        let event = match futures_util::future::select(events.next(), wait).await {
+            Either::Left((event, _)) => event,
+            Either::Right(_) => continue,
+        };
+        let Some(event) = event else {
+            ended = true;
+            break;
+        };
+        let down = event == HotkeyEvent::Down;
+        if down != held {
+            held = down;
+            let _ = tx.send(event);
+        }
+    }
+    if held {
+        let _ = tx.send(HotkeyEvent::Up);
+    }
+    ended
+}
+
 /// X11: passive grabs on the root window, polled on their own thread.
 #[cfg(target_os = "linux")]
 mod x11 {
@@ -526,7 +577,7 @@ mod x11 {
 /// Wayland: the xdg GlobalShortcuts portal.
 #[cfg(target_os = "linux")]
 mod portal {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -574,39 +625,31 @@ mod portal {
             let _ = session.close().await;
             return focused(ShortcutReason::Declined);
         };
-        let description = bound.shortcuts().iter().find(|shortcut| shortcut.id() == id).map(|shortcut| shortcut.trigger_description().to_string());
+        // #EXP-1938: a success that did not bind ours is no binding.
+        let rows: Vec<(String, String)> =
+            bound.shortcuts().iter().map(|shortcut| (shortcut.id().to_string(), shortcut.trigger_description().to_string())).collect();
+        let status = super::portal_status(&rows, id);
+        if let Some(reason) = status.reason() {
+            log::info!("[voice] push to talk: the portal answered without {id}; the key works while the IDE is focused");
+            let _ = session.close().await;
+            return focused(reason);
+        }
         let (Ok(activated), Ok(deactivated)) = (portal.receive_activated().await, portal.receive_deactivated().await) else {
             let _ = session.close().await;
             return focused(ShortcutReason::NoPortal);
         };
-        let _ = tx.send(HotkeyEvent::Status(Status::Portal { trigger: description }));
-        let mut activated = activated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Down);
-        let mut deactivated = deactivated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Up);
-        // Both streams and the stop flag, a poll at a time.
-        let mut held = false;
-        while !stop.load(Ordering::SeqCst) {
-            let tick = std::pin::pin!(async_io_timer(Duration::from_millis(200)));
-            let next = futures_util::future::select(futures_util::future::select(activated.next(), deactivated.next()), tick).await;
-            let event = match next {
-                futures_util::future::Either::Left((futures_util::future::Either::Left((event, _)), _)) => event,
-                futures_util::future::Either::Left((futures_util::future::Either::Right((event, _)), _)) => event,
-                futures_util::future::Either::Right(_) => continue,
-            };
-            let Some(event) = event else { break };
-            let down = event == HotkeyEvent::Down;
-            if down != held {
-                held = down;
-                let _ = tx.send(event);
-            }
-        }
-        if held {
-            let _ = tx.send(HotkeyEvent::Up);
-        }
+        let _ = tx.send(HotkeyEvent::Status(status));
+        let activated = activated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Down);
+        let deactivated = deactivated.filter(|event| std::future::ready(event.shortcut_id() == id)).map(|_| HotkeyEvent::Up);
+        // Both signals as one stream: it ends when the portal is gone.
+        let events = std::pin::pin!(futures_util::stream::select(activated, deactivated));
+        let ended = super::forward_portal(events, &tx, &stop, Duration::from_millis(200)).await;
         let _ = session.close().await;
-    }
-
-    async fn async_io_timer(after: Duration) {
-        async_io::Timer::after(after).await;
+        if ended {
+            // #EXP-1938: nothing presses the key any more, and says so.
+            log::info!("[voice] push to talk: the portal's signals ended; the key works while the IDE is focused");
+            focused(ShortcutReason::NoPortal);
+        }
     }
 
     fn futures_lite_block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -931,6 +974,39 @@ mod tests {
         assert_eq!(grammar_key("escape"), Some(("escape".into(), false)));
         assert_eq!(grammar_key("f13"), Some(("f13".into(), false)));
         assert_eq!(grammar_key("audioplay"), None);
+    }
+
+    /// #EXP-1938: BindShortcuts answers with the shortcuts it bound; a
+    /// success without ours binds nothing and must not read as bound.
+    #[test]
+    fn a_portal_reply_without_our_shortcut_is_declined() {
+        let row = |id: &str, trigger: &str| (id.to_string(), trigger.to_string());
+        assert_eq!(portal_status(&[row(PUSH_TO_TALK_ID, "Ctrl+Space")], PUSH_TO_TALK_ID), Status::Portal { trigger: Some("Ctrl+Space".into()) });
+        assert_eq!(portal_status(&[], PUSH_TO_TALK_ID), Status::FocusedOnly(ShortcutReason::Declined), "unticked in the dialog");
+        assert_eq!(
+            portal_status(&[row("pause-listening", "Ctrl+Alt+P")], PUSH_TO_TALK_ID),
+            Status::FocusedOnly(ShortcutReason::Declined),
+            "another shortcut of ours was bound, this one was not"
+        );
+        // Hyprland's portal describes no trigger for a bound shortcut.
+        let quiet = portal_status(&[row(PUSH_TO_TALK_ID, "")], PUSH_TO_TALK_ID);
+        assert_eq!((quiet.reason(), quiet.trigger()), (None, None));
+    }
+
+    /// #EXP-1938: the portal's signals ending (it restarted) is told, after
+    /// the release of a key that was held; a stop is not.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_portal_whose_signals_end_says_so() {
+        let tick = std::time::Duration::from_millis(5);
+        let (tx, rx) = flume::unbounded();
+        let stop = AtomicBool::new(false);
+        let events = futures_util::stream::iter([HotkeyEvent::Down, HotkeyEvent::Down, HotkeyEvent::Up, HotkeyEvent::Down]);
+        assert!(async_io::block_on(forward_portal(events, &tx, &stop, tick)), "the stream ended");
+        assert_eq!(rx.drain().collect::<Vec<_>>(), [HotkeyEvent::Down, HotkeyEvent::Up, HotkeyEvent::Down, HotkeyEvent::Up]);
+        let stop = AtomicBool::new(true);
+        assert!(!async_io::block_on(forward_portal(futures_util::stream::pending(), &tx, &stop, tick)), "let go by us");
+        assert!(rx.is_empty());
     }
 
     #[test]

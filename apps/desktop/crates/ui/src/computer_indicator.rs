@@ -181,6 +181,15 @@ impl Render for Banner {
 /// Where the lock's thread leaves what it saw; the foreground loop drains it.
 static PRESENCE: OnceLock<Mutex<std::sync::mpsc::Receiver<Option<String>>>> = OnceLock::new();
 
+/// #EXP-1938: computer use holds the person's keyboard and pointer right
+/// now (the presence observer's last word).
+static INPUT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a key that arrives now can only be an agent's.
+pub(crate) fn input_held() -> bool {
+    INPUT_HELD.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// NEW-59: the toolkit display the epilot crate's `target` is (`None` =
 /// no counterpart, e.g. X11's one whole-screen display).
 fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
@@ -296,6 +305,9 @@ pub(crate) fn init(cx: &mut App) {
     let dev_banner = std::env::var("EXP_DEV_COMPUTER_BANNER").ok().map(|label| (tx.clone(), label));
     let tx = Mutex::new(tx);
     coding::computer::set_presence_observer(move |label| {
+        // #EXP-1938: told on the hold's own thread before its first
+        // synthetic key, so a chord that follows is known as the agent's.
+        INPUT_HELD.store(label.is_some(), std::sync::atomic::Ordering::SeqCst);
         if let Ok(tx) = tx.lock() {
             let _ = tx.send(label);
         }
@@ -341,6 +353,9 @@ pub(crate) fn init(cx: &mut App) {
             engaged = presence.clone();
             let _ = cx.update(|cx| match presence {
                 Some(label) => {
+                    // #EXP-1938: a push-to-talk key held into the hold
+                    // never gets its release.
+                    etalk_gpui::push_to_talk::input_taken(cx);
                     let label = (!label.is_empty()).then(|| SharedString::from(label));
                     // The window is the bar's size, so another label is
                     // another window (no move in the toolkit).
