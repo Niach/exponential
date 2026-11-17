@@ -1,0 +1,20 @@
+[package]
+name = "chat-store-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "The wasm-bindgen facade over chat-store (#EDE-115, S4): the web's chat store, one append-only log per chat in OPFS, JSON in, JSON out."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "chat_store_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The core only: no SQLite in a browser (the log in OPFS is this crate's own adapter).
+chat-store = { path = "../chat-store", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "0.2"

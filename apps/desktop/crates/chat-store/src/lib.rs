@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod catchup;
+pub mod open;
 pub mod text;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -411,6 +412,50 @@ impl MemoryStore {
         self.events.retain(|_, event| retain(event, now_ms, window_days));
         before - self.events.len()
     }
+
+    /// One stored message.
+    pub fn message(&self, id: &str) -> Option<&StoredMessage> {
+        self.messages.get(id)
+    }
+
+    /// Whether the event at (session, device, seq) is held.
+    pub fn has_event(&self, session_id: &str, device_id: &str, seq: u64) -> bool {
+        self.events.contains_key(&(session_id.to_string(), device_id.to_string(), seq))
+    }
+
+    fn session_range<'s>(&'s self, session_id: &str, device_id: &str) -> impl DoubleEndedIterator<Item = &'s StoredEvent> + 's {
+        let (s, d) = (session_id.to_string(), device_id.to_string());
+        self.events.range((s.clone(), d.clone(), 0)..=(s, d, u64::MAX)).map(|(_, event)| event)
+    }
+
+    /// A session's events on `device_id` in seq order (`before` = only below
+    /// that seq; the newest `limit` of them when given): the SQLite
+    /// adapter's `read_events`.
+    pub fn read_events(&self, session_id: &str, device_id: &str, before: Option<u64>, limit: Option<usize>) -> Vec<&StoredEvent> {
+        let mut out: Vec<&StoredEvent> = self
+            .session_range(session_id, device_id)
+            .rev()
+            .filter(|event| before.is_none_or(|before| event.seq < before))
+            .take(limit.unwrap_or(usize::MAX))
+            .collect();
+        out.reverse();
+        out
+    }
+
+    /// The asker's `have` (`catchUp`): the runs of held seqs above `after_seq`.
+    pub fn have_runs(&self, session_id: &str, device_id: &str, after_seq: Option<u64>, max: usize) -> Vec<catchup::SeqRun> {
+        catchup::have_runs(self.session_range(session_id, device_id).map(|event| event.seq), after_seq, max)
+    }
+
+    /// THE HOLDER's page off this store (`full_to` = its own `completeTo`):
+    /// the answer and the events it takes, in seq order.
+    pub fn answer_page(&self, session_id: &str, device_id: &str, ask: &catchup::Ask, full_to: Option<u64>) -> (catchup::Answer, Vec<&StoredEvent>) {
+        let held: Vec<&StoredEvent> = self.session_range(session_id, device_id).collect();
+        let answer = catchup::answer(held.iter().map(|event| (event.seq, event.kind(), event.at())), full_to, ask);
+        let taken: HashSet<u64> = answer.seqs.iter().copied().collect();
+        let events = held.into_iter().filter(|event| taken.contains(&event.seq)).collect();
+        (answer, events)
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +543,42 @@ mod tests {
             let got = store.search_all(case["query"].as_str().unwrap(), case["limit"].as_u64().unwrap() as usize);
             assert_eq!(serde_json::to_value(got).unwrap(), case["expect"], "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn memory_store_reads_and_answers_like_the_rules() {
+        for case in spec()["catchUp"]["answerCases"].as_array().unwrap() {
+            let mut store = MemoryStore::new();
+            store.put_events(crate::catchup::tests::case_events(case).into_iter().map(|(seq, kind, at)| StoredEvent {
+                root_id: "r".into(),
+                session_id: "s".into(),
+                device_id: "d".into(),
+                seq,
+                stored_at: at,
+                event: json!({ "kind": kind, "at": at }),
+            }));
+            let ask: catchup::Ask = from(&case["ask"]);
+            let (answer, taken) = store.answer_page("s", "d", &ask, from(&case["fullTo"]));
+            assert_eq!(serde_json::to_value(&answer).unwrap(), case["expect"], "{}", case["name"]);
+            assert_eq!(taken.iter().map(|event| event.seq).collect::<Vec<_>>(), answer.seqs, "{}", case["name"]);
+            assert!(store.answer_page("s", "other", &ask, None).1.is_empty());
+        }
+        let mut store = MemoryStore::new();
+        let event = |session: &str, seq: u64| StoredEvent {
+            root_id: "r".into(),
+            session_id: session.into(),
+            device_id: "d".into(),
+            seq,
+            stored_at: 0,
+            event: json!({ "kind": "narration", "text": "x" }),
+        };
+        store.put_events([1, 2, 3, 5, 8].map(|seq| event("s", seq)));
+        store.put_events([4].map(|seq| event("s2", seq)));
+        let seqs = |events: Vec<&StoredEvent>| events.iter().map(|event| event.seq).collect::<Vec<_>>();
+        assert_eq!(seqs(store.read_events("s", "d", None, None)), [1, 2, 3, 5, 8]);
+        assert_eq!(seqs(store.read_events("s", "d", Some(5), Some(2))), [2, 3]);
+        assert_eq!(store.have_runs("s", "d", Some(1), 64), vec![[2, 3], [5, 5], [8, 8]]);
+        assert!(store.has_event("s2", "d", 4) && !store.has_event("s", "d", 4));
     }
 
     #[test]
