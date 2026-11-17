@@ -166,8 +166,9 @@ pub(crate) struct CallContext<'a> {
     pub copy_mark: &'a mut Option<u64>,
     /// `launch_defaults.computerUseDisplayId` (a display id; `None` = Auto).
     pub picked: Option<String>,
-    /// Takes the person's input; runs once the call passed the gate, so a
-    /// refused call never locks them out. `Err` = the answer.
+    /// Takes the person's input; runs once a DRIVING call
+    /// (`work_screen::drives`) passed the gate, so a refused call never
+    /// locks them out and a look or a wait never does. `Err` = the answer.
     pub engage: &'a dyn Fn() -> Result<(), String>,
 }
 
@@ -266,8 +267,11 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
         *ctx.display = current;
         work_screen::set_banner(current);
     }
-    if let Err(text) = (ctx.engage)() {
-        return error(text);
+    // #EXP-1898: looking and waiting leave the person's input alone.
+    if work_screen::drives(name) {
+        if let Err(text) = (ctx.engage)() {
+            return error(text);
+        }
     }
     // #EXP-1895: the gate read the focus before the hold was taken, and it
     // may have moved since: the keys go where the focus is NOW.
@@ -1137,12 +1141,19 @@ pub(crate) mod tests {
         assert_eq!(windows["structuredContent"]["windows"][0]["id"], 7);
         assert_eq!(windows["structuredContent"]["displays"].as_array().unwrap().len(), 1);
         assert_eq!(windows["structuredContent"]["displays"][0]["index"], 0);
+        // #EXP-1898: looking and waiting never take the person's input, so
+        // their game keeps its keys and its pointer.
+        for (name, args) in [("screenshot", json!({})), ("cursor_position", json!({})), ("wait", json!({ "seconds": 0 }))] {
+            let looked = run(name, args, None);
+            assert_eq!(looked["isError"], Value::Null, "{name}: {looked}");
+        }
+        assert_eq!(engaged.get(), 0, "a look or a wait locked the person out");
         // The device picked display B (by its id): its fullscreen app is the agent's own.
         let click = run("left_click", json!({ "x": 0, "y": 0 }), Some("uuid-B"));
         assert_eq!(click["isError"], Value::Null, "{click}");
-        assert_eq!(engaged.get(), 2);
+        assert_eq!(engaged.get(), 1, "an input tool takes the hold");
         assert_eq!(display, Some(1));
-        assert_eq!(backend.log.lock().unwrap().first().map(String::as_str), Some("move 2000,0"));
+        assert_eq!(backend.log.lock().unwrap().iter().find(|line| line.starts_with("move ")).map(String::as_str), Some("move 2000,0"));
     }
 
     #[test]
@@ -1171,9 +1182,11 @@ pub(crate) mod tests {
         let waited = run("wait", json!({ "seconds": 0 }), None);
         assert_eq!(waited["isError"], Value::Null);
         assert_eq!(waited["structuredContent"]["work"], json!([]), "no screenshot after the wait: {waited}");
+        assert_eq!(engaged.get(), 0, "a wait without a work screen locked the person out");
         let shot = run("screenshot", json!({}), Some("uuid-B"));
         assert_eq!(shot["isError"], Value::Null);
         assert_eq!(shot["structuredContent"]["display"], 1);
+        assert_eq!(engaged.get(), 0);
     }
 
     #[test]

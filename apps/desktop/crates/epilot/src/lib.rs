@@ -300,6 +300,7 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     }
     let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
+    live.host.admit(id.as_str());
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
