@@ -226,6 +226,16 @@ impl Ede {
         self.focus(target);
     }
 
+    /// A hold released the person's keys (#EDE-80): a Super that was down
+    /// alone opens nothing, and an open switcher is cancelled.
+    pub(crate) fn hotkeys_let_go(&mut self) {
+        self.hotkeys.super_pending = false;
+        if std::mem::take(&mut self.hotkeys.switcher) {
+            self.hotkeys.fallback_steps = 0;
+            self.hotkey(Hotkey::SwitcherCancel);
+        }
+    }
+
     /// A pointer press ends a pending Super (Super+click is not a menu); a
     /// press outside the shell's open popups dismisses them, as menus do.
     pub fn hotkeys_pointer_pressed(&mut self, hit: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>) {

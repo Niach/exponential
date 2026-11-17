@@ -197,10 +197,15 @@ impl Ede {
 
     /// `conn` went: what it pressed is let go, wherever the focus is now.
     pub(crate) fn release_driven(&mut self, conn: u64) {
+        self.release_driven_of(Some(conn));
+    }
+
+    /// `None` = every connection's: the last hold ended (#EDE-80).
+    pub(crate) fn release_driven_of(&mut self, conn: Option<u64>) {
         let time = crate::ipc::now_ms() as u32;
-        let (keys, kept) = std::mem::take(&mut self.ipc.driven.keys).into_iter().partition::<Vec<_>, _>(|(c, _)| *c == conn);
+        let (keys, kept) = std::mem::take(&mut self.ipc.driven.keys).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
         self.ipc.driven.keys = kept;
-        let (buttons, kept) = std::mem::take(&mut self.ipc.driven.buttons).into_iter().partition::<Vec<_>, _>(|(c, _)| *c == conn);
+        let (buttons, kept) = std::mem::take(&mut self.ipc.driven.buttons).into_iter().partition::<Vec<_>, _>(|(c, _)| conn.is_none_or(|conn| *c == conn));
         self.ipc.driven.buttons = kept;
         let down = self.seat.get_keyboard().unwrap().pressed_keys();
         for (_, key) in keys.iter().rev().filter(|(_, k)| down.contains(k)) {
