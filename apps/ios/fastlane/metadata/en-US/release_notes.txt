@@ -1,3 +1,8 @@
+- Large accounts stay responsive: screens that read a whole list share one read
+- A chat whose device is offline shows the messages synced so far and ends with the offline line
+- A session that hit a wall says so instead of "needs input"
+- Blank agent turns no longer show as empty messages
+- A waiting session says what it is waiting on
 - An issue reference in a chat message keeps the full stop or comma right after it on the same line
 - A quiet check-in by a scheduled agent shows as one line, "Checked in, nothing to do", and consecutive ones group together
 - Tapping the greyed call button says why you can't call
@@ -54,9 +59,3 @@
 - Pasted images show as thumbnails in chats
 - Start coding to an agent now reaches it; agent chats stay a plain conversation
 - Teams can have their own image
-- A session's plan opens as its own tab
-- Apps can show records as forms, tables, calendars and timelines
-- Share images, links and text from other apps into a chat or to an agent
-- Links in chats and cards open the right screen in the app
-- Closing an app's form keeps it closed; tapping a record row opens it
-- App timelines and wide tables read well on narrow phones

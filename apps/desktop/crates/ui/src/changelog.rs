@@ -61,6 +61,19 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_318: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-17-phones-offline-chats-and-waiting",
+    date: "2026-11-17",
+    title: "Offline chats keep their messages, and sessions say what they wait on",
+    summary: "Android 0.14.148 and iOS 0.14.137: a chat whose device is offline shows the messages synced so far, a waiting session says what it waits on, and large accounts use less memory.",
+    body: r##"- **Offline chats keep their messages**: when the device running a session is offline, its chat shows every message synced so far and ends with a line saying the device is offline.
+- **Waiting on**: a session waiting for CI, a merge or another session says what it is waiting on in the chat row and header.
+- **Walls read as walls**: a session that hit a wall says so instead of showing "needs input", and blank agent turns no longer show as empty messages.
+- **Large accounts**: Android opens a very large chat with less than half the memory and slides back the way it came; on iOS, screens that read a whole list share one read."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_317: ChangelogEntry = ChangelogEntry {
     id: "2026-11-16-android-notification-taps-and-big-chats",
     date: "2026-11-16",
