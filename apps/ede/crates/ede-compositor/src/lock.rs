@@ -221,8 +221,7 @@ impl SessionLockHandler for Ede {
         self.idle.activity();
         tracing::info!("session unlocked");
         self.emit(ede_protocol::events::SESSION_UNLOCKED, serde_json::Value::Null);
-        let top = self.space.elements().last().cloned();
-        self.focus(top);
+        self.focus_after_unlock(None);
         let pos = self.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
     }

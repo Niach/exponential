@@ -468,6 +468,64 @@ fn a_prompt_over_a_focused_layer_gives_the_keyboard_back_to_that_layer() {
     assert!(app.state.keys.is_empty());
 }
 
+/// #EDE-77: a prompt that mapped while the session was locked (polkit asks
+/// behind the lock screen) has the keyboard once it is unlocked: the
+/// password is not the window's behind it.
+fn a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(sealed: bool) {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("terminal");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    // Sealed: pid 1 is the lock client, so nothing of this process is.
+    let mut locker = Session::connect(h.connect());
+    let token = sealed.then(|| h.with(|ede| ede.begin_sealed_lock_as(1)));
+    let lock = (!sealed).then(|| locker.lock());
+    if !sealed {
+        wait_for(&mut locker, |c| c.state.locked);
+    }
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_none());
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    prompt.draw_layer(&l, BLUE);
+    assert!(prompt.state.keyboard_focus.is_none(), "a prompt took the keyboard from the lock");
+
+    match (token, lock) {
+        (Some(token), _) => h.ipc_with(token).unwrap().unlock().unwrap(),
+        (_, Some(lock)) => {
+            lock.unlock_and_destroy();
+            locker.roundtrip();
+        }
+        _ => unreachable!(),
+    }
+    assert!(!is_locked(&h));
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut prompt, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the window behind the prompt got the password");
+
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+}
+
+#[test]
+fn a_prompt_behind_the_sealed_lock_gets_the_keyboard_at_unlock() {
+    a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(true);
+}
+
+#[test]
+fn a_prompt_behind_an_ext_session_lock_gets_the_keyboard_at_unlock() {
+    a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(false);
+}
+
 /// Stands in for `exponential-sealed` where the compositor looks first (next
 /// to the running binary), so the default config's lock client starts. It
 /// ends at once, which keeps the session locked.
