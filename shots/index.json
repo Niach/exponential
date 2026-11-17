@@ -1853,8 +1853,8 @@
         "file": "shots/composer-dialog-menu/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 40810,
-        "sha256": "7ac89260a20d14f0e7e73c45f14d95827429c39b4f3d91eaff27d6e8cc22c9a1"
+        "bytes": 40942,
+        "sha256": "dfd80d8aa651658236d4ba1aa3406a6b1799a6c0f14b1b7df69e7ef9c8863cfa"
       }
     },
     "composer-menu": {
@@ -1890,8 +1890,8 @@
         "file": "shots/composer-menu/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20224,
-        "sha256": "6eac483684b1d0b7752b2522b91b571e048861a238b0a154608b275652c344a7"
+        "bytes": 19834,
+        "sha256": "722e2ac763dec198640216d0378bbf500ab194b40c67c3d6e5f73ece8b00f236"
       }
     },
     "composer-skills-menu": {
@@ -1906,8 +1906,8 @@
         "file": "shots/composer-skills-menu/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 50728,
-        "sha256": "31a028bc5aa6725fa5617ca260cc256a72801af25d673aaa16f9a50260a82ef1"
+        "bytes": 51466,
+        "sha256": "d3147bdb69939c5d3b8a4b89f0aa919d5b3eb81075ef9e4d8ec564c97f694256"
       },
       "web-mobile": {
         "file": "shots/composer-skills-menu/web-mobile.webp",
@@ -5875,36 +5875,36 @@
         "file": "shots/machine-settings/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22956,
-        "sha256": "dd0ad75e08e263e405e7ff0e8dba3e9a8c082aef794a8d387b95fc91de852840"
+        "bytes": 37014,
+        "sha256": "ac13f4574024496cebe0a4d36959c0c50fe5109d953555b58c2d1e9b774e1e14"
       },
       "desktop": {
         "file": "shots/machine-settings/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 35144,
-        "sha256": "200090fa2acd0d95246b19f3038ff2d15aa5976e4d147f9585af81a29e0d3a45"
+        "height": 1125,
+        "bytes": 39124,
+        "sha256": "aaf81122077d02a138d08985144eaaa61d37ae0783edceac154772185e31fa59"
       },
       "ios": {
         "file": "shots/machine-settings/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 25014,
-        "sha256": "a0a345c445510cddd6bb5acdb576bfc7ec336224e13c02b7ee3087b05b2895de"
+        "bytes": 39074,
+        "sha256": "2430f545824a7f09935feaf3fb20c2b5008028ff3f0e49afc153dd79e654ed5c"
       },
       "web": {
         "file": "shots/machine-settings/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 19674,
-        "sha256": "b64f96c9453a351cf2e90576ba7f34bdbee22b3f683654a450b39d923729d6b7"
+        "bytes": 27080,
+        "sha256": "6eee8224c679c43c8243abd81021c48c6cd1d18cafe17510381cd070c48c900a"
       },
       "web-mobile": {
         "file": "shots/machine-settings/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20524,
-        "sha256": "0f85de3dcfa0c8c6a527dabc92510c946aef0efb8ad91dfeb0a966bf92212b80"
+        "bytes": 38970,
+        "sha256": "bb9a419de558e34859bffe1de7eaae457d7deed539a2991b4db2ffffa18d0853"
       }
     },
     "mention-pill": {
