@@ -41,6 +41,8 @@ pub struct Ipc {
     pub keysyms: crate::keysym::Keysyms,
     /// `hold_input` (#EDE-23).
     pub hold: crate::hold::Hold,
+    /// The keys and buttons each connection drove down (#EDE-73).
+    pub driven: crate::protected::Driven,
 }
 
 #[derive(Debug)]
@@ -180,12 +182,13 @@ impl Ede {
         }
     }
 
-    /// A connection went; its hold goes with it, the shell's last one
-    /// starts the recovery clock.
+    /// A connection went; its hold and what it pressed go with it, the
+    /// shell's last one starts the recovery clock.
     fn ipc_dropped(&mut self, id: u64) {
         let was_shell = self.ipc.shell_subscribed();
         self.ipc.clients.retain(|c| c.id != id);
         self.ipc.shortcuts.drop_client(id);
+        self.release_driven(id);
         self.release_input(id);
         if was_shell && !self.ipc.shell_subscribed() {
             self.shell_left();
@@ -418,6 +421,7 @@ impl Ede {
                 // `bindings` = the person's own input (the harness): it
                 // reaches the lock screen and protected surfaces like a
                 // real keyboard; the agent path refuses those.
+                let before = (!bindings).then(|| self.seat.get_keyboard().unwrap().pressed_keys());
                 let refused = match (event, bindings) {
                     (InputEvent::Key { key, pressed }, true) => {
                         self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
@@ -451,9 +455,19 @@ impl Ede {
                     (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis((dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
                     (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion((x, y).into(), now as u32),
                     (InputEvent::PointerButton { button, pressed }, false) => {
-                        self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
+                        let driven = self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                        if driven.is_ok() {
+                            self.ipc.driven.buttons.retain(|(_, b)| *b != button);
+                            if pressed {
+                                self.ipc.driven.buttons.push((id, button));
+                            }
+                        }
+                        driven
                     }
                 };
+                if let Some(before) = before {
+                    self.note_driven(id, &before);
+                }
                 refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
                 json(serde_json::Value::Null)
             }

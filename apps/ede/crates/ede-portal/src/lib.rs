@@ -172,9 +172,13 @@ impl Ctx {
         Ok((key, node))
     }
 
-    /// Ends `path`'s streams and shortcuts and forgets it.
+    /// Ends `path`'s streams and shortcuts, lets go of the keys and buttons
+    /// it holds down, and forgets it.
     pub fn close_session(&self, path: &str) {
         let Some(session) = self.sessions.lock().unwrap().remove(path) else { return };
+        for release in session.pressed.iter().rev() {
+            let _ = self.ede(|c| c.input(release.clone()));
+        }
         if let Some(Ok(pw)) = self.pw.get() {
             for s in &session.streams {
                 pw.destroy(s.key);

@@ -63,6 +63,20 @@ pub enum Refused {
     Protected,
 }
 
+/// What the agent path has down, per connection (#EDE-73): let go when the
+/// connection closes, and its release is never refused.
+#[derive(Debug, Default)]
+pub struct Driven {
+    pub(crate) keys: Vec<(u64, Keycode)>,
+    pub(crate) buttons: Vec<(u64, u32)>,
+}
+
+impl Driven {
+    pub(crate) fn has_key(&self, keycode: Keycode) -> bool {
+        self.keys.iter().any(|(_, k)| *k == keycode)
+    }
+}
+
 /// The identities a window answers to: app id or WM_CLASS, and the process's
 /// executable name.
 pub fn window_ids(ede: &Ede, window: &Window) -> Vec<String> {
@@ -141,8 +155,12 @@ impl Ede {
 
     /// A key from an agent (or any synthetic source) to the focused surface.
     /// Compositor bindings never fire from it, and it does not count as the
-    /// person being active.
+    /// person being active. The release of a key it has down always lands.
     pub fn drive_key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) -> Result<(), Refused> {
+        if state == KeyState::Released && self.ipc.driven.has_key(keycode) {
+            self.key(keycode, state, time, bindings);
+            return Ok(());
+        }
         if self.is_locked() {
             return Err(Refused::Locked);
         }
@@ -161,9 +179,37 @@ impl Ede {
 
     pub fn drive_pointer_button(&mut self, button: u32, state: ButtonState, time: u32) -> Result<(), Refused> {
         let pos = self.seat.get_pointer().unwrap().current_location();
-        self.may_drive_at(pos)?;
+        if state == ButtonState::Pressed || !self.ipc.driven.buttons.iter().any(|(_, b)| *b == button) {
+            self.may_drive_at(pos)?;
+        }
         self.pointer_button(button, state, time);
         Ok(())
+    }
+
+    /// After `conn` drove the seat: the keys that went down since `before`
+    /// are its own; what is no longer down is nobody's.
+    pub(crate) fn note_driven(&mut self, conn: u64, before: &std::collections::HashSet<Keycode>) {
+        let down = self.seat.get_keyboard().unwrap().pressed_keys();
+        let driven = &mut self.ipc.driven;
+        driven.keys.retain(|(_, k)| down.contains(k));
+        driven.keys.extend(down.difference(before).map(|k| (conn, *k)));
+    }
+
+    /// `conn` went: what it pressed is let go, wherever the focus is now.
+    pub(crate) fn release_driven(&mut self, conn: u64) {
+        let time = crate::ipc::now_ms() as u32;
+        let (keys, kept) = std::mem::take(&mut self.ipc.driven.keys).into_iter().partition::<Vec<_>, _>(|(c, _)| *c == conn);
+        self.ipc.driven.keys = kept;
+        let (buttons, kept) = std::mem::take(&mut self.ipc.driven.buttons).into_iter().partition::<Vec<_>, _>(|(c, _)| *c == conn);
+        self.ipc.driven.buttons = kept;
+        let down = self.seat.get_keyboard().unwrap().pressed_keys();
+        for (_, key) in keys.iter().rev().filter(|(_, k)| down.contains(k)) {
+            self.key(*key, KeyState::Released, time, false);
+        }
+        self.ipc.keysyms.forget(&keys);
+        for (_, button) in buttons {
+            self.pointer_button(button, ButtonState::Released, time);
+        }
     }
 
     /// Scrolls where the pointer is: smooth (`v120` = None) or wheel clicks.

@@ -44,6 +44,9 @@ pub struct Session {
     pub restore: Vec<Pick>,
     pub devices: u32,
     pub started: bool,
+    /// RemoteDesktop: the key and button presses not released yet,
+    /// released when the session closes.
+    pub pressed: Vec<ede_protocol::InputEvent>,
     pub streams: Vec<StreamInfo>,
     /// GlobalShortcuts: (id, description, trigger).
     pub shortcuts: Vec<(String, String, Option<String>)>,
@@ -60,6 +63,7 @@ impl Session {
             restore: Vec::new(),
             devices: 0,
             started: false,
+            pressed: Vec::new(),
             streams: Vec::new(),
             shortcuts: Vec::new(),
         }
