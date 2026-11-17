@@ -94,7 +94,7 @@ final class SessionTreeTests: XCTestCase {
             unread: (row["unread"] as? Bool) ?? false,
             activityAt: try XCTUnwrap(string(row["activityAt"])),
             deviceId: string(row["deviceId"]),
-            offline: (row["offline"] as? Bool) ?? false
+            wall: try wall(row["wall"])
         )
     }
 
@@ -309,8 +309,10 @@ final class SessionTreeTests: XCTestCase {
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
-                // #EXP-1703: set only when it holds (absent = false).
-                if row.offline { object["offline"] = true }
+                // #FEED-263: set only when one holds.
+                if let wall = row.wall {
+                    object["wall"] = ["sessionId": wall.sessionId, "kind": wall.kind, "deviceId": json(wall.deviceId)]
+                }
                 return object
             },
         ]
@@ -626,6 +628,9 @@ final class SessionTreeTests: XCTestCase {
         for word in ChatRowWord.allCases {
             XCTAssertEqual(words[word.rawValue], word.text, word.rawValue)
         }
+        // #FEED-263: every wall of the fixture's `copy.walls` has words here.
+        XCTAssertEqual(copy["walls"] as? [String: String], SessionTree.walls)
+        XCTAssertEqual(copy["wallDevice"] as? String, SessionTree.wallDevice)
         let groups = try XCTUnwrap(copy["groups"] as? [String: String])
         XCTAssertEqual(Set(groups.keys), Set(ChatsListGroup.Key.allCases.map(\.rawValue)))
         for key in ChatsListGroup.Key.allCases {
@@ -791,7 +796,8 @@ final class SessionTreeTests: XCTestCase {
                 busy: try XCTUnwrap(input["busy"] as? Bool),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
                 inStack: try XCTUnwrap(input["inStack"] as? Bool),
-                offline: (input["offline"] as? Bool) ?? false,
+                // #FEED-263: the row's wall (absent = false).
+                wall: (input["wall"] as? Bool) ?? false,
                 // #NEW-49: the root's `sessionWaiting` (absent = none).
                 waiting: string(input["waiting"])
             )
@@ -807,22 +813,36 @@ final class SessionTreeTests: XCTestCase {
             let raw = string(testCase["word"])
             let word = raw.flatMap { ChatRowWord(rawValue: $0) }
             XCTAssertEqual(word?.rawValue, raw, name)
+            let wall = testCase["wall"] as? [String: Any]
             XCTAssertEqual(
-                SessionTree.chatRowWordText(word, waiting: string(testCase["waiting"])),
+                SessionTree.chatRowWordText(
+                    word, waiting: string(testCase["waiting"]),
+                    wallKind: string(wall?["kind"]), wallDevice: string(wall?["device"])
+                ),
                 string(testCase["expected"]),
                 name
             )
         }
     }
 
-    /// #EXP-1703: `offlineCases` — a tree on a person only because its
-    /// device stayed away.
-    func testTreeOfflineReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("chat-list.json"), "offlineCases") {
+    /// #FEED-263: `wallCases` — the wall a tree's row names.
+    func testTreeWallReplaysEveryCase() throws {
+        let all = try cases(try fixture("chat-list.json"), "wallCases")
+        XCTAssertFalse(all.isEmpty)
+        for testCase in all {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let tree = try XCTUnwrap(testCase["tree"] as? [Any]).map(session)
-            XCTAssertEqual(SessionTree.treeOffline(tree), try XCTUnwrap(testCase["expected"] as? Bool), name)
+            XCTAssertEqual(SessionTree.treeWall(tree), try wall(testCase["expected"]), name)
         }
+    }
+
+    private func wall(_ value: Any?) throws -> TreeWall? {
+        guard let raw = value as? [String: Any] else { return nil }
+        return TreeWall(
+            sessionId: try XCTUnwrap(string(raw["sessionId"])),
+            kind: try XCTUnwrap(string(raw["kind"])),
+            deviceId: string(raw["deviceId"])
+        )
     }
 
     /// Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR glyph.
@@ -958,7 +978,7 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertNil(SessionTree.chatRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
         XCTAssertEqual(
             ChatRowWord.allCases.map(\.text),
-            ["stack", "ready to merge", nil, "device offline", "question", "needs input", "waiting on {labels}"]
+            ["stack", "ready to merge", nil, "question", nil, "needs input", "waiting on {labels}"]
         )
     }
 

@@ -166,6 +166,8 @@ final class SessionScreenTests: XCTestCase {
                     busy: try XCTUnwrap(raw["busy"] as? Bool, name),
                     needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
                     blocked: string(raw["blocked"]),
+                    resumed: (raw["resumed"] as? Bool) ?? false,
+                    device: string(raw["device"]),
                     root: try XCTUnwrap(raw["root"] as? Bool, name)
                 )
             }
@@ -188,6 +190,8 @@ final class SessionScreenTests: XCTestCase {
                     busy: false,
                     needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
                     blocked: string(raw["blocked"]),
+                    resumed: (raw["resumed"] as? Bool) ?? false,
+                    device: string(raw["device"]),
                     root: try XCTUnwrap(raw["root"] as? Bool, name)
                 )
             }
@@ -198,6 +202,35 @@ final class SessionScreenTests: XCTestCase {
                 )
             }
             XCTAssertEqual(SessionScreen.waiting(sessions, asks: try asks(testCase["asks"], name)), expected, name)
+        }
+    }
+
+    // #FEED-263: `wallStatusCases`.
+    func testReplaysEveryWallStatusCase() throws {
+        let all = try cases("wallStatusCases")
+        XCTAssertFalse(all.isEmpty)
+        for testCase in all {
+            let name = string(testCase["name"]) ?? ""
+            let sessions = try XCTUnwrap(testCase["sessions"] as? [[String: Any]], name).map { raw in
+                SessionScreen.StatusInput(
+                    id: try XCTUnwrap(string(raw["id"]), name),
+                    status: try XCTUnwrap(string(raw["status"]), name),
+                    busy: false,
+                    needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
+                    blocked: string(raw["blocked"]),
+                    resumed: (raw["resumed"] as? Bool) ?? false,
+                    device: string(raw["device"]),
+                    root: try XCTUnwrap(raw["root"] as? Bool, name)
+                )
+            }
+            let expected = try (testCase["expected"] as? [String: Any]).map { raw in
+                SessionScreen.Wall(
+                    id: try XCTUnwrap(string(raw["id"]), name),
+                    kind: try XCTUnwrap(string(raw["kind"]), name),
+                    text: try XCTUnwrap(string(raw["text"]), name)
+                )
+            }
+            XCTAssertEqual(SessionScreen.wall(sessions), expected, name)
         }
     }
 
@@ -223,6 +256,8 @@ final class SessionScreenTests: XCTestCase {
                     busy: try XCTUnwrap(raw["busy"] as? Bool, name),
                     needsInput: try XCTUnwrap(raw["needsInput"] as? Bool, name),
                     blocked: string(raw["blocked"]),
+                    resumed: (raw["resumed"] as? Bool) ?? false,
+                    device: string(raw["device"]),
                     root: try XCTUnwrap(raw["root"] as? Bool, name)
                 )
             }

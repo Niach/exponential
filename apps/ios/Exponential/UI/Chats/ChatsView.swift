@@ -328,8 +328,12 @@ struct ChatsView: View {
             previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
             unreadCount: row.unreadCount,
-            // #NEW-49: `waiting` names what the idle root waits on.
-            word: SessionTree.chatRowWordText(row.word, waiting: lists.waiting[row.sessionId]),
+            // #NEW-49: `waiting` names what the idle root waits on;
+            // #FEED-263: `wall` names the wall ('MacBook offline').
+            word: SessionTree.chatRowWordText(
+                row.word, waiting: lists.waiting[row.sessionId],
+                wallKind: lists.walls[row.sessionId]?.kind, wallDevice: lists.walls[row.sessionId]?.device
+            ),
             wordIcon: row.word == .stack ? AppIcons.prStack : nil,
             selected: selected
         ) {
