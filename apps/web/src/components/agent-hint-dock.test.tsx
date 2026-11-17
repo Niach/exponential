@@ -16,6 +16,7 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({ useTeamUsers: () => ({ users: [] }) }))
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => [] }))
+vi.mock(`@/lib/enet/send-sealed`, () => import(`@/test/send-plain`))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { send: { mutate: sendMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
   messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },

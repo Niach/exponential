@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-17-chats-encrypted-by-default",
+    date: "2026-11-17",
+    title: "Chats are encrypted by default",
+    summary: "Every new chat is end-to-end encrypted, including chats a trigger, a schedule or an app starts. Only a chat an MCP client outside Exponential starts stays in clear.",
+    body: r##"- **Every new chat is encrypted**: messages, cards and titles are sealed before they leave your device. A device that holds no key yet waits a moment, then says so; your draft stays.
+- **Started for you, sealed too**: a chat a trigger, a schedule, an app or a suggestion starts is sealed by the device that picks it up.
+- **Outside MCP clients**: a chat an MCP client outside Exponential starts stays in clear for life, so that client can keep reading and writing it.
+- **Older chats**: chats already in clear stay as they are.
+- **Update your desktop app and CLI**: version 0.14.96 or later is required."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_319: ChangelogEntry = ChangelogEntry {
     id: "2026-11-17-computer-use-follows-the-device-switch",
     date: "2026-11-17",
     title: "Computer use follows your device's switch",
