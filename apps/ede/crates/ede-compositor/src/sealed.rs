@@ -106,7 +106,7 @@ impl Ede {
         if &s.token != token {
             return Err("only the lock client's grant unlocks");
         }
-        let token = s.token.clone();
+        let (token, pid) = (s.token.clone(), s.pid);
         if let Some(mut child) = s.child.take() {
             // The client exits on its own after unlocking; reap it either way.
             std::thread::spawn(move || {
@@ -118,8 +118,7 @@ impl Ede {
         self.idle.activity();
         tracing::info!("session unlocked (sealed)");
         self.emit(ede_protocol::events::SESSION_UNLOCKED, serde_json::Value::Null);
-        let top = self.space.elements().last().cloned();
-        self.focus(top);
+        self.focus_after_unlock(Some(pid));
         let pos = self.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
         Ok(())

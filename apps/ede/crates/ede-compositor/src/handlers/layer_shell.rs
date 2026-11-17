@@ -30,6 +30,14 @@ fn layer_focus(layer: &LayerSurface) -> &LayerFocus {
     layer.user_data().get::<LayerFocus>().unwrap()
 }
 
+/// An Exclusive top or overlay layer (a polkit, consent or share prompt)
+/// that drew.
+fn shows_exclusive(layer: &LayerSurface) -> bool {
+    layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive
+        && matches!(layer.layer(), Layer::Top | Layer::Overlay)
+        && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)
+}
+
 fn root_of(surface: &WlSurface) -> WlSurface {
     let mut root = surface.clone();
     while let Some(parent) = get_parent(&root) {
@@ -61,6 +69,24 @@ impl Ede {
             }
         }
         keyboard.set_focus(self, Some(surface), serial);
+    }
+
+    /// Unlocked: the keyboard goes back to the topmost window, then to an
+    /// Exclusive prompt that is open (it mapped behind the lock, or had the
+    /// keyboard before it): what is typed next is the prompt's. `lock_pid`
+    /// is the sealed lock client, whose own surface is about to close.
+    pub(crate) fn focus_after_unlock(&mut self, lock_pid: Option<u32>) {
+        let top = self.space.elements().last().cloned();
+        self.focus(top);
+        let prompt = self.space.outputs().find_map(|o| {
+            let map = layer_map_for_output(o);
+            let found = [Layer::Overlay, Layer::Top].into_iter().find_map(|on| map.layers_on(on).rev().find(|l| Some(crate::sealed::layer_origin(l).pid) != lock_pid && shows_exclusive(l)).cloned());
+            found
+        });
+        if let Some(layer) = prompt {
+            layer_focus(&layer).taken.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.focus_layer(layer.wl_surface().clone(), SERIAL_COUNTER.next_serial());
+        }
     }
 
     /// A layer that held the keyboard closed: back to what had it before
@@ -148,13 +174,19 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
     }
     // An Exclusive top or overlay surface (a polkit, consent or share
     // prompt) takes the keyboard as it shows: what is typed right away is
-    // never the window's behind it. The lock keeps its own focus.
+    // never the window's behind it. The lock keeps its own focus: a prompt
+    // that maps behind it takes the keyboard at unlock.
     let layer = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).cloned();
     drop(map);
     let Some(layer) = layer else { return };
-    let exclusive = layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive && matches!(layer.layer(), Layer::Top | Layer::Overlay);
-    let drawn = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
-    if exclusive && drawn && !layer_focus(&layer).taken.swap(true, std::sync::atomic::Ordering::Relaxed) && !state.is_locked() {
+    if !shows_exclusive(&layer) {
+        return;
+    }
+    if state.is_locked() {
+        if state.is_lock_surface(surface) {
+            layer_focus(&layer).taken.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    } else if !layer_focus(&layer).taken.swap(true, std::sync::atomic::Ordering::Relaxed) {
         state.focus_layer(surface.clone(), SERIAL_COUNTER.next_serial());
     }
 }
