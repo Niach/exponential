@@ -1079,6 +1079,50 @@
             "dark": "#c4c4cc"
           }
         }
+      },
+      {
+        "name": "match",
+        "ref": "$color.match",
+        "values": {
+          "neutral": {
+            "light": "#fef08a",
+            "dark": "#facc154d"
+          },
+          "exponential": {
+            "light": "#fef08a",
+            "dark": "#facc154d"
+          },
+          "playful": {
+            "light": "#fef08a",
+            "dark": "#facc154d"
+          },
+          "orange": {
+            "light": "#fef08a",
+            "dark": "#facc154d"
+          }
+        }
+      },
+      {
+        "name": "matchCurrent",
+        "ref": "$color.matchCurrent",
+        "values": {
+          "neutral": {
+            "light": "#fdba74",
+            "dark": "#f59e0b99"
+          },
+          "exponential": {
+            "light": "#fdba74",
+            "dark": "#f59e0b99"
+          },
+          "playful": {
+            "light": "#fdba74",
+            "dark": "#f59e0b99"
+          },
+          "orange": {
+            "light": "#fdba74",
+            "dark": "#f59e0b99"
+          }
+        }
       }
     ],
     "spacing": [

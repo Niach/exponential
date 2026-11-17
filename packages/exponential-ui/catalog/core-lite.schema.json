@@ -2022,6 +2022,10 @@
           "description": "Announces changes (`assertive` interrupts).",
           "default": "off"
         },
+        "highlight": {
+          "$ref": "#/$defs/highlight",
+          "description": "Marks a search term's matches."
+        },
         "style": {
           "$ref": "#/$defs/Style",
           "description": "Extra Box styles for the text box."
@@ -2120,6 +2124,10 @@
         "lines": {
           "type": "number",
           "description": "Truncates the rendered body to this many lines with an ellipsis."
+        },
+        "highlight": {
+          "$ref": "#/$defs/highlight",
+          "description": "Marks a search term's matches."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -9641,6 +9649,10 @@
           "description": "With children: whether they show, indented; bind it.",
           "default": false
         },
+        "highlight": {
+          "$ref": "#/$defs/highlight",
+          "description": "Marks a search term in title and subtitle."
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },
@@ -9812,6 +9824,10 @@
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
           "description": "URL a press opens; implies `pressable`."
+        },
+        "highlight": {
+          "$ref": "#/$defs/highlight",
+          "description": "Marks a search term's matches."
         },
         "slots": {
           "$ref": "#/$defs/Slots_MessageBubble"
@@ -17160,7 +17176,9 @@
               "destructiveHover",
               "bubbleOwn",
               "sheenFrom",
-              "sheenTo"
+              "sheenTo",
+              "match",
+              "matchCurrent"
             ]
           }
         },
@@ -21720,6 +21738,28 @@
       "required": [
         "id",
         "title"
+      ],
+      "additionalProperties": false
+    },
+    "highlight": {
+      "type": "object",
+      "description": "Search marks.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Term to mark (any case and accents)."
+        },
+        "current": {
+          "type": "number",
+          "description": "0-based match painted as the current one."
+        },
+        "before": {
+          "type": "string",
+          "description": "Text whose matches number before this node's."
+        }
+      },
+      "required": [
+        "query"
       ],
       "additionalProperties": false
     },

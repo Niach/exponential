@@ -957,6 +957,24 @@
           "description": "Branch whose children load on open (`load`)."
         }
       }
+    },
+    "highlight": {
+      "description": "Search marks.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "Term to mark (any case and accents)."
+        },
+        "current": {
+          "type": "number",
+          "description": "0-based match painted as the current one."
+        },
+        "before": {
+          "type": "string",
+          "description": "Text whose matches number before this node's."
+        }
+      }
     }
   },
   "functions": {
@@ -2144,6 +2162,11 @@
           "default": "off",
           "description": "Announces changes (`assertive` interrupts)."
         },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight",
+          "description": "Marks a search term's matches."
+        },
         "style": {
           "type": "style",
           "description": "Extra Box styles for the text box."
@@ -2213,6 +2236,11 @@
         "lines": {
           "type": "number",
           "description": "Truncates the rendered body to this many lines with an ellipsis."
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight",
+          "description": "Marks a search term's matches."
         },
         "style": {
           "type": "style",
@@ -6263,6 +6291,11 @@
           "default": false,
           "bindable": true,
           "description": "With children: whether they show, indented; bind it."
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight",
+          "description": "Marks a search term in title and subtitle."
         }
       },
       "events": [
@@ -6399,6 +6432,11 @@
           "type": "url",
           "bindable": true,
           "description": "URL a press opens; implies `pressable`."
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight",
+          "description": "Marks a search term's matches."
         }
       },
       "events": [
