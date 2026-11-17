@@ -201,6 +201,22 @@ mod tests {
         assert!(plan.contains("messages_session"), "{plan}");
     }
 
+    /// EXP-1930: a voice call's reply watch reads the session's rows since
+    /// an instant, off the session index.
+    #[test]
+    fn a_sessions_messages_since_an_instant() {
+        let temp = TempStore::new();
+        let store = &temp.1;
+        let rows: Vec<Value> = (0..30)
+            .map(|n| json!({"id": format!("m{n:03}"), "session_id": if n % 2 == 0 { "r1" } else { "r2" }, "root_id": "r1", "body": "x", "created_at": at(n)}))
+            .collect();
+        insert(store, rows);
+        let ids: Vec<String> = store.read_session_messages_since("r1", &at(26)).unwrap().into_iter().map(|row| row["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids, ["m026", "m028"]);
+        let plan = store.explain(&format!(r#"SELECT * FROM "messages" WHERE "session_id" = 'r1' AND "created_at" >= '{}'"#, at(26))).unwrap();
+        assert!(plan.contains("messages_session"), "{plan}");
+    }
+
     /// The page's index: every store has it, one opened before it existed
     /// too, and both chat reads use it (never a scan of `messages`).
     #[test]
