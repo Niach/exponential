@@ -100,19 +100,32 @@ describe(`windowCapture`, () => {
 
 /**
  * #EXP-1886: a chat's Chat tab is the steer feed. A capture that did not
- * wait for its first replay photographed "No live transcript" (chat-screen),
- * "Waiting for activity" (chat-replies) or "offline" (session-slash-menu).
+ * wait for its first replay photographed "No live transcript". Only a chat
+ * the stand-in desktop holds a recorded journal for ever paints one
+ * (apps/web/scripts/lib/demo-stored-journals.ts: `$chat`, the cold-start
+ * chat). A view of a chat without one (`$guideChat`) must NOT wait: its
+ * capture never signals ready and fails after 90s.
  */
 describe(`desktopWaitsForFeed`, () => {
-  test(`every view on a chat's Chat tab waits for the feed`, () => {
-    const onChatTab = viewsFor(`desktop`).filter(
+  const onChat = (placeholder: string) =>
+    viewsFor(`desktop`).filter(
       (view) =>
         view.desktop?.drive.kind === `screen` &&
-        view.desktop.drive.value?.startsWith(`chat:`) &&
+        view.desktop.drive.value === `chat:${placeholder}` &&
         !view.desktop.env?.EXP_DEV_CHAT_CHILD
     )
-    expect(onChatTab.map((view) => view.id)).toContain(`chat-screen`)
-    expect(onChatTab.filter((view) => !desktopWaitsForFeed(view.desktop!)).map((view) => view.id)).toEqual([])
+
+  test(`the views of the chat with a recorded journal wait for the feed`, () => {
+    expect(onChat(`$chat`).map((view) => view.id)).toContain(`chat-screen`)
+    expect(onChat(`$chat`).filter((view) => !desktopWaitsForFeed(view.desktop!)).map((view) => view.id)).toEqual([])
+  })
+
+  test(`the views of a chat without a journal never wait for one`, () => {
+    const journals = readFileSync(join(import.meta.dir, `../../../apps/web/scripts/lib/demo-stored-journals.ts`), `utf8`)
+    expect(journals).toContain(`[DEMO_CHAT_ID]:`)
+    expect(journals).not.toContain(`DEMO_GUIDE_CHAT_ID`)
+    expect(onChat(`$guideChat`).map((view) => view.id)).toContain(`chat-replies`)
+    expect(onChat(`$guideChat`).filter((view) => desktopWaitsForFeed(view.desktop!)).map((view) => view.id)).toEqual([])
   })
 
   test(`a session screen waits on its own; a settings page never`, () => {

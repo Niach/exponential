@@ -5912,7 +5912,11 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
-        crate::dev_ready::note_feed_painted();
+        // #EXP-1886: the FEED's rows only (a synced tail alone is not the
+        // replay), under this view's own session.
+        if !self.feed.is_empty() {
+            crate::dev_ready::note_feed_painted(&self.session_id);
+        }
         // #EDE-65 lane O: the transcript IS the shared chat document (its
         // windowed list, its bubbles), the rows it does not draw painted by
         // this view ([`Self::chat_host_row`]); [`Self::sync_list`] ran at the
