@@ -1428,6 +1428,12 @@ pub trait LiveEngine: Send + Sync {
     /// Hand a person's `messages` row to the agent (idle → a new turn,
     /// mid-turn → queued/sent like a steer). The engine reports it consumed.
     fn deliver(&self, message_id: String, text: String);
+    /// EXP-1896: [`Self::deliver`] for a row NO person wrote (a child's
+    /// report, a CI wake, another session's message): the same turn, but it
+    /// answers no Esc that aborted the run's computer use.
+    fn deliver_wake(&self, message_id: String, text: String) {
+        self.deliver(message_id, text);
+    }
     /// Drop a handed-but-unconsumed message (its row was unqueued).
     fn unqueue(&self, message_id: &str);
     /// Feed an answered question/plan card to the engine's open question.
@@ -3895,7 +3901,13 @@ fn hand(
 ) -> Vec<String> {
     let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
     for message in messages {
-        engine.deliver(message.id.clone(), message.body.clone().unwrap_or_default());
+        let body = message.body.clone().unwrap_or_default();
+        // An answered tool card is the person's answer.
+        if message.is_from_user() || is_answered_tool_card(message) {
+            engine.deliver(message.id.clone(), body);
+        } else {
+            engine.deliver_wake(message.id.clone(), body);
+        }
     }
     deps.live.mark_handed(session_id, &ids);
     // #FEED-237: received = the one check (a re-delivery acks nothing new).
@@ -5315,6 +5327,8 @@ mod tests {
     #[derive(Default)]
     struct FakeEngine {
         delivered: Mutex<Vec<(String, String)>>,
+        /// EXP-1896: the delivered ids handed as no person's.
+        wakes: Mutex<Vec<String>>,
         unqueued: Mutex<Vec<String>>,
         answers: Mutex<Vec<(String, serde_json::Value)>>,
         cards: Mutex<HashMap<String, String>>,
@@ -5348,6 +5362,10 @@ mod tests {
     impl LiveEngine for FakeEngine {
         fn deliver(&self, message_id: String, text: String) {
             self.delivered.lock().unwrap().push((message_id, text));
+        }
+        fn deliver_wake(&self, message_id: String, text: String) {
+            self.wakes.lock().unwrap().push(message_id.clone());
+            self.deliver(message_id, text);
         }
         fn unqueue(&self, message_id: &str) {
             self.unqueued.lock().unwrap().push(message_id.to_string());
@@ -6068,6 +6086,28 @@ mod tests {
         assert!(deliver_messages("s1", &rows, &host.deps).unwrap().is_empty());
         assert_eq!(host.engine.delivered_ids(), vec!["m1", "m2"]);
         assert_eq!(host.deps.live.live_views()["s1"].handed.len(), 2);
+    }
+
+    /// EXP-1896: only a person's row is handed as the person's. A child's
+    /// report and a system wake are turns too, but they answer no Esc.
+    #[test]
+    fn only_a_persons_row_is_handed_as_the_persons() {
+        let dir = temp_dir("pickup-deliver-author");
+        let host = host(&canned_server(vec![]), &dir.0, |_| {});
+        host.deps.live.insert("s1", host.engine.clone(), None);
+        let wake = MessageRow {
+            author_kind: Some("system".to_string()),
+            author_session_id: Some("child-1".to_string()),
+            ..message("w1", "s1", "2026-10-02T00:00:02Z")
+        };
+        let rows = vec![
+            report("r1", "s1", "child-1", "done"),
+            wake,
+            message("m1", "s1", "2026-10-02T00:00:09Z"),
+        ];
+        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "m1"]);
+        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "m1"]);
+        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1"]);
     }
 
     /// #FEED-237: the pickup acks each person message it RECEIVED once

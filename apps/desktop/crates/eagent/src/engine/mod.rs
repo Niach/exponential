@@ -36,7 +36,7 @@ pub mod transport;
 pub use adapters::{Adapter, AdapterKind, LaunchSpec};
 pub use child_exit::ChildExitLink;
 pub use host::{
-    client_capabilities, EngineCommand, EngineExit, EngineHost, KillFeed, KillReason, LocalSink,
+    client_capabilities, EngineCommand, EngineExit, PromptAuthor, EngineHost, KillFeed, KillReason, LocalSink,
     NoBackend, PromptLocalizer, RunBackend, RunFacts, SessionCtx, SessionIds,
 };
 pub use session::{start, start_with, ConfigValue, EngineSession, SessionSpec};
