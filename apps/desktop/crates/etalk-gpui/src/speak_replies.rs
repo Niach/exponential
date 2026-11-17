@@ -898,8 +898,10 @@ impl SpeakReplies {
             language: &language,
             voices: &voices,
             armed_at: self.gate.armed_at(),
-            // #NEW-57: nothing is read aloud mid-meeting.
-            meeting: self.settings.meeting(),
+            // #NEW-57: nothing is read aloud mid-meeting. #EXP-1936: a
+            // meeting HERE (on the voice device); a call that fell back to
+            // this desktop because of it speaks.
+            meeting: self.settings.meeting() && self.settings.voice_device_id == host::device_id(cx),
         };
         // A burst (a reconnect) speaks only its newest reply.
         let Some(row) = fresh
@@ -1168,6 +1170,29 @@ mod tests {
         assert_eq!(speech_row(true, &Download::Idle, true, false), Some(SpeechState::Ready));
         let states = [SpeechState::Ready, SpeechState::Downloading, SpeechState::NoGpu, SpeechState::Failed];
         assert_eq!(states.map(SpeechState::doctor_state), ["ok", "off", "missing", "error"]);
+    }
+
+    /// #EXP-1936: the meeting gate is this desktop's: a meeting on the
+    /// voice device does not silence a voice turn (a call that fell back)
+    /// on another desktop; a meeting HERE does.
+    #[gpui::test]
+    async fn only_a_meeting_here_silences_a_voice_turn(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{settings, Rig, CONVERSATION, HERE};
+        let meeting_on = |device: &str| etalk::voice::VoiceSettings {
+            voice_device_id: Some(device.into()),
+            meeting_started_at: Some("2026-11-17T09:00:00.000Z".into()),
+            ..settings()
+        };
+        let rig = Rig::install(meeting_on("d-other"), cx);
+        cx.update(|cx| voice_turn(CONVERSATION, cx));
+        rig.message("r1", "agent", "All green.", 5, cx);
+        assert_eq!(rig.spoken(), ["r1"], "the meeting runs on another desktop");
+        cx.update(|cx| {
+            set_settings(meeting_on(HERE), cx);
+            voice_turn(CONVERSATION, cx);
+        });
+        rig.message("r2", "agent", "Shipped.", 6, cx);
+        assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
     }
 
     #[test]
