@@ -366,12 +366,16 @@ impl Clipboard for EdeClipboard<'_> {
 /// The hold, on a connection of its own; a thread waits for the person's Esc.
 struct Hold {
     stream: UnixStream,
+    /// Set by the guard's drop: the close the thread then reads is ours.
+    dropped: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Hold {
     fn take(mut client: Client, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Hold, String> {
         client.hold_input().map_err(e("eDE hold"))?;
         let stream = client.try_clone_stream().map_err(|err| format!("eDE hold: {err}"))?;
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ours = dropped.clone();
         std::thread::Builder::new()
             .name("computer-use-lock".into())
             .spawn(move || loop {
@@ -381,12 +385,20 @@ impl Hold {
                         return;
                     }
                     Ok(_) => {}
-                    // Closed: the guard dropped (or the compositor went away).
-                    Err(_) => return,
+                    // Closed. By the guard's drop: done. Otherwise the
+                    // compositor went away and the hold with it: the host
+                    // must not believe the input is still held, so it
+                    // hears an abort (#EXP-1893).
+                    Err(_) => {
+                        if !ours.load(std::sync::atomic::Ordering::SeqCst) {
+                            on_esc();
+                        }
+                        return;
+                    }
                 }
             })
             .map_err(|err| format!("lock thread: {err}"))?;
-        Ok(Hold { stream })
+        Ok(Hold { stream, dropped })
     }
 }
 
@@ -396,6 +408,7 @@ impl Drop for Hold {
     /// Closing the connection ends the hold; never joins (this may run on
     /// the lock's own thread, inside `on_esc`).
     fn drop(&mut self) {
+        self.dropped.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 }
@@ -481,6 +494,57 @@ mod tests {
         let (ops, closed) = server.join().unwrap();
         assert_eq!(ops, ["hello", "hold_input"]);
         assert!(closed);
+    }
+
+    /// A fake compositor that answers hello and the hold, then does `then`
+    /// with its end of the connection.
+    fn held(then: impl FnOnce(UnixStream) + Send + 'static) -> (Client, std::thread::JoinHandle<()>) {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut theirs = theirs;
+            for _ in 0..2 {
+                let call: Call = serde_json::from_slice(&read_frame(&mut theirs).unwrap()).unwrap();
+                let result = match &call.request {
+                    Request::Hello { .. } => serde_json::json!({"version": 1, "capabilities": ["input:person"], "session_id": "epilot"}),
+                    _ => serde_json::Value::Null,
+                };
+                write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: call.id, result }).unwrap()).unwrap();
+            }
+            then(theirs);
+        });
+        (Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap(), server)
+    }
+
+    /// #EXP-1893: the compositor went away under the hold (a crash, a
+    /// restart): the input is no longer held, so the host hears an abort.
+    #[test]
+    fn a_dead_hold_connection_is_an_abort() {
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let (client, server) = held(move |theirs| {
+            let _ = released.recv();
+            drop(theirs);
+        });
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = Mutex::new(tx);
+        let guard = Hold::take(client, Box::new(move || { let _ = tx.lock().unwrap().send(()); })).unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        release.send(()).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("the dead hold reaches on_esc");
+        drop(guard);
+        server.join().unwrap();
+    }
+
+    /// Dropping the guard closes the same connection: that is the host's
+    /// own release, never an abort.
+    #[test]
+    fn dropping_the_hold_is_not_an_abort() {
+        let (client, server) = held(|mut theirs| assert!(read_frame(&mut theirs).is_err()));
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = Mutex::new(tx);
+        let guard = Hold::take(client, Box::new(move || { let _ = tx.lock().unwrap().send(()); })).unwrap();
+        drop(guard);
+        server.join().unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(500)).is_err(), "on_esc fired on the guard's own drop");
     }
 
     /// A fake compositor answering the clipboard ops from a script; the
