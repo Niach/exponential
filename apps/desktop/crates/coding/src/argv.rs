@@ -146,9 +146,10 @@ pub struct LaunchOptions {
     /// a profile — a launch never runs without one.
     pub account: Option<String>,
     /// EXP-1249: computer use for THIS run (the composer "+" menu's toggle,
-    /// the start frame's `computerUse`). `None` = the device's own switch
-    /// (`Settings.computer_use`, published as `launch_defaults.computerUse`);
-    /// `Some` overrides it either way ([`Self::computer_use_on`]).
+    /// the session row's `computer_use`). #EXP-1899: the device's own switch
+    /// (`Settings.computer_use`, published as `launch_defaults.computerUse`)
+    /// is the gate; `Some(false)` = this run opted out, anything else
+    /// follows the switch ([`Self::computer_use_on`]).
     pub computer_use: Option<bool>,
 }
 
@@ -251,10 +252,11 @@ impl LaunchOptions {
         self
     }
 
-    /// EXP-1249: whether THIS run gets the device's computer-use server — the
-    /// run's own pick when it made one, else the device switch.
-    pub fn computer_use_on(&self, device_default: bool) -> bool {
-        self.computer_use.unwrap_or(device_default)
+    /// #EXP-1899: whether THIS run gets the device's computer-use server:
+    /// only while the device's switch is on AND the run did not opt out. A
+    /// run's own `true` never turns it on against the switch.
+    pub fn computer_use_on(&self, device_switch: bool) -> bool {
+        device_switch && self.computer_use != Some(false)
     }
 
     /// EXP-792: the remote frame's MCP server picks. Deduplicated, blanks
@@ -439,15 +441,16 @@ mod tests {
         }
     }
 
-    /// EXP-1249: a run's own computer-use pick wins over the device switch,
-    /// both ways; no pick = the switch.
+    /// #EXP-1899: the device's switch is the gate: a run follows it unless it
+    /// opted out, and its own `true` never wins over a switch that is off.
     #[test]
-    fn a_runs_computer_use_pick_overrides_the_device_switch() {
+    fn the_device_switch_gates_computer_use_and_a_run_only_opts_out() {
         let unset = claude_opts();
         assert!(unset.computer_use_on(true));
         assert!(!unset.computer_use_on(false));
         let on = claude_opts().with_computer_use(Some(true));
-        assert!(on.computer_use_on(false));
+        assert!(on.computer_use_on(true));
+        assert!(!on.computer_use_on(false), "switch off + session on = no computer use");
         let off = claude_opts().with_computer_use(Some(false));
         assert!(!off.computer_use_on(true));
         assert_eq!(claude_opts().with_computer_use(None).computer_use, None);

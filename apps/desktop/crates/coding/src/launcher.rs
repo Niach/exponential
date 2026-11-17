@@ -1708,10 +1708,10 @@ fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
     resolved
 }
 
-/// EXP-1196: give the run this device's computer-use server when its
-/// Computer use switch is on — EXP-1249: or when the RUN asked for it
-/// (`options`' per-run `computer_use`, the composer "+" toggle; `None` =
-/// the switch decides, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
+/// EXP-1196: give the run this device's computer-use server while its
+/// Computer use switch is on — #EXP-1899: and the RUN did not opt out
+/// (`options`' per-run `computer_use`; a run's own `true` never wins over a
+/// switch that is off, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
@@ -4410,6 +4410,30 @@ mod tests {
         agent.agent_id = Some("ag-1".to_string());
         agent.title = Some("Inbox watcher".to_string());
         assert_eq!(session_label(&agent, &[], ""), "Inbox watcher");
+    }
+
+    /// #EXP-1899: the device's switch is the gate. Switch off + a session
+    /// whose row says on = no grant and no computer entry; an opted-out
+    /// session gets none with the switch on either. (Neither reaches the
+    /// screen: the gate answers before a grant is asked.)
+    #[test]
+    fn a_switch_that_is_off_gives_no_grant_whatever_the_session_says() {
+        let dir = temp_dir("computer-use-gate");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        let mut on = row("s-1", None);
+        on.computer_use = true;
+        deps.settings.computer_use = false;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        assert_eq!(options.computer_use, Some(true));
+        let mut mcp = ResolvedMcp::default();
+        assert!(!attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"));
+        assert_eq!(mcp, ResolvedMcp::default());
+
+        deps.settings.computer_use = true;
+        let opted_out = session_launch_options(&row("s-2", None), &base_options(), &deps.settings);
+        assert_eq!(opted_out.computer_use, Some(false));
+        assert!(!attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"));
+        assert_eq!(mcp, ResolvedMcp::default());
     }
 
     /// The row's pickers win over the host's defaults, normalized against the

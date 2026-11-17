@@ -132,7 +132,14 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// - `computer-use-run` (EXP-1249) — this build honours a session's
 ///   `computer_use` picker; clients hide the toggle for a machine without
 ///   it, which would silently fall back to its own switch.
-pub const RUN_CAPS: [&str; 2] = [RESUME_RUN_CAP, COMPUTER_USE_RUN_CAP];
+/// - `computer-use-switch` (#EXP-1899) — this build applies the Computer use
+///   gate itself: a run gets a grant only while the device's switch is on
+///   AND its session did not opt out. For a build without it the server
+///   stores the effective value on the session row.
+pub const RUN_CAPS: [&str; 3] = [RESUME_RUN_CAP, COMPUTER_USE_RUN_CAP, COMPUTER_USE_SWITCH_CAP];
+
+/// #EXP-1899's gate cap, by name: composer-menu.json `computerUse.switchCap`.
+pub const COMPUTER_USE_SWITCH_CAP: &str = "computer-use-switch";
 
 /// EXP-1249's per-run computer-use cap, by name: the contract's
 /// `codingSession.computerUseCap`.
@@ -1401,6 +1408,13 @@ mod tests {
         assert_eq!(COMPUTER_USE_RUN_CAP, "computer-use-run");
         assert!(RUN_CAPS.contains(&COMPUTER_USE_RUN_CAP));
         assert!(!DEVICE_CAPS.contains(&COMPUTER_USE_RUN_CAP));
+        // #EXP-1899: and so does the gate's cap, named by the fixture.
+        let menu: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/composer-menu.json"
+        ))
+        .unwrap();
+        assert_eq!(menu["computerUse"]["switchCap"], COMPUTER_USE_SWITCH_CAP);
+        assert!(caps.contains(&COMPUTER_USE_SWITCH_CAP.to_string()));
         assert!(caps.contains(&RESUME_RUN_CAP.to_string()));
         assert!(!device_caps(&advert(&[])).contains(&RESUME_RUN_CAP.to_string()));
     }

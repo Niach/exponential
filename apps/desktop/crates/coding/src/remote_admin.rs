@@ -170,6 +170,39 @@ pub fn upgrade_display_pick(settings_path: &std::path::Path) -> bool {
 /// RESET what it didn't validly set (unlike `normalize_choice`'s load-time
 /// fallback). Returns whether anything changed. Persisting stays the
 /// caller's `Settings::save` (merge-preserving).
+/// #EXP-1899: the device's Computer use switch as its host last saw it, so
+/// a move is acted on ONCE whatever wrote the settings (the server's copy, a
+/// hand-edited file, another process of this device).
+#[derive(Debug, Default)]
+pub struct ComputerSwitchWatch {
+    last: Option<bool>,
+}
+
+/// What the switch did since the last look ([`ComputerSwitchWatch::observe`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputerSwitchMove {
+    /// Ask this machine's permissions now, not in the middle of a run.
+    On,
+    /// End every grant, stop the calls in flight, give the input back.
+    Off,
+}
+
+impl ComputerSwitchWatch {
+    pub const fn new() -> Self {
+        Self { last: None }
+    }
+
+    /// The first look only records; after that a change is reported once.
+    pub fn observe(&mut self, on: bool) -> Option<ComputerSwitchMove> {
+        let before = self.last.replace(on)?;
+        match (before, on) {
+            (false, true) => Some(ComputerSwitchMove::On),
+            (true, false) => Some(ComputerSwitchMove::Off),
+            _ => None,
+        }
+    }
+}
+
 pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> bool {
     fn set_string(slot: &mut String, value: &str, changed: &mut bool) {
         if slot != value {
@@ -321,6 +354,20 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1899: the watch reports each move of the switch once, and the
+    /// first look (the host's start) is no move.
+    #[test]
+    fn the_computer_switch_watch_reports_each_move_once() {
+        let mut watch = ComputerSwitchWatch::default();
+        assert_eq!(watch.observe(true), None);
+        assert_eq!(watch.observe(true), None);
+        assert_eq!(watch.observe(false), Some(ComputerSwitchMove::Off));
+        assert_eq!(watch.observe(false), None);
+        assert_eq!(watch.observe(true), Some(ComputerSwitchMove::On));
+        let mut off_first = ComputerSwitchWatch::default();
+        assert_eq!(off_first.observe(false), None);
+    }
 
     // -- apply_defaults_patch --------------------------------------------------
 
