@@ -310,6 +310,16 @@ pub(crate) fn before_exit() {
     }
 }
 
+/// #EXP-1925: `run` ended: what was granted at the desktop for it ends
+/// (eDE).
+pub(crate) fn end_run(target: Target, run: &str) {
+    let Target::Person = target;
+    #[cfg(target_os = "linux")]
+    ede::end_run(run);
+    #[cfg(not(target_os = "linux"))]
+    let _ = run;
+}
+
 /// The switch turned off: a grant minted at the desktop ends (eDE).
 pub(crate) fn revoke_grant() {
     #[cfg(target_os = "linux")]
@@ -338,17 +348,20 @@ pub(crate) fn name() -> &'static str {
     "none"
 }
 
-/// Open the backend driving `target` for one call.
-pub(crate) fn open(target: Target) -> Result<Box<dyn Backend>, String> {
+/// Open the backend driving `target` for one call of `run` (`None` = no
+/// run's: the doctor, the screen state, the banner).
+pub(crate) fn open(target: Target, run: Option<&str>) -> Result<Box<dyn Backend>, String> {
     let Target::Person = target;
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
     #[cfg(target_os = "linux")]
     return match ede::session() {
-        Some(session) => ede::open(&session?),
+        Some(session) => ede::open_as(&session?, run),
         None => linux::open(),
     };
+    #[cfg(not(target_os = "linux"))]
+    let _ = run;
     #[cfg(target_os = "macos")]
     return macos::open();
     #[cfg(target_os = "windows")]

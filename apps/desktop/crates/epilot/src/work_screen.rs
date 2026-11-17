@@ -368,7 +368,7 @@ fn public(index: usize, display: &DisplayInfo) -> Display {
 }
 
 fn backend_displays() -> Option<(Box<dyn backend::Backend>, Vec<DisplayInfo>)> {
-    let backend = backend::open(Target::Person).ok()?;
+    let backend = backend::open(Target::Person, None).ok()?;
     let displays = backend.displays().ok()?;
     Some((backend, displays))
 }
