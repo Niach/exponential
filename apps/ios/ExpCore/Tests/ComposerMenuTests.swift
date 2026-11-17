@@ -93,6 +93,30 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertNil(ComposerMenu.RowId(rawValue: "message-agent"))
     }
 
+    /// #EXP-1899: the Computer use row shows only where the device's switch
+    /// is on and it can drive (composer-menu.json `computerUse.offered`).
+    func testComputerUseIsOfferedPerTheFixture() throws {
+        let block = try XCTUnwrap(try fixture()["computerUse"] as? [String: Any])
+        let cases = try XCTUnwrap(block["offered"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let doctor = (c["doctorState"] as? String).map { state in
+                DeviceDoctor(
+                    checkedAt: "2026-11-17T09:00:00.000Z",
+                    items: [DeviceDoctor.Item(key: "computer_use", group: "computer_use", state: state)]
+                )
+            }
+            XCTAssertEqual(
+                ComposerMenu.computerUseOffered(
+                    caps: c["caps"] as? [String], doctor: doctor,
+                    switchOn: c["launchDefault"] as? Bool ?? false
+                ),
+                c["offered"] as? Bool, name
+            )
+        }
+    }
+
     func testNamesTheContractsComputerUsePayloadKeyAndCap() throws {
         let block = try XCTUnwrap(try fixture()["computerUse"] as? [String: Any])
         XCTAssertEqual(ComposerMenu.computerUsePayloadKey, block["payloadKey"] as? String)

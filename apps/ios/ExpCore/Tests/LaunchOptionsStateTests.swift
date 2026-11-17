@@ -144,6 +144,9 @@ final class LaunchOptionsStateTests: XCTestCase {
         XCTAssertEqual(codex.mcpServerIds, ["m-1"])
         XCTAssertEqual(codex.skillIds, ["s-1"])
         XCTAssertEqual(codex.computerUse, false)
+        // #EXP-1899: switched back on = follows the device: no key.
+        state.computerUse = true
+        XCTAssertNil(state.buildOptions().computerUse)
     }
 
     // #EXP-1734: opus is the one claude default, and a machine row still

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   deviceAcpAgentIds,
-  deviceComputerUseDefault,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
   deviceDefaultAgent,
@@ -958,14 +957,5 @@ describe(`unpinned accounts`, () => {
       expect(isUnpinnedAccount(account)).toBe(true)
     }
     expect(isUnpinnedAccount(`a1b2c3d4`)).toBe(false)
-  })
-})
-
-// EXP-1249: the composer's per-run Computer use toggle.
-describe(`computer use per run`, () => {
-  it(`seeds from the device's own switch, absent = off`, () => {
-    expect(deviceComputerUseDefault({ launchDefaults: { computerUse: true } })).toBe(true)
-    expect(deviceComputerUseDefault({ launchDefaults: { computerUse: null } })).toBe(false)
-    expect(deviceComputerUseDefault({})).toBe(false)
   })
 })

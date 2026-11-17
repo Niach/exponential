@@ -115,6 +115,40 @@ class ComposerMenuTest {
         }
     }
 
+    // #EXP-1899: the Computer use row shows only where the device's switch is
+    // on and it can drive (composer-menu.json `computerUse.offered`).
+    @Test
+    fun `computerUse offered matches the fixture`() {
+        val cases = fixture.getValue("computerUse").jsonObject.getValue("offered").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val state = case["doctorState"]?.jsonPrimitive?.takeIf { it.isString }?.content
+            val doctor = state?.let {
+                DeviceDoctor(items = listOf(DeviceDoctorItem(key = "computer_use", group = "computer_use", state = it)))
+            }
+            assertEquals(
+                case.string("name"),
+                case.getValue("offered").jsonPrimitive.boolean,
+                ComposerMenu.computerUseOffered(
+                    caps = case.getValue("caps").jsonArray.map { it.jsonPrimitive.content },
+                    doctor = doctor,
+                    switchOn = case.getValue("launchDefault").jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    // #EXP-1899: the toggle starts on; only an opt-out rides the start.
+    @Test
+    fun `computerUse starts on and only an opt-out rides`() {
+        assertEquals(true, ComposerMenu.computerUseShown(null))
+        assertEquals(false, ComposerMenu.computerUseShown(false))
+        assertEquals(null, ComposerMenu.computerUseWire(null, offered = true))
+        assertEquals(false, ComposerMenu.computerUseWire(false, offered = true))
+        assertEquals(null, ComposerMenu.computerUseWire(true, offered = true))
+        assertEquals(null, ComposerMenu.computerUseWire(false, offered = false))
+    }
+
     @Test
     fun `names the contract's computer-use payload key and cap`() {
         val computerUse = fixture.getValue("computerUse").jsonObject

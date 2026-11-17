@@ -18,7 +18,9 @@
 //! It takes no focus and no click: Esc is the way out, and the hold ends
 //! on the key itself. EXP-1912: on Wayland it is a layer-shell surface
 //! (overlay layer, no keyboard) with an empty input region, so the window
-//! the agent drives keeps the keyboard and gets the click under the bar.
+//! the agent drives keeps the keyboard and gets the click under the bar;
+//! the same region is click-through on X11 and Windows, and macOS ignores
+//! the banner's mouse events (EXP-1923).
 
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -363,7 +365,16 @@ pub(crate) fn init(cx: &mut App) {
                         Ok(handle) => {
                             // EXP-1912: no click is the banner's; what is
                             // under it gets them.
-                            let _ = handle.update(cx, |_, window, _| window.set_input_region(Some(&[])));
+                            let _ = handle.update(cx, |_, window, _| {
+                                window.set_input_region(Some(&[]));
+                                // EXP-1923: gpui's input region is Linux and
+                                // Windows only.
+                                #[cfg(target_os = "macos")]
+                                match crate::macos_window::ignore_mouse(window) {
+                                    true => log::debug!("[computer] the banner ignores mouse events"),
+                                    false => log::warn!("[computer] the banner could not be made click-through"),
+                                }
+                            });
                             banner = Some(handle);
                         }
                         Err(err) => log::warn!("[computer] the banner window did not open: {err}"),

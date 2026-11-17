@@ -66,6 +66,7 @@
     "./waiting-cards": "./src/waiting-cards.ts",
     "./repo-page": "./src/repo-page.ts",
     "./results-tab": "./src/results-tab.ts",
+    "./chat-store": "./src/chat-store.ts",
     "./nav-badges": "./src/nav-badges.ts",
     "./needs-you": "./src/needs-you.ts",
     "./dock": "./src/dock.ts",

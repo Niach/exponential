@@ -103,6 +103,11 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
     if s.started {
         return Err("the session already started".into());
     }
+    // #EDE-101: remote control only through RemoteDesktop.Start, which
+    // asks for `allow`; a share never starts any other kind of session.
+    if s.kind == Kind::GlobalShortcuts || (s.kind == Kind::RemoteDesktop) != remote_control {
+        return Err(format!("a {:?} session does not start here", s.kind));
+    }
     let types = if s.kind == Kind::ScreenCast && s.types == 0 { MONITOR } else { s.types };
     let outputs = ctx.ede(|c| c.outputs()).map_err(|e| e.to_string())?;
     let windows = ctx.ede(|c| c.windows()).map_err(|e| e.to_string())?;
@@ -158,7 +163,7 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
         let Some(live) = sessions.get_mut(path) else {
             // Closed while the chooser was up.
             drop(sessions);
-            if let Some(Ok(pw)) = ctx_pw(ctx) {
+            if let Some(pw) = ctx.pw_get() {
                 for st in &streams {
                     pw.destroy(st.key);
                 }
@@ -174,10 +179,6 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
         ctx.notify("Screen sharing", &format!("{who} {what}"));
     }
     Ok(Some(results))
-}
-
-fn ctx_pw(ctx: &Ctx) -> Option<Result<&crate::stream::Pw, &String>> {
-    ctx.pw_get().map(|r| r.as_ref())
 }
 
 /// The picks of our own `(suv)` restore data; anything else = none.

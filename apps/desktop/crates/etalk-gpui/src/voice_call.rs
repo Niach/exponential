@@ -374,6 +374,11 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 return;
             }
         };
+        if !admitted(&rx).await {
+            log::info!("[voice] call {call_id}: the ring ended before the relay admitted this device");
+            host.end();
+            return;
+        }
         let started = weak.update(cx, |this, cx| {
             if this.active.is_some() {
                 host.end();
@@ -392,6 +397,20 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// EXP-1929: the call starts here only once the relay admitted this
+/// device (`call_ready`); a ring cancelled before (the caller hung up, the
+/// ring timed out: the relay answers `no_such_call`) ends without a call,
+/// silently, as the fixture ends a cancelled ring.
+async fn admitted(events: &flume::Receiver<CallLinkEvent>) -> bool {
+    loop {
+        match events.recv_async().await {
+            Ok(CallLinkEvent::Ready) => return true,
+            Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_)) | Err(_) => return false,
+            Ok(_) => {}
+        }
+    }
 }
 
 /// The `call_event` a host sends before hanging up on a call it failed
@@ -1379,6 +1398,25 @@ mod tests {
     async fn the_relays_max_length_toasts_dropped(cx: &mut gpui::TestAppContext) {
         let dropped = VOICE_CALL.copy.failed["dropped"].clone();
         assert_eq!(host_ended(Some("max_length"), cx), vec![dropped]);
+    }
+
+    /// EXP-1929: a ring cancelled before the relay admitted this device
+    /// (`no_such_call`, a hang-up, a link gone) starts no call; only
+    /// `call_ready` does.
+    #[gpui::test]
+    async fn a_call_starts_only_on_the_relays_admit() {
+        async fn outcome(events: Vec<CallLinkEvent>) -> bool {
+            let (tx, rx) = flume::unbounded();
+            for event in events {
+                tx.send(event).unwrap();
+            }
+            drop(tx);
+            admitted(&rx).await
+        }
+        assert!(!outcome(vec![CallLinkEvent::Dropped("no_such_call".into())]).await);
+        assert!(!outcome(vec![CallLinkEvent::Ended { reason: None }]).await);
+        assert!(!outcome(vec![]).await, "the link went away");
+        assert!(outcome(vec![CallLinkEvent::Ready, CallLinkEvent::Dropped("later".into())]).await);
     }
 
     /// The caller pressing End call (no reason) ends it silently.

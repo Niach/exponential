@@ -4,8 +4,8 @@
 // capture worklet and coded as Opus (~`upKbps` kbps, in-band FEC) by
 // WebCodecs' AudioEncoder. Playback = the `downRate` Hz Opus downlink
 // decoded by AudioDecoder into a playback worklet behind a `jitterMs` jitter
-// buffer, flushed on barge-in. The host sends a reply as fast as it is
-// synthesised, so the buffer queues a whole clause and plays it in time.
+// buffer, flushed on barge-in. The host sends a reply at real time, at most
+// 200 ms ahead (#EXP-1929), and the buffer plays what arrives in time.
 // Mute disables the track and keeps encoding: its silence keeps the frames
 // flowing, so the relay's idle timeout never ends a muted call.
 

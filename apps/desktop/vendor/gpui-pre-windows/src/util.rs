@@ -93,6 +93,29 @@ pub(crate) unsafe fn set_window_long(
     }
 }
 
+/// Exponential patch (#EXP-1923): what an empty input region asks of a
+/// window: no click is its own (each goes to the window under it) and it is
+/// never activated.
+const CLICK_THROUGH: WINDOW_EX_STYLE = WINDOW_EX_STYLE(WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0);
+
+/// Exponential patch (#EXP-1923): `hwnd` takes no mouse input (`on`), or
+/// takes it again. A layered window shows nothing until it has attributes:
+/// fully opaque, so it looks the same.
+pub(crate) fn set_click_through(hwnd: HWND, on: bool) {
+    let bits = CLICK_THROUGH.0 as isize;
+    unsafe {
+        let style = get_window_long(hwnd, GWL_EXSTYLE);
+        let next = if on { style | bits } else { style & !bits };
+        if next == style {
+            return;
+        }
+        set_window_long(hwnd, GWL_EXSTYLE, next);
+        if on {
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA).log_err();
+        }
+    }
+}
+
 pub(crate) fn windows_credentials_target_name(url: &str) -> String {
     format!("zed:url={}", url)
 }
@@ -200,9 +223,12 @@ where
 #[cfg(test)]
 mod exponential_patch_tests {
     // Not `super::*`: that glob brings `gpui::test`, which shadows `#[test]`.
-    use super::is_live_window;
+    use super::{get_window_long, is_live_window, set_click_through};
+    use windows::Win32::Foundation::COLORREF;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+        CreateWindowExW, DestroyWindow, GWL_EXSTYLE, GetLayeredWindowAttributes, HWND_MESSAGE,
+        LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA, WINDOW_EX_STYLE, WINDOW_STYLE, WS_EX_LAYERED,
+        WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
     };
     use windows::core::w;
 
@@ -228,6 +254,40 @@ mod exponential_patch_tests {
             assert!(is_live_window(hwnd));
             DestroyWindow(hwnd).unwrap();
             assert!(!is_live_window(hwnd));
+        }
+    }
+
+    /// #EXP-1923: an empty input region makes the window click-through and
+    /// never active, fully opaque; a region again takes the clicks back.
+    #[test]
+    fn an_empty_input_region_is_click_through() {
+        let bits = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0) as isize;
+        unsafe {
+            // The banner's kind: a top-level PopUp on DirectComposition.
+            let hwnd = CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP,
+                w!("STATIC"),
+                w!("probe"),
+                WS_POPUP,
+                0,
+                0,
+                10,
+                10,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(get_window_long(hwnd, GWL_EXSTYLE) & bits, 0);
+            set_click_through(hwnd, true);
+            assert_eq!(get_window_long(hwnd, GWL_EXSTYLE) & bits, bits);
+            let (mut key, mut alpha, mut flags) = (COLORREF(0), 0u8, LAYERED_WINDOW_ATTRIBUTES_FLAGS(0));
+            GetLayeredWindowAttributes(hwnd, Some(&mut key), Some(&mut alpha), Some(&mut flags)).unwrap();
+            assert_eq!((alpha, flags), (255, LWA_ALPHA));
+            set_click_through(hwnd, false);
+            assert_eq!(get_window_long(hwnd, GWL_EXSTYLE) & bits, 0);
+            DestroyWindow(hwnd).unwrap();
         }
     }
 }

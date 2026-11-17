@@ -10,6 +10,7 @@ use gpui::{div, px, App, Div, IntoElement, ParentElement as _, SharedString, Sty
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::device_readiness::{self, BlockProps};
+use coding::device_doctor::{DoctorState, KEY_COMPUTER_USE};
 use crate::settings::readiness::{self, Shape};
 
 pub(crate) const ID: &str = "device-readiness";
@@ -90,8 +91,24 @@ fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], wi
             .gap_1p5()
             .child(caption(SharedString::from(name.clone())))
             .child(low_disk)
-            .when_some(composer, |this, composer| this.child(caption("Composer".into())).child(composer)),
+            .when_some(composer, |this, composer| this.child(caption("Composer".into())).child(composer))
+            .children(cannot_drive_specimen(cases, window, cx).into_iter().flatten()),
     )
+}
+
+/// #EXP-1899: then the fixture's case whose machine cannot drive a screen:
+/// its Computer use switch row with the device's reason as the second line.
+fn cannot_drive_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], window: &mut Window, cx: &mut App) -> Option<[gpui::AnyElement; 2]> {
+    let (name, doctor) = cases.iter().find(|(_, doctor)| {
+        doctor.items.iter().any(|item| item.key == KEY_COMPUTER_USE && item.state == DoctorState::Missing)
+    })?;
+    let sections = device_readiness::sections(doctor, false, None);
+    let row = sections.iter().flat_map(|section| section.rows.iter()).find(|row| row.key == KEY_COMPUTER_USE)?;
+    let muted = cx.theme().muted_foreground;
+    Some([
+        div().pt_2p5().text_xs().text_color(muted).child(SharedString::from(name.clone())).into_any_element(),
+        block("sg-device-readiness-cannot-drive", Shape::Single(row), window, cx),
+    ])
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
@@ -132,6 +149,6 @@ mod tests {
 
     #[test]
     fn every_fixture_case_draws() {
-        assert_eq!(cases().len(), 14);
+        assert_eq!(cases().len(), 15);
     }
 }

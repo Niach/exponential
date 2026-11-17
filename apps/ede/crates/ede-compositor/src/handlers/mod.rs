@@ -46,6 +46,8 @@ impl SeatHandler for Ede {
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client);
         self.keep_text_input_off_protected(focused);
+        #[cfg(feature = "xwayland")]
+        self.sync_x11_focus(focused);
     }
 }
 

@@ -72,7 +72,7 @@ pub fn displays_changed() {
 
 /// The screen now; `None` without a display or a window list.
 pub fn screen_look() -> Option<ScreenLook> {
-    let backend = backend::open(backend::Target::Person).ok()?;
+    let backend = backend::open(backend::Target::Person, None).ok()?;
     let (displays, epoch) = {
         let mut cache = DISPLAYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let epoch = display_epoch();
@@ -135,7 +135,7 @@ pub(crate) fn look_of(displays: &[(DisplayInfo, (u32, u32))], windows: &[WindowI
 /// Display `number`'s pixels now (RGBA8, width, height), the OS's live
 /// read (GDI on Windows, the X root on X11).
 pub fn screenshot(number: u32) -> Result<(u32, u32, Vec<u8>), String> {
-    let backend = backend::open(backend::Target::Person)?;
+    let backend = backend::open(backend::Target::Person, None)?;
     let displays = backend.displays()?;
     let display = number.checked_sub(1).and_then(|index| displays.get(index as usize)).ok_or("No such display.")?;
     let image = backend.screenshot(display)?;

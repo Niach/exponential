@@ -41,6 +41,8 @@ final class DeviceReadinessTests: XCTestCase {
         let remotePills: [String: String]
         /// EXP-1375: the composer's non-blocking row (absent = none).
         let composerWarning: String?
+        /// #EXP-1899: the switch row's second line (absent = none).
+        let switchDescription: String?
     }
 
     private func fixture() throws -> Fixture {
@@ -56,6 +58,7 @@ final class DeviceReadinessTests: XCTestCase {
 
     func testLocksTheTables() throws {
         let f = try fixture()
+        XCTAssertEqual(DeviceReadiness.unavailable, f.copy["unavailable"])
         XCTAssertEqual(DeviceReadiness.groups.map(\.key), f.groups.map(\.key))
         XCTAssertEqual(DeviceReadiness.groups.map(\.label), f.groups.map(\.label))
         XCTAssertEqual(DeviceReadiness.groups.map(\.tag), f.groups.map(\.tag))
@@ -105,10 +108,11 @@ final class DeviceReadinessTests: XCTestCase {
                 XCTAssertEqual(row.label, item.label ?? f.labels[item.key], "\(c.name) \(item.key)")
                 XCTAssertEqual(row.indented, item.parent != nil, "\(c.name) \(item.key)")
                 if item.key == "computer_use" {
-                    // The switch row: label + switch, no glyph, no detail.
+                    // The switch row: label + switch, no glyph, no detail
+                    // but the device's reason while it cannot drive.
                     XCTAssertTrue(row.isSwitch, c.name)
                     XCTAssertNil(row.glyph, c.name)
-                    XCTAssertNil(row.detail, c.name)
+                    XCTAssertEqual(row.detail, c.switchDescription, c.name)
                     XCTAssertNil(row.action, c.name)
                     XCTAssertEqual(row.switchOn, item.state != "off", c.name)
                 } else {
