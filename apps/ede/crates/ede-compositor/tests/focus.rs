@@ -139,6 +139,111 @@ fn no_window_takes_the_keyboard_from_an_exclusive_prompt() {
     wait_for(&mut app, |c| c.state.keys == [KEY_A]);
 }
 
+/// A left click at `(x, y)`.
+fn click(h: &Harness, x: f64, y: f64) {
+    h.with(move |ede| {
+        ede.pointer_motion_to((x, y).into(), 0);
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+}
+
+/// #EXP-1912: the computer-use banner on eDE is an overlay layer that asks
+/// for no keyboard and has an empty input region: it shows above the window
+/// the agent drives, which keeps the keyboard and gets the click under it.
+#[test]
+fn a_banner_layer_takes_neither_the_keyboard_nor_the_click_under_it() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness();
+    let (mut app, a) = focused_app(&h, "browser", RED);
+    app.pointer();
+    let mut banner = Session::connect(h.connect());
+    banner.keyboard();
+    banner.pointer();
+    // Centred: (540, 350) to (740, 450), over the window.
+    let l = banner.keyboard_layer("exponential-overlay:computer-use-banner", Layer::Overlay, (200, 100), KeyboardInteractivity::None);
+    banner.no_input(&l.surface);
+    banner.draw_layer(&l, GREEN);
+    wait_for(&mut banner, |_| h.capture(0).at(640, 400) == GREEN);
+
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    click(&h, 640.0, 400.0);
+    wait_for(&mut app, |c| c.state.press_serial.is_some());
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_A]);
+    banner.roundtrip();
+    assert_eq!(banner.state.press_serial, None, "the banner took the click meant for the window under it");
+    assert!(banner.state.keys.is_empty() && banner.state.keyboard_focus.is_none(), "the banner took the keyboard");
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&a.surface));
+    assert!(app.state.toplevels[0].states.contains(&XdgState::Activated));
+    assert_eq!(stack(&h), [("browser".to_string(), true)], "the banner is no window: the taskbar never lists it");
+    assert_eq!(h.capture(0).at(640, 400), GREEN, "the banner stays above the window");
+}
+
+/// #EXP-1912: the push-to-talk capsule and the call pill are overlay layers
+/// that ask for no keyboard but keep their clicks (Stop, Mute, End): the
+/// window being typed into keeps the keyboard through a click on them.
+#[test]
+fn a_capsule_layer_takes_its_click_and_leaves_the_keyboard_with_the_window() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness();
+    let (mut app, a) = focused_app(&h, "editor", RED);
+    app.pointer();
+    let mut capsule = Session::connect(h.connect());
+    capsule.keyboard();
+    capsule.pointer();
+    let l = capsule.keyboard_layer("exponential-overlay:push-to-talk", Layer::Overlay, (200, 100), KeyboardInteractivity::None);
+    capsule.draw_layer(&l, GREEN);
+    wait_for(&mut capsule, |_| h.capture(0).at(640, 400) == GREEN);
+
+    click(&h, 640.0, 400.0);
+    wait_for(&mut capsule, |c| c.state.press_serial.is_some());
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    capsule.roundtrip();
+    assert_eq!(app.state.press_serial, None, "the window under the capsule got the capsule's click");
+    assert!(capsule.state.keys.is_empty() && capsule.state.keyboard_focus.is_none(), "the capsule took the keyboard");
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&a.surface));
+    assert!(app.state.toplevels[0].states.contains(&XdgState::Activated));
+}
+
+/// #EXP-1912: the call pill floats inside an overlay layer over the whole
+/// output whose input region is the pill alone: a click on the pill is the
+/// pill's, a click anywhere else is the window's under the layer.
+#[test]
+fn a_click_beside_the_pill_in_its_layer_reaches_the_window_under_it() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity}};
+    let h = harness();
+    let (mut app, a) = focused_app(&h, "editor", RED);
+    app.pointer();
+    let mut pill = Session::connect(h.connect());
+    pill.keyboard();
+    pill.pointer();
+    let l = pill.keyboard_layer("exponential-overlay:call-pill", Layer::Overlay, (1280, 800), KeyboardInteractivity::None);
+    l.layer.set_anchor(Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right);
+    l.surface.commit();
+    pill.roundtrip();
+    wait_for(&mut pill, |c| c.state.layers[0].size == (1280, 800));
+    // The pill: (460, 260) to (560, 300), over the window's corner.
+    pill.input_region(&l.surface, Some((460, 260, 100, 40)));
+    pill.draw_layer(&l, GREEN);
+    wait_for(&mut pill, |_| h.capture(0).at(640, 400) == GREEN);
+
+    click(&h, 700.0, 450.0);
+    wait_for(&mut app, |c| c.state.press_serial.is_some());
+    pill.roundtrip();
+    assert_eq!(pill.state.press_serial, None, "the layer took a click beside the pill");
+    app.state.press_serial = None;
+    click(&h, 500.0, 280.0);
+    wait_for(&mut pill, |c| c.state.press_serial.is_some());
+    press(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    assert_eq!(app.state.press_serial, None, "the window under the pill got the pill's click");
+    assert!(pill.state.keys.is_empty() && pill.state.keyboard_focus.is_none(), "the pill took the keyboard");
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&a.surface));
+}
+
 #[test]
 fn a_background_window_that_asks_for_fullscreen_stays_behind() {
     let h = harness();
