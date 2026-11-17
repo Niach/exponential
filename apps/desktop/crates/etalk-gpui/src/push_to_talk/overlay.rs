@@ -252,7 +252,24 @@ impl Overlay {
             kind,
             cx,
             |kind, cx| options(kind, display, origin, window_size, cx),
-            |_, _, cx| cx.new(|_| OverlayView { view: view.clone(), drag: None, float: None, level: 0., bands: Vec::new() }),
+            |_, window, cx| {
+                cx.new(|cx| {
+                    // #EXP-1938: a capsule that was given the focus after
+                    // all (a plain Wayland window) and loses it again takes
+                    // a focused-window hold with it.
+                    cx.observe_window_activation(window, |_, window, cx| {
+                        if !window.is_window_active() {
+                            super::on_window_deactivated(cx);
+                        }
+                    })
+                    .detach();
+                    // gpui hands a key only to what holds its focus: the
+                    // capsule's root, should the window ever get a key.
+                    let keys = cx.focus_handle();
+                    window.focus(&keys, cx);
+                    OverlayView { view: view.clone(), drag: None, float: None, keys: Some(keys), level: 0., bands: Vec::new() }
+                })
+            },
         );
         match opened {
             Ok(window) => {
@@ -326,7 +343,7 @@ impl Overlay {
                 kind => options(kind, layer_display, point(px(0.), px(0.)), room, cx),
             },
             |layer, _, cx| {
-                cx.new(|_| OverlayView { view: Face::Call(face.clone()), drag: None, float: layer.then_some(float), level: 0., bands: Vec::new() })
+                cx.new(|_| OverlayView { view: Face::Call(face.clone()), drag: None, float: layer.then_some(float), keys: None, level: 0., bands: Vec::new() })
             },
         );
         match opened {
@@ -357,6 +374,12 @@ impl Overlay {
     /// a longer line mid-hold: never the IDE window the key is held in).
     pub fn owns(&self, id: gpui::WindowId) -> bool {
         self.window.as_ref().is_some_and(|window| window.window_id() == id)
+    }
+
+    /// The open window.
+    #[cfg(test)]
+    pub(crate) fn window_id(&self) -> Option<gpui::WindowId> {
+        self.window.as_ref().map(|window| window.window_id())
     }
 
     /// The face the open window shows.
@@ -472,6 +495,9 @@ pub struct OverlayView {
     /// EXP-1912: the pill floats inside this window (a Wayland layer
     /// surface); `None` = the window is the pill.
     float: Option<Float>,
+    /// #EXP-1938: the capsule's root holds gpui's focus in its window, so a
+    /// key release that reaches the window reaches push to talk.
+    keys: Option<gpui::FocusHandle>,
     /// The wave's level and bands now ([`Overlay::refresh`]).
     level: f32,
     bands: Vec<f32>,
@@ -677,7 +703,18 @@ impl Render for OverlayView {
                 let c = Capsule { level, bands, ..c };
                 // The window never takes focus; a click still lands: the
                 // pill's action (Stop, Unmute).
-                root.child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx))).into_any_element()
+                // #EXP-1938: nor the keyboard, where the compositor lets
+                // it choose. Where it is focused anyway mid-hold, the
+                // release of the push-to-talk key arrives here.
+                let root = match self.keys.as_ref() {
+                    Some(keys) => root.track_focus(keys),
+                    None => root,
+                };
+                root.capture_key_up(|event: &gpui::KeyUpEvent, _, cx| {
+                    super::on_focused_key(false, &event.keystroke, cx);
+                })
+                .child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx)))
+                .into_any_element()
             }
             Face::Call(face) => {
                 let actions = CallActions {

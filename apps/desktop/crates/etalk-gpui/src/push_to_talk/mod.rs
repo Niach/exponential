@@ -43,6 +43,9 @@ use crate::host;
 
 pub use overlay::activity as overlay_activity;
 
+/// #EXP-1938: how long a focus change may take to name its new window.
+const FOCUS_SETTLE: Duration = Duration::from_millis(50);
+
 /// What THIS device listens for (None = nothing listens here).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Armed {
@@ -94,6 +97,9 @@ pub struct PushToTalk {
     grab_generation: u64,
     /// The key is down (any backend; repeats are ignored).
     held: bool,
+    /// #EXP-1938: the window that was active at the key-down (the IDE
+    /// window the focused-window fallback hears the release in).
+    held_in: Option<gpui::WindowId>,
     state: PttState,
     /// The Listen running now.
     utterance: Option<String>,
@@ -182,6 +188,7 @@ fn start(
             status: hotkey::Status::Idle,
             grab_generation: 0,
             held: false,
+            held_in: None,
             state: PttState::default(),
             utterance: None,
             counter: 0,
@@ -423,10 +430,39 @@ pub fn on_focused_key(down: bool, keystroke: &gpui::Keystroke, cx: &mut App) -> 
 /// In the focused-window fallback that is the key-up gpui never delivers:
 /// the hold ends and the Listen with it. The global backends see the real
 /// release and are untouched.
+///
+/// #EXP-1938: unless the focus only went to the capsule this very hold
+/// opened (a Wayland compositor without wlr-layer-shell gives the capsule a
+/// plain window, and focuses it): the capsule hears the release then
+/// ([`overlay`]), and its own deactivation comes back here.
 pub fn on_window_deactivated(cx: &mut App) {
     if let Some(entity) = global(cx) {
-        entity.update(cx, |this, cx| this.focus_lost(cx));
+        entity.update(cx, |this, cx| this.window_deactivated(cx));
     }
+}
+
+/// #EXP-1938: computer use took the person's keyboard and pointer
+/// ([`host::TalkHost::input_held`] is true by now). A push-to-talk key the
+/// person holds at that moment never gets its release: the hold floats
+/// their keyboard, so the X11 grab thread hears no KeyRelease and the
+/// microphone would stay open until the worker's MAX_HOLD. The hold ends
+/// here, as a release; a system-wide grab is taken anew, which forgets the
+/// thread's held key and ends the X server's activated grab with it.
+pub fn input_taken(cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| {
+        if !this.held {
+            return;
+        }
+        this.key_up(cx);
+        if this.status == hotkey::Status::Global {
+            let status = std::mem::take(&mut this.status);
+            this.regrab(cx);
+            // The same shortcut on the same desktop: the tray and Settings
+            // keep reading it as held until the new grab answers.
+            this.status = status;
+        }
+    });
 }
 
 /// A failed send left text waiting for a chat's composer.
@@ -592,6 +628,14 @@ impl PushToTalk {
         if self.held || self.recording {
             return;
         }
+        // #EXP-1938: while computer use holds the person's input the chord
+        // can only be an agent's synthetic keystroke (X11's XTEST passes a
+        // passive grab, RegisterHotKey and Carbon fire for injected keys):
+        // it opens no microphone and stops no speech. The grab still
+        // swallows it on every OS, so the driven app does not get it.
+        if host::input_held(cx) {
+            return;
+        }
         let Some(armed) = self.armed.clone() else { return };
         // NEW-55: a call holds the microphone; the key waits for End call.
         if crate::voice_call::active(cx) {
@@ -603,6 +647,7 @@ impl PushToTalk {
             return;
         }
         self.held = true;
+        self.held_in = cx.active_window().map(|window| window.window_id());
         self.woken = false;
         self.generation += 1;
         self.sent = None;
@@ -647,6 +692,30 @@ impl PushToTalk {
         if self.held && matches!(self.status, hotkey::Status::FocusedOnly(_)) {
             self.key_up(cx);
         }
+    }
+
+    /// #EXP-1938: a window deactivated mid-hold in the focused-window
+    /// fallback. The window that takes the focus is known only once the
+    /// focus has settled (Wayland: leave, then enter), so the hold is
+    /// judged [`FOCUS_SETTLE`] later: it goes on while the capsule's own
+    /// window or the window the key went down in has the focus (both hear
+    /// the release), and ends anywhere else.
+    fn window_deactivated(&mut self, cx: &mut Context<Self>) {
+        if !self.held || !matches!(self.status, hotkey::Status::FocusedOnly(_)) {
+            return;
+        }
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(FOCUS_SETTLE).await;
+            let _ = this.update(cx, |this, cx| {
+                let active = cx.active_window().map(|window| window.window_id());
+                let hears_the_release = active.is_some_and(|active| this.overlay.owns(active) || this.held_in == Some(active));
+                if this.generation == generation && !hears_the_release {
+                    this.focus_lost(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn on_worker(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
@@ -1103,6 +1172,119 @@ mod tests {
         key(false, cx);
         assert!(!rig.requests().iter().any(|request| matches!(request, etalk::Request::EndListen { .. })), "nothing left to end");
         assert_eq!(phase(cx), PttPhase::Failed(etalk::voice::ListenFailure::Failed));
+    }
+
+    fn ends(requests: &[etalk::Request]) -> usize {
+        requests.iter().filter(|request| matches!(request, etalk::Request::EndListen { .. })).count()
+    }
+
+    fn set_status(status: hotkey::Status, cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| global(cx).unwrap().update(cx, |this, cx| this.on_hotkey(hotkey::HotkeyEvent::Status(status), cx)));
+    }
+
+    /// #EXP-1938: while computer use holds the person's input the chord is
+    /// an agent's synthetic keystroke: no microphone, no capsule, no
+    /// barge-in. The person's own press works again after the hold.
+    #[gpui::test]
+    async fn an_agents_keystroke_never_fires_push_to_talk(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        rig.requests();
+        rig.hold_input(true);
+        key(true, cx);
+        assert_eq!(phase(cx), PttPhase::Hidden, "no capsule over the screen the agent works on");
+        assert!(cx.windows().is_empty());
+        key(false, cx);
+        assert_eq!(rig.requests(), [], "the microphone never opened");
+        rig.hold_input(false);
+        key(true, cx);
+        assert_eq!(phase(cx), PttPhase::Listening, "the person's own press");
+    }
+
+    /// #EXP-1938: computer use takes the keyboard while the person holds
+    /// the key: its release never arrives (X11 floats the keyboard), so the
+    /// hold ends with the take and the system-wide grab is taken anew.
+    #[gpui::test]
+    async fn a_key_held_into_a_computer_use_hold_is_released(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        set_status(hotkey::Status::Global, cx);
+        let grabs = |cx: &mut gpui::TestAppContext| cx.update(|cx| global(cx).unwrap().read(cx).grab_generation);
+        // Nothing held: the hold changes nothing.
+        let before = grabs(cx);
+        cx.update(input_taken);
+        assert_eq!(grabs(cx), before);
+        key(true, cx);
+        assert_eq!(phase(cx), PttPhase::Listening);
+        rig.requests();
+        rig.hold_input(true);
+        cx.update(input_taken);
+        cx.run_until_parked();
+        assert_eq!(rig.requests(), [etalk::Request::EndListen { id: "ptt-1".into() }], "the microphone closes with the take");
+        assert!(!cx.update(|cx| global(cx).unwrap().read(cx).held));
+        assert_eq!(grabs(cx), before + 1, "the grab that still holds the key is let go");
+        assert_eq!(cx.update(|cx| status(cx)), hotkey::Status::Global, "the shortcut reads as held throughout");
+        // The release that comes late, or never, ends nothing twice.
+        key(false, cx);
+        assert_eq!(rig.requests(), []);
+    }
+
+    /// The capsule of a hold taken in `ide` through the focused-window
+    /// fallback (no portal), and the chord.
+    fn focused_hold(ide: gpui::AnyWindowHandle, cx: &mut gpui::TestAppContext) -> (gpui::AnyWindowHandle, gpui::Keystroke) {
+        set_status(hotkey::Status::FocusedOnly(etalk::voice::ShortcutReason::NoPortal), cx);
+        cx.update(|cx| ide.update(cx, |_, window, _| window.activate_window())).unwrap();
+        cx.run_until_parked();
+        let chord = gpui::Keystroke::parse("ctrl-space").unwrap();
+        assert!(cx.update(|cx| on_focused_key(true, &chord, cx)), "the shell's listener takes the key");
+        cx.run_until_parked();
+        assert_eq!(phase(cx), PttPhase::Listening);
+        let capsule = cx.update(|cx| global(cx).unwrap().read(cx).overlay.window_id()).expect("the capsule shows");
+        let capsule = cx.windows().into_iter().find(|window| window.window_id() == capsule).unwrap();
+        (capsule, chord)
+    }
+
+    /// #EXP-1938: a compositor that gives the capsule a plain window
+    /// focuses it (Wayland without wlr-layer-shell): the IDE window's
+    /// deactivation is not the key-up, and the release reaches the capsule.
+    #[gpui::test]
+    async fn the_capsule_taking_the_focus_keeps_a_focused_window_hold(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        let ide = cx.add_window(|_, _| gpui::Empty);
+        let (capsule, chord) = focused_hold(ide.into(), cx);
+        rig.requests();
+        cx.update(|cx| capsule.update(cx, |_, window, _| window.activate_window())).unwrap();
+        // The shell's activation observer, for the IDE window.
+        cx.update(on_window_deactivated);
+        cx.executor().advance_clock(FOCUS_SETTLE * 4);
+        cx.run_until_parked();
+        assert_eq!(ends(&rig.requests()), 0, "the capsule opening is no key-up");
+        assert_eq!(phase(cx), PttPhase::Listening);
+        let mut in_capsule = gpui::VisualTestContext::from_window(capsule, cx);
+        in_capsule.simulate_event(gpui::KeyUpEvent { keystroke: chord });
+        cx.run_until_parked();
+        assert_eq!(ends(&rig.requests()), 1, "the release in the capsule ends the hold");
+    }
+
+    /// #EXP-1938 (#1244 review kept): the focus going anywhere else is the
+    /// key-up, from the IDE window or from a capsule that had it.
+    #[gpui::test]
+    async fn a_focused_window_hold_ends_when_the_focus_leaves(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(crate::test_support::settings(), cx);
+        let ide = cx.add_window(|_, _| gpui::Empty);
+        let other = cx.add_window(|_, _| gpui::Empty);
+        let (capsule, _) = focused_hold(ide.into(), cx);
+        rig.requests();
+        cx.update(|cx| capsule.update(cx, |_, window, _| window.activate_window())).unwrap();
+        cx.update(on_window_deactivated);
+        cx.executor().advance_clock(FOCUS_SETTLE * 4);
+        cx.run_until_parked();
+        assert_eq!(ends(&rig.requests()), 0);
+        // No call from the shell here: the capsule's own window says it.
+        cx.update(|cx| other.update(cx, |_, window, _| window.activate_window())).unwrap();
+        cx.run_until_parked();
+        cx.executor().advance_clock(FOCUS_SETTLE * 4);
+        cx.run_until_parked();
+        assert_eq!(ends(&rig.requests()), 1, "another window took the focus from the capsule");
+        assert!(!cx.update(|cx| global(cx).unwrap().read(cx).held));
     }
 
     #[test]
