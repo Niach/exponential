@@ -743,6 +743,34 @@ final class AgentSessionModel {
         return true
     }
 
+    /// #EDE-96 (steer-enet.json SEARCH) — ask the device that holds the
+    /// journal to search the transcript, newest first below `beforeSeq` (nil
+    /// = from the newest event). ONE search in flight: a newer ask settles
+    /// the older one with nil. nil = not connected, superseded, or no answer
+    /// within the send timeout.
+    func search(query: String, beforeSeq: Int? = nil) async -> SteerSearchResult? {
+        settleSearch(nil)
+        guard connected else { return nil }
+        searchRequests += 1
+        let requestId = "s\(searchRequests)"
+        send(frame: SteerSearch.frame(requestId: requestId, query: query, beforeSeq: beforeSeq))
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(SteerSearch.timeoutMs))
+            guard let self, self.searchRequest?.id == requestId else { return }
+            self.settleSearch(nil)
+        }
+        return await withCheckedContinuation { continuation in
+            searchRequest = (requestId, continuation)
+        }
+    }
+
+    /// #EDE-96: settle the search in flight (nil = no answer).
+    private func settleSearch(_ result: SteerSearchResult?) {
+        guard let pending = searchRequest else { return }
+        searchRequest = nil
+        pending.continuation.resume(returning: result)
+    }
+
     /// EXP-783 — PREPEND one older page, oldest first.
     ///
     /// The page is transcript from BELOW everything on screen, so its rows are
@@ -1152,6 +1180,9 @@ final class AgentSessionModel {
     /// with nothing new (stop asking).
     @ObservationIgnored private var historyRequest: String?
     @ObservationIgnored private var historyRequests = 0
+    /// #EDE-96: the `search` in flight — a result for any other id is not ours.
+    @ObservationIgnored private var searchRequest: (id: String, continuation: CheckedContinuation<SteerSearchResult?, Never>)?
+    @ObservationIgnored private var searchRequests = 0
     private var historyTruncated = false
     private var historyExhausted = false
     /// Locally-echoed sent messages awaiting their transcript-derived
@@ -2652,6 +2683,10 @@ final class AgentSessionModel {
                   requestId == historyRequest else { return }
             if frame.done { historyRequest = nil }
             prependPage(frame.page, seqs: frame.pageSeqs)
+        // #EDE-96: the answer to this viewer's `search`, to it only.
+        case "search_result":
+            guard let requestId = frame.requestId, requestId == searchRequest?.id else { return }
+            settleSearch(frame.searchResult)
         case "bye":
             // The run ended, or the device's stored replay of an ended run is
             // done (`history`, VAPP-43): either way the device drops this
@@ -3511,6 +3546,7 @@ final class AgentSessionModel {
         // A page asked for on that link is not coming either (EXP-795): the
         // device drops the ask with the viewer, so a new one may go out.
         historyRequest = nil
+        settleSearch(nil)
         closeFeed()
     }
 

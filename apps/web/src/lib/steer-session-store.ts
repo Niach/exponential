@@ -59,7 +59,11 @@ import {
 import type { SessionStatus } from "@exp/db-schema/domain"
 import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
 import {
+  STEER_ENET_SEND_TIMEOUT_MS,
   STEER_ENET_STALE_MS,
+  STEER_SEARCH_HITS_MAX,
+  type SteerSearchHit,
+  type SteerSearchResult,
   steerOfflineRedial,
   steerShowConnectionLost,
   steerRowWakes,
@@ -420,12 +424,25 @@ type ServerFrame =
       seqs: number[]
       done: boolean
     }
+  // #EDE-96 (steer-enet.json SEARCH): the device's answer to this viewer's
+  // `search`, to the asker only.
+  | {
+      t: `search_result`
+      requestId: string
+      hits: SteerSearchHit[]
+      total?: number
+      done: boolean
+      scannedToSeq: number
+    }
   // EXP-648: the device's liveness beat to joined viewers. Carries nothing;
   // its only effect is the `lastFrameAt` stamp taken above the switch.
   | { t: `keepalive` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
   | { t: string }
+
+/** #EDE-96: the hit kinds this build draws (steer-enet.json SEARCH). */
+const SEARCH_HIT_KINDS = new Set<string>([`user_message`, `narration`, `tool`, `tool_output`])
 
 function parseServerFrame(raw: string): ServerFrame | null {
   try {
@@ -771,6 +788,12 @@ export interface SteerSessionStore {
    *  Called when the reader reaches the top of the rendered window. `false`
    *  when there is nothing to ask for (or an ask is already in flight). */
   loadEarlier(): boolean
+  /** #EDE-96 (steer-enet.json SEARCH): ask the device that holds the
+   *  journal to search the transcript, newest first below `beforeSeq`
+   *  (absent = from the newest event). ONE search in flight: a newer ask
+   *  settles the older one with null. Null = the socket is down, the ask
+   *  was superseded or no answer came within the send timeout. */
+  search(query: string, beforeSeq?: number): Promise<SteerSearchResult | null>
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  device's own signals plus the dock reaper. EXP-1293: the `sessions`
@@ -977,6 +1000,14 @@ export function createSteerSessionStore(
   /** Numbers the request ids, so a late chunk from a superseded ask is
    *  dropped rather than prepended twice. */
   let historyRequests = 0
+  /** #EDE-96: the `search` in flight, if any — a result for any other id is
+   *  not ours. */
+  let searchRequest: {
+    id: string
+    resolve: (result: SteerSearchResult | null) => void
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
+  let searchRequests = 0
   /** Commit deadlines: REPLAY_QUIET_MS since the last staged frame, and
    *  REPLAY_MAX_MS since the reset. */
   let stageQuietTimer: ReturnType<typeof setTimeout> | null = null
@@ -1905,6 +1936,39 @@ export function createSteerSessionStore(
     return true
   }
 
+  /** #EDE-96: settle the search in flight (null = no answer). */
+  const settleSearch = (result: SteerSearchResult | null) => {
+    if (searchRequest === null) return
+    const { resolve, timer } = searchRequest
+    clearTimeout(timer)
+    searchRequest = null
+    resolve(result)
+  }
+
+  /** #EDE-96 — one `search` ask, a newer one supersedes it. */
+  const requestSearch = (query: string, beforeSeq?: number): Promise<SteerSearchResult | null> =>
+    new Promise((resolve) => {
+      settleSearch(null)
+      if (disposed || ws?.readyState !== WebSocket.OPEN) {
+        resolve(null)
+        return
+      }
+      const id = `s${++searchRequests}`
+      ws.send(
+        JSON.stringify({
+          t: `search`,
+          requestId: id,
+          query,
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          limit: STEER_SEARCH_HITS_MAX,
+        })
+      )
+      const timer = setTimeout(() => {
+        if (searchRequest?.id === id) settleSearch(null)
+      }, STEER_ENET_SEND_TIMEOUT_MS)
+      searchRequest = { id, resolve, timer }
+    })
+
   /** Drop a staged replay and KEEP the visible feed: the socket went away
    *  mid-burst, so the buffer is a partial history of a room this client is
    *  no longer joined to. The next join replays from scratch. */
@@ -2184,6 +2248,19 @@ export function createSteerSessionStore(
           activityQueue.enqueue({ t: `page`, events: f.events, seqs: f.seqs })
           return
         }
+        // #EDE-96: the answer to this viewer's `search`; a hit kind this
+        // build does not know is skipped.
+        case `search_result`: {
+          const f = frame as Extract<ServerFrame, { t: `search_result` }>
+          if (f.requestId !== searchRequest?.id) return
+          settleSearch({
+            hits: f.hits.filter((hit) => SEARCH_HIT_KINDS.has(hit.kind)),
+            ...(f.total === undefined ? {} : { total: f.total }),
+            done: f.done,
+            scannedToSeq: f.scannedToSeq,
+          })
+          return
+        }
         case `bye`: {
           // The run ended, or (VAPP-43) a stored journal of an ended row
           // was served (`history`): the feed stays, with the plain ended
@@ -2401,6 +2478,9 @@ export function createSteerSessionStore(
     loadEarlier() {
       if (disposed) return false
       return requestOlderPage()
+    },
+    search(query, beforeSeq) {
+      return requestSearch(query, beforeSeq)
     },
     kick(reason) {
       if (disposed) return
@@ -2663,6 +2743,7 @@ export function createSteerSessionStore(
     dispose() {
       if (disposed) return
       disposed = true
+      settleSearch(null)
       // #EXP-1538: what the Dock showed outlives the store, unless the run
       // is over (an ended session shows none of it).
       const showing =

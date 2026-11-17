@@ -12219,6 +12219,7 @@ dependencies = [
  "terminal",
  "tokio",
  "tokio-tungstenite",
+ "unicode-normalization",
  "uuid",
 ]
 

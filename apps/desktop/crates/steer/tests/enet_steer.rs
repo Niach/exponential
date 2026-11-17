@@ -584,6 +584,17 @@ async fn a_stored_journal_is_replayed_over_enet() {
     assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "activity_synced", "firstSeq": 0, "lastSeq": 2}));
     assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "bye", "outcome": "history"}));
 
+    // #EDE-96: an ended row's search needs no join (its viewer was dropped
+    // at `bye`): answered to the asker off the file, case-insensitive.
+    let search = vec![r#"{"t":"search","requestId":"s1","query":"ROW 1","limit":10}"#.to_string()];
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &search).await.expect("search acked");
+    assert_eq!(
+        next_real(&sub.frames).await,
+        serde_json::json!({"t": "search_result", "requestId": "s1", "hits": [
+            {"seq": 1, "kind": "narration", "snippet": "row 1", "matchStart": 0, "matchLen": 5}
+        ], "total": 1, "done": true, "scannedToSeq": 0})
+    );
+
     // A teammate is refused a private session's journal too.
     let refused = enet_steer::subscribe(&session_id, d.endpoint_id());
     drop(sub);
@@ -613,6 +624,15 @@ async fn a_stored_journal_is_replayed_over_enet() {
     assert_eq!(chunk["t"], "history_chunk");
     assert_eq!(chunk["requestId"], "p1");
     assert_eq!(chunk["seqs"], serde_json::json!([1]));
+    // #EDE-96: a joined idle viewer's search comes through its feed; the
+    // limit stops it with more below.
+    let search = vec![r#"{"t":"search","requestId":"s2","query":"row","beforeSeq":2,"limit":1}"#.to_string()];
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &search).await.expect("search acked");
+    let result = next_real(&sub.frames).await;
+    assert_eq!((result["t"].as_str(), result["requestId"].as_str()), (Some("search_result"), Some("s2")));
+    assert_eq!(result["hits"][0]["seq"], 1);
+    assert_eq!((result["done"].as_bool(), result["scannedToSeq"].as_u64()), (Some(false), Some(1)));
+    assert!(result.get("total").is_none());
 
     // The run comes back here (a resume): the stored viewer becomes a live
     // join off the file, and the agent's history replay is not recorded again.
@@ -646,6 +666,12 @@ async fn a_stored_journal_is_replayed_over_enet() {
     assert_eq!(next_real(&sub.frames).await["event"]["kind"], "turn");
     let live = next_real(&sub.frames).await;
     assert_eq!((live["seq"].as_u64(), live["event"]["text"].as_str()), (Some(5), Some("back")));
+    // #EDE-96: the live run answers a search off its journal file.
+    let search = vec![r#"{"t":"search","requestId":"s3","query":"row 0","limit":5}"#.to_string()];
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &search).await.expect("search acked");
+    let result = next_real(&sub.frames).await;
+    assert_eq!((result["t"].as_str(), result["requestId"].as_str()), (Some("search_result"), Some("s3")));
+    assert_eq!(result["hits"], serde_json::json!([{"seq": 0, "kind": "narration", "snippet": "row 0", "matchStart": 0, "matchLen": 5}]));
     handle.shutdown(Some("exit:0".into()));
 
     device.stop();

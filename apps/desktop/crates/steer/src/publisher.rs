@@ -1100,8 +1100,8 @@ enum Steered {
 }
 
 /// The client frames an eNet viewer sends: input → the input task, answer,
-/// set_config, set_mode, interrupt, unqueue, kill, history_page from the
-/// disk journal. Anything else (frames only a relay ever sent) is ignored.
+/// set_config, set_mode, interrupt, unqueue, kill, history_page and search
+/// (#EDE-96) from the disk journal. Anything else (frames only a relay ever sent) is ignored.
 fn steer_frame(
     frame: ServerFrame,
     spec: &PublishSpec,
@@ -1177,6 +1177,19 @@ fn steer_frame(
                 })
                 .unwrap_or_default();
             return Steered::Reply(crate::history::history_chunk_frame(&request_id, page));
+        }
+        // #EDE-96: a viewer searches the transcript. Off the DISK journal
+        // like a page (the whole run), answered inline to the asker: the
+        // scan is bounded (`search::SCAN_MAX_BYTES`, `HITS_MAX`).
+        ServerFrame::Search { request_id, query, before_seq, limit, .. } => {
+            return Steered::Reply(crate::search::answer(
+                spec.journal_dir.as_deref(),
+                &spec.session_id,
+                &request_id,
+                &query,
+                before_seq,
+                u64::from(limit),
+            ));
         }
         _ => {}
     }

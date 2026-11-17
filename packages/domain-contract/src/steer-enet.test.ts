@@ -29,6 +29,8 @@ import {
   type SteerRedialPhase,
   type SteerRedialTrigger,
   steerViewerAllowed,
+  steerSearch,
+  type SteerSearchEvent,
 } from "./steer-enet"
 
 describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
@@ -135,6 +137,14 @@ describe(`sealed relay fallback + connection analytics (fixtures/steer-enet.json
         p95FirstFrameMs,
         fallbackRate,
       })
+    })
+  }
+  for (const c of fixture.search.cases) {
+    test(`search: ${c.name}`, () => {
+      const beforeSeq = `beforeSeq` in c ? (c.beforeSeq as number) : undefined
+      const scanMaxBytes = `scanMaxBytes` in c ? (c.scanMaxBytes as number) : undefined
+      const events = c.events as { seq: number; event: SteerSearchEvent }[]
+      expect(steerSearch({ events, query: c.query, beforeSeq, limit: c.limit, scanMaxBytes })).toEqual(c.expect as never)
     })
   }
 })

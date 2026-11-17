@@ -83,6 +83,8 @@ pub use domain::image_message;
 pub mod journal;
 pub use eagent::login_picker;
 pub mod publisher;
+/// #EDE-96: the device answers a transcript search over its journal.
+pub mod search;
 pub mod seal_keys;
 /// EXP-1279: the code-mode Script card model.
 pub mod script_card;
