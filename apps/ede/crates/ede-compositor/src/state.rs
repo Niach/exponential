@@ -305,6 +305,21 @@ impl Ede {
 
     /// [`Self::spawn`] with extra environment, keeping the child.
     pub fn spawn_with_env(&self, argv: &[String], env: &[(&str, &str)]) -> Option<std::process::Child> {
+        let mut cmd = self.client_command(argv)?;
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        match cmd.spawn() {
+            Ok(child) => Some(child),
+            Err(e) => {
+                tracing::warn!("{}: {e}", argv[0]);
+                None
+            }
+        }
+    }
+
+    /// `argv` as a command for a client of ours ([`Self::spawn`]).
+    pub fn client_command(&self, argv: &[String]) -> Option<std::process::Command> {
         let (program, args) = argv.split_first()?;
         let mut cmd = std::process::Command::new(program);
         cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
@@ -315,16 +330,7 @@ impl Ede {
         if let Some(n) = self.xdisplay {
             cmd.env("DISPLAY", format!(":{n}"));
         }
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
-        match cmd.spawn() {
-            Ok(child) => Some(child),
-            Err(e) => {
-                tracing::warn!("{program}: {e}");
-                None
-            }
-        }
+        Some(cmd)
     }
 
     /// Lays outputs out left to right in the order they were added, unless
@@ -341,6 +347,7 @@ impl Ede {
         };
         self.space.map_output(output, at);
         layer_map_for_output(output).arrange();
+        self.sealed_rehome();
         self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
     }
 

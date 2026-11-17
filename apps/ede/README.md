@@ -317,8 +317,10 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   are off except VT switching. The password goes to PAM inside the binary
   (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/exponential-desktop`
   exists, else `login`), and the session opens only through the `unlock`
-  op with the grant the compositor minted for that process (`EDE_TOKEN`).
-  A lock client that dies keeps the session locked and is started again.
+  op with the grant the compositor minted for that process, handed over
+  its stdin (`EDE_TOKEN_FD`), never its environment. A lock client that
+  dies or shows nothing keeps the session locked and is started again;
+  when its display goes away the prompt moves to the next one.
   `swaylock` still works through `[lock] command` (ext-session-lock).
 - **polkit** (`exponential-sealed polkit`, `exponential-polkit-agent.service`): the
   session's authentication agent; polkitd's request opens the prompt, the
