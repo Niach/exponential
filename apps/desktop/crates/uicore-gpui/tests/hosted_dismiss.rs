@@ -62,10 +62,15 @@ fn draw(cx: &mut VisualTestContext) {
 /// taskbar's `on.change`, opened (a press here; the hover opens the same
 /// layer) and hosted in its own window.
 fn previews_open(cx: &mut TestAppContext) -> (Plugin, Region, VisualTestContext) {
-    cx.update(gpui_component::init);
     let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
     let on = node(&factory["root"], "previews").expect("the previews Popover")["on"].clone();
     assert!(on["change"].is_object(), "the previews tell the shell: {on}");
+    previews_open_with(on, cx)
+}
+
+fn previews_open_with(on: Value, cx: &mut TestAppContext) -> (Plugin, Region, VisualTestContext) {
+    cx.update(gpui_component::init);
+    let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
     let source = json!({
         "surface": factory["surface"],
         "data": {"app": "firefox"},
@@ -122,4 +127,19 @@ fn the_previews_change_says_open_or_closed(cx: &mut TestAppContext) {
     draw(&mut vcx);
     assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), Some(true)), ("ede_previews".to_string(), Some(false))]);
     assert_eq!(plugin.heard.borrow()[1].1["app"], "firefox", "the close names its app");
+}
+
+/// A person's or an agent's copy of the taskbar from before #EDE-75 calls
+/// the function: a dismissal is as safe, and its `open` still never arrives
+/// (the shell reads such a change as an open, as it always did: those
+/// previews go with the next press, not on leave).
+#[gpui::test]
+fn an_edited_copy_with_the_function_call_dismisses_without_open(cx: &mut TestAppContext) {
+    let on = json!({"change": {"functionCall": {"@call": "ede_previews", "args": {"app": {"@path": "app"}, "open": {"@path": "open"}}}}});
+    let (plugin, _region, mut vcx) = previews_open_with(on, cx);
+    let layers = plugin.shell.borrow().as_ref().unwrap().hosted_layers();
+    cx.update(|cx| dismiss_hosted(layers, cx));
+    draw(&mut vcx);
+    assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), None), ("ede_previews".to_string(), None)]);
+    assert_eq!(plugin.heard.borrow()[1].1["app"], "firefox");
 }
