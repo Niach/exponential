@@ -697,6 +697,8 @@ impl Ede {
                     x11: w.x11_surface().is_some(),
                     workspace: st.workspace,
                     minimized: st.minimized,
+                    // #EDE-91: every window is on the person's desk until spaces land.
+                    space: None,
                 })
             })
             .collect()
@@ -715,7 +717,7 @@ impl Ede {
                     .map(|m| ede_protocol::ModeInfo { width: m.size.w, height: m.size.h, refresh: m.refresh, preferred: Some(m) == preferred, current: Some(m) == current })
                     .collect();
                 let p = o.physical_properties();
-                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale(), modes, make: p.make, model: p.model, physical_mm: [p.size.w, p.size.h] })
+                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale(), modes, make: p.make, model: p.model, physical_mm: [p.size.w, p.size.h], space: None })
             })
             .collect()
     }
@@ -723,8 +725,14 @@ impl Ede {
     pub fn window_event(&mut self, kind: &str, window: &Window) {
         if self.ipc.clients.iter().any(|c| c.subscribed) {
             let (_, app_id) = window_title(window);
-            self.emit(kind, serde_json::json!({ "window": window_id(window), "appId": app_id }));
+            let data = ede_protocol::WindowEvent { window: window_id(window), app_id, space: None };
+            self.emit(kind, serde_json::to_value(data).unwrap());
         }
+    }
+
+    /// [`ede_protocol::events::OUTPUT_CHANGED`] for the output `name`.
+    pub fn output_changed(&mut self, name: String) {
+        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::to_value(ede_protocol::OutputEvent { output: name, space: None }).unwrap());
     }
 
     /// Re-reads the config file and applies what can change live (all but

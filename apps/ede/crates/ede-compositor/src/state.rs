@@ -367,7 +367,7 @@ impl Ede {
         self.space.map_output(output, at);
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
-        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
+        self.output_changed(output.name());
     }
 
     /// Unplugged: the rest close ranks left to right, and the windows that
