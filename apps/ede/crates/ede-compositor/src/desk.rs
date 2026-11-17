@@ -13,16 +13,53 @@ use std::time::Instant;
 use smithay::{
     desktop::{Space, Window},
     input::{pointer::CursorImageStatus, Seat},
+    reexports::wayland_server::Client,
 };
 
-use crate::state::Ede;
+use crate::state::{ClientState, Ede};
 
-/// Which desk: the person's, the only one so far (#EDE-90).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Which desk: the person's (the default), or another one's number (#EDE-90).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeskId(u32);
 
 impl DeskId {
     pub const PERSON: DeskId = DeskId(0);
+
+    /// The id of desk `n` beside the person's; 0 is the person's.
+    pub(crate) const fn numbered(n: u32) -> DeskId {
+        DeskId(n)
+    }
+}
+
+/// The desk something belongs to, kept where a lookup would come too late
+/// or find nothing: in the client data of Xwayland (#EDE-125).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeskTag(pub DeskId);
+
+/// The desk a Wayland client belongs to: the one its socket gave it
+/// ([`ClientState::desk`]), or the tag its Xwayland was started with. A
+/// client with neither is nobody's: it is on no desk, the person's included.
+pub fn desk_of_client(client: &Client) -> Option<DeskId> {
+    if let Some(state) = client.get_data::<ClientState>() {
+        return Some(state.desk);
+    }
+    #[cfg(feature = "xwayland")]
+    if let Some(x) = client.get_data::<smithay::xwayland::XWaylandClientData>() {
+        return x.user_data().get::<DeskTag>().map(|tag| tag.0);
+    }
+    None
+}
+
+/// The filter of every global that is the person's alone: their seat and
+/// outputs, the layer shell, the session lock, input methods, the virtual
+/// keyboard, decorations, and GPU buffers.
+pub fn on_person(client: &Client) -> bool {
+    desk_of_client(client) == Some(DeskId::PERSON)
+}
+
+/// The filter of a global that belongs to desk `id` alone.
+pub fn on_desk(id: DeskId) -> impl Fn(&Client) -> bool + Send + Sync + 'static {
+    move |client| desk_of_client(client) == Some(id)
 }
 
 pub struct Desk {
