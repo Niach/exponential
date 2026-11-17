@@ -18,7 +18,7 @@ use smithay::{
             Display, DisplayHandle,
         },
     },
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
@@ -493,14 +493,24 @@ impl Ede {
                 w.set_activated(false);
             }
         }
-        let surface = window.as_ref().and_then(|w| w.wl_surface()).map(|s| s.into_owned());
         // A fresh X11 window has no wl_surface until Xwayland associates
-        // one; focus follows then (see the xwayland shell handler).
+        // one; focus follows then (see the xwayland shell handler). One
+        // back from the taskbar still names the surface Xwayland destroyed
+        // when it was minimized (#EDE-122): it waits for its new one too.
+        let surface = window.as_ref().and_then(|w| w.wl_surface()).map(|s| s.into_owned()).filter(|s| s.alive());
         #[cfg(feature = "xwayland")]
         {
             self.desk_mut(desk).pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
+        let unset = surface.is_none();
         keyboard.set_focus(self, surface, serial);
+        // The seat reports no change when the keyboard goes to nothing, so
+        // X's own focus is told here (#EDE-122): else the X11 window that
+        // gets the keyboard back next would still count as holding it.
+        #[cfg(feature = "xwayland")]
+        if unset {
+            self.sync_x11_focus(None);
+        }
         if let Some(w) = &window {
             self.window_event(ede_protocol::events::WINDOW_FOCUSED, w);
         }

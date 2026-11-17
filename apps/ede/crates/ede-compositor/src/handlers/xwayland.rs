@@ -13,7 +13,7 @@ use smithay::{
         keyboard::KeyboardTarget,
         pointer::{Focus, GrabStartData},
     },
-    utils::{Logical, Rectangle, SERIAL_COUNTER},
+    utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         selection::{
             data_device::{clear_data_device_selection, current_data_device_selection_userdata, request_data_device_client_selection, set_data_device_selection},
@@ -113,9 +113,14 @@ impl XWaylandShellHandler for Ede {
     }
 
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
-        if self.desk.pending_x11_focus.as_ref() == Some(&surface) {
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
+        // #EDE-122: restored right after its minimize, the window was given
+        // the keyboard on the surface Xwayland then destroyed: the keyboard
+        // is on nothing and X's focus still names the window, so its new
+        // surface takes it.
+        let orphaned = self.desk.x11_focus.1.as_ref() == Some(&surface) && keyboard.current_focus().is_some_and(|f| !f.alive());
+        if self.desk.pending_x11_focus.as_ref() == Some(&surface) || orphaned {
             self.desk.pending_x11_focus = None;
-            let keyboard = self.desk.seat.get_keyboard().unwrap();
             keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
         }
     }

@@ -157,7 +157,8 @@ impl Ede {
             // A press on a shell layer (the Alt-Tab switcher, Expo, Scale)
             // is the shell's: the window under it neither takes focus nor
             // starts an Alt+drag (#EDE-65: Alt is held while a tile is clicked).
-            let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s));
+            // So is one on a popup of such a layer, the start menu (#EDE-123).
+            let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s)) || self.layer_above_windows(location);
             let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.desk.space.element_under(location).map(|(w, _)| w.clone()) });
             match (&window, under) {
                 (Some(_), _) => self.focus(DeskId::PERSON, window.clone()),
