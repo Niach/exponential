@@ -218,23 +218,40 @@ const ENDED_ASK_WAIT: Duration = Duration::from_secs(10);
 
 /// #EXP-1909: what `coding::session_teardown::sweep_ended` reads: the data
 /// dir, every synced session row and the sessions with a running engine
-/// here. `None` = no account or no hydrated rows yet: no sweep this beat.
+/// here. `None` = no account, or rows that are not in sync
+/// ([`sessions_in_sync`]): no sweep this beat.
 fn sweep_snapshot(cx: &mut App) -> Option<(std::path::PathBuf, Vec<SessionRow>, HashSet<String>)> {
     queries::active_account(cx)?;
-    let collections = Store::try_global(cx)?.collections().clone();
-    if !collections.is_hydrated("sessions") {
+    if !sessions_in_sync(cx) {
         return None;
     }
+    let collections = Store::try_global(cx)?.collections().clone();
     let live = Arc::clone(&cx.try_global::<PickupHost>()?.live);
     let live_ids = live.session_ids().into_iter().filter(|id| live.contains_live(id)).collect();
     let rows = collections.sessions.read(cx).iter().cloned().collect();
     Some((coding_flow::coding_data_dir(cx), rows, live_ids))
 }
 
+/// #EXP-1909: are the session rows the server's, right now? Hydrated, caught
+/// up to the server's head in this app run (never the cache's rows alone),
+/// with the pipeline neither offline nor catching up after a restart. The
+/// sweep stops processes on these rows' word: stale ones sweep nothing.
+fn sessions_in_sync(cx: &App) -> bool {
+    let Some(store) = Store::try_global(cx) else {
+        return false;
+    };
+    let status = store.sync_status(cx);
+    let collections = store.collections();
+    collections.is_hydrated("sessions")
+        && collections.sessions.read(cx).is_caught_up()
+        && matches!(status.health, sync::SyncHealth::Ok)
+        && !status.catching_up
+}
+
 /// #EXP-1909: is the session's synced row still ended, with no engine of it
 /// running here, RIGHT NOW? (A person's message revives a row in place.)
 fn still_ended(session_id: &str, cx: &mut App) -> bool {
-    let Some(store) = Store::try_global(cx) else {
+    let Some(store) = Store::try_global(cx).filter(|_| sessions_in_sync(cx)) else {
         return false;
     };
     let ended = store.collections().sessions.read(cx).iter().any(|row| row.id == session_id && row.is_ended());
