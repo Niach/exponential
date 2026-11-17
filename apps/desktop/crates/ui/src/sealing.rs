@@ -6,8 +6,12 @@
 //!   whenever the service's change counter moves (a wrap arrived).
 //! * WRITE: person messages and card answers are sealed before
 //!   `sessions.send` / `sessions.answer` ([`send_blocking`],
-//!   [`answer_blocking`]); mentions ride clear as `mentionUserIds`. Without
-//!   a service (or a key) the message goes as plaintext, which stays legal.
+//!   [`answer_blocking`]); mentions ride clear as `mentionUserIds`. #EDE-97
+//!   (`sealed-content.json` `clearTree`): NO SILENT PLAINTEXT. Plaintext
+//!   goes only into a clear tree (`sessions.clear_tree`) and on a Local
+//!   desktop (#EDE-55: no server, no keys); without a service or a key the
+//!   send FAILS with `clearTree.noKeyRefusal` (the failed-action toast, the
+//!   draft stays).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -152,6 +156,9 @@ pub enum SealTarget {
 #[derive(Clone, Default)]
 pub struct SendPlan {
     pub target: SealTarget,
+    /// #EDE-97: plaintext is this send's legal wire: a clear tree, or a
+    /// Local desktop (no server, no keys: its trees are clear by nature).
+    pub clear: bool,
     /// This account's eNet install (a new root's key comes from it).
     node: Option<InstallNode>,
     pub mention_user_ids: Vec<String>,
@@ -206,8 +213,11 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
     } else {
         SealTarget::None
     };
+    let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
+    let clear = local
+        || matches!(&target, SealTarget::Root(root) if sessions.get(root).is_some_and(|row| row.clear_tree) || sealing::tree_clear(root));
     let node = crate::enet_wiring::active_node(cx);
-    SendPlan { target, node, mention_user_ids, ref_issue_ids }
+    SendPlan { target, clear, node, mention_user_ids, ref_issue_ids }
 }
 
 /// An agent / app send without a session id lands in the member's existing
@@ -273,48 +283,38 @@ fn resolve(writer: &dyn Writer, input: &SendInput, target: &SealTarget, fresh: b
 /// Seals `input` for `target` (BLOCKING, resolved by [`resolve`]): the
 /// text and name become body envelopes, a new root's key rides inline.
 /// Returns the new root's seal to adopt once the server names the root.
-/// Any failure leaves the content plaintext.
-fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) -> Option<NewRootSeal> {
+/// #EDE-97: any failure is an `Err` (nothing leaves); only a clear tree
+/// keeps its content plaintext.
+fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) -> Result<Option<NewRootSeal>, String> {
     // #EXP-1683: the server never appends to a sealed body: the attachment
     // lines go inside it.
     let text = input.text.as_deref().map(|text| {
         domain::sealed::with_attachment_embeds(text, input.attachment_ids.as_deref().unwrap_or_default(), domain::sealed::recorded_upload)
     });
+    let failed = |why: String| {
+        log::warn!("[sealing] not sent, it could not be encrypted: {why}");
+        sealing::NO_KEY_REFUSAL.to_string()
+    };
     match target {
-        SealTarget::None | SealTarget::Conversation { .. } => None,
+        SealTarget::None | SealTarget::Conversation { .. } => Ok(None),
         SealTarget::Keyed { root_id, epoch, public } => {
-            let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).ok();
-            let sealed_text = match text.as_deref() {
-                Some(text) => match body(text) {
-                    Some(sealed) => Some(sealed),
-                    None => {
-                        log::warn!("[sealing] sending plaintext, can't seal for {root_id}");
-                        return None;
-                    }
-                },
-                None => None,
-            };
-            if let Some(sealed) = input.name.as_deref().and_then(body) {
-                input.sealed_name = Some(sealed);
+            let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).map_err(|err| failed(format!("{root_id}: {err}")));
+            let sealed_text = text.as_deref().map(body).transpose()?;
+            let sealed_name = input.name.as_deref().map(body).transpose()?;
+            if sealed_name.is_some() {
+                input.sealed_name = sealed_name;
                 input.name = None;
             }
             if sealed_text.is_some() {
                 input.text = sealed_text;
             }
-            None
+            Ok(None)
         }
+        SealTarget::Root(root_id) if sealing::tree_clear(root_id) => Ok(None),
         SealTarget::Root(root_id) => {
-            let sealed_text = match text.as_deref() {
-                Some(text) => match writer.seal_body(root_id, text) {
-                    Ok(sealed) => Some(sealed),
-                    Err(err) => {
-                        log::warn!("[sealing] sending plaintext, no key for {root_id}: {err}");
-                        return None;
-                    }
-                },
-                None => None,
-            };
-            let sealed_name = input.name.as_deref().and_then(|name| writer.seal_body(root_id, name).ok());
+            let body = |text: &str| writer.seal_body(root_id, text).map_err(|err| failed(format!("{root_id}: {err}")));
+            let sealed_text = text.as_deref().map(body).transpose()?;
+            let sealed_name = input.name.as_deref().map(body).transpose()?;
             if sealed_text.is_some() {
                 input.text = sealed_text;
             }
@@ -322,24 +322,15 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
                 input.sealed_name = sealed_name;
                 input.name = None;
             }
-            None
+            Ok(None)
         }
         SealTarget::NewRoot { device_id } => {
             // The executing device reads the tree from its first message
             // on; any gap is filled by a holder (`pending`).
-            let seal = match writer.new_root(device_id.as_deref()) {
-                Ok(seal) => seal,
-                Err(err) => {
-                    log::warn!("[sealing] sending plaintext, no new tree key: {err}");
-                    return None;
-                }
-            };
-            let public = enet_core::sealed::public_key_from_b64(&seal.public_key).ok()?;
-            let body = |text: &str| enet_core::sealed::seal_body(&public, seal.epoch, text).ok();
-            let sealed_text = match text.as_deref() {
-                Some(text) => Some(body(text)?),
-                None => None,
-            };
+            let seal = writer.new_root(device_id.as_deref()).map_err(|err| failed(format!("no new tree key: {err}")))?;
+            let public = enet_core::sealed::public_key_from_b64(&seal.public_key).map_err(|err| failed(err.to_string()))?;
+            let body = |text: &str| enet_core::sealed::seal_body(&public, seal.epoch, text).map_err(|err| failed(err.to_string()));
+            let sealed_text = text.as_deref().map(body).transpose()?;
             if let Some(name) = input.name.as_deref() {
                 input.sealed_name = Some(body(name)?);
                 input.name = None;
@@ -357,9 +348,14 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
                     .map(|wrap| SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() })
                     .collect(),
             });
-            Some(seal)
+            Ok(Some(seal))
         }
     }
+}
+
+/// #EDE-97: the failed-action error of a send that could not be sealed.
+fn no_key(message: String) -> api::ApiError {
+    api::ApiError::Http { status: 400, message }
 }
 
 /// THE sealed `sessions.send` (BLOCKING, off the UI thread).
@@ -371,8 +367,14 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if !plan.ref_issue_ids.is_empty() {
         input.ref_issue_ids = Some(plan.ref_issue_ids.clone());
     }
-    if sealing::service().is_none() {
+    // #EDE-97: plaintext only where it is the legal wire (a clear tree, a
+    // Local desktop) or nothing is sealed (an attachment-only send).
+    if plan.clear || plan.target == SealTarget::None {
         return api::sessions::send(trpc, &input);
+    }
+    if sealing::service().is_none() {
+        log::warn!("[sealing] not sent: no key holder runs");
+        return Err(no_key(sealing::NO_KEY_REFUSAL.to_string()));
     }
     let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
     send_sealed(&writer, &input, &plan.target, &mut |input| api::sessions::send(trpc, input))
@@ -390,7 +392,7 @@ fn send_sealed(
 ) -> Result<SendOutput, api::ApiError> {
     let mut attempt = |fresh: bool| {
         let mut wire = input.clone();
-        let seal = seal_send(writer, &mut wire, &resolve(writer, input, target, fresh));
+        let seal = seal_send(writer, &mut wire, &resolve(writer, input, target, fresh)).map_err(no_key)?;
         let out = send(&wire)?;
         if let Some(seal) = seal {
             writer.adopt(&out.session_id, &seal);
@@ -552,7 +554,7 @@ mod tests {
         let mut input = SendInput::message("s1", "hello @a@b.co", Vec::new());
         input.name = Some("Title".into());
         let plan = SendPlan { target: SealTarget::Root("r1".into()), ..SendPlan::default() };
-        assert!(seal_send(&writer, &mut input, &plan.target).is_none());
+        assert!(seal_send(&writer, &mut input, &plan.target).unwrap().is_none());
         let text = input.text.as_deref().unwrap();
         assert!(text.starts_with("exp-sealed:v1:1:"));
         assert_eq!(writer.open_body(text).text.as_deref(), Some("hello @a@b.co"));
@@ -566,7 +568,7 @@ mod tests {
         let writer = tree();
         let mut input = SendInput { team_id: Some("t".into()), device_id: Some("d".into()), text: Some("go".into()), ..SendInput::default() };
         let plan = SendPlan { target: SealTarget::NewRoot { device_id: Some("d".into()) }, ..SendPlan::default() };
-        let seal = seal_send(&writer, &mut input, &plan.target).unwrap();
+        let seal = seal_send(&writer, &mut input, &plan.target).unwrap().unwrap();
         assert_eq!(seal.secret, writer.key.secret);
         assert_eq!(writer.devices.lock().unwrap().clone(), vec![Some("d".to_string())]);
         let wire = input.seal.clone().unwrap();
@@ -839,5 +841,40 @@ mod tests {
             Err(refused("Session not found"))
         });
         assert_eq!((calls, out.unwrap_err().user_message().as_str()), (1, "Session not found"));
+    }
+
+    /// #EDE-97: no silent plaintext. A send that cannot be sealed (no key,
+    /// no new tree key) fails with `clearTree.noKeyRefusal` and leaves the
+    /// input as it was; a clear tree keeps its text plaintext.
+    #[test]
+    fn an_unsealable_send_fails_and_a_clear_tree_stays_plain() {
+        struct NoKeys;
+        impl Writer for NoKeys {
+            fn seal_body(&self, _: &str, _: &str) -> Result<String, String> {
+                Err("no key holder".into())
+            }
+            fn seal_card(&self, _: &str, _: &Value) -> Result<Value, String> {
+                Err("no key holder".into())
+            }
+            fn new_root(&self, _: Option<&str>) -> Result<NewRootSeal, String> {
+                Err("P2P is not running".into())
+            }
+            fn adopt(&self, _: &str, _: &NewRootSeal) {}
+            fn send_target(&self, _: Option<&str>, _: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+                Err("offline".into())
+            }
+            fn note_key(&self, _: &str, _: u32, _: [u8; 32]) {}
+        }
+        let fx: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap();
+        assert_eq!(sealing::NO_KEY_REFUSAL, fx["clearTree"]["noKeyRefusal"].as_str().unwrap());
+        for target in [SealTarget::Root("ede97-keyless".into()), SealTarget::NewRoot { device_id: None }] {
+            let mut input = SendInput { text: Some("secret".into()), ..SendInput::default() };
+            assert_eq!(seal_send(&NoKeys, &mut input, &target), Err(sealing::NO_KEY_REFUSAL.to_string()), "{target:?}");
+            assert!(input.seal.is_none(), "{target:?}");
+        }
+        sealing::note_clear_tree("ede97-clear");
+        let mut input = SendInput { text: Some("in clear".into()), ..SendInput::default() };
+        assert_eq!(seal_send(&NoKeys, &mut input, &SealTarget::Root("ede97-clear".into())), Ok(None));
+        assert_eq!(input.text.as_deref(), Some("in clear"));
     }
 }

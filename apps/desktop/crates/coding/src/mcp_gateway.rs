@@ -21,12 +21,17 @@
 //!   conversation with it (`sessions.sendTarget`: its root's key, else a
 //!   fresh key as `seal`; an app's brief composed in).
 //!
-//! EXP-1472: content that cannot be sealed is NEVER sent in clear while
-//! this process has a key holder: the call fails with the reason. #FEED-188:
-//! another tree without a key yet takes one from this install; only a tree
-//! it may not key (not a reader) and no claim keyed meanwhile
-//! (`sealing::SEND_KEY_WAIT`) goes as given, like a process without a holder
-//! (eNet off, signed out). The server refuses both for a keyed tree.
+//! #EDE-97 (`sealed-content.json` `clearTree`): NO SILENT PLAINTEXT. Content
+//! that cannot be sealed is NEVER sent in clear: the call fails with the
+//! reason and nothing leaves, whether this process has no key holder (eNet
+//! off, signed out: [`SealError::NoService`], or one still registering past
+//! the wait), the tree has no key it may create (#FEED-188: another tree
+//! without a key takes one from this install; one it may not key and no
+//! claim keyed within `sealing::SEND_KEY_WAIT` fails) or a new root has no
+//! key to ride inline. The ONE exception is a clear tree (an outside MCP
+//! client's root, `sessions.clear_tree`): its content goes as given
+//! ([`SealError::ClearTree`]). An end report that cannot be sealed still
+//! ends the session, without its summary (#FEED-192).
 //!
 //! OPEN (every result): body envelopes, card envelopes and sealed titles
 //! anywhere in the result's JSON are opened; what this install cannot open
@@ -178,20 +183,25 @@ impl SealingTransform {
                 let target = match self.send_target(obj) {
                     Ok(target) => target,
                     Err(err) => {
-                        // #FEED-185: without a key holder, a conversation the
-                        // server (or this process) says is keyed fails here
-                        // instead of going out in clear. One whose tree is
-                        // not known (no tRPC, a failed lookup) still goes as
-                        // given and the server refuses it if it is keyed.
+                        // #FEED-185 / #EDE-97: without a key holder only a
+                        // clear conversation goes as given; any other fails
+                        // here instead of going out in clear.
                         if err == SealError::NoService {
-                            if let Some(root) = self.lookup_target(obj).ok().and_then(|t| t.keyed_root()) {
-                                return Err(no_holder(&root, "sessions_send", ""));
+                            let found = self.lookup_target(obj).ok();
+                            if found.as_ref().and_then(|t| t.root_id.as_deref()).is_some_and(sealing::tree_clear) {
+                                return Ok(args);
                             }
+                            let root = found.and_then(|t| t.keyed_root()).unwrap_or_default();
+                            return Err(no_holder(&root, "sessions_send", ""));
                         }
                         unsealed("sessions_send", &err)?;
                         return Ok(args);
                     }
                 };
+                // #EDE-97: a clear conversation takes plaintext, never a key.
+                if target.root_id.as_deref().is_some_and(sealing::tree_clear) {
+                    return Ok(args);
+                }
                 // A sealed text is the writer's whole message: an app's
                 // brief is composed in here (`briefedText`).
                 let text = match (target.brief.as_deref().map(str::trim).filter(|b| !b.is_empty()), text) {
@@ -225,11 +235,13 @@ impl SealingTransform {
             }
             (None, false) => match self.new_root_seal(obj.get("deviceId").and_then(Value::as_str)) {
                 Err(err) => {
-                    // A fresh root is a NEW tree: no key holder = no key, so
-                    // it is keyless and plaintext stays legal there (no
-                    // known tree to check, unlike `unsealed_into`).
-                    unsealed("a new session", &err)?;
-                    return Ok(args);
+                    // #EDE-97: a fresh root started through the gateway is
+                    // never clear: without a key to ride inline it is not
+                    // started at all (`clearTree.writerCases` new + none).
+                    return Err(match err {
+                        SealError::NoService => no_holder("", "a new session", ""),
+                        err => refused("a new session", &err),
+                    });
                 }
                 Ok(seal) => {
                     let public = sealing::public_key_from_b64(&seal.public_key).map_err(|e| refused("a new session", &e))?;
@@ -432,10 +444,11 @@ impl SealingTransform {
         let sealed = match self.seal_card(&root, &report) {
             Ok(sealed) => sealed,
             Err(err) => {
-                // #FEED-192: ending never needs encryption: with no key
-                // holder, a keyed tree still ends, its summary stays here.
-                if err == SealError::NoService && sealing::tree_keyed(&root) {
-                    log::warn!("gateway: an end report for {root} dropped its summary: no key holder runs");
+                // #FEED-192: ending never needs encryption: a tree whose
+                // report cannot be sealed still ends, its summary stays
+                // here (#EDE-97: never in clear, except a clear tree).
+                if err != SealError::ClearTree && !sealing::tree_clear(&root) {
+                    log::warn!("gateway: an end report for {root} dropped its summary: it could not be sealed ({err})");
                     let mut bare = args;
                     if let Some(obj) = bare.as_object_mut() {
                         obj.remove("summary");
@@ -563,6 +576,12 @@ impl SealingTransform {
             }
             match value {
                 Value::Object(obj) => {
+                    // #EDE-97: a clear root (`clearTree` on its row).
+                    if obj.get("clearTree") == Some(&Value::Bool(true)) {
+                        if let Some(id) = obj.get("id").and_then(Value::as_str) {
+                            sealing::note_clear_tree(id);
+                        }
+                    }
                     if let (Some(id), Some(root)) = (obj.get("id").and_then(Value::as_str), obj.get("rootId").and_then(Value::as_str)) {
                         keyring.note_root(id, root);
                     }
@@ -774,33 +793,33 @@ struct EscalateTarget {
     root_id: String,
 }
 
-/// EXP-1472: what to do with content that could not be sealed. Without a
-/// key holder in this process, or (#FEED-188) into a keyless tree this
-/// install may not key, it goes as given (`Ok`: plaintext stays legal in a
-/// keyless tree, the server refuses it in a keyed one); otherwise the call
-/// fails with the reason and nothing is sent.
+/// EXP-1472 / #EDE-97: what to do with content that could not be sealed:
+/// only a clear tree takes it as given (`Ok`); otherwise the call fails
+/// with the reason and nothing is sent (no key holder = what to do).
 fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
     match err {
-        SealError::NoService | SealError::NotReader => Ok(()),
+        SealError::ClearTree => Ok(()),
+        SealError::NoService => Err(no_holder("", what, "")),
         err => Err(refused(what, err)),
     }
 }
 
-/// #FEED-185: [`unsealed`] for content bound for `root`: without a key
-/// holder, a tree known to be sealed fails HERE with what to do (sent in
-/// clear the server would refuse it with an "update" hint the current
-/// release does not need).
+/// #FEED-185: [`unsealed`] for content bound for `root` (a clear root goes
+/// as given even when the error came from elsewhere).
 fn unsealed_into(root: &str, what: &str, err: &SealError) -> Result<(), String> {
-    if *err == SealError::NoService && sealing::tree_keyed(root) {
-        return Err(no_holder(root, what, ""));
+    if sealing::tree_clear(root) {
+        return Ok(());
     }
-    unsealed(what, err)
+    match err {
+        SealError::NoService => Err(no_holder(root, what, "")),
+        err => unsealed(what, err),
+    }
 }
 
 /// #FEED-185: the agent-facing error of content bound for the keyed tree
 /// `root` with no key holder in this process (logged).
 fn no_holder(root: &str, what: &str, or: &str) -> String {
-    log::warn!("gateway: {what} not sent: {root} is sealed and no key holder runs");
+    log::warn!("gateway: {what} not sent: no key holder runs to seal it (tree {root})");
     let or = if or.is_empty() { String::new() } else { format!(" {or}.") };
     format!("{what} was not sent: {}. Nothing left this device.{or}", SealError::NoHolder)
 }
@@ -2133,9 +2152,10 @@ mod tests {
     }
 
     /// A keyless tree this install may not key (not a reader): a claim's key
-    /// is waited for, then plaintext stays legal (never a dead end).
+    /// is waited for; #EDE-97: none within the wait = the send fails,
+    /// nothing leaves (never plaintext).
     #[test]
-    fn a_send_into_a_keyless_tree_it_may_not_key_waits_then_goes_as_given() {
+    fn a_send_into_a_keyless_tree_it_may_not_key_waits_then_fails_never_plaintext() {
         let _serial = serial();
         let fake = install_fake();
         sealing::set_send_key_wait(std::time::Duration::from_millis(800));
@@ -2145,10 +2165,10 @@ mod tests {
         let server = fake_server(answer, json!({}));
         let grant = gateway(&server, "s-own", "root-own");
 
-        // Nobody keys root-a: the send goes as given.
+        // Nobody keys root-a: the send fails, nothing leaves.
         let out = call(&grant, SEND_TOOL, json!({ "sessionId": "s-a", "text": "PONG-7731" }));
-        assert!(out.get("error").is_none(), "{out}");
-        assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "PONG-7731");
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("was not sent")), "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty());
 
         // Its device keys it meanwhile (the claim): the send waits and seals.
         let tree = enet_core::sealed::generate_tree_key();
@@ -2333,8 +2353,8 @@ mod tests {
     }
 
     /// #FEED-184: a key holder that is coming but never runs refuses the
-    /// send and the answer (nothing in clear); none coming at all keeps the
-    /// plaintext a keyless process may send.
+    /// send and the answer (nothing in clear); #EDE-97: none coming at all
+    /// refuses too.
     #[test]
     fn a_coming_key_holder_that_never_runs_refuses_instead_of_sending_in_clear() {
         let _serial = serial();
@@ -2370,10 +2390,15 @@ mod tests {
         assert!(calls_of(&server, SEND_TOOL).is_empty());
         sealing::uninstall();
 
-        // No key holder will ever come (eNet off): plaintext as ever.
+        // #EDE-97: no key holder will ever come (eNet off): still refused,
+        // never plaintext...
         sealing::expect_service(false);
-        call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "text": "PLAIN-OK" }));
-        assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "PLAIN-OK");
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "text": "NOT-PLAIN" }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("key holder is not running")), "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty());
+        // (Only a clear tree takes plaintext: see
+        // `without_a_key_holder_a_send_into_a_sealed_tree_fails_here_with_what_to_do`;
+        // the clear set is process-global, so not root-b here.)
         codemode::revoke("agent-a");
         sealing::set_service_wait(sealing::SERVICE_WAIT);
     }
@@ -2577,6 +2602,7 @@ mod tests {
             },
             domain::rows::SessionRow { id: "child-185".into(), root_id: Some("root-185".into()), parent_id: Some("root-185".into()), ..Default::default() },
             domain::rows::SessionRow { id: "plain-185".into(), ..Default::default() },
+            domain::rows::SessionRow { id: "clear-185".into(), clear_tree: true, ..Default::default() },
         ]);
         let transform = SealingTransform::new("root-185", "root-185", None);
         for target in ["child-185", "root-185"] {
@@ -2590,15 +2616,26 @@ mod tests {
         assert_eq!(ended, json!({ "op": "end" }));
         let bare = transform.request(SESSIONS_TOOL, json!({ "op": "end" })).unwrap();
         assert_eq!(bare, json!({ "op": "end" }));
+        // #EDE-97: a keyless tree fails as well (no silent plaintext)...
         let other = SealingTransform::new("plain-185", "plain-185", None);
-        let out = other.request(SEND_TOOL, json!({ "sessionId": "plain-185", "text": "still legal" })).unwrap();
-        assert_eq!(out["text"], "still legal");
+        let err = other.request(SEND_TOOL, json!({ "sessionId": "plain-185", "text": "not legal" })).unwrap_err();
+        assert!(err.contains("key holder is not running"), "{err}");
+        let err = other.request(SHOW_TOOL, json!({ "ask": { "question": "Q?", "options": [{ "label": "A" }] } })).unwrap_err();
+        assert!(err.contains("key holder is not running"), "{err}");
+        // ...a new session too (never started in clear through the gateway)...
+        let err = other.request(SEND_TOOL, json!({ "text": "a new chat" })).unwrap_err();
+        assert!(err.contains("a new session was not sent"), "{err}");
+        // ...only a clear tree takes plaintext.
+        let clear = SealingTransform::new("clear-185", "clear-185", None);
+        let out = clear.request(SEND_TOOL, json!({ "sessionId": "clear-185", "text": "clear is legal" })).unwrap();
+        assert_eq!(out["text"], "clear is legal");
+        let ended = clear.request(SESSIONS_TOOL, json!({ "op": "end", "summary": "done" })).unwrap();
+        assert_eq!(ended["summary"], "done");
     }
 
-    /// #FEED-185: a send to an agent (or app) conversation with no key
-    /// holder: a conversation `sessions.sendTarget` names as keyed fails
-    /// here; a keyless one, or one whose tree is not known (no lookup),
-    /// goes as given (the server refuses a keyed one).
+    /// #FEED-185 / #EDE-97: a send to an agent (or app) conversation with
+    /// no key holder fails here, keyed, keyless or not known; only a clear
+    /// conversation goes as given.
     #[test]
     fn without_a_key_holder_a_send_to_a_keyed_agent_conversation_fails_here() {
         let _serial = serial();
@@ -2619,11 +2656,21 @@ mod tests {
         let keyless = fake_server(answer, json!({ "sessions.sendTarget": { "rootId": "agent-root-2", "epoch": null, "publicKey": null } }));
         let trpc = Arc::new(TrpcClient::new(&keyless.url, Arc::new(api::StaticToken("t".into()))));
         let transform = SealingTransform::new("own-185", "own-185", Some(trpc));
-        let out = transform.request(SEND_TOOL, json!({ "agentId": agent, "text": "plain is legal" })).unwrap();
-        assert_eq!(out["text"], "plain is legal");
+        let err = transform.request(SEND_TOOL, json!({ "agentId": agent, "text": "not legal" })).unwrap_err();
+        assert!(err.contains("key holder is not running"), "{err}");
 
         let unknown = SealingTransform::new("own-185", "own-185", None);
-        let out = unknown.request(SEND_TOOL, json!({ "agentId": agent, "text": "not known here" })).unwrap();
-        assert_eq!(out["text"], "not known here");
+        let err = unknown.request(SEND_TOOL, json!({ "agentId": agent, "text": "not known here" })).unwrap_err();
+        assert!(err.contains("key holder is not running"), "{err}");
+
+        sealing::note_clear_tree("agent-root-clear");
+        let clear = fake_server(
+            Arc::new(|_, _| json!({ "ok": true })),
+            json!({ "sessions.sendTarget": { "rootId": "agent-root-clear", "epoch": null, "publicKey": null } }),
+        );
+        let trpc = Arc::new(TrpcClient::new(&clear.url, Arc::new(api::StaticToken("t".into()))));
+        let transform = SealingTransform::new("own-185", "own-185", Some(trpc));
+        let out = transform.request(SEND_TOOL, json!({ "agentId": agent, "text": "clear is legal" })).unwrap();
+        assert_eq!(out["text"], "clear is legal");
     }
 }

@@ -783,12 +783,15 @@ pub fn post_leftover_note(trpc: &api::trpc::TrpcClient, session_id: &str, branch
         Ok(()) => return,
         Err(err) => log::info!("run cleanup [{session_id}]: sessions.leftover failed ({err}); posting a reply"),
     }
-    if let Err(err) = api::session_device::reply(
-        trpc,
-        session_id,
-        &crate::sealing::seal_body_or_plain(session_id, &leftover_note(branch)),
-        None,
-    ) {
+    // #EDE-97: never in clear: a note that cannot be sealed is not posted.
+    let body = match crate::sealing::seal_body_for_session(session_id, &leftover_note(branch)) {
+        Ok(body) => body,
+        Err(err) => {
+            log::warn!("run cleanup [{session_id}]: leftover note for {branch} not posted: it could not be encrypted ({err})");
+            return;
+        }
+    };
+    if let Err(err) = api::session_device::reply(trpc, session_id, &body, None) {
         log::warn!("run cleanup [{session_id}]: leftover note for {branch} not posted: {err}");
     }
 }
@@ -1438,6 +1441,9 @@ mod tests {
         use std::sync::Arc;
         let session = "1A2B3C4D-1111-4111-8111-111111111111";
         assert_eq!(session_id8(session), "1a2b3c4d");
+        // #EDE-97: the old reply line goes plaintext only into a clear tree
+        // (elsewhere it is sealed, or not sent).
+        crate::sealing::note_clear_tree(session);
         let (root, cleanup) = fixture("finish-session-note");
         diverge_own_branch(&cleanup);
         commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
