@@ -3345,6 +3345,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.59.0",
  "x11rb",
+ "xkeysym",
 ]
 
 [[package]]
