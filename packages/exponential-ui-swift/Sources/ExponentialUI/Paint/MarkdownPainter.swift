@@ -308,10 +308,12 @@ struct MarkdownView: View {
         let quotePart = model.part("Markdown", "quote", props: props)
         let muted = model.color("mutedForeground") ?? ink.opacity(0.6)
         let border = model.color("border") ?? ink.opacity(0.2)
+        // #EDE-95: the node's search marks, numbered across its blocks.
+        let marks = MarkdownMarks.plan(blocks, props: props, model: model)
         ZStack(alignment: .topLeading) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { i, block in
                 let box = layout.blocks[i]
-                blockView(block, index: i, box: box, link: link, codeBg: codePart.style.background, codeBlockBg: codeBlockPart.style.background ?? model.color("muted"), quoteBorder: quotePart.style.borderColor ?? border, muted: muted, border: border)
+                blockView(block, index: i, box: box, link: link, codeBg: codePart.style.background, codeBlockBg: codeBlockPart.style.background ?? model.color("muted"), quoteBorder: quotePart.style.borderColor ?? border, muted: muted, border: border, marks: marks)
                     .frame(width: width, height: box.height, alignment: .topLeading)
                     .offset(y: box.y)
             }
@@ -437,11 +439,24 @@ struct MarkdownView: View {
     /// The runs of a text block (the chips sized for `width`), typeset once:
     /// a `MarkdownText`'s document keeps them per block (`slot`), so a row
     /// a lazy list realizes again shapes nothing.
-    private func lines(_ slot: MarkdownParagraphSlot, _ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, ink: Color, link: Color, codeBackground: Color?, width: CGFloat) -> TextLines {
+    private func lines(_ slot: MarkdownParagraphSlot, _ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, ink: Color, link: Color, codeBackground: Color?, width: CGFloat, marks: MarkdownMarks? = nil) -> TextLines {
         let key = MarkdownParagraphKey(slot: slot, width: width, ink: ink, link: link, codeBackground: codeBackground, rtl: model.isRTL, epoch: TextFonts.epoch)
-        if let hit = paragraphs?.paragraph(key) { return hit }
-        let out = TextLines(runs(inlines, spec, ink: ink, link: link, codeBackground: codeBackground, width: width), wrap: width)
-        paragraphs?.store(out, for: key)
+        let plain: TextLines
+        if let hit = paragraphs?.paragraph(key) {
+            plain = hit
+        } else {
+            plain = TextLines(runs(inlines, spec, ink: ink, link: link, codeBackground: codeBackground, width: width), wrap: width)
+            paragraphs?.store(plain, for: key)
+        }
+        // #EDE-95: the block's search marks over the same lines (paint only).
+        guard let marks, let start = marks.starts[slot] else { return plain }
+        var markedKey = key
+        markedKey.highlight = marks.key(start: start)
+        if let hit = paragraphs?.paragraph(markedKey) { return hit }
+        let painted = HighlightPainter.marked(plain.text, query: marks.query, current: marks.local >= 0 ? marks.local - start : -1, match: HighlightPainter.platform(marks.match), currentFill: HighlightPainter.platform(marks.current))
+        guard painted.count > 0 else { return plain }
+        let out = TextLines(painted.text, sameLinesAs: plain)
+        paragraphs?.store(out, for: markedKey)
         return out
     }
 
@@ -482,7 +497,7 @@ struct MarkdownView: View {
     }
 
     @ViewBuilder
-    private func blockView(_ block: MarkdownBlock, index: Int, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color) -> some View {
+    private func blockView(_ block: MarkdownBlock, index: Int, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color, marks: MarkdownMarks?) -> some View {
         let spec = styles.spec(of: block.kind)
         let mono = model.theme?.monoFamily
         let codeBlockPart = model.part("Markdown", "codeBlock", props: props).style
@@ -490,7 +505,7 @@ struct MarkdownView: View {
         let codeBlockBorder = codeBlockPart.borderColor
         switch block.kind {
         case .paragraph, .heading:
-            linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width), spec: spec)
+            linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width, marks: marks), spec: spec)
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil
@@ -539,7 +554,7 @@ struct MarkdownView: View {
                 }
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
                 let inner = max(width - styles.listInset(block), 1)
-                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: inner), spec: spec)
+                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: inner, marks: marks), spec: spec)
             }
             .padding(.leading, styles.listIndent * CGFloat(block.depth))
         case .quote:
@@ -547,7 +562,7 @@ struct MarkdownView: View {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
                 let inner = max(width - styles.quoteBorder - styles.quotePad, 1)
-                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner), spec: spec)
+                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner, marks: marks), spec: spec)
             }
         case .codeBlock:
             // One non-wrapping label per line (a single-line label would
@@ -590,7 +605,7 @@ struct MarkdownView: View {
                             let cell = c < row.count ? row[c] : []
                             var cellSpec = spec
                             let _ = { if r == 0 { cellSpec.weight = max(cellSpec.weight, 600) } }()
-                            let cellLines = lines(MarkdownParagraphSlot(block: index, row: r, column: c), cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: textW[c])
+                            let cellLines = lines(MarkdownParagraphSlot(block: index, row: r, column: c), cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: textW[c], marks: marks)
                             paragraph(cellLines, spec: spec)
                                 .overlay(alignment: .topLeading) { chips(cellLines, spec: spec) }
                                 .padding(.horizontal, styles.cellPadH)
@@ -632,6 +647,61 @@ struct MarkdownParagraphKey: Hashable {
     let codeBackground: Color?
     let rtl: Bool
     let epoch: UInt64
+    /// #EDE-95: the block's search marks (nil = none).
+    var highlight: MarkdownHighlightKey? = nil
+}
+
+/// #EDE-95: what a block's search marks depend on.
+struct MarkdownHighlightKey: Hashable {
+    let query: String
+    /// The block's local current match (-1 = none).
+    let current: Int
+    let match: Color
+    let matchCurrent: Color
+}
+
+/// #EDE-95 (`fixtures/text-highlight.json`): a Markdown's search marks:
+/// each block of the normal form searched apart (`TextHighlight.markdownTexts`
+/// order: paragraphs, headings, list items, quotes, then a table's cells,
+/// header first, row by row), the current match numbered across them.
+/// `starts[slot]` = how many matches the blocks before that text block have.
+struct MarkdownMarks {
+    let query: String
+    /// The node's local current match (-1 = none).
+    let local: Int
+    let starts: [MarkdownParagraphSlot: Int]
+    let match: Color
+    let current: Color
+
+    func key(start: Int) -> MarkdownHighlightKey {
+        MarkdownHighlightKey(query: query, current: local >= 0 ? local - start : -1, match: match, matchCurrent: current)
+    }
+
+    /// The marks of `blocks` for the node's `highlight` prop (nil = none).
+    @MainActor
+    static func plan(_ blocks: [MarkdownBlock], props: Props, model: SurfaceModel) -> MarkdownMarks? {
+        guard let spec = TextHighlightSpec(props["highlight"]) else { return nil }
+        var starts: [MarkdownParagraphSlot: Int] = [:]
+        var at = 0
+        func add(_ slot: MarkdownParagraphSlot, _ inlines: [MarkdownInline]) {
+            starts[slot] = at
+            at += TextHighlight.count(TextHighlight.runsText(inlines), query: spec.query)
+        }
+        for (i, block) in blocks.enumerated() {
+            switch block.kind {
+            case .paragraph, .heading, .listItem, .quote:
+                add(MarkdownParagraphSlot(block: i), block.inlines)
+            case let .table(header, rows):
+                for (r, row) in ([header] + rows).enumerated() {
+                    for (c, cell) in row.enumerated() { add(MarkdownParagraphSlot(block: i, row: r, column: c), cell) }
+                }
+            case .codeBlock, .rule, .image, .attachment:
+                break
+            }
+        }
+        let colors = HighlightPainter.colors(model)
+        return MarkdownMarks(query: spec.query, local: spec.localCurrent, starts: starts, match: colors.match, current: colors.current)
+    }
 }
 
 /// A task item's box = the Checkbox `box` + `check` recipe parts (the same
