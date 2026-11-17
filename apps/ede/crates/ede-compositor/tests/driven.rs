@@ -18,6 +18,9 @@ const KEY_TAB: u32 = 15;
 const KEY_LEFTCTRL: u32 = 29;
 const KEY_A: u32 = 30;
 const KEY_LEFTSHIFT: u32 = 42;
+const KEY_LEFTALT: u32 = 56;
+const KEY_LEFTMETA: u32 = 125;
+const KEY_ESC: u32 = 1;
 const BTN_LEFT: u32 = 0x110;
 
 fn harness() -> Harness {
@@ -162,4 +165,87 @@ fn a_hold_starts_on_a_clean_seat() {
     person_key(&h, KEY_LEFTSHIFT, KeyState::Released);
     h.with(|ede| ede.person_pointer_button(BTN_LEFT, ButtonState::Released, 0));
     assert_eq!(down(&h), (vec![KEY_LEFTSHIFT], false));
+}
+
+/// The last hold's end (the person's Esc, `release_input`, the holder
+/// going) hands the seat back clean (#EDE-80): what any agent connection
+/// still has down is released, not left for its connection to close.
+#[test]
+fn the_holds_end_releases_what_agents_have_down() {
+    let h = harness();
+    let (_app, (x, y)) = notes(&h);
+    let mut other = h.ipc();
+    let mut agent = h.ipc();
+    agent.hold_input().unwrap();
+    agent.input(key(KEY_LEFTCTRL, true)).unwrap();
+    agent.input(InputEvent::PointerMotion { x, y }).unwrap();
+    agent.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: true }).unwrap();
+    other.input(key(KEY_TAB, true)).unwrap();
+    assert_eq!(down(&h), (vec![KEY_TAB, KEY_LEFTCTRL], true));
+    person_key(&h, KEY_ESC, KeyState::Pressed);
+    assert_eq!(down(&h), (vec![], false), "the agent's keys outlived the person's Esc");
+    person_key(&h, KEY_ESC, KeyState::Released);
+
+    agent.hold_input().unwrap();
+    agent.input(key(KEY_LEFTCTRL, true)).unwrap();
+    agent.release_input().unwrap();
+    assert_eq!(down(&h).0, Vec::<u32>::new(), "the agent's key outlived release_input");
+    // Letting go without holding ends nothing.
+    other.input(key(KEY_TAB, true)).unwrap();
+    agent.release_input().unwrap();
+    assert_eq!(down(&h).0, [KEY_TAB]);
+
+    agent.hold_input().unwrap();
+    drop(agent);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while down(&h).0 != Vec::<u32>::new() {
+        assert!(Instant::now() < deadline, "still down after the holder went: {:?}", down(&h));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The `hotkey` events the shell heard, until none comes for a moment.
+fn hotkeys(shell: &mut ede_protocol::Client) -> Vec<String> {
+    let mut names = Vec::new();
+    while let Ok(e) = shell.next_event() {
+        if e.kind == ede_protocol::events::HOTKEY {
+            names.push(e.data["name"].as_str().unwrap().to_string());
+        }
+    }
+    names
+}
+
+/// The release a hold's start makes is not the person's act (#EDE-80): a
+/// Super held alone opens no menu, and an open Alt-Tab switcher is
+/// cancelled, never committed.
+#[test]
+fn a_holds_start_fires_none_of_the_persons_bindings() {
+    let h = harness();
+    let (_app, _) = notes(&h);
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    shell.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    let mut agent = h.ipc();
+
+    person_key(&h, KEY_LEFTMETA, KeyState::Pressed);
+    agent.hold_input().unwrap();
+    assert_eq!(down(&h).0, Vec::<u32>::new());
+    assert_eq!(hotkeys(&mut shell), Vec::<String>::new(), "the hold's start opened the menu");
+    agent.release_input().unwrap();
+    // Their own Super afterwards is theirs again.
+    person_key(&h, KEY_LEFTMETA, KeyState::Released);
+    person_key(&h, KEY_LEFTMETA, KeyState::Pressed);
+    person_key(&h, KEY_LEFTMETA, KeyState::Released);
+    assert_eq!(hotkeys(&mut shell), ["menu.toggle"]);
+
+    person_key(&h, KEY_LEFTALT, KeyState::Pressed);
+    person_key(&h, KEY_TAB, KeyState::Pressed);
+    person_key(&h, KEY_TAB, KeyState::Released);
+    agent.hold_input().unwrap();
+    assert_eq!(down(&h).0, Vec::<u32>::new());
+    assert_eq!(hotkeys(&mut shell), ["switcher.next", "switcher.cancel"], "the hold's start committed the switcher");
+    agent.release_input().unwrap();
+    // The switcher is closed: their late Alt release commits nothing.
+    person_key(&h, KEY_LEFTALT, KeyState::Released);
+    assert_eq!(hotkeys(&mut shell), Vec::<String>::new());
 }

@@ -8,7 +8,8 @@
 //!
 //! A hold starts on a clean seat: what the person has down is released
 //! first. Releases of keys and buttons they pressed under the lock still
-//! go through, so nothing stays stuck down.
+//! go through, so nothing stays stuck down. It ends on a clean seat too
+//! (#EDE-80): the last hold's end releases what every agent has down.
 
 use ede_protocol::{events, Envelope, Message, EVENT_SOURCE};
 use smithay::{
@@ -47,28 +48,37 @@ impl Ede {
     }
 
     /// A hold starts on a clean seat (#EDE-73): the keys and buttons the
-    /// person has down are released as theirs (a drag ends, a switcher
-    /// commits), so they never merge with the agent's input.
+    /// person has down are released (a drag ends), so they never merge with
+    /// the agent's input. The release is not their act (#EDE-80): no
+    /// binding or hotkey runs, an open switcher is cancelled; only a global
+    /// shortcut they hold is told its key went up.
     fn release_person_input(&mut self) {
         let time = crate::ipc::now_ms() as u32;
         let mut keys: Vec<Keycode> = self.seat.get_keyboard().unwrap().pressed_keys().into_iter().filter(|k| !self.ipc.driven.has_key(*k)).collect();
         keys.sort_by_key(|k| k.raw());
         for key in keys {
-            self.key(key, KeyState::Released, time, true);
+            let shortcut = self.ipc.shortcuts.active.iter().any(|(k, ..)| *k == key.raw());
+            self.key(key, KeyState::Released, time, shortcut);
         }
+        self.hotkeys_let_go();
         for button in std::mem::take(&mut self.ipc.hold.buttons) {
             self.pointer_button(button, ButtonState::Released, time);
         }
     }
 
     pub(crate) fn release_input(&mut self, conn: u64) {
+        let held = !self.ipc.hold.holders.is_empty();
         self.ipc.hold.holders.retain(|c| *c != conn);
+        if held && self.ipc.hold.holders.is_empty() {
+            self.release_driven_of(None);
+        }
     }
 
     /// The person's Esc during a hold: every hold ends, every holder hears it.
     fn person_escape(&mut self) {
         let holders = std::mem::take(&mut self.ipc.hold.holders);
         tracing::info!("Esc: the person took their input back from {} holder(s)", holders.len());
+        self.release_driven_of(None);
         let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event_id()), events::INPUT_ESCAPE, crate::ipc::now_ms(), EVENT_SOURCE, None, serde_json::Value::Null);
         let message = Message::Event { event: envelope };
         for conn in holders {
