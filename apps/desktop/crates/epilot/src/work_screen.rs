@@ -433,6 +433,13 @@ pub(crate) fn rect_in_pixels(display: &DisplayInfo, pixels: (u32, u32), window: 
     (x1 > x0 && y1 > y0).then(|| crate::ScreenRect { x: x0 as i32, y: y0 as i32, width: (x1 - x0) as u32, height: (y1 - y0) as u32 })
 }
 
+/// #EXP-1916: the 0-based display the banner floats on, without reading
+/// the OS (the IDE asks every tick whether the run moved on).
+pub(crate) fn banner_index() -> Option<usize> {
+    let index = BANNER.load(Ordering::Acquire);
+    (index != NO_BANNER).then_some(index)
+}
+
 pub(crate) fn banner_display() -> Option<Display> {
     let index = BANNER.load(Ordering::Acquire);
     if index == NO_BANNER {
