@@ -590,7 +590,7 @@ impl Backend for X11 {
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
-        Ok(Box::new(Lock::take(on_esc)?))
+        Ok(Box::new(Lock::take(None, on_esc)?))
     }
 
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
@@ -654,22 +654,23 @@ fn lockable(info: &xinput::XIDeviceInfo) -> bool {
 }
 
 /// The grab, alive on its own thread with its own connection until dropped
-/// (or until Esc, after which the thread ends on its own and the drop only
-/// collects it).
+/// (or until Esc or the loss of its connection, after which the thread ends
+/// on its own and the drop only collects it).
 struct Lock {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Lock {
-    fn take(on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
+    /// `display` = the X display the grab is taken on (`None`: `DISPLAY`).
+    fn take(display: Option<String>, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let thread = std::thread::Builder::new()
             .name("computer-use-lock".into())
             .spawn({
                 let stop = stop.clone();
-                move || match Grabs::take() {
+                move || match Grabs::take(display.as_deref()) {
                     Ok(grabs) => {
                         let _ = ready_tx.send(Ok(()));
                         grabs.hold(&stop, &*on_esc);
@@ -708,6 +709,16 @@ impl Drop for Lock {
 /// the stand-in when a keymap names no Escape keysym at all.
 const EVDEV_ESCAPE_KEYCODE: u8 = 9;
 
+/// #EXP-1906: the ids of `devices` a hierarchy event says the server removed
+/// are no longer grabbed ones. X.Org hands a removed device's id to the next
+/// one, the same keyboard back from a KVM switch or a Bluetooth sleep: left
+/// in the list, it would never be grabbed again. A device that was only
+/// disabled keeps its id and its grab.
+fn forget_gone(devices: &mut Vec<xinput::DeviceId>, infos: &[xinput::HierarchyInfo]) {
+    let removed = u32::from(xinput::HierarchyMask::SLAVE_REMOVED);
+    devices.retain(|device| !infos.iter().any(|info| info.deviceid == *device && u32::from(info.flags) & removed != 0));
+}
+
 struct Grabs {
     conn: RustConnection,
     root: xproto::Window,
@@ -726,8 +737,8 @@ fn grab_mask() -> u32 {
 }
 
 impl Grabs {
-    fn take() -> Result<Grabs, String> {
-        let (conn, screen) = x("X connection", x11rb::connect(None))?;
+    fn take(display: Option<&str>) -> Result<Grabs, String> {
+        let (conn, screen) = x("X connection", x11rb::connect(display))?;
         let root = conn.setup().roots[screen].root;
         reply("XInput 2", conn.xinput_xi_query_version(2, 0))?;
         let keymap = KeyMap::fetch(&conn)?;
@@ -776,8 +787,8 @@ impl Grabs {
         x("flush", self.conn.flush())
     }
 
-    /// Watch the grabbed devices until `stop`, or until Esc (then `on_esc`
-    /// runs on this thread and the grabs go).
+    /// Watch the grabbed devices until `stop`, or until Esc or the loss of
+    /// the connection (then `on_esc` runs on this thread and the grabs go).
     fn hold(mut self, stop: &AtomicBool, on_esc: &(dyn Fn() + Send + Sync)) {
         while !stop.load(Ordering::Acquire) {
             match self.conn.poll_for_event() {
@@ -793,15 +804,26 @@ impl Grabs {
                 Ok(Some(Event::XinputButtonPress(button))) => {
                     log::debug!("[computer] lock saw button {} from device {}", button.detail, button.sourceid);
                 }
-                Ok(Some(Event::XinputHierarchy(_))) => {
+                Ok(Some(Event::XinputHierarchy(event))) => {
+                    forget_gone(&mut self.devices, &event.infos);
                     if let Err(reason) = self.grab_new() {
                         log::warn!("[computer] a new input device escaped the lock: {reason}");
                     }
                 }
                 Ok(Some(_)) => {}
                 Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                // An event x11rb cannot read: the connection is fine.
+                Err(x11rb::errors::ConnectionError::ParseError(err)) => {
+                    log::debug!("[computer] the lock skipped an event: {err}");
+                }
+                // The connection went and the server freed every grab with
+                // it: the host must not believe the input is still held, so
+                // it hears an abort (#EXP-1906), unless the stop was ours.
                 Err(err) => {
-                    log::warn!("[computer] the lock's connection broke: {err}");
+                    if !stop.load(Ordering::Acquire) {
+                        log::error!("[computer] the lock's connection broke: {err}");
+                        on_esc();
+                    }
                     return;
                 }
             }
@@ -834,6 +856,157 @@ mod tests {
         assert!(!lockable(&device(xinput::DeviceType::MASTER_POINTER, true, "Virtual core pointer")));
         assert!(!lockable(&device(xinput::DeviceType::SLAVE_KEYBOARD, false, "Power Button")));
         assert!(!lockable(&device(xinput::DeviceType::SLAVE_POINTER, true, "CUA v1.123 uinput pointer")));
+    }
+
+    fn hierarchy(deviceid: xinput::DeviceId, flags: xinput::HierarchyMask) -> xinput::HierarchyInfo {
+        xinput::HierarchyInfo { deviceid, attachment: 3, type_: xinput::DeviceType::SLAVE_KEYBOARD, enabled: true, flags }
+    }
+
+    /// #EXP-1906: X.Org hands a removed device's id to the next one, the
+    /// same keyboard back from a KVM switch: an id the server took away is
+    /// no longer a grabbed one, so `grab_new` takes whatever carries it next.
+    #[test]
+    fn a_removed_device_leaves_the_grabbed_list() {
+        let mut devices = vec![9, 10, 11, 12];
+        forget_gone(
+            &mut devices,
+            &[
+                hierarchy(9, xinput::HierarchyMask::SLAVE_REMOVED),
+                hierarchy(10, xinput::HierarchyMask::DEVICE_DISABLED),
+                hierarchy(11, xinput::HierarchyMask::SLAVE_DETACHED),
+                hierarchy(13, xinput::HierarchyMask::SLAVE_REMOVED),
+            ],
+        );
+        // 10 keeps its grab while disabled, 11 only floated (what our own
+        // grab does to it), 12 is not named.
+        assert_eq!(devices, [10, 11, 12]);
+    }
+
+    /// A private Xvfb for the tests that need a server. It picks a free
+    /// display number itself (`-displayfd`), so it is never the person's,
+    /// and it dies with this value.
+    struct Xvfb {
+        server: std::process::Child,
+        display: String,
+    }
+
+    impl Xvfb {
+        /// `None` (the test is skipped) where no Xvfb is installed.
+        fn start() -> Option<Xvfb> {
+            use std::io::BufRead as _;
+            use std::process::Stdio;
+            let server = std::process::Command::new("Xvfb")
+                .args(["-displayfd", "1", "-nolisten", "tcp", "-screen", "0", "640x480x24"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn();
+            let Ok(server) = server else {
+                eprintln!("skipped: no Xvfb on this machine");
+                return None;
+            };
+            let mut xvfb = Xvfb { server, display: String::new() };
+            let mut number = String::new();
+            std::io::BufReader::new(xvfb.server.stdout.take().unwrap()).read_line(&mut number).unwrap();
+            xvfb.display = format!(":{}", number.trim());
+            Some(xvfb)
+        }
+
+        fn stop(&mut self) {
+            let _ = self.server.kill();
+            let _ = self.server.wait();
+        }
+
+        /// A second client, with the id of the server's own keyboard slave.
+        fn client(&self) -> (RustConnection, xproto::Window, xinput::DeviceId) {
+            let (conn, screen) = x11rb::connect(Some(&self.display)).unwrap();
+            let root = conn.setup().roots[screen].root;
+            conn.xinput_xi_query_version(2, 0).unwrap().reply().unwrap();
+            let infos = conn.xinput_xi_query_device(xinput::Device::ALL).unwrap().reply().unwrap().infos;
+            let keyboard = infos.iter().find(|info| info.name == b"Xvfb keyboard").expect("Xvfb's keyboard").deviceid;
+            (conn, root, keyboard)
+        }
+    }
+
+    impl Drop for Xvfb {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
+
+    /// Whether somebody else holds `device`: our own grab of it is refused.
+    fn grabbed_elsewhere(conn: &RustConnection, root: xproto::Window, device: xinput::DeviceId) -> bool {
+        let (mode, owner) = (xproto::GrabMode::ASYNC, xinput::GrabOwner::NO_OWNER);
+        let status = conn
+            .xinput_xi_grab_device(root, x11rb::CURRENT_TIME, x11rb::NONE, device, mode, mode, owner, &[grab_mask()])
+            .unwrap()
+            .reply()
+            .unwrap()
+            .status;
+        if status == xproto::GrabStatus::SUCCESS {
+            conn.xinput_xi_ungrab_device(x11rb::CURRENT_TIME, device).unwrap();
+            conn.sync().unwrap();
+        }
+        status == xproto::GrabStatus::ALREADY_GRABBED
+    }
+
+    /// Disable or enable a device (a server without hotplug removes none).
+    fn set_enabled(conn: &RustConnection, device: xinput::DeviceId, on: bool) {
+        let property = conn.intern_atom(false, b"Device Enabled").unwrap().reply().unwrap().atom;
+        let value = xinput::XIChangePropertyAux::Data8(vec![u8::from(on)]);
+        conn.xinput_xi_change_property(device, xproto::PropMode::REPLACE, property, xproto::AtomEnum::INTEGER.into(), 1, &value)
+            .unwrap()
+            .check()
+            .unwrap();
+    }
+
+    fn escapes() -> (Box<dyn Fn() + Send + Sync>, std::sync::mpsc::Receiver<()>) {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = std::sync::Mutex::new(tx);
+        let on_esc = move || {
+            let _ = tx.lock().unwrap().send(());
+        };
+        (Box::new(on_esc), rx)
+    }
+
+    /// A device disabled and enabled under the lock (no removal: the id
+    /// stays its own) is still held after the hierarchy events.
+    #[test]
+    fn a_device_disabled_and_enabled_under_the_lock_stays_grabbed() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (on_esc, _escaped) = escapes();
+        let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
+        let (conn, root, keyboard) = xvfb.client();
+        assert!(grabbed_elsewhere(&conn, root, keyboard), "the lock holds the keyboard");
+        set_enabled(&conn, keyboard, false);
+        set_enabled(&conn, keyboard, true);
+        // Past the lock's own poll, so it has handled both events.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(grabbed_elsewhere(&conn, root, keyboard), "the keyboard came back outside the lock");
+        drop(lock);
+        assert!(!grabbed_elsewhere(&conn, root, keyboard), "the released lock holds nothing");
+    }
+
+    /// #EXP-1906 (DESKTOP-2I/2J/2K): the lock's X connection broke, so the
+    /// server freed every grab: the host hears an abort, as on Esc.
+    #[test]
+    fn a_lock_whose_connection_broke_is_an_abort() {
+        let Some(mut xvfb) = Xvfb::start() else { return };
+        let (on_esc, escaped) = escapes();
+        let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
+        assert!(escaped.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        xvfb.stop();
+        escaped.recv_timeout(Duration::from_secs(5)).expect("the broken lock reaches on_esc");
+        drop(lock);
+    }
+
+    /// Dropping the guard is the host's own release, never an abort.
+    #[test]
+    fn dropping_the_lock_is_not_an_abort() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (on_esc, escaped) = escapes();
+        drop(Lock::take(Some(xvfb.display.clone()), on_esc).unwrap());
+        assert!(escaped.recv_timeout(Duration::from_millis(300)).is_err(), "on_esc fired on the guard's own drop");
     }
 
     #[test]
