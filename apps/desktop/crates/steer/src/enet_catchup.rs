@@ -22,7 +22,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub use chat_store::catchup::{Power, CONCURRENCY};
-use chat_store::catchup::{self, Answer, Ask, Install};
+use chat_store::catchup::{self, chunk_frame, Answer, Ask, Install, PageAsk};
+pub use chat_store::catchup::{page_frame, PageAnswer};
+pub(crate) use chat_store::catchup::is_page;
+use chat_store::catchup::parse_page;
+#[cfg(test)]
+use chat_store::catchup::PAGE_FRAME_MAX;
 use chat_store::sqlite::SqliteStore;
 use chat_store::StoredEvent;
 use enet_core::{EndpointId, Node};
@@ -30,12 +35,6 @@ use serde_json::{json, Value};
 
 use crate::enet::InstallNode;
 use crate::enet_steer::{FeedPeer, StoredJournals};
-
-/// A catch-up page names the device whose seqs it walks.
-const DEVICE_FIELD: &str = "deviceId";
-/// The largest `history_chunk` a holder sends (one envelope, with room for
-/// the envelope itself).
-const PAGE_FRAME_MAX: usize = crate::enet_steer::CHAT_MAX_BYTES - 4096;
 
 /// The chat store a holder answers from (set once the account's store is
 /// open; shared with the node's [`StoredJournals`]).
@@ -47,38 +46,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis() as i64)
-}
-
-/// Is `frame` a catch-up page (a `history_page` naming a device)?
-pub(crate) fn is_page(frame: &Value) -> bool {
-    frame.get("t").and_then(Value::as_str) == Some("history_page") && frame.get(DEVICE_FIELD).is_some()
-}
-
-/// A catch-up page as it travels.
-pub fn page_frame(request_id: &str, device_id: &str, ask: &Ask) -> Value {
-    let mut frame = json!({ "t": "history_page", "requestId": request_id, "deviceId": device_id, "limit": ask.limit(), "have": ask.have });
-    if let Some(after) = ask.after_seq {
-        frame["afterSeq"] = json!(after);
-    }
-    if let Some(min_at) = ask.min_at {
-        frame["minAt"] = json!(min_at);
-    }
-    frame
-}
-
-/// One parsed catch-up page.
-struct PageAsk {
-    request_id: String,
-    device_id: String,
-    ask: Ask,
-}
-
-fn parse_page(frame: &Value) -> Option<PageAsk> {
-    Some(PageAsk {
-        request_id: frame.get("requestId")?.as_str()?.to_string(),
-        device_id: frame.get(DEVICE_FIELD)?.as_str().filter(|id| !id.is_empty())?.to_string(),
-        ask: serde_json::from_value(frame.clone()).ok()?,
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -205,57 +172,9 @@ fn journal_read(data_dir: &Path, session_id: &str) -> Option<Arc<Vec<(u64, Value
     Some(wire)
 }
 
-/// ONE `history_chunk`, cut from its end to fit an envelope.
-fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, Value)], answer: &Answer, error: Option<&str>) -> String {
-    let budget = PAGE_FRAME_MAX - 512;
-    let mut kept = Vec::new();
-    let mut size = 0usize;
-    let mut answer = answer.clone();
-    for (seq, event) in events {
-        let len = event.to_string().len() + 24;
-        if size + len > budget {
-            if kept.is_empty() {
-                // Too large alone: skipped, the walk moves past it.
-                log::warn!("enet catch-up: event {seq} of {request_id} is over one envelope; skipped");
-                answer.through_seq = Some(*seq);
-            } else {
-                answer.through_seq = kept.last().map(|(seq, _): &(u64, &Value)| *seq);
-            }
-            answer.done = answer.last_seq.is_none_or(|last| answer.through_seq.is_some_and(|through| through >= last));
-            break;
-        }
-        size += len;
-        kept.push((*seq, event));
-    }
-    let mut frame = json!({
-        "t": "history_chunk",
-        "requestId": request_id,
-        "deviceId": device_id,
-        "seqs": kept.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
-        "events": kept.iter().map(|(_, event)| *event).collect::<Vec<_>>(),
-        "done": answer.done,
-        "throughSeq": answer.through_seq,
-        "lastSeq": answer.last_seq,
-        "fullTo": answer.full_to,
-    });
-    if let Some(code) = error {
-        frame["error"] = json!(code);
-    }
-    frame.to_string()
-}
-
 // ---------------------------------------------------------------------------
 // Asker
 // ---------------------------------------------------------------------------
-
-/// A holder's answer to one page.
-#[derive(Clone, Debug)]
-pub struct PageAnswer {
-    pub answer: Answer,
-    pub events: Vec<(u64, Value)>,
-    /// The chunk's size on the wire (the bucket spends it).
-    pub bytes: usize,
-}
 
 type Pending = HashMap<String, flume::Sender<(Value, usize)>>;
 
@@ -303,20 +222,7 @@ pub async fn ask_page(node: &Node, peer: EndpointId, session_id: &str, device_id
     .await;
     lock(pending()).remove(&request_id);
     let (frame, bytes) = result?;
-    if let Some(code) = frame.get("error").and_then(Value::as_str) {
-        return Err(code.to_string());
-    }
-    let seqs: Vec<u64> = serde_json::from_value(frame["seqs"].clone()).unwrap_or_default();
-    let events: Vec<Value> = serde_json::from_value(frame["events"].clone()).unwrap_or_default();
-    let opt = |key: &str| frame.get(key).and_then(Value::as_u64);
-    let answer = Answer {
-        seqs: seqs.clone(),
-        through_seq: opt("throughSeq"),
-        done: frame.get("done").and_then(Value::as_bool).unwrap_or(true),
-        last_seq: opt("lastSeq"),
-        full_to: opt("fullTo"),
-    };
-    Ok(PageAnswer { answer, events: seqs.into_iter().zip(events).collect(), bytes })
+    catchup::parse_chunk(&frame, bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -670,6 +576,8 @@ mod tests {
 
     #[test]
     fn an_oversize_page_is_cut_from_its_end() {
+        // The shared frames size against this envelope.
+        assert_eq!(catchup::CHAT_MAX_BYTES, crate::enet_steer::CHAT_MAX_BYTES);
         let big = "x".repeat(PAGE_FRAME_MAX / 3);
         let events: Vec<(u64, Value)> = (0..5).map(|seq| (seq, json!({ "kind": "narration", "text": big }))).collect();
         let answer = Answer { seqs: (0..5).collect(), through_seq: Some(4), done: true, last_seq: Some(4), full_to: Some(4) };

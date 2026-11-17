@@ -6,6 +6,7 @@
 //! a holder answers and how far the asker is complete. No I/O, no clock.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 /// The fixture's `catchUp.constants`.
 pub const PAGE_MAX: usize = 200;
@@ -249,11 +250,119 @@ impl Bucket {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The frames (steer-enet.json's envelope carries them; the desktop's
+// `steer::enet_catchup`, the phones and the web build the same JSON)
+// ---------------------------------------------------------------------------
+
+/// steer-enet.json `chatMaxBytes`: one eNet envelope.
+pub const CHAT_MAX_BYTES: usize = 1_048_576;
+/// The largest `history_chunk` a holder sends (one envelope, with room for
+/// the envelope itself).
+pub const PAGE_FRAME_MAX: usize = CHAT_MAX_BYTES - 4096;
+
+/// A catch-up page names the device whose seqs it walks.
+const DEVICE_FIELD: &str = "deviceId";
+
+/// Is `frame` a catch-up page (a `history_page` naming a device)?
+pub fn is_page(frame: &Value) -> bool {
+    frame.get("t").and_then(Value::as_str) == Some("history_page") && frame.get(DEVICE_FIELD).is_some()
+}
+
+/// A catch-up page as it travels.
+pub fn page_frame(request_id: &str, device_id: &str, ask: &Ask) -> Value {
+    let mut frame = json!({ "t": "history_page", "requestId": request_id, "deviceId": device_id, "limit": ask.limit(), "have": ask.have });
+    if let Some(after) = ask.after_seq {
+        frame["afterSeq"] = json!(after);
+    }
+    if let Some(min_at) = ask.min_at {
+        frame["minAt"] = json!(min_at);
+    }
+    frame
+}
+
+/// One parsed catch-up page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageAsk {
+    pub request_id: String,
+    pub device_id: String,
+    pub ask: Ask,
+}
+
+pub fn parse_page(frame: &Value) -> Option<PageAsk> {
+    Some(PageAsk {
+        request_id: frame.get("requestId")?.as_str()?.to_string(),
+        device_id: frame.get(DEVICE_FIELD)?.as_str().filter(|id| !id.is_empty())?.to_string(),
+        ask: serde_json::from_value(frame.clone()).ok()?,
+    })
+}
+
+/// ONE `history_chunk`, cut from its end to fit an envelope
+/// ([`PAGE_FRAME_MAX`]); an event too large alone is skipped.
+pub fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, Value)], answer: &Answer, error: Option<&str>) -> String {
+    let budget = PAGE_FRAME_MAX - 512;
+    let mut kept: Vec<(u64, &Value)> = Vec::new();
+    let mut size = 0usize;
+    let mut answer = answer.clone();
+    for (seq, event) in events {
+        let len = event.to_string().len() + 24;
+        if size + len > budget {
+            // Too large alone: skipped, the walk moves past it.
+            answer.through_seq = if kept.is_empty() { Some(*seq) } else { kept.last().map(|(seq, _)| *seq) };
+            answer.done = answer.last_seq.is_none_or(|last| answer.through_seq.is_some_and(|through| through >= last));
+            break;
+        }
+        size += len;
+        kept.push((*seq, event));
+    }
+    let mut frame = json!({
+        "t": "history_chunk",
+        "requestId": request_id,
+        "deviceId": device_id,
+        "seqs": kept.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
+        "events": kept.iter().map(|(_, event)| *event).collect::<Vec<_>>(),
+        "done": answer.done,
+        "throughSeq": answer.through_seq,
+        "lastSeq": answer.last_seq,
+        "fullTo": answer.full_to,
+    });
+    if let Some(code) = error {
+        frame["error"] = json!(code);
+    }
+    frame.to_string()
+}
+
+/// A holder's answer to one page, as the asker reads its chunk.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageAnswer {
+    pub answer: Answer,
+    pub events: Vec<(u64, Value)>,
+    /// The chunk's size on the wire (the bucket spends it).
+    pub bytes: usize,
+}
+
+/// Reads a `history_chunk` (`Err` = the holder refused: its `error` code).
+pub fn parse_chunk(frame: &Value, bytes: usize) -> Result<PageAnswer, String> {
+    if let Some(code) = frame.get("error").and_then(Value::as_str) {
+        return Err(code.to_string());
+    }
+    let seqs: Vec<u64> = serde_json::from_value(frame["seqs"].clone()).unwrap_or_default();
+    let events: Vec<Value> = serde_json::from_value(frame["events"].clone()).unwrap_or_default();
+    let opt = |key: &str| frame.get(key).and_then(Value::as_u64);
+    let answer = Answer {
+        seqs: seqs.clone(),
+        through_seq: opt("throughSeq"),
+        done: frame.get("done").and_then(Value::as_bool).unwrap_or(true),
+        last_seq: opt("lastSeq"),
+        full_to: opt("fullTo"),
+    };
+    Ok(PageAnswer { answer, events: seqs.into_iter().zip(events).collect(), bytes })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::fixture::{from, spec};
-    use serde_json::{json, Value};
 
     fn catch_up() -> Value {
         spec()["catchUp"].clone()
