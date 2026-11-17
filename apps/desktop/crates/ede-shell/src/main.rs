@@ -87,6 +87,7 @@ mod settings;
 mod settings_pages;
 mod share;
 mod sealed;
+mod start_menu;
 mod system;
 mod team_chat;
 mod thumbs;
@@ -365,6 +366,8 @@ struct Shell {
     issue_index: Arc<Vec<issues::Indexed>>,
     issue_hits: Vec<uicore_model::StartMenuIssue>,
     issue_search: u64,
+    /// #EDE-92: the search's selected result (Up, Down; Enter runs it).
+    menu_selection: start_menu::Selection,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -955,6 +958,18 @@ impl HostPlugin for Host {
             }
             "ede_start_menu" => {
                 let args = args.clone();
+                // #EDE-92: Enter in the search box runs the selected row as a press on it does
+                // (after the box's text, which is deferred just before).
+                if args.get("activate").and_then(Value::as_bool) == Some(true) {
+                    let (host, event) = (self.clone(), event.clone());
+                    cx.defer(move |cx| {
+                        let selected = host.shell.borrow().feed.get("/shell").and_then(|shell| start_menu::activation(&shell["startMenu"]));
+                        if let Some((name, args)) = selected {
+                            host.on_function_call(&FunctionCallEvent { name: name.to_string(), args, ..event }, cx);
+                        }
+                    });
+                    return;
+                }
                 cx.defer(move |cx| {
                     if args.get("toggle").and_then(Value::as_bool) == Some(true) {
                         start_menu_toggle(&shell, cx);
@@ -1528,6 +1543,7 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
     };
     value["startMenu"]["favourites"] = Value::Array(favourites);
     value["startMenu"]["issues"] = json!(uicore_model::start_menu_issues(&shell.model, &shell.issue_hits));
+    start_menu::mark(&mut value["startMenu"], &shell.menu_selection);
     value
 }
 
@@ -2726,6 +2742,29 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
     shell.borrow().surfaces.focus_component(name, "search", cx);
 }
 
+/// #EDE-92: Up or Down pressed in `window`: in the start menu with results
+/// of a search, the selection moves (and its row scrolls into view) and the
+/// key is the menu's; anywhere else, or with nothing to select, it is not.
+fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64, cx: &mut App) -> bool {
+    let moved = {
+        let Ok(mut s) = shell.try_borrow_mut() else { return false };
+        let Some(name) = ["start-menu", "menu"].into_iter().find(|name| s.surfaces.region(name).is_some_and(|r| gpui::AnyWindowHandle::from(r.handle) == window)) else { return false };
+        let Some(menu) = s.feed.get("/shell").map(|shell| shell["startMenu"].clone()) else { return false };
+        let query = menu["query"].as_str().unwrap_or_default().to_string();
+        let Some(row) = s.menu_selection.step(&query, start_menu::rows(&menu), step) else { return false };
+        let apps = menu["apps"].as_array().map_or(0, Vec::len);
+        (name, if row < apps { ("apps", row) } else { ("issues", row - apps) })
+    };
+    // The key is still being dispatched in that window: its view redraws after it.
+    let shell = shell.clone();
+    cx.defer(move |cx| {
+        model_changed(&shell, cx);
+        let (name, (list, index)) = moved;
+        shell.borrow().surfaces.command(name, eui_core::surface::SurfaceCommand::ScrollToIndex { id: list.into(), index: index as u32, align: None }, cx);
+    });
+    true
+}
+
 /// #EDE-65: the start menu's query: the apps at once, the issues once the
 /// keys rest (the debounce) and ranked off the main loop.
 const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
@@ -3598,8 +3637,20 @@ fn main() {
             issue_index: Arc::new(Vec::new()),
             issue_hits: Vec::new(),
             issue_search: 0,
+            menu_selection: start_menu::Selection::default(),
             _watcher: watcher,
         }));
+        // #EDE-92: Up and Down in the start menu's search move its selection.
+        {
+            let s = shell.clone();
+            cx.intercept_keystrokes(move |event, window, cx| {
+                let Some(step) = start_menu::key_step(&event.keystroke.key, event.keystroke.modifiers.modified()) else { return };
+                if start_menu_step(&s, window.window_handle(), step, cx) {
+                    cx.stop_propagation();
+                }
+            })
+            .detach();
+        }
         *shell_cell.borrow_mut() = Some(shell.clone());
         chats_refresh(&shell, cx);
         history_refresh(&shell);
@@ -4241,6 +4292,26 @@ mod start_menu_document {
         assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
         let (f, args) = call(node(scroll, "issue").unwrap());
         assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
+    }
+
+    /// #EDE-92: the result rows draw the shell's selection with the Row's
+    /// selected state, and Enter in the search box asks the shell to run it;
+    /// the footer's buttons keep their own presses.
+    #[test]
+    fn the_start_menu_selects_a_result_and_enter_runs_it() {
+        let source = uicore_docs::doc("start-menu").expect("the start menu").source;
+        let doc: Value = serde_json::from_str(source).unwrap();
+        let root = &doc["root"];
+        for id in ["app", "issue"] {
+            assert_eq!(node(root, id).expect(id)["props"]["selected"], serde_json::json!({"@path": "selected"}), "{id}");
+        }
+        let submit = &node(root, "search").expect("the search box")["on"]["submit"]["functionCall"];
+        assert_eq!((submit["@call"].as_str(), &submit["args"]), (Some("ede_start_menu"), &serde_json::json!({"activate": true})));
+        assert!(doc["$comment"].as_str().unwrap().contains("#EDE-92"), "the document says what the keys do");
+        for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_launch"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
+            assert_eq!(call(node(root, id).expect(id)).0, f, "{id}");
+        }
+        assert_eq!(source.matches("\"activate\"").count(), 1, "only the search box runs the selection");
     }
 }
 
