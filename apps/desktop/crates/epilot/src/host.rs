@@ -14,7 +14,7 @@
 //! hears every engage and release.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -26,6 +26,13 @@ use crate::tools;
 /// A lock nobody has used for this long releases itself.
 pub(crate) const IDLE: Duration = Duration::from_secs(30);
 const JANITOR_TICK: Duration = Duration::from_millis(500);
+/// How long a run's end waits for its call in flight to return (the tools
+/// poll the stop between steps): a call stuck in the OS must not keep the
+/// person's input locked.
+const END_WAIT: Duration = Duration::from_secs(5);
+
+/// What a call answers when its run ended, or the switch went off, under it.
+pub(crate) const ENDED: &str = "Computer use ended for this session (the session ended or the switch was turned off): the call was stopped and nothing more was done.";
 
 pub(crate) type Presence = Arc<dyn Fn(Option<String>) + Send + Sync>;
 pub(crate) type AbortHook = Arc<dyn Fn() + Send + Sync>;
@@ -41,6 +48,51 @@ struct LockState {
     in_call: bool,
     /// Runs that called while this lock was held (all aborted by one Esc).
     users: HashSet<String>,
+    /// Counts every engage and release: the banner hears them in this
+    /// order ([`Host::announce`]).
+    seq: u64,
+}
+
+/// A hold taken out of [`LockState`].
+struct Taken {
+    guard: Box<dyn LockGuard>,
+    users: HashSet<String>,
+    seq: u64,
+}
+
+/// The calls inside [`Host::call_on`] (#EXP-1894).
+#[derive(Default)]
+struct Calls {
+    /// Per run: its calls, queued ones included, and whether its end told
+    /// them to stop.
+    pending: HashMap<String, (usize, bool)>,
+    /// The run whose call drives right now.
+    running: Option<String>,
+}
+
+/// One call from its arrival to its return.
+struct Arrived<'a>(&'a Host, &'a str);
+
+impl Drop for Arrived<'_> {
+    fn drop(&mut self) {
+        let mut calls = self.0.in_flight.lock().unwrap();
+        if let Some(pending) = calls.pending.get_mut(self.1) {
+            pending.0 -= 1;
+            if pending.0 == 0 {
+                calls.pending.remove(self.1);
+            }
+        }
+    }
+}
+
+/// The call that drives, until it returns.
+struct Running<'a>(&'a Host);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.in_flight.lock().unwrap().running = None;
+        self.0.returned.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -58,6 +110,8 @@ struct Run {
 enum Refused {
     /// The person's Esc aborted the run before the lease.
     Aborted,
+    /// The run ended before the lease.
+    Ended,
     /// The OS refused the lock.
     Os(String),
 }
@@ -71,6 +125,11 @@ pub(crate) struct Host {
     lock: Mutex<LockState>,
     runs: Mutex<HashMap<String, Run>>,
     presence: Mutex<Option<Presence>>,
+    /// The [`LockState::seq`] the banner heard last; held while it hears.
+    announced: Mutex<u64>,
+    in_flight: Mutex<Calls>,
+    /// The running call returned.
+    returned: Condvar,
     janitor: Mutex<bool>,
     /// For the lock's Esc callback.
     weak: Mutex<Weak<Host>>,
@@ -84,6 +143,7 @@ impl Host {
     }
 
     pub(crate) fn set_presence(&self, presence: Presence) {
+        let _order = self.announced.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let engaged = {
             let lock = self.lock.lock().unwrap();
             lock.held.as_ref().map(|_| lock.label.clone())
@@ -92,7 +152,20 @@ impl Host {
         presence(engaged);
     }
 
-    fn announce(&self, label: Option<String>) {
+    /// Tell the banner of the engage (`Some`) or release that was the
+    /// hold's change number `seq`. The changes happen under the lock's
+    /// mutex and are told outside it, so a release can get here after the
+    /// engage that followed it: an older change than the last one told is
+    /// dropped, and the banner ends on what the hold is (#EXP-1894).
+    fn announce(&self, seq: u64, label: Option<String>) {
+        let mut announced = self.announced.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if seq <= *announced {
+            return;
+        }
+        *announced = seq;
+        if label.is_none() {
+            crate::work_screen::set_banner(None);
+        }
         let presence = self.presence.lock().unwrap().clone();
         if let Some(presence) = presence {
             presence(label);
@@ -129,6 +202,9 @@ impl Host {
         if self.aborted(session_id) {
             return Err(Refused::Aborted);
         }
+        if self.stopped(session_id) {
+            return Err(Refused::Ended);
+        }
         let engaged = if lock.held.is_none() {
             let weak = self.weak.lock().unwrap().clone();
             let guard = backend.lock(Box::new(move || {
@@ -139,6 +215,7 @@ impl Host {
             lock.held = Some(guard.map_err(Refused::Os)?);
             lock.label = label.to_string();
             lock.users.clear();
+            lock.seq += 1;
             true
         } else {
             false
@@ -146,11 +223,11 @@ impl Host {
         lock.last_used = Some(Instant::now());
         lock.in_call = true;
         lock.users.insert(session_id.to_string());
-        let label = lock.label.clone();
+        let (label, seq) = (lock.label.clone(), lock.seq);
         drop(lock);
         if engaged {
             log::info!("[computer] input locked for {label}");
-            self.announce(Some(label));
+            self.announce(seq, Some(label));
             self.start_janitor();
         }
         Ok(())
@@ -159,38 +236,57 @@ impl Host {
     /// Take the lock out of `lock`, under its mutex (whoever decides the
     /// release does it there: a run leasing meanwhile engages anew);
     /// `None` when nothing was held. [`Host::released`] follows.
-    fn take(lock: &mut LockState) -> Option<(Box<dyn LockGuard>, HashSet<String>)> {
+    fn take(lock: &mut LockState) -> Option<Taken> {
         let guard = lock.held.take()?;
         let users = std::mem::take(&mut lock.users);
         lock.last_used = None;
         lock.in_call = false;
-        Some((guard, users))
+        lock.seq += 1;
+        Some(Taken { guard, users, seq: lock.seq })
     }
 
     /// The lock went ([`Host::take`]): say so.
-    fn released(&self) {
+    fn released(&self, taken: &Taken) {
         log::info!("[computer] input unlocked");
-        crate::work_screen::set_banner(None);
-        self.announce(None);
+        self.announce(taken.seq, None);
     }
 
-    /// Let the person's input back; `None` when nothing was held.
-    fn release(&self) -> Option<(Box<dyn LockGuard>, HashSet<String>)> {
-        let taken = Self::take(&mut self.lock.lock().unwrap())?;
-        self.released();
-        Some(taken)
+    /// Whether `session_id`'s end told its calls to stop.
+    fn stopped(&self, session_id: &str) -> bool {
+        self.in_flight.lock().unwrap().pending.get(session_id).is_some_and(|pending| pending.1)
+    }
+
+    /// #EXP-1894: tell `session_id`'s calls (every run's with `None`) to
+    /// stop: the one driving reads it between its steps
+    /// (`tools::CallContext::interrupted`), a queued one answers
+    /// [`ENDED`] and does nothing. Returns once the driving one returned,
+    /// so the hold never goes from under an action; [`END_WAIT`] at most.
+    fn stop_calls(&self, session_id: Option<&str>) {
+        let ours = |id: &String| session_id.is_none_or(|session_id| session_id == id);
+        let mut calls = self.in_flight.lock().unwrap();
+        for (id, pending) in calls.pending.iter_mut() {
+            if ours(id) {
+                pending.1 = true;
+            }
+        }
+        let (_calls, wait) =
+            self.returned.wait_timeout_while(calls, END_WAIT, |calls| calls.running.as_ref().is_some_and(ours)).unwrap();
+        if wait.timed_out() {
+            log::warn!("[computer] a call did not stop within {END_WAIT:?} of its run's end");
+        }
     }
 
     /// The person pressed Esc (on the lock's thread; a hold that died
     /// reads the same): unlock, abort every run that used it, interrupt
     /// their turns.
     pub(crate) fn abort(&self) {
-        let (guard, users, hooks) = {
+        let (taken, hooks) = {
             let mut lock = self.lock.lock().unwrap();
-            let Some((guard, users)) = Self::take(&mut lock) else { return };
+            let Some(taken) = Self::take(&mut lock) else { return };
             // Marked before the lock's mutex goes: `lease` reads it there.
             let mut runs = self.runs.lock().unwrap();
-            let hooks: Vec<AbortHook> = users
+            let hooks: Vec<AbortHook> = taken
+                .users
                 .iter()
                 .filter_map(|session_id| {
                     let run = runs.entry(session_id.clone()).or_default();
@@ -198,9 +294,10 @@ impl Host {
                     run.hook.clone()
                 })
                 .collect();
-            (guard, users, hooks)
+            (taken, hooks)
         };
-        self.released();
+        self.released(&taken);
+        let Taken { guard, users, .. } = taken;
         // Releasing on the lock's own thread: the guard must not join it.
         drop(guard);
         log::warn!("[computer] Esc: computer use aborted for {} run(s)", users.len());
@@ -209,9 +306,11 @@ impl Host {
         }
     }
 
-    /// The run ended: its abort state goes, and the lock with it when it
-    /// was the last user.
+    /// The run ended: its call in flight stops first ([`Host::stop_calls`]),
+    /// then its abort state goes, and the lock with it when it was the last
+    /// user.
     pub(crate) fn end(&self, session_id: &str) {
+        self.stop_calls(Some(session_id));
         self.runs.lock().unwrap().remove(session_id);
         let taken = {
             let mut lock = self.lock.lock().unwrap();
@@ -222,15 +321,19 @@ impl Host {
                 None
             }
         };
-        if taken.is_some() {
-            self.released();
+        if let Some(taken) = taken {
+            self.released(&taken);
         }
     }
 
-    /// The switch turned off: everything goes.
+    /// The switch turned off: every call stops, then everything goes.
     pub(crate) fn shutdown(&self) {
+        self.stop_calls(None);
         self.runs.lock().unwrap().clear();
-        self.release();
+        let taken = Self::take(&mut self.lock.lock().unwrap());
+        if let Some(taken) = taken {
+            self.released(&taken);
+        }
     }
 
     /// One thread for the host's lifetime: releases a lock idle past [`IDLE`].
@@ -258,16 +361,29 @@ impl Host {
                 None
             }
         };
-        if taken.is_some() {
-            self.released();
+        if let Some(taken) = taken {
+            self.released(&taken);
         }
     }
 
     /// One call on `backend` (the OS's, a fake in tests).
     fn call_on(&self, backend: &dyn backend::Backend, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
+        // Counted from here, so the run's end reaches it while it queues.
+        self.in_flight.lock().unwrap().pending.entry(session_id.to_string()).or_default().0 += 1;
+        let _arrived = Arrived(self, session_id);
         // One call at a time; a panic in an earlier call must not end
         // computer use for good.
         let _queued = self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // The run ended while this call queued; else it drives from here,
+        // and the run's end waits for it (dropped before `_queued`).
+        let _running = {
+            let mut calls = self.in_flight.lock().unwrap();
+            if calls.pending.get(session_id).is_some_and(|pending| pending.1) {
+                return tools::error(ENDED);
+            }
+            calls.running = Some(session_id.to_string());
+            Running(self)
+        };
         // Esc while this call queued.
         if self.aborted(session_id) {
             return tools::error(tools::ABORTED);
@@ -277,12 +393,14 @@ impl Host {
         let engage = || {
             self.lease(session_id, label, backend).map_err(|refused| match refused {
                 Refused::Aborted => tools::ABORTED.to_string(),
+                Refused::Ended => ENDED.to_string(),
                 Refused::Os(reason) => {
                     format!("Could not lock the person's input ({reason}); nothing was done. Tell them and try again.")
                 }
             })
         };
-        let interrupted = || self.aborted(session_id);
+        // The person's Esc, or the run's end (#EXP-1894).
+        let interrupted = || self.aborted(session_id) || self.stopped(session_id);
         let (mut display, mut copy_mark) =
             self.runs.lock().unwrap().get(session_id).map(|run| (run.display, run.copy_mark)).unwrap_or_default();
         let mut ctx = tools::CallContext {
@@ -293,7 +411,8 @@ impl Host {
             engage: &engage,
         };
         let result = tools::call(backend, name, &arguments, &mut ctx);
-        {
+        // An ended run keeps no state.
+        if !self.stopped(session_id) {
             let mut runs = self.runs.lock().unwrap();
             let run = runs.entry(session_id.to_string()).or_default();
             run.display = display;
@@ -306,6 +425,9 @@ impl Host {
             if !interrupted() {
                 lock.last_used = Some(Instant::now());
             }
+        }
+        if self.stopped(session_id) {
+            return tools::error(ENDED);
         }
         // Esc during the action: what it did is moot, the answer is the abort.
         if interrupted() {
@@ -559,6 +681,95 @@ mod tests {
             });
             assert!(host.engaged(), "round {round}: s2 leased and lost the hold");
             host.shutdown();
+        }
+    }
+
+    /// #EXP-1894: `stop` (the run's end, the switch going off) lands on
+    /// another thread in the middle of a long `type`. Every character sent
+    /// was sent under the hold and before `stop` returned; the rest is not
+    /// sent.
+    fn a_long_type_stops_at(stop: fn(&Host)) -> Value {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let host = Host::new();
+        let returned = Arc::new(AtomicBool::new(false));
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let stopper = Arc::new(Mutex::new(None));
+        let backend = Hooked {
+            on_type: Some({
+                let (host, returned, sent, stopper) = (host.clone(), returned.clone(), sent.clone(), stopper.clone());
+                Box::new(move || {
+                    let count = {
+                        let mut sent = sent.lock().unwrap();
+                        sent.push((host.engaged(), returned.load(Ordering::SeqCst)));
+                        sent.len()
+                    };
+                    if count == 2 {
+                        let (host, returned) = (host.clone(), returned.clone());
+                        *stopper.lock().unwrap() = Some(std::thread::spawn(move || {
+                            stop(&host);
+                            returned.store(true, Ordering::SeqCst);
+                        }));
+                    }
+                    // Room for the stop to land: it waits for this call.
+                    let until = Instant::now() + Duration::from_millis(50);
+                    while count >= 2 && !returned.load(Ordering::SeqCst) && Instant::now() < until {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                })
+            }),
+            ..Default::default()
+        };
+        let reply = host.call_on(&backend, "s1", "EXP-1", "type", json!({ "text": "a".repeat(40) }));
+        stopper.lock().unwrap().take().expect("the stop never ran").join().unwrap();
+        let sent = sent.lock().unwrap();
+        assert!(sent.len() < 40, "the call typed to its end");
+        assert!(sent.iter().all(|(held, _)| *held), "typed with the person's input unlocked: {sent:?}");
+        assert!(sent.iter().all(|(_, returned)| !*returned), "typed after the stop returned: {sent:?}");
+        assert!(!host.engaged());
+        reply
+    }
+
+    #[test]
+    fn a_runs_end_stops_its_call_in_flight_before_the_hold_goes() {
+        let reply = a_long_type_stops_at(|host| host.end("s1"));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert_eq!(reply["content"][0]["text"], ENDED);
+    }
+
+    #[test]
+    fn the_switch_going_off_stops_a_call_in_flight_before_the_hold_goes() {
+        let reply = a_long_type_stops_at(|host| host.shutdown());
+        assert_eq!(reply["isError"], true, "{reply}");
+    }
+
+    /// #EXP-1894: the last user's end and another run's engage race: the
+    /// banner ends on what the hold is, never on the release that came first.
+    #[test]
+    fn the_banner_ends_on_the_holds_state() {
+        let host = Host::new();
+        let last = Arc::new(Mutex::new(None));
+        host.set_presence({
+            let last = last.clone();
+            Arc::new(move |label| *last.lock().unwrap() = label)
+        });
+        let backend = tools::tests::FakeBackend::default();
+        for round in 0..5_000 {
+            host.lease("s1", "EXP-1", &backend).unwrap();
+            let start = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    start.wait();
+                    host.end("s1");
+                });
+                scope.spawn(|| {
+                    start.wait();
+                    host.lease("s2", "EXP-2", &backend).unwrap();
+                });
+            });
+            assert!(host.engaged());
+            assert!(last.lock().unwrap().is_some(), "round {round}: the hold is on and the banner says released");
+            host.shutdown();
+            assert_eq!(*last.lock().unwrap(), None, "round {round}");
         }
     }
 }

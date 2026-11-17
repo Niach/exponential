@@ -303,7 +303,8 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
-/// The run ended: its token is dead, its abort state gone, the lock
+/// The run ended: its token is dead, its call in flight stopped (this waits
+/// for it to return, [`host::Host::end`]), its abort state gone, the lock
 /// released when it was the last user.
 pub fn revoke(session_id: &str) {
     // An id that breaks the id rule was never granted.
@@ -415,8 +416,8 @@ pub fn prepare_in_background() {
     });
 }
 
-/// The switch turned off: every run's grant ends and the person's input is
-/// theirs again. Grants after this work again.
+/// The switch turned off: every run's grant ends, a call in flight stops
+/// and the person's input is theirs again. Grants after this work again.
 pub fn shutdown() {
     if let Some(Ok(live)) = LIVE.get() {
         live.server.revoke_all();
