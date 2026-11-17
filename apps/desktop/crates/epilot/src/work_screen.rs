@@ -49,6 +49,11 @@ pub(crate) fn is_input(tool: &str) -> bool {
     input_tools().iter().any(|input| input == tool)
 }
 
+/// Whether `tool` presses keys into the focused window (`keyTools`).
+pub(crate) fn is_key(tool: &str) -> bool {
+    key_tools().iter().any(|key| key == tool)
+}
+
 /// The refusal kinds (`copy.refusals` keys).
 pub const NO_WORK_SCREEN: &str = "noWorkScreen";
 pub const PICKED_GONE: &str = "pickedGone";
