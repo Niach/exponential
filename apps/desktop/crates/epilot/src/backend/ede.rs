@@ -4,8 +4,10 @@
 //! Input is `input` on the person's seat (`input:person`): pointer motion,
 //! evdev buttons, wheel notches, and keys as keysyms the compositor looks up
 //! on its own layout (Shift/AltGr included). The screen is `capture` of an
-//! output (protected windows black), windows are `list_windows` and
-//! `focus_window`. The compositor refuses input on protected surfaces and
+//! output (protected windows black), windows are `list_windows` (the active
+//! workspace's only) and `focus_window`. Displays and windows are in the
+//! compositor's logical units, the ones the pointer speaks; a display's
+//! pixels are its output's mode ([`pixel_size`]). The compositor refuses input on protected surfaces and
 //! while the session is locked; those refusals are the tool's error.
 //!
 //! The lock is `hold_input` on a connection of its own: the person's keys,
@@ -25,9 +27,10 @@
 //! eDE = `XDG_CURRENT_DESKTOP` names `Exponential` and its socket
 //! (`$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock`) is there.
 //! Grants by default (#EDE-22): the root token file only mints, once per
-//! process and compositor, a grant for `epilot` holding `capture` and
-//! `input:person`; every connection here uses that grant. `EDE_TOKEN`
-//! (a grant handed to this process) is used as it is when it cannot mint.
+//! process and compositor, a grant for `epilot` holding `capture`,
+//! `input:person` and `ui` (`focus_window`); every connection here uses that
+//! grant, and turning computer use off revokes it. `EDE_TOKEN` (a grant
+//! handed to this process) is used as it is when it cannot mint.
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -88,8 +91,36 @@ pub(crate) fn unsupported(session: &Result<Session, String>) -> Option<String> {
 /// process, not one per tool call (the hub opens a backend per call).
 static GRANT: Mutex<Option<(PathBuf, Token)>> = Mutex::new(None);
 
-/// What a tool call needs: the screen and the person's seat.
-const CAPABILITIES: [Capability; 2] = [Capability::Capture, Capability::InputPerson];
+/// What a tool call needs: the screen, the person's seat, and `ui` for
+/// `focus_window` (`activate_window`, #EXP-1897).
+const CAPABILITIES: [Capability; 3] = [Capability::Capture, Capability::InputPerson, Capability::Ui];
+
+/// Each display's rect (logical units) with its size in pixels, as the last
+/// [`Backend::displays`] read them (#EXP-1897).
+static PIXELS: Mutex<Vec<((i32, i32, u32, u32), (u32, u32))>> = Mutex::new(Vec::new());
+
+/// The pixel size of the display at this rect; `None` = not an eDE display.
+pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> Option<(u32, u32)> {
+    PIXELS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(rect, _)| *rect == (x, y, width, height)).map(|(_, pixels)| *pixels)
+}
+
+/// An output's pixels: its current mode (what a capture carries), else its
+/// logical size times its scale.
+fn pixels_of(output: &ede_protocol::OutputInfo) -> (u32, u32) {
+    if let Some(mode) = output.modes.iter().find(|mode| mode.current) {
+        return (mode.width.max(1) as u32, mode.height.max(1) as u32);
+    }
+    let scale = if output.scale.is_finite() && output.scale > 0.0 { output.scale } else { 1.0 };
+    let scaled = |units: i32| (f64::from(units.max(1)) * scale).round() as u32;
+    (scaled(output.width), scaled(output.height))
+}
+
+/// The switch turned off: the grant this process minted ends (#EXP-1897).
+pub(crate) fn revoke_grant() {
+    if let Some(Ok(session)) = session() {
+        session.revoke();
+    }
+}
 
 impl Session {
     fn root_token(&self) -> Result<Token, String> {
@@ -125,6 +156,23 @@ impl Session {
         drop(root);
         *GRANT.lock().unwrap_or_else(|p| p.into_inner()) = Some((self.socket.clone(), token.clone()));
         self.connect_token(token)
+    }
+
+    /// Forget the cached grant and have the compositor forget it too; the
+    /// next connection mints a new one. A token handed to this process
+    /// (`EDE_TOKEN` without `system`) is not ours to revoke.
+    fn revoke(&self) {
+        let cached = GRANT.lock().unwrap_or_else(|p| p.into_inner()).take_if(|(socket, _)| *socket == self.socket);
+        let Some((_, token)) = cached else { return };
+        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
+            if *root.token() == token {
+                return Ok(());
+            }
+            root.call(Request::RevokeGrant { token }).map(|_| ()).map_err(e("eDE grant"))
+        });
+        if let Err(err) = revoked {
+            log::warn!("computer use: the eDE grant was not revoked: {err}");
+        }
     }
 }
 
@@ -191,6 +239,8 @@ impl Backend for Ede {
             return Err("eDE has no output.".to_string());
         }
         let connectors: Vec<Option<String>> = outputs.iter().map(|output| Some(output.name.clone())).collect();
+        *PIXELS.lock().unwrap_or_else(|p| p.into_inner()) =
+            outputs.iter().map(|output| ((output.x, output.y, output.width.max(1) as u32, output.height.max(1) as u32), pixels_of(output))).collect();
         let mut displays: Vec<DisplayInfo> = outputs
             .into_iter()
             .enumerate()
@@ -220,12 +270,19 @@ impl Backend for Ede {
     }
 
     fn list_windows(&self) -> Result<Vec<WindowInfo>, String> {
-        let windows = self.client.lock().unwrap().windows().map_err(e("eDE windows"))?;
-        // The compositor lists bottom to top, then parked and minimized ones.
+        let (windows, active) = {
+            let mut client = self.client.lock().unwrap();
+            let windows = client.windows().map_err(e("eDE windows"))?;
+            // An eDE without workspaces parks nothing.
+            let active = client.workspaces().ok().and_then(|all| all.into_iter().find(|workspace| workspace.active)).map(|workspace| workspace.index);
+            (windows, active)
+        };
+        // The compositor lists bottom to top, then parked and minimized
+        // ones: neither is on screen (#EXP-1897).
         Ok(windows
             .into_iter()
             .rev()
-            .filter(|window| !window.minimized)
+            .filter(|window| !window.minimized && active.is_none_or(|active| window.workspace == active))
             .filter_map(|window| {
                 Some(WindowInfo {
                     id: window_number(&window.id)?,
@@ -683,8 +740,8 @@ mod tests {
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
     /// epilot headless_ede`. Skipped without it (the desktop CI builds no
-    /// eDE). Checks the grant too: the connection holds `capture` and
-    /// `input:person` only, never the root's `system`.
+    /// eDE). Checks the grant too: the connection holds `capture`,
+    /// `input:person` and `ui` only, never the root's `system`.
     #[test]
     fn headless_ede_drives_and_captures() {
         let Some(binary) = std::env::var_os("EDE_COMPOSITOR") else {
@@ -792,5 +849,14 @@ mod tests {
         let pixels = crate::backend::pixel_size(screen.x, screen.y, screen.width, screen.height);
         let shot = ede.screenshot(screen).unwrap();
         assert_eq!((pixels, (shot.width, shot.height)), ((640, 480), (640, 480)));
+
+        // #EXP-1897: turning computer use off ends the grant; the next call
+        // mints a new one.
+        let (_, token) = GRANT.lock().unwrap().clone().unwrap();
+        session.connect_token(token.clone()).expect("the grant lives until it is revoked");
+        session.revoke();
+        let gone = session.connect_token(token).err().expect("a revoked grant connects no more");
+        assert!(gone.contains("unknown or expired token"), "{gone}");
+        assert_eq!(session.connect().unwrap().hello.capabilities, CAPABILITIES.to_vec());
     }
 }
