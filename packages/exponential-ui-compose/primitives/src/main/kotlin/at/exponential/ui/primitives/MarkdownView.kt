@@ -221,15 +221,20 @@ class MarkdownComposeText(
         boldFloor: Int? = null,
         onLink: ((String) -> Unit)? = null,
         code: MarkdownCodeStyle? = null,
+        highlight: MarkdownHighlight? = null,
+        marks: List<HighlightMark> = emptyList(),
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
         var chips = 0
+        // #EDE-95: the offset in the searched text ([markdownHighlightText]: a chip = one barrier).
+        var searched = 0
         for (span in inlines) {
             if (span.text.isEmpty()) continue
             val chip = span.chip
             if (chip != null) {
                 // #VAPP-258: the chip is a placeholder (its label = the alternate text, the accessible name).
                 appendInlineContent(markdownChipId(chips++), chip.label)
+                searched += 1
                 continue
             }
             var weight = spec.weight
@@ -253,6 +258,7 @@ class MarkdownComposeText(
                 pushStringAnnotation(MARKDOWN_CODE_TAG, "")
                 appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
             }
+            val at = length
             val url = span.link
             if (url != null) {
                 val annotation = if (onLink != null) {
@@ -264,6 +270,16 @@ class MarkdownComposeText(
             } else {
                 withStyle(style) { append(span.text) }
             }
+            // #EDE-95: the match fills behind this span's part of each mark (the text keeps its colour).
+            if (highlight != null) {
+                val end = searched + span.text.length
+                for (m in marks) {
+                    val a = maxOf(m.start, searched)
+                    val b = minOf(m.end, end)
+                    if (a < b) addStyle(SpanStyle(background = if (m.current) highlight.matchCurrent else highlight.match), at + a - searched, at + b - searched)
+                }
+            }
+            searched += span.text.length
             if (pill) {
                 appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
                 pop()
@@ -499,6 +515,8 @@ fun MarkdownView(
     onLayout: ((MarkdownLaidOut) -> Unit)? = null,
     /** #EXP-1881: true = as wide as its content needs ([Markdown.maxContentWidth]), at most the offered width (a chat bubble hugging its text); false = the offered width. */
     hug: Boolean = false,
+    /** #EDE-95: search marks (each searched block of the normal form apart, the current one counted across them); null = none. */
+    highlight: MarkdownHighlight? = null,
 ) {
     val prepared = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
         Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
@@ -513,6 +531,9 @@ fun MarkdownView(
         else -> parsed
     }
     val hooks = MarkdownPaintHooks(onLink, image, codeHighlighter, onImagePress, chipIcon, attachmentView)
+    val marks = remember(blocks, highlight?.query, highlight?.current) {
+        highlight?.let { markdownHighlightMarks(blocks, it.query, it.current) }
+    }
     val outer = LocalDensity.current
     val pinned = remember(outer.density) { Density(outer.density, 1f) }
     CompositionLocalProvider(LocalDensity provides pinned) {
@@ -564,7 +585,7 @@ fun MarkdownView(
                                     .height(box.height.dp)
                                     .then(if (lazy) Modifier.testTag(MARKDOWN_BLOCK_TAG) else Modifier),
                             ) {
-                                MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks)
+                                MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks, highlight, marks?.getOrNull(i).orEmpty())
                             }
                         }
                     }
@@ -611,13 +632,16 @@ private fun MarkdownBlockView(
     codeBlockRadius: Dp,
     shaper: MarkdownComposeText,
     hooks: MarkdownPaintHooks,
+    highlight: MarkdownHighlight? = null,
+    /** #EDE-95: the block's marks per searched run list ([markdownHighlightGroups] order). */
+    marks: List<List<HighlightMark>> = emptyList(),
 ) {
     val spec = styles.spec(block.kind)
     val onLink = hooks.onLink
     val uri = LocalUriHandler.current
     val open: (String) -> Unit = { href -> if (onLink != null) onLink(href) else runCatching { uri.openUri(href) } }
-    fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null) =
-        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code)
+    fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null, group: Int = 0) =
+        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code, highlight = highlight, marks = marks.getOrNull(group).orEmpty())
     // #VAPP-258: the chips of a run list wrapped at [cap] (the width its layout used).
     fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
         markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)
@@ -730,14 +754,16 @@ private fun MarkdownBlockView(
             Box(Modifier.width(width.dp).then(scroll)) {
                 Column(Modifier.width(tableW.dp)) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-                    all.forEachIndexed { r, row ->
+                    // #EDE-95: each cell's run list in the searched order (the header first, row by row).
+            val firstCell = all.runningFold(0) { n, row -> n + row.size }
+            all.forEachIndexed { r, row ->
                         val rowH = box.rows.getOrNull(r)?.let { it - 1f } ?: spec.lineHeight
                         // #VAPP-258: the header row's `Markdown/headerCell` fill.
                         Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
                             for (c in 0 until cols) {
                                 val cell = row.getOrNull(c) ?: emptyList()
                                 MarkdownPills(
-                                    runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null),
+                                    runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null, group = if (c < row.size) firstCell[r] + c else -1),
                                     style = shaper.style(spec, colors.ink),
                                     inlineContent = chips(cell, textW[c]),
                                     modifier = Modifier

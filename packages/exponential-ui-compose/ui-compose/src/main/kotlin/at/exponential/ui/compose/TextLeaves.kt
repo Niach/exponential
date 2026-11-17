@@ -150,9 +150,11 @@ internal fun TextLeaf(cx: LeafContext) {
             at.exponential.ui.measure.middleTruncateWidth(full, cx.inner.width.toDouble()) { ch -> cache.getOrPut(ch) { measurer.measure(ch, style, softWrap = false, maxLines = 1).size.width / density.toDouble() } }
         }
     }
+    // #EDE-95: the search marks behind the shown text (a cut text = none).
+    val marked = highlightedText(cx, text, shown)
     InnerBox(cx) {
         BasicText(
-            shown,
+            marked,
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
             style = style.let { if (shimmer != null) it.copy(brush = shimmer) else it },
             softWrap = lines != 1,
@@ -161,6 +163,33 @@ internal fun TextLeaf(cx: LeafContext) {
         )
     }
 }
+
+/**
+ * #EDE-95 (`fixtures/text-highlight.json`): the fills of the leaf's
+ * `highlight` over [text] ([shownLength] = the painted text's length; a
+ * transform or cut that changes it = no marks): `$color.match` behind each
+ * match, `$color.matchCurrent` behind the local current one. Background
+ * spans only: the text keeps its colour and its layout.
+ */
+internal fun highlightStyles(cx: LeafContext, text: String, shownLength: Int): List<Pair<SpanStyle, IntRange>> {
+    val spec = at.exponential.ui.measure.highlightSpec(cx.props["highlight"]) ?: return emptyList()
+    if (shownLength != text.length) return emptyList()
+    val local = at.exponential.ui.primitives.highlightLocalCurrent(spec)
+    val match = cx.themeColor("match") ?: HIGHLIGHT_MATCH
+    val current = cx.themeColor("matchCurrent") ?: HIGHLIGHT_MATCH_CURRENT
+    return at.exponential.ui.primitives.highlightRanges(text, spec.query).mapIndexed { i, r -> SpanStyle(background = if (i == local) current else match) to r }
+}
+
+/** #EDE-95: [shown] with the leaf's search marks (the plain string's text when none). */
+@Composable
+internal fun highlightedText(cx: LeafContext, text: String, shown: String): AnnotatedString = remember(cx.props["highlight"], text, shown, cx.themeColor("match"), cx.themeColor("matchCurrent")) {
+    val styles = highlightStyles(cx, text, shown.length)
+    if (styles.isEmpty()) AnnotatedString(shown) else AnnotatedString(shown, styles.map { (style, r) -> AnnotatedString.Range(style, r.first, r.last + 1) })
+}
+
+/** #EDE-95: the fills with no theme token (the dark Exponential theme's). */
+private val HIGHLIGHT_MATCH = Color(0x4DFACC15)
+private val HIGHLIGHT_MATCH_CURRENT = Color(0x99F59E0B)
 
 /**
  * #EXP-1674: the links in the text's own colour, underlined. A tap on a link
@@ -182,6 +211,8 @@ private fun LinkedTextLeaf(cx: LeafContext, segments: List<TextLinkSegment>, ali
                     append(shown)
                 }
             }
+            // #EDE-95: the search marks over the joined segments.
+            highlightStyles(cx, segments.joinToString("") { it.text }, length).forEach { (style, range) -> addStyle(style, range.first, range.last + 1) }
         }
     }
     InnerBox(cx) {
@@ -567,6 +598,12 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             onImagePress = model.host.onImagePress,
             chipIcon = { name, size, color -> IconView(name, size, color, model, rtl = cx.rtl) },
             attachmentView = { a, w, h -> MarkdownAttachmentView(cx, styles, a.type, a.name, a.href, w, h) },
+            // #EDE-95: the search marks, block by block (code blocks never; chips stay whole).
+            highlight = remember(cx.props["highlight"], cx.themeColor("match"), cx.themeColor("matchCurrent")) {
+                at.exponential.ui.measure.highlightSpec(cx.props["highlight"])?.let { spec ->
+                    at.exponential.ui.primitives.MarkdownHighlight(spec.query, at.exponential.ui.primitives.highlightLocalCurrent(spec), cx.themeColor("match") ?: HIGHLIGHT_MATCH, cx.themeColor("matchCurrent") ?: HIGHLIGHT_MATCH_CURRENT)
+                }
+            },
             codeHighlighter = remember(model, model.effectiveTheme, model.mode) { markdownCodeHighlighter(model) },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
