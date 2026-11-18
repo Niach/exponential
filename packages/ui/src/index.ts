@@ -191,6 +191,7 @@ export * from "./voice-wave"
 export * from "./voice-call-card"
 // S-3: the round call buttons, their rows and the call pill (`call-controls`).
 export * from "./call-controls"
+export * from "./call-view"
 export * from "./call-specimen"
 export * from "./wave-graph"
 export * from "./work-header"

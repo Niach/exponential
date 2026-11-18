@@ -10,7 +10,10 @@ import {
   type ChatMark,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
-import type { SessionChatRow } from "@exp/domain-contract/session-tree"
+import type { CallView, SessionChatRow } from "@exp/domain-contract/session-tree"
+import sessionChatFixture from "@exp/domain-contract/fixtures/session-chat.json"
+import sessionCardFixture from "@exp/domain-contract/fixtures/session-card.json"
+import { CallViewBody } from "./call-view"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { checkInLabel, feedRows, traceNotice } from "@exp/domain-contract/transcript-grouping"
 import transcriptGrouping from "@exp/domain-contract/fixtures/transcript-grouping.json"
@@ -531,6 +534,51 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   )
 }
 
+// #EXP-1943 (session-card.json `call`): a call in the agent chat = ONE
+// session card (an ended call with its summary, a running one), straight
+// from the session-chat.json case, and THE call view (`callViewCases[0]`).
+const CALL_CASE = sessionChatFixture.cases.find((entry) => entry.name.startsWith(`#EXP-1943`))!
+const CALL_ROWS = CALL_CASE.expected.rows as SessionChatRow[]
+const CALL_VIEW_CASE = sessionCardFixture.callViewCases[0]!
+const CALL_VIEW = CALL_VIEW_CASE.expected as CallView
+const CALL_CHAT = { sessionId: `r1`, title: `Assistant`, agentId: `ag1` }
+const CALL_VIEWER = `u-dana`
+const callMember = (id: string) => (id === CALL_VIEWER ? { id, name: `Dana Reyes` } : null)
+const hhmm = (iso: string) => iso.slice(11, 16)
+const CALL_TIMES = new Map(
+  [...CALL_CASE.input.messages, ...CALL_VIEW_CASE.input.messages].map((message) => [message.id, hhmm(message.createdAt)])
+)
+
+export function CallSpecimen({ layout }: { layout: `transcript` | `bubbles` }) {
+  return (
+    <div data-testid="chat-call-specimen" className="flex flex-col gap-8">
+      <ChatConversation
+        rows={CALL_ROWS}
+        layout={layout}
+        renderText={paragraph}
+        attachmentSrc={() => ``}
+        chat={CALL_CHAT}
+        viewerId={CALL_VIEWER}
+        member={callMember}
+        messageTime={(row) => CALL_TIMES.get(row.id) ?? null}
+        onOpenSession={() => {}}
+        arrived={() => false}
+      />
+      <CallViewBody
+        view={CALL_VIEW}
+        heading
+        renderText={paragraph}
+        attachmentSrc={() => ``}
+        chat={CALL_CHAT}
+        viewerId={CALL_VIEWER}
+        member={callMember}
+        messageTime={(row) => CALL_TIMES.get(row.id) ?? null}
+        arrived={() => false}
+      />
+    </div>
+  )
+}
+
 export function ChatTranscriptSpecimen({ single = false }: { single?: boolean }) {
   const isMobile = useIsMobile()
   // The shot (`?dev=chat-transcript`): only the layout this form factor really
@@ -540,6 +588,10 @@ export function ChatTranscriptSpecimen({ single = false }: { single?: boolean })
     return (
       <TooltipProvider>
         <div data-testid="chat-transcript-specimen" className="w-[42rem] max-w-full">
+          {/* #EXP-1943: the call card + call view on top (the shot's first screen). */}
+          <div className="mb-8">
+            <CallSpecimen layout="bubbles" />
+          </div>
           <Transcript layout={isMobile ? `bubbles` : `transcript`} />
         </div>
       </TooltipProvider>
@@ -555,6 +607,10 @@ export function ChatTranscriptSpecimen({ single = false }: { single?: boolean })
         <div className="w-[32rem] max-w-full">
           <div className="mb-3 text-xs text-muted-foreground">Web wide</div>
           <Transcript layout="transcript" />
+        </div>
+        <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4">
+          <div className="mb-3 text-xs text-muted-foreground">Call</div>
+          <CallSpecimen layout="bubbles" />
         </div>
         <div className="w-[24rem]">
           <input id="sg-surface-enter" type="checkbox" className="peer sr-only" />
