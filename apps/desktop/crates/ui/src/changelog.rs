@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-phones-keep-your-chats",
+    date: "2026-11-18",
+    title: "Your phone keeps your chats",
+    summary: "The iOS and Android apps keep every chat on the phone: a chat opens at once, offline too, and fills in from your other devices over P2P. Tool steps are kept for 30 days; Keep tool steps in Settings changes that.",
+    body: r##"- **Opens at once**: a chat opens from your phone's own copy before the live stream attaches, even when the device that ran it is offline.
+- **Fills in on its own**: on Wi-Fi your phone fetches what it is missing straight from your other devices over P2P, never through the server; in the background only while it charges.
+- **Keep tool steps**: messages and replies stay; tool steps go after 30 days. Pick 7 days, 90 days, 1 year or Forever in the General section of the Team tab.
+- **Stays on the phone**: the copy lives in the app's protected storage, is not backed up, and signing out deletes it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_320: ChangelogEntry = ChangelogEntry {
     id: "2026-11-17-chats-encrypted-by-default",
     date: "2026-11-17",
     title: "Chats are encrypted by default",
