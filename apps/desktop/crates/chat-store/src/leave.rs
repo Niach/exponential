@@ -28,9 +28,14 @@ pub struct LeavePlan {
 pub const DESKTOP_STORE_FILES: [&str; 4] =
     ["chat-store.sqlite", "chat-store.sqlite-wal", "chat-store.sqlite-shm", "chat-store.sqlite-journal"];
 
-/// Whether `account` is one safe path segment (`^[A-Za-z0-9_-]{1,128}$`).
+/// Whether `account` is one safe path segment: 1 to 255 of `[A-Za-z0-9._-]`,
+/// never all dots (`.`, `..`), never a separator. Real desktop account dirs
+/// are `<host>--<userId>` (`app.exponential.at--8Jk3…`, api `account_id_for`),
+/// so the dot is allowed.
 pub fn safe_account(account: &str) -> bool {
-    (1..=128).contains(&account.len()) && account.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    (1..=255).contains(&account.len())
+        && account.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+        && !account.bytes().all(|b| b == b'.')
 }
 
 /// Whether `path` (relative to the data dir or the OPFS root, `/`-separated)

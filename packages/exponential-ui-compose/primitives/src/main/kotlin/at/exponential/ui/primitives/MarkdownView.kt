@@ -221,15 +221,20 @@ class MarkdownComposeText(
         boldFloor: Int? = null,
         onLink: ((String) -> Unit)? = null,
         code: MarkdownCodeStyle? = null,
+        highlight: MarkdownHighlight? = null,
+        marks: List<HighlightMark> = emptyList(),
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
         var chips = 0
+        // #EDE-95: the offset in the searched text ([markdownHighlightText]: a chip = one barrier).
+        var searched = 0
         for (span in inlines) {
             if (span.text.isEmpty()) continue
             val chip = span.chip
             if (chip != null) {
                 // #VAPP-258: the chip is a placeholder (its label = the alternate text, the accessible name).
                 appendInlineContent(markdownChipId(chips++), chip.label)
+                searched += 1
                 continue
             }
             var weight = spec.weight
@@ -253,6 +258,7 @@ class MarkdownComposeText(
                 pushStringAnnotation(MARKDOWN_CODE_TAG, "")
                 appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
             }
+            val at = length
             val url = span.link
             if (url != null) {
                 val annotation = if (onLink != null) {
@@ -264,11 +270,41 @@ class MarkdownComposeText(
             } else {
                 withStyle(style) { append(span.text) }
             }
+            // #EDE-95: this span's part of each mark, filled in its glyph box by
+            // [MarkdownPills] (never a span background: that is the line height).
+            if (highlight != null) {
+                val end = searched + span.text.length
+                for (m in marks) {
+                    val a = maxOf(m.start, searched)
+                    val b = minOf(m.end, end)
+                    if (a < b) addStringAnnotation(HIGHLIGHT_MARK_TAG, highlightMarkValue(if (m.current) highlight.matchCurrent else highlight.match, code = span.code), at + a - searched, at + b - searched)
+                }
+            }
+            searched += span.text.length
             if (pill) {
                 appendInlineContent(MARKDOWN_CODE_PAD_ID, MARKDOWN_CODE_PAD)
                 pop()
             }
         }
+    }
+
+    /**
+     * #EDE-95: the ascent and descent (dp) of [spec]'s own font, or with
+     * [code] of inline code's (mono at the code size; without a code style,
+     * mono at [spec]'s size): a match fill's glyph box.
+     */
+    fun glyphMetrics(spec: MarkdownTextSpec, code: MarkdownCodeStyle?, mono: Boolean): Pair<Float, Float> {
+        if (mono && code != null) return codeMetrics(code, spec)
+        val r = measurer.measure(
+            "x",
+            style = TextStyle(
+                fontFamily = fonts.family(if (mono) monoFamily else spec.family, mono = mono),
+                fontSize = spec.size.sp,
+                fontWeight = FontWeight(spec.weight),
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+        return (r.firstBaseline / density) to ((r.size.height - r.firstBaseline) / density)
     }
 
     /** Round 9: the ascent and descent of [code]'s font at its size on [spec] (dp): the pill's height, as the web's inline box. */
@@ -499,9 +535,13 @@ fun MarkdownView(
     onLayout: ((MarkdownLaidOut) -> Unit)? = null,
     /** #EXP-1881: true = as wide as its content needs ([Markdown.maxContentWidth]), at most the offered width (a chat bubble hugging its text); false = the offered width. */
     hug: Boolean = false,
+    /** #EDE-95: search marks (each searched block of the normal form apart, the current one counted across them); null = none. */
+    highlight: MarkdownHighlight? = null,
+    /** #EXP-1926: the host's source rule for block images ([MarkdownHooks.imageSource]); null = none. */
+    imageSource: ((src: String, alt: String) -> ImageSource)? = null,
 ) {
-    val prepared = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
-        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
+    val prepared = remember(text, linkPolicy, imagePolicy, imageSource, attachments, imageSize, options.hardBreaks, options.streaming) {
+        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options, imageSource = imageSource))
     }
     // #VAPP-258: an image the host could not size takes its decoded size
     // once it loaded (the media cache; this read recomposes when one lands).
@@ -513,6 +553,9 @@ fun MarkdownView(
         else -> parsed
     }
     val hooks = MarkdownPaintHooks(onLink, image, codeHighlighter, onImagePress, chipIcon, attachmentView)
+    val marks = remember(blocks, highlight?.query, highlight?.current) {
+        highlight?.let { markdownHighlightMarks(blocks, it.query, it.current) }
+    }
     val outer = LocalDensity.current
     val pinned = remember(outer.density) { Density(outer.density, 1f) }
     CompositionLocalProvider(LocalDensity provides pinned) {
@@ -564,7 +607,7 @@ fun MarkdownView(
                                     .height(box.height.dp)
                                     .then(if (lazy) Modifier.testTag(MARKDOWN_BLOCK_TAG) else Modifier),
                             ) {
-                                MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks)
+                                MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks, highlight, marks?.getOrNull(i).orEmpty())
                             }
                         }
                     }
@@ -611,13 +654,16 @@ private fun MarkdownBlockView(
     codeBlockRadius: Dp,
     shaper: MarkdownComposeText,
     hooks: MarkdownPaintHooks,
+    highlight: MarkdownHighlight? = null,
+    /** #EDE-95: the block's marks per searched run list ([markdownHighlightGroups] order). */
+    marks: List<List<HighlightMark>> = emptyList(),
 ) {
     val spec = styles.spec(block.kind)
     val onLink = hooks.onLink
     val uri = LocalUriHandler.current
     val open: (String) -> Unit = { href -> if (onLink != null) onLink(href) else runCatching { uri.openUri(href) } }
-    fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null) =
-        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code)
+    fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null, group: Int = 0) =
+        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code, highlight = highlight, marks = marks.getOrNull(group).orEmpty())
     // #VAPP-258: the chips of a run list wrapped at [cap] (the width its layout used).
     fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
         markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)
@@ -730,14 +776,16 @@ private fun MarkdownBlockView(
             Box(Modifier.width(width.dp).then(scroll)) {
                 Column(Modifier.width(tableW.dp)) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-                    all.forEachIndexed { r, row ->
+                    // #EDE-95: each cell's run list in the searched order (the header first, row by row).
+            val firstCell = all.runningFold(0) { n, row -> n + row.size }
+            all.forEachIndexed { r, row ->
                         val rowH = box.rows.getOrNull(r)?.let { it - 1f } ?: spec.lineHeight
                         // #VAPP-258: the header row's `Markdown/headerCell` fill.
                         Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
                             for (c in 0 until cols) {
                                 val cell = row.getOrNull(c) ?: emptyList()
                                 MarkdownPills(
-                                    runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null),
+                                    runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null, group = if (c < row.size) firstCell[r] + c else -1),
                                     style = shaper.style(spec, colors.ink),
                                     inlineContent = chips(cell, textW[c]),
                                     modifier = Modifier
@@ -891,7 +939,9 @@ private fun TaskBox(checked: Boolean, size: Dp, colors: MarkdownColors) {
  * Round 9: a text block over its inline code's fills: each code span's
  * `Markdown/code` box from its side padding to its side padding, per line it
  * crosses, from the font's descent to its ascent around the baseline (+
- * `paddingVertical`), as the web's inline box. Under the text and its chips.
+ * `paddingVertical`), as the web's inline box. #EDE-95: the search marks'
+ * fills over those, each in its glyph box ([drawHighlightFills]: the run's
+ * font's ascent and descent, no padding). Under the text and its chips.
  */
 @Composable
 private fun MarkdownPills(
@@ -905,30 +955,42 @@ private fun MarkdownPills(
     shaper: MarkdownComposeText,
 ) {
     val fill = colors.codeBackground
-    val ranges = remember(text) { text.getStringAnnotations(MARKDOWN_CODE_TAG, 0, text.length) }
-    if (ranges.isEmpty() || fill == null) {
+    val ranges = remember(text, fill) { if (fill == null) emptyList() else text.getStringAnnotations(MARKDOWN_CODE_TAG, 0, text.length) }
+    val marked = remember(text) { text.hasStringAnnotations(HIGHLIGHT_MARK_TAG, 0, text.length) }
+    if (ranges.isEmpty() && !marked) {
         BasicText(text, modifier, style = style, inlineContent = inlineContent)
         return
     }
     val code = styles.chip.code
     val metrics = remember(code, spec, shaper) { shaper.codeMetrics(code, spec) }
+    val glyphs = remember(code, spec, shaper, marked) {
+        if (!marked) null else shaper.glyphMetrics(spec, code, mono = false) to shaper.glyphMetrics(spec, code, mono = true)
+    }
     val laid = remember { mutableStateOf<TextLayoutResult?>(null) }
     BasicText(
         text,
         modifier.drawBehind {
             val r = laid.value ?: return@drawBehind
-            val radius = CornerRadius(code.radius.dp.toPx())
-            val up = (metrics.first + code.padV).dp.toPx()
-            val down = (metrics.second + code.padV).dp.toPx()
-            for (range in ranges) {
-                val last = range.end - 1
-                for (line in r.getLineForOffset(range.start)..r.getLineForOffset(last)) {
-                    val from = maxOf(range.start, r.getLineStart(line))
-                    val to = minOf(last, r.getLineEnd(line, visibleEnd = true) - 1)
-                    val a = r.getHorizontalPosition(from, usePrimaryDirection = true)
-                    val b = r.getBoundingBox(to).right
-                    val baseline = r.getLineBaseline(line)
-                    drawRoundRect(fill, Offset(minOf(a, b), baseline - up), Size(kotlin.math.abs(b - a), up + down), radius)
+            if (fill != null && ranges.isNotEmpty()) {
+                val radius = CornerRadius(code.radius.dp.toPx())
+                val up = (metrics.first + code.padV).dp.toPx()
+                val down = (metrics.second + code.padV).dp.toPx()
+                for (range in ranges) {
+                    val last = range.end - 1
+                    for (line in r.getLineForOffset(range.start)..r.getLineForOffset(last)) {
+                        val from = maxOf(range.start, r.getLineStart(line))
+                        val to = minOf(last, r.getLineEnd(line, visibleEnd = true) - 1)
+                        val a = r.getHorizontalPosition(from, usePrimaryDirection = true)
+                        val b = r.getBoundingBox(to).right
+                        val baseline = r.getLineBaseline(line)
+                        drawRoundRect(fill, Offset(minOf(a, b), baseline - up), Size(kotlin.math.abs(b - a), up + down), radius)
+                    }
+                }
+            }
+            if (glyphs != null) {
+                drawHighlightFills(r) { mono ->
+                    val (up, down) = if (mono) glyphs.second else glyphs.first
+                    up.dp.toPx() to down.dp.toPx()
                 }
             }
         },

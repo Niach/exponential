@@ -4,7 +4,9 @@
 // unit-testable without a DB or a live relay. VAPP-43: the relay is device
 // presence, control (check_in, kill, interrupt, compact routed down a
 // device's control socket) and eTalk calls; it carries no session content
-// (viewers read sessions over eNet from the device). The wire truth is
+// (viewers read sessions over eNet from the device), EXCEPT a voice call's
+// events and audio, which the relay can read until #EXP-1941 seals them. The
+// wire truth is
 // apps/steer-relay/src/protocol.ts + the ticket format in
 // packages/steer-ticket.
 

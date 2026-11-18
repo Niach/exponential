@@ -10,6 +10,7 @@ import {
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Copy, Download, Eye, Ellipsis, Trash2 } from "lucide-react"
 import { attachmentCollection } from "@/lib/collections"
+import { IMAGE_ACTIONS_COPY } from "@exp/domain-contract/image-actions"
 import {
   Button,
   DropdownMenu,
@@ -17,6 +18,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   ImagePreviewDialog,
+  copyImage,
+  imageMenuProps,
+  pictureSource,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
@@ -53,30 +57,6 @@ export function srcWithWidth(src: string, width: number | null): string {
 // canonical-clean). CSS `max-width: 100%` caps display in narrow columns.
 const minResizeWidth = 120
 const fallbackMaxResizeWidth = 4000
-
-/** Re-encode to PNG via canvas — webp/jpeg ClipboardItems are widely
- *  rejected, PNG is the interoperable clipboard image format. */
-async function blobToPngBlob(blob: Blob): Promise<Blob> {
-  if (blob.type === `image/png`) return blob
-  const bitmap = await createImageBitmap(blob)
-  try {
-    const canvas = document.createElement(`canvas`)
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const context = canvas.getContext(`2d`)
-    if (!context) throw new Error(`canvas 2d context unavailable`)
-    context.drawImage(bitmap, 0, 0)
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (encoded) =>
-          encoded ? resolve(encoded) : reject(new Error(`png encode failed`)),
-        `image/png`
-      )
-    })
-  } finally {
-    bitmap.close()
-  }
-}
 
 interface ResizeDrag {
   edge: `left` | `right`
@@ -124,6 +104,12 @@ function MarkdownImageNodeView({
   // srcs pass through untouched (no resize handles, query preserved).
   const persistedWidth = attachmentId ? widthParamFromSrc(src) : null
   const fullSizeSrc = attachmentId ? stripQuery(src) : src
+
+  // #EXP-1945 (image-actions.json `imageSource`): only our attachments,
+  // data and local pictures load; another website's is a link in the
+  // picture's place (the Markdown keeps its bytes), anything else its alt.
+  const source = pictureSource(src, alt)
+  const loads = source.kind === `load`
 
   const imgRef = useRef<HTMLImageElement | null>(null)
   const dragRef = useRef<ResizeDrag | null>(null)
@@ -201,26 +187,6 @@ function MarkdownImageNodeView({
     }
   }
 
-  const handleCopyImage = async () => {
-    const url = absoluteUrl()
-    try {
-      if (typeof ClipboardItem === `undefined` || !navigator.clipboard?.write) {
-        throw new Error(`image clipboard unsupported`)
-      }
-      // Pass a promise so Safari accepts the write within the user gesture.
-      const png = fetch(url)
-        .then((response) => {
-          if (!response.ok) throw new Error(`fetch failed: ${response.status}`)
-          return response.blob()
-        })
-        .then(blobToPngBlob)
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })])
-    } catch {
-      // Graceful fallback: at least put the image link on the clipboard.
-      await navigator.clipboard.writeText(url).catch(() => {})
-    }
-  }
-
   return (
     <NodeViewWrapper
       className={cn(
@@ -244,18 +210,22 @@ function MarkdownImageNodeView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onSelect={() => setLightboxOpen(true)}>
-                <Eye />
-                View image
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleDownload()}>
-                <Download />
-                Download
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleCopyImage()}>
-                <Copy />
-                Copy image
-              </DropdownMenuItem>
+              {loads ? (
+                <>
+                  <DropdownMenuItem onSelect={() => setLightboxOpen(true)}>
+                    <Eye />
+                    View image
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void handleDownload()}>
+                    <Download />
+                    Download
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void copyImage(fullSizeSrc)}>
+                    <Copy />
+                    {IMAGE_ACTIONS_COPY.copyImage}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {/* No separator above a destructive item (EXP-687). */}
               <DropdownMenuItem
                 variant="destructive"
@@ -296,8 +266,16 @@ function MarkdownImageNodeView({
           />
         </>
       ) : null}
+      {source.kind === `link` ? (
+        <a href={source.href} target="_blank" rel="noreferrer" className="editor-image-link" contentEditable={false}>
+          {source.text}
+        </a>
+      ) : source.kind === `text` ? (
+        source.text ? <span className="editor-image-alt">{source.text}</span> : null
+      ) : (
       <img
         ref={imgRef}
+        {...(editor.isEditable ? {} : imageMenuProps(fullSizeSrc, attachment?.filename))}
         src={src}
         alt={alt}
         title={title}
@@ -314,6 +292,7 @@ function MarkdownImageNodeView({
         data-drag-handle={editor.isEditable ? `` : undefined}
         onClick={editor.isEditable ? undefined : () => setLightboxOpen(true)}
       />
+      )}
       <ImagePreviewDialog
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}

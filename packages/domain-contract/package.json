@@ -82,6 +82,7 @@
     "./app-export": "./src/app-export.ts",
     "./app-templates": "./src/app-templates.ts",
     "./sealed-content": "./src/sealed-content.ts",
+    "./call-seal": "./src/call-seal.ts",
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*",
@@ -91,6 +92,7 @@
     "./team-zone": "./src/team-zone.ts",
     "./via-app": "./src/via-app.ts",
     "./app-share": "./src/app-share.ts",
-    "./sidebar-folders": "./src/sidebar-folders.ts"
+    "./sidebar-folders": "./src/sidebar-folders.ts",
+    "./image-actions": "./src/image-actions.ts"
   }
 }

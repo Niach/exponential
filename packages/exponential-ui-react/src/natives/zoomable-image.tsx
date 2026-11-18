@@ -20,6 +20,8 @@ import { mergeStyle } from "../node-view"
 import { ZOOM_MATH, useZoomableImage } from "../primitives/zoomable-image"
 import { useBoundState } from "./bound"
 import { MenuItems, type MenuItem } from "./overlays"
+import { ImageStandIn } from "./media"
+import { imageSourceOf } from "@exponential_app/eui/web"
 import { BuiltinIcon, num, str, useParts } from "./shared"
 
 const LAYOUT = zoomableImageLayout(ZOOM.pill)
@@ -35,7 +37,9 @@ export function ZoomableImageNative({ node, props, rootProps, emit, scope }: Nat
   const src = str(props.src)
   const alt = str(props.alt)
   const controls = str(props.controls, `auto`) as ZoomControls
-  const media = useMediaSource(ctx.host, src)
+  // #EXP-1945 (`host.imageSource`): a refused picture never loads.
+  const verdict = imageSourceOf(ctx.host, src, alt)
+  const media = useMediaSource(ctx.host, verdict.kind === `load` ? src : ``)
   // `scale` is bindable: a settled zoom writes the bound path.
   const [, setScale] = useBoundState<number | undefined>(node, scope, `scale`, positive(props.scale))
   const zoom = useZoomableImage({
@@ -68,6 +72,7 @@ export function ZoomableImageNative({ node, props, rootProps, emit, scope }: Nat
     if (picked.scale === null) c.rest()
     else c.zoomScale(picked.scale)
   }
+  if (verdict.kind !== `load`) return <ImageStandIn id={node.id} verdict={verdict} />
   const { pill } = zoom
   // The placeholder takes the picture's radius (the `image` recipe).
   const radius = zoom.ready ? undefined : resolveRecipe(ctx.theme, { component: `ZoomableImage`, part: `image`, props: nativeRecipeProps(`ZoomableImage`, props, ctx.extensionDefs) }, ctx.mode).borderRadius

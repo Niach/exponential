@@ -361,6 +361,9 @@
         "live": {
           "description": "Announces changes (`assertive` interrupts)."
         },
+        "highlight": {
+          "description": "Marks a search term's matches."
+        },
         "style": {
           "description": "Extra Box styles for the text box."
         }
@@ -399,6 +402,9 @@
         },
         "lines": {
           "description": "Truncates the rendered body to this many lines with an ellipsis."
+        },
+        "highlight": {
+          "description": "Marks a search term's matches."
         },
         "style": {
           "description": "Extra Box styles for the markdown box."
@@ -2774,6 +2780,9 @@
         },
         "open": {
           "description": "With children: whether they show, indented; bind it."
+        },
+        "highlight": {
+          "description": "Marks a search term in title and subtitle."
         }
       },
       "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
@@ -2854,6 +2863,9 @@
         },
         "href": {
           "description": "URL a press opens; implies `pressable`."
+        },
+        "highlight": {
+          "description": "Marks a search term's matches."
         }
       },
       "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
@@ -3929,6 +3941,20 @@
         }
       },
       "description": "One Tree node."
+    },
+    "highlight": {
+      "properties": {
+        "query": {
+          "description": "Term to mark (any case and accents)."
+        },
+        "current": {
+          "description": "0-based match painted as the current one."
+        },
+        "before": {
+          "description": "Text whose matches number before this node's."
+        }
+      },
+      "description": "Search marks."
     }
   },
   "functions": {

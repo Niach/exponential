@@ -134,15 +134,16 @@ struct OwnPendingBubble: Identifiable, Equatable {
     /// The bottom of the transcript (message-delivery.json ORDER): the
     /// viewer's own synced rows the device has not consumed, oldest first,
     /// then the kept outbox entries; `drop` = the entries a row replaced.
+    /// `bodies` = the rows' opened bodies by id (#EXP-1954, never an envelope).
     static func build(
-        viewerId: String, rows: [MessageEntity], outbox: [MessageOutboxEntity]
+        viewerId: String, rows: [MessageEntity], bodies: [String: String], outbox: [MessageOutboxEntity]
     ) -> (bubbles: [OwnPendingBubble], drop: [String]) {
         let merge = MessageDelivery.outboxMerge(
             viewerId: viewerId,
             outbox: outbox.map(\.entry),
             rows: rows.map { row in
                 MessageDelivery.OutboxRow(
-                    id: row.id, authorKind: row.authorKind, authorId: row.authorId, body: row.body,
+                    id: row.id, authorKind: row.authorKind, authorId: row.authorId, body: bodies[row.id] ?? row.body,
                     createdAt: row.createdAt
                 )
             }
@@ -156,7 +157,7 @@ struct OwnPendingBubble: Identifiable, Equatable {
             }
             .map { row in
                 OwnPendingBubble(
-                    id: row.id, text: row.body, at: WireTimestamps.parse(row.createdAt),
+                    id: row.id, text: bodies[row.id] ?? row.body, at: WireTimestamps.parse(row.createdAt),
                     state: MessageDelivery.deliveryState(MessageDelivery.StateInput(
                         local: nil, stored: true, deliveredAt: row.deliveredAt, consumedAt: row.consumedAt, echoed: false
                     )),

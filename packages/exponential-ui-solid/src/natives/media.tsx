@@ -8,7 +8,7 @@
 import { For, Show, createComputed, createRenderEffect, createEffect, createMemo, createSignal, on, onCleanup, type Component, type JSX } from "solid-js"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
-import { mediaClock } from "@exponential_app/eui/web"
+import { imageSourceOf, mediaClock, type ImageSourceVerdict } from "@exponential_app/eui/web"
 import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 import { useSurfaceContext } from "../context"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
@@ -34,6 +34,37 @@ const over = (base: Attrs, extra: Attrs): Attrs => ({ ...base, ...extra })
  *  `builtinIcons["Image.fallback"]`) on error or without a src;
  *  `data-state` = loading | loaded | error | empty. */
 export function ImageNative(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  // #EXP-1945 (`host.imageSource`): a refused picture never loads.
+  const refused = createMemo(() => refusedSource(ctx.host, str(props.props.src), str(props.props.alt)))
+  return (
+    <Show when={refused()} keyed fallback={<LoadedImage {...props} />}>
+      {(verdict) => <ImageStandIn id={props.node.id} verdict={verdict} />}
+    </Show>
+  )
+}
+
+/** The host's verdict when it refuses the picture, else null. */
+export function refusedSource(host: Parameters<typeof imageSourceOf>[0], src: string, alt: string): Exclude<ImageSourceVerdict, { kind: `load` }> | null {
+  const verdict = imageSourceOf(host, src, alt)
+  return verdict.kind === `load` ? null : verdict
+}
+
+/** #EXP-1945 (React's): a refused picture's stand-in in its place: THE Link
+ *  or the alt as a Text; nothing for an empty text. */
+export function ImageStandIn(props: { id: string; verdict: Exclude<ImageSourceVerdict, { kind: `load` }> }): JSX.Element {
+  const node = (): UiNode =>
+    props.verdict.kind === `link`
+      ? { id: `${props.id}.link`, component: `Link`, props: { label: props.verdict.text, href: props.verdict.href, external: true }, children: [] }
+      : { id: `${props.id}.text`, component: `Text`, props: { text: props.verdict.text }, children: [] }
+  return (
+    <Show when={props.verdict.text}>
+      <NodeView node={node()} />
+    </Show>
+  )
+}
+
+function LoadedImage(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const src = () => str(props.props.src)

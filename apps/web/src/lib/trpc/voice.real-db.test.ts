@@ -185,18 +185,29 @@ describe.skipIf(!ready.ok)(`#EXP-1935 the call procedures' authorization`, () =>
     expect(claimsOf(out.ticket)).toMatchObject({ deviceId: desktop, deviceOwnerId: me })
   })
 
-  it(`callHostTicket names only one of the member's own devices`, async () => {
+  it(`callHostTicket names only one of the member's own devices, for a call startCall minted`, async () => {
     const me = await user()
     const mate = await user()
-    await team({ [me]: `owner`, [mate]: `member` })
+    const teamId = await team({ [me]: `owner`, [mate]: `member` })
     const mine = await device(me, `desktop`)
     const theirs = await device(mate, `desktop`)
-    const callId = crypto.randomUUID()
-    await expect(voice(me).callHostTicket({ callId, deviceId: theirs })).rejects.toMatchObject({ code: `NOT_FOUND` })
-    const out = await voice(me).callHostTicket({ callId, deviceId: mine })
+    const agentId = await agent(teamId, me, mine)
+    const other = await agent(teamId, me, mine)
+    // #EXP-1941: the id is the server's own, minted for this member, device and agent.
+    const { callId, seal } = await voice(me).startCall({ agentId, platform: `phone` })
+    await expect(voice(me).callHostTicket({ callId, deviceId: theirs, agentId })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    const out = await voice(me).callHostTicket({ callId, deviceId: mine, agentId })
+    expect(out.seal).toBe(seal)
     const claims = claimsOf(out.ticket)
     expect(claims).toMatchObject({ role: `call_host`, sub: me, callId, deviceId: mine })
     expect(claims?.deviceOwnerId).toBeUndefined()
+    // A host that names no agent (an older build): any agent the member may call.
+    await expect(voice(me).callHostTicket({ callId, deviceId: mine })).resolves.toMatchObject({ seal: false })
+    // Another agent than the id's, an id of the host's own, and the member's id on a team-mate's account.
+    const refused = { code: `NOT_FOUND`, message: `No such call` }
+    await expect(voice(me).callHostTicket({ callId, deviceId: mine, agentId: other })).rejects.toMatchObject(refused)
+    await expect(voice(me).callHostTicket({ callId: crypto.randomUUID(), deviceId: mine, agentId })).rejects.toMatchObject(refused)
+    await expect(voice(mate).callHostTicket({ callId, deviceId: theirs, agentId })).rejects.toMatchObject(refused)
     // Without a device id (an old IDE) and without a voice device: none.
     await expect(voice(me).callHostTicket({ callId })).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
   })

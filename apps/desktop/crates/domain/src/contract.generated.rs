@@ -176,6 +176,12 @@ pub const COMPOSER_UI_CHAT_HEADLINE: &str = "Ask the agent";
 pub const COMPOSER_UI_CHAT_PLACEHOLDER: &str = "Ask the agent…";
 pub const COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER: &str = "Additional instructions (optional)…";
 pub const COMPOSER_UI_DIALOG_TITLE: &str = "Start a session";
+pub const IMAGE_ACTIONS_COPY_IMAGE: &str = "Copy image";
+pub const IMAGE_ACTIONS_SHARE: &str = "Share";
+pub const IMAGE_ACTIONS_COPIED: &str = "Image copied";
+pub const IMAGE_ACTIONS_COPY_FAILED: &str = "Couldn't copy image";
+pub const IMAGE_ACTIONS_SHARE_FAILED: &str = "Couldn't share image";
+pub const IMAGE_ACTIONS_LINK_HOST: &str = "Image: {host}";
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";

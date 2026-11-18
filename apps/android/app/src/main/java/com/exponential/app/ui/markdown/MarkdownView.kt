@@ -14,6 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
@@ -49,6 +52,10 @@ import at.exponential.ui.theme.ThemeHandle
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.ImageActions
+import com.exponential.app.ui.components.ImageActionsBox
+import com.exponential.app.ui.components.imageBytesForSrc
+import com.exponential.app.ui.components.rememberInstanceOrigin
 import com.exponential.app.domain.ProseLinks
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.ui.apps.APP_THEME_ID
@@ -115,6 +122,9 @@ fun MarkdownView(
     }
     val imageSize = remember(dims) { { src: String -> AppMarkdown.imageSize(src, dims) } }
     val attachments = remember(dims, source) { { href: String -> AppMarkdown.attachment(href, dims, source) } }
+    val context = LocalContext.current
+    val origin = rememberInstanceOrigin()
+    val imageSource = remember(origin) { { src: String, alt: String -> ImageActions.imageSource(src, alt, origin) } }
     val onLink = remember(issueRefs, appLinks, uri) {
         { href: String -> AppMarkdown.open(href, issueRefs, appLinks, opener) { runCatching { uri.openUri(it) } } }
     }
@@ -136,21 +146,33 @@ fun MarkdownView(
         codeHighlighter = look.highlighter,
         chipIcon = { name, size, color -> ChipIcon(name, size, color) },
         attachmentView = { a, w, h -> AttachmentBlock(a, w, h, dims, look, onLink) },
+        // #EXP-1948: another website's picture is a link (never fetched), a refused one its alt text.
+        imageSource = imageSource,
         image = { src, alt ->
             // #VAPP-258: the box's corners are the theme's (`Markdown/image`);
             // a picture the synced rows cannot size reports its decoded size
             // (genUI's media cache), so its box takes the real aspect.
-            AsyncImage(
-                model = src,
-                contentDescription = alt,
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.TopStart,
-                onState = { state ->
-                    val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
-                    if (size != null && size.isSpecified) MarkdownImageSizes.remember(src, size.width, size.height)
-                },
+            // #EXP-1948: a loaded picture's long press = the image menu.
+            var loaded by remember(src) { mutableStateOf(false) }
+            val bytes = remember(src, context) { imageBytesForSrc(context, src) }
+            ImageActionsBox(
+                bytes = if (loaded) bytes else null,
                 modifier = Modifier.fillMaxSize(),
-            )
+                onClick = onImageClick?.let { press -> { press(src) } },
+            ) {
+                AsyncImage(
+                    model = src,
+                    contentDescription = alt,
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.TopStart,
+                    onState = { state ->
+                        loaded = state is AsyncImagePainter.State.Success
+                        val size = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
+                        if (size != null && size.isSpecified) MarkdownImageSizes.remember(src, size.width, size.height)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         },
         options = MarkdownOptions(hardBreaks = softBreaksAsNewlines, chat = chat, selectable = true, streaming = streaming, imageMaxHeight = imageMaxHeight),
         onLayout = onLayout,

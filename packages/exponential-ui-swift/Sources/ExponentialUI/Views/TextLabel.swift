@@ -334,7 +334,10 @@ extension TextLabel {
     /// Plain text in a text style. `align` is PHYSICAL (the core resolved
     /// `start`/`end`; `end` is still read as the trailing edge of the
     /// surface for older callers).
-    init(_ text: String, _ ts: TextStyle, color: Color, align: String? = nil, lines: Int? = nil, underline: Bool = false) {
+    /// #EDE-95: `marks` = fills behind UTF-16 ranges of `text` (search
+    /// marks; paint only), dropped when the style's transform changes the
+    /// text's length.
+    init(_ text: String, _ ts: TextStyle, color: Color, align: String? = nil, lines: Int? = nil, underline: Bool = false, marks: [(range: NSRange, color: PlatformColor)] = []) {
         let alignment: NSTextAlignment = switch align {
         case "center": .center
         case "right", "end": .right
@@ -349,7 +352,14 @@ extension TextLabel {
         #else
         attrs[.foregroundColor] = NSColor(color)
         #endif
-        self.init(attributed: NSAttributedString(string: ts.shown(text), attributes: attrs), lineHeight: ts.lineHeight, lines: lines)
+        let shown = ts.shown(text)
+        let runs = NSMutableAttributedString(string: shown, attributes: attrs)
+        if !marks.isEmpty, runs.length == (text as NSString).length {
+            for m in marks where m.range.location >= 0 && m.range.length > 0 && NSMaxRange(m.range) <= runs.length {
+                runs.addAttribute(.backgroundColor, value: m.color, range: m.range)
+            }
+        }
+        self.init(attributed: runs, lineHeight: ts.lineHeight, lines: lines)
     }
 
     /// The runs with the inherited text keys applied (contract §2):

@@ -59,6 +59,8 @@ export { nextEnabledIndex, typeaheadStep, TYPEAHEAD_RESET_MS, selectPopupGeometr
 export type { TypeaheadBuffer } from "./listbox"
 export { PLACED, placedPartId } from "./parts"
 export { share } from "./share"
+export { IMAGE_MENU_ATTR, IMAGE_NAME_ATTR, CONTENT_IMAGE_SELECTOR, imageMenuProps, contentImageAt, imageReady, readyContentImage, contentImageSrc, imageSourceOf, claimImageMenu, imageMenuOwns } from "./image-actions"
+export type { ImageSourceVerdict } from "./image-actions"
 // Motion, Canvas and the VoiceWave helpers: `@exponential_app/eui/web/motion` (./motion.ts).
 // VAPP-162: the round-5 natives' shared halves (QrCode paint, the QrScanner host hook, the count badge, the Button hold machine).
 export { qrPaint, qrScanReporter, qrScanFormats, qrCornerPath, qrFeedColour, QR_CORNERS, QR_SCANNER, segmentedBadge, ButtonHold, HOLD_SLOP, withinSlop } from "./round5"
@@ -76,5 +78,6 @@ export { composerMenuKey } from "./composer-keys"
 export type { ComposerMenuKey, ComposerKeyEvent } from "./composer-keys"
 export { composerPaste } from "./composer-paste"
 export { fitMiddle, watchMiddleTruncate } from "./text-truncate"
+export { HIGHLIGHT_NAMES, highlightPieces, markdownHighlightCount, markdownHighlightTexts, nodeHighlightCount, paintHighlights } from "./highlight"
 export { MARKDOWN_CELL_TEXT, fitMarkdownTable, watchMarkdownTable } from "./table-fit"
 export type { ComposerFileMeta, ComposerPaste } from "./composer-paste"

@@ -24,6 +24,11 @@ import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.ffi.upgradeCard09
 import at.exponential.ui.host.HostPlugin
+import at.exponential.ui.host.ImageTarget
+import at.exponential.ui.primitives.ImageSource
+import com.exponential.app.domain.ImageActions
+import com.exponential.app.ui.components.ImageActionsMenu
+import com.exponential.app.ui.components.ImageBytes
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.TextLinkSegment
 import at.exponential.ui.host.MediaOptions
@@ -127,6 +132,17 @@ private class CardSurfaceHost(
         )
 
     override fun openUrl(url: String) = onOpenUrl(url)
+
+    // #EXP-1948 (image-actions.json `imageSource`): another website's picture
+    // is a link, never fetched; Copy image + Share on a rendered one.
+    override fun imageSource(src: String, alt: String): ImageSource = ImageActions.imageSource(src, alt, origin.orEmpty())
+
+    override val hasImageMenu: Boolean get() = true
+
+    @Composable
+    override fun ImageMenu(target: ImageTarget, expanded: Boolean, onDismiss: () -> Unit) {
+        ImageActionsMenu(expanded = expanded, onDismiss = onDismiss, bytes = remember(target) { ImageBytes { target.bytes() } })
+    }
 
     override fun textLinks(text: String): List<TextLinkSegment>? = onTextLinks(text)
 

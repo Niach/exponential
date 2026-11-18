@@ -133,6 +133,13 @@ export function composeExponential(): ThemeSource {
   dark.sheenFrom = sheenFrom[1]!
   light.sheenTo = sheenTo[0]!
   dark.sheenTo = sheenTo[1]!
+  // #EDE-95: search marks (Text/Markdown `highlight`), the neutral theme's
+  // pair: yellow-200 / orange-300 over white, yellow-400 at 30 % and
+  // amber-500 at 60 % over the dark ground (the text keeps its colour).
+  light.match = `#fef08a`
+  light.matchCurrent = `#fdba74`
+  dark.match = `#facc154d`
+  dark.matchCurrent = `#f59e0b99`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)

@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "crash-handler",
  "futures-executor",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "ede-compositor"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "bitflags 2.13.2",
  "ede-observability",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ctl"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "ede-protocol",
  "png 0.17.16",
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "crash-monitor",
  "reqwest",
@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "ede-portal"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "blocking",
  "ede-compositor",
@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "ecore",
  "serde",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "ede-session"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "ede-observability",
  "ede-theme",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "eui-core",
  "libc",
@@ -1127,6 +1127,7 @@ dependencies = [
  "serde_json",
  "stacker",
  "taffy",
+ "unicode-normalization",
  "url",
 ]
 
@@ -4319,6 +4320,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e61e67053d25a4e82c844e8424039d9745781b3fc4f32b8d55ed50f5f667ef3"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4637,6 +4653,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-segmentation"

@@ -137,7 +137,7 @@ class SealedWriter @Inject constructor(
         if (tree == SendTree.Clear) return PreparedSend(withMentions)
         val installId = nodes.get().awaitInstallId(accountId, SEAL_HOLDER_WAIT_MS)
         val holder = if (installId != null && identities.vault.identity(accountId, create = false) != null) SendHolder.Ready else SendHolder.None
-        if (sendWire(tree, holder) == SendWire.Failed || installId == null) throw TrpcException(NO_KEY_REFUSAL)
+        if (refusesUpFront(tree, holder, hasInstall = installId != null) || installId == null) throw TrpcException(NO_KEY_REFUSAL)
         return when (wire) {
             is TreeWire.Sealed -> sealedTo(withMentions, wire.key, body)
             is TreeWire.Create -> {

@@ -181,7 +181,7 @@ jobs:
           echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-65: the shared contract's fixtures and TS references (every
           # client replays them; their own suite ran only on release tags).
-          contract_ts='^(packages/domain-contract/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          contract_ts='^(packages/(domain-contract|etalk|steer-ticket)/|apps/steer-relay/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
           echo "contract_ts=$(grep -qE "$contract_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
@@ -867,6 +867,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test ./src
         working-directory: packages/domain-contract
+      # #EXP-1941: Voice's contract too (the call seal's vectors replay on the
+      # TS reference in domain-contract; this suite ran only on release tags).
+      - run: bun test ./src
+        working-directory: packages/etalk
+      # #EXP-1941: the steer relay replays both (its wire constants are the
+      # fixtures') and holds the call seal's canary test; its suite was in no
+      # gate job.
+      - run: bun test
+        working-directory: apps/steer-relay
 
   # The release shepherd's deploy scripts (scripts/release/): a dry run proves a pinned
   # prod is never moved onto `latest` by an advert or a deploy, plus bash -n on all.

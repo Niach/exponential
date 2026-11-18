@@ -1,6 +1,7 @@
 import { useRef, useState, type TouchEvent } from "react"
 import { mosaicTiles, PLAN_PAGE_MOSAIC, PLAN_PAGE_TEST_IDS } from "@exp/domain-contract/plan-page"
 import { cn } from "./cn"
+import { imageMenuProps } from "@exponential_app/eui/web"
 
 // #EXP-1493: a group of pictures. WIDE = THE Mosaic (eUI `Mosaic`,
 // plan-page.json `mosaicTiles` + `mosaic`): two = halves, three or more = the
@@ -151,6 +152,7 @@ export function PictureCarousel({
           <img
             src={picture.src}
             alt={picture.alt}
+            {...imageMenuProps(picture.src)}
             draggable={false}
             className={cn(`size-full`, fit === `cover` ? `object-cover` : `object-contain`)}
             style={{ borderRadius: fit === `cover` ? PLAN_PAGE_MOSAIC.radius : undefined }}

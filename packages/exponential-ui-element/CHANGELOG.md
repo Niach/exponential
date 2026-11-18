@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `highlight` on Text, Markdown, MessageBubble and Row (#EDE-95): through the Solid painter.
 - `forcedStates` property (#EXP-1781): host-only FORCED interaction states, paint only, through the Solid painter.
 - `accessibility.selected` / `.expanded` (#EXP-1629): through the Solid painter.
 - Input / Textarea `style.color` colours the typed text (#EXP-1787): through the React renderer.

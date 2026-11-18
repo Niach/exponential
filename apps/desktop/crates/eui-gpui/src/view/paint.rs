@@ -1516,6 +1516,14 @@ impl SurfaceView {
             }),
             attachments: std::cell::RefCell::new(attachments),
             live: std::cell::RefCell::new(None),
+            // #EDE-95: `highlight` marks each searched block's matches.
+            marks: lcx
+                .node
+                .props
+                .get("highlight")
+                .and_then(eui_core::text_highlight::highlight_spec)
+                .map(|spec| crate::paint::highlight::markdown_marks(&blocks, &spec, crate::paint::highlight::MarkColors::of(lcx.theme, lcx.mode)))
+                .unwrap_or_default(),
         };
         // Units commit once painted (their text layouts can hit-test then).
         let (pending, committed) = (self.md_pending.clone(), self.md_units.clone());

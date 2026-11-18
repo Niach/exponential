@@ -18,6 +18,12 @@ export interface SendTarget {
   /** #EDE-97: the root is an outside MCP client's tree (in clear for life):
    *  the writer sends plaintext, never a key. */
   clearTree: boolean
+  /** #EXP-1941: the server flagged this root's key for rotation (the tree
+   *  turned private: readers it dropped still hold the current epoch). A
+   *  call does not start on such a key: the host rotates the root before
+   *  its hello, and a caller whose answer still says so refuses the call.
+   *  Older clients ignore the field. */
+  rotationDue: boolean
 }
 
 export async function sendTarget(userId: string, input: { agentId?: string; appId?: string }): Promise<SendTarget> {
@@ -32,14 +38,15 @@ export async function sendTarget(userId: string, input: { agentId?: string; appI
 }
 
 function keyOf(
-  root: { id: string; sealEpoch: number | null; sealPublicKey: string | null; clearTree: boolean } | null
+  root: { id: string; sealEpoch: number | null; sealPublicKey: string | null; sealRotateEpoch: number | null; clearTree: boolean } | null
 ): Omit<SendTarget, `brief`> {
-  if (!root) return { rootId: null, epoch: null, publicKey: null, clearTree: false }
+  if (!root) return { rootId: null, epoch: null, publicKey: null, clearTree: false, rotationDue: false }
   const keyed = root.sealEpoch != null && root.sealPublicKey != null
   return {
     rootId: root.id,
     epoch: keyed ? root.sealEpoch : null,
     publicKey: keyed ? root.sealPublicKey : null,
     clearTree: root.clearTree,
+    rotationDue: keyed && root.sealRotateEpoch != null,
   }
 }

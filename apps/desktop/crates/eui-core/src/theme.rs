@@ -1144,6 +1144,14 @@ fn derive_colors(theme: &mut ResolvedTheme) {
                 m.color.insert("destructiveHover".to_string(), with_alpha(&value, factor));
             }
         }
+        // #EDE-95: search marks = `warning` at 30 % / 60 % alpha when the chain sets none.
+        for (name, factor) in [("match", 0.3), ("matchCurrent", 0.6)] {
+            if !m.color.contains_key(name) {
+                if let Some(value) = m.color.get("warning").cloned() {
+                    m.color.insert(name.to_string(), with_alpha(&value, factor));
+                }
+            }
+        }
         for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring"), ("bubbleOwn", "popover"), ("sheenFrom", "foreground"), ("sheenTo", "foreground")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {

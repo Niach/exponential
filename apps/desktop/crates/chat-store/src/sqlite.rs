@@ -842,4 +842,25 @@ mod tests {
         drop(other);
         let _ = std::fs::remove_dir_all(&data_dir);
     }
+
+    /// #EDE-120 follow-up: a REAL desktop account dir (`<host>--<userId>`,
+    /// api `account_id_for`, dots in the host) is deleted too. The first test
+    /// above used bare ids (`u1`) that never occur in production, so the
+    /// dot-rejecting rule passed it while no real sign-out deleted anything.
+    #[test]
+    fn delete_account_store_takes_a_real_shaped_account_dir() {
+        let data_dir = std::env::temp_dir().join(format!("chat-store-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        for account in ["app.exponential.at--8Jk3xQ2Lm9", "localhost-3000--u1"] {
+            let store = SqliteStore::open(&data_dir.join("accounts").join(account).join("chat-store.sqlite")).unwrap();
+            store.set_meta("k", "v").unwrap();
+            drop(store);
+            let gone = delete_account_store(&data_dir, account).unwrap();
+            assert!(!gone.is_empty(), "{account}");
+            assert!(!data_dir.join("accounts").join(account).join("chat-store.sqlite").exists(), "{account}");
+        }
+        assert_eq!(delete_account_store(&data_dir, "..").unwrap(), Vec::<PathBuf>::new());
+        assert_eq!(delete_account_store(&data_dir, ".").unwrap(), Vec::<PathBuf>::new());
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
 }

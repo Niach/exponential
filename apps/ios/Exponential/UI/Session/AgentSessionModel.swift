@@ -1922,7 +1922,7 @@ final class AgentSessionModel {
         guard ownObservationTask == nil, let viewerId = currentUserId else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
-        let observation = ValueObservation.tracking { db -> ([MessageEntity], [MessageOutboxEntity]) in
+        let observation = ValueObservation.tracking { db -> ([MessageEntity], [String: String], [MessageOutboxEntity]) in
             let rows = try MessageEntity
                 .filter(Column("session_id") == id)
                 .filter(Column("author_kind") == "user")
@@ -1934,18 +1934,25 @@ final class AgentSessionModel {
             let outbox = try MessageOutboxEntity
                 .filter(Column("session_id") == id)
                 .fetchAll(db)
-            return (rows, outbox)
+            // #EXP-1954: a sealed own row draws its opened text (or the locked
+            // copy), and the outbox and handoff matches compare plaintext.
+            let bodies = Dictionary(
+                rows.map { ($0.id, SealedMessage.shownBody($0.body, rootId: $0.rootId)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return (rows, bodies, outbox)
         }
         ownObservationTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    for try await (rows, outbox) in observation.values(in: pool) {
+                    for try await (rows, bodies, outbox) in observation.values(in: pool) {
                         guard let self else { return }
-                        let built = OwnPendingBubble.build(viewerId: viewerId, rows: rows, outbox: outbox)
+                        let built = OwnPendingBubble.build(viewerId: viewerId, rows: rows, bodies: bodies, outbox: outbox)
                         if built.bubbles != self.ownPending { self.ownPending = built.bubbles }
                         self.ownHandoffRows = rows.map { row in
                             MessageDelivery.HandoffRow(
-                                id: row.id, authorKind: row.authorKind, authorId: row.authorId, body: row.body,
+                                id: row.id, authorKind: row.authorKind, authorId: row.authorId,
+                                body: bodies[row.id] ?? row.body,
                                 createdAt: row.createdAt, consumedAt: row.consumedAt, hasCard: row.card != nil
                             )
                         }
