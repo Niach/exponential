@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-find-in-chat`,
+    date: `2026-11-18`,
+    title: `Find in a chat`,
+    summary: `Search inside the chat you have open: Search in chat in its … menu or Ctrl/Cmd+F, every match marked, “2 of 7” with previous and next, older messages included.`,
+    body: `- **Search in chat**: open it from the chat's … menu or with Ctrl/Cmd+F (⌘K and Ctrl+K stay the global search).
+- **Every match marked**: the current one stands out; previous and next walk them in reading order and wrap around.
+- **The whole chat**: older messages from this device's local copy count too, and a folded tool group with a match opens itself.
+- **On web, desktop and eDE**; phones follow.`,
+  },
+  {
     id: `2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls`,
     date: `2026-11-18`,
     title: `Encrypted chats, a local copy of your chats, and steadier calls`,
