@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "voice_call" jsonb;

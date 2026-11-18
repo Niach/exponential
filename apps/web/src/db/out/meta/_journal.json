@@ -2017,6 +2017,13 @@
       "when": 1794924511099,
       "tag": "0287_ede97_clear_tree",
       "breakpoints": true
+    },
+    {
+      "idx": 288,
+      "version": "7",
+      "when": 1795008146456,
+      "tag": "0288_exp1961_voice_call",
+      "breakpoints": true
     }
   ]
 }
