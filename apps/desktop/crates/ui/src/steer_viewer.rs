@@ -91,6 +91,10 @@ use steer::{
 use theme::tokens::transcript;
 
 use crate::composer_images::{self, PendingImages};
+// #EDE-129: find in chat over this transcript (the bar, stops, landing).
+#[path = "chat_find.rs"]
+mod chat_find;
+pub(crate) use chat_find::{find_key_bindings, request_find, find_shortcut_hint, FindInChat};
 use crate::controls::{text_button, TextButtonVariant, WebText as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
@@ -577,6 +581,8 @@ pub(crate) struct SteerSessionView {
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
     picked: HashMap<String, Vec<String>>,
+    /// #EDE-129: find in chat's bar while it is open.
+    find: Option<chat_find::ChatFind>,
     /// Expanded tool-run / subagent group rows, and expanded long bodies.
     expanded_groups: HashSet<FeedItemId>,
     expanded_bodies: HashSet<FeedItemId>,
@@ -1001,6 +1007,7 @@ impl SteerSessionView {
             notice: None,
             picked: HashMap::new(),
             images: image_cache,
+            find: None,
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
             extras: crate::session_extras::LocalExtras::default(),
@@ -2142,7 +2149,9 @@ impl SteerSessionView {
         // #VAPP-258: the live reply (the run's last item, a narration, while
         // live) streams, as `render_narration` did.
         let streaming = self.streaming_row().and_then(|ix| self.row_keys.get(ix)).map(|key| row_key(key.id));
-        let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref();
+        // #EDE-129: find in chat's marks (a moved stop pushes the bubbles).
+        let find = self.find_frame(cx);
+        let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref() || self.chat.find_moved(find.as_ref());
         let chips_moved = self.chat.revision() != revision;
         if rows_moved || (chips_moved && self.chat_cycle.ready(cx, |view| &mut view.chat_cycle)) {
             let _span = tracing::trace_span!("steer.chat_push").entered();
@@ -2236,7 +2245,7 @@ impl SteerSessionView {
                 on_open_link: Some(std::rc::Rc::new(crate::links::link_opener(team_id.clone()))),
                 chip_team: team_id,
             };
-            let push = ChatPush { session_id: self.session_id.clone(), prose, host_rows, senders, streaming };
+            let push = ChatPush { session_id: self.session_id.clone(), prose, host_rows, senders, streaming, find };
             // The new and changed host rows measure where the document is
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
@@ -7175,7 +7184,11 @@ impl SteerSessionView {
             }
             None => {
                 let model = steer::trace::trace_tool(kind, name, detail.as_deref(), *settled, *failed);
-                let line = TraceLine::from_model(("steer-tool", id as usize), &model);
+                // #EDE-129: find in chat's marks on the title, its output's hint.
+                let mut line = TraceLine::from_model(("steer-tool", id as usize), &model).marks(self.find_title_marks(item, &model.title));
+                if let Some(hint) = self.find_output_hint(item) {
+                    line = line.description(Some(hint));
+                }
                 match printed {
                     Some(printed) => {
                         let open = self.expanded_extras.contains(&id);
@@ -10286,6 +10299,8 @@ impl Render for SteerSessionView {
         }
         self.dev_scroll_to_script_card(window);
         self.dev_type_composer_text(window, cx);
+        self.take_find_request(window, cx);
+        let find_bar = self.render_find_bar(window, cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = {
@@ -10338,8 +10353,10 @@ impl Render for SteerSessionView {
                     .children(sheet),
             );
         v_flex()
-            .key_context("SteerSession")
+            .key_context(chat_find::KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &FindInChat, window, cx| this.open_find(window, cx)))
+            .children(find_bar)
             // EXP-820: the card keyboard lives on the ROOT — it has to work
             // with the composer hidden (a card pending) and while the
             // composer or the inline field is focused (both are descendants;

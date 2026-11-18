@@ -212,7 +212,6 @@ export function FindInChatBar({ find }: { find: FindInChat }) {
             ref={ref}
             value={find.raw}
             onValueChange={find.setRaw}
-            clearable={false}
             placeholder={FIND_IN_CHAT_COPY.placeholder}
             aria-label={FIND_IN_CHAT_COPY.placeholder}
             data-testid={FIND_IN_CHAT_TEST_IDS.input}
@@ -243,7 +242,6 @@ export function FindInChatHeader({ find }: { find: FindInChat }) {
             ref={ref}
             value={find.raw}
             onValueChange={find.setRaw}
-            clearable={false}
             placeholder={FIND_IN_CHAT_COPY.placeholder}
             aria-label={FIND_IN_CHAT_COPY.placeholder}
             data-testid={FIND_IN_CHAT_TEST_IDS.input}
