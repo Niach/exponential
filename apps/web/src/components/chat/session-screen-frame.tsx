@@ -182,7 +182,8 @@ export function SessionScreenFrame({
 }: SessionScreenFrameProps) {
   const phone = useIsMobile()
   const findBand = find?.open && !phone ? find.wide : null
-  const tabs = <SessionScreenTabs screen={screen} onTab={onTab} phone={phone} />
+  // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
+  const tabs = screen.tabs.length > 0 ? <SessionScreenTabs screen={screen} onTab={onTab} phone={phone} /> : null
 
   const opened = item ? (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="session-item">
@@ -285,7 +286,7 @@ export function SessionScreenFrame({
               {menu?.(HEADER_BUTTON_CLASS)}
             </span>
           }
-          below={<div className="px-3 pb-2">{tabs}</div>}
+          below={tabs && <div className="px-3 pb-2">{tabs}</div>}
         />}
         {overlay}
         <div className="flex min-h-0 flex-1 flex-col">{body}</div>
@@ -324,7 +325,7 @@ export function SessionScreenFrame({
           </div>
           {/* #EXP-1762: ONE header line on wide: the tabs sit on the title
               row, before the merge pill and the `…`. */}
-          <div className="shrink-0">{tabs}</div>
+          {tabs && <div className="shrink-0">{tabs}</div>}
           {trailing}
           {menu?.(`shrink-0 text-muted-foreground`)}
         </div>

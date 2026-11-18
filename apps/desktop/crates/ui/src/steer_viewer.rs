@@ -5084,16 +5084,20 @@ fn lower_first(text: &str) -> String {
     }
 }
 
-/// A body long enough to fold behind "Show more": #FEED-238 THE FOLD ×4
-/// (transcript-grouping.json `messageFolds`: over `fold.chars` characters
-/// or `fold.lines` lines).
-pub(crate) fn clampable(text: &str) -> bool {
-    domain::transcript_grouping::message_folds(text)
+/// A question card's body folds behind "Show more" past this many lines
+/// or characters (web `QuestionCard`'s `CLAMP_LINES` / `CLAMP_CHARS`).
+/// #EXP-1888: chat message bubbles never fold; only card bodies do.
+const CARD_FOLD_LINES: usize = 6;
+const CARD_FOLD_CHARS: usize = 600;
+
+/// A card body long enough to fold behind "Show more".
+fn card_clampable(text: &str) -> bool {
+    text.encode_utf16().count() > CARD_FOLD_CHARS || text.split('\n').count() > CARD_FOLD_LINES
 }
 
-/// #FEED-238: a folded body shows its first `fold.lines` lines.
+/// A folded card body shows its first [`CARD_FOLD_LINES`] lines.
 fn fold_height() -> Pixels {
-    px(domain::transcript_grouping::fold().lines as f32 * theme::tokens::transcript::BODY_LINE_HEIGHT)
+    px(CARD_FOLD_LINES as f32 * theme::tokens::transcript::BODY_LINE_HEIGHT)
 }
 
 /// The composer's hint. EXP-724: the `/` menu is invisible until it is
@@ -6453,15 +6457,13 @@ impl SteerSessionView {
         if domain::transcript_grouping::is_blank_text(&text) {
             return div().into_any_element();
         }
-        // #FEED-238 THE FOLD: the agent's bubble folds too (never while it
-        // streams).
-        let folds = !streaming && clampable(&text);
+        // #EXP-1888: the whole reply, never folded.
         let view = self.with_issue_chips(
             self.prose(SharedString::from(format!("steer-narration-{id}")), text).streaming(streaming),
             cx,
         );
         let layout = self.item_layout(id);
-        let body = self.fold_element(id, body_text(div()).min_w_0().child(view).into_any_element(), folds, cx);
+        let body = div().w_full().min_w_0().child(body_text(div()).min_w_0().child(view)).into_any_element();
         crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-bubble-{id}")),
@@ -6595,7 +6597,7 @@ impl SteerSessionView {
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
                         body: if relay {
-                            self.render_body_folding(item.id, body, true, cx)
+                            self.render_body_folding(item.id, body, false, cx)
                         } else {
                             self.render_user_message(item.id, body, cx)
                         },
@@ -6984,9 +6986,9 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// A body that folds behind "Show more" once it runs long.
+    /// A message bubble's body: #EXP-1888 always whole, never folded.
     fn render_body(&self, id: FeedItemId, text: &str, cx: &mut gpui::Context<Self>) -> AnyElement {
-        self.render_body_folding(id, text, true, cx)
+        self.render_body_folding(id, text, false, cx)
     }
 
     /// EXP-895 — the mode row `item` renders in: [`ToolRowMode::Live`] for the
@@ -7517,11 +7519,11 @@ impl SteerSessionView {
             .images(self.images.clone()),
             cx,
         );
-        self.fold_element(id, view.into_any_element(), fold && clampable(text), cx)
+        self.fold_element(id, view.into_any_element(), fold && card_clampable(text), cx)
     }
 
-    /// #FEED-238 THE FOLD: `view` folded to its first `fold.lines` lines
-    /// behind THE "Show more" / "Show less" text button when `folds`.
+    /// A card body folded to its first [`CARD_FOLD_LINES`] lines behind
+    /// THE "Show more" / "Show less" text button when `folds`.
     fn fold_element(&self, id: FeedItemId, view: AnyElement, folds: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         if !folds {
             return div().w_full().min_w_0().child(view).into_any_element();
@@ -7542,11 +7544,7 @@ impl SteerSessionView {
                 // of this view's own.
                 text_button(
                     ("steer-body-toggle", id as usize),
-                    if expanded {
-                        domain::transcript_grouping::copy().show_less.as_str()
-                    } else {
-                        domain::transcript_grouping::copy().show_more.as_str()
-                    },
+                    if expanded { "Show less" } else { "Show more" },
                     TextButtonVariant::Text,
                     cx,
                 )
@@ -8241,7 +8239,7 @@ impl SteerSessionView {
             .w_full()
             .min_w_0()
             .mt_1p5()
-            .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
+            .child(ask_body_text(cx).child(self.render_body_folding(item.id, &text, true, cx)))
             .child(self.render_prompt(item, active, false, true, window, cx))
             .child(
                 div().mt_1p5().child(
@@ -11265,13 +11263,12 @@ mod tests {
     }
 
     #[test]
-    fn long_bodies_fold_behind_show_more() {
-        assert!(!clampable("short"));
-        let fold = domain::transcript_grouping::fold();
-        assert!(clampable(&"x".repeat(fold.chars + 1)));
-        assert!(!clampable(&"x".repeat(fold.chars)));
-        assert!(clampable(&"line\n".repeat(fold.lines + 1)));
-        assert!(!clampable(&"line\n".repeat(fold.lines - 1)));
+    fn long_card_bodies_fold_behind_show_more() {
+        assert!(!card_clampable("short"));
+        assert!(card_clampable(&"x".repeat(CARD_FOLD_CHARS + 1)));
+        assert!(!card_clampable(&"x".repeat(CARD_FOLD_CHARS)));
+        assert!(card_clampable(&"line\n".repeat(CARD_FOLD_LINES + 1)));
+        assert!(!card_clampable(&"line\n".repeat(CARD_FOLD_LINES - 1)));
     }
 
 

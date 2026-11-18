@@ -1374,14 +1374,30 @@ fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<
 /// claimed without a key, unless it is a clear tree, then (the tree keyed,
 /// not clear) re-seals the session's first message the server wrote in
 /// clear (`sessions.resealTarget` -> `sessions.reseal`). Best-effort: a
-/// failure is logged, the launch goes on. A no-op without a key holder
-/// (never waits for one).
-fn key_and_reseal_at_claim(trpc: &api::TrpcClient, row: &SessionRow, device_id: &str) {
+/// failure is logged, the launch goes on. #EXP-1959 (b): a key holder still
+/// coming up is waited for (`clearTree.holderWaitMs`); past that the work is
+/// HELD and the session's first sealed write runs it before it posts
+/// ([`crate::sealing::hold_claim`]), so the first message is re-sealed while
+/// no agent reply follows it yet. BLOCKING.
+fn key_and_reseal_at_claim(trpc: &std::sync::Arc<api::TrpcClient>, row: &SessionRow, device_id: &str) {
     let root = row.root_id_or_self().to_string();
-    let clear = (row.is_root() && row.clear_tree) || crate::sealing::tree_clear(&root);
-    if crate::sealing::service().is_none() || clear {
+    if (row.is_root() && row.clear_tree) || crate::sealing::tree_clear(&root) {
         return;
     }
+    if crate::sealing::sealer().is_err() {
+        log::info!("pickup: no key holder at the claim of {}: its keying and re-seal wait for one", row.id);
+        let (trpc, held, device_id) = (std::sync::Arc::clone(trpc), row.clone(), device_id.to_string());
+        crate::sealing::hold_claim(&row.id, Box::new(move || key_and_reseal(&trpc, &held, &device_id)));
+        return;
+    }
+    key_and_reseal(trpc, row, device_id);
+}
+
+/// [`key_and_reseal_at_claim`] with a key holder up.
+fn key_and_reseal(trpc: &api::TrpcClient, row: &SessionRow, device_id: &str) {
+    let root = row.root_id_or_self().to_string();
+    // Never a clear tree here (the claim returned on one).
+    let clear = false;
     if row.is_root() && crate::sealing::claim_keys(clear, row.seal_epoch.is_some() || crate::sealing::tree_keyed(&root)) {
         crate::sealing::ensure_tree_key(&row.id);
     }
@@ -8196,7 +8212,7 @@ mod tests {
             (200, r#"{"result":{"data":{"messageId":"m-first","body":"Review the login page."}}}"#.to_string()),
             (200, r#"{"result":{"data":{"txid":"3"}}}"#.to_string()),
         ]);
-        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let trpc = Arc::new(api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into()))));
         let row = SessionRow { root_id: Some("rs-root".into()), ..session("rs-root", "queued", DEV, "2026-10-01T00:00:00Z") };
         key_and_reseal_at_claim(&trpc, &row, DEV);
         assert_eq!(fake.created.lock().unwrap().as_slice(), ["rs-root"]);
@@ -8210,7 +8226,7 @@ mod tests {
 
         // A clear root (an outside MCP client's): no key, no re-seal, no call.
         let (base, requests) = canned_server_recording(vec![]);
-        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let trpc = Arc::new(api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into()))));
         let clear = SessionRow { root_id: Some("rs-clear".into()), clear_tree: true, ..session("rs-clear", "queued", DEV, "2026-10-01T00:00:00Z") };
         key_and_reseal_at_claim(&trpc, &clear, DEV);
         assert_eq!(fake.created.lock().unwrap().as_slice(), ["rs-root"]);
@@ -8218,9 +8234,91 @@ mod tests {
 
         // Nothing to re-seal: one query, no write.
         let (base, requests) = canned_server_recording(vec![(200, r#"{"result":{"data":null}}"#.to_string())]);
-        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let trpc = Arc::new(api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into()))));
         key_and_reseal_at_claim(&trpc, &row, DEV);
         assert_eq!(procedures(&requests), vec!["sessions.resealTarget"]);
         sealing::uninstall();
+    }
+
+    /// #EXP-1959 (b): a daemon boots with a queued trigger session and
+    /// claims it before its install registered. The claim waits for the
+    /// coming key holder; past the wait its keying and re-seal are HELD,
+    /// nothing reaches the server, and the agent's first reply (no holder
+    /// yet) fails instead of posting. Once the holder is up, that reply's
+    /// seal runs the held work FIRST: the root is keyed, the plaintext first
+    /// message re-sealed (`sessions.resealTarget` -> `sessions.reseal`),
+    /// then the reply is sealed to the same key.
+    #[test]
+    fn a_claim_before_the_key_holder_registers_reseals_before_the_first_reply() {
+        use crate::sealing::{self, test_support, SealError};
+        let _serial = test_support::serial();
+        sealing::uninstall();
+        sealing::expect_service(true);
+        sealing::set_service_wait(std::time::Duration::from_millis(60));
+        const ROOT: &str = "3c9e2f71-5a0b-4d8e-b6c4-17f2a9e0d853";
+        let (base, requests) = canned_server_recording(vec![
+            (200, r#"{"result":{"data":{"messageId":"0b7d4e2a-91c3-4f6e-a8d5-2e6f1c9b7a04","body":"Triage the new issues on the board."}}}"#.to_string()),
+            (200, r#"{"result":{"data":{"txid":"41"}}}"#.to_string()),
+        ]);
+        let trpc = Arc::new(api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into()))));
+        let row = SessionRow { root_id: Some(ROOT.into()), ..session(ROOT, "queued", DEV, "2026-11-18T07:00:00Z") };
+
+        key_and_reseal_at_claim(&trpc, &row, DEV);
+        assert!(sealing::claim_held(ROOT));
+        assert!(requests.lock().unwrap().is_empty());
+        assert_eq!(sealing::seal_body_for_session(ROOT, "Labelled 3 issues."), Err(SealError::NotReady));
+        assert!(sealing::claim_held(ROOT) && requests.lock().unwrap().is_empty());
+
+        // The late holder registers.
+        let fake = test_support::install_fake();
+        fake.roots.lock().unwrap().insert(ROOT.into(), ROOT.into());
+        let reply = sealing::seal_body_for_session(ROOT, "Labelled 3 issues.").unwrap();
+        assert!(!sealing::claim_held(ROOT));
+        assert_eq!(fake.created.lock().unwrap().as_slice(), [ROOT]);
+        assert_eq!(procedures(&requests), vec!["sessions.resealTarget", "sessions.reseal"]);
+        let reseal = requests.lock().unwrap()[1].clone();
+        assert!(!reseal.contains("Triage the new issues"), "{reseal}");
+        let start = reseal.find("exp-sealed:").expect("a body envelope");
+        let body = &reseal[start..start + reseal[start..].find('"').unwrap()];
+        assert_eq!(sealing::open_body_text(ROOT, body).as_deref(), Some("Triage the new issues on the board."));
+        assert_eq!(sealing::open_body_text(ROOT, &reply).as_deref(), Some("Labelled 3 issues."));
+        // Ran once: the next reply makes no call.
+        sealing::seal_body_for_session(ROOT, "Done.").unwrap();
+        assert_eq!(requests.lock().unwrap().len(), 2);
+
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
+    }
+
+    /// #EXP-1959 (b): a holder that registers within the wait keys and
+    /// re-seals at the claim itself; nothing is held.
+    #[test]
+    fn a_claim_waits_for_a_key_holder_still_coming_up() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        sealing::uninstall();
+        sealing::expect_service(true);
+        sealing::set_service_wait(std::time::Duration::from_secs(10));
+        const ROOT: &str = "8e41d0b6-2c7f-4a95-9d13-6b0e5f8c2a77";
+        let (base, requests) = canned_server_recording(vec![
+            (200, r#"{"result":{"data":{"messageId":"5f2a8c1e-0d4b-4e79-b3a6-91c7e2d0f458","body":"Write the weekly summary."}}}"#.to_string()),
+            (200, r#"{"result":{"data":{"txid":"7"}}}"#.to_string()),
+        ]);
+        let trpc = Arc::new(api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into()))));
+        let row = SessionRow { root_id: Some(ROOT.into()), ..session(ROOT, "queued", DEV, "2026-11-18T07:00:00Z") };
+        let holder = std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            test_support::install_fake()
+        });
+        key_and_reseal_at_claim(&trpc, &row, DEV);
+        let fake = holder.join().unwrap();
+        assert!(!sealing::claim_held(ROOT));
+        assert_eq!(fake.created.lock().unwrap().as_slice(), [ROOT]);
+        assert_eq!(procedures(&requests), vec!["sessions.resealTarget", "sessions.reseal"]);
+
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
     }
 }

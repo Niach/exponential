@@ -37,6 +37,7 @@ pub mod protected;
 pub mod recovery;
 pub mod sealed;
 pub mod shortcuts;
+pub mod spaces;
 pub mod state;
 pub mod text;
 pub mod workspaces;

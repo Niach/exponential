@@ -159,6 +159,11 @@ struct SessionScreenTabs: View {
     /// widths and never squeezed; the strip leads and scrolls sideways once
     /// it overflows (no bounce while it fits).
     var body: some View {
+        // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
+        if !tabs.isEmpty { strip }
+    }
+
+    private var strip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             control
                 .padding(.horizontal, 16)

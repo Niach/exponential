@@ -59,6 +59,8 @@ val cargoNdk: File? = (System.getenv("PATH").orEmpty().split(File.pathSeparator)
     File(System.getProperty("user.home"), ".cargo/bin/cargo-ndk")).firstOrNull { it.canExecute() }
 
 val engineFfiCrate = File(repoRoot, "apps/desktop/crates/eengine-ffi")
+/** #EDE-114: the chat store's facade (S3); its host build loads in the JVM tests (`cargo build -p chat-store-ffi --release`). */
+val chatStoreFfiCrate = File(repoRoot, "apps/desktop/crates/chat-store-ffi")
 
 // #PERF-11: the app's ONE native library. eNet (above), the Engine (#VAPP-272:
 // the apps' record outbox, `SyncedRecordStore`) and genUI's painter core ship
@@ -74,7 +76,7 @@ val mobileFfiCrate = File(repoRoot, "apps/desktop/crates/exponential-mobile-ffi"
 val buildMobileFfi = tasks.register<Exec>("buildMobileFfi") {
     description = "Builds the app's one Rust .so per ABI (apps/desktop/crates/exponential-mobile-ffi/build-android.sh)."
     val desktop = File(repoRoot, "apps/desktop")
-    val crates = listOf("exponential-mobile-ffi", "exponential-net-ffi", "enet-core", "eengine-ffi", "eengine", "exponential-ui-ffi", "eui-core", "eui-motion")
+    val crates = listOf("exponential-mobile-ffi", "exponential-net-ffi", "enet-core", "eengine-ffi", "eengine", "exponential-ui-ffi", "eui-core", "eui-motion", "chat-store-ffi", "chat-store")
     crates.forEach { inputs.dir(File(desktop, "crates/$it/src")) }
     inputs.files(crates.map { File(desktop, "crates/$it/Cargo.toml") } + File(mobileFfiCrate, "build-android.sh") + File(desktop, "Cargo.lock"))
     inputs.property("abis", System.getenv("ABIS") ?: "")
@@ -146,6 +148,7 @@ android {
         getByName("main") {
             kotlin.srcDir(File(enetFfiCrate, "bindings/kotlin"))
             kotlin.srcDir(File(engineFfiCrate, "bindings/kotlin"))
+            kotlin.srcDir(File(chatStoreFfiCrate, "bindings/kotlin"))
             jniLibs.srcDir(File(mobileFfiCrate, "out/jniLibs"))
         }
     }
@@ -294,6 +297,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.work.runtime.ktx)
     implementation(libs.lifecycle.process)
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))

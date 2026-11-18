@@ -136,6 +136,8 @@ struct ServerDetailView: View {
             if let token = account.token {
                 await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
             }
+            // #EDE-120: a deliberate sign-out deletes the account's chat store.
+            deps.signOutChatStore(accountId: account.id)
             await deps.syncManager.signOut(accountId: account.id)
             deps.auth.removeAccount(id: account.id)
             deps.db.closePool(forAccountId: account.id)
@@ -162,6 +164,8 @@ struct ServerDetailView: View {
         }
         // No push-token unregister here: deleting the user server-side
         // cascades their fcm_tokens rows away.
+        // #EDE-120: a deliberate sign-out deletes the account's chat store.
+        deps.signOutChatStore(accountId: account.id)
         await deps.syncManager.signOut(accountId: account.id)
         deps.auth.removeAccount(id: account.id)
         deps.db.closePool(forAccountId: account.id)
@@ -326,6 +330,8 @@ struct ServerDetailView: View {
                                 if let url, let token {
                                     await deps.authApi.signOut(instanceUrl: url, token: token)
                                 }
+                                // #EDE-120: a deliberate sign-out deletes the account's chat store.
+                                deps.signOutChatStore(accountId: accountId)
                                 await deps.syncManager.signOut(accountId: accountId)
                                 deps.auth.removeAccount(id: accountId)
                                 // Delete the local DB so a signed-out account leaves

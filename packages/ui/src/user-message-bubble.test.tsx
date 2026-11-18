@@ -33,3 +33,17 @@ describe(`MessageBubble tail`, () => {
     expect(plain.container.querySelector(`.exp-bubble-tail-end,.exp-bubble-tail-start`)).toBeNull()
   })
 })
+
+// #EXP-1888 (transcript-grouping.json): a bubble never folds, however long.
+describe(`MessageBubble whole text`, () => {
+  it(`shows a 100 KB unbroken message whole, with no Show more, wrapping anywhere`, () => {
+    const blob = `H4sI`.repeat(25_000)
+    const text = `${blob}\n${`line\n`.repeat(40)}end`
+    const { container } = render(<MessageBubble side="in" text={text} />)
+    expect(container.textContent).toContain(blob)
+    expect(container.textContent).toContain(`end`)
+    expect(screen.queryByText(`Show more`)).toBeNull()
+    expect(container.querySelector(`[style*="max-height"]`)).toBeNull()
+    expect(container.querySelector(`[class*="overflow-wrap:anywhere"]`)).not.toBeNull()
+  })
+})

@@ -1721,12 +1721,9 @@ impl WysiwygDescription {
                     })
                 }),
             );
-            // Linux clipboard backends are text-only at pin 1d217ee (Wayland
-            // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
-            // through set_text — its set_image exists but is unwired), so
-            // Copy image ships on macOS/Windows only. Never for media: the
-            // cache holds at most the poster under a different key.
-            if media.is_none() && cfg!(any(target_os = "macos", target_os = "windows")) {
+            // Never for media: the cache holds at most the poster under a
+            // different key.
+            if media.is_none() {
                 list = list.child(
                     item(
                         "wysiwyg-image-copy",

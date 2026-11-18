@@ -8,6 +8,10 @@ each carried its own Rust std and its own copy of everything they share
 (serde, tokio, uniffi, ...). This crate links the three into ONE library;
 the facades stay separate SDK crates, with their own bindings and releases.
 
+#EDE-114 adds a fourth, the phones' chat store
+([`chat-store-ffi`](../chat-store-ffi), namespace `chat_store_ffi`): SQLite
+compiled in on Android, the system SQLite on iOS (GRDB's, in the same image).
+
 | | Android | iOS |
 |---|---|---|
 | build | `build-android.sh` (the app's `buildMobileFfi` gradle task) | `build-ios.sh` |

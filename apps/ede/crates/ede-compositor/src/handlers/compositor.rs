@@ -32,6 +32,7 @@ impl CompositorHandler for Ede {
 
     fn new_surface(&mut self, surface: &WlSurface) {
         super::dmabuf::install_blockers(surface);
+        crate::spaces::tag_surface(self, surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {

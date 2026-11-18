@@ -35,6 +35,23 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **On web, desktop and eDE**; phones follow.`,
   },
   {
+    id: `2026-11-18-whole-chat-messages`,
+    date: `2026-11-18`,
+    title: `Chat messages always show in full`,
+    summary: `Every chat message shows its whole text again, on web, desktop, iOS and Android: no more "Show more" under long messages.`,
+    body: `- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble.`,
+  },
+  {
+    id: `2026-11-18-phones-keep-your-chats`,
+    date: `2026-11-18`,
+    title: `Your phone keeps your chats`,
+    summary: `The iOS and Android apps keep every chat on the phone: a chat opens at once, offline too, and fills in from your other devices over P2P. Tool steps are kept for 30 days; Keep tool steps in Settings changes that.`,
+    body: `- **Opens at once**: a chat opens from your phone's own copy before the live stream attaches, even when the device that ran it is offline.
+- **Fills in on its own**: on Wi-Fi your phone fetches what it is missing straight from your other devices over P2P, never through the server; in the background only while it charges.
+- **Keep tool steps**: messages and replies stay; tool steps go after 30 days. Pick 7 days, 90 days, 1 year or Forever in the General section of the Team tab.
+- **Stays on the phone**: the copy lives in the app's protected storage, is not backed up, and signing out deletes it.`,
+  },
+  {
     id: `2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls`,
     date: `2026-11-18`,
     title: `Encrypted chats, a local copy of your chats, and steadier calls`,

@@ -10,6 +10,7 @@ use strum::IntoEnumIterator;
 use wayland_client::{Connection, protocol::wl_data_offer::WlDataOffer};
 use wayland_protocols::wp::primary_selection::zv1::client::zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1;
 
+use crate::linux::clipboard_formats::{has_text, image_offers};
 use crate::linux::platform::{PIPE_READ_TIMEOUT, read_fd_with_timeout};
 use gpui::{ClipboardEntry, ClipboardItem, Image, ImageFormat, hash};
 
@@ -21,6 +22,48 @@ pub(crate) const FILE_LIST_MIME_TYPE: &str = "text/uri-list";
 /// Text mime types that we'll accept from other programs.
 pub(crate) const ALLOWED_TEXT_MIME_TYPES: [&str; 2] = ["text/plain;charset=utf-8", "UTF8_STRING"];
 
+/// Exponential patch (#EXP-1946): one MIME type a written item offers, with its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Offer {
+    mime_type: &'static str,
+    bytes: Vec<u8>,
+}
+
+/// Exponential patch (#EXP-1946): an item's offers: its image (its own format, then a PNG copy),
+/// then its text under every text MIME type. An image-only item offers no text; an item with
+/// neither offers empty text, as upstream did.
+fn item_offers(item: &ClipboardItem) -> Vec<Offer> {
+    let mut offers: Vec<Offer> = image_offers(item)
+        .into_iter()
+        .map(|offer| Offer {
+            mime_type: offer.format.mime_type(),
+            bytes: offer.bytes,
+        })
+        .collect();
+    if offers.is_empty() || has_text(item) {
+        let text = item.text().unwrap_or_default().into_bytes();
+        offers.extend(TEXT_MIME_TYPES.iter().map(|&mime_type| Offer {
+            mime_type,
+            bytes: text.clone(),
+        }));
+    }
+    offers
+}
+
+/// Exponential patch (#EXP-1946): the bytes for a requested MIME type. Any other type (our own
+/// `pid/` marker) gets the text, as upstream sent for every type, when the item has text.
+fn offer_bytes<'a>(offers: &'a [Offer], mime_type: &str) -> Option<&'a [u8]> {
+    offers
+        .iter()
+        .find(|offer| offer.mime_type == mime_type)
+        .or_else(|| {
+            offers
+                .iter()
+                .find(|offer| offer.mime_type == TEXT_MIME_TYPES[0])
+        })
+        .map(|offer| offer.bytes.as_slice())
+}
+
 pub(crate) struct Clipboard {
     connection: Connection,
     loop_handle: LoopHandle<'static, ()>,
@@ -29,6 +72,9 @@ pub(crate) struct Clipboard {
     // Internal clipboard
     contents: Option<ClipboardItem>,
     primary_contents: Option<ClipboardItem>,
+    // Exponential patch (#EXP-1946): what `contents` and `primary_contents` offer, by MIME type.
+    offers: Vec<Offer>,
+    primary_offers: Vec<Offer>,
 
     // External clipboard
     cached_read: Option<ClipboardItem>,
@@ -144,6 +190,8 @@ impl Clipboard {
 
             contents: None,
             primary_contents: None,
+            offers: Vec::new(),
+            primary_offers: Vec::new(),
 
             cached_read: None,
             current_offer: None,
@@ -153,11 +201,26 @@ impl Clipboard {
     }
 
     pub fn set(&mut self, item: ClipboardItem) {
+        self.offers = item_offers(&item);
         self.contents = Some(item);
     }
 
     pub fn set_primary(&mut self, item: ClipboardItem) {
+        self.primary_offers = item_offers(&item);
         self.primary_contents = Some(item);
+    }
+
+    /// Exponential patch (#EXP-1946): the MIME types the clipboard's item offers.
+    pub fn mime_types(&self) -> Vec<&'static str> {
+        self.offers.iter().map(|offer| offer.mime_type).collect()
+    }
+
+    /// Exponential patch (#EXP-1946): the MIME types the primary selection's item offers.
+    pub fn primary_mime_types(&self) -> Vec<&'static str> {
+        self.primary_offers
+            .iter()
+            .map(|offer| offer.mime_type)
+            .collect()
     }
 
     pub fn set_offer(&mut self, data_offer: Option<DataOffer<WlDataOffer>>) {
@@ -174,19 +237,17 @@ impl Clipboard {
         self.self_mime.clone()
     }
 
-    pub fn send(&self, _mime_type: String, fd: OwnedFd) {
-        if let Some(text) = self.contents.as_ref().and_then(|contents| contents.text()) {
-            self.send_bytes(fd, text.as_bytes().to_owned());
+    // Exponential patch (#EXP-1946): sends the bytes of the requested MIME type; upstream sent
+    // the text whatever the type.
+    pub fn send(&self, mime_type: String, fd: OwnedFd) {
+        if let Some(bytes) = offer_bytes(&self.offers, &mime_type) {
+            self.send_bytes(fd, bytes.to_owned());
         }
     }
 
-    pub fn send_primary(&self, _mime_type: String, fd: OwnedFd) {
-        if let Some(text) = self
-            .primary_contents
-            .as_ref()
-            .and_then(|contents| contents.text())
-        {
-            self.send_bytes(fd, text.as_bytes().to_owned());
+    pub fn send_primary(&self, mime_type: String, fd: OwnedFd) {
+        if let Some(bytes) = offer_bytes(&self.primary_offers, &mime_type) {
+            self.send_bytes(fd, bytes.to_owned());
         }
     }
 
@@ -253,5 +314,74 @@ impl Clipboard {
                 },
             )
             .unwrap();
+    }
+}
+
+// Exponential patch (#EXP-1946)
+#[cfg(test)]
+mod tests {
+    use super::{TEXT_MIME_TYPES, item_offers, offer_bytes};
+    use gpui::{ClipboardEntry, ClipboardItem, ClipboardString, Image, ImageFormat};
+
+    fn png() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn mime_types(item: &ClipboardItem) -> Vec<&'static str> {
+        item_offers(item).iter().map(|offer| offer.mime_type).collect()
+    }
+
+    #[test]
+    fn clipboard_text_item_offers_the_text_types_as_before() {
+        let item = ClipboardItem::new_string("hi".into());
+        assert_eq!(mime_types(&item), TEXT_MIME_TYPES.to_vec());
+        let offers = item_offers(&item);
+        for mime_type in TEXT_MIME_TYPES {
+            assert_eq!(offer_bytes(&offers, mime_type), Some(&b"hi"[..]));
+        }
+        assert_eq!(offer_bytes(&offers, "pid/42"), Some(&b"hi"[..]));
+    }
+
+    #[test]
+    fn clipboard_image_item_offers_image_png_only() {
+        let png = png();
+        let item = ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, png.clone()));
+        assert_eq!(mime_types(&item), vec!["image/png"]);
+        let offers = item_offers(&item);
+        assert_eq!(offer_bytes(&offers, "image/png"), Some(png.as_slice()));
+        assert_eq!(offer_bytes(&offers, "text/plain"), None);
+        assert_eq!(offer_bytes(&offers, "pid/42"), None);
+    }
+
+    #[test]
+    fn clipboard_jpeg_item_offers_jpeg_and_png() {
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+            .unwrap();
+        let item = ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Jpeg, jpeg.clone()));
+        assert_eq!(mime_types(&item), vec!["image/jpeg", "image/png"]);
+        assert_eq!(offer_bytes(&item_offers(&item), "image/jpeg"), Some(jpeg.as_slice()));
+    }
+
+    #[test]
+    fn clipboard_mixed_item_offers_image_and_text() {
+        let png = png();
+        let item = ClipboardItem {
+            entries: vec![
+                ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, png.clone())),
+                ClipboardEntry::String(ClipboardString::new("alt".into())),
+            ],
+        };
+        let mut expected = vec!["image/png"];
+        expected.extend(TEXT_MIME_TYPES);
+        assert_eq!(mime_types(&item), expected);
+        let offers = item_offers(&item);
+        assert_eq!(offer_bytes(&offers, "image/png"), Some(png.as_slice()));
+        assert_eq!(offer_bytes(&offers, "UTF8_STRING"), Some(&b"alt"[..]));
     }
 }

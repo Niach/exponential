@@ -45,6 +45,9 @@ public struct InstallEntry: Decodable, Equatable, Sendable {
     public let deviceId: String?
     /// Set on `installs.mine` rows this user revoked.
     public let revokedAt: String?
+    /// #EDE-114: when the install was last seen (the catch-up's HOLDERS
+    /// order, newest first).
+    public let lastSeenAt: String?
 
     public init(
         installId: String,
@@ -53,7 +56,8 @@ public struct InstallEntry: Decodable, Equatable, Sendable {
         endpointId: String,
         x25519Public: String,
         deviceId: String? = nil,
-        revokedAt: String? = nil
+        revokedAt: String? = nil,
+        lastSeenAt: String? = nil
     ) {
         self.installId = installId
         self.userId = userId
@@ -62,6 +66,7 @@ public struct InstallEntry: Decodable, Equatable, Sendable {
         self.x25519Public = x25519Public
         self.deviceId = deviceId
         self.revokedAt = revokedAt
+        self.lastSeenAt = lastSeenAt
     }
 }
 

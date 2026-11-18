@@ -270,14 +270,17 @@ pub(crate) trait Clipboard {
     fn text(&self) -> Result<Option<String>, String>;
 }
 
-/// Whose screen and input a run drives (#EXP-1924). Only the person's seat
-/// today; every lock, Esc set, call queue, Work screen pick and banner is
-/// one target's.
+/// Whose screen and input a run drives (#EXP-1924): the person's seat, or
+/// an agent space of the run's own (#EDE-126, eDE). Every lock, Esc set,
+/// call queue, Work screen pick and banner is one target's.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) enum Target {
     /// The person's own seat: their screen, pointer and keyboard.
     #[default]
     Person,
+    /// The run's own agent space: a number of this process's, one per run
+    /// (`Hosts::admit_space`). Never the person's screen or input.
+    Space(u32),
 }
 
 pub(crate) trait Backend: Send {
@@ -388,11 +391,22 @@ pub(crate) fn before_exit() {
 /// #EXP-1925: `run` ended: what was granted at the desktop for it ends
 /// (eDE).
 pub(crate) fn end_run(target: Target, run: &str) {
-    let Target::Person = target;
+    // A space run's grant ends the same way, and its space with it.
+    let _ = target;
     #[cfg(target_os = "linux")]
     ede::end_run(run);
     #[cfg(not(target_os = "linux"))]
     let _ = run;
+}
+
+/// #EDE-126: can a run get an agent space here? `Err` = why not (not eDE,
+/// or an eDE that makes none).
+pub(crate) fn spaces_offered() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if let Some(session) = ede::session() {
+        return ede::spaces_offered(&session?);
+    }
+    Err("Agent spaces need Exponential Desktop.".to_string())
 }
 
 /// The switch turned off: a grant minted at the desktop ends (eDE).
@@ -426,15 +440,19 @@ pub(crate) fn name() -> &'static str {
 /// Open the backend driving `target` for one call of `run` (`None` = no
 /// run's: the doctor, the screen state, the banner).
 pub(crate) fn open(target: Target, run: Option<&str>) -> Result<Box<dyn Backend>, String> {
-    let Target::Person = target;
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
     #[cfg(target_os = "linux")]
-    return match ede::session() {
-        Some(session) => ede::open_as(&session?, run),
-        None => linux::open(),
-    };
+    if let Some(session) = ede::session() {
+        return ede::open_as(&session?, run, target);
+    }
+    // Only eDE makes spaces; a space run never drives the person's seat.
+    if target != Target::Person {
+        return Err("Agent spaces need Exponential Desktop.".to_string());
+    }
+    #[cfg(target_os = "linux")]
+    return linux::open();
     #[cfg(not(target_os = "linux"))]
     let _ = run;
     #[cfg(target_os = "macos")]

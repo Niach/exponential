@@ -56,6 +56,8 @@ pub fn session_changed(cx: &mut App) {
 /// The host's agents changed (their names label the tray and the wake phrase;
 /// #EXP-1847 their own voices speak, a downloaded clip included).
 pub fn agents_changed(cx: &mut App) {
+    // FEED-276: a ringing call first (it prepares the agent's landed clip).
+    voice_call::on_agents(cx);
     speak_replies::on_agents(cx);
     push_to_talk::on_agents(cx);
     voice_tray::on_agents(cx);

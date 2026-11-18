@@ -7,7 +7,7 @@ import {
   findInChatQuery,
   findInChatShortcut,
 } from "@exp/domain-contract/find-in-chat"
-import { Button, conceptIcon, MessageFoldOpenContext, MobileDetailHeader, SearchField, type MenuEntry } from "@exp/ui"
+import { Button, conceptIcon, MobileDetailHeader, SearchField, type MenuEntry } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // #EDE-129 (fixtures/find-in-chat.json): find in chat ×web. The chat screen
@@ -290,17 +290,12 @@ export function useFindRowHighlight(): { query: string; current?: number } | und
 /** A row's find wrapper: its key for the marks, `data-find-key` for the
  *  scroll (`display: contents`, the row's own box stays the measured one). */
 export function FindRow({ findKey, children }: { findKey: string | null; children: ReactNode }) {
-  const paint = useContext(FindPaintContext)
   if (!findKey) return <>{children}</>
-  // A bubble's fold opens when the current match is in it.
-  const opens = paint?.current?.key === findKey
   return (
     <FindRowKeyContext.Provider value={findKey}>
-      <MessageFoldOpenContext.Provider value={opens}>
-        <div className="contents" data-find-key={findKey}>
-          {children}
-        </div>
-      </MessageFoldOpenContext.Provider>
+      <div className="contents" data-find-key={findKey}>
+        {children}
+      </div>
     </FindRowKeyContext.Provider>
   )
 }

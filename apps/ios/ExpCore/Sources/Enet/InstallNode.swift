@@ -174,6 +174,14 @@ public actor InstallNodeService {
     private var accounts: [InstallAccount] = []
     /// accountId → installId, for accounts registered with this node's identity.
     private var installIds: [String: String] = [:]
+    /// #EDE-114: the last `installs.list` per account and team (the catch-up's
+    /// holders, the holder's access rule).
+    private var registryLists: [String: [String: [InstallEntry]]] = [:]
+
+    /// The installs the registry last listed for `accountId`, per team.
+    public func registry(accountId: String) -> [String: [InstallEntry]] {
+        registryLists[accountId] ?? [:]
+    }
 
     public init(
         registry: InstallsRegistry,
@@ -210,6 +218,7 @@ public actor InstallNodeService {
     public func sync(_ accounts: [InstallAccount]) async -> Bool {
         self.accounts = accounts
         installIds = installIds.filter { id, _ in accounts.contains { $0.accountId == id } }
+        registryLists = registryLists.filter { id, _ in accounts.contains { $0.accountId == id } }
         guard !accounts.isEmpty else {
             await stop()
             return true
@@ -244,7 +253,9 @@ public actor InstallNodeService {
         for account in accounts {
             for teamId in account.teamIds {
                 do {
-                    lists.append(try await registry.list(accountId: account.accountId, teamId: teamId))
+                    let list = try await registry.list(accountId: account.accountId, teamId: teamId)
+                    lists.append(list)
+                    registryLists[account.accountId, default: [:]][teamId] = list
                 } catch {
                     failed = true
                     logger.error("installs.list failed: \(error.localizedDescription)")

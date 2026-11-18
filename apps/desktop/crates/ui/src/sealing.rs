@@ -99,6 +99,21 @@ trait Writer {
     fn send_target(&self, agent_id: Option<&str>, app_id: Option<&str>) -> Result<api::sessions::SendTarget, String>;
     /// Records a root's current key the server named.
     fn note_key(&self, root_id: &str, epoch: u32, public: [u8; 32]);
+    /// #EXP-1960: the server's word on a session the store lacks (a push
+    /// reply, a deep link before sync): its tree's root, clear flag and
+    /// current key.
+    fn tree_of(&self, session_id: &str) -> Result<TreeFacts, String> {
+        Err(format!("{session_id}: no server to ask"))
+    }
+}
+
+/// [`Writer::tree_of`]: a tree as the server has it.
+#[derive(Clone, Debug, PartialEq)]
+struct TreeFacts {
+    root_id: String,
+    clear: bool,
+    /// `None` = keyless (a tree from before #EDE-97).
+    key: Option<(u32, [u8; 32])>,
 }
 
 struct Live<'a> {
@@ -131,6 +146,33 @@ impl Writer for Live<'_> {
             service.keyring().set_current(root_id, epoch, public);
         }
     }
+    /// `sessions get` (any member id resolves to its root, no messages read)
+    /// for the root and its clear flag, then `sessionKeys.publicKeys` by the
+    /// ROOT id for its key.
+    fn tree_of(&self, session_id: &str) -> Result<TreeFacts, String> {
+        let trpc = self.trpc.ok_or("no tRPC client")?;
+        let tree = api::mcp_tools::sessions_get(trpc, session_id).map_err(|err| format!("sessions get: {err}"))?;
+        let root_id = tree.root.id;
+        if root_id.is_empty() {
+            return Err(format!("{session_id}: the server named no root"));
+        }
+        if let Some(service) = sealing::service() {
+            service.keyring().note_root(session_id, &root_id);
+        }
+        let clear = tree.root.clear_tree;
+        let key = if clear {
+            None
+        } else {
+            let keys = api::session_keys::public_keys(trpc, std::slice::from_ref(&root_id))
+                .map_err(|err| format!("sessionKeys.publicKeys: {err}"))?;
+            keys.into_iter()
+                .find(|key| key.root_id == root_id)
+                .map(|key| sealing::public_key_from_b64(&key.public_key).map(|public| (key.epoch, public)))
+                .transpose()
+                .map_err(|err| err.to_string())?
+        };
+        Ok(TreeFacts { root_id, clear, key })
+    }
 }
 
 /// Where a send's text goes, decided on the foreground ([`plan_send`]).
@@ -147,7 +189,12 @@ pub enum SealTarget {
     /// `sessions.send` creates the root: its key rides inline (`seal`),
     /// wrapped for the executing device's install too (`device_id`).
     NewRoot { device_id: Option<String> },
-    /// Nothing to seal (no text, no name).
+    /// #EXP-1960: an existing session (or parent) the store does not have
+    /// yet (a push reply, a deep link before sync, a stale mirror): the
+    /// server names its root, key and clear flag before anything is sealed
+    /// ([`resolve_unsynced`]); it is NEVER a new chat, never plaintext.
+    Unsynced(String),
+    /// Nothing to seal (no text, no name). The ONLY plaintext target.
     #[default]
     None,
 }
@@ -197,14 +244,27 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
             .map(|row| row.root_id_or_self().to_string())
             .or_else(|| Opener::global().root_of(id))
     };
+    let target = target_for(input, &root_of, || existing_conversation(input, &sessions.iter().collect::<Vec<_>>(), cx));
+    let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
+    let clear = local
+        || matches!(&target, SealTarget::Root(root) if sessions.get(root).is_some_and(|row| row.clear_tree) || sealing::tree_clear(root));
+    let node = crate::enet_wiring::active_node(cx);
+    SendPlan { target, clear, node, mention_user_ids, ref_issue_ids }
+}
+
+/// [`plan_send`]'s tree, given what the store knows: `root_of` a synced
+/// session's root, `existing` the member's synced conversation with the
+/// send's agent / app.
+fn target_for(input: &SendInput, root_of: &dyn Fn(&str) -> Option<String>, existing: impl FnOnce() -> Option<String>) -> SealTarget {
     let has_content = input.text.is_some() || input.name.is_some();
-    let target = if !has_content {
+    let known = |id: &String| root_of(id).map_or_else(|| SealTarget::Unsynced(id.clone()), SealTarget::Root);
+    if !has_content {
         SealTarget::None
     } else if let Some(session_id) = &input.session_id {
-        root_of(session_id).map_or(SealTarget::None, SealTarget::Root)
+        known(session_id)
     } else if let Some(parent_id) = &input.parent_id {
-        root_of(parent_id).map_or(SealTarget::None, SealTarget::Root)
-    } else if let Some(existing) = existing_conversation(input, &sessions.iter().collect::<Vec<_>>(), cx) {
+        known(parent_id)
+    } else if let Some(existing) = existing() {
         SealTarget::Root(existing)
     } else if input.team_id.is_some() && is_conversation(input) {
         SealTarget::Conversation { device_id: input.device_id.clone() }
@@ -212,12 +272,7 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
         SealTarget::NewRoot { device_id: input.device_id.clone() }
     } else {
         SealTarget::None
-    };
-    let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
-    let clear = local
-        || matches!(&target, SealTarget::Root(root) if sessions.get(root).is_some_and(|row| row.clear_tree) || sealing::tree_clear(root));
-    let node = crate::enet_wiring::active_node(cx);
-    SendPlan { target, clear, node, mention_user_ids, ref_issue_ids }
+    }
 }
 
 /// An agent / app send without a session id lands in the member's existing
@@ -248,7 +303,7 @@ fn resolve(writer: &dyn Writer, input: &SendInput, target: &SealTarget, fresh: b
     let ask = match target {
         SealTarget::Conversation { .. } => true,
         SealTarget::Root(_) | SealTarget::NewRoot { .. } => fresh && is_conversation(input),
-        SealTarget::None | SealTarget::Keyed { .. } => false,
+        SealTarget::None | SealTarget::Keyed { .. } | SealTarget::Unsynced(_) => false,
     };
     if !ask {
         return target.clone();
@@ -302,6 +357,8 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
     };
     match target {
         SealTarget::None | SealTarget::Conversation { .. } => Ok(None),
+        // Resolved before sealing ([`deliver`]); never leaves unsealed.
+        SealTarget::Unsynced(session_id) => Err(failed(format!("{session_id}: its tree is not known yet"))),
         SealTarget::Keyed { root_id, epoch, public } => {
             let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).map_err(|err| failed(format!("{root_id}: {err}")));
             let sealed_text = text.as_deref().map(body).transpose()?;
@@ -377,13 +434,56 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if plan.clear || plan.target == SealTarget::None {
         return api::sessions::send(trpc, &input);
     }
+    let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
     // A key holder still coming up is waited for (`clearTree.holderWaitMs`).
-    if sealing::sealer().is_err() {
+    deliver(&writer, &input, &plan.target, sealing::sealer().is_ok(), &mut |input| api::sessions::send(trpc, input))
+}
+
+/// #EXP-1960: an [`SealTarget::Unsynced`] session's tree as the server has
+/// it: `None` = a clear tree (plaintext is its wire); a keyed one is sealed
+/// to its key, a keyless one (pre-#EDE-97) keyed by this send's seal when
+/// this install may (`ensure_key`; else the NO-KEY refusal). BLOCKING.
+fn resolve_unsynced(writer: &dyn Writer, session_id: &str) -> Result<Option<SealTarget>, String> {
+    let TreeFacts { root_id, clear, key } = writer.tree_of(session_id)?;
+    if clear {
+        sealing::note_clear_tree(&root_id);
+        return Ok(None);
+    }
+    Ok(Some(match key {
+        Some((epoch, public)) => {
+            writer.note_key(&root_id, epoch, public);
+            SealTarget::Keyed { root_id, epoch, public }
+        }
+        None => SealTarget::Root(root_id),
+    }))
+}
+
+/// [`send_blocking`] past its plaintext wires: an unsynced tree asked of the
+/// server first (a clear one goes as given, an unknown one FAILS), then
+/// sealed by a running key holder (`holder`) or refused.
+fn deliver(
+    writer: &dyn Writer,
+    input: &SendInput,
+    target: &SealTarget,
+    holder: bool,
+    send: &mut dyn FnMut(&SendInput) -> Result<SendOutput, api::ApiError>,
+) -> Result<SendOutput, api::ApiError> {
+    let target = match target {
+        SealTarget::Unsynced(session_id) => match resolve_unsynced(writer, session_id) {
+            Ok(None) => return send(input),
+            Ok(Some(target)) => target,
+            Err(why) => {
+                log::warn!("[sealing] not sent, its tree is unknown: {why}");
+                return Err(no_key(sealing::NO_KEY_REFUSAL.to_string()));
+            }
+        },
+        other => other.clone(),
+    };
+    if !holder {
         log::warn!("[sealing] not sent: no key holder runs");
         return Err(no_key(sealing::NO_KEY_REFUSAL.to_string()));
     }
-    let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
-    send_sealed(&writer, &input, &plan.target, &mut |input| api::sessions::send(trpc, input))
+    send_sealed(writer, input, &target, send)
 }
 
 /// #FEED-250 (`staleTree`): resolves, seals and sends; a refused key write
@@ -436,7 +536,14 @@ pub const LOCKED_ANSWER: &str = "This card can't be answered on this device yet.
 
 pub fn plan_answer(message_id: &str, cx: &App) -> AnswerPlan {
     let messages = Store::global(cx).collections().messages.read(cx);
-    messages.get(message_id).map(answer_plan_for).unwrap_or_default()
+    answer_plan_of(messages.get(message_id))
+}
+
+/// #EDE-131: a card the store does not have (not synced yet) is refused
+/// locally like a locked one: whether it is sealed is unknown, and a
+/// plaintext answer would reach the server before it refused.
+fn answer_plan_of(row: Option<&MessageRow>) -> AnswerPlan {
+    row.map_or(AnswerPlan { locked: true, ..AnswerPlan::default() }, answer_plan_for)
 }
 
 /// A synced row's [`AnswerPlan`]: `seal` is `None` for a plaintext row.
@@ -619,6 +726,17 @@ mod tests {
     /// the wire. A plaintext plan inside a keyed tree answers in clear (0.14.88
     /// sealed it and the server refused), a sealed one re-seals, a locked one
     /// never leaves.
+    /// #EDE-131: an answer to a card the store lacks never leaves (a
+    /// dismiss still does: it carries nothing).
+    #[test]
+    fn an_answer_to_a_card_the_store_lacks_is_refused_locally() {
+        let plan = answer_plan_of(None);
+        let input = AnswerInput { message_id: "m-unsynced".into(), answer: Some("Yes".into()), answers: Some(serde_json::json!(["Yes"])), ..AnswerInput::default() };
+        assert_eq!(answer_wire(None, &input, &plan), Err(LOCKED_ANSWER.to_string()));
+        let dismiss = AnswerInput { message_id: "m-unsynced".into(), dismissed: Some(true), ..AnswerInput::default() };
+        assert_eq!(answer_wire(None, &dismiss, &plan).map(|wire| wire.dismissed), Ok(Some(true)));
+    }
+
     #[test]
     fn the_fixture_answer_cases_pick_the_wire_by_the_stored_card() {
         struct FixtureKeys(Option<[u8; 32]>);
@@ -883,5 +1001,160 @@ mod tests {
         let mut input = SendInput { text: Some("in clear".into()), ..SendInput::default() };
         assert_eq!(seal_send(&NoKeys, &mut input, &SealTarget::Root("ede97-clear".into())), Ok(None));
         assert_eq!(input.text.as_deref(), Some("in clear"));
+    }
+
+    /// #EXP-1960: a server-side tree the store lacks (`tree_of`), whether
+    /// this install may key it, and every server call and send it saw.
+    struct ServerTree {
+        key: contract::TreeKey,
+        /// `sessions get`'s answer: `None` = not found / offline.
+        facts: Option<TreeFacts>,
+        may_key: bool,
+        calls: Mutex<Vec<String>>,
+    }
+
+    /// Real-shaped ids: a pre-#EDE-97 root and a child of it.
+    const ROOT: &str = "6f1c2a4e-3b7d-4c1e-9a52-0d8e7f6b5a41";
+    const CHILD: &str = "a83d5c10-7e2f-4b96-8c3a-51f0e9d2b7c4";
+
+    impl ServerTree {
+        fn new(clear: bool, keyed: bool, may_key: bool) -> Self {
+            let key = contract::generate_tree_key();
+            let facts = TreeFacts { root_id: ROOT.into(), clear, key: keyed.then_some((3, key.public)) };
+            ServerTree { key, facts: Some(facts), may_key, calls: Mutex::new(Vec::new()) }
+        }
+        fn call(&self, what: String) {
+            self.calls.lock().unwrap().push(what);
+        }
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+        fn opens(&self, epoch: u32, body: &str) -> Option<String> {
+            contract::open_body(body, &|e| (e == epoch).then_some(self.key.secret)).text
+        }
+    }
+
+    impl Writer for ServerTree {
+        /// `ensure_key` on a keyless tree: `sessionKeys.create` when this
+        /// install is a reader, `NotReader` otherwise.
+        fn seal_body(&self, root_id: &str, text: &str) -> Result<String, String> {
+            if !self.may_key {
+                return Err(format!("{root_id}: not a reader"));
+            }
+            self.call(format!("create {root_id}"));
+            contract::seal_body(&self.key.public, 1, text).map_err(|e| e.to_string())
+        }
+        fn seal_card(&self, _: &str, _: &Value) -> Result<Value, String> {
+            unreachable!()
+        }
+        fn new_root(&self, _: Option<&str>) -> Result<NewRootSeal, String> {
+            self.call("new root".into());
+            Ok(NewRootSeal { install_id: "me".into(), public_key: self.key.public_key(), epoch: 1, wraps: Vec::new(), secret: self.key.secret })
+        }
+        fn adopt(&self, _: &str, _: &NewRootSeal) {}
+        fn send_target(&self, _: Option<&str>, _: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+            unreachable!()
+        }
+        fn note_key(&self, root_id: &str, epoch: u32, _: [u8; 32]) {
+            self.call(format!("key {root_id}@{epoch}"));
+        }
+        fn tree_of(&self, session_id: &str) -> Result<TreeFacts, String> {
+            self.call(format!("get {session_id}"));
+            self.facts.clone().ok_or_else(|| "NOT_FOUND".into())
+        }
+    }
+
+    fn deliver_to(writer: &ServerTree, input: &SendInput, root_of: &dyn Fn(&str) -> Option<String>) -> (Result<SendOutput, api::ApiError>, Vec<SendInput>) {
+        let mut sent = Vec::new();
+        let target = target_for(input, root_of, || None);
+        let out = deliver(writer, input, &target, true, &mut |wire| {
+            sent.push(wire.clone());
+            Ok(SendOutput { session_id: wire.session_id.clone().unwrap_or_default(), ..SendOutput::default() })
+        });
+        (out, sent)
+    }
+
+    fn unsynced(_: &str) -> Option<String> {
+        None
+    }
+
+    fn is_no_key_refusal(out: &Result<SendOutput, api::ApiError>) -> bool {
+        matches!(out, Err(api::ApiError::Http { status: 400, message }) if message == sealing::NO_KEY_REFUSAL)
+    }
+
+    #[test]
+    fn a_session_the_store_lacks_is_never_a_new_chat_nor_plaintext() {
+        let child = SendInput::message(CHILD, "hi", Vec::new());
+        assert_eq!(target_for(&child, &unsynced, || None), SealTarget::Unsynced(CHILD.into()));
+        let spawn = SendInput::child(CHILD, "dev-1", "go");
+        assert_eq!(target_for(&spawn, &unsynced, || None), SealTarget::Unsynced(CHILD.into()));
+        // Only a send with nothing to seal stays `None`.
+        let bare = SendInput { session_id: Some(CHILD.into()), ..SendInput::default() };
+        assert_eq!(target_for(&bare, &unsynced, || None), SealTarget::None);
+        // Asked of nobody it is refused, never sent.
+        let mut input = child.clone();
+        assert_eq!(seal_send(&ServerTree::new(false, true, true), &mut input, &SealTarget::Unsynced(CHILD.into())), Err(sealing::NO_KEY_REFUSAL.to_string()));
+    }
+
+    #[test]
+    fn a_child_of_a_keyed_root_missing_from_the_store_seals_to_the_roots_key() {
+        let writer = ServerTree::new(false, true, false);
+        let input = SendInput::message(CHILD, "secret", Vec::new());
+        let (out, sent) = deliver_to(&writer, &input, &unsynced);
+        assert_eq!(out.unwrap().session_id, CHILD);
+        assert_eq!(writer.calls(), vec![format!("get {CHILD}"), format!("key {ROOT}@3")]);
+        let [wire] = sent.as_slice() else { panic!("{sent:?}") };
+        assert_eq!(wire.session_id.as_deref(), Some(CHILD));
+        assert!(wire.seal.is_none(), "an existing tree never takes an inline key");
+        assert_eq!(writer.opens(3, wire.text.as_deref().unwrap()).as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn a_keyless_pre_ede97_root_missing_from_the_store_is_keyed_or_refused() {
+        let writer = ServerTree::new(false, false, true);
+        let input = SendInput::message(ROOT, "secret", Vec::new());
+        let (out, sent) = deliver_to(&writer, &input, &unsynced);
+        assert!(out.is_ok());
+        assert_eq!(writer.calls(), vec![format!("get {ROOT}"), format!("create {ROOT}")]);
+        let [wire] = sent.as_slice() else { panic!("{sent:?}") };
+        assert!(wire.seal.is_none());
+        assert_eq!(writer.opens(1, wire.text.as_deref().unwrap()).as_deref(), Some("secret"));
+
+        // This install may not key it: the NO-KEY refusal, nothing leaves.
+        let writer = ServerTree::new(false, false, false);
+        let (out, sent) = deliver_to(&writer, &SendInput::message(CHILD, "secret", Vec::new()), &unsynced);
+        assert!(is_no_key_refusal(&out), "{out:?}");
+        assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn a_clear_tree_missing_from_the_store_goes_plaintext() {
+        let writer = ServerTree { key: contract::generate_tree_key(), facts: Some(TreeFacts { root_id: "0b7e4d2a-91c3-4f58-a6e0-3c2d1b9f8e75".into(), clear: true, key: None }), may_key: true, calls: Mutex::new(Vec::new()) };
+        let input = SendInput::message(CHILD, "in clear", Vec::new());
+        let (out, sent) = deliver_to(&writer, &input, &unsynced);
+        assert!(out.is_ok());
+        assert_eq!(writer.calls(), vec![format!("get {CHILD}")]);
+        assert_eq!(sent, vec![input]);
+        assert!(sealing::tree_clear("0b7e4d2a-91c3-4f58-a6e0-3c2d1b9f8e75"));
+    }
+
+    #[test]
+    fn a_tree_the_server_cannot_name_fails_with_the_no_key_refusal() {
+        let writer = ServerTree { facts: None, ..ServerTree::new(false, true, true) };
+        let (out, sent) = deliver_to(&writer, &SendInput::message(CHILD, "secret", Vec::new()), &unsynced);
+        assert!(is_no_key_refusal(&out), "{out:?}");
+        assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn a_session_the_store_has_seals_as_before_without_asking() {
+        let writer = ServerTree::new(false, false, true);
+        let synced = |id: &str| (id == CHILD).then(|| ROOT.to_string());
+        let input = SendInput::message(CHILD, "secret", Vec::new());
+        assert_eq!(target_for(&input, &synced, || None), SealTarget::Root(ROOT.into()));
+        let (out, sent) = deliver_to(&writer, &input, &synced);
+        assert!(out.is_ok());
+        assert_eq!(writer.calls(), vec![format!("create {ROOT}")], "no server lookup");
+        assert_eq!(writer.opens(1, sent[0].text.as_deref().unwrap()).as_deref(), Some("secret"));
     }
 }

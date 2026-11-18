@@ -352,8 +352,10 @@ struct AppNavigator: View {
             // #EXP-1830: the widgets follow the active account; signed out = their signed-out line.
             HomeWidgetsPublisher.shared.refresh(auth: deps.auth, db: deps.db)
             deps.steerSessions.removeAll()
-            // #PERF-9 STORED TAIL: signing out deletes the account's tails.
-            SteerStoredTailStore.shared.removeAccounts(old.subtracting(new))
+            // #EDE-114: the chat stores follow the signed-in accounts (one no
+            // longer signed in is closed, its files kept: an expiry; a
+            // deliberate sign-out deleted them already).
+            ChatStoreHub.shared.sync(accounts: AppDependencies.chatStoreAccounts(deps.auth))
             systemSearch?.refresh()
         }
         .task {

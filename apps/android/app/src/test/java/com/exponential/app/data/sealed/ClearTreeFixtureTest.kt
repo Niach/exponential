@@ -34,6 +34,35 @@ class ClearTreeFixtureTest {
         assertEquals(clearTree.getValue("keyWaitMs").jsonPrimitive.long, SEAL_KEY_WAIT_MS)
     }
 
+    /** #EXP-1960: `keylessCases` replayed through [createFailure] / [keylessStep]. */
+    @Test
+    fun keylessCasesReplayTheFixture() {
+        assertEquals(clearTree.getValue("createAttempts").jsonPrimitive.long, SEAL_CREATE_ATTEMPTS.toLong())
+        assertEquals(clearTree.getValue("createRetryMs").jsonPrimitive.long, SEAL_CREATE_RETRY_MS)
+        assertEquals(clearTree.str("wrapRefusal"), WRAP_REFUSAL)
+        val lower = { name: String -> name.replaceFirstChar(Char::lowercase) }
+        clearTree.getValue("keylessCases").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val step = if (case["answer"] != null) {
+                keylessStep(RequestKeyAnswer.entries.single { lower(it.name) == case.str("answer") })
+            } else {
+                keylessStep(
+                    CreateFailure.entries.single { lower(it.name) == case.str("failure") },
+                    attempt = case["attempt"]?.jsonPrimitive?.long?.toInt() ?: 1,
+                    ownOnly = case.flag("ownOnly"),
+                )
+            }
+            assertEquals(case.str("name"), case.str("step"), lower(step.name))
+        }
+        assertEquals(CreateFailure.NotReader, createFailure("NOT_FOUND", "Session not found"))
+        assertEquals(CreateFailure.Clear, createFailure("BAD_REQUEST", CLEAR_TREE_REFUSAL))
+        assertEquals(CreateFailure.WrapRefused, createFailure("BAD_REQUEST", WRAP_REFUSAL))
+        assertEquals(CreateFailure.Stale, createFailure("CONFLICT", "x"))
+        assertEquals(CreateFailure.Refused, createFailure("FORBIDDEN", "Not your install"))
+        assertEquals(CreateFailure.Transient, createFailure("INTERNAL_SERVER_ERROR", "boom"))
+        assertEquals(CreateFailure.Transient, createFailure(null, "timeout"))
+    }
+
     @Test
     fun writerCasesReplayTheFixture() {
         val cases = clearTree.getValue("writerCases").jsonArray

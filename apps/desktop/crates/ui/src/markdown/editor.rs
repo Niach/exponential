@@ -1006,8 +1006,7 @@ fn render_image_resize_handle(
 }
 
 /// The right-click menu (web's image node "…" menu): View image · Download ·
-/// Copy image (macOS/Windows — Linux clipboard backends are text-only at pin
-/// 1d217ee) · Remove from description (editor blocks only, destructive).
+/// Copy image · Remove from description (editor blocks only, destructive).
 fn attach_image_context_menu(
     wrapper: gpui::Stateful<gpui::Div>,
     images: &Entity<ImageCache>,
@@ -1073,25 +1072,19 @@ fn attach_image_context_menu(
                         }
                     }),
             );
-            // Linux clipboard backends are text-only at pin 1d217ee (Wayland
-            // offers only TEXT_MIME_TYPES; X11 routes write_to_clipboard
-            // through set_text — its set_image exists but is unwired), so
-            // Copy image ships on macOS/Windows only.
-            if cfg!(any(target_os = "macos", target_os = "windows")) {
-                menu = menu.item(
-                    crate::controls::pointer_label_item("Copy image", false)
-                        .icon(Icon::from(crate::icons::registry::UI_COPY))
-                        .on_click({
-                            let images = images.clone();
-                            let url = url.clone();
-                            move |_, _, cx| {
-                                if let Some(image) = images.read(cx).ready_image(&url) {
-                                    cx.write_to_clipboard(ClipboardItem::new_image(&image));
-                                }
+            menu = menu.item(
+                crate::controls::pointer_label_item("Copy image", false)
+                    .icon(Icon::from(crate::icons::registry::UI_COPY))
+                    .on_click({
+                        let images = images.clone();
+                        let url = url.clone();
+                        move |_, _, cx| {
+                            if let Some(image) = images.read(cx).ready_image(&url) {
+                                cx.write_to_clipboard(ClipboardItem::new_image(&image));
                             }
-                        }),
-                );
-            }
+                        }
+                    }),
+            );
         }
         if let Some((editor, block_id)) = editor.clone() {
             // EXP-697: no dividers in menus.

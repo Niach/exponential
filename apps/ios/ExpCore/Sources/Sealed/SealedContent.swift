@@ -166,6 +166,60 @@ public func sendWire(tree: SendTree, holder: SendHolder, reader: Bool = false, k
     }
 }
 
+// ── a keyless tree's key (sealed-content.json `clearTree.keylessCases`, #EXP-1960) ──
+
+/// How often a writer tries `sessionKeys.create` on a blip, and the backoff unit.
+public let sealCreateAttempts = 3
+public let sealCreateRetry: Duration = .milliseconds(500)
+/// The server's refusal of a wrap for an install that is not a reader.
+public let wrapRefusal = "A wrap names an install that is not a reader"
+
+/// A failed `sessionKeys.create`, read from its tRPC error.
+public enum CreateFailure: String, Sendable, CaseIterable { case clear, stale, notReader, wrapRefused, refused, transient }
+/// `sessionKeys.requestKey`'s answer; `notFound` = a real NOT_FOUND, `error` = no answer.
+public enum RequestKeyAnswer: String, Sendable, CaseIterable { case keyed, clear, requested, noHost, notFound, error }
+/// What a writer does next with a keyless tree.
+public enum KeylessStep: String, Sendable, CaseIterable { case plain, serverKey, requestKey, retryOwn, retry, failed, sealed, wait }
+
+/// tRPC error codes that are an answer, not a blip (a refusal is never retried).
+private let refusalCodes: Set<String> = [
+    "BAD_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED",
+    "PAYLOAD_TOO_LARGE", "UNPROCESSABLE_CONTENT", "METHOD_NOT_SUPPORTED",
+]
+
+/// A failed `sessionKeys.create` from its tRPC error code + message (no
+/// code = no answer: a network blip).
+public func createFailure(code: String?, message: String?) -> CreateFailure {
+    if message == clearTreeRefusal { return .clear }
+    if isStaleTreeRefusal(message) || code == "CONFLICT" { return .stale }
+    if message == wrapRefusal { return .wrapRefused }
+    if code == "NOT_FOUND" { return .notReader }
+    if let code, refusalCodes.contains(code) { return .refused }
+    return .transient
+}
+
+/// #EXP-1960: what a writer does after a failed create. Never a silent wait.
+public func keylessStep(failure: CreateFailure, attempt: Int = 1, ownOnly: Bool = false) -> KeylessStep {
+    switch failure {
+    case .clear: .plain
+    case .stale: .serverKey
+    case .notReader: .requestKey
+    case .wrapRefused: ownOnly ? .requestKey : .retryOwn
+    case .refused: .failed
+    case .transient: attempt < sealCreateAttempts ? .retry : .failed
+    }
+}
+
+/// #EXP-1960: what a writer does after asking the tree's device for its key.
+public func keylessStep(answer: RequestKeyAnswer) -> KeylessStep {
+    switch answer {
+    case .keyed: .sealed
+    case .clear: .plain
+    case .noHost: .failed
+    case .requested, .notFound, .error: .wait
+    }
+}
+
 public enum SealedCryptoError: Error, Equatable {
     case unavailable
 }

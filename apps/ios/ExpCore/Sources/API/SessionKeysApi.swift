@@ -113,6 +113,20 @@ public struct ServerSendTarget: Decodable, Equatable, Sendable {
     }
 }
 
+/// #EXP-1960: `sessionKeys.requestKey`'s answer: `keyed` carries the key,
+/// `requested` = the tree's devices were asked to key it, `noHost` = none hosts it.
+public struct RequestKeyResult: Decodable, Equatable, Sendable {
+    public let state: String
+    public let epoch: UInt32?
+    public let publicKey: String?
+
+    public init(state: String, epoch: UInt32? = nil, publicKey: String? = nil) {
+        self.state = state
+        self.epoch = epoch
+        self.publicKey = publicKey
+    }
+}
+
 /// The key calls a holder makes (a fake in the tests).
 public protocol SessionKeysRegistry: Sendable {
     /// `sessions.sendTarget {agentId | appId}` (#FEED-250).
@@ -122,6 +136,8 @@ public protocol SessionKeysRegistry: Sendable {
     func pending(accountId: String, installId: String) async throws -> [PendingTreeKey]
     func wrap(accountId: String, installId: String, wraps: [PendingTreeKeyWrap]) async throws
     func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey]
+    /// `sessionKeys.requestKey {rootId}` (#EXP-1960).
+    func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult
 }
 
 private struct MineInput: Encodable {
@@ -134,6 +150,7 @@ private struct WrapInput: Encodable {
     let wraps: [PendingTreeKeyWrap]
 }
 private struct PublicKeysInput: Encodable { let rootIds: [String] }
+private struct RequestKeyInput: Encodable { let rootId: String }
 private struct SendTargetInput: Encodable {
     let agentId: String?
     let appId: String?
@@ -168,5 +185,9 @@ public final class SessionKeysApi: SessionKeysRegistry {
 
     public func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey] {
         try await trpc.query(accountId: accountId, path: "sessionKeys.publicKeys", input: PublicKeysInput(rootIds: rootIds))
+    }
+
+    public func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult {
+        try await trpc.mutation(accountId: accountId, path: "sessionKeys.requestKey", input: RequestKeyInput(rootId: rootId))
     }
 }

@@ -140,12 +140,20 @@ public struct SendSealing: Sendable {
     private let crypto: SealedCrypto
     private let holderWait: Duration
     private let keyWait: Duration
+    private let createRetry: Duration
 
-    public init(holder: TreeKeyHolder, crypto: SealedCrypto, holderWait: Duration = sealHolderWait, keyWait: Duration = sealKeyWait) {
+    public init(
+        holder: TreeKeyHolder,
+        crypto: SealedCrypto,
+        holderWait: Duration = sealHolderWait,
+        keyWait: Duration = sealKeyWait,
+        createRetry: Duration = sealCreateRetry
+    ) {
         self.holder = holder
         self.crypto = crypto
         self.holderWait = holderWait
         self.keyWait = keyWait
+        self.createRetry = createRetry
     }
 
     /// Seals the text of a send (and keys the root when it has no key).
@@ -160,7 +168,8 @@ public struct SendSealing: Sendable {
     /// #EDE-97 (sealed-content.json `clearTree`, `sendWire`): NO SILENT
     /// PLAINTEXT. Only a clear tree takes the text in clear; a holder still
     /// coming up is waited for (`holderWait`), a keyless tree this install
-    /// may not key waits for its device's key (`keyWait`); anything else
+    /// may not key asks its device and waits for its key (`keyWait`,
+    /// #EXP-1960 `keylessStep`); anything else
     /// throws `SealRefusal` and nothing leaves. An attachment-only send is not
     /// sealed and never refused.
     func prepare(
@@ -212,38 +221,37 @@ public struct SendSealing: Sendable {
         if target?.clearTree == true { return plain }
         if let target, let rootId = target.rootId {
             // The server's root: sealed to its key, a keyless one keyed first.
-            if let key = await holder.sealKey(
+            switch await treeKey(
                 accountId: accountId,
                 rootId: rootId,
                 known: target.key,
                 teamId: root?.teamId,
                 deviceIds: deviceIds(root?.deviceId ?? steerDevice),
                 shared: false,
-                lookup: false
+                hasText: hasText
             ) {
-                return try sealed(key)
+            case let .key(key): return try sealed(key)
+            case .plain: return plain
+            case .refused: return try refuse()
             }
-            guard hasText, let key = await arrivingKey(accountId: accountId, rootId: rootId) else { return try refuse() }
-            return try sealed(key)
         }
         if let root, !(target != nil && fresh) {
             let synced = root.key
             let known = fresh ? (await holder.serverKey(accountId: accountId, rootId: root.id) ?? synced) : synced
-            // A store-keyless root is keyed first; a refused create asks the
-            // server's key, then waits for its device's claim to key it.
-            if let key = await holder.sealKey(
+            // A store-keyless root is keyed first (`keylessStep` on a failed create).
+            switch await treeKey(
                 accountId: accountId,
                 rootId: root.id,
                 known: known,
                 teamId: root.teamId,
                 deviceIds: deviceIds(root.deviceId),
                 shared: root.shared,
-                lookup: false
+                hasText: hasText
             ) {
-                return try sealed(key)
+            case let .key(key): return try sealed(key)
+            case .plain: return plain
+            case .refused: return try refuse()
             }
-            guard hasText, let key = await arrivingKey(accountId: accountId, rootId: root.id) else { return try refuse() }
-            return try sealed(key)
         }
         if fresh, conversation == nil, let sessionId {
             // A session the store does not have: its key, when it is keyed
@@ -267,6 +275,65 @@ public struct SendSealing: Sendable {
             logger.error("No key for a new root (\(String(describing: error), privacy: .public))")
             return try refuse()
         }
+    }
+
+    private enum TreeKeyOutcome { case key(TreeSealKey), plain, refused }
+
+    /// #EXP-1960 (sealed-content.json `clearTree.keylessCases`): the key of an
+    /// existing root: `known`, else keyed with `sessionKeys.create`; a failed
+    /// create takes its `keylessStep` (a blip retried, a non-reader wrap
+    /// retried with our own installs, a tree keyed meanwhile sealed to its
+    /// key, one this install may not key asked of its device), NEVER a
+    /// silent wait. `refused` = nothing can seal it (the send is refused).
+    private func treeKey(
+        accountId: String,
+        rootId: String,
+        known: TreeSealKey?,
+        teamId: String?,
+        deviceIds: [String],
+        shared: Bool,
+        hasText: Bool
+    ) async -> TreeKeyOutcome {
+        if let known { return .key(known) }
+        var attempt = 1
+        var ownOnly = false
+        while true {
+            let failure: CreateFailure
+            switch await holder.createKey(accountId: accountId, rootId: rootId, teamId: teamId, deviceIds: deviceIds, shared: shared, ownOnly: ownOnly) {
+            case let .keyed(key): return .key(key)
+            case .unavailable: return .refused
+            case let .failed(f): failure = f
+            }
+            // An attachment-only send is never sealed: nothing to wait for.
+            guard hasText else { return .refused }
+            switch keylessStep(failure: failure, attempt: attempt, ownOnly: ownOnly) {
+            case .plain: return .plain
+            case .serverKey:
+                if let key = await holder.serverKey(accountId: accountId, rootId: rootId) { return .key(key) }
+                return await requestedKey(accountId: accountId, rootId: rootId)
+            case .requestKey: return await requestedKey(accountId: accountId, rootId: rootId)
+            case .retryOwn: ownOnly = true
+            case .retry:
+                try? await Task.sleep(for: createRetry * attempt)
+                if Task.isCancelled { return .refused }
+                attempt += 1
+            case .failed, .sealed, .wait: return .refused
+            }
+        }
+    }
+
+    /// #EXP-1960: asks the tree's device to key it (`sessionKeys.requestKey`):
+    /// `requested` (or no answer) waits for its key, `noHost` fails at once.
+    private func requestedKey(accountId: String, rootId: String) async -> TreeKeyOutcome {
+        let (answer, key) = await holder.requestKey(accountId: accountId, rootId: rootId)
+        switch keylessStep(answer: answer) {
+        case .plain: return .plain
+        case .sealed:
+            if let key { return .key(key) }
+        case .wait: break
+        default: return .refused
+        }
+        return await arrivingKey(accountId: accountId, rootId: rootId).map(TreeKeyOutcome.key) ?? .refused
     }
 
     /// The server's key of a keyless tree this install may not key, polled

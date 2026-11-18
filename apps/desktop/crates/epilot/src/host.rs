@@ -540,6 +540,8 @@ pub(crate) struct Hosts {
     runs: Mutex<HashMap<String, Target>>,
     /// The banner: the person's seat's ([`Host::set_presence`]).
     presence: Mutex<Option<Presence>>,
+    /// The last [`Target::Space`] number handed out.
+    spaces: std::sync::atomic::AtomicU32,
 }
 
 impl Hosts {
@@ -588,6 +590,15 @@ impl Hosts {
         self.host(target).admit(session_id);
     }
 
+    /// #EDE-126: admit `session_id` as a space run: a target, and so a
+    /// host, of its own; the one it has when it was admitted before.
+    pub(crate) fn admit_space(&self, session_id: &str) -> Target {
+        let known = self.runs.lock().unwrap().get(session_id).copied().filter(|target| *target != Target::Person);
+        let target = known.unwrap_or_else(|| Target::Space(self.spaces.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1));
+        self.admit(session_id, target);
+        target
+    }
+
     pub(crate) fn set_hook(&self, session_id: &str, hook: AbortHook) {
         if let Some(host) = self.of(session_id) {
             host.set_hook(session_id, hook);
@@ -625,6 +636,10 @@ impl ToolHost for Hosts {
         let target = self.runs.lock().unwrap().remove(session_id);
         if let Some(target) = target {
             self.host(target).end(session_id);
+            // A space's host is its one run's: it goes with it.
+            if target != Target::Person {
+                self.hosts.lock().unwrap().remove(&target);
+            }
         }
     }
 }
@@ -1158,6 +1173,26 @@ mod tests {
         assert!(!b.aborted("s2") && b.engaged(), "an Esc on one host reached the other");
         a.shutdown();
         b.shutdown();
+    }
+
+    /// #EDE-126: each space run has a target, and so a host, of its own; a
+    /// run granted again keeps its target, and its end takes its host along.
+    #[test]
+    fn each_space_run_has_its_own_host() {
+        let hosts = Hosts::default();
+        hosts.admit("p", Target::Person);
+        let (one, two) = (hosts.admit_space("s1"), hosts.admit_space("s2"));
+        assert!(matches!((one, two), (Target::Space(a), Target::Space(b)) if a != b));
+        assert_eq!(hosts.admit_space("s1"), one, "the same run, the same space");
+        let (a, b, person) = (hosts.of("s1").unwrap(), hosts.of("s2").unwrap(), hosts.of("p").unwrap());
+        assert!(!Arc::ptr_eq(&a, &b) && !Arc::ptr_eq(&a, &person) && !Arc::ptr_eq(&b, &person));
+        assert_eq!((a.target, b.target), (one, two));
+        ToolHost::end(&hosts, "s1");
+        assert!(hosts.of("s1").is_none());
+        assert_eq!(hosts.hosts.lock().unwrap().len(), 2, "an ended space run leaves no host");
+        assert_ne!(hosts.admit_space("s1"), one, "a new run, a new space");
+        ToolHost::end(&hosts, "p");
+        assert!(hosts.hosts.lock().unwrap().contains_key(&Target::Person), "the person's host stays");
     }
 
     /// #EXP-1924: `Hosts` sends each run's admit, call, turn and end to its

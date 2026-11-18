@@ -58,18 +58,25 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_325: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls",
+const PREVIOUS_326: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-whole-chat-messages",
     date: "2026-11-18",
-    title: "Encrypted chats, a local copy of your chats, and steadier calls",
-    summary: "Desktop and CLI 0.14.169: chats are end-to-end encrypted by default, desktop and web keep a local copy of your chats, calls and voice are steadier, and computer use pastes and copies again in eDE 0.2.28.",
-    body: r##"- **Chats are encrypted by default**: every new chat is end-to-end encrypted and shows a lock. Devices older than 0.14.96 can't send plans or questions into an encrypted chat, so please update them.
-- **No unencrypted fallback on the web**: a browser that can't keep an encryption key (no eNet install, or storage blocked) now shows a failed-send message instead of sending the message unencrypted.
-- **A local copy of your chats**: desktop and web keep a local, searchable copy of your chats, so a chat opens right away, even offline.
-- **Sign out deletes the local copy**: signing out on purpose deletes it on desktop, in the CLI (`exponential logout`) and on the web. An expired session or switching accounts keeps it. One edge: logging out in the CLI while the desktop app runs on the same account leaves the app writing to the deleted file until it restarts.
-- **Steadier calls and voice**: calls and push to talk connect and end more reliably, and calls are sealed end to end where the server asks for it.
-- **Steadier computer use**: computer use on X11, Wayland and eDE holds and releases your input more reliably.
-- **Paste and copy in eDE**: with eDE 0.2.28, computer use pastes and copies through the clipboard again instead of typing the text."##,
+    title: "Chat messages always show in full",
+    summary: "Every chat message shows its whole text again, on web, desktop, iOS and Android: no more \"Show more\" under long messages.",
+    body: r##"- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_325: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-phones-keep-your-chats",
+    date: "2026-11-18",
+    title: "Your phone keeps your chats",
+    summary: "The iOS and Android apps keep every chat on the phone: a chat opens at once, offline too, and fills in from your other devices over P2P. Tool steps are kept for 30 days; Keep tool steps in Settings changes that.",
+    body: r##"- **Opens at once**: a chat opens from your phone's own copy before the live stream attaches, even when the device that ran it is offline.
+- **Fills in on its own**: on Wi-Fi your phone fetches what it is missing straight from your other devices over P2P, never through the server; in the background only while it charges.
+- **Keep tool steps**: messages and replies stay; tool steps go after 30 days. Pick 7 days, 90 days, 1 year or Forever in the General section of the Team tab.
+- **Stays on the phone**: the copy lives in the app's protected storage, is not backed up, and signing out deletes it."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
