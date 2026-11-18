@@ -537,7 +537,8 @@ fun AppNavHost() {
                 onRetrySync = { viewModel.retrySync() },
             )
             // NEW-69: a running voice call, full screen over every screen.
-            com.exponential.app.ui.call.VoiceCallHost()
+            // FEED-272: its Chat tab opens the agent's chat when none shows.
+            com.exponential.app.ui.call.VoiceCallHost(onOpenChat = { id -> navController.navigate(Routes.agentDm(id)) })
         }
         // Drawn last, so it overlays every screen's header (sonner
         // top-center does the same); only the cards take touches.

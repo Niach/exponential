@@ -11,6 +11,8 @@ export const VOICE_CALL_CONSTANTS = fixture.constants
 export const VOICE_CALL_WIRE = fixture.wire
 export const VOICE_CALL_HANG_UP = fixture.hangUpRules
 export const VOICE_CALL_PILL = fixture.pill
+export const VOICE_CALL_TABS = fixture.tabs as { order: readonly (`chat` | `voice`)[]; initial: `chat` | `voice`; copy: { chat: string; voice: string }; testIds: { tabs: string; chat: string; voice: string } }
+export type CallTab = `chat` | `voice`
 
 export type CallPlatform = `desktop` | `phone` | `web`
 /** The voice device's doctor row `speech` as a caller reads it. */

@@ -126,6 +126,37 @@ describe(`VoiceCallOverlay`, () => {
     rerender(overlay(call))
     expect(screen.queryByTestId(testIds.surface)).toBeNull()
   })
+
+  it(`FEED-272: opens on Voice; Chat docks the pill's row and keeps the call; back on Voice the surface`, async () => {
+    const { call, socket } = connected()
+    await call.start(`agent-1`, `mint`)
+    socket.onmessage?.({ data: JSON.stringify({ t: `call_ready` }) } as MessageEvent)
+    hostEvent(socket, { t: `rang` })
+    hostEvent(socket, { t: `ready` })
+    const { rerender } = render(overlay(call))
+    const tabs = fixture.tabs
+    expect(screen.getByTestId(tabs.testIds.tabs)).toBeTruthy()
+    expect(screen.getByTestId(tabs.testIds.voice).textContent).toBe(tabs.copy.voice)
+    expect(screen.getByTestId(testIds.surface)).toBeTruthy()
+    expect(screen.getByTestId(testIds.panel).getAttribute(`data-tab`)).toBe(`voice`)
+
+    fireEvent.mouseDown(screen.getByTestId(tabs.testIds.chat).closest(`[role="tab"]`)!)
+    rerender(overlay(call))
+    expect(screen.queryByTestId(testIds.surface)).toBeNull()
+    expect(screen.getByTestId(testIds.panel).getAttribute(`data-tab`)).toBe(`chat`)
+    const pill = screen.getByTestId(testIds.pill)
+    expect(pill.getAttribute(`data-docked`)).toBe(`true`)
+    expect(pill.querySelector(`[data-slot="call-pill-handle"]`)).toBeNull()
+    expect(call.active).toBe(true)
+    fireEvent.click(screen.getByTestId(testIds.mute))
+    rerender(overlay(call))
+    expect(socket.sent.at(-1)).toBe(JSON.stringify({ t: `call_mute`, muted: true }))
+
+    fireEvent.mouseDown(screen.getByTestId(tabs.testIds.voice).closest(`[role="tab"]`)!)
+    rerender(overlay(call))
+    expect(screen.getByTestId(testIds.surface)).toBeTruthy()
+    expect(call.active).toBe(true)
+  })
 })
 
 describe(`useVoiceCall`, () => {

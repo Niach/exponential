@@ -2063,7 +2063,8 @@ class StyleguideScreenshotsTest {
         // EXP-1857: the shot frames the newest row, "in call, falling back"
         // (its `voice-call-via` line under the timer): scroll to its caption
         // so the whole frame above it is on screen.
-        composeRule.onNode(hasText("in call, falling back")).performScrollTo()
+        // FEED-272: the call's Chat tab, the last frame.
+        composeRule.onNode(hasText("Chat tab")).performScrollTo()
         flow.settle()
         flow.screenshot("sg_voice-call")
         // --- sg_call-controls (S-3): the round icon-only call buttons.

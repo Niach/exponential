@@ -53,7 +53,7 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
+    div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window,
 };
 
@@ -1360,6 +1360,9 @@ fn ring_timeout() -> Duration {
     Duration::from_millis(VOICE_CALL.constants.ring_timeout_ms)
 }
 
+/// FEED-272: the tabs' and the docked row's width cap (the chat column's).
+const CHAT_COLUMN_MAX_W: f32 = 768.;
+
 /// S-3: the in-window CALL PANEL over an agent chat's body (the agent
 /// screen holds one): drawn while THIS client runs a call with that agent,
 /// nothing otherwise. Esc in it ends the call; the header's telephone
@@ -1367,6 +1370,8 @@ fn ring_timeout() -> Duration {
 /// never the chat around it.
 pub struct CallPanel {
     agent_id: Option<String>,
+    /// FEED-272: the tab on top (a call opens on `tabs.initial`).
+    tab: etalk::call::CallTab,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -1379,7 +1384,7 @@ impl CallPanel {
             subscriptions.push(cx.observe(&call, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&live, |_, _, cx| cx.notify()));
         }
-        CallPanel { agent_id: None, focus: cx.focus_handle(), _subscriptions: subscriptions }
+        CallPanel { agent_id: None, tab: VOICE_CALL.tabs.initial, focus: cx.focus_handle(), _subscriptions: subscriptions }
     }
 
     /// The chat's agent (its screen resolves it).
@@ -1394,6 +1399,24 @@ impl CallPanel {
     pub fn shown(&self, cx: &App) -> bool {
         self.agent_id.as_deref().is_some_and(|agent_id| runs_for(agent_id, cx))
     }
+
+    /// FEED-272: the call sits DOCKED over the chat (the Chat tab): the
+    /// screen lays the panel out ABOVE the chat instead of over it.
+    pub fn docked(&self, cx: &App) -> bool {
+        self.tab == etalk::call::CallTab::Chat && self.shown(cx)
+    }
+
+    /// The tab on top.
+    pub fn tab(&self) -> etalk::call::CallTab {
+        self.tab
+    }
+
+    pub fn set_tab(&mut self, tab: etalk::call::CallTab, cx: &mut Context<Self>) {
+        if self.tab != tab {
+            self.tab = tab;
+            cx.notify();
+        }
+    }
 }
 
 impl Focusable for CallPanel {
@@ -1405,20 +1428,69 @@ impl Focusable for CallPanel {
 impl Render for CallPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let face = self.shown(cx).then(|| face(cx)).flatten();
-        let Some(face) = face else { return div().into_any_element() };
+        let Some(face) = face else {
+            // No call: the next one opens on `tabs.initial` again.
+            self.tab = VOICE_CALL.tabs.initial;
+            return div().into_any_element();
+        };
         let actions = CallActions { on_mute: std::rc::Rc::new(toggle_mute), on_end: std::rc::Rc::new(end) };
-        div()
-            .absolute()
-            .inset_0()
+        let this = cx.entity().downgrade();
+        let on_tab: crate::voice_overlay::TabClick = std::rc::Rc::new(move |tab, cx| {
+            this.update(cx, |panel, cx| panel.set_tab(tab, cx)).ok();
+        });
+        let tabs = crate::voice_overlay::call_tabs(self.tab, on_tab, cx);
+        let panel_id = SharedString::from(VOICE_CALL.test_ids.panel.clone());
+        let background = {
+            use gpui_component::ActiveTheme as _;
+            cx.theme().background
+        };
+        let root = div()
             .track_focus(&self.focus)
             .on_key_down(|event, _, cx| {
                 if event.keystroke.key == "escape" {
                     cx.stop_propagation();
                     end(cx);
                 }
-            })
-            .child(crate::voice_overlay::call_panel(SharedString::from(VOICE_CALL.test_ids.panel.clone()), &face, &actions, cx))
-            .into_any_element()
+            });
+        match self.tab {
+            // FEED-272 Chat: the tabs and the pill's row docked ABOVE the
+            // chat (the screen puts this panel before it), the chat with its
+            // composer readable and writable under them.
+            etalk::call::CallTab::Chat => root
+                .flex_none()
+                .w_full()
+                .flex()
+                .justify_center()
+                .px(px(16.))
+                .pt(px(12.))
+                .pb(px(4.))
+                .child(
+                    gpui_component::v_flex()
+                        .w_full()
+                        .max_w(px(CHAT_COLUMN_MAX_W))
+                        .gap(px(12.))
+                        .child(tabs)
+                        .child(crate::voice_overlay::call_pill_docked(panel_id, &face, &actions, cx)),
+                )
+                .into_any_element(),
+            etalk::call::CallTab::Voice => root
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .bg(background)
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .justify_center()
+                        .px(px(16.))
+                        .pt(px(12.))
+                        .child(div().w_full().max_w(px(CHAT_COLUMN_MAX_W)).child(tabs)),
+                )
+                .child(div().flex_1().min_h_0().child(crate::voice_overlay::call_panel(panel_id, &face, &actions, cx)))
+                .into_any_element(),
+        }
     }
 }
 

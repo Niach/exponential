@@ -89,6 +89,10 @@ class VoiceCallController @Inject constructor(
         val answeredAt: Long? = null,
         /** EXP-1681: the call screen is minimized into the floating pill. */
         val minimized: Boolean = false,
+        /** FEED-272: the tab on top of the call (a call opens on Voice). */
+        val tab: VoiceCall.Tab = VoiceCall.Tabs.INITIAL,
+        /** The called agent's definition id (its chat is the Chat tab's). */
+        val agentId: String? = null,
     ) {
         val view: VoiceCall.View? get() = VoiceCall.callView(state, VoiceCall.Platform.Phone)
     }
@@ -173,7 +177,7 @@ class VoiceCallController @Inject constructor(
     ) {
         if (current != null || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
         // A new call always opens full screen.
-        _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null, minimized = false) }
+        _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null, minimized = false, tab = VoiceCall.Tabs.INITIAL, agentId = agentId) }
         step(VoiceCall.Event.Start(device, language, fallback))
         if (!hasMicPermission()) return step(VoiceCall.Event.Failed("not_granted"))
         // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
@@ -224,9 +228,29 @@ class VoiceCallController @Inject constructor(
         _ui.update { it.copy(minimized = true) }
     }
 
-    /** A tap on the pill: the call screen again. */
+    /** A tap on the pill: the call screen again (on Voice). */
     fun expand() {
-        _ui.update { it.copy(minimized = false) }
+        _ui.update { it.copy(minimized = false, tab = VoiceCall.Tab.Voice) }
+    }
+
+    /** FEED-272: Chat / Voice; never ends, mutes or re-dials the call. */
+    fun showTab(tab: VoiceCall.Tab) {
+        if (_ui.value.state.phase == VoiceCall.Phase.Hidden) return
+        _ui.update { it.copy(tab = tab, minimized = false) }
+    }
+
+    /** FEED-272: the agent chats on screen now (each registers while composed). */
+    private val _chatsShown = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val chatsShown: StateFlow<Map<String, Int>> = _chatsShown.asStateFlow()
+
+    fun chatShown(agentId: String, shown: Boolean) {
+        val left = _chatsShown.updateAndGet { map ->
+            val n = (map[agentId] ?: 0) + if (shown) 1 else -1
+            if (n <= 0) map - agentId else map + (agentId to n)
+        }
+        // Leaving the call's chat on its Chat tab minimizes the call into the pill.
+        val ui = _ui.value
+        if (!shown && !left.containsKey(agentId) && ui.agentId == agentId && ui.tab == VoiceCall.Tab.Chat) minimize()
     }
 
     /** Mute / unmute: the uplink carries silence (the relay's idle keep-alive), replies still play. */

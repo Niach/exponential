@@ -1570,6 +1570,9 @@ impl Render for AgentScreenView {
             .pb(px(crate::dock::DOCK_GAP))
             .children(chat_empty)
             .into_any_element();
+        // FEED-272: on the call's Chat tab the panel sits docked ABOVE the chat.
+        use gpui::prelude::FluentBuilder as _;
+        let docked = self.call_panel.read(cx).docked(cx);
         let chat = div()
             .id(if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" })
             .relative()
@@ -1578,10 +1581,11 @@ impl Render for AgentScreenView {
             .flex_1()
             .min_h_0()
             .w_full()
+            .when(docked, |d| d.child(self.call_panel.clone()))
             .child(conversation)
             .children(band)
             // S-3: the call panel covers the body while the call runs.
-            .child(self.call_panel.clone())
+            .when(!docked, |d| d.child(self.call_panel.clone()))
             .into_any_element();
         // VAPP-110: an editor's chat is the app editor's chat pane, headerless
         // (#EXP-1837: so is the Assistant widget's).

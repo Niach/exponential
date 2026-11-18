@@ -145,6 +145,21 @@ object VoiceCall {
         const val SERVER_IDLE_MS = 600_000
     }
 
+    /** FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface. */
+    enum class Tab(val wire: String) { Chat("chat"), Voice("voice") }
+
+    object Tabs {
+        val ORDER = listOf(Tab.Chat, Tab.Voice)
+        /** A call opens on Voice. */
+        val INITIAL = Tab.Voice
+        const val TABS_ID = "voice-call-tabs"
+        fun label(tab: Tab): String = when (tab) {
+            Tab.Chat -> "Chat"
+            Tab.Voice -> "Voice"
+        }
+        fun testId(tab: Tab): String = "voice-call-tab-${tab.wire}"
+    }
+
     /** The floating call pill (`pill`): the desktop's, EXP-1681 the phones' minimized call. */
     object Pill {
         const val WIDTH = 320
