@@ -101,6 +101,26 @@ static GRANT: Mutex<Option<(PathBuf, Token)>> = Mutex::new(None);
 const RUN_GRANT_TTL: Duration = Duration::from_secs(15 * 60);
 const RUN_GRANT_RENEW: Duration = Duration::from_secs(5 * 60);
 
+/// #EDE-126: how often a space run's keeper looks at the clock.
+const KEEPER_TICK: Duration = Duration::from_secs(10);
+
+/// The lifetimes a run's grants are minted and renewed by (the tests'
+/// are short, or on a clock that jumps).
+#[derive(Clone, Copy)]
+struct Timing {
+    ttl: Duration,
+    renew: Duration,
+    tick: Duration,
+    /// Unix milliseconds: the wall clock.
+    now: fn() -> i64,
+}
+
+const RUN_TIMING: Timing = Timing { ttl: RUN_GRANT_TTL, renew: RUN_GRANT_RENEW, tick: KEEPER_TICK, now: now_ms };
+
+/// The space runs with a keeper thread, per compositor socket, and which
+/// one (a run granted again gets a new one; the old one sees it and ends).
+static KEEPERS: LazyLock<Mutex<HashMap<(PathBuf, String), u64>>> = LazyLock::new(Default::default);
+
 /// One grant minted for a run.
 #[derive(Clone)]
 struct RunGrant {
@@ -195,7 +215,7 @@ impl Session {
     /// mint, = [`Session::connect`].
     fn connect_as(&self, run: Option<&str>) -> Result<Client, String> {
         let Some(run) = run else { return self.connect() };
-        match self.connect_run(run, &CAPABILITIES)? {
+        match self.connect_run(run, &CAPABILITIES, RUN_TIMING)? {
             Some(client) => Ok(client),
             None => self.connect(),
         }
@@ -207,8 +227,8 @@ impl Session {
     /// error before a single op goes out. Never [`Session::connect`]: a
     /// space run has no hold, no gate and no Esc, so this process's person
     /// grant there would type on the person's seat.
-    fn connect_space(&self, run: &str) -> Result<Client, String> {
-        let client = self.connect_run(run, &SPACE_CAPABILITIES)?.ok_or(NO_SPACE_GRANT)?;
+    fn connect_space(&self, run: &str, timing: Timing) -> Result<Client, String> {
+        let client = self.connect_run(run, &SPACE_CAPABILITIES, timing)?.ok_or(NO_SPACE_GRANT)?;
         if !client.hello.offers_spaces() {
             return Err(NO_SPACES.to_string());
         }
@@ -220,8 +240,8 @@ impl Session {
 
     /// `run`'s own grant holding `capabilities`; `None` = the root here
     /// cannot mint.
-    fn connect_run(&self, run: &str, capabilities: &[Capability]) -> Result<Option<Client>, String> {
-        let fresh = now_ms() + RUN_GRANT_RENEW.as_millis() as i64;
+    fn connect_run(&self, run: &str, capabilities: &[Capability], timing: Timing) -> Result<Option<Client>, String> {
+        let fresh = (timing.now)() + timing.renew.as_millis() as i64;
         let cached = RUN_GRANTS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -245,8 +265,8 @@ impl Session {
         if capabilities == SPACE_CAPABILITIES && !root.hello.offers_spaces() {
             return Err(NO_SPACES.to_string());
         }
-        let now = now_ms();
-        let expires_at = now + RUN_GRANT_TTL.as_millis() as i64;
+        let now = (timing.now)();
+        let expires_at = now + timing.ttl.as_millis() as i64;
         let session = SessionId::new(run).map_err(|err| err.to_string())?;
         let token = root.mint(session, capabilities.to_vec(), Some(expires_at)).map_err(e("eDE grant"))?.token;
         drop(root);
@@ -259,8 +279,48 @@ impl Session {
         self.connect_token(token).map(Some)
     }
 
+    /// #EDE-126: a thread that keeps the space run `run`'s grant alive
+    /// while no call does: a renewal runs only inside a call, and the
+    /// compositor closes a space whose grant stayed expired. It wakes every
+    /// [`Timing::tick`] and compares the wall clock, so the first tick
+    /// after a suspend renews too (inside the compositor's grace). It ends
+    /// with the run ([`Session::end_run`]). One per run; a person run has none.
+    fn keep(&self, run: &str, timing: Timing) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let key = (self.socket.clone(), run.to_string());
+        let mine = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        match KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).entry(key.clone()) {
+            std::collections::hash_map::Entry::Occupied(_) => return,
+            std::collections::hash_map::Entry::Vacant(slot) => drop(slot.insert(mine)),
+        }
+        let session = self.clone();
+        let keeper = Some(mine);
+        let _ = std::thread::Builder::new().name("computer-use-space-keeper".into()).spawn(move || loop {
+            std::thread::sleep(timing.tick);
+            let now = || KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).get(&key).copied();
+            if now() != keeper {
+                return;
+            }
+            let fresh = (timing.now)() + timing.renew.as_millis() as i64;
+            let newest = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).get(&key.1).and_then(|grants| grants.iter().rev().find(|grant| grant.socket == key.0).map(|grant| grant.expires_at));
+            if newest.is_some_and(|expires_at| expires_at > fresh) {
+                continue;
+            }
+            if let Err(err) = session.connect_space(&key.1, timing) {
+                log::debug!("computer use: a space run's eDE grant was not renewed: {err}");
+            }
+            // The run ended while this minted: what was minted ends too.
+            match now() {
+                None => return session.end_run(&key.1),
+                other if other != keeper => return,
+                _ => {}
+            }
+        });
+    }
+
     /// `run`'s grants on this compositor end; the compositor forgets them.
     fn end_run(&self, run: &str) {
+        KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).remove(&(self.socket.clone(), run.to_string()));
         // A space run's space ends with its grant (the compositor closes it).
         SPACES.lock().unwrap_or_else(|p| p.into_inner()).retain(|of, (socket, _)| of != run || *socket != self.socket);
         let grants = {
@@ -341,8 +401,13 @@ pub(crate) fn open_as(session: &Session, run: Option<&str>, target: Target) -> R
     if target == Target::Person {
         return Ok(Box::new(ede(session.connect_as(run)?, None)));
     }
-    let run = run.ok_or("An agent space belongs to a run.")?;
-    let mut client = session.connect_space(run)?;
+    open_space(session, run.ok_or("An agent space belongs to a run.")?, target, RUN_TIMING)
+}
+
+fn open_space(session: &Session, run: &str, target: Target, timing: Timing) -> Result<Box<dyn Backend>, String> {
+    let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: Some(run.to_string()), target, space };
+    let mut client = session.connect_space(run, timing)?;
+    session.keep(run, timing);
     let made = SPACES.lock().unwrap_or_else(|p| p.into_inner()).get(run).filter(|(socket, _)| *socket == session.socket).map(|(_, space)| space.clone());
     let space = match made {
         Some(space) => space,
@@ -1000,7 +1065,7 @@ mod tests {
     fn a_space_run_mints_space_only_and_creates_its_space_once() {
         let faked = fake_socket_of(Fake { spaces: true, root_system: true });
         let run = "epilot-test-space-a";
-        let client = faked.session.connect_space(run).unwrap();
+        let client = faked.session.connect_space(run, RUN_TIMING).unwrap();
         assert_eq!((client.hello.capabilities.clone(), client.hello.session_id.as_str()), (vec![Capability::Space], run));
         drop(client);
         let first = open_as(&faked.session, Some(run), Target::Space(7)).unwrap();
@@ -1079,6 +1144,78 @@ mod tests {
         let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
         assert!(ede.lock(Box::new(|| {})).is_err());
         assert_eq!(logged(&faked), [format!("mint {run} true"), "create_space 1280x800".to_string()]);
+        faked.session.end_run(run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    fn mints(faked: &Faked) -> usize {
+        logged(faked).iter().filter(|line| line.starts_with("mint ")).count()
+    }
+
+    fn until(what: &str, mut ok: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !ok() {
+            assert!(std::time::Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn kept(faked: &Faked, run: &str) -> bool {
+        KEEPERS.lock().unwrap().contains_key(&(faked.session.socket.clone(), run.to_string()))
+    }
+
+    /// #EDE-126: a renewal runs only inside a call, and an idle space run
+    /// makes none: its keeper mints the next grant before the last one
+    /// runs out (the compositor closes a space whose grant expired). It
+    /// ends with the run.
+    #[test]
+    fn an_idle_space_run_keeps_its_grant_until_its_end() {
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let run = "epilot-test-keeper-a";
+        let short = Timing { ttl: Duration::from_millis(600), renew: Duration::from_millis(300), tick: Duration::from_millis(20), now: now_ms };
+        drop(open_space(&faked.session, run, Target::Space(1), short).unwrap());
+        assert!(kept(&faked, run));
+        until("the keeper renewed no grant", || mints(&faked) >= 3);
+        assert_eq!(logged(&faked).iter().filter(|line| line.starts_with("create_space")).count(), 1, "a renewal makes no space");
+        faked.session.end_run(run);
+        assert!(!kept(&faked, run));
+        std::thread::sleep(Duration::from_millis(100));
+        let ended = mints(&faked);
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(mints(&faked), ended, "the keeper outlived its run");
+        assert!(!RUN_GRANTS.lock().unwrap().contains_key(run));
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EDE-126: the keeper compares the wall clock, so a suspend longer
+    /// than the grant's life is renewed at its first tick after it.
+    #[test]
+    fn the_keeper_renews_after_a_wall_clock_jump() {
+        static SKEW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+        fn skewed() -> i64 {
+            now_ms() + SKEW.load(Ordering::SeqCst)
+        }
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let run = "epilot-test-keeper-j";
+        let long = Timing { tick: Duration::from_millis(20), now: skewed, ..RUN_TIMING };
+        drop(open_space(&faked.session, run, Target::Space(1), long).unwrap());
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(mints(&faked), 1, "a fresh grant is left alone");
+        SKEW.store(2 * 60 * 60 * 1000, Ordering::SeqCst);
+        until("no renewal after the jump", || mints(&faked) == 2);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(mints(&faked), 2, "one renewal, by the clock");
+        faked.session.end_run(run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// A person run renews inside its calls and takes the hold: no keeper.
+    #[test]
+    fn a_person_run_has_no_keeper() {
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let run = "epilot-test-keeper-p";
+        drop(open_as(&faked.session, Some(run), Target::Person).unwrap());
+        assert!(!kept(&faked, run) && RUN_GRANTS.lock().unwrap().contains_key(run));
         faked.session.end_run(run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
