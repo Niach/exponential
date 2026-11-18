@@ -74,6 +74,9 @@ pub struct AgentVoice {
     pub voice: etalk::VoiceChoice,
     /// The wake phrase (empty = `Hey {agent}`).
     pub wake_phrase: String,
+    /// FEED-276: where the agent's own clip is (`Fetching` = `voice` is
+    /// the built-in one until it lands; a call's `ready` waits for it).
+    pub clip: etalk::call::CallVoice,
 }
 
 impl AgentVoice {
@@ -86,6 +89,7 @@ impl AgentVoice {
                 transcript: settings.voice_transcript.clone(),
             },
             wake_phrase: settings.wake_phrase.clone(),
+            clip: etalk::call::CallVoice::None,
         }
     }
 }
@@ -283,8 +287,9 @@ pub trait TalkHost: 'static {
     /// #EXP-1847: the voice `agent_id` speaks with here, resolved against
     /// the member's `settings` (None = the member's own: a host without
     /// per-agent voices, or an unknown agent). A clip still on its way is
-    /// the built-in voice; the host calls [`crate::agents_changed`] once it
-    /// landed.
+    /// the built-in voice (FEED-276: `clip` = `Fetching`, a call waits for
+    /// it); the host calls [`crate::agents_changed`] once it landed or
+    /// failed.
     fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
         let _ = (agent_id, settings, cx);
         None

@@ -491,6 +491,11 @@ pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
     if matches!(event, etalk::Event::Exited) {
         crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
     }
+    // FEED-276: a Prepare's `Voices` may be the one a ringing call waits
+    // for (Speak replies reads it too).
+    if matches!(event, etalk::Event::Voices { .. }) {
+        crate::voice_call::voice_prepared(cx);
+    }
     // NEW-55: a running call's events (its microphone, its
     // streamed reply audio) go to the call first.
     // S-3: the call repaints only its own surfaces.
@@ -593,12 +598,18 @@ pub fn voice_of(agent_id: &str, cx: &App) -> etalk::VoiceChoice {
     host::agent_voice(Some(agent_id), &settings, cx).voice
 }
 
+/// FEED-276: where `agent_id`'s own clip is on this host (a call's `ready`
+/// waits while it is still `Fetching`).
+pub fn clip_of(agent_id: &str, cx: &App) -> etalk::call::CallVoice {
+    let settings = settings(cx);
+    host::agent_voice(Some(agent_id), &settings, cx).clip
+}
+
 /// #EXP-1847: the worker speaks with `agent_id`'s own voice from now on (a
 /// call with it): re-prepared only when that voice differs from the last.
-pub fn use_voice_of(agent_id: &str, cx: &mut App) {
-    if let Some(entity) = global(cx) {
-        entity.update(cx, |this, cx| this.ensure_voice(Some(agent_id), cx));
-    }
+/// True = a Prepare went out (FEED-276: its `Voices` confirms it).
+pub fn use_voice_of(agent_id: &str, cx: &mut App) -> bool {
+    global(cx).is_some_and(|entity| entity.update(cx, |this, cx| this.ensure_voice(Some(agent_id), cx)))
 }
 
 /// #EXP-1847: the host's agents changed (an agent's own voice, a clip that
@@ -607,7 +618,7 @@ pub(crate) fn on_agents(cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, cx| {
             let agent = this.voice_agent.clone();
-            this.ensure_voice(agent.as_deref(), cx);
+            let _ = this.ensure_voice(agent.as_deref(), cx);
         });
     }
 }
@@ -762,9 +773,10 @@ impl SpeakReplies {
 
     /// #EXP-1847: prepare the worker with `agent_id`'s voice when it differs
     /// from the one it holds (nothing while the worker is not speaking).
-    fn ensure_voice(&mut self, agent_id: Option<&str>, cx: &mut Context<Self>) {
+    /// True = a Prepare went out.
+    fn ensure_voice(&mut self, agent_id: Option<&str>, cx: &mut Context<Self>) -> bool {
         if !self.prepared.speaks() || self.download == Download::Unavailable {
-            return;
+            return false;
         }
         let wanted = self.voice_for(agent_id, cx);
         self.voice_agent = agent_id.map(str::to_string);
@@ -772,8 +784,10 @@ impl SpeakReplies {
             self.prepared.voice = voice.clone();
             if let Some(client) = self.client.as_ref() {
                 client.prepare(voice);
+                return true;
             }
         }
+        false
     }
 
     fn on_session(&mut self, cx: &mut Context<Self>) {
@@ -916,7 +930,7 @@ impl SpeakReplies {
             return;
         }
         let row = row.clone();
-        self.ensure_voice(Some(&agent_id), cx);
+        let _ = self.ensure_voice(Some(&agent_id), cx);
         let Some(client) = self.client.as_ref() else { return };
         client.speak(row.id.clone(), spoken.clone());
         // The turn got its reply.
