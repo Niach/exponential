@@ -98,48 +98,29 @@ where
                 .map(OutputElements::Surface),
         );
     };
-    if let Some(w) = state.fullscreen_on(output) {
-        // #EDE-107: a sealed prompt holds the keyboard, so it is the one
-        // layer drawn above a fullscreen window; black in a capture.
-        let layers = layer_map_for_output(output);
-        for l in layers.layers().rev().filter(|l| is_sealed_prompt(l)) {
-            let Some(geo) = layers.layer_geometry(l) else { continue };
-            if redact {
-                let geo = geo.to_physical_precise_round(scale);
-                elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
-                continue;
-            }
-            for (popup, location) in smithay::desktop::PopupManager::popups_for_surface(l.wl_surface()) {
-                let offset = (geo.loc + location - popup.geometry().loc).to_physical_precise_round(scale);
-                elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset, scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
-            }
-            elements.extend(
-                render_elements_from_surface_tree(renderer, l.wl_surface(), geo.loc.to_physical_precise_round(scale), scale, 1.0, Kind::Unspecified)
-                    .into_iter()
-                    .map(OutputElements::Surface),
-            );
-        }
-        drop(layers);
-        window(renderer, &mut elements, &w);
-        return elements;
-    }
-
     let layers = layer_map_for_output(output);
     // The popups of a layer (the panel's menu) sit above every surface of
     // that layer, not only their parent: a toast mapped after the panel
-    // must not cover the panel's open menu (#EDE-12).
-    let layer = |renderer: &mut R, elements: &mut Vec<_>, upper: bool| {
+    // must not cover the panel's open menu (#EDE-12). A sealed surface (a
+    // polkit, consent or share prompt) is solid black in a capture, with
+    // or without a fullscreen window under it (#EDE-121).
+    let draw = |renderer: &mut R, elements: &mut Vec<_>, shown: &dyn Fn(&smithay::desktop::LayerSurface) -> bool| {
         use smithay::desktop::PopupManager;
-        let on_layer = || layers.layers().rev().filter(|l| matches!(l.layer(), Layer::Overlay | Layer::Top) == upper);
-        for l in on_layer() {
+        let hidden = |l: &smithay::desktop::LayerSurface| redact && crate::sealed::layer_origin(l).sealed;
+        for l in layers.layers().rev().filter(|l| shown(l) && !hidden(l)) {
             let Some(geo) = layers.layer_geometry(l) else { continue };
             for (popup, location) in PopupManager::popups_for_surface(l.wl_surface()) {
                 let offset = (geo.loc + location - popup.geometry().loc).to_physical_precise_round(scale);
                 elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset, scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
             }
         }
-        for l in on_layer() {
+        for l in layers.layers().rev().filter(|l| shown(l)) {
             let Some(geo) = layers.layer_geometry(l) else { continue };
+            if hidden(l) {
+                let geo = geo.to_physical_precise_round(scale);
+                elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
+                continue;
+            }
             elements.extend(
                 render_elements_from_surface_tree(renderer, l.wl_surface(), geo.loc.to_physical_precise_round(scale), scale, 1.0, Kind::Unspecified)
                     .into_iter()
@@ -147,14 +128,22 @@ where
             );
         }
     };
-    layer(renderer, &mut elements, true);
+    if let Some(w) = state.fullscreen_on(output) {
+        // #EDE-107: a sealed prompt holds the keyboard, so it is the one
+        // layer drawn above a fullscreen window.
+        draw(renderer, &mut elements, &|l| is_sealed_prompt(l));
+        window(renderer, &mut elements, &w);
+        return elements;
+    }
+    let upper = |l: &smithay::desktop::LayerSurface| matches!(l.layer(), Layer::Overlay | Layer::Top);
+    draw(renderer, &mut elements, &upper);
     for w in state.desk.space.elements().rev() {
         let Some(bbox) = state.desk.space.element_bbox(w) else { continue };
         if out.overlaps(bbox) {
             window(renderer, &mut elements, w);
         }
     }
-    layer(renderer, &mut elements, false);
+    draw(renderer, &mut elements, &|l| !upper(l));
     elements
 }
 
