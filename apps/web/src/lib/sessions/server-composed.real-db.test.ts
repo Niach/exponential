@@ -115,7 +115,7 @@ const bodies = async (sessionId: string) =>
     (m) => m.body ?? ``
   )
 const cardOf = async (messageId: string) =>
-  (await db.select({ card: messages.card }).from(messages).where(eq(messages.id, messageId)).limit(1))[0]!.card as {
+  (await db.select({ card: messages.card }).from(messages).where(eq(messages.id, messageId)).limit(1))[0]!.card as unknown as {
     items: Array<Record<string, unknown>>
   }
 const postCard = (sessionId: string, card: Record<string, unknown>) =>
