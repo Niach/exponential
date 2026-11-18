@@ -115,7 +115,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_129_130]; only the sessions shape refetches.
     // v131 (#EDE-97): sessions.clear_tree (a tree that stays in clear),
     //      explicit [MIGRATION_130_131]; only the sessions shape refetches.
-    version = 131,
+    // v132 (#EXP-1943): sessions.voice_call (a call session's call), explicit
+    //      [MIGRATION_131_132]; only the sessions shape refetches.
+    version = 132,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -520,8 +520,7 @@ fn session_card_framed(
         })
         .child(header)
         // #EXP-1943 (session-card.json `call`): a call card's summary = the
-        // muted second line under the name, aligned with it (the row's 12px
-        // padding + the 12px glyph + its 8px gap).
+        // muted second line under the name, aligned with its text.
         .when_some(card.caption().map(str::to_string), |this, caption| {
             this.child(
                 tool_text(div())
