@@ -812,7 +812,11 @@ fn beat(
         let mut doctor = coding::device_doctor::current(&snapshot.settings, &snapshot.data_dir, report);
         crate::device_readiness::add_voice_rows(&mut doctor, snapshot.voice);
         // #FEED-192: says so when the key holder is not running.
-        coding::device_doctor::add_key_holder(&mut doctor, !coding::sealing::key_holder_missing());
+        coding::device_doctor::add_key_holder(
+            &mut doctor,
+            !coding::sealing::key_holder_missing(),
+            coding::sealing::holder_off_reason().map(coding::sealing::HolderOff::detail),
+        );
         doctor
     });
     let doctor_write = device_doctor.as_ref().and_then(|doctor| {

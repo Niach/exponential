@@ -539,6 +539,22 @@ pub fn leftover(trpc: &TrpcClient, session_id: &str, branch: &str) -> Result<(),
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoKeyHolderInput<'a> {
+    session_id: &'a str,
+    reason: &'a str,
+}
+
+/// #EXP-1959: `sessions.noKeyHolder` — mutation: this device holds no key
+/// holder (eNet off for `reason`, a `sealing::HolderOff` code), so its
+/// agent's replies into the session's encrypted tree cannot be sealed. The
+/// server posts the conversation's ONE line (its own words, in clear).
+pub fn no_key_holder(trpc: &TrpcClient, session_id: &str, reason: &str) -> Result<(), ApiError> {
+    let _: serde::de::IgnoredAny = trpc.mutation("sessions.noKeyHolder", &NoKeyHolderInput { session_id, reason })?;
+    Ok(())
+}
+
 /// EXP-1458: [`reply`] as the engine posts it: the card as JSON (a SEALED
 /// card, `{...clear, sealed}`, is no [`ReplyCard`]), `body` possibly a body
 /// envelope, and the sealed reply's [`ReplyExtras`]. Returns the row id and

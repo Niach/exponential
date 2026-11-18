@@ -435,6 +435,69 @@ pub fn service() -> Option<Arc<dyn SealService>> {
 pub fn expect_service(expected: bool) {
     EXPECTED.store(expected, Ordering::SeqCst);
     *write(&EXPECTED_SINCE) = expected.then(Instant::now);
+    if expected {
+        *write(&OFF) = None;
+    }
+}
+
+/// #EXP-1959: why this process's eNet gave up, so no key holder comes:
+/// what the doctor names and what `sessions.noKeyHolder` says in a chat
+/// whose agent replies can no longer be sealed here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HolderOff {
+    /// The eNet identity file could not be read or written.
+    IdentityUnreadable,
+    /// `Node::start` failed.
+    NodeFailed,
+    /// `installs.register` refused this install for good (twice).
+    RegistrationRefused,
+    /// The server has no key API.
+    NoKeyApi,
+    /// eNet was stopped (sign-out).
+    Stopped,
+}
+
+impl HolderOff {
+    /// The wire code (`sessions.noKeyHolder {reason}`).
+    pub fn code(self) -> &'static str {
+        match self {
+            HolderOff::IdentityUnreadable => "identity_unreadable",
+            HolderOff::NodeFailed => "node_failed",
+            HolderOff::RegistrationRefused => "registration_refused",
+            HolderOff::NoKeyApi => "no_key_api",
+            HolderOff::Stopped => "stopped",
+        }
+    }
+
+    /// The doctor's words for it (`device-doctor.json` `keyHolderOff`).
+    pub fn detail(self) -> &'static str {
+        match self {
+            HolderOff::IdentityUnreadable => "its identity file is unreadable",
+            HolderOff::NodeFailed => "its node failed to start",
+            HolderOff::RegistrationRefused => "the server refused this install",
+            HolderOff::NoKeyApi => "the server has no key API",
+            HolderOff::Stopped => "signed out",
+        }
+    }
+}
+
+/// #EXP-1959: the reason of the last [`holder_off`], until one is coming again.
+static OFF: RwLock<Option<HolderOff>> = RwLock::new(None);
+
+/// #EXP-1959: eNet gave up for `reason`: no key holder comes in this
+/// process ([`expect_service`] `false`, plus why).
+pub fn holder_off(reason: HolderOff) {
+    expect_service(false);
+    *write(&OFF) = Some(reason);
+}
+
+/// #EXP-1959: why no key holder runs nor comes in this process, when eNet
+/// said so ([`holder_off`]); `None` while one runs or is coming.
+pub fn holder_off_reason() -> Option<HolderOff> {
+    if service().is_some() || EXPECTED.load(Ordering::SeqCst) {
+        return None;
+    }
+    *read(&OFF)
 }
 
 /// #FEED-192: this process has no key holder, and none is about to arrive

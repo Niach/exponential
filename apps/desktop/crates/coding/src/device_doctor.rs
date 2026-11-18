@@ -542,13 +542,17 @@ pub fn add_storage(
 }
 
 /// #FEED-192: the row of a key holder that is not running (a warning, no
-/// pill, never a blocker); a running holder adds none.
-pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool) {
+/// pill, never a blocker); a running holder adds none. #EXP-1959: `off` =
+/// why eNet gave up for good ([`crate::sealing::HolderOff::detail`]).
+pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool, off: Option<&str>) {
     if running {
         return;
     }
-    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
-        .detail("Key holder not running · restart while signed in and online".to_string());
+    let detail = match off {
+        Some(reason) => key_holder_off(reason),
+        None => "Key holder not running · restart while signed in and online".to_string(),
+    };
+    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action).detail(detail);
     row.label = Some("Encryption keys".to_string());
     doctor.items.push(row);
 }
@@ -635,10 +639,24 @@ pub fn key_holder_marker(data_dir: &Path) -> std::path::PathBuf {
     data_dir.join("cli-key-holder-missing")
 }
 
-/// Keeps [`key_holder_marker`] in step with the daemon's holder (best effort).
-pub fn record_key_holder(data_dir: &Path, missing: bool) {
+/// Keeps [`key_holder_marker`] in step with the daemon's holder (best
+/// effort); #EXP-1959: its content = why eNet gave up, when it did.
+pub fn record_key_holder(data_dir: &Path, missing: bool, off: Option<&str>) {
     let marker = key_holder_marker(data_dir);
-    let _ = if missing { std::fs::write(&marker, "") } else { std::fs::remove_file(&marker) };
+    let _ = if missing { std::fs::write(&marker, off.unwrap_or_default()) } else { std::fs::remove_file(&marker) };
+}
+
+/// What [`record_key_holder`] left: `None` = the holder runs, `Some(off)`
+/// = it does not, `off` = why eNet gave up (when it said).
+pub fn read_key_holder(data_dir: &Path) -> Option<Option<String>> {
+    let content = std::fs::read_to_string(key_holder_marker(data_dir)).ok()?;
+    let off = content.trim();
+    Some((!off.is_empty()).then(|| off.to_string()))
+}
+
+/// #EXP-1959: the fixture's `keyHolderOff` template.
+pub fn key_holder_off(reason: &str) -> String {
+    format!("P2P is off: {reason} · restart while signed in and online")
 }
 
 /// The fixture's `diskFree` template.
@@ -992,7 +1010,7 @@ mod tests {
             if index == 14 {
                 add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02");
             }
-            add_key_holder(&mut doctor, index != 12);
+            add_key_holder(&mut doctor, index != 12, None);
             assert_eq!(
                 low_disk(&doctor),
                 case["composerWarning"].as_str() == Some(KEY_DISK),
@@ -1074,14 +1092,20 @@ mod tests {
         }
         assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
-        add_key_holder(&mut doctor, true);
+        add_key_holder(&mut doctor, true, Some("ignored"));
         assert!(doctor.items.is_empty(), "a running holder adds no row");
-        add_key_holder(&mut doctor, false);
+        add_key_holder(&mut doctor, false, None);
         let row = &doctor.items[0];
         assert_eq!((row.key.as_str(), row.group, row.state), (KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action));
         assert_eq!(row.action, None);
         assert_eq!(row.label.as_deref(), copy["keyHolderLabel"].as_str());
         assert_eq!(row.detail.as_deref(), copy["keyHolderNotRunning"].as_str());
+        // #EXP-1959: eNet off for good names why.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        let off = crate::sealing::HolderOff::NodeFailed.detail();
+        add_key_holder(&mut doctor, false, Some(off));
+        assert_eq!(doctor.items[0].detail, Some(copy["keyHolderOff"].as_str().unwrap().replace("{reason}", off)));
+        assert_eq!(doctor.items[0].label.as_deref(), copy["keyHolderLabel"].as_str());
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_store_conflicts(&mut doctor, 0);
         assert!(doctor.items.is_empty(), "no parked copy, no row");
