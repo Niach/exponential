@@ -109,6 +109,18 @@ class VoiceCallTest {
             obj("icons").strings(),
             mapOf("call" to i.CALL, "mute" to i.MUTE, "unmute" to i.UNMUTE, "speaker" to i.SPEAKER, "speakerOff" to i.SPEAKER_OFF, "end" to i.END, "minimize" to i.MINIMIZE),
         )
+        // FEED-272: the tabs.
+        val tabs = obj("tabs")
+        assertEquals(tabs.getValue("order").jsonArray.map { it.jsonPrimitive.content }, VoiceCall.Tabs.ORDER.map { it.wire })
+        assertEquals(tabs.getValue("initial").jsonPrimitive.content, VoiceCall.Tabs.INITIAL.wire)
+        assertEquals(
+            tabs.getValue("copy").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            VoiceCall.Tab.entries.associate { it.wire to VoiceCall.Tabs.label(it) },
+        )
+        assertEquals(
+            tabs.getValue("testIds").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            mapOf("tabs" to VoiceCall.Tabs.TABS_ID) + VoiceCall.Tab.entries.associate { it.wire to VoiceCall.Tabs.testId(it) },
+        )
         val pill = obj("pill")
         assertEquals(
             pill.keys.associateWith { pill.getValue(it).jsonPrimitive.int },

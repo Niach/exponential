@@ -146,6 +146,56 @@ pub struct CallPill {
     pub phone_bottom_px: f32,
 }
 
+/// FEED-272: one tab of the call surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallTab {
+    /// The agent's main chat with the call docked as the pill's row.
+    Chat,
+    /// The call surface as before.
+    Voice,
+}
+
+/// FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallTabs {
+    pub order: Vec<CallTab>,
+    /// The tab a call opens on.
+    pub initial: CallTab,
+    pub copy: CallTabsText,
+    pub test_ids: CallTabsTestIds,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CallTabsText {
+    pub chat: String,
+    pub voice: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CallTabsTestIds {
+    pub tabs: String,
+    pub chat: String,
+    pub voice: String,
+}
+
+impl CallTabs {
+    pub fn label(&self, tab: CallTab) -> &str {
+        match tab {
+            CallTab::Chat => &self.copy.chat,
+            CallTab::Voice => &self.copy.voice,
+        }
+    }
+
+    pub fn test_id(&self, tab: CallTab) -> &str {
+        match tab {
+            CallTab::Chat => &self.test_ids.chat,
+            CallTab::Voice => &self.test_ids.voice,
+        }
+    }
+}
+
 /// One styleguide row of the call surface (`surfaceSpecimens`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct SurfaceSpecimen {
@@ -186,6 +236,8 @@ pub struct VoiceCallSpec {
     pub wire: CallWire,
     pub hang_up_rules: HangUpRules,
     pub pill: CallPill,
+    /// FEED-272: the Chat / Voice tabs on top of the call surface.
+    pub tabs: CallTabs,
     pub host_voice: HostVoice,
     pub call_session: CallSessionSpec,
 }
@@ -790,6 +842,17 @@ mod tests {
             "phone" => CallPlatform::Phone,
             _ => CallPlatform::Web,
         }
+    }
+
+    /// FEED-272: the tabs read Chat | Voice and a call opens on Voice.
+    #[test]
+    fn the_call_tabs_open_on_voice() {
+        let tabs = &VOICE_CALL.tabs;
+        assert_eq!(tabs.order, vec![CallTab::Chat, CallTab::Voice]);
+        assert_eq!(tabs.initial, CallTab::Voice);
+        assert_eq!((tabs.label(CallTab::Chat), tabs.label(CallTab::Voice)), ("Chat", "Voice"));
+        assert_eq!(tabs.test_ids.tabs, "voice-call-tabs");
+        assert_eq!(tabs.test_id(CallTab::Chat), "voice-call-tab-chat");
     }
 
     #[test]

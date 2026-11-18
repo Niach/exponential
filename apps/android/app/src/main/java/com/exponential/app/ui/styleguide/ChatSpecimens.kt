@@ -715,7 +715,15 @@ private fun CheckInSpecimen(modifier: Modifier = Modifier) {
 @Composable
 fun ChatTranscriptSpecimenScreen() {
     AppBackground {
-        Column(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
+        ChatTranscriptSpecimenBody(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId))
+    }
+}
+
+/** The transcript alone (FEED-272: the call's Chat tab specimen draws it too). */
+@Composable
+fun ChatTranscriptSpecimenBody(modifier: Modifier = Modifier) {
+    run {
+        Column(modifier) {
             // #EXP-1873: an agent chat's quiet check-ins, one line per run
             // (web's CheckInSpecimen); above the transcript so the shot shows it.
             CheckInSpecimen(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))

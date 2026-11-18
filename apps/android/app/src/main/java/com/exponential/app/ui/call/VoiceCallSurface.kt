@@ -148,6 +148,8 @@ fun VoiceCallScreen(
     still: Boolean = false,
     /** EXP-1681: the top start chevron (null = none). */
     onMinimize: (() -> Unit)? = null,
+    /** FEED-272: the Chat | Voice tabs on top (null = none); this screen is Voice. */
+    onTab: ((VoiceCall.Tab) -> Unit)? = null,
 ) {
   Box(modifier.testTag(VoiceCall.TestIds.SURFACE)) {
     Column(
@@ -203,6 +205,15 @@ fun VoiceCallScreen(
         )
         Spacer(Modifier.weight(1f))
         CallControls(view = view, onMute = onMute, onSpeaker = onSpeaker, onEnd = onEnd)
+    }
+    if (onTab != null) {
+        CallTabs(
+            active = VoiceCall.Tab.Voice,
+            onSelect = onTab,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(start = if (onMinimize != null) 60.dp else 12.dp, end = 12.dp, top = 4.dp),
+        )
     }
     if (onMinimize != null) {
         CircleIconButton(
@@ -403,7 +414,11 @@ class VoiceCallHostViewModel @Inject constructor(val controller: VoiceCallContro
  * failure's toast when it ends.
  */
 @Composable
-fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
+fun VoiceCallHost(
+    /** FEED-272: open the agent's chat (the Chat tab while none shows). */
+    onOpenChat: (agentId: String) -> Unit = {},
+    viewModel: VoiceCallHostViewModel = hiltViewModel(),
+) {
     val controller = viewModel.controller
     val ui by controller.ui.collectAsStateWithLifecycle()
     val level by controller.level.collectAsStateWithLifecycle()
@@ -427,6 +442,16 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
             onEnd = controller::end,
             onExpand = controller::expand,
         )
+        return
+    }
+    // FEED-272: the Chat tab is the agent's chat itself (it draws the tabs
+    // and the docked row in place of its header); none on screen = open it.
+    if (ui.tab == VoiceCall.Tab.Chat) {
+        val shown by controller.chatsShown.collectAsStateWithLifecycle()
+        val agentId = ui.agentId
+        LaunchedEffect(agentId, agentId != null && shown.containsKey(agentId)) {
+            if (agentId != null && !shown.containsKey(agentId)) onOpenChat(agentId)
+        }
         return
     }
     Dialog(
@@ -467,6 +492,7 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
                 onEnd = controller::end,
                 modifier = Modifier.fillMaxSize().systemBarsPadding(),
                 onMinimize = controller::minimize,
+                onTab = controller::showTab,
             )
         }
     }
@@ -628,5 +654,6 @@ fun VoiceCallSpecimen(specimen: VoiceCall.SurfaceSpecimen, modifier: Modifier = 
         modifier = modifier,
         still = true,
         onMinimize = {},
+        onTab = {},
     )
 }

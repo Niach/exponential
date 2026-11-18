@@ -503,8 +503,11 @@ fun AgentConversationScreen(
             topBar = {
                 // Session 58cb32df: THE chat header (back · the agent's disc ·
                 // its name over its trigger); the telephone (NEW-69) and THE
-                // `…` with the agent's settings (#FEED-239).
-                ChatHeader(
+                // `…` with the agent's settings (#FEED-239). FEED-272: the
+                // call's Chat tab replaces it.
+                if (com.exponential.app.ui.call.rememberCallDocked(viewModel.agentId)) {
+                    com.exponential.app.ui.call.CallChatBar()
+                } else ChatHeader(
                     title = if (row == null) "" else name,
                     subtitle = if (row == null) null else SessionScreen.subtitle(SessionScreen.status(emptyList()), null, trigger),
                     lead = {
