@@ -60,7 +60,7 @@ impl Headless {
             PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (headless)".into(), serial_number: "Unknown".into() },
         );
         let mode = Mode { size: size.into(), refresh: 60_000 };
-        let global = output.create_global::<Ede>(&state.display_handle);
+        let global = state.person_output_global(&output);
         output.change_current_state(Some(mode), Some(Transform::Normal), None, None);
         output.set_preferred(mode);
         // Like a VM's virtual GPU, a few more sizes to switch to (#EDE-65:
@@ -129,6 +129,9 @@ impl FrameClock {
 }
 
 type Command = Box<dyn FnOnce(&mut Ede, &mut Headless) + Send>;
+
+/// A desk no compositor ever has: what [`Harness::connect_foreign`] is on.
+pub const FOREIGN_DESK: crate::desk::DeskId = crate::desk::DeskId::numbered(u32::MAX);
 
 /// A headless compositor on its own thread. Tests talk Wayland to it over
 /// [`Harness::connect`] and inspect it through [`Harness::with`].
@@ -208,6 +211,17 @@ impl Harness {
         let (ours, theirs) = UnixStream::pair().expect("socketpair");
         self.with(move |state| {
             state.display_handle.insert_client(theirs, Arc::new(ClientState::default())).expect("insert client");
+        });
+        ours
+    }
+
+    /// A new in-process client connection that belongs to [`FOREIGN_DESK`],
+    /// not to the person: it sees none of the person's globals (#EDE-125).
+    pub fn connect_foreign(&self) -> UnixStream {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        self.with(move |state| {
+            let client = ClientState { desk: FOREIGN_DESK, ..Default::default() };
+            state.display_handle.insert_client(theirs, Arc::new(client)).expect("insert client");
         });
         ours
     }
