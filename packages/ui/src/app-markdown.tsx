@@ -85,6 +85,8 @@ function usePaintHighlights(ref: { current: Element | null }, highlight: unknown
   }, [key, markdown, text])
 }
 
+const INLINE_SURFACE = { display: `inline`, font: `inherit`, color: `inherit`, lineHeight: `inherit` } as const
+
 /** #EDE-129: a plain line of text with genUI's search marks (a transcript
  *  tool line's title); `highlight` absent = the bare text. */
 export function AppHighlightText({ text, highlight, className }: { text: string; highlight?: unknown; className?: string }) {
@@ -92,7 +94,14 @@ export function AppHighlightText({ text, highlight, className }: { text: string;
   const ref = useRef<HTMLSpanElement>(null)
   usePaintHighlights(ref, highlight, false, text)
   return (
-    <span ref={ref} className={cn(highlight ? `exp-find-text ${THEME.scope}` : undefined, className)}>
+    <span
+      ref={ref}
+      className={cn(highlight ? `xui-surface ${THEME.scope} exp-find-text` : undefined, className)}
+      // The theme's match fills live on its surface; the line keeps its own type.
+      style={highlight ? INLINE_SURFACE : undefined}
+      data-xui-mode={highlight ? `dark` : undefined}
+      data-xui-theme={highlight ? RESOLVED.id : undefined}
+    >
       {text}
     </span>
   )
