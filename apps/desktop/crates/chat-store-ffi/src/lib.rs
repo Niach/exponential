@@ -35,28 +35,28 @@ const DAY_MS: i64 = 86_400_000;
 #[derive(Debug, uniffi::Error)]
 pub enum ChatStoreError {
     /// The store failed (the file, SQLite).
-    Store { message: String },
+    Store { reason: String },
     /// A JSON argument did not parse.
-    Json { message: String },
+    Json { reason: String },
 }
 
 impl std::fmt::Display for ChatStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChatStoreError::Store { message } => write!(f, "chat store: {message}"),
-            ChatStoreError::Json { message } => write!(f, "chat store json: {message}"),
+            ChatStoreError::Store { reason } => write!(f, "chat store: {reason}"),
+            ChatStoreError::Json { reason } => write!(f, "chat store json: {reason}"),
         }
     }
 }
 
 impl From<chat_store::sqlite::Error> for ChatStoreError {
     fn from(err: chat_store::sqlite::Error) -> Self {
-        ChatStoreError::Store { message: err.to_string() }
+        ChatStoreError::Store { reason: err.to_string() }
     }
 }
 
 fn parse<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, ChatStoreError> {
-    serde_json::from_str(json).map_err(|err| ChatStoreError::Json { message: err.to_string() })
+    serde_json::from_str(json).map_err(|err| ChatStoreError::Json { reason: err.to_string() })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -88,7 +88,7 @@ pub fn is_catch_up_page(frame_json: String) -> bool {
 pub fn delete_account_store(data_dir: String, account_id: String) -> Result<u32, ChatStoreError> {
     chat_store::sqlite::delete_account_store(Path::new(&data_dir), &account_id)
         .map(|gone| gone.len() as u32)
-        .map_err(|(_, err)| ChatStoreError::Store { message: err.to_string() })
+        .map_err(|(_, err)| ChatStoreError::Store { reason: err.to_string() })
 }
 
 /// The holder's access verdict for a page (the join's rule, the app's rows).
@@ -111,7 +111,7 @@ impl ChatStore {
     #[uniffi::constructor]
     pub fn open(data_dir: String, account_id: String) -> Result<Arc<ChatStore>, ChatStoreError> {
         if !chat_store::leave::safe_account(&account_id) {
-            return Err(ChatStoreError::Store { message: format!("not an account id: {account_id}") });
+            return Err(ChatStoreError::Store { reason: format!("not an account id: {account_id}") });
         }
         Ok(Arc::new(ChatStore { store: SqliteStore::open(&store_path(&data_dir, &account_id))? }))
     }

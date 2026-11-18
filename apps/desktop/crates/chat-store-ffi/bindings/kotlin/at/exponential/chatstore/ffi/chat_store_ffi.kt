@@ -2612,10 +2612,10 @@ sealed class ChatStoreException: kotlin.Exception() {
      */
     class Store(
         
-        val `message`: kotlin.String
+        val `reason`: kotlin.String
         ) : ChatStoreException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "reason=${ `reason` }"
     }
     
     /**
@@ -2623,10 +2623,10 @@ sealed class ChatStoreException: kotlin.Exception() {
      */
     class Json(
         
-        val `message`: kotlin.String
+        val `reason`: kotlin.String
         ) : ChatStoreException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "reason=${ `reason` }"
     }
     
 
@@ -2663,12 +2663,12 @@ public object FfiConverterTypeChatStoreError : FfiConverterRustBuffer<ChatStoreE
             is ChatStoreException.Store -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.`message`)
+                + FfiConverterString.allocationSize(value.`reason`)
             )
             is ChatStoreException.Json -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.`message`)
+                + FfiConverterString.allocationSize(value.`reason`)
             )
         }
     }
@@ -2677,12 +2677,12 @@ public object FfiConverterTypeChatStoreError : FfiConverterRustBuffer<ChatStoreE
         when(value) {
             is ChatStoreException.Store -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
             is ChatStoreException.Json -> {
                 buf.putInt(2)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

@@ -61,36 +61,6 @@ val cargoNdk: File? = (System.getenv("PATH").orEmpty().split(File.pathSeparator)
 val engineFfiCrate = File(repoRoot, "apps/desktop/crates/eengine-ffi")
 /** #EDE-114: the chat store's facade (S3); its host build loads in the JVM tests (`cargo build -p chat-store-ffi --release`). */
 val chatStoreFfiCrate = File(repoRoot, "apps/desktop/crates/chat-store-ffi")
-// #EDE-114: the committed Kotlin binding names its error fields `message`,
-// which Kotlin's Throwable already declares (the binding does not compile as
-// is; eNet's and the Engine's errors say `reason`). Until chat-store-ffi
-// renames them, the app compiles a copy with the field renamed `reason`; the
-// wire (field order) is unchanged. A binding without them is copied as is.
-abstract class PatchChatStoreBinding : DefaultTask() {
-    @get:InputDirectory abstract val binding: DirectoryProperty
-    @get:OutputDirectory abstract val output: DirectoryProperty
-
-    @TaskAction
-    fun patch() {
-        val from = binding.get().asFile
-        val into = output.get().asFile
-        into.deleteRecursively()
-        from.walkTopDown().filter { it.isFile }.forEach { file ->
-            val target = File(into, file.relativeTo(from).path)
-            target.parentFile.mkdirs()
-            target.writeText(file.readText().replace("`message`", "`reason`"))
-        }
-    }
-}
-val patchChatStoreBinding = tasks.register<PatchChatStoreBinding>("patchChatStoreBinding") {
-    binding.set(File(chatStoreFfiCrate, "bindings/kotlin"))
-    output.set(layout.buildDirectory.dir("generated/chatStoreFfi"))
-}
-androidComponents {
-    onVariants { variant ->
-        variant.sources.kotlin?.addGeneratedSourceDirectory(patchChatStoreBinding, PatchChatStoreBinding::output)
-    }
-}
 
 // #PERF-11: the app's ONE native library. eNet (above), the Engine (#VAPP-272:
 // the apps' record outbox, `SyncedRecordStore`) and genUI's painter core ship
@@ -178,6 +148,7 @@ android {
         getByName("main") {
             kotlin.srcDir(File(enetFfiCrate, "bindings/kotlin"))
             kotlin.srcDir(File(engineFfiCrate, "bindings/kotlin"))
+            kotlin.srcDir(File(chatStoreFfiCrate, "bindings/kotlin"))
             jniLibs.srcDir(File(mobileFfiCrate, "out/jniLibs"))
         }
     }

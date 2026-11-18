@@ -1650,12 +1650,12 @@ enum ChatStoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
     /**
      * The store failed (the file, SQLite).
      */
-    case Store(message: String
+    case Store(reason: String
     )
     /**
      * A JSON argument did not parse.
      */
-    case Json(message: String
+    case Json(reason: String
     )
 
     
@@ -1687,10 +1687,10 @@ public struct FfiConverterTypeChatStoreError: FfiConverterRustBuffer {
 
         
         case 1: return .Store(
-            message: try FfiConverterString.read(from: &buf)
+            reason: try FfiConverterString.read(from: &buf)
             )
         case 2: return .Json(
-            message: try FfiConverterString.read(from: &buf)
+            reason: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1704,14 +1704,14 @@ public struct FfiConverterTypeChatStoreError: FfiConverterRustBuffer {
 
         
         
-        case let .Store(message):
+        case let .Store(reason):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         
-        case let .Json(message):
+        case let .Json(reason):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }
