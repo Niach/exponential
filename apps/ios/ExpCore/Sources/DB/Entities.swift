@@ -477,6 +477,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// MCP client started this tree, it stays in clear for life (writers
     /// send plaintext into it, nobody keys it).
     public let clearTree: Bool
+    /// #EXP-1943: a call session's call (`sessions.voice_call` jsonb, stored
+    /// as its JSON text; `TreeVoiceCall.parse` reads it). nil = not a call.
+    public let voiceCall: String?
 
     public init(
         id: String,
@@ -519,9 +522,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         scopeTeamIds: [String]? = nil,
         digest: String? = nil,
         watching: String? = nil,
-        clearTree: Bool = false
+        clearTree: Bool = false,
+        voiceCall: String? = nil
     ) {
         self.clearTree = clearTree
+        self.voiceCall = voiceCall
         self.scopeTeamIds = scopeTeamIds
         self.digest = digest
         self.watching = watching
@@ -600,6 +605,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case viaAppId = "via_app_id"
         case scopeTeamIds = "scope_team_ids"
         case clearTree = "clear_tree"
+        case voiceCall = "voice_call"
     }
 }
 
@@ -668,6 +674,9 @@ extension SessionEntity: Codable {
         watching = c.decodeWireJsonString(forKey: .watching)
         // #EDE-97: absent on a pre-v111 row / an older server = sealed.
         clearTree = c.decodeWireBool(forKey: .clearTree, default: false)
+        // #EXP-1943: the jsonb as JSON text; absent on a pre-v112 row / an
+        // older server = not a call.
+        voiceCall = c.decodeWireJsonString(forKey: .voiceCall)
     }
 }
 

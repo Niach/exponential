@@ -9,7 +9,7 @@ import GRDB
 
 extension TreeSession {
     /// A synced `sessions` row, its jsonb columns (`blocked`, `guide`,
-    /// `watching`) parsed tolerantly.
+    /// `watching`, `voice_call`) parsed tolerantly.
     init(sessionRow row: SessionEntity) {
         self.init(
             id: row.id,
@@ -34,7 +34,9 @@ extension TreeSession {
             background: row.background,
             startedByAgentId: row.startedByAgentId,
             // #NEW-49: what it waits on, parsed tolerantly.
-            watching: SessionWatching.parseList(row.watching)
+            watching: SessionWatching.parseList(row.watching),
+            // #EXP-1943: a call session's call, parsed tolerantly.
+            voiceCall: TreeVoiceCall.parse(row.voiceCall)
         )
     }
 }

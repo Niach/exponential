@@ -3437,6 +3437,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v112 (#EXP-1943): `sessions.voice_call` (jsonb, JSON text here like
+        // `sessions.watching`): a call session's call. The sessions cursor
+        // resets only when the column was added, so synced rows re-arrive
+        // carrying it.
+        migrator.registerMigration("v112_session_voice_call") { db in
+            guard try db.tableExists("sessions") else { return }
+            guard try db.columns(in: "sessions").contains(where: { $0.name == "voice_call" }) == false else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "voice_call", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 
