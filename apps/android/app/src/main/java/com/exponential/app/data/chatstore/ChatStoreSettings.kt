@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object KeepToolSteps {
     const val LABEL = "Keep tool steps"
-    const val TEST_ID = "keep-tool-steps"
+    const val TEST_ID = "settings-keep-tool-steps"
 
     /** chat-store.json `constants.retentionDays.phone` (= the facade's `phoneRetentionDays()`). */
     const val DEFAULT_DAYS = 30

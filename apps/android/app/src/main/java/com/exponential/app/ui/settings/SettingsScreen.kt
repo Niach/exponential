@@ -253,12 +253,17 @@ fun SettingsScreen(
 @Composable
 private fun KeepToolStepsRow(viewModel: SettingsViewModel) {
     val days by viewModel.keepToolStepsDays.collectAsStateWithLifecycle()
+    KeepToolStepsRow(days, viewModel::setKeepToolSteps)
+}
+
+@Composable
+internal fun KeepToolStepsRow(days: Int?, onPick: (Int?) -> Unit) {
     val selected = KeepToolSteps.option(days)
     Picker(
         items = KeepToolSteps.OPTIONS.map { PickerItem(value = it.id, label = it.label) },
         mode = PickerMode.Single,
         value = setOf(selected.id),
-        onChange = { picked -> picked.firstOrNull()?.let(KeepToolSteps::fromId)?.let { viewModel.setKeepToolSteps(it.days) } },
+        onChange = { picked -> picked.firstOrNull()?.let(KeepToolSteps::fromId)?.let { onPick(it.days) } },
         title = KeepToolSteps.LABEL,
     ) { open ->
         PickerValueRow(
