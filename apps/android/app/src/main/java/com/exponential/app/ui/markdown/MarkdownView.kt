@@ -102,6 +102,9 @@ fun MarkdownView(
     onLayout: ((MarkdownLaidOut) -> Unit)? = null,
     /** #EXP-1881: as wide as the text needs (inside a message bubble, [LocalMarkdownHug]). */
     hug: Boolean = LocalMarkdownHug.current,
+    /** #EDE-130 (text-highlight.json): genUI's `highlight` (find in chat's
+     *  marks; its `current` = this view's local current match); null = none. */
+    highlight: at.exponential.ui.primitives.MarkdownHighlight? = null,
 ) {
     if (markdown.isBlank()) return
     val issueRefs = LocalIssueRefs.current
@@ -177,6 +180,7 @@ fun MarkdownView(
         options = MarkdownOptions(hardBreaks = softBreaksAsNewlines, chat = chat, selectable = true, streaming = streaming, imageMaxHeight = imageMaxHeight),
         onLayout = onLayout,
         hug = hug,
+        highlight = highlight,
     )
 }
 
