@@ -62,10 +62,11 @@ import kotlinx.serialization.json.put
  * ([VoiceCallAudio]). A failure ends the call with the state's toast; a
  * refused `startCall` ends it with the server's message.
  *
- * [VoiceCallService] holds the microphone foreground service from
- * `call_ready` on, so a call keeps running with the screen locked or another
- * app in front (a service Android refuses fails the call `dropped`);
- * everything is released on every end. Signing out or
+ * [VoiceCallService] holds the microphone foreground service from the tap
+ * on (#EXP-1942: the app is in front then, so Android allows it), so a call
+ * keeps running, and answers, with the screen locked or another app in
+ * front (a service Android refuses fails the call `dropped`); everything is
+ * released on every end. Signing out or
  * switching accounts ends the call.
  */
 @Singleton
@@ -185,8 +186,19 @@ class VoiceCallController @Inject constructor(
         run.audio = audio
         audio.speaker = _ui.value.state.speaker
         if (!audio.prepare()) return fail(run, "dropped")
-        audio.ring()
-        run.job = scope.launch { connect(run) }
+        // #EXP-1942: the microphone service is held from the tap, the one
+        // moment the app is surely in front, so the host may answer while
+        // another app is. A start Android refuses fails the call (#EXP-1940).
+        val begun = beginCall(
+            hold = {
+                VoiceCallService.start(context, VoiceCall.Copy.call(agentName)) {
+                    scope.launch { if (current === run) fail(run, "dropped") }
+                }
+            },
+            ring = audio::ring,
+            dial = { run.job = scope.launch { connect(run) } },
+        )
+        if (!begun) return fail(run, "dropped")
         scope.launch { pumpLevel(run) }
         run.ringJob = scope.launch { ringTimeout(run) }
     }
@@ -306,18 +318,9 @@ class VoiceCallController @Inject constructor(
             "call_ready" -> {
                 // S-3: the pair is up; the flow keeps ringing until the
                 // host's `rang` + `ready` answer it. The microphone opens
-                // now (the host's mic check reads its level during the ring).
-                // The microphone service starts with the microphone (never
-                // for a call refused before it rang). Android refuses it
-                // when the app is not in front: the phone could not capture,
-                // so the call fails instead of running silent (#EXP-1940).
-                val started = VoiceCallService.start(context, VoiceCall.Copy.call(_ui.value.agent)) {
-                    scope.launch { if (current === run) fail(run, "dropped") }
-                }
-                if (!started) {
-                    fail(run, "dropped")
-                    return false
-                }
+                // now (the host's mic check reads its level during the ring),
+                // under the microphone service held since the tap
+                // (#EXP-1942), whichever app is in front.
                 startAudio(run)
             }
             "call_event" -> {
@@ -457,8 +460,13 @@ internal suspend fun <S : Any> dialCall(dial: suspend () -> S, wanted: () -> Boo
         }
     }
 
-/** #EXP-1942: a call's start, in order. */
+/**
+ * #EXP-1942: a call's start, in order: the microphone service is held
+ * BEFORE the call rings and dials; false = Android refused it, nothing rang
+ * and nothing was dialled (the caller fails the call `dropped`).
+ */
 internal fun beginCall(hold: () -> Boolean, ring: () -> Unit, dial: () -> Unit): Boolean {
+    if (!hold()) return false
     ring()
     dial()
     return true
