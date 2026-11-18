@@ -314,6 +314,22 @@ const rustComposerUi = composerUiStrings
   .map(([k, v]) => `pub const COMPOSER_UI_${screaming(k)}: &str = "${v}";`)
   .join("\n")
 
+// #EXP-1944 (fixtures/image-actions.json): Copy image's wording ×4, the menu
+// items, the toasts and the blocked-picture link label (`{host}`).
+const imageActions = JSON.parse(
+  readFileSync(join(__dirname, "..", "fixtures", "image-actions.json"), "utf8")
+) as { copy: Record<string, string> }
+const imageActionsStrings: [string, string][] = Object.entries(imageActions.copy)
+const swiftImageActions = imageActionsStrings
+  .map(([k, v]) => `    public static let imageActions${capFirst(k)}: String = ${JSON.stringify(v)}`)
+  .join("\n")
+const kotlinImageActions = imageActionsStrings
+  .map(([k, v]) => `    const val imageActions${capFirst(k)}: String = ${JSON.stringify(v)}`)
+  .join("\n")
+const rustImageActions = imageActionsStrings
+  .map(([k, v]) => `pub const IMAGE_ACTIONS_${screaming(k)}: &str = ${JSON.stringify(v)};`)
+  .join("\n")
+
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
 // local fallback status set without struct emission. Same order everywhere.
@@ -642,6 +658,7 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
 ${swiftDiffUi}
 ${swiftComposerUi}
+${swiftImageActions}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -821,6 +838,7 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
 ${kotlinDiffUi}
 ${kotlinComposerUi}
+${kotlinImageActions}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -1007,6 +1025,7 @@ pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLin
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
 ${rustDiffUi}
 ${rustComposerUi}
+${rustImageActions}
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}
