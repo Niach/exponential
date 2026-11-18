@@ -44,6 +44,15 @@ fun sendWire(tree: SendTree, holder: SendHolder, reader: Boolean = false, keyArr
     else -> SendWire.Failed
 }
 
+/**
+ * The writer's refusal BEFORE it keys anything (#EXP-1955): only a missing key
+ * holder (or install) fails up front. A keyless tree's [reader] / [keyArrives]
+ * are only known after `sessionKeys.create` / the key wait, so that decision is
+ * [sendWire]'s, made in the create branch, never here.
+ */
+fun refusesUpFront(tree: SendTree, holder: SendHolder, hasInstall: Boolean): Boolean =
+    tree != SendTree.Clear && (holder == SendHolder.None || !hasInstall)
+
 /** [probe] until it answers non-null, every [pollMs], for at most [timeoutMs]; null = it never did. */
 internal suspend fun <T : Any> awaitWithin(timeoutMs: Long, pollMs: Long, probe: suspend () -> T?): T? =
     withTimeoutOrNull(timeoutMs) {
