@@ -151,7 +151,7 @@ extension EnvironmentValues {
 /// (the catalog `highlight` prop, text-highlight.json): the matches' UTF-16
 /// ranges in the title, the current one's index (-1 = none) and the
 /// theme's `match` / `matchCurrent` fills. Paint only.
-public struct TraceTitleMarks: Equatable {
+public struct TraceTitleMarks: Equatable, Sendable {
     public var ranges: [NSRange]
     public var current: Int
     public var match: Color

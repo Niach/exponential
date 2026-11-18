@@ -1752,8 +1752,6 @@ struct AgentSessionView: View {
         return callId
     }
 
-    /// The feed item ids a transcript row draws (web `rowItemIds`): where a
-    /// tool-posted card anchors.
     /// #EDE-130: the transcript entry drawing find key `key` (nil = not in
     /// the painted window yet).
     private func findEntryId(_ key: String, model: AgentSessionModel) -> Int? {
@@ -1761,6 +1759,8 @@ struct AgentSessionView: View {
         return model.transcript.first { Self.rowItemIds($0.row).contains(id) }?.id
     }
 
+    /// The feed item ids a transcript row draws (web `rowItemIds`): where a
+    /// tool-posted card anchors.
     private static func rowItemIds(_ row: AgentFeedRow) -> [Int] {
         switch row {
         case let .single(item): [item.id]

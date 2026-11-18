@@ -186,7 +186,7 @@ struct FindInChatHeader: View {
 /// What the transcript's rows paint: the query, the current stop's row and
 /// local index, the tool rows whose output matches, the groups find opened
 /// and the ringed row (feed item ids).
-struct FindPaint: Equatable {
+struct FindPaint: Equatable, Sendable {
     var query: String
     var currentItem: Int?
     var currentLocal = 0
@@ -204,7 +204,7 @@ struct FindPaint: Equatable {
 }
 
 /// genUI's `highlight` prop (text-highlight.json) as the host hands it down.
-struct FindMark: Equatable {
+struct FindMark: Equatable, Sendable {
     let query: String
     let current: Int?
 }

@@ -96,7 +96,7 @@ final class TranscriptFind {
             searches.append(Task { [weak self, weak model] in
                 let result = await model?.search(query: next, beforeSeq: before)
                 guard let self, !Task.isCancelled, self.older.query == next else { return }
-                self.older.device = FindInChat.deviceHits((result?.hits ?? []).map { ($0.seq, $0.kind) }, sessionId: sessionId)
+                self.older.device = FindInChat.deviceHits((result?.hits ?? []).map { (seq: $0.seq, kind: $0.kind) }, sessionId: sessionId)
                 self.older.devicePhase = .done
                 self.restop()
             })
