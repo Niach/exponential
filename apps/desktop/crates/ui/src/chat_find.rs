@@ -145,6 +145,18 @@ impl SteerSessionView {
 
     /// Takes a `…` press meant for this view.
     pub(crate) fn take_find_request(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // DEV ONLY (`EXP_DEV_FIND=<query>`, the pictures): open the bar on
+        // the query once the rows are in.
+        if self.find.is_none() && (!self.rows.is_empty() || !self.synced_tail.is_empty()) {
+            if let Some(query) = crate::screens::take_dev_find() {
+                self.open_find(window, cx);
+                if let Some(open) = &self.find {
+                    let input = open.input.clone();
+                    input.update(cx, |state, cx| state.set_value(query.clone(), window, cx));
+                }
+                self.set_find_query(find::query(&query), cx);
+            }
+        }
         let wanted = cx.try_global::<FindRequest>().and_then(|request| request.0.clone());
         let Some(target) = wanted else { return };
         if target.as_deref().is_some_and(|id| id != self.session_id) {
@@ -249,6 +261,11 @@ impl SteerSessionView {
                 }
                 _ => {}
             }
+        }
+        // #FEED-260: the synced tail's bubbles (a not-live feed), after it.
+        for (offset, row) in self.synced_tail.iter().enumerate() {
+            let count = eui_gpui::paint::highlight::markdown_highlight_count(&row.text, query);
+            out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: self.rows.len() + offset, run: None });
         }
         out
     }
