@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-copy-image-ios",
+    date: "2026-11-18",
+    title: "Copy image on iOS",
+    summary: "Long-press a picture on iOS to copy it or share it. A picture from another website shows as a link and is never loaded.",
+    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file. The share sheet also saves it to Photos.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_321: ChangelogEntry = ChangelogEntry {
     id: "2026-11-18-copy-image-on-the-web",
     date: "2026-11-18",
     title: "Copy image on the web",

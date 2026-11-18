@@ -53,21 +53,18 @@ struct SessionResultPictureTile: View {
     var body: some View {
         let width = sessionResultTileWidth(entry, height: height)
         VStack(alignment: .leading, spacing: 4) {
-            Button {
+            SessionResultTile(
+                entry: entry,
+                width: width,
+                height: height,
+                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                accountId: accountId,
+                httpClient: deps.httpClient
+            ) {
                 viewer = PictureViewerSet(items: [
                     PictureViewerItem(id: entry.attachmentId, src: entry.url, label: entry.label),
                 ])
-            } label: {
-                SessionResultTile(
-                    entry: entry,
-                    width: width,
-                    height: height,
-                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                    accountId: accountId,
-                    httpClient: deps.httpClient
-                )
             }
-            .buttonStyle(.plain)
             Text(caption)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -97,11 +94,17 @@ private struct SessionResultTile: View {
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
+    /// A tap opens THE picture viewer.
+    let onOpen: () -> Void
 
     @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
 
     private var isTall: Bool { sessionResultIsTall(entry) }
+
+    private var loader: AttachmentImageLoader {
+        AttachmentImageLoader(baseURL: baseURL, accountId: accountId, httpClient: httpClient, pendingImages: [:])
+    }
 
     var body: some View {
         ZStack {
@@ -145,13 +148,12 @@ private struct SessionResultTile: View {
             RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
                 .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
+        // #EXP-1949: THE image menu once the picture rendered; the tap opens.
+        .imageActionsMenu(enabled: image != nil, name: entry.label, onTap: onOpen) {
+            try await loader.data(ImageActions.originalSrc(entry.url))
+        }
         .task(id: entry.attachmentId) {
-            let loader = AttachmentImageLoader(
-                baseURL: baseURL,
-                accountId: accountId,
-                httpClient: httpClient,
-                pendingImages: [:]
-            )
+            let loader = self.loader
             // A tall capture keeps only its 4:3 top: the whole page would
             // draw blank past the texture cap, and the tile shows the top.
             // It decodes at the tile's width, off main (`DownsampledImage`),

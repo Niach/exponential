@@ -1,4 +1,5 @@
 import Foundation
+import ExponentialUIPrimitives
 
 // VAPP-103: every href and every src a painter emits passes the host
 // contract's policy (`catalog/host.json` urls / media): Link, markdown links
@@ -46,6 +47,49 @@ extension SurfaceModel {
         return request
     }
 
+    /// #EXP-1926: the host's source rule for a content picture
+    /// (`HostPlugin.imageSource`); a link's href passes the URL policy
+    /// (denied = its text).
+    public func imageSource(_ src: String, alt: String) -> ImageSource {
+        switch host.imageSource(src, alt: alt) {
+        case nil, .load?: return .load
+        case let .link(href, text)?: return linkHref(href) != nil ? .link(href: href, text: text) : .text(text)
+        case let .text(text)?: return .text(text)
+        }
+    }
+
+    /// #EXP-1926: the host image menu's target for a rendered picture.
+    func imageTarget(_ src: String, alt: String) -> ImageTarget {
+        ImageTarget(src: src, alt: alt) { [weak self] in
+            guard let self else { throw MediaLoader.Failure.denied }
+            return try await self.originalImageBytes(src)
+        }
+    }
+
+    /// #EXP-1926: the ORIGINAL bytes of `src` through the media policy (an
+    /// `app-file:` through the host's files): the thumbnail width `w` is
+    /// dropped from the query, any other parameter stays. Throws when denied
+    /// or failed.
+    public func originalImageBytes(_ src: String) async throws -> Data {
+        guard let request = mediaRequest(originalImageSrc(src)) else { throw MediaLoader.Failure.denied }
+        let limits = MediaLoader.shared.limits
+        if let id = MediaLoader.appFileOf(request) {
+            guard let files = appFile else { throw MediaLoader.Failure.denied }
+            guard let data = await files(id) else { throw MediaLoader.Failure.http(404) }
+            return data
+        }
+        return try await MediaLoader.fetchData(request, session: MediaLoader.shared.session, limits: limits, options: mediaPolicy).get().0
+    }
+
+    /// #EXP-1926: a long press began on a rendered picture under the host's
+    /// image menu (an enclosing context Menu stands down).
+    func claimImagePress() { imagePressClaimedAt = Date() }
+
+    /// #EXP-1926 (`pressMenu`): did a picture take the current long press?
+    var imagePressClaimed: Bool {
+        imagePressClaimedAt.map { Date().timeIntervalSince($0) < 1 } ?? false
+    }
+
     /// VAPP-271: the host's app files (`HostPlugin.appFile`), for the loader.
     public var appFile: AppFileLoader? { host.appFile }
 
@@ -84,4 +128,14 @@ extension SurfaceModel {
 struct PaintFailure: Equatable {
     let message: String
     let props: String
+}
+
+/// #EXP-1926: `src` without the thumbnail width `w` in its query
+/// (`copyFormat.downscale: false`); a `data:` src as it is.
+public func originalImageSrc(_ src: String) -> String {
+    if src.lowercased().hasPrefix("data:") { return src }
+    guard let q = src.firstIndex(of: "?") else { return src }
+    let hash = src[q...].firstIndex(of: "#") ?? src.endIndex
+    let kept = src[src.index(after: q)..<hash].split(separator: "&").filter { $0 != "w" && !$0.hasPrefix("w=") }
+    return String(src[..<q]) + (kept.isEmpty ? "" : "?" + kept.joined(separator: "&")) + String(src[hash...])
 }

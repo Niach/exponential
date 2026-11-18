@@ -450,6 +450,8 @@ private struct MenuContextGesture: ViewModifier {
         })
         #else
         content.simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            // #EXP-1926: a press on a rendered picture opens its own menu, never this one.
+            guard !model.imagePressClaimed else { return }
             model.contextMenu(index)
         })
         #endif

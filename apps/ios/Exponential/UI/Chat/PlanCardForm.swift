@@ -5,6 +5,7 @@ import UIKit
 #if canImport(ExponentialUI)
 import ExponentialUI
 import ExponentialUICore
+internal import ExponentialUIPrimitives
 #endif
 
 /// #EXP-1674: the team of the chat holding a card, for its `~/` and `#IDENT`
@@ -819,6 +820,19 @@ private final class PlanCardSurfaceHost: HostPlugin {
     // https, plus the instance's own scheme (a LAN self-host may be plain http).
     var urlPolicy: UrlPolicy? {
         UrlPolicy(schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []), allowPrivate: ownPrivateHosts, baseUrl: base, linkBase: linkBase)
+    }
+
+    /// #EXP-1949 (image-actions.json `imageSource`): another website's
+    /// picture is a link, never fetched; any other refused source its alt.
+    func imageSource(_ src: String, alt: String) -> ImageSource? {
+        ImageSource(ImageActions.imageSource(src, alt: alt, origin: base ?? ""))
+    }
+
+    /// #EXP-1949: Copy image + Share on every rendered picture.
+    var hasImageMenu: Bool { true }
+
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView {
+        AnyView(content.imageActionsMenu(onTap: onTap, bytes: { try await target.bytes() }))
     }
 
     func mediaRequest(_ src: String) -> URLRequest? {

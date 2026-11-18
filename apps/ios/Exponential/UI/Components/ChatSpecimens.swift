@@ -983,7 +983,7 @@ struct ResultsTabSpecimens: View {
                     results: Self.results,
                     onOpenPicture: { result, index in opened = resultPictureSet(result, start: index) },
                     lead: { EmptyView() },
-                    thumbnail: { ResultThumbnailImage(picture: $0) },
+                    thumbnail: { ResultThumbnailImage(picture: $0, onOpen: $1) },
                     surface: { _ in EmptyView() }
                 )
                 .padding(16)

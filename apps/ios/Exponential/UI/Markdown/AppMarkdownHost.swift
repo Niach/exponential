@@ -2,6 +2,7 @@
 import ExpCore
 import ExpUI
 @preconcurrency import ExponentialUI
+internal import ExponentialUIPrimitives
 import Foundation
 import GRDB
 import SwiftUI
@@ -418,8 +419,24 @@ final class AppMarkdownHost: HostPlugin {
         return request
     }
 
+    /// #EXP-1949 (image-actions.json `imageSource`): another website's
+    /// picture is a link, never fetched; any other refused source its alt.
+    func imageSource(_ src: String, alt: String) -> ImageSource? {
+        if Self.specimen(src) != nil { return .load }
+        return ImageSource(ImageActions.imageSource(src, alt: alt, origin: origin ?? ""))
+    }
+
+    /// #EXP-1949: Copy image + Share on every rendered picture.
+    var hasImageMenu: Bool { true }
+
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView {
+        AnyView(content.imageActionsMenu(onTap: onTap, bytes: { try await target.bytes() }))
+    }
+
     func mediaRequest(_ src: String) -> URLRequest? {
         if let specimen = Self.specimen(src) { return specimen }
+        // #EXP-1949: only our attachments, data images and local sources load.
+        guard ImageActions.imageSourceAllowed(src, origin: origin ?? "") else { return nil }
         guard AttachmentLinks.attachmentId(fromUrl: src, baseURL: baseURL) != nil else {
             return policyMediaRequest(src, options: mediaOptions)
         }
@@ -449,6 +466,16 @@ final class AppMarkdownHost: HostPlugin {
         }
         let handler = LinkOpener.surfaceHandler(accountId: accountId.isEmpty ? nil : accountId, baseURL: baseURL, teamId: teamId, deps: deps)
         if let action = handler(tapped) { action() } else { UIApplication.shared.open(tapped) }
+    }
+}
+extension ImageSource {
+    /// #EXP-1949: ExpCore's answer (`ImageActions.Source`) as the SDK's.
+    init(_ source: ImageActions.Source) {
+        switch source {
+        case .load: self = .load
+        case let .link(href, text): self = .link(href: href, text: text)
+        case let .text(text): self = .text(text)
+        }
     }
 }
 #endif

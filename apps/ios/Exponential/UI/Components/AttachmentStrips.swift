@@ -528,18 +528,15 @@ struct CommentAttachmentsStrip: View {
 
     private func imageTile(_ attachment: AttachmentEntity) -> some View {
         ZStack(alignment: .topTrailing) {
-            Button {
+            LargeAttachmentImage(
+                attachment: attachment,
+                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+                accountId: accountId,
+                httpClient: deps.httpClient
+            ) {
                 let items = images.map { PictureViewerItem(id: $0.id, src: $0.url, label: $0.filename) }
                 viewer = PictureViewerSet(items: items, start: images.firstIndex { $0.id == attachment.id } ?? 0)
-            } label: {
-                LargeAttachmentImage(
-                    attachment: attachment,
-                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                    accountId: accountId,
-                    httpClient: deps.httpClient
-                )
             }
-            .buttonStyle(.plain)
             .accessibilityLabel(attachment.filename)
             removeButton(attachment)
         }
@@ -657,8 +654,14 @@ private struct LargeAttachmentImage: View {
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
+    /// A tap opens THE picture viewer.
+    let onOpen: () -> Void
 
     @State private var image: UIImage?
+
+    private var loader: AttachmentImageLoader {
+        AttachmentImageLoader(baseURL: baseURL, accountId: accountId, httpClient: httpClient, pendingImages: [:])
+    }
 
     /// Probed dimensions when the server has them; a neutral 4:3 otherwise.
     private var aspectRatio: CGFloat {
@@ -684,13 +687,11 @@ private struct LargeAttachmentImage: View {
             RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
                 .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
+        // #EXP-1949: THE image menu once the picture rendered; the tap opens.
+        .imageActionsMenu(enabled: image != nil, name: attachment.filename, onTap: onOpen) {
+            try await loader.data(ImageActions.originalSrc(attachment.url))
+        }
         .task(id: attachment.id) {
-            let loader = AttachmentImageLoader(
-                baseURL: baseURL,
-                accountId: accountId,
-                httpClient: httpClient,
-                pendingImages: [:]
-            )
             image = try? await loader.load(attachment.url)
         }
     }
