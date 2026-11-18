@@ -332,6 +332,20 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
+/// #EDE-126: admit the run `session_id` into an agent space of its own
+/// (eDE): it drives that space and nothing of the person's. `Err` when
+/// this desktop makes no spaces; never a fallback to the person's seat.
+pub fn grant_space(session_id: &str, label: &str) -> Result<Grant, String> {
+    if let Some(reason) = backend::unsupported() {
+        return Err(reason);
+    }
+    backend::spaces_offered()?;
+    let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
+    let live = live()?;
+    live.host.admit_space(id.as_str());
+    Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
+}
+
 /// The run ended: its token is dead, its call in flight stopped (this waits
 /// for it to return, [`host::Host::end`]), its abort state gone, the lock
 /// released when it was the last user.
