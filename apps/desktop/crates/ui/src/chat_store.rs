@@ -470,6 +470,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 
+    /// #EDE-120 follow-up: the real sign-out path with the account id the
+    /// desktop really uses (`account_id_for`: `app.exponential.at--<userId>`),
+    /// not a bare `u1` (the earlier test used bare ids, which hid that the
+    /// safe-segment rule rejected every real, dotted account dir).
+    #[test]
+    fn sign_out_wipes_a_real_account_dir() {
+        let account = api::accounts::account_id_for("https://app.exponential.at", "8Jk3xQ2Lm9");
+        assert!(account.contains('.'), "{account}");
+        let data_dir = std::env::temp_dir().join(format!("ui-chat-store-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        let store = Arc::new(SqliteStore::open(&store_path(&data_dir, &account)).unwrap());
+        store.set_meta("k", "v").unwrap();
+        std::fs::write(data_dir.join("accounts").join(&account).join("sync.sqlite"), b"sync").unwrap();
+        let held = Arc::downgrade(&store);
+        let (writes, rx) = flume::unbounded::<Write>();
+        let writer = std::thread::spawn(move || run_writer(&store, &rx));
+        drop(writes);
+        wipe(&data_dir, &account, Some(&held));
+        writer.join().unwrap();
+        assert!(!store_path(&data_dir, &account).exists());
+        assert!(data_dir.join("accounts").join(&account).join("sync.sqlite").exists());
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
     #[test]
     fn a_feed_round_trips_through_the_store() {
         let store = SqliteStore::open_in_memory().unwrap();
