@@ -48,7 +48,10 @@ struct CallViewScreen: View {
             now: now,
             utcOffsetMinutes: Chats.currentUtcOffsetMinutes(at: now)
         )
-        return CallViewBody(view: view, messages: data.messages, context: markdownContext(data))
+        return CallViewBody(
+            view: view, messages: data.messages, context: markdownContext(data),
+            agentAvatar: .agent(UserAvatarAgent(icon: data.agentIcon, color: data.agentColor))
+        )
             .workHeaderBand {
                 ChatHeader {
                     ChatHeaderTitle(
@@ -111,6 +114,8 @@ struct CallViewBody: View {
     let view: CallView
     let messages: [TreeMessage]
     let context: AgentMarkdownContext?
+    /// The agent's avatar on its group's first bubble (the chat's).
+    var agentAvatar: SenderAvatarModel? = nil
     /// A bubble's `HH:mm` by message id (nil = the phone's own clock).
     var timeLabel: ((String) -> String?)? = nil
 
@@ -176,7 +181,7 @@ struct CallViewBody: View {
                     UserMessageBubble(text: body, context: context ?? AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: nil), caption: time(id), tail: first)
                 }
             } else {
-                TranscriptRow(side: .other, gap: gap(row, after: previous), avatar: nil) {
+                TranscriptRow(side: .other, gap: gap(row, after: previous), avatar: first ? agentAvatar : nil) {
                     MessageBubble(side: .other, time: time(id), tail: first) {
                         AgentMarkdownText(text: body, context: context, hugsWidth: true)
                     }

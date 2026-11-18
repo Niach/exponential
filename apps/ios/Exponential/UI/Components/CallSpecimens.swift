@@ -171,6 +171,7 @@ struct CallSpecimens: View {
                 )
                 CallViewBody(
                     view: Self.call, messages: Self.callMessages, context: context,
+                    agentAvatar: .agent(UserAvatarAgent(icon: nil, color: nil)),
                     timeLabel: { Self.hhmm($0) }
                 )
                 .content
