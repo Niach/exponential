@@ -8,6 +8,9 @@ mod power;
 mod system_notifications;
 #[cfg(any(feature = "wayland", feature = "x11"))]
 mod text_system;
+// Exponential patch (#EXP-1946): what a clipboard item offers, shared by X11 and Wayland.
+#[cfg(any(feature = "wayland", feature = "x11"))]
+mod clipboard_formats;
 // Exponential patch (#ERR-4): dropped-data parsing shared by X11 and Wayland.
 #[cfg(any(feature = "wayland", feature = "x11"))]
 mod uri_list;

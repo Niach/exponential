@@ -34,13 +34,13 @@ use std::{
 use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use x11rb::{
     COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT, NONE,
-    connection::Connection,
+    connection::{Connection, RequestConnection as _},
     protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, Property,
-            PropertyNotifyEvent, SELECTION_NOTIFY_EVENT, SelectionNotifyEvent,
-            SelectionRequestEvent, Time, WindowClass,
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, CreateWindowAux,
+            EventMask, PropMode, Property, PropertyNotifyEvent, SELECTION_NOTIFY_EVENT,
+            SelectionNotifyEvent, SelectionRequestEvent, Time, Window, WindowClass,
         },
     },
     rust_connection::RustConnection,
@@ -102,7 +102,9 @@ thread_local! {
 // Some clipboard items, like images, may take a very long time to produce a
 // `SelectionNotify`. Multiple seconds long.
 const LONG_TIMEOUT_DUR: Duration = Duration::from_millis(4000);
-const SHORT_TIMEOUT_DUR: Duration = Duration::from_millis(10);
+// Exponential patch (#EXP-1946): the wait for an INCR transfer's next chunk. Upstream's 10 ms
+// dropped a large image whenever the owner (or this process, under load) took longer per chunk.
+const SHORT_TIMEOUT_DUR: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, PartialEq, Eq)]
 enum ManagerHandoverState {
@@ -139,7 +141,33 @@ struct Inner {
     handover_cv: Condvar,
 
     serve_stopped: AtomicBool,
+
+    /// Exponential patch (#EXP-1946): conversions too large for one request, sent in INCR
+    /// chunks (ICCCM 2.7.2). Only the server thread touches it; the handover reads its length.
+    incr_sends: Mutex<Vec<IncrSend>>,
 }
+
+/// Exponential patch (#EXP-1946): one INCR transfer in progress. A copied image (a PNG copy of a
+/// photo) easily exceeds the server's maximum request size, which a single `ChangeProperty`
+/// cannot carry.
+struct IncrSend {
+    requestor: Window,
+    property: Atom,
+    target: Atom,
+    bytes: Vec<u8>,
+    /// Bytes sent so far; the zero-length chunk that ends the transfer follows `bytes.len()`.
+    offset: usize,
+    /// The last time the requestor took a chunk: a requestor that stops reading is dropped.
+    active: Instant,
+}
+
+/// Exponential patch (#EXP-1946): an INCR requestor silent this long is given up on.
+const INCR_STALE: Duration = Duration::from_secs(5);
+/// Exponential patch (#EXP-1946): the largest INCR chunk.
+const INCR_CHUNK_MAX: usize = 1 << 20;
+/// Exponential patch (#EXP-1946): how long the exit handover waits for the clipboard manager while
+/// an INCR transfer to it still makes progress.
+const HANDOVER_INCR_MAX: Duration = Duration::from_secs(3);
 
 impl XContext {
     fn new(display: &str) -> Result<Self> {
@@ -227,6 +255,7 @@ impl Inner {
             handover_state: Mutex::new(ManagerHandoverState::Idle),
             handover_cv: Condvar::new(),
             serve_stopped: AtomicBool::new(false),
+            incr_sends: Mutex::new(Vec::new()),
         })
     }
 
@@ -719,6 +748,11 @@ impl Inner {
             let data = self.selection_of(selection).data.read();
             if let Some(data_list) = &*data {
                 success = match data_list.iter().find(|d| d.format == event.target) {
+                    // Exponential patch (#EXP-1946): too large for one request, sent in chunks.
+                    Some(data) if data.bytes.len() > self.max_property_bytes() => {
+                        self.start_incr_send(&event, data.bytes.clone())?;
+                        true
+                    }
                     Some(data) => {
                         self.server
                             .conn
@@ -770,6 +804,103 @@ impl Inner {
         self.server.conn.flush().map_err(into_unknown)
     }
 
+    /// Exponential patch (#EXP-1946): the most property bytes one `ChangeProperty` request carries.
+    fn max_property_bytes(&self) -> usize {
+        // The request's own header is 24 bytes; keep a margin.
+        self.server
+            .conn
+            .maximum_request_bytes()
+            .saturating_sub(64)
+            .max(4096)
+    }
+
+    /// Exponential patch (#EXP-1946): answers a conversion with an `INCR` property (ICCCM 2.7.2).
+    /// The chunks follow as the requestor deletes the property ([`Self::handle_incr_property_notify`]).
+    fn start_incr_send(&self, event: &SelectionRequestEvent, bytes: Vec<u8>) -> Result<()> {
+        log::trace!(
+            "Sending {} bytes of {} in INCR chunks",
+            bytes.len(),
+            self.atom_name(event.target)
+        );
+        // Before the INCR property, so the requestor's first delete is not missed.
+        self.server
+            .conn
+            .change_window_attributes(
+                event.requestor,
+                &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+            )
+            .map_err(into_unknown)?;
+        self.server
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                event.requestor,
+                event.property,
+                self.atoms.INCR,
+                &[u32::try_from(bytes.len()).unwrap_or(u32::MAX)],
+            )
+            .map_err(into_unknown)?;
+        let mut sends = self.incr_sends.lock();
+        sends.retain(|send| !(send.requestor == event.requestor && send.property == event.property));
+        sends.push(IncrSend {
+            requestor: event.requestor,
+            property: event.property,
+            target: event.target,
+            bytes,
+            offset: 0,
+            active: Instant::now(),
+        });
+        Ok(())
+    }
+
+    /// Exponential patch (#EXP-1946): sends an INCR transfer's next chunk once the requestor has
+    /// deleted (read) the previous one. Returns whether a transfer finished.
+    fn handle_incr_property_notify(&self, event: PropertyNotifyEvent) -> Result<bool> {
+        let mut sends = self.incr_sends.lock();
+        sends.retain(|send| send.active.elapsed() < INCR_STALE);
+        if event.state != Property::DELETE {
+            return Ok(false);
+        }
+        let Some(index) = sends
+            .iter()
+            .position(|send| send.requestor == event.window && send.property == event.atom)
+        else {
+            return Ok(false);
+        };
+        let send = &mut sends[index];
+        let chunk_len = (send.bytes.len() - send.offset).min(incr_chunk_len(self.max_property_bytes()));
+        self.server
+            .conn
+            .change_property8(
+                PropMode::REPLACE,
+                send.requestor,
+                send.property,
+                send.target,
+                &send.bytes[send.offset..send.offset + chunk_len],
+            )
+            .map_err(into_unknown)?;
+        send.active = Instant::now();
+        let finished = chunk_len == 0;
+        send.offset += chunk_len;
+        if finished {
+            // The zero-length chunk ends the transfer; stop watching the requestor's properties.
+            let send = sends.remove(index);
+            self.server
+                .conn
+                .change_window_attributes(
+                    send.requestor,
+                    &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+                )
+                .map_err(into_unknown)?;
+        }
+        self.server.conn.flush().map_err(into_unknown)?;
+        Ok(finished)
+    }
+
+    fn incr_sends_pending(&self) -> bool {
+        !self.incr_sends.lock().is_empty()
+    }
+
     fn ask_clipboard_manager_to_request_our_data(&self) -> Result<()> {
         if self.server.win_id == 0 {
             // This shouldn't really ever happen but let's just check.
@@ -814,9 +945,21 @@ impl Inner {
 
         // Note that we are using a parking_lot condvar here, which doesn't wake up
         // spuriously
-        let result = self
+        let mut result = self
             .handover_cv
             .wait_for(&mut handover_state, max_handover_duration);
+        // Exponential patch (#EXP-1946): an image sent in INCR chunks takes longer than 100 ms;
+        // keep waiting while that transfer still runs (stale ones are dropped), up to a cap.
+        let handover_start = Instant::now();
+        while result.timed_out()
+            && *handover_state == ManagerHandoverState::InProgress
+            && self.incr_sends_pending()
+            && handover_start.elapsed() < HANDOVER_INCR_MAX
+        {
+            result = self
+                .handover_cv
+                .wait_for(&mut handover_state, max_handover_duration);
+        }
 
         if *handover_state == ManagerHandoverState::Finished {
             return Ok(());
@@ -902,7 +1045,8 @@ fn serve_requests(context: Arc<Inner>) -> Result<(), Box<dyn std::error::Error>>
                         log::trace!("The contents were written to the clipboard manager.");
                         written = true;
                         // if we have written and notified, make sure to notify that we are done
-                        if notified {
+                        // Exponential patch (#EXP-1946): and every INCR chunk has gone out.
+                        if notified && !context.incr_sends_pending() {
                             handover_finished(&context, handover_state);
                         }
                     }
@@ -935,9 +1079,24 @@ fn serve_requests(context: Arc<Inner>) -> Result<(), Box<dyn std::error::Error>>
                     // immediately get a SelectionNotify with property set to 0,
                     // but following that, we also get a valid SelectionRequest
                     // from the clipboard manager.
-                    if written {
+                    if written && !context.incr_sends_pending() {
                         handover_finished(&context, handover_state);
                     }
+                }
+            }
+            // Exponential patch (#EXP-1946): the requestor took an INCR chunk.
+            Event::PropertyNotify(event) => {
+                let finished = context
+                    .handle_incr_property_notify(event)
+                    .map_err(into_unknown)?;
+                let handover_state = context.handover_state.lock();
+                if finished
+                    && *handover_state == ManagerHandoverState::InProgress
+                    && written
+                    && notified
+                    && !context.incr_sends_pending()
+                {
+                    handover_finished(&context, handover_state);
                 }
             }
             _event => {
@@ -981,6 +1140,8 @@ impl Clipboard {
         Ok(Self { inner: ctx })
     }
 
+    // Exponential patch (#EXP-1946): every write goes through `set_item` now.
+    #[allow(unused)]
     pub(crate) fn set_text(
         &self,
         message: Cow<'_, str>,
@@ -1008,18 +1169,18 @@ impl Clipboard {
         }
     }
 
-    #[allow(unused)]
-    pub(crate) fn set_image(
+    /// Exponential patch (#EXP-1946): offers the item's text and image (in its own format plus
+    /// a PNG copy). Upstream wrote every item through `set_text`, so a copied image offered
+    /// nothing; its unused `set_image` offered any format under the PNG target.
+    pub(crate) fn set_item(
         &self,
-        image: Image,
+        item: &ClipboardItem,
         selection: ClipboardKind,
         wait: WaitConfig,
     ) -> Result<()> {
-        let format = self.image_format_atom(image.format);
-        let data = vec![ClipboardData {
-            bytes: image.bytes,
-            format: self.inner.atoms.PNG__MIME,
-        }];
+        let data = item_data(item, self.inner.atoms.UTF8_STRING, |format| {
+            self.image_format_atom(format)
+        });
         self.inner.write(data, selection, wait)
     }
 
@@ -1165,6 +1326,35 @@ fn shut_down(inner: Arc<Inner>, global_cb: GlobalClipboard) {
     }
 }
 
+/// Exponential patch (#EXP-1946): what an item offers, as X11 targets: its images first (the more
+/// specific targets), then its text as `UTF8_STRING` (TARGETS adds the text/plain aliases). An
+/// item with neither (an empty one) offers empty text, as upstream did.
+fn item_data(
+    item: &ClipboardItem,
+    text_atom: Atom,
+    image_atom: impl Fn(ImageFormat) -> Atom,
+) -> Vec<ClipboardData> {
+    let mut data: Vec<ClipboardData> = crate::linux::clipboard_formats::image_offers(item)
+        .into_iter()
+        .map(|offer| ClipboardData {
+            bytes: offer.bytes,
+            format: image_atom(offer.format),
+        })
+        .collect();
+    if data.is_empty() || crate::linux::clipboard_formats::has_text(item) {
+        data.push(ClipboardData {
+            bytes: item.text().unwrap_or_default().into_bytes(),
+            format: text_atom,
+        });
+    }
+    data
+}
+
+/// Exponential patch (#EXP-1946): the INCR chunk size for a server's maximum property bytes.
+fn incr_chunk_len(max_property_bytes: usize) -> usize {
+    max_property_bytes.min(INCR_CHUNK_MAX)
+}
+
 fn into_unknown<E: std::fmt::Display>(error: E) -> Error {
     Error::Unknown {
         description: error.to_string(),
@@ -1284,5 +1474,277 @@ impl Error {
         Error::Unknown {
             description: message.into(),
         }
+    }
+}
+
+// Exponential patch (#EXP-1946)
+#[cfg(test)]
+mod tests {
+    use super::{INCR_CHUNK_MAX, incr_chunk_len, item_data};
+    use gpui::{ClipboardEntry, ClipboardItem, ClipboardString, Image, ImageFormat};
+
+    const TEXT: u32 = 1;
+    const PNG: u32 = 2;
+    const OTHER: u32 = 3;
+
+    fn atom(format: ImageFormat) -> u32 {
+        if format == ImageFormat::Png { PNG } else { OTHER }
+    }
+
+    fn png() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn targets(item: &ClipboardItem) -> Vec<(u32, Vec<u8>)> {
+        item_data(item, TEXT, atom)
+            .into_iter()
+            .map(|data| (data.format, data.bytes))
+            .collect()
+    }
+
+    #[test]
+    fn clipboard_text_item_is_utf8_string_as_before() {
+        let item = ClipboardItem::new_string("héllo".into());
+        assert_eq!(targets(&item), vec![(TEXT, "héllo".as_bytes().to_vec())]);
+    }
+
+    #[test]
+    fn clipboard_empty_item_offers_empty_text_as_before() {
+        let item = ClipboardItem { entries: Vec::new() };
+        assert_eq!(targets(&item), vec![(TEXT, Vec::new())]);
+    }
+
+    #[test]
+    fn clipboard_image_item_offers_the_image_and_no_text() {
+        let png = png();
+        let item = ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, png.clone()));
+        assert_eq!(targets(&item), vec![(PNG, png)]);
+    }
+
+    #[test]
+    fn clipboard_gif_item_offers_gif_then_png() {
+        let mut gif = Vec::new();
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut std::io::Cursor::new(&mut gif), image::ImageFormat::Gif)
+            .unwrap();
+        let item = ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Gif, gif.clone()));
+        let targets = targets(&item);
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0], (OTHER, gif));
+        assert_eq!(targets[1].0, PNG);
+    }
+
+    #[test]
+    fn clipboard_mixed_item_offers_image_then_text() {
+        let png = png();
+        let item = ClipboardItem {
+            entries: vec![
+                ClipboardEntry::String(ClipboardString::new("alt".into())),
+                ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, png.clone())),
+            ],
+        };
+        assert_eq!(targets(&item), vec![(PNG, png), (TEXT, b"alt".to_vec())]);
+    }
+
+    /// A private X server (never the person's display); `None` = no Xvfb here.
+    struct Server {
+        child: std::process::Child,
+        display: String,
+    }
+
+    impl Server {
+        fn start() -> Option<Self> {
+            use std::process::{Command, Stdio};
+            for number in 4800 + std::process::id() % 500.. {
+                let display = format!(":{number}");
+                let Ok(mut child) = Command::new("Xvfb")
+                    .args([display.as_str(), "-screen", "0", "640x480x24", "-nolisten", "tcp"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                else {
+                    return None;
+                };
+                for _ in 0..200 {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    if child.try_wait().ok().flatten().is_some() {
+                        break;
+                    }
+                    if x11rb::connect(Some(&display)).is_ok() {
+                        return Some(Server { child, display });
+                    }
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+                if number > 4800 + 520 {
+                    return None;
+                }
+            }
+            None
+        }
+    }
+
+    impl Drop for Server {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// Another X client's read (its own window, a real `ConvertSelection`), not the owner's
+    /// shortcut: a small PNG in one property, one larger than a request in INCR chunks, and the
+    /// text of a mixed item next to its image.
+    #[test]
+    fn clipboard_x11_round_trip_serves_images_and_large_ones_in_incr_chunks() {
+        let Some(server) = Server::start() else {
+            eprintln!("skipped: no Xvfb binary");
+            return;
+        };
+        let owner = super::Clipboard::new(&server.display).unwrap();
+        let reader = super::Inner::new(&server.display).unwrap();
+        let png_atom = reader.atoms.PNG__MIME;
+        let text_atom = reader.atoms.UTF8_STRING;
+        let read = |format: u32| {
+            reader
+                .read(&[format], super::ClipboardKind::Clipboard)
+                .map(|data| (data.format, data.bytes))
+        };
+
+        let small = png();
+        owner
+            .set_item(
+                &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, small.clone())),
+                super::ClipboardKind::Clipboard,
+                super::WaitConfig::None,
+            )
+            .unwrap();
+        assert_eq!(read(png_atom).unwrap(), (png_atom, small.clone()));
+        assert!(read(text_atom).is_err(), "an image-only item offers no text");
+
+        // Larger than the server's maximum request (BIG-REQUESTS: 16 MiB on Xvfb).
+        let max = owner.inner.max_property_bytes();
+        let mut state = 0x2545_f491_u32;
+        let large: Vec<u8> = (0..max + 3 * super::INCR_CHUNK_MAX + 17)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state as u8
+            })
+            .collect();
+        owner
+            .set_item(
+                &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, large.clone())),
+                super::ClipboardKind::Clipboard,
+                super::WaitConfig::None,
+            )
+            .unwrap();
+        let (format, bytes) = read(png_atom).unwrap();
+        assert_eq!(format, png_atom);
+        assert!(bytes == large, "INCR bytes differ: {} of {}", bytes.len(), large.len());
+        assert!(owner.inner.incr_sends.lock().is_empty(), "the transfer ended");
+
+        let mixed = ClipboardItem {
+            entries: vec![
+                ClipboardEntry::String(ClipboardString::new("caption".into())),
+                ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, small.clone())),
+            ],
+        };
+        owner
+            .set_item(&mixed, super::ClipboardKind::Clipboard, super::WaitConfig::None)
+            .unwrap();
+        assert_eq!(read(text_atom).unwrap(), (text_atom, b"caption".to_vec()));
+        assert_eq!(read(png_atom).unwrap(), (png_atom, small));
+
+        // The exit handover: a clipboard manager takes the large image (INCR) before we go.
+        let saved = fake_manager(&server.display);
+        owner
+            .set_item(
+                &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, large.clone())),
+                super::ClipboardKind::Clipboard,
+                super::WaitConfig::None,
+            )
+            .unwrap();
+        drop(owner);
+        super::wait_for_clipboard_handovers();
+        let saved = saved.lock().take().expect("the manager saved nothing");
+        assert!(saved == large, "the manager saved {} of {} bytes", saved.len(), large.len());
+    }
+
+    /// A tiny clipboard manager on `display`: it owns `CLIPBOARD_MANAGER` and, asked to
+    /// `SAVE_TARGETS`, reads the clipboard's `image/png` as any other client would (INCR
+    /// included), keeps it, then answers the request.
+    fn fake_manager(display: &str) -> std::sync::Arc<parking_lot::Mutex<Option<Vec<u8>>>> {
+        use x11rb::{
+            connection::Connection as _, protocol::xproto::ConnectionExt as _,
+            wrapper::ConnectionExt as _,
+        };
+        let saved = std::sync::Arc::new(parking_lot::Mutex::new(None));
+        let fetcher = super::Inner::new(display).unwrap();
+        let (conn, screen) = x11rb::connect(Some(display)).unwrap();
+        let root = conn.setup().roots[screen].root;
+        let window = conn.generate_id().unwrap();
+        conn.create_window(
+            0,
+            window,
+            root,
+            0,
+            0,
+            1,
+            1,
+            0,
+            x11rb::protocol::xproto::WindowClass::INPUT_ONLY,
+            0,
+            &Default::default(),
+        )
+        .unwrap();
+        conn.set_selection_owner(window, fetcher.atoms.CLIPBOARD_MANAGER, x11rb::CURRENT_TIME)
+            .unwrap();
+        conn.sync().unwrap();
+        std::thread::spawn({
+            let saved = saved.clone();
+            move || {
+                while let Ok(event) = conn.wait_for_event() {
+                    let x11rb::protocol::Event::SelectionRequest(request) = event else {
+                        continue;
+                    };
+                    if request.target != fetcher.atoms.SAVE_TARGETS {
+                        continue;
+                    }
+                    let fetched = fetcher
+                        .read(&[fetcher.atoms.PNG__MIME], super::ClipboardKind::Clipboard)
+                        .ok();
+                    let answered = fetched.is_some();
+                    *saved.lock() = fetched.map(|data| data.bytes);
+                    let notify = x11rb::protocol::xproto::SelectionNotifyEvent {
+                        response_type: x11rb::protocol::xproto::SELECTION_NOTIFY_EVENT,
+                        sequence: 0,
+                        time: request.time,
+                        requestor: request.requestor,
+                        selection: request.selection,
+                        target: request.target,
+                        property: if answered { request.property } else { x11rb::NONE },
+                    };
+                    let _ = conn.send_event(
+                        false,
+                        request.requestor,
+                        x11rb::protocol::xproto::EventMask::NO_EVENT,
+                        notify,
+                    );
+                    let _ = conn.flush();
+                }
+            }
+        });
+        saved
+    }
+
+    #[test]
+    fn clipboard_incr_chunks_fit_one_request_and_stay_bounded() {
+        assert_eq!(incr_chunk_len(256 * 1024), 256 * 1024);
+        assert_eq!(incr_chunk_len(16 << 20), INCR_CHUNK_MAX);
     }
 }
