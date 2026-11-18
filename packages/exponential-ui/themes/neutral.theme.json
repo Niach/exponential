@@ -39,7 +39,9 @@
         "chart7": "#db2777",
         "chart8": "#0891b2",
         "sheenFrom": "#52525b",
-        "sheenTo": "#0a0a0a"
+        "sheenTo": "#0a0a0a",
+        "match": "#fef08a",
+        "matchCurrent": "#fdba74"
       },
       "shadow": {
         "none": [],
@@ -154,7 +156,9 @@
         "chart7": "#f472b6",
         "chart8": "#22d3ee",
         "sheenFrom": "#ffffff",
-        "sheenTo": "#c4c4cc"
+        "sheenTo": "#c4c4cc",
+        "match": "#facc154d",
+        "matchCurrent": "#f59e0b99"
       },
       "shadow": {
         "none": [],

@@ -718,6 +718,22 @@
           "message": "missing value for $color.sheenTo"
         },
         {
+          "path": "modes.light.color.match",
+          "message": "missing value for $color.match"
+        },
+        {
+          "path": "modes.dark.color.match",
+          "message": "missing value for $color.match"
+        },
+        {
+          "path": "modes.light.color.matchCurrent",
+          "message": "missing value for $color.matchCurrent"
+        },
+        {
+          "path": "modes.dark.color.matchCurrent",
+          "message": "missing value for $color.matchCurrent"
+        },
+        {
           "path": "tokens.spacing.none",
           "message": "missing value for $spacing.none"
         },

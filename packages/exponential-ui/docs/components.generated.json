@@ -1111,6 +1111,14 @@
           "description": "Announces changes (`assertive` interrupts)."
         },
         {
+          "name": "highlight",
+          "type": "highlight",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Marks a search term's matches."
+        },
+        {
           "name": "style",
           "type": "style",
           "required": false,
@@ -1224,6 +1232,14 @@
           "bindable": false,
           "responsive": false,
           "description": "Truncates the rendered body to this many lines with an ellipsis."
+        },
+        {
+          "name": "highlight",
+          "type": "highlight",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Marks a search term's matches."
         },
         {
           "name": "style",
@@ -7832,6 +7848,14 @@
           "responsive": false,
           "default": false,
           "description": "With children: whether they show, indented; bind it."
+        },
+        {
+          "name": "highlight",
+          "type": "highlight",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Marks a search term in title and subtitle."
         }
       ],
       "accessibility": {
@@ -8027,6 +8051,14 @@
           "bindable": true,
           "responsive": false,
           "description": "URL a press opens; implies `pressable`."
+        },
+        {
+          "name": "highlight",
+          "type": "highlight",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Marks a search term's matches."
         }
       ],
       "accessibility": {

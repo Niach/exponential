@@ -1389,6 +1389,10 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Row: [
     { label: `children · closed`, node: { id: `device`, component: `Row`, props: { title: `This device`, icon: `ui-device`, density: `compact`, pressable: true, open: false }, children: [{ id: `tools`, component: `Row`, props: { title: `Tools`, icon: `settings-tools`, density: `compact`, pressable: true } }] } },
     { label: `children · open`, node: { id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, pressable: true, open: true }, children: foldChildren(`statuses`) } },
+
+    // #EDE-95: a search result row: the term in title and subtitle; matches
+    // number title first, so `current: 1` is the subtitle's first.
+    { label: `highlight · current`, node: { id: `hit`, component: `Row`, props: { title: `Printer offline after update`, subtitle: `The printer driver crashed on resume`, icon: `settings-issues`, highlight: { query: `printer`, current: 1 } } } },
   ],
   // VAPP-276: a bottom panel's buttons open popovers ABOVE them by `anchor`
   // (no trigger of their own): top-start at the start button, top-end at
@@ -1525,6 +1529,13 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { id: `m3`, component: `MessageBubble`, props: { text: `Send me the photo from the Wiesn I put on the desktop.`, side: `out`, time: `20:20`, status: `sent` } },
       { id: `m4`, component: `MessageBubble`, props: { text: `On its way…`, side: `out`, time: `20:21`, status: `sending` } },
     ] },
+  }, {
+    // #EDE-95: find in chat marks the term in each bubble.
+    label: `highlight`,
+    node: { id: `chat_marks`, component: `Stack`, props: { gap: `sm` }, style: { width: 360 }, children: [
+      { id: `h1`, component: `MessageBubble`, props: { text: `Is the **printer** fixed?`, side: `out`, time: `18:00`, status: `read`, highlight: { query: `printer` } } },
+      { id: `h2`, component: `MessageBubble`, props: { text: `Yes, the printer driver is updated. Print again.`, time: `18:02`, highlight: { query: `printer`, current: 0 } } },
+    ] },
   }],
   // VAPP-162: the serif family token on a node style.
   Text: [{
@@ -1545,6 +1556,18 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `hook_end`, component: `Text`, props: { text: `truncate · end keeps the start of a long line and cuts its end`, truncate: `end` } },
       ],
     },
+  }, {
+    // #EDE-95: search marks (find in chat, search snippets): every match of
+    // the term in \$color.match, the current one in \$color.matchCurrent;
+    // case and accents never matter.
+    label: `highlight · current`,
+    node: { id: `marks`, component: `Text`, props: { text: `Résumé review: the resume link, the RESUME button and the résumé PDF.`, highlight: { query: `resume`, current: 1 } }, style: { maxWidth: 320 } },
+  }],
+  // #EDE-95: search marks in markdown: inline text, inline code and a link's
+  // label (never its target); a code block is not searched.
+  Markdown: [{
+    label: `highlight · current`,
+    node: { id: `md_marks`, component: `Markdown`, props: { text: `The **printer** queue: run \`printer --reset\`, then see [printer notes](https://example.com/printer).\n\n- printer driver updated\n- paper tray`, highlight: { query: `printer`, current: 2 } }, style: { maxWidth: 360 } },
   }],
   // EXP-1548: a table wider than the page scrolls sideways; cells wrap.
   Table: [{
