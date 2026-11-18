@@ -31,6 +31,8 @@ pub struct Client {
     pub lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     pub idle_inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
     pub seat: Option<wl_seat::WlSeat>,
+    /// The name each bound wl_seat announced.
+    pub seat_names: Vec<String>,
     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     /// The decoration mode the compositor configured per toplevel index.
     pub decoration_modes: std::collections::HashMap<usize, u32>,
@@ -492,6 +494,14 @@ impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, usize> for C
     }
 }
 
+impl Dispatch<wl_seat::WlSeat, ()> for Client {
+    fn event(state: &mut Self, _: &wl_seat::WlSeat, event: wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_seat::Event::Name { name } = event {
+            state.seat_names.push(name);
+        }
+    }
+}
+
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
@@ -608,7 +618,6 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
-delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);

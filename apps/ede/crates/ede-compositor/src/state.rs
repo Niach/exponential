@@ -31,7 +31,7 @@ use smithay::{
 
 use crate::{
     config::Config,
-    desk::DeskId,
+    desk::{on_person, DeskId},
     layout::{self, Rect, Tile},
 };
 
@@ -156,13 +156,14 @@ impl Ede {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new_with_filter::<Self, _>(&dh, on_person);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let mut seat_state = SeatState::new();
 
-        let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
+        // #EDE-125: the person's seat is announced to the person's clients only.
+        let mut seat: Seat<Self> = seat_state.new_wl_seat_with_filter(&dh, "seat0", on_person);
         #[cfg(feature = "xwayland")]
         let mut x11_focus_seat = seat_state.new_seat("x11-focus");
         // smithay's Wayland enter wants a keyboard on the seat; no client
@@ -235,20 +236,20 @@ impl Ede {
             xwm: None,
             #[cfg(feature = "xwayland")]
             xdisplay: None,
-            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
+            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, on_person),
             lock: crate::lock::LockState::default(),
             idle_notifier,
             idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh),
             idle: crate::idle::Idle::default(),
-            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
+            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, on_person),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
-            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
+            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, on_person),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
-            xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
+            xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new_with_filter::<Self, _>(&dh, on_person),
             xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
@@ -333,6 +334,13 @@ impl Ede {
             cmd.env("DISPLAY", format!(":{n}"));
         }
         Some(cmd)
+    }
+
+    /// The `wl_output` global of one of the person's outputs: announced to
+    /// the person's clients only (#EDE-125). Every backend makes its
+    /// outputs' globals here.
+    pub fn person_output_global(&self, output: &Output) -> smithay::reexports::wayland_server::backend::GlobalId {
+        output.create_global_with_filter::<Ede, _>(&self.display_handle, on_person)
     }
 
     /// Lays outputs out left to right in the order they were added, unless
@@ -798,6 +806,8 @@ fn tile_edges(tile: Tile) -> Vec<xdg_toplevel::State> {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// The desk its socket belongs to; the person's unless said otherwise.
+    pub desk: DeskId,
 }
 
 impl ClientData for ClientState {
