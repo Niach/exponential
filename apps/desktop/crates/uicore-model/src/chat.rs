@@ -282,7 +282,8 @@ pub struct ChatRow {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tail: String,
     /// #EDE-129: the bubble's MessageBubble `highlight` (find in chat,
-    /// `{query, current?}`), null = no marks.
+    /// `{query, current?}`), null = no marks (left out of the row).
+    #[serde(default, skip_serializing_if = "Value::is_null")]
     pub highlight: Value,
 }
 
