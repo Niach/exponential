@@ -170,6 +170,8 @@ function TeamLayout() {
   // search, unconditionally (EXP-870: the app's one navigation chord).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // #EDE-129: an open chat took it first (find in chat).
+      if (event.defaultPrevented) return
       if (event.key === `f` && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         setSearchOpen(true)

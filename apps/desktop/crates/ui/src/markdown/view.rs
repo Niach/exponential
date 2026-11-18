@@ -79,6 +79,8 @@ pub struct MarkdownView {
     chat: bool,
     /// `streaming: true`: the text is a growing prefix (a reply being written).
     streaming: bool,
+    /// #EDE-129: the leaf's genUI `highlight` (find in chat), `None` = no marks.
+    highlight: Option<serde_json::Value>,
 }
 
 impl MarkdownView {
@@ -97,7 +99,14 @@ impl MarkdownView {
             selectable: false,
             chat: false,
             streaming: false,
+            highlight: None,
         }
+    }
+
+    /// #EDE-129: the find-in-chat marks (genUI `highlight` `{query, current?}`).
+    pub fn highlight(mut self, highlight: Option<serde_json::Value>) -> Self {
+        self.highlight = highlight;
+        self
     }
 
     /// #EXP-1674 (prose-links.json): agent prose reads its bare in-app URLs as
@@ -838,6 +847,8 @@ struct Slot {
     team: Option<String>,
     /// The text the leaf holds.
     text: String,
+    /// #EDE-129: the `highlight` the leaf holds.
+    highlight: Option<serde_json::Value>,
     /// The host answers it was measured with ([`hooks_mark`]), and the
     /// store revision it was taken at ([`store_revision`]).
     mark: u64,
@@ -907,11 +918,25 @@ fn hooks_mark(text: &str, host: &AppMarkdownHost, cx: &App) -> u64 {
     hasher.finish()
 }
 
-fn leaf(text: &str) -> eui_core::NestedNode {
-    serde_json::from_value(json!({"id": LEAF_ID, "component": "Markdown", "children": [], "props": {"text": text}})).expect("the Markdown leaf parses")
+fn leaf(text: &str, highlight: Option<&serde_json::Value>) -> eui_core::NestedNode {
+    let mut props = json!({"text": text});
+    if let Some(highlight) = highlight {
+        props["highlight"] = highlight.clone();
+    }
+    serde_json::from_value(json!({"id": LEAF_ID, "component": "Markdown", "children": [], "props": props})).expect("the Markdown leaf parses")
 }
 
-fn new_surface(id: &SharedString, host: Rc<AppMarkdownHost>, text: &str, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+/// #EDE-129: how many find-in-chat matches a view of `source` paints (the
+/// text as [`MarkdownView`] shows it, by the genUI Markdown's rule).
+pub(crate) fn highlight_count(source: &str, autolink: bool, chip_team: Option<&str>, query: &str, cx: &App) -> usize {
+    let source = match chip_team {
+        Some(team_id) => crate::links::chip_prose_links(source, Some(team_id), cx),
+        None => source.to_string(),
+    };
+    eui_gpui::paint::highlight::markdown_highlight_count(&prepare(&source, autolink).0, query)
+}
+
+fn new_surface(id: &SharedString, host: Rc<AppMarkdownHost>, text: &str, highlight: Option<&serde_json::Value>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
     let options = SurfaceViewOptions {
         surface_id: format!("md-{id}"),
         theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
@@ -925,7 +950,7 @@ fn new_surface(id: &SharedString, host: Rc<AppMarkdownHost>, text: &str, window:
         }),
         ..Default::default()
     };
-    let tree = leaf(text);
+    let tree = leaf(text, highlight);
     let view = cx.new(|cx| SurfaceView::new(options, window, cx));
     view.update(cx, |view, cx| {
         view.set_nested(tree, cx);
@@ -949,7 +974,7 @@ impl gpui::RenderOnce for MarkdownView {
         let tick = surfaces.tick;
         let existing = surfaces.slots.get_mut(&key).filter(|slot| slot.team == team).map(|slot| {
             slot.used = tick;
-            (slot.view.clone(), slot.host.clone(), slot.text.clone(), slot.mark, slot.revision)
+            (slot.view.clone(), slot.host.clone(), slot.text.clone(), slot.mark, slot.revision, slot.highlight.clone())
         });
         let revision = store_revision(cx);
         let resolves = self.resolver.is_some();
@@ -969,22 +994,23 @@ impl gpui::RenderOnce for MarkdownView {
         };
         let options = |c: &HostConfig| (c.chat, c.selectable, c.streaming);
         let (view, host, held, old_mark, old_revision, fresh) = match existing {
-            Some((view, host, held, mark, old_revision)) => {
+            Some((view, host, held, mark, old_revision, held_highlight)) => {
                 let changed_options = options(&host.config.borrow()) != options(&config);
                 *host.config.borrow_mut() = config;
-                let held = if changed_options { String::new() } else { held };
+                // #EDE-129: new marks set the leaf again (its text the same).
+                let held = if changed_options || held_highlight != self.highlight { String::new() } else { held };
                 (view, host, held, mark, old_revision, false)
             }
             None => {
                 let host = Rc::new(AppMarkdownHost::new(team.clone(), cx));
                 *host.config.borrow_mut() = config;
-                let view = new_surface(&self.id, host.clone(), &text, window, cx);
+                let view = new_surface(&self.id, host.clone(), &text, self.highlight.as_ref(), window, cx);
                 (view, host, text.clone(), 0, u64::MAX, true)
             }
         };
         if !fresh {
             if held != text {
-                let tree = leaf(&text);
+                let tree = leaf(&text, self.highlight.as_ref());
                 view.update(cx, |view, cx| {
                     view.set_nested(tree, cx);
                 });
@@ -1007,7 +1033,7 @@ impl gpui::RenderOnce for MarkdownView {
             });
         }
         let surfaces = cx.global_mut::<Surfaces>();
-        surfaces.slots.insert(key, Slot { view: view.clone(), host, team, text, mark, revision, used: tick });
+        surfaces.slots.insert(key, Slot { view: view.clone(), host, team, text, highlight: self.highlight, mark, revision, used: tick });
         if surfaces.slots.len() > SURFACE_CAP {
             let mut ranked: Vec<(u64, (gpui::WindowId, SharedString))> = surfaces.slots.iter().map(|(key, slot)| (slot.used, key.clone())).collect();
             ranked.sort_unstable_by_key(|(used, _)| *used);

@@ -82,6 +82,9 @@ export interface SessionScreenFrameProps {
   itemTitle?: string
   /** Over the body (the voice call card). */
   overlay?: ReactNode
+  /** #EDE-129 (find-in-chat.json WHERE THE BAR SITS): wide = the band over
+   *  the chat column, compact = it replaces the phone header while open. */
+  find?: { open: boolean; wide: ReactNode; compact: ReactNode }
 }
 
 /** THE tab strip: the existing SegmentedControl, each label followed by its
@@ -175,8 +178,10 @@ export function SessionScreenFrame({
   onCloseItem,
   itemTitle,
   overlay,
+  find,
 }: SessionScreenFrameProps) {
   const phone = useIsMobile()
+  const findBand = find?.open && !phone ? find.wide : null
   // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
   const tabs = screen.tabs.length > 0 ? <SessionScreenTabs screen={screen} onTab={onTab} phone={phone} /> : null
 
@@ -197,7 +202,10 @@ export function SessionScreenFrame({
           gridTemplateColumns: `minmax(${SESSION_SCREEN_BESIDE.chatMinWidth}px, ${SESSION_SCREEN_BESIDE.chat}fr) ${SESSION_SCREEN_BESIDE.pane}fr`,
         }}
       >
-        <div className="flex min-h-0 min-w-0 flex-col border-r border-border">{chat}</div>
+        <div className="flex min-h-0 min-w-0 flex-col border-r border-border">
+          {findBand}
+          {chat}
+        </div>
         <div data-testid={SESSION_SCREEN_TEST_IDS.pane} className="flex min-h-0 min-w-0 flex-col">
           {screen.collapse && <SessionScreenCollapse onCollapse={() => onTab(`chat`)} />}
           {paneBody}
@@ -209,7 +217,12 @@ export function SessionScreenFrame({
   } else if (screen.layout === `tab`) {
     body = paneBody
   } else {
-    body = <div className="flex min-h-0 min-w-0 flex-1 flex-col">{chat}</div>
+    body = (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {findBand}
+        {chat}
+      </div>
+    )
   }
 
   // session-screen.json PHONE ITEM: an opened item is a pushed page; its
@@ -233,7 +246,7 @@ export function SessionScreenFrame({
   if (phone) {
     return (
       <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid={testId} data-layout={screen.layout}>
-        <MobileDetailHeader
+        {find?.open ? find.compact : <MobileDetailHeader
           title={
             <PhoneHeaderTitle
               disc={avatar}
@@ -274,7 +287,7 @@ export function SessionScreenFrame({
             </span>
           }
           below={tabs && <div className="px-3 pb-2">{tabs}</div>}
-        />
+        />}
         {overlay}
         <div className="flex min-h-0 flex-1 flex-col">{body}</div>
       </div>

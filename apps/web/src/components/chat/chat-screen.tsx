@@ -44,6 +44,7 @@ import { ChatScreenHeaderMenu, useChatTabMenu } from "@/components/chat/chat-tab
 import { useChatActions } from "@/components/chat/chat-menu"
 import { CHAT_HEADER_TONE_CLASS, HEADER_DISC_CLASS } from "@/components/chat/chat-header"
 import { SessionScreenFrame } from "@/components/chat/session-screen-frame"
+import { FindInChatBar, FindInChatContext, FindInChatHeader, useFindInChat, useFindInChatShortcut } from "@/components/chat/find-in-chat"
 import {
   SESSION_ISSUE_MENU,
   SessionIssuesTab,
@@ -121,7 +122,7 @@ export interface ChatScreenAgent {
   trailing?: ReactNode
   /** THE session screen menu (the `…`); its settings entry opens the
    *  settings item here (`onSettings`). */
-  menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu) => ReactNode
+  menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu, onFind?: () => void) => ReactNode
   /** Over the body (the voice call card). */
   overlay?: ReactNode
   /** The settings item's body: the agent settings page body. */
@@ -447,7 +448,17 @@ export function ChatScreen({
   // #EXP-1732 (the owner's correction): the Chat tab IS the ROOT's own
   // session view (its raw work + trace rows, its cards inline, THE Dock,
   // THE composer) for every kind; descendants are Sessions rows.
+  // #EDE-129 (find-in-chat.json): the `…`'s Search in chat and Ctrl/Cmd+F
+  // while the chat shows (an item over it on a phone: not).
+  const find = useFindInChat(root.id)
+  const chatShown = screen.layout === `beside` || screen.layout === `chat`
+  useFindInChatShortcut(find, chatShown)
+  const closeFind = find.close
+  useEffect(() => {
+    if (!chatShown) closeFind()
+  }, [chatShown, closeFind])
   const chat = (
+    <FindInChatContext.Provider value={find}>
     <InPlaceSession
       key={root.id}
       row={root}
@@ -464,6 +475,7 @@ export function ChatScreen({
         renderIssueRef: renderFiledIssue,
       }}
     />
+    </FindInChatContext.Provider>
   )
 
   let pane: ReactNode = null
@@ -564,9 +576,10 @@ export function ChatScreen({
   const chatActions = useChatActions(teamSlug)
   const headerMenu = (className: string) =>
     agent ? (
-      agent.menu(className, () => openItem({ open: `settings` }), { rows: menu.linkRows, closeRef: menu.closeRef })
+      agent.menu(className, () => openItem({ open: `settings` }), { rows: menu.linkRows, closeRef: menu.closeRef }, chatShown ? find.openBar : undefined)
     ) : (
       <ChatScreenHeaderMenu
+        onFind={chatShown ? find.openBar : undefined}
         root={root}
         title={view.title}
         pr={guidePr}
@@ -670,6 +683,7 @@ export function ChatScreen({
             onCloseItem={closeItem}
             itemTitle={itemTitle}
             overlay={agent?.overlay}
+            find={{ open: find.open, wide: <FindInChatBar find={find} />, compact: <FindInChatHeader find={find} /> }}
           />
           </CardHighlightContext.Provider>
           </DeepLinkContext.Provider>

@@ -51,6 +51,10 @@ pub enum ChatRowInput {
         /// `messageStatus`); absent = none.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         status: Option<String>,
+        /// #EDE-129 (find-in-chat.json): the bubble's genUI `highlight`
+        /// (`{query, current?}`), absent = no marks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        highlight: Option<Value>,
     },
     /// #EDE-65 lane O: a row the host paints itself (the IDE's tool rows,
     /// the Work card): the document holds its place, an Embed the host
@@ -277,6 +281,10 @@ pub struct ChatRow {
     /// (out) on a group's first bubble, blank (left out) otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tail: String,
+    /// #EDE-129: the bubble's MessageBubble `highlight` (find in chat,
+    /// `{query, current?}`), null = no marks (left out of the row).
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub highlight: Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -445,6 +453,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         gap: 0,
         status: String::new(),
         tail: String::new(),
+        highlight: Value::Null,
     }
 }
 
@@ -455,7 +464,7 @@ fn caption(parts: &[Option<&str>]) -> String {
 
 fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
     match input {
-        ChatRowInput::Message { id, author, body, name, time, queued, group, status } => {
+        ChatRowInput::Message { id, author, body, name, time, queued, group, status, highlight } => {
             let group = group.clone().unwrap_or_default();
             let relay = group.link.as_deref().is_some_and(|link| !link.is_empty());
             let grouped = |kind| {
@@ -473,6 +482,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
                     link: group.link.clone(),
                     gap: group.gap,
                     status: own_status,
+                    highlight: highlight.clone().filter(|_| bubbles).unwrap_or(Value::Null),
                     ..blank(id, kind)
                 }
             };
