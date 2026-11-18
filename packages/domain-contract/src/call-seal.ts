@@ -5,14 +5,20 @@
 // fresh X25519 exchange, so the relay forwards bytes it cannot read.
 //
 //   hello      = version 0x01 ‖ role (1 caller, 2 host) ‖ epoch u32 BE ‖ rootId[16] ‖ eph[32]
+//                the host's is these 54 bytes ‖ tag[16]
 //   dh         = X25519(own eph secret, peer eph)             (all-zero = refused)
 //   transcript = "exp/etalk/call/1" ‖ callId[16] ‖ agentId[16] ‖ SHA-256(utf8(deviceId))
-//                ‖ callerHello[54] ‖ hostHello[54]            (188 bytes)
+//                ‖ callerHello[54] ‖ hostHello[0..54]         (188 bytes; never the tag)
 //   key(label) = HKDF-SHA256(ikm = dh ‖ clamp(S), salt = transcript, info = label, L = 32)
+//   tag        = ChaCha20-Poly1305(key("down/hello"), nonce = 00 × 12, aad = hostHello[0..54], empty)
 //   frame      = ChaCha20-Poly1305(key, nonce = 00 × 8 ‖ ctr u32 BE, aad = the clear header)
 //
-// The sealer is an OBJECT: it holds the keys and the counters, and no method
-// takes a counter, so one nonce is never used twice. `finish` works once.
+// The order is Noise NNpsk2's (-> e; <- e, ee, psk): the host's hello carries
+// the host's proof, so a caller that HAS a `CallSeal` has it, and the caller's
+// first frame that opens is the caller's proof, before which a host's
+// `CallSeal` seals nothing. The sealer is an OBJECT: it holds the keys and the
+// counters, and no method takes a counter, so one nonce is never used twice.
+// `finish` works once, a failed one too.
 // Nothing here is wired into a call yet: until the callers, the hosts and the
 // server follow, a call's events and audio cross the relay readable.
 // Mirror: enet-core `call_seal` (Rust; the phones through exponential-net-ffi).
@@ -27,25 +33,27 @@ import { sha256 } from "@noble/hashes/sha2.js"
 export const CALL_SEAL = {
   version: 1,
   domain: `exp/etalk/call/1`,
-  labels: { upAudio: `up/audio`, downAudio: `down/audio`, downControl: `down/control` },
+  labels: { upAudio: `up/audio`, downAudio: `down/audio`, downControl: `down/control`, downHello: `down/hello` },
   roles: { caller: 1, host: 2 },
   frameTypes: { audio: 0, hello: 1 },
   kinds: { up: 1, down: 2 },
-  helloBytes: 54,
+  helloBytes: { caller: 54, host: 70 },
 } as const
 
 export type CallRole = keyof typeof CALL_SEAL.roles
 
 /** Why the seal refused (the `reason` of voice-call.json `seal.refused`). Logs name it, never bytes. */
 export type CallSealRefusal =
-  | `hello` // not a hello of the other role and this version
+  | `hello` // not a hello of the other role, its length and this version
+  | `root` // the host's hello names another root or epoch than the caller's own answer
+  | `unproven` // a host's seal before a frame of the caller opened
   | `low_order` // the exchange gave all zeros
   | `finished` // a second `finish`
   | `input` // an id, a secret or a number of the wrong shape; a method of the other role
   | `too_large` // a packet above the step, a text above maxPlainBytes
   | `exhausted` // the counter is used up
   | `frame` // not a frame of this channel: its size, kind, type or inner length
-  | `tag` // it does not open
+  | `tag` // it does not open: a frame, or the tag of the host's hello
   | `replay` // an audio ctr not above the last accepted
   | `order` // a control ctr that is not exactly the next
 
@@ -72,6 +80,10 @@ export interface CallHello {
   /** Lowercase; all zeros from a caller that knew no root. */
   rootId: string
   eph: Uint8Array
+  /** The 54 bytes the transcript holds. */
+  body: Uint8Array
+  /** The host's proof (16 bytes); null on a caller's hello. */
+  tag: Uint8Array | null
 }
 
 export interface CallFinishInput {
@@ -82,7 +94,19 @@ export interface CallFinishInput {
   /** The host's steer device id. */
   deviceId: string
   peerHello: Uint8Array
+  /**
+   * CALLER only, and required there: the root and the epoch its OWN
+   * `sendTarget` answer names now. A host hello that names others is refused.
+   */
+  rootId?: string
+  epoch?: number
   pad: CallSealPad
+}
+
+export interface CallFinished {
+  seal: CallSeal
+  /** The host's hello with its tag: what a host sends (once), what a caller took. */
+  hostHello: Uint8Array
 }
 
 export interface OpenedAudio {
@@ -102,6 +126,7 @@ interface CallKeys {
   downControl: Uint8Array
 }
 
+const HELLO_BODY_BYTES = CALL_SEAL.helloBytes.caller
 const HEADER_BYTES = 6 // kind ‖ type ‖ ctr
 const INNER_BYTES = 5 // seq ‖ flags ‖ len
 const TAG_BYTES = 16
@@ -153,11 +178,14 @@ function fromBase64Url(text: string): Uint8Array | null {
   return Uint8Array.from(binary, (c) => c.charCodeAt(0))
 }
 
-/** Reads a hello. Refused (`hello`): another length, version or role. */
+/** Reads a hello. Refused (`hello`): another version or role, or not the length of its role. */
 export function parseCallHello(hello: Uint8Array): CallHello {
-  if (hello.length !== CALL_SEAL.helloBytes || hello[0] !== CALL_SEAL.version) refuse(`hello`)
+  if (hello[0] !== CALL_SEAL.version) refuse(`hello`)
   const role = hello[1] === CALL_SEAL.roles.caller ? `caller` : hello[1] === CALL_SEAL.roles.host ? `host` : refuse(`hello`)
-  return { version: CALL_SEAL.version, role, epoch: readU32(hello, 2), rootId: uuidText(hello.slice(6, 22)), eph: hello.slice(22) }
+  if (hello.length !== CALL_SEAL.helloBytes[role]) refuse(`hello`)
+  const body = hello.slice(0, HELLO_BODY_BYTES)
+  const tag = role === `host` ? hello.slice(HELLO_BODY_BYTES) : null
+  return { version: CALL_SEAL.version, role, epoch: readU32(hello, 2), rootId: uuidText(hello.slice(6, 22)), eph: body.slice(22), body, tag }
 }
 
 /** The caller's hello on the wire: the binary frame kind `up` ‖ type hello ‖ hello. */
@@ -167,23 +195,24 @@ export function callHelloFrame(hello: Uint8Array): Uint8Array {
 
 /** The hello of a binary frame, or null when the frame is none (a hello never goes down). */
 export function callHelloOfFrame(frame: Uint8Array): Uint8Array | null {
-  const isHello = frame.length === 2 + CALL_SEAL.helloBytes && frame[0] === CALL_SEAL.kinds.up && frame[1] === CALL_SEAL.frameTypes.hello
+  const isHello = frame.length === 2 + CALL_SEAL.helloBytes.caller && frame[0] === CALL_SEAL.kinds.up && frame[1] === CALL_SEAL.frameTypes.hello
   return isHello ? frame.slice(2) : null
 }
 
-/** The host's hello on the wire: the `data` of `call_event {t: "hello"}`. */
+/** The host's hello (with its tag) on the wire: the `data` of `call_event {t: "hello"}`. */
 export function callHelloText(hello: Uint8Array): string {
   return toBase64Url(hello)
 }
 
 export function callHelloOfText(data: string): Uint8Array | null {
   const hello = fromBase64Url(data)
-  return hello && hello.length === CALL_SEAL.helloBytes ? hello : null
+  return hello && hello.length === CALL_SEAL.helloBytes.host ? hello : null
 }
 
 /** One end's half of the exchange. It holds the eph secret until `finish` takes it. */
 export class CallHandshake {
   readonly role: CallRole
+  /** The 54 bytes of the own hello; a host's goes out only with its tag, from `finish`. */
   private readonly ownHello: Uint8Array
   private ephSecret: Uint8Array | null
 
@@ -207,27 +236,52 @@ export class CallHandshake {
     return new CallHandshake(role, rootId, epoch, ephSecret.slice())
   }
 
-  /** The hello: made once, resent unchanged. */
+  /** The CALLER's hello: made once, resent unchanged. A host has none before `finish`. */
   get hello(): Uint8Array {
+    if (this.role !== `caller`) refuse(`input`)
     return this.ownHello.slice()
   }
 
   /**
-   * The keys of the call. WORKS ONCE: the eph secret is taken out and wiped
-   * whatever the answer, so a hello or a `call_ready` that comes again can
-   * never give a second sealer whose counters start at 0 under the same keys.
+   * The keys of the call. The HOST's also gives its hello with the tag, its
+   * proof. The CALLER's takes that hello, refuses one that names another root
+   * or epoch than the caller's own answer, and opens the tag: a caller that
+   * has a `CallSeal` has the host's proof.
+   *
+   * WORKS ONCE: the eph secret is taken out and wiped whatever the answer (a
+   * refusal has used the handshake up too), so a hello or a `call_ready` that
+   * comes again can never give a second sealer whose counters start at 0
+   * under the same keys.
    */
-  finish(input: CallFinishInput): CallSeal {
+  finish(input: CallFinishInput): CallFinished {
     const ephSecret = this.ephSecret
     if (!ephSecret) return refuse(`finished`)
     this.ephSecret = null
     try {
       const peer = parseCallHello(input.peerHello)
       if (peer.role === this.role) refuse(`hello`)
-      const [callerHello, hostHello] = this.role === `caller` ? [this.ownHello, input.peerHello] : [input.peerHello, this.ownHello]
-      const { dh, keys } = CallHandshake.derive(ephSecret, peer.eph, input.secret, input.callId, input.agentId, input.deviceId, callerHello, hostHello)
+      const caller = this.role === `caller`
+      if (caller) {
+        if (input.rootId === undefined || input.epoch === undefined) return refuse(`input`)
+        const named = uuidBytes(input.rootId)
+        if (input.epoch !== peer.epoch || !named.every((byte, i) => byte === peer.body[6 + i])) refuse(`root`)
+      }
+      const [callerHello, hostBody] = caller ? [this.ownHello, peer.body] : [peer.body, this.ownHello]
+      const { dh, keys, helloKey } = CallHandshake.derive(ephSecret, peer.eph, input.secret, input.callId, input.agentId, input.deviceId, callerHello, hostBody)
       dh.fill(0)
-      return new CallSeal(MINT, this.role, keys, input.pad)
+      try {
+        // The hello key seals exactly once, the tag, at nonce zero.
+        const proof = chacha20poly1305(helloKey, new Uint8Array(12), hostBody)
+        if (!caller) return { seal: new CallSeal(MINT, this.role, keys, input.pad), hostHello: concat(hostBody, proof.encrypt(new Uint8Array(0))) }
+        try {
+          proof.decrypt(peer.tag!)
+        } catch {
+          return refuse(`tag`)
+        }
+        return { seal: new CallSeal(MINT, this.role, keys, input.pad), hostHello: input.peerHello.slice() }
+      } finally {
+        helloKey.fill(0)
+      }
     } finally {
       ephSecret.fill(0)
     }
@@ -241,10 +295,10 @@ export class CallHandshake {
     agentId: string,
     deviceId: string,
     callerHello: Uint8Array,
-    hostHello: Uint8Array
-  ): { dh: Uint8Array; transcript: Uint8Array; keys: CallKeys } {
+    hostBody: Uint8Array
+  ): { dh: Uint8Array; transcript: Uint8Array; keys: CallKeys; helloKey: Uint8Array } {
     if (secret.length !== 32) refuse(`input`)
-    const transcript = concat(utf8.encode(CALL_SEAL.domain), uuidBytes(callId), uuidBytes(agentId), sha256(utf8.encode(deviceId)), callerHello, hostHello)
+    const transcript = concat(utf8.encode(CALL_SEAL.domain), uuidBytes(callId), uuidBytes(agentId), sha256(utf8.encode(deviceId)), callerHello, hostBody)
     let dh: Uint8Array
     try {
       dh = x25519.getSharedSecret(ephSecret, peerEph)
@@ -259,9 +313,10 @@ export class CallHandshake {
     const ikm = concat(dh, clamped)
     const key = (label: string) => hkdf(sha256, ikm, transcript, utf8.encode(label), 32)
     const keys = { upAudio: key(CALL_SEAL.labels.upAudio), downAudio: key(CALL_SEAL.labels.downAudio), downControl: key(CALL_SEAL.labels.downControl) }
+    const helloKey = key(CALL_SEAL.labels.downHello)
     clamped.fill(0)
     ikm.fill(0)
-    return { dh, transcript, keys }
+    return { dh, transcript, keys, helloKey }
   }
 }
 
@@ -282,20 +337,25 @@ export class CallSeal {
   /** The last audio ctr accepted, and the control ctr that must come next. */
   private audioSeen = -1
   private controlNext = 0
+  /** A host seals nothing before a frame of the caller opened: the caller's proof. */
+  private proven: boolean
 
   constructor(mint: typeof MINT, role: CallRole, keys: CallKeys, pad: CallSealPad) {
     if (mint !== MINT) refuse(`input`)
     this.role = role
     this.keys = keys
     this.pad = pad
+    this.proven = role === `caller`
   }
 
   /**
    * One audio frame of this end's direction, always ONE size: 27 bytes plus
    * the direction's step. A packet above the step is refused (`too_large`)
-   * and takes no counter: the sender seals an empty packet in its place.
+   * and takes no counter: the sender seals an empty packet in its place, with
+   * the seq of the packet it replaces.
    */
   sealAudio(seq: number, flags: number, packet: Uint8Array): Uint8Array {
+    if (!this.proven) refuse(`unproven`)
     const up = this.role === `caller`
     const step = up ? this.pad.audioPadStep.up : this.pad.audioPadStep.down
     if (!isCount(seq, 0xffff) || !isCount(flags, 0xff) || !isCount(step, 0xffff)) refuse(`input`)
@@ -313,7 +373,9 @@ export class CallSeal {
 
   /**
    * Opens an audio frame of the OTHER direction. Only a ctr above the last
-   * accepted opens; gaps pass and are counted. A refused frame moves no mark.
+   * accepted opens; gaps pass and are counted, and a frame with `len` 0 is
+   * itself ONE missing frame (the packet its sender could not seal). A
+   * refused frame moves no mark.
    */
   openAudio(frame: Uint8Array): OpenedAudio {
     const kind = this.role === `caller` ? CALL_SEAL.kinds.down : CALL_SEAL.kinds.up
@@ -329,8 +391,9 @@ export class CallSeal {
     }
     const len = (plain[3]! << 8) | plain[4]!
     if (len > plain.length - INNER_BYTES) refuse(`frame`)
-    const missing = ctr - this.audioSeen - 1
+    const missing = ctr - this.audioSeen - 1 + (len === 0 ? 1 : 0)
     this.audioSeen = ctr
+    this.proven = true
     return { seq: (plain[0]! << 8) | plain[1]!, flags: plain[2]!, packet: plain.slice(INNER_BYTES, INNER_BYTES + len), missing }
   }
 
@@ -340,6 +403,7 @@ export class CallSeal {
    */
   sealControl(text: string): string {
     if (this.role !== `host`) refuse(`input`)
+    if (!this.proven) refuse(`unproven`)
     const raw = utf8.encode(text)
     const { controlPadBytes, maxPlainBytes } = this.pad
     if (!isCount(controlPadBytes, maxPlainBytes) || controlPadBytes === 0) refuse(`input`)
