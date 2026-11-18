@@ -168,6 +168,12 @@ export async function loadRoot(database: Reader, rootId: string): Promise<Sessio
   return root
 }
 
+/** Serializes one tree's key writes (create vs create, rotation vs
+ *  rotation) and whoever must read a root's key before deciding to write. */
+export async function lockTreeKeys(tx: Tx, rootId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${rootId}`}))`)
+}
+
 /** The input of a tree key write (`create`, and EXP-1458's inline
  *  `sessions.send {seal}` for a root without a key). */
 export interface TreeKeyInput {
@@ -197,8 +203,7 @@ export async function createTreeKeyInTx(
   if (!targets.includes(input.installId)) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Include a wrap for your own install` })
   }
-  // Serializes one tree's key writes (create vs create, rotation vs rotation).
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${input.rootId}`}))`)
+  await lockTreeKeys(tx, input.rootId)
   const root = await loadRoot(tx, input.rootId)
   // #EDE-97: an outside MCP client's tree stays in clear for life.
   if (root.clearTree) throw new TRPCError({ code: `BAD_REQUEST`, message: CLEAR_TREE_REFUSAL })

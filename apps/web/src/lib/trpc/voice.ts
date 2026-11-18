@@ -40,7 +40,9 @@ import {
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
-import { authedProcedure, router } from "@/lib/trpc"
+import { authedProcedure, generateTxId, router } from "@/lib/trpc"
+import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
+import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
@@ -551,6 +553,61 @@ export const voiceRouter = router({
         fallback: target.fallback,
         seal: sealed,
       }
+    }),
+
+  // #EXP-1941: THE CHAT OF A FIRST CALL. A sealed call is keyed with the
+  // chat's tree secret, and a first call to an agent has no chat yet: the
+  // answering host creates it, with its key, before it sends its hello. A
+  // text-less `sessions.send` is refused by its schema, hence this op. In
+  // this order: the call id must be a SEALED one the server minted for this
+  // member, this device and THIS agent (the verify `callHostTicket` uses),
+  // so it runs only inside a call the server vouched for; then
+  // `loadAgentForUser`, the rule a send applies first; then the
+  // conversation and, ONLY when its root has no key, the key, in one
+  // transaction under the tree's key lock. A root somebody keyed a moment
+  // before (a first message, a second ring) answers its STORED key, never
+  // the stale-tree conflict: the host keeps its own secret only when the
+  // answer names its own public key. It posts no message. A new row is
+  // `queued` and its device is nudged, exactly as a first message does it.
+  // Key writes stay bound to the caller's own install and to readers
+  // (`createTreeKeyInTx`). Unreachable until `startCall` mints sealed ids.
+  callConversation: authedProcedure
+    .input(
+      z.object({
+        agentId: z.string().uuid(),
+        callId: z.string().uuid(),
+        deviceId: z.string().min(1).max(128),
+        seal: z.object({
+          installId: z.string().uuid(),
+          publicKey: z.string().length(43),
+          epoch: z.literal(1),
+          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256) })).min(1).max(200),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      if (!verifyCallId(input.callId, { userId, deviceId: input.deviceId, agentId: input.agentId, sealed: true })) {
+        console.warn(`[voice] callConversation refused: member=${userId} device=${input.deviceId}: no sealed call the server minted`)
+        throw new TRPCError({ code: `NOT_FOUND`, message: `No such call` })
+      }
+      const agent = await loadAgentForUser(userId, input.agentId)
+      const outcome = await ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const { session, created } = await conversationInTx(tx, agent, userId)
+        // `conversationInTx` read an existing row BEFORE this lock: read the
+        // root again under it, so "has no key" and the write are one step.
+        await lockTreeKeys(tx, session.id)
+        const root = await loadRoot(tx, session.id)
+        if (root.sealEpoch === null || !root.sealPublicKey) {
+          await createTreeKeyInTx(tx, userId, { ...input.seal, rootId: root.id })
+          return { rootId: root.id, epoch: input.seal.epoch as number, publicKey: input.seal.publicKey, txid, created }
+        }
+        return { rootId: root.id, epoch: root.sealEpoch, publicKey: root.sealPublicKey, txid, created }
+      })
+      const { created, ...answer } = outcome
+      if (created) nudge(created.ownerId, created.deviceId)
+      return answer
     }),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
