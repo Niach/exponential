@@ -613,6 +613,23 @@ impl Surfaces {
         true
     }
 
+    /// #EDE-133: the scroll container `scroll` back at its very top (the
+    /// first result row selected: the group heading above it shows too);
+    /// `false` when it is no scroll container.
+    pub fn reveal_top(&self, document: &str, scroll: &str, cx: &mut App) -> bool {
+        let Some(region) = self.open.get(document).cloned() else { return false };
+        if region.view.read(cx).scroll_extent(scroll).is_none() {
+            return false;
+        }
+        let _ = region.handle.update(cx, |_, _, cx| {
+            region.view.update(cx, |v, cx| {
+                v.surface_mut().scroll(scroll, 0.0);
+                cx.notify();
+            })
+        });
+        true
+    }
+
     /// A surface command for an open document (the focus, #EDE-92: a list's
     /// selected row brought into view).
     pub fn command(&self, document: &str, command: SurfaceCommand, cx: &mut App) {

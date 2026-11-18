@@ -1774,7 +1774,14 @@ impl Surface {
         } else {
             0.0
         };
-        let target = crate::list::scroll_offset_at(offsets[pos] as f64, extent(pos), offsets[count] as f64, viewport as f64, scroll.max(0.0) as f64, align, inset) as f32;
+        // #EDE-133: in an ancestor's coordinates (the list `rel` below its
+        // top, a heading above it): a row already in view moves nothing,
+        // and the clamp at 0 is the ancestor's top, not the list's.
+        let rel = match &source {
+            ListViewSource::Ancestor { rel, .. } => *rel,
+            _ => 0.0,
+        };
+        let target = crate::list::scroll_offset_at((offsets[pos] + rel) as f64, extent(pos), (offsets[count] + rel) as f64, viewport as f64, (scroll + rel).max(0.0) as f64, align, inset) as f32 - rel;
         let with_axis = |p: (f32, f32), v: f32| if h { (v, p.1) } else { (p.0, v) };
         let mut out = vec![];
         match source {

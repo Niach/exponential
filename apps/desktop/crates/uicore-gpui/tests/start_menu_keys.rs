@@ -167,13 +167,14 @@ fn tab_reaches_the_footer_and_enter_presses_its_button(cx: &mut TestAppContext) 
     assert_eq!(called[0].1["app"], "at.exponential");
 }
 
-/// `/shell` while `e` is searched: 40 apps, row `selected` highlighted.
+/// `/shell` while `e` is searched: 40 apps and an issue (the groups get
+/// their headings, "Apps" above the first row), row `selected` highlighted.
 fn long_feed(selected: usize) -> Feed {
     let mut feed = shell_feed(None);
     let apps: Vec<Value> = (0..40).map(|i| json!({"id": format!("app{i}"), "name": format!("App {i}"), "comment": "An app", "icon": "", "category": "other", "selected": i == selected})).collect();
     let mut shell = feed.get("/shell").cloned().unwrap();
     shell["startMenu"]["query"] = json!("e");
-    shell["startMenu"]["issues"] = json!([]);
+    shell["startMenu"]["issues"][0]["selected"] = json!(false);
     shell["startMenu"]["apps"] = Value::Array(apps);
     feed.set("/shell", shell);
     feed
@@ -243,4 +244,76 @@ fn a_reveal_on_results_that_cannot_scroll_does_nothing(cx: &mut TestAppContext) 
     assert!(press_down(&plugin, 24, &mut vcx, cx).iter().all(|r| !*r), "no reveal ran");
     let (_, after, _) = shown(&region, &vcx);
     assert_eq!(after, before, "every row is still drawn where it was");
+}
+
+/// The results' scroll offset (px from the top of the "Apps" heading).
+fn offset(region: &Region, cx: &VisualTestContext) -> f32 {
+    region.view.read_with(cx, |v, _| v.scroll_extent("apps_scroll").expect("the results scroll").0)
+}
+
+/// Up `steps` times from row `from`, as the shell does it: the mark moves,
+/// then the reveal (the first row = the results' top, heading included).
+fn press_up(plugin: &Plugin, from: usize, steps: usize, vcx: &mut VisualTestContext, cx: &mut TestAppContext) {
+    for i in (from - steps..from).rev() {
+        cx.update(|cx| plugin.surfaces.borrow().as_ref().unwrap().feed_all(&long_feed(i), cx));
+        draw(vcx);
+        cx.update(|cx| {
+            let surfaces = plugin.surfaces.borrow();
+            let surfaces = surfaces.as_ref().unwrap();
+            if i == 0 {
+                surfaces.reveal_top("start-menu", "apps_scroll", cx);
+            } else {
+                surfaces.reveal_row("start-menu", "apps_scroll", "apps", i, cx);
+            }
+        });
+        draw(vcx);
+    }
+}
+
+/// #EDE-133: Down to a row already in full view scrolls nothing: the
+/// "Apps" heading stays above the first row.
+#[gpui::test]
+fn down_to_a_row_in_view_keeps_the_heading(cx: &mut TestAppContext) {
+    let (plugin, region, mut vcx) = start_menu(&long_feed(0), cx);
+    region.view.update(&mut vcx, |v, _| v.record_bounds(true));
+    draw(&mut vcx);
+    assert_eq!(offset(&region, &vcx), 0.0);
+    press_down(&plugin, 1, &mut vcx, cx);
+    assert_eq!(offset(&region, &vcx), 0.0, "no scroll for a row in view");
+    let viewport = span(&region, "apps_scroll", &vcx).unwrap();
+    let heading = span(&region, "apps_label", &vcx).expect("the heading is drawn");
+    assert!(heading.0 >= viewport.0 - 0.5, "the heading is in view: {heading:?} in {viewport:?}");
+}
+
+/// #EDE-133: Down ×24 then Up ×24: back on the first row, the results are
+/// at their very top, heading included.
+#[gpui::test]
+fn back_up_to_the_first_row_shows_the_top(cx: &mut TestAppContext) {
+    let (plugin, region, mut vcx) = start_menu(&long_feed(0), cx);
+    region.view.update(&mut vcx, |v, _| v.record_bounds(true));
+    draw(&mut vcx);
+    press_down(&plugin, 24, &mut vcx, cx);
+    assert!(offset(&region, &vcx) > 0.0, "the list scrolled down");
+    press_up(&plugin, 24, 24, &mut vcx, cx);
+    assert_eq!(offset(&region, &vcx), 0.0, "back at the top");
+    let viewport = span(&region, "apps_scroll", &vcx).unwrap();
+    let heading = span(&region, "apps_label", &vcx).expect("the heading is drawn");
+    assert!(heading.0 >= viewport.0 - 0.5, "the heading is in view: {heading:?} in {viewport:?}");
+    let (_, rows, selected) = shown(&region, &vcx);
+    assert_eq!(rows.first(), Some(&0), "{rows:?}");
+    assert!(selected.is_some());
+}
+
+/// #EDE-133: Up from row 24 to row 10 scrolls only as far as the
+/// highlighted row needs (its top at the viewport's top).
+#[gpui::test]
+fn up_scrolls_only_as_far_as_the_row_needs(cx: &mut TestAppContext) {
+    let (plugin, region, mut vcx) = start_menu(&long_feed(0), cx);
+    region.view.update(&mut vcx, |v, _| v.record_bounds(true));
+    draw(&mut vcx);
+    press_down(&plugin, 24, &mut vcx, cx);
+    press_up(&plugin, 24, 14, &mut vcx, cx);
+    let (viewport, _, selected) = shown(&region, &vcx);
+    let selected = selected.expect("the highlighted row is drawn");
+    assert!((selected.0 - viewport.0).abs() < 0.5, "row 10 at the top: {selected:?} in {viewport:?}");
 }
