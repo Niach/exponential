@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-copy-image-on-the-web`,
+    date: `2026-11-18`,
+    title: `Copy image on the web`,
+    summary: `Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.`,
+    body: `- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
+- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
+- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab.`,
+  },
+  {
     id: `2026-11-17-chats-encrypted-by-default`,
     date: `2026-11-17`,
     title: `Chats are encrypted by default`,

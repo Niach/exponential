@@ -87,6 +87,7 @@ export * from "./icon-picker"
 export * from "./icon-swatch-grid"
 export * from "./icon-tooltip"
 export * from "./icons.generated"
+export * from "./image-actions"
 export * from "./image-preview-dialog"
 // EXP-1586: THE lightbox picture, the Exponential UI zoom view.
 export * from "./zoomable-image"

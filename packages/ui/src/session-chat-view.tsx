@@ -62,6 +62,7 @@ import {
 import { Dock, DockSheetBody, DockSheetFooter, useDockSheetMeta } from "./dock"
 import { Button } from "./button"
 import { cn } from "./cn"
+import { imageMenuProps } from "@exponential_app/eui/web"
 import { FAB_FOOT_CLASS } from "./fab-chrome"
 import { ListRow } from "./glass-rows"
 import { Menu, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
@@ -735,6 +736,7 @@ export function ChatConversation(props: ChatConversationProps) {
             <img
               src={attachmentSrc(row.attachmentId)}
               alt={row.caption ?? ``}
+              {...imageMenuProps(attachmentSrc(row.attachmentId))}
               width={row.width ?? undefined}
               height={row.height ?? undefined}
               loading="lazy"

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 import type { CardSurface } from "@exp/domain-contract/plan-card"
 import { RESULTS_TAB, RESULTS_TAB_SPECIMEN, type Result, type ResultPicture } from "@exp/domain-contract/results-tab"
 import { cn } from "./cn"
+import { imageMenuProps } from "@exponential_app/eui/web"
 import { EmptyState } from "./empty-state"
 import { conceptIcon } from "./icons.generated"
 import { ImagePreviewDialog } from "./image-preview-dialog"
@@ -95,6 +96,7 @@ export function ResultSection({
                 <img
                   src={attachmentSrc(picture.attachmentId)}
                   alt={pictureText(picture)}
+                  {...imageMenuProps(attachmentSrc(picture.attachmentId))}
                   draggable={false}
                   className="block border border-glass-stroke bg-muted object-cover object-top"
                   style={{ width, height: TILE.thumbHeight[size], borderRadius: TILE.radius }}

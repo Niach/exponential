@@ -34,6 +34,7 @@ import {
   type SessionResultEntry,
 } from "./session-results"
 import { cn } from "./cn"
+import { imageMenuProps } from "@exponential_app/eui/web"
 
 // EXP-879: the RESULTS face — the screenshots a run published with
 // (EXP-933: and each topic's GFM report text, above its tiles)
@@ -125,6 +126,7 @@ function ResultTile({
         <img
           src={src}
           alt={entry.label}
+          {...imageMenuProps(src, entry.label)}
           loading="lazy"
           data-tall={tall || undefined}
           // ONE height for the whole page (the 320px base, or the fitted one

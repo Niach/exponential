@@ -16,7 +16,7 @@ export const embedDenied = (): Promise<{ decision: `deny` }> => Promise.resolve(
 
 /** What of the host plugin the nested surface keeps (presentation only;
  *  a field added to the plugin stays OUT until listed here). */
-const EMBED_KEPT = [`icons`, `openUrl`, `textLinks`, `imageSize`, `onImagePress`, `attachment`, `markdownOptions`, `popupHost`, `urls`, `media`, `mediaRequest`, `mediaStreamUrl`, `Markdown`, `resolveUrl`, `appFile`, `onPaintError`, `onUnknown`] as const
+const EMBED_KEPT = [`icons`, `openUrl`, `textLinks`, `imageSize`, `onImagePress`, `imageSource`, `attachment`, `markdownOptions`, `popupHost`, `urls`, `media`, `mediaRequest`, `mediaStreamUrl`, `Markdown`, `resolveUrl`, `appFile`, `onPaintError`, `onUnknown`] as const
 
 /** The nested surface's host plugin: the host's presentation, `onAction`
  *  = `forward` (the Embed's `action` emitter), host functions denied. */
