@@ -119,9 +119,9 @@ impl Ede {
         self.try_desk_mut(id).expect("the person's desk or a live space")
     }
 
-    /// The desk a window lives on: the person's, the only one.
-    pub fn desk_of_window(&self, _window: &smithay::desktop::Window) -> DeskId {
-        self.desk.id
+    /// The desk a window was made on: its tag, the person's without one.
+    pub fn desk_of_window(&self, window: &smithay::desktop::Window) -> DeskId {
+        window.user_data().get::<DeskTag>().map_or(DeskId::PERSON, |tag| tag.0)
     }
 
     /// The desk an ede-protocol connection drives: the person's, the only one.

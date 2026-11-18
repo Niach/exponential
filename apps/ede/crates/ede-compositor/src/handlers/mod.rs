@@ -37,7 +37,10 @@ impl SeatHandler for Ede {
         &mut self.seat_state
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, image: smithay::input::pointer::CursorImageStatus) {
+    fn cursor_image(&mut self, seat: &Seat<Self>, image: smithay::input::pointer::CursorImageStatus) {
+        if let Some(id) = crate::spaces::space_of_seat(seat) {
+            return self.space_cursor_image(id, image);
+        }
         self.desk.cursor_status = image;
     }
 
@@ -45,6 +48,10 @@ impl SeatHandler for Ede {
         let dh = &self.display_handle;
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client);
+        // A space's seat: the person's text input and X11 focus stay.
+        if crate::spaces::space_of_seat(seat).is_some() {
+            return;
+        }
         self.keep_text_input_off_protected(focused);
         #[cfg(feature = "xwayland")]
         self.sync_x11_focus(focused);

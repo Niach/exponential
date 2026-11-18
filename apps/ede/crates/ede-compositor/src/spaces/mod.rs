@@ -10,6 +10,7 @@
 //! on the person's side.
 
 mod close;
+mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
 
