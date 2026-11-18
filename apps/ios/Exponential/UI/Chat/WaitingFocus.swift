@@ -117,6 +117,9 @@ struct DeepLinkScroll: ViewModifier {
     var arrival = ""
     /// One older page (the transcript's Load earlier); false = none came.
     var page: () -> Bool = { false }
+    /// #EDE-130: the scroll view id the target is drawn under (a find
+    /// key's transcript row); the target itself by default (a card).
+    var scrollId: (String) -> AnyHashable = { AnyHashable($0) }
     /// The link was taken: stop following the newest row.
     var onTake: () -> Void = {}
     /// The link settled `missing`: back to the newest rows.
@@ -233,12 +236,12 @@ struct DeepLinkScroll: ViewModifier {
         case .none:
             break
         case .reveal:
-            proxy.scrollTo(target, anchor: .center)
+            proxy.scrollTo(scrollId(target), anchor: .center)
             schedule(afterMs: 50)
         case .scroll:
             let duration = DesignTokens.Motion.Duration.standard
             animatingUntil = Date().addingTimeInterval(duration)
-            withAnimation(motion.standard) { proxy.scrollTo(target, anchor: .center) }
+            withAnimation(motion.standard) { proxy.scrollTo(scrollId(target), anchor: .center) }
             schedule(afterMs: duration * 1000 + 50)
         case .page:
             if !page() {

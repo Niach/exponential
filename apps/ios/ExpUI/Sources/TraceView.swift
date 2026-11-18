@@ -147,6 +147,46 @@ extension EnvironmentValues {
     }
 }
 
+/// #EDE-130 (find-in-chat.json): genUI's search marks over a line's title
+/// (the catalog `highlight` prop, text-highlight.json): the matches' UTF-16
+/// ranges in the title, the current one's index (-1 = none) and the
+/// theme's `match` / `matchCurrent` fills. Paint only.
+public struct TraceTitleMarks: Equatable {
+    public var ranges: [NSRange]
+    public var current: Int
+    public var match: Color
+    public var matchCurrent: Color
+
+    public init(ranges: [NSRange], current: Int, match: Color, matchCurrent: Color) {
+        self.ranges = ranges
+        self.current = current
+        self.match = match
+        self.matchCurrent = matchCurrent
+    }
+
+    /// `title` with the fills behind its matches.
+    func painted(_ title: String) -> AttributedString {
+        var out = AttributedString(title)
+        for (k, range) in ranges.enumerated() {
+            guard let r = Range(range, in: title), let a = Range(r, in: out) else { continue }
+            out[a].backgroundColor = k == current ? matchCurrent : match
+        }
+        return out
+    }
+}
+
+private struct TraceTitleMarksKey: EnvironmentKey {
+    static let defaultValue: TraceTitleMarks? = nil
+}
+
+public extension EnvironmentValues {
+    /// The search marks the Trace lines under it paint on their titles.
+    var traceTitleMarks: TraceTitleMarks? {
+        get { self[TraceTitleMarksKey.self] }
+        set { self[TraceTitleMarksKey.self] = newValue }
+    }
+}
+
 /// The muted-foreground grey every Trace line paints in (`#a1a1a1`).
 private let traceMutedWhite = 0.6314
 private let traceForegroundWhite = 0.9804
@@ -164,6 +204,7 @@ public struct TraceLine<Icon: View, Accessory: View>: View {
     let accessory: Accessory
 
     @Environment(\.traceHighlighted) private var highlighted
+    @Environment(\.traceTitleMarks) private var marks
     @ScaledMetric(relativeTo: .caption) private var scale: CGFloat = 1
 
     public init(
@@ -215,7 +256,7 @@ public struct TraceLine<Icon: View, Accessory: View>: View {
 
     @ViewBuilder
     private var titleText: some View {
-        let text = Text(verbatim: title)
+        let text = (marks.map { Text($0.painted(title)) } ?? Text(verbatim: title))
             .font(.system(size: g.fontSize * scale))
             .lineLimit(1)
             .truncationMode(.tail)
