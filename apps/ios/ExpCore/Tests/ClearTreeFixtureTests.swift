@@ -19,24 +19,37 @@ final class ClearTreeFixtureTests: XCTestCase {
         func openCard(_ cardJson: String, keys: [UInt32: Data]) -> OpenedCardJson { OpenedCardJson(status: .plain, epoch: nil, json: cardJson) }
     }
 
-    /// `reader` = a create is accepted; `keyFrom` = the publicKeys call from
+    /// `creates` = each `sessionKeys.create`'s refusal in turn (nil = it is
+    /// accepted; the last one repeats); `answer` = `sessionKeys.requestKey`'s
+    /// (nil = it throws `requestError`); `keyFrom` = the publicKeys call from
     /// which on the device's key is there (nil = never).
     private final class Server: SessionKeysRegistry, @unchecked Sendable {
-        let reader: Bool
+        let creates: [TrpcError?]
+        let answer: RequestKeyResult?
+        let requestError: TrpcError
         let keyFrom: Int?
         let asks = Locked<[String]>([])
         let keyCalls = Locked(0)
-        init(reader: Bool, keyFrom: Int?) {
-            self.reader = reader
+        let createdWraps = Locked<[[String]]>([])
+        init(creates: [TrpcError?], answer: RequestKeyResult? = RequestKeyResult(state: "requested"), requestError: TrpcError = ClearTreeFixtureTests.notFound, keyFrom: Int?) {
+            self.creates = creates
+            self.answer = answer
+            self.requestError = requestError
             self.keyFrom = keyFrom
+        }
+        /// `reader` = a create is accepted, else NOT_FOUND (this install may not key it).
+        convenience init(reader: Bool, keyFrom: Int?) {
+            self.init(creates: [reader ? nil : ClearTreeFixtureTests.notFound], keyFrom: keyFrom)
         }
 
         func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget {
             ServerSendTarget(rootId: nil, epoch: nil, publicKey: nil)
         }
         func create(accountId: String, input: CreateTreeKeyInput) async throws {
+            let n = asks.value.filter { $0 == "create" }.count
             asks.mutate { $0.append("create") }
-            if !reader { throw TrpcError.httpError(403, #"{"error":{"message":"no","data":{"code":"FORBIDDEN"}}}"#) }
+            createdWraps.mutate { $0.append(input.wraps.map(\.installId)) }
+            if let refusal = creates[min(n, creates.count - 1)] { throw refusal }
         }
         func mine(accountId: String, installId: String, rootIds: [String]?) async throws -> [HeldTreeKey] { [] }
         func pending(accountId: String, installId: String) async throws -> [PendingTreeKey] { [] }
@@ -46,7 +59,18 @@ final class ClearTreeFixtureTests: XCTestCase {
             guard let keyFrom, keyCalls.value >= keyFrom else { return [] }
             return rootIds.map { TreePublicKey(rootId: $0, epoch: 1, publicKey: "device-tree") }
         }
+        func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult {
+            asks.mutate { $0.append("requestKey") }
+            guard let answer else { throw requestError }
+            return answer
+        }
     }
+
+    /// tRPC refusals as the server sends them.
+    static func trpc(_ status: Int, _ code: String, _ message: String) -> TrpcError {
+        .httpError(status, #"{"error":{"message":"\#(message)","data":{"code":"\#(code)"}}}"#)
+    }
+    static let notFound = trpc(404, "NOT_FOUND", "Session not found")
 
     private static func clearTree() throws -> [String: Any] {
         try XCTUnwrap(try SealedContentFixtureTests.fixture()["clearTree"] as? [String: Any])
@@ -54,7 +78,7 @@ final class ClearTreeFixtureTests: XCTestCase {
 
     /// `holder`: `ready` = registered, `late` = registered at the second ask,
     /// `none` = never.
-    private func sealing(_ server: Server, holder: String) -> SendSealing {
+    private func sealing(_ server: Server, holder: String, keyWait: Duration = .milliseconds(1500)) -> SendSealing {
         let crypto = StubCrypto()
         let asked = Locked(0)
         return SendSealing(
@@ -72,7 +96,7 @@ final class ClearTreeFixtureTests: XCTestCase {
             ),
             crypto: crypto,
             holderWait: .milliseconds(1500),
-            keyWait: .milliseconds(1500)
+            keyWait: keyWait
         )
     }
 
@@ -147,6 +171,140 @@ final class ClearTreeFixtureTests: XCTestCase {
                 XCTAssertEqual(failure?.localizedDescription, noKeyRefusal, name)
             }
         }
+    }
+
+    // MARK: a keyless tree (#EXP-1960, `keylessCases`)
+
+    func testKeylessConstantsAreTheFixtures() throws {
+        let f = try Self.clearTree()
+        XCTAssertEqual(f["createAttempts"] as? Int, sealCreateAttempts)
+        XCTAssertEqual(sealCreateRetry, .milliseconds(try XCTUnwrap(f["createRetryMs"] as? Int)))
+        XCTAssertEqual(f["wrapRefusal"] as? String, wrapRefusal)
+    }
+
+    func testKeylessCasesPure() throws {
+        let cases = try XCTUnwrap(try Self.clearTree()["keylessCases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 15)
+        for c in cases {
+            let name = try XCTUnwrap(c["name"] as? String)
+            let step: KeylessStep = if let answer = c["answer"] as? String {
+                keylessStep(answer: try XCTUnwrap(RequestKeyAnswer(rawValue: answer), name))
+            } else {
+                keylessStep(
+                    failure: try XCTUnwrap(CreateFailure(rawValue: c["failure"] as? String ?? ""), name),
+                    attempt: c["attempt"] as? Int ?? 1,
+                    ownOnly: c["ownOnly"] as? Bool ?? false
+                )
+            }
+            XCTAssertEqual(step.rawValue, c["step"] as? String, name)
+        }
+    }
+
+    func testCreateFailureReadsTheTrpcError() {
+        XCTAssertEqual(createFailure(code: "BAD_REQUEST", message: clearTreeRefusal), .clear)
+        XCTAssertEqual(createFailure(code: "CONFLICT", message: staleTreeRefusal), .stale)
+        XCTAssertEqual(createFailure(code: "CONFLICT", message: "The tree is at epoch 2"), .stale)
+        XCTAssertEqual(createFailure(code: "BAD_REQUEST", message: wrapRefusal), .wrapRefused)
+        XCTAssertEqual(createFailure(code: "NOT_FOUND", message: "Session not found"), .notReader)
+        XCTAssertEqual(createFailure(code: "FORBIDDEN", message: "no"), .refused)
+        XCTAssertEqual(createFailure(code: "INTERNAL_SERVER_ERROR", message: "boom"), .transient)
+        XCTAssertEqual(createFailure(code: "TOO_MANY_REQUESTS", message: nil), .transient)
+        XCTAssertEqual(createFailure(code: nil, message: nil), .transient)
+    }
+
+    /// A pre-#EDE-97 chat as the store has it: no key, not clear, real ids.
+    private static let legacyRoot = SealRoot(
+        id: "0b6f3c2e-8d1a-4f5b-9c7e-2a4d6e8f1b3c", teamId: "5e2a9c41-7b3d-4e6f-8a1c-9d2b4f6e8a0c",
+        deviceId: "f3a1c5e7-9b2d-4f6a-8c0e-1d3b5f7a9c2e", shared: true, key: nil
+    )
+
+    private func send(_ writer: SendSealing) async -> (PreparedSend?, Error?) {
+        do {
+            return (try await writer.prepare(
+                accountId: "acc", .message(sessionId: Self.legacyRoot.id, text: "hi"), root: Self.legacyRoot, mentions: nil, deviceIds: { _ in [] }
+            ), nil)
+        } catch {
+            return (nil, error)
+        }
+    }
+
+    func testAnIdleDevicesKeylessChatIsKeyedOnRequest() async throws {
+        // Not a reader (NOT_FOUND), its device idle: asked, it keys the tree
+        // and the key is there on a later publicKeys poll.
+        let server = Server(creates: [Self.notFound], answer: RequestKeyResult(state: "requested"), keyFrom: 3)
+        let (prepared, failure) = await send(sealing(server, holder: "ready", keyWait: .seconds(5)))
+        XCTAssertNil(failure)
+        XCTAssertEqual(server.asks.value, ["create", "requestKey"])
+        XCTAssertEqual(server.keyCalls.value, 3)
+        XCTAssertNil(prepared?.input.seal)
+        XCTAssertEqual(prepared?.input.input.text, "exp-sealed:device-tree:1:hi")
+    }
+
+    func testNoHostFailsAtOnce() async throws {
+        let server = Server(creates: [Self.notFound], answer: RequestKeyResult(state: "noHost"), keyFrom: nil)
+        let started = ContinuousClock.now
+        let (prepared, failure) = await send(sealing(server, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertLessThan(ContinuousClock.now - started, .seconds(2))
+        XCTAssertNil(prepared)
+        XCTAssertEqual(failure as? SealRefusal, SealRefusal())
+        XCTAssertEqual(server.asks.value, ["create", "requestKey"])
+        XCTAssertEqual(server.keyCalls.value, 0)
+    }
+
+    func testRequestKeyAnswersKeyedOrClear() async throws {
+        let keyed = Server(creates: [Self.notFound], answer: RequestKeyResult(state: "keyed", epoch: 4, publicKey: "host-tree"), keyFrom: nil)
+        let (sealed, _) = await send(sealing(keyed, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertEqual(sealed?.input.input.text, "exp-sealed:host-tree:4:hi")
+        let clear = Server(creates: [Self.notFound], answer: RequestKeyResult(state: "clear"), keyFrom: nil)
+        let (plain, _) = await send(sealing(clear, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertEqual(plain?.input.input.text, "hi")
+    }
+
+    func testAnOlderServerWithoutRequestKeyWaitsBare() async throws {
+        let server = Server(creates: [Self.notFound], answer: nil, requestError: Self.trpc(404, "NOT_FOUND", #"No procedure found on path \"sessionKeys.requestKey\""#), keyFrom: 2)
+        let (prepared, failure) = await send(sealing(server, holder: "ready"))
+        XCTAssertNil(failure)
+        XCTAssertEqual(prepared?.input.input.text, "exp-sealed:device-tree:1:hi")
+    }
+
+    func testABlipIsRetriedThenSealed() async throws {
+        let server = Server(creates: [Self.trpc(500, "INTERNAL_SERVER_ERROR", "boom"), nil], keyFrom: nil)
+        let started = ContinuousClock.now
+        let (prepared, failure) = await send(sealing(server, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertNil(failure)
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - started, sealCreateRetry)
+        XCTAssertEqual(server.asks.value, ["create", "create"])
+        XCTAssertEqual(prepared?.input.input.text, "exp-sealed:new-tree:1:hi")
+    }
+
+    func testBlipsUpToTheLastAttemptFail() async throws {
+        let server = Server(creates: [.httpError(502, "<html>Bad Gateway</html>")], keyFrom: nil)
+        let (prepared, failure) = await send(sealing(server, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertNil(prepared)
+        XCTAssertEqual(failure as? SealRefusal, SealRefusal())
+        XCTAssertEqual(server.asks.value, Array(repeating: "create", count: sealCreateAttempts))
+    }
+
+    func testAWrapRefusalRetriesWithOwnInstallsThenAsksTheDevice() async throws {
+        let refusal = Self.trpc(400, "BAD_REQUEST", wrapRefusal)
+        let server = Server(creates: [refusal], answer: RequestKeyResult(state: "noHost"), keyFrom: nil)
+        let (_, failure) = await send(sealing(server, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertEqual(failure as? SealRefusal, SealRefusal())
+        XCTAssertEqual(server.asks.value, ["create", "create", "requestKey"])
+        let accepted = Server(creates: [refusal, nil], keyFrom: nil)
+        let (prepared, _) = await send(sealing(accepted, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertEqual(accepted.asks.value, ["create", "create"])
+        XCTAssertEqual(accepted.createdWraps.value.last, ["install-me"])
+        XCTAssertEqual(prepared?.input.input.text, "exp-sealed:new-tree:1:hi")
+    }
+
+    func testAnyOtherRefusalFailsWithoutAWait() async throws {
+        let server = Server(creates: [Self.trpc(403, "FORBIDDEN", "no")], keyFrom: nil)
+        let started = ContinuousClock.now
+        let (_, failure) = await send(sealing(server, holder: "ready", keyWait: sealKeyWait))
+        XCTAssertLessThan(ContinuousClock.now - started, .seconds(2))
+        XCTAssertEqual(failure as? SealRefusal, SealRefusal())
+        XCTAssertEqual(server.asks.value, ["create"])
     }
 
     func testAnAttachmentOnlySendIsNeverRefused() async throws {
