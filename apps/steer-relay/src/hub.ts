@@ -115,6 +115,9 @@ interface CallRoom {
   idleTimer: ReturnType<typeof setInterval> | null
   /** The last forwarded binary frame (or the pairing). */
   lastFrameAt: number
+  /** #EXP-1941: the host sent a `hello` event, so the ends seal this call
+   *  (the relay reads the event's `t`, never its `data`). */
+  sealed: boolean
 }
 
 /** NEW-55: a peer with more than this queued SKIPS audio frames instead of
@@ -236,6 +239,10 @@ export class Hub {
   private callBusy = 0
   private callNoAnswer = 0
   private callsExpired = 0
+  /** #EXP-1941: answered calls that ended, by whether the host sent a
+   *  `hello` event (the ends sealed it) or not (the relay could read it). */
+  private callsSealed = 0
+  private callsLegacy = 0
   private callFramesForwarded = 0
   private callFramesDropped = 0
   private callFramesSkipped = 0
@@ -582,6 +589,7 @@ export class Hub {
       case `call_event`: {
         const call = this.callFor(conn)
         if (!call || call.host !== conn) return
+        if (msg.event.t === `hello`) call.sealed = true
         call.caller.sock.send(frame({ t: `call_event`, event: msg.event }))
         return
       }
@@ -762,6 +770,8 @@ export class Hub {
       callBusy: this.callBusy,
       callNoAnswer: this.callNoAnswer,
       callsExpired: this.callsExpired,
+      callsSealed: this.callsSealed,
+      callsLegacy: this.callsLegacy,
       callFramesForwarded: this.callFramesForwarded,
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
@@ -836,6 +846,7 @@ export class Hub {
       lengthTimer: null,
       idleTimer: null,
       lastFrameAt: 0,
+      sealed: false,
     }
     call.ringTimer = setTimeout(() => {
       call.ringTimer = null
@@ -957,7 +968,13 @@ export class Hub {
       clearInterval(call.idleTimer)
       call.idleTimer = null
     }
-    if (this.calls.get(call.callId) === call) this.calls.delete(call.callId)
+    if (this.calls.get(call.callId) === call) {
+      this.calls.delete(call.callId)
+      if (call.host) {
+        if (call.sealed) this.callsSealed += 1
+        else this.callsLegacy += 1
+      }
+    }
     const key = callDeviceKey(call.ownerId, call.deviceId)
     if (this.callsByDevice.get(key) === call.callId) {
       this.callsByDevice.delete(key)
