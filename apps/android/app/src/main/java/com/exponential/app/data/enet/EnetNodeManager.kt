@@ -9,6 +9,7 @@ import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.api.PendingWrap
+import com.exponential.app.data.api.TeamInstall
 import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.sealed.HolderApi
@@ -72,6 +73,10 @@ class EnetNodeManager @Inject constructor(
     private val nodes = ConcurrentHashMap<String, InstallNode>()
     private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
     private val installIds = ConcurrentHashMap<String, String>()
+
+    // #EDE-114: the registry lists each account's node last loaded, per team
+    // (the chat store's catch-up holders and its page access rule).
+    private val registries = ConcurrentHashMap<String, Map<String, List<TeamInstall>>>()
     private val holderWake = Channel<Unit>(Channel.CONFLATED)
 
     // EXP-1524: the accounts whose node is registered AND has loaded its
@@ -175,6 +180,16 @@ class EnetNodeManager @Inject constructor(
      */
     fun peer(accountId: String): PeerNode? =
         if (accountId in _ready.value) nodes[accountId]?.node else null
+
+    /**
+     * #EDE-114: the install registry [accountId]'s node last loaded, per
+     * team id (`installs.list`); empty before its first refresh.
+     */
+    fun registry(accountId: String): Map<String, List<TeamInstall>> =
+        registries[accountId].orEmpty().filterKeys { it in teamIds[accountId].orEmpty() }
+
+    /** #EDE-114: the user id [accountId] is signed in as (null = not signed in here). */
+    fun userId(accountId: String): String? = accounts[accountId]
 
     /** Runs a holder pass now (a key was just created, or a screen lacks one). */
     fun wakeHolders() {
@@ -280,7 +295,9 @@ class EnetNodeManager @Inject constructor(
             platform = "Android ${Build.VERSION.RELEASE}",
             register = { input -> withTimeoutOrNull(START_CALL_TIMEOUT_MS) { api.register(accountId, input) } ?: error("register timed out") },
             listTeam = { teamId ->
-                withTimeoutOrNull(START_CALL_TIMEOUT_MS) { api.list(accountId, teamId).map { it.endpointId } } ?: error("list timed out")
+                val list = withTimeoutOrNull(START_CALL_TIMEOUT_MS) { api.list(accountId, teamId) } ?: error("list timed out")
+                registries.compute(accountId) { _, teams -> teams.orEmpty() + (teamId to list) }
+                list.map { it.endpointId }
             },
             startNode = { id -> FfiPeerNode.start(id) },
         )
@@ -305,6 +322,7 @@ class EnetNodeManager @Inject constructor(
         _ready.value = _ready.value - accountId
         holders.remove(accountId)
         installIds.remove(accountId)
+        registries.remove(accountId)
         val node = nodes.remove(accountId) ?: return
         try {
             node.stop()

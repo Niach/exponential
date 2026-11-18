@@ -133,6 +133,23 @@ const leftoverBranchSchema = z.string().regex(/^exp\/leftover-[a-z0-9]{1,8}(-[0-
  *  NEW-5 note, now the server's). */
 export const leftoverText = (branch: string) => `Unpushed work was kept on branch ${branch}.`
 
+/** #EXP-1959: why a device's eNet gave up, so it holds no key holder
+ *  (Rust `sealing::HolderOff::code`) → the line's words for it. */
+export const NO_KEY_HOLDER_REASONS = {
+  identity_unreadable: `its identity file is unreadable`,
+  node_failed: `its node failed to start`,
+  registration_refused: `the server refused its install`,
+  no_key_api: `the server has no key API`,
+  stopped: `it signed out`,
+} as const
+export type NoKeyHolderReason = keyof typeof NO_KEY_HOLDER_REASONS
+
+/** #EXP-1959: the conversation's line for a device that cannot seal its
+ *  agent's replies (the server's own words: a keyed tree takes no
+ *  plaintext from a device). */
+export const noKeyHolderText = (reason: NoKeyHolderReason) =>
+  `The agent's replies can't be sent: its device holds no encryption key (P2P is off: ${NO_KEY_HOLDER_REASONS[reason]}). Restart the app or daemon there while signed in and online, then send again.`
+
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
 
@@ -478,7 +495,8 @@ export const sessionsRouter = router({
       const text = manualLinkText(identifiers)
       if (text) {
         try {
-          await sendSession({ userId, input: { sessionId: session.id, text } })
+          // #EXP-1957: the server composes it from the linked identifiers: a server line.
+          await sendSession({ userId, input: { sessionId: session.id, text }, extras: { serverComposed: true } })
         } catch (err) {
           console.warn(`[sessions.linkIssues] the link message to ${session.id} failed`, err)
         }
@@ -1068,6 +1086,35 @@ export const sessionsRouter = router({
         return txid
       })
       void notifySessionLeftover(session.id, input.branch)
+      return { txid }
+    }),
+
+  /** #EXP-1959: the device running the session holds no key holder (its
+   *  eNet gave up: `reason`), so its agent's replies cannot be sealed and
+   *  wait on the device. The conversation gets ONE server line saying so
+   *  (`noKeyHolderText`, in clear, never waking the agent); a repeat is a
+   *  no-op. */
+  noKeyHolder: authedProcedure
+    .input(
+      z.object({
+        sessionId: uuid,
+        reason: z.enum(Object.keys(NO_KEY_HOLDER_REASONS) as [NoKeyHolderReason, ...NoKeyHolderReason[]]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
+      const text = noKeyHolderText(input.reason)
+      const txid = await ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const [said] = await tx
+          .select({ id: messages.id })
+          .from(messages)
+          .where(and(inSession(session.id), eq(messages.authorKind, `system`), eq(messages.body, text)))
+          .limit(1)
+        if (!said) await postMovedMessage(tx, session, text)
+        return txid
+      })
       return { txid }
     }),
 

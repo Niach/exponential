@@ -330,6 +330,10 @@ pub struct RemoteSession {
     /// The list's order key (newest activity first).
     #[serde(default)]
     pub updated_at: Option<String>,
+    /// #EDE-97: the tree is an outside MCP client's, in clear for life
+    /// (absent on an older server = not).
+    #[serde(default)]
+    pub clear_tree: bool,
 }
 
 /// `exponential_sessions_get`: ONE session tree (any member id resolves to

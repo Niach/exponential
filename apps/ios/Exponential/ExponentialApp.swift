@@ -15,6 +15,8 @@ struct ExponentialApp: App {
         Observability.launch(origins: [])
         // Built first, as the property initializer did before (#EXP-1640:
         // held here so an intent launched in the background reaches it).
+        // #EDE-114: the chat store's background window, before launch ends.
+        ChatCatchUpBackground.register()
         let dependencies = AppDependencies()
         _dependencies = State(initialValue: dependencies)
         AppIntentsHost.deps = dependencies
@@ -74,6 +76,10 @@ struct ExponentialApp: App {
                         // #EXP-1528: the connection analytics go out on the way out.
                         let connStats = dependencies.connStats
                         Task { await connStats.flush() }
+                        // #EDE-114: the foreground walk stops; the OS's window
+                        // (network + power) carries it on.
+                        ChatStoreHub.shared.setForeground(active: false)
+                        ChatCatchUpBackground.schedule()
                     case .active:
                         dependencies.syncManager.sceneDidBecomeActive()
                         // The steer sockets rarely survive a suspension either
@@ -84,6 +90,7 @@ struct ExponentialApp: App {
                         // migrates its paths alongside (iOS never tells it).
                         dependencies.installNode?.networkChange()
                         dependencies.steerSessions.reconnectAll(reason: "foreground")
+                        ChatStoreHub.shared.setForeground(active: true)
                     default: break
                     }
                 }

@@ -2,7 +2,7 @@
 // the tRPC `sessionKeys` router and `sessions.send {seal}` (a new root's key
 // in its own transaction). Router-free: lib/sessions never imports a router
 // (suites mock @/lib/trpc whole).
-import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL } from "@exp/domain-contract/sealed-content"
+import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
@@ -230,7 +230,7 @@ export async function createTreeKeyInTx(
   }
   for (const target of targets) {
     if (!readers.has(target)) {
-      throw new TRPCError({ code: `BAD_REQUEST`, message: `A wrap names an install that is not a reader` })
+      throw new TRPCError({ code: `BAD_REQUEST`, message: WRAP_REFUSAL })
     }
   }
   for (const wrap of input.wraps) {

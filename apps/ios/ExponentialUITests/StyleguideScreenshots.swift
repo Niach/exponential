@@ -1870,9 +1870,10 @@ final class StyleguideScreenshots: XCTestCase {
                 .firstMatch
             expect(agentRow, within: Wait.sync, "The Chats list has no \(Self.agentName) agent row")
             agentRow.tap()
-            // #EXP-1732: THE session screen; its Chat tab = the agent
-            // root's own session view (the seeded messages are no feed).
-            expect(anyElement(app, identified: "session-tabs-chat"), within: Wait.sync, "\(Self.agentName)'s chat drew no session tabs")
+            // #EXP-1732: THE session screen = the agent root's own session
+            // view (the seeded messages are no feed); #FEED-271: an agent's
+            // header has no tabs, so wait on its `…`.
+            expect(anyElement(app, identified: "session-menu"), within: Wait.sync, "\(Self.agentName)'s chat drew no session header")
             snapshot("sg_agent-channel", settle: 3)
             goBack(app)
         }

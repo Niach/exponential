@@ -692,6 +692,9 @@ data class ChatMenuItem(
     /** #EXP-1611: non-null = a submenu entry; a pick PUSHES these rows as
      *  the menu's page (the header `…`'s Checks). */
     val submenu: List<ChatMenuItem>? = null,
+    /** #FEED-271: the `›` of a row that opens the next sheet (the session
+     *  screen's Link or file an issue), like a submenu entry's. */
+    val chevron: Boolean = false,
     /** The muted trailing meta (the app editor's Versions count). */
     val meta: String? = null,
 )
@@ -754,6 +757,18 @@ fun ChatMenuRows(items: List<ChatMenuItem>) {
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             )
                         }
+                    } ?: if (item.chevron) {
+                        // #FEED-271: a row that opens the next sheet wears its `›`.
+                        {
+                            Icon(
+                                ExpIcons.uiChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        null
                     },
                 )
             }

@@ -310,6 +310,8 @@ struct OnboardingView: View {
         Task {
             // EXP-1275 (D8 BLOCKING): signing out covers the window.
             await BlockingFeedback.shared.run(FeedbackStates.Blocking.signOut) {
+                // #EDE-120: a deliberate sign-out deletes the account's chat store.
+                deps.signOutChatStore(accountId: accountId)
                 await deps.syncManager.signOut(accountId: accountId)
                 deps.auth.signOutLocally(accountId: accountId)
             }

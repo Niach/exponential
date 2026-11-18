@@ -19,12 +19,23 @@
 // keyless tree this install may not key, for its device's key
 // (`keyWaitMs`); a text that still cannot be sealed FAILS with
 // `NO_KEY_REFUSAL` (the failed-send toast), nothing leaves in clear.
+// #EXP-1960 (`clearTree.keylessCases`): a failed `sessionKeys.create` is
+// read (`createFailure` -> `keylessStep`): a blip is retried, a wrap the
+// server refuses is retried with this account's installs only, and a tree
+// this install may not key asks its DEVICES to key it
+// (`sessionKeys.requestKey`) before its key is waited for; the bare wait
+// is left only for a real NOT_FOUND (or an older server).
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
 import {
-  CLEAR_TREE_REFUSAL,
+  createFailure,
   isStaleTreeRefusal,
+  keylessStep,
+  type CreateFailure,
+  type RequestKeyAnswer,
   NO_KEY_REFUSAL,
+  SEAL_CREATE_ATTEMPTS,
+  SEAL_CREATE_RETRY_MS,
   SEAL_HOLDER_WAIT_MS,
   SEAL_KEY_WAIT_MS,
   sealBody,
@@ -77,16 +88,23 @@ export type SealDeps = {
   sendTarget: (input: { agentId?: string; appId?: string }) => Promise<ServerTarget>
   /** The server's current key of a root (`sessionKeys.publicKeys`), if keyed. */
   publicKey: (rootId: string) => Promise<TreePublicKey | undefined>
+  /** #EXP-1960: `sessionKeys.requestKey`: the tree's devices key it. */
+  requestKey?: (rootId: string) => Promise<RequestKeyResult>
   /** #EDE-97: this tab's key holder once it runs (registering its install
    *  when it has none), within `ms`; undefined = none came. Absent = no wait. */
   awaitHolder?: (ms: number) => Promise<SealDeps[`holder`]>
   /** Test seam: waits between key polls (default: a timer). */
   sleep?: (ms: number) => Promise<void>
   /** Test seam: the key waits (default: the fixture's). */
-  waits?: { holderMs: number; keyMs: number; pollMs: number }
+  waits?: { holderMs: number; keyMs: number; pollMs: number; createRetryMs?: number }
 }
 
 export type TreePublicKey = { epoch: number; publicKey: string }
+export type RequestKeyResult =
+  | { state: `keyed`; epoch: number; publicKey: string }
+  | { state: `clear` }
+  | { state: `requested` }
+  | { state: `noHost` }
 export type ServerTarget = {
   rootId: string | null
   epoch: number | null
@@ -127,6 +145,12 @@ export class NoKeyError extends Error {
 
 const CLEAR = Symbol(`clear`)
 
+/** A tRPC error's code (`TRPCClientError.data.code`); none = no answer. */
+function errorCode(error: unknown): string | undefined {
+  const data = (error as { data?: { code?: unknown } } | null)?.data
+  return typeof data?.code === `string` ? data.code : undefined
+}
+
 /** The root a send lands in, when it exists already. */
 export function targetRoot(input: SessionsSendInput, deps: Pick<SealDeps, `session` | `sessions` | `me`>): SealSessionRow | undefined {
   const rootOf = (id: string | undefined) => {
@@ -162,11 +186,14 @@ async function readersFor(
   const out = new Map<string, ReaderInstall>()
   const add = (row: InstallRow) => out.set(row.installId, { installId: row.installId, x25519Public: row.x25519Public })
   if (root.userId === deps.me || root.shared) for (const row of live(await deps.myInstalls())) add(row)
-  const deviceRows = root.deviceId ? new Set(deps.deviceRowIds(root.deviceId)) : new Set<string>()
-  if (root.shared || deviceRows.size > 0) {
+  // `installs.list` names an install's device by its MACHINE id (the
+  // `sessions.device_id`); a devices row uuid is accepted too (#EXP-1960:
+  // matching only row uuids never wrapped for a teammate's shared host).
+  const deviceIds = root.deviceId ? new Set([root.deviceId, ...deps.deviceRowIds(root.deviceId)]) : new Set<string>()
+  if (root.shared || root.deviceId) {
     const team = live(await deps.teamInstalls(root.teamId).catch(() => []))
     for (const row of team) {
-      if (root.shared || (row.deviceId && deviceRows.has(row.deviceId))) add(row)
+      if (root.shared || (row.deviceId && deviceIds.has(row.deviceId))) add(row)
     }
   }
   return [...out.values()]
@@ -235,17 +262,54 @@ export async function sealSendInput(
       : undefined
   // #EDE-97: a clear conversation the store does not know as one yet.
   if (target?.clearTree) return plain
-  /** A keyless root this install keys first; refused = the server's key,
-   *  else (not a reader) the key its device's claim makes, waited for. */
-  const keyFirst = async (rootId: string, readers: Parameters<typeof readersFor>[0]) => {
+  /** #EXP-1960: a tree this install may not key: its devices are asked
+   *  to; their key is waited for, a tree no device hosts fails at once. */
+  const askDevice = async (rootId: string) => {
+    let answer: RequestKeyAnswer = `error`
+    let result: RequestKeyResult | undefined
     try {
-      return await holder.createTree(rootId, await readersFor(readers, deps))
+      result = deps.requestKey ? await deps.requestKey(rootId) : undefined
+      answer = result?.state ?? `error`
     } catch (error) {
-      // #EDE-97: a clear tree the store did not know as one.
-      if (error instanceof Error && error.message === CLEAR_TREE_REFUSAL) return CLEAR
-      // Keyed meanwhile (#FEED-248), or a keyless root this install may not
-      // key (not a reader): never plaintext, its key is waited for.
-      return awaitKey(rootId)
+      answer = errorCode(error) === `NOT_FOUND` ? `notFound` : `error`
+    }
+    const step = keylessStep({ answer })
+    if (step === `plain`) return CLEAR
+    if (step === `failed`) throw new NoKeyError()
+    if (step === `sealed` && result?.state === `keyed`) return { epoch: result.epoch, publicKey: result.publicKey }
+    return awaitKey(rootId)
+  }
+  /** A keyless root this install keys first (`sessionKeys.create`); a
+   *  failure takes the fixture's `keylessStep`, never a silent wait. */
+  const keyFirst = async (rootId: string, readers: Parameters<typeof readersFor>[0]) => {
+    let ownOnly = false
+    for (let attempt = 1; ; attempt++) {
+      let failure: CreateFailure
+      try {
+        const wraps = ownOnly ? live(await deps.myInstalls()) : await readersFor(readers, deps)
+        // Not among the readers it can name: this install may not key it.
+        if (!wraps.some((row) => row.installId === holder.installId)) failure = `notReader`
+        else return await holder.createTree(rootId, wraps)
+      } catch (error) {
+        failure = createFailure({ code: errorCode(error), message: error instanceof Error ? error.message : undefined })
+      }
+      switch (keylessStep({ failure, attempt, ownOnly })) {
+        case `plain`:
+          return CLEAR
+        case `serverKey`:
+          return (await deps.publicKey(rootId).catch(() => undefined)) ?? askDevice(rootId)
+        case `retryOwn`:
+          ownOnly = true
+          break
+        case `retry`:
+          await sleep((waits.createRetryMs ?? SEAL_CREATE_RETRY_MS) * attempt)
+          break
+        case `requestKey`:
+          return askDevice(rootId)
+        default:
+          throw new NoKeyError()
+      }
+      if (attempt >= SEAL_CREATE_ATTEMPTS + 1) throw new NoKeyError()
     }
   }
 

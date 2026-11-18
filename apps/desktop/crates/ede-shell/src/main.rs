@@ -2246,11 +2246,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
     let jobs = shell.borrow().chat_files.jobs();
     let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else { return };
-    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
-        if let Some(sealed) = team_chat::seal(root, &text) {
-            input.text = Some(sealed);
-        }
-    }
+    let tree = team_chat::send_tree(&rows.account, &input);
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let transport = shell.borrow().workspaces.attachments(&account);
@@ -2264,6 +2260,14 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
         let sent = cx
             .background_executor()
             .spawn(async move {
+                // #EDE-131: sealed (or refused) before anything uploads.
+                if let Some(text) = input.text.take() {
+                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
+                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                        UploadSendError::Send(Vec::new(), no_key())
+                    })?;
+                    input.text = Some(wire);
+                }
                 let resolved = api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| transport.upload_team_session_file(&team_id, filename, content_type, bytes))
                     .map_err(|(landed, e)| UploadSendError::Upload(landed, e))?;
                 input.attachment_ids = Some(chat_files::attachment_ids(&resolved)).filter(|ids| !ids.is_empty());
@@ -2363,10 +2367,19 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
         chatting_changed(shell, cx);
         return;
     }
-    let Some(account_id) = shell.borrow().chat_team.as_ref().map(|c| c.account_id.clone()) else { return };
-    let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
+    let Some((chat, rows)) = team_chat(shell) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
+    // #EDE-131: a sealed card's answer re-sealed; a card this shell cannot
+    // seal for is refused here, never sent in clear.
+    let input = match team_chat::answer_wire(&rows, &input) {
+        Ok(input) => input,
+        Err(why) => {
+            failed_action(shell, "answer", "the question", &why, cx);
+            return;
+        }
+    };
     let shell = shell.clone();
     cx.spawn(async move |cx| {
         let answered = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
@@ -2392,21 +2405,36 @@ fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value,
     let Some((chat, rows)) = team_chat(shell) else { return };
     let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
     let mut input = team_chat::reply_input(&chat, &reply);
-    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
-        if let Some(sealed) = team_chat::seal(root, &text) {
-            input.text = Some(sealed);
-        }
-    }
+    let tree = team_chat::send_tree(&rows.account, &input);
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let shell = shell.clone();
     cx.spawn(async move |cx| {
-        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        let sent = cx
+            .background_executor()
+            .spawn(async move {
+                // #EDE-131: sealed, plaintext only into a clear tree.
+                if let Some(text) = input.text.take() {
+                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
+                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                        no_key()
+                    })?;
+                    input.text = Some(wire);
+                }
+                api::sessions::send(&trpc, &input)
+            })
+            .await;
         if let Err(e) = sent {
             cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx));
         }
     })
     .detach();
+}
+
+/// #EDE-97: a send that could not be sealed (`noKeyRefusal`, the toast's
+/// description).
+fn no_key() -> api::ApiError {
+    api::ApiError::Http { status: 400, message: team_chat::NO_KEY_REFUSAL.to_string() }
 }
 
 /// A failed action the person just took (feedback-states.json `errors`):

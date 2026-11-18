@@ -9,17 +9,21 @@ publish = false
 # THE RULE: the core (everything but `sqlite`) is serde, serde_json and
 # unicode-normalization only: no I/O, no clock, no async runtime, so the
 # phones (exponential-mobile-ffi) and the web (wasm + OPFS) link the same
-# rules. The SQLite adapter is the `sqlite` feature.
+# rules. The SQLite adapter is the `sqlite` feature; `bundled` compiles
+# SQLite in (desktop, CLI, Android). iOS links the system SQLite instead
+# (`sqlite` alone): GRDB in the same image uses it, and a second, static
+# SQLite would take over GRDB's symbols.
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 # The query fold (NFD, marks dropped), the same as steer's find in chat (#EDE-96).
 unicode-normalization = "0.1"
-rusqlite = { workspace = true, optional = true }
+rusqlite = { version = "0.41", optional = true }
 
 [features]
-default = ["sqlite"]
+default = ["bundled"]
 sqlite = ["dep:rusqlite"]
+bundled = ["sqlite", "rusqlite/bundled"]
 
 # The open bench (`tests/open_bench.rs`) folds what it reads the way a session
 # view does; the crate itself never links steer.

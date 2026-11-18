@@ -359,3 +359,68 @@ describe(`sessionKeys.publicKeys`, () => {
     expect(await caller(`u2`).publicKeys({ rootIds: [R2] })).toEqual([{ rootId: R2, epoch: 1, publicKey: PUBLIC }])
   })
 })
+
+describe(`#EXP-1960 sessionKeys.requestKey (fixture clearTree.requestKeyCases)`, () => {
+  type Case = {
+    name: string
+    caller: `starter` | `member` | `host`
+    shared?: boolean
+    tree: `keyless` | `keyed` | `clear` | `missing`
+    hosts: number
+    pending?: boolean
+    answer: string
+    queued: number
+  }
+  const RK = id(`e1`)
+  const CK = id(`e2`)
+  const callers = { starter: `u1`, member: `u2`, host: `u3` } as const
+  for (const c of fixture.clearTree.requestKeyCases as Case[]) {
+    it(c.name, async () => {
+      // A pre-#EDE-97 chat: u1's, on its own mac (or u3's shared box for the
+      // host case); a second host = a child on u3's box; none = a gone machine.
+      const rootDevice = c.hosts === 0 ? `gone-9` : c.caller === `host` ? `box-3` : `mac-1`
+      db.rows(`sessions`).splice(0)
+      if (c.tree !== `missing`) {
+        db.rows(`sessions`).push(
+          session(RK, {
+            teamId: TEAM_A,
+            userId: `u1`,
+            deviceId: rootDevice,
+            shared: c.shared === true,
+            clearTree: c.tree === `clear`,
+            ...(c.tree === `keyed` ? { sealEpoch: 1, sealPublicKey: PUBLIC } : {}),
+          })
+        )
+        if (c.hosts === 2) {
+          db.rows(`sessions`).push(session(CK, { rootId: RK, parentId: RK, teamId: TEAM_A, userId: `u1`, deviceId: `box-3` }))
+        }
+      }
+      if (c.pending) {
+        db.rows(`device_commands`).push({ id: id(`cc`), deviceRowId: D1, userId: `u1`, kind: `tree_key`, status: `pending`, payload: { rootId: RK } })
+      }
+      const before = db.rows(`device_commands`).length
+      vi.mocked(nudgeDevice).mockClear()
+      const call = caller(callers[c.caller]).requestKey({ rootId: RK })
+      if (c.answer === `notFound`) {
+        await expect(call).rejects.toMatchObject({ code: `NOT_FOUND` })
+        expect(db.rows(`device_commands`).length).toBe(before)
+        return
+      }
+      const result = await call
+      expect(result.state).toBe(c.answer)
+      expect(db.rows(`device_commands`).length - before).toBe(c.queued)
+      if (c.answer === `keyed`) expect(result).toMatchObject({ epoch: 1, publicKey: PUBLIC })
+      if (c.answer === `requested`) {
+        const commands = db.rows(`device_commands`).filter((row) => row.kind === `tree_key`)
+        expect(commands.every((row) => (row.payload as { rootId: string }).rootId === RK)).toBe(true)
+        // Each command goes to its host's own devices row and wakes that device.
+        expect(new Set(commands.map((row) => `${row.deviceRowId}:${row.userId}`))).toEqual(
+          new Set([...(rootDevice === `mac-1` ? [`${D1}:u1`] : []), ...(rootDevice === `box-3` || c.hosts === 2 ? [`${D3}:u3`] : [])])
+        )
+        expect(vi.mocked(nudgeDevice).mock.calls.length).toBe(c.hosts)
+      } else {
+        expect(nudgeDevice).not.toHaveBeenCalled()
+      }
+    })
+  }
+})

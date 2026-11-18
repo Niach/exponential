@@ -65,7 +65,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .pt_6()
         .gap_4()
         .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, &[], cx))
-        .child(tabs)
+        .children(tabs)
         .child(div().w_full().h(px(1.)).bg(cx.theme().border))
         .child(collapse);
     let page = crate::plan_page::plan_page(
