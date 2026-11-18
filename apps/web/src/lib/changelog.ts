@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-19-call-chat-tab`,
+    date: `2026-11-19`,
+    title: `Read the chat during a call`,
+    summary: `A call now has Chat and Voice tabs at the top: switch to Chat to read and write in the agent's chat while you keep talking.`,
+    body: `- **Chat and Voice**: a call opens on Voice as before; Chat shows the agent's chat with the call on top, mute and hang up one tap away.
+- **Type while you talk**: what you write goes to the chat, the call reads it before its next answer.
+- **The call keeps going**: switching tabs never mutes or ends it.`,
+  },
+  {
     id: `2026-11-18-find-in-chat`,
     date: `2026-11-18`,
     title: `Find in a chat`,

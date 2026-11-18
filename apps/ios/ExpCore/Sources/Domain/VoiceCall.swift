@@ -859,6 +859,28 @@ public enum VoiceCall {
         )),
     ]
 
+    /// FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface.
+    public enum Tab: String, CaseIterable, Hashable, Sendable {
+        case chat
+        case voice
+    }
+
+    public enum Tabs {
+        public static let order: [Tab] = [.chat, .voice]
+        /// A call opens on Voice.
+        public static let initial: Tab = .voice
+        public static let tabsId = "voice-call-tabs"
+
+        public static func label(_ tab: Tab) -> String {
+            switch tab {
+            case .chat: "Chat"
+            case .voice: "Voice"
+            }
+        }
+
+        public static func testId(_ tab: Tab) -> String { "voice-call-tab-\(tab.rawValue)" }
+    }
+
     /// The floating pill's fixed size (the desktop's; EXP-1681 the phones'
     /// minimized call, never wider than the screen minus two margins).
     public enum Pill {

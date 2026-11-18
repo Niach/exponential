@@ -1330,14 +1330,14 @@ final class StyleguideScreenshots: XCTestCase {
             case "chat-selection": snapshot("sg_chat-selection", settle: 2)
             case "mention-pill": snapshot("sg_mention-pill", settle: 2)
             case "voice-call":
-                // EXP-1857: the shot shows the last specimen, "in call,
-                // falling back" (its `voice-call-via` line under the timer):
-                // slow drags without momentum bring its frame to the top.
-                let via = anyElement(app, identified: "voice-call-via")
-                expect(via, within: Wait.nav, "The voice-call specimens drew no via line")
-                let viaTop: CGFloat = 420
-                for _ in 0..<12 where via.frame.minY > viaTop + 4 {
-                    let step = min(via.frame.minY - viaTop, app.frame.height * 0.6)
+                // FEED-272: the shot shows the last frame, the call's "Chat
+                // tab" (the tabs and the docked row over the chat): slow
+                // drags without momentum bring its caption near the bottom.
+                let caption = app.staticTexts["Chat tab"]
+                expect(caption, within: Wait.nav, "The voice-call specimens drew no Chat tab frame")
+                let captionBottom = app.frame.height - 48
+                for _ in 0..<16 where caption.frame.maxY > captionBottom + 4 {
+                    let step = min(caption.frame.maxY - captionBottom, app.frame.height * 0.6)
                     let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
                     from.press(
                         forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -step)),
