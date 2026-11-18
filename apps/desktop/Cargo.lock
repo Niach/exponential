@@ -5680,6 +5680,7 @@ dependencies = [
  "gpui-pre-http-client",
  "gpui-pre-util",
  "gpui-pre-wgpu",
+ "image",
  "libc",
  "log",
  "notify-rust",
