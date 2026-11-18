@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "#PERF-11: the Exponential phone apps' ONE native library: links genUI's, the Engine's and P2P's UniFFI facades into a single cdylib (Android) / staticlib (iOS), so one Rust std and one copy of their shared dependencies ship instead of three. The facades stay separate SDK crates with their own bindings."
+description = "#PERF-11: the Exponential phone apps' ONE native library: links genUI's, the Engine's, P2P's and the chat store's UniFFI facades into a single cdylib (Android) / staticlib (iOS), so one Rust std and one copy of their shared dependencies ship instead of three. The facades stay separate SDK crates with their own bindings."
 
 [lib]
 name = "exponential_mobile_ffi"
@@ -19,3 +19,5 @@ crate-type = ["cdylib", "staticlib"]
 exponential-ui-ffi = { path = "../exponential-ui-ffi" }
 eengine-ffi = { path = "../eengine-ffi", default-features = false }
 exponential-net-ffi = { path = "../exponential-net-ffi" }
+# #EDE-114: the chat store (SQLite: the system one on iOS, bundled on Android).
+chat-store-ffi = { path = "../chat-store-ffi" }

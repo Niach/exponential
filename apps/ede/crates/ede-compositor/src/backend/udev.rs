@@ -292,7 +292,8 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
                 let formats = renderer.dmabuf_formats();
                 match DmabufFeedbackBuilder::new(primary.dev_id(), formats).build() {
                     Ok(feedback) => {
-                        state.dmabuf_state.create_global_with_default_feedback::<Ede>(&state.display_handle, &feedback);
+                        // #EDE-125: GPU buffers and explicit sync are the person's clients' alone.
+                        state.dmabuf_state.create_global_with_filter_and_default_feedback::<Ede, _>(&state.display_handle, &feedback, crate::desk::on_person);
                     }
                     Err(e) => tracing::warn!("no dmabuf feedback ({e}); GPU clients fall back to shm"),
                 }
@@ -305,7 +306,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         let fd = primary_node.and_then(|n| u.devices.get(&n)).map(|d| d.manager.device().device_fd().clone());
         match fd {
             Some(fd) if supports_syncobj_eventfd(&fd) => {
-                state.syncobj_state = Some(DrmSyncobjState::new::<Ede>(&state.display_handle, fd));
+                state.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&state.display_handle, fd, crate::desk::on_person));
                 tracing::info!("explicit sync (drm-syncobj) on");
             }
             _ => tracing::info!("explicit sync (drm-syncobj) unavailable on this GPU/kernel"),
@@ -630,7 +631,7 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
             name.clone(),
             PhysicalProperties { size: (mm_w as i32, mm_h as i32).into(), subpixel: Subpixel::Unknown, make: "Unknown".into(), model: name.clone(), serial_number: "Unknown".into() },
         );
-        let global = output.create_global::<Ede>(&state.display_handle);
+        let global = state.person_output_global(&output);
         for m in info.modes() {
             output.add_mode(WlMode::from(*m));
         }

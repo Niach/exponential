@@ -426,8 +426,18 @@ struct SteerEnetTimeout: Error {}
 /// link joined AND whose sender is the endpoint it joined (VIEWER SIDE);
 /// every other steer envelope is dropped.
 public final class SteerEnetInbox: @unchecked Sendable {
+    /// #EDE-114: sees every frame of a steer envelope BEFORE the links do
+    /// (`from`, the envelope's sessionId, the frame text); true = it took
+    /// the frame (a catch-up chunk or page), which then reaches no link.
+    public typealias Interceptor = @Sendable (_ from: String, _ sessionId: String, _ frame: String) -> Bool
+
     private let lock = NSLock()
     private var links: [String: [ObjectIdentifier: WeakLink]] = [:]
+    private var interceptor: Interceptor?
+
+    public func setInterceptor(_ interceptor: Interceptor?) {
+        lock.withLock { self.interceptor = interceptor }
+    }
 
     private struct WeakLink { weak var link: SteerEnetLink? }
 
@@ -474,10 +484,15 @@ public final class SteerEnetInbox: @unchecked Sendable {
     @discardableResult
     public func deliver(from: String, body: Data) -> Bool {
         guard let envelope = SteerEnet.parse(body) else { return false }
-        let targets = lock.withLock {
-            (links[Self.key(envelope.sessionId, from)] ?? [:]).values.compactMap(\.link)
+        let (targets, interceptor) = lock.withLock {
+            ((links[Self.key(envelope.sessionId, from)] ?? [:]).values.compactMap(\.link), self.interceptor)
         }
-        for link in targets { link.receive(envelope.frames) }
+        var frames = envelope.frames
+        if let interceptor {
+            frames = frames.filter { !interceptor(from, envelope.sessionId, $0) }
+        }
+        guard !frames.isEmpty else { return true }
+        for link in targets { link.receive(frames) }
         return true
     }
 }

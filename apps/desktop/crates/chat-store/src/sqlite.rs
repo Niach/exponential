@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (session_id, device_id, seq)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS events_root ON events (root_id);
+-- OPEN, bounded (`read_open`): the latest state slot of each kind by seek.
+CREATE INDEX IF NOT EXISTS events_kind ON events (session_id, device_id, kind, seq);
 CREATE TABLE IF NOT EXISTS tools (
     session_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -221,6 +223,91 @@ impl SqliteStore {
             })?
             .collect::<Result<_, _>>()?;
         out.reverse();
+        Ok(out)
+    }
+
+    /// OPEN, bounded: what [`crate::open::replay_tail`] of `tail` needs from
+    /// a session's events on `device_id`, without reading its whole history:
+    /// every event from the `2 × tail`-th newest LOG event on (the cut never
+    /// moves further back) plus, below that, only the LATEST of each state
+    /// slot (per id for `workflow`), which is all a feed applies of them.
+    /// Seq order. A big chat (17k events) opens in a few ms instead of
+    /// parsing every stored event.
+    pub fn read_open(&self, session_id: &str, device_id: &str, tail: usize) -> Result<Vec<StoredEvent>, Error> {
+        // The window's floor: the `2 × tail`-th newest LOG event, walking the
+        // primary key down from the newest (never the whole session).
+        let floor: Option<u64> = {
+            let conn = self.conn();
+            let mut stmt = conn.prepare_cached(
+                "SELECT seq, kind FROM events WHERE session_id = ?1 AND device_id = ?2 ORDER BY seq DESC",
+            )?;
+            let mut rows = stmt.query(params![session_id, device_id])?;
+            let (mut log, mut floor) = (0usize, None);
+            while let Some(row) = rows.next()? {
+                let kind: String = row.get(1)?;
+                if !crate::open::SLOT_KINDS.contains(&kind.as_str()) {
+                    log += 1;
+                    if log == tail.max(1) * 2 {
+                        floor = Some(row.get::<_, i64>(0)? as u64);
+                        break;
+                    }
+                }
+            }
+            floor
+        };
+        let Some(floor) = floor else { return self.read_events(session_id, device_id, None, None) };
+        // Below the window: the latest of each slot (an index seek per kind),
+        // `workflow` per id.
+        let mut older: Vec<u64> = Vec::new();
+        {
+            let conn = self.conn();
+            let mut latest = conn.prepare_cached(
+                "SELECT max(seq) FROM events INDEXED BY events_kind WHERE session_id = ?1 AND device_id = ?2 AND kind = ?3 AND seq < ?4",
+            )?;
+            for kind in crate::open::SLOT_KINDS.iter().filter(|kind| **kind != "workflow") {
+                if let Some(seq) = latest.query_row(params![session_id, device_id, kind, floor as i64], |row| row.get::<_, Option<i64>>(0))? {
+                    older.push(seq as u64);
+                }
+            }
+            let mut workflows = conn.prepare_cached(
+                "SELECT seq, json_extract(event, '$.id') FROM events INDEXED BY events_kind WHERE session_id = ?1 AND device_id = ?2 AND kind = 'workflow' AND seq < ?3",
+            )?;
+            let mut by_id: HashMap<Option<String>, u64> = HashMap::new();
+            for row in workflows.query_map(params![session_id, device_id, floor as i64], |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, Option<String>>(1)?)))? {
+                let (seq, id) = row?;
+                let held = by_id.entry(id).or_insert(seq);
+                *held = (*held).max(seq);
+            }
+            older.extend(by_id.into_values());
+        }
+        older.sort_unstable();
+        let mut out = Vec::new();
+        for seq in older {
+            out.extend(self.read_range(session_id, device_id, seq, seq + 1)?);
+        }
+        out.extend(self.read_range(session_id, device_id, floor, u64::MAX >> 1)?);
+        Ok(out)
+    }
+
+    /// The events with `from <= seq < to`, in seq order.
+    fn read_range(&self, session_id: &str, device_id: &str, from: u64, to: u64) -> Result<Vec<StoredEvent>, Error> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT root_id, seq, stored_at, event FROM events WHERE session_id = ?1 AND device_id = ?2 AND seq >= ?3 AND seq < ?4 ORDER BY seq",
+        )?;
+        let out = stmt
+            .query_map(params![session_id, device_id, from as i64, to as i64], |row| {
+                let json: String = row.get(3)?;
+                Ok(StoredEvent {
+                    root_id: row.get(0)?,
+                    session_id: session_id.to_string(),
+                    device_id: device_id.to_string(),
+                    seq: row.get::<_, i64>(1)? as u64,
+                    stored_at: row.get(2)?,
+                    event: serde_json::from_str(&json).unwrap_or_default(),
+                })
+            })?
+            .collect::<Result<_, _>>()?;
         Ok(out)
     }
 
@@ -678,6 +765,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// OPEN, bounded: the tail cut off the bounded read equals the cut off
+    /// every stored event, less only the slots a later one of their kind
+    /// supersedes.
+    #[test]
+    fn the_bounded_open_read_cuts_the_same_tail() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut events = Vec::new();
+        for seq in 0..3000u64 {
+            let event = match seq % 7 {
+                0 => json!({ "kind": "tool", "id": format!("t{seq}"), "name": "Bash" }),
+                1 => json!({ "kind": "tool_update", "id": format!("t{}", seq.saturating_sub(if seq % 70 == 1 { 351 } else { 1 })), "output": "ok" }),
+                2 => json!({ "kind": "turn", "state": format!("s{seq}") }),
+                3 if seq % 21 == 3 => json!({ "kind": "workflow", "id": format!("w{}", seq % 2), "state": seq }),
+                4 if seq % 500 == 4 => json!({ "kind": "question", "id": format!("q{seq}"), "text": "?", "options": [] }),
+                _ => json!({ "kind": "narration", "text": format!("n{seq}") }),
+            };
+            events.push(StoredEvent { root_id: "r".into(), session_id: "s".into(), device_id: "d".into(), seq, stored_at: 0, event });
+        }
+        store.put_events(&events).unwrap();
+        for tail in [5, 100, 500, 5000] {
+            let full = store.read_events("s", "d", None, None).unwrap();
+            let refs: Vec<&Value> = full.iter().map(|event| &event.event).collect();
+            let (kept, _) = crate::open::replay_tail(&refs, tail);
+            let latest_slot = |ix: usize| {
+                let event = &full[ix].event;
+                !crate::open::is_state_slot(event)
+                    || !full[ix + 1..].iter().any(|later| later.event["kind"] == event["kind"] && later.event.get("id") == event.get("id"))
+            };
+            let want: Vec<u64> = kept.iter().map(|ix| full[*ix].seq).collect();
+            let bounded = store.read_open("s", "d", tail).unwrap();
+            let refs: Vec<&Value> = bounded.iter().map(|event| &event.event).collect();
+            let (got, _) = crate::open::replay_tail(&refs, tail);
+            let got: Vec<u64> = got.into_iter().map(|ix| bounded[ix].seq).collect();
+            // Every kept log row and every latest slot; nothing the full cut does not keep.
+            assert!(got.iter().all(|seq| want.contains(seq)), "tail {tail}");
+            for (ix, seq) in kept.iter().map(|ix| (*ix, full[*ix].seq)) {
+                if latest_slot(ix) {
+                    assert!(got.contains(&seq), "tail {tail}: seq {seq} missing");
+                }
+            }
+            assert!(bounded.len() <= full.len());
+        }
+    }
+
     /// #EDE-120: a deliberate sign-out deletes the account's store, its WAL
     /// and SHM, and nothing else: not its sync store, not another account's.
     #[test]
@@ -709,6 +840,27 @@ mod tests {
         assert_eq!(delete_account_store(&data_dir, "nobody").unwrap(), Vec::<PathBuf>::new());
         assert_eq!(delete_account_store(&data_dir, "../u10").unwrap(), Vec::<PathBuf>::new());
         drop(other);
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// #EDE-120 follow-up: a REAL desktop account dir (`<host>--<userId>`,
+    /// api `account_id_for`, dots in the host) is deleted too. The first test
+    /// above used bare ids (`u1`) that never occur in production, so the
+    /// dot-rejecting rule passed it while no real sign-out deleted anything.
+    #[test]
+    fn delete_account_store_takes_a_real_shaped_account_dir() {
+        let data_dir = std::env::temp_dir().join(format!("chat-store-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        for account in ["app.exponential.at--8Jk3xQ2Lm9", "localhost-3000--u1"] {
+            let store = SqliteStore::open(&data_dir.join("accounts").join(account).join("chat-store.sqlite")).unwrap();
+            store.set_meta("k", "v").unwrap();
+            drop(store);
+            let gone = delete_account_store(&data_dir, account).unwrap();
+            assert!(!gone.is_empty(), "{account}");
+            assert!(!data_dir.join("accounts").join(account).join("chat-store.sqlite").exists(), "{account}");
+        }
+        assert_eq!(delete_account_store(&data_dir, "..").unwrap(), Vec::<PathBuf>::new());
+        assert_eq!(delete_account_store(&data_dir, ".").unwrap(), Vec::<PathBuf>::new());
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 }

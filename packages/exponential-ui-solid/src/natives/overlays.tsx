@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, isFieldAnchorElement, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isFieldAnchorElement, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, imageMenuOwns, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -1317,7 +1317,8 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
           e.preventDefault()
         }}
         onPointerDown={(e: PointerEvent) => {
-          if (e.pointerType === `mouse`) return
+          // #EXP-1945: a long-press on a ready picture is the host's image menu.
+          if (e.pointerType === `mouse` || imageMenuOwns(e.target)) return
           clearLongPress()
           longPress = setTimeout(() => openAt(e), 700)
         }}

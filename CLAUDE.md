@@ -10,7 +10,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 18 via Drizzle
 
 ```
 apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/emcp = eMCP's server half: the MCP server, the gate, audit, vault, upstream/)
-apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
+apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; VAPP-43: no session content but calls until #EXP-1941; viewers: eNet)
 apps/site         exponential.at (Astro + Starlight: landing, docs, SDK docs, blog; README.md; ui.exponential.at 301s via scripts/ui-redirect.ts; /sdk/genui = the component catalogue)
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/ede          Exponential Desktop (eDE internally, #NEW-10; package + binaries exponential-*): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)

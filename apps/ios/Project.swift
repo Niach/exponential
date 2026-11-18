@@ -126,8 +126,13 @@ let hasEnetNode = FileManager.default.fileExists(atPath: URL(fileURLWithPath: #f
     .deletingLastPathComponent()
     .appendingPathComponent(mobileFfiPath)
     .standardizedFileURL.path)
+// #EDE-114: the chat store's binding (`chat-store-ffi`, module
+// `ExponentialChatStoreFFI`) compiles into ExpCore beside it, from the same library.
 let enetNodeSources: [SourceFileGlob] = hasEnetNode
-    ? ["../desktop/crates/exponential-net-ffi/bindings/swift/ExponentialNetFFI.swift"]
+    ? [
+        "../desktop/crates/exponential-net-ffi/bindings/swift/ExponentialNetFFI.swift",
+        "../desktop/crates/chat-store-ffi/bindings/swift/ExponentialChatStoreFFI.swift",
+    ]
     : []
 // iroh's netwatch reads the network paths (Network, SystemConfiguration).
 let enetNodeBinding: [TargetDependency] = hasEnetNode
@@ -266,8 +271,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.137"
-let appBuildVersion = "340"
+let appMarketingVersion = "0.14.138"
+let appBuildVersion = "341"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -374,7 +379,10 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // No `audio`: App Review (2.5.4) refuses it for a call with an agent, so
     // an iOS call ends when the app leaves the foreground (voice-call.json
     // BACKGROUND, ios-info-plist.test.ts).
-    "UIBackgroundModes": .array([.string("remote-notification")]),
+    // #EDE-114: `processing` = the chat store's catch-up window
+    // (`BGProcessingTask`, network + external power only).
+    "UIBackgroundModes": .array([.string("remote-notification"), .string("processing")]),
+    "BGTaskSchedulerPermittedIdentifiers": .array([.string("at.exponential.chat-store.catch-up")]),
     // #EXP-1639: a running session on the Lock Screen (push-to-start).
     "NSSupportsLiveActivities": .boolean(true),
     "ITSAppUsesNonExemptEncryption": .boolean(false),

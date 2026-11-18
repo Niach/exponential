@@ -77,6 +77,7 @@ import androidx.compose.ui.zIndex
 import at.exponential.ui.ffi.animationFrameJson
 import at.exponential.ui.ffi.swipeLock
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.boxHover
@@ -250,7 +251,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
                     enabled = !disabled,
                     onLongClick = when {
                         tooltip != null -> ({ toggleTooltip(model, tooltip) })
-                        else -> contextMenuOwner(node, model)?.let { owner -> { openContextMenu(model, owner) } }
+                        else -> imageOrContextMenu(node, model)
                     },
                     onClick = { model.press(index) },
                 )
@@ -271,6 +272,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         tooltip != null -> Modifier.pointerInput(tooltip) {
             detectTapGestures(onLongPress = { toggleTooltip(model, tooltip) })
         }
+        isImageMenuNode(node, model) -> Modifier.pointerInput(node.id, model.host) { imageLongPress(node, model) }
         else -> contextMenuOwner(node, model)?.let { owner ->
             Modifier.pointerInput(owner) { detectTapGestures(onLongPress = { openContextMenu(model, owner) }) }
         } ?: Modifier
@@ -615,8 +617,79 @@ private fun contextMenuOwner(node: NodeInfo, model: SurfaceModel): String? {
     return null
 }
 
+/**
+ * #EXP-1926 (image-actions.json `pressMenu`): an `Image` (a Carousel /
+ * Mosaic slide too) or `ZoomableImage` under a host with an image menu.
+ */
+private fun isImageMenuNode(node: NodeInfo, model: SurfaceModel): Boolean =
+    model.host.hasImageMenu && (node.component == "Image" || node.component == "ZoomableImage")
+
+/** A picture node's rendered picture opens the host's image menu (true), else false. */
+private fun openImageMenu(node: NodeInfo, model: SurfaceModel): Boolean {
+    if (!model.imageReady(node.props.str("src"), node.props.str("alt"))) return false
+    model.imageMenuFor = node.id
+    return true
+}
+
+/** A long press: the image menu on a rendered picture, else the enclosing context Menu, else nothing (never merged). */
+private fun imageOrContextMenu(node: NodeInfo, model: SurfaceModel): (() -> Unit)? {
+    val owner = contextMenuOwner(node, model)
+    if (!isImageMenuNode(node, model)) return owner?.let { o -> { openContextMenu(model, o) } }
+    return {
+        if (!openImageMenu(node, model)) owner?.let { openContextMenu(model, it) }
+    }
+}
+
+/**
+ * #EXP-1926: a picture node's long press, without taking its tap or drag
+ * from anything around it: the down is left unconsumed (a pressable parent
+ * still gets a tap, a scroller or a zoom its drag); a press on a rendered
+ * picture claims the gesture so an enclosing context Menu stands down, and
+ * once the long press fires the rest of the gesture is consumed (no tap).
+ */
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.imageLongPress(node: NodeInfo, model: SurfaceModel) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val ready = model.imageReady(node.props.str("src"), node.props.str("alt"))
+        model.imagePressClaimed = ready
+        try {
+            var cancelled = false
+            // Released (or cancelled) before the timeout = not a long press.
+            val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                var done = false
+                while (!done) {
+                    val e = awaitPointerEvent()
+                    val c = e.changes.firstOrNull { it.id == down.id } ?: e.changes.first()
+                    if (!c.pressed) {
+                        done = true
+                    } else if (e.changes.size > 1 || c.isConsumed || (c.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        cancelled = true
+                        done = true
+                    }
+                }
+                true
+            }
+            val released = ended
+            // A picture still loading, failed or blocked: the press falls
+            // through to the elements around it (their own detectors).
+            if (released == null && !cancelled && ready && openImageMenu(node, model)) {
+                // The long press took the gesture: no tap on release.
+                while (true) {
+                    val e = awaitPointerEvent()
+                    e.changes.forEach { it.consume() }
+                    if (e.changes.none { it.pressed }) break
+                }
+            }
+        } finally {
+            model.imagePressClaimed = false
+        }
+    }
+}
+
 /** Open a context Menu at its target (the core places the menu at the pointer it is given). */
 private fun openContextMenu(model: SurfaceModel, owner: String) {
+    // #EXP-1926: a press on a rendered picture opens its own menu, never this one.
+    if (model.imagePressClaimed) return
     val i = model.indexOf(owner) ?: return
     val f = model.frame(i)
     model.fire(i, "contextmenu", JsonValue.Obj(mapOf("x" to JsonValue.Num(f.center.x.toDouble()), "y" to JsonValue.Num(f.center.y.toDouble()))))

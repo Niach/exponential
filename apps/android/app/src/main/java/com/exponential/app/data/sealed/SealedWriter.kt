@@ -23,6 +23,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -137,30 +138,21 @@ class SealedWriter @Inject constructor(
         if (tree == SendTree.Clear) return PreparedSend(withMentions)
         val installId = nodes.get().awaitInstallId(accountId, SEAL_HOLDER_WAIT_MS)
         val holder = if (installId != null && identities.vault.identity(accountId, create = false) != null) SendHolder.Ready else SendHolder.None
-        if (sendWire(tree, holder) == SendWire.Failed || installId == null) throw TrpcException(NO_KEY_REFUSAL)
+        if (refusesUpFront(tree, holder, hasInstall = installId != null) || installId == null) throw TrpcException(NO_KEY_REFUSAL)
         return when (wire) {
             is TreeWire.Sealed -> sealedTo(withMentions, wire.key, body)
             is TreeWire.Create -> {
-                // `reader` = this install keys it; else the device's claim may key it meanwhile.
-                var clear = false
-                val created = StaleTree.keyFirst(
-                    wire.rootId,
-                    create = {
-                        try {
-                            createKey(accountId, wire.rootId, readers)
-                        } catch (err: TrpcException) {
-                            if (err.message != CLEAR_TREE_REFUSAL) throw err
-                            clear = true
-                            null
-                        }
-                    },
-                    publicKey = { publicKey(accountId, it) },
-                )
-                if (clear) return PreparedSend(withMentions)
-                val key = created ?: awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, wire.rootId) }
-                when (sendWire(tree, holder, reader = created != null, keyArrives = key != null)) {
-                    SendWire.Create, SendWire.Sealed -> sealedTo(withMentions, key!!, body)
-                    else -> throw TrpcException(NO_KEY_REFUSAL)
+                // #EXP-1960 (`keylessCases`): `reader` = this install keys it; a
+                // failed create takes [keylessStep]: a blip is retried, a tree
+                // this install may not key asks its devices first, never a
+                // silent wait.
+                when (val keyed = keyKeyless(db, accountId, wire.rootId, readers)) {
+                    is Keyless.Clear -> PreparedSend(withMentions)
+                    is Keyless.Created -> sealedTo(withMentions, keyed.key, body)
+                    is Keyless.Arrived -> when (sendWire(tree, holder, reader = false, keyArrives = keyed.key != null)) {
+                        SendWire.Sealed -> sealedTo(withMentions, keyed.key!!, body)
+                        else -> throw TrpcException(NO_KEY_REFUSAL)
+                    }
                 }
             }
             else -> {
@@ -203,6 +195,68 @@ class SealedWriter @Inject constructor(
             withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
         ) { result -> keep(accountId, result.sessionId, key.secret) }
     }
+
+    private sealed interface Keyless {
+        data object Clear : Keyless
+        data class Created(val key: PublicTreeKey) : Keyless
+        /** Keyed by another (its device, a concurrent writer); null = no key: the send fails. */
+        data class Arrived(val key: PublicTreeKey?) : Keyless
+    }
+
+    /** #EXP-1960: a keyless root keyed by this install, else by its devices (`sessionKeys.requestKey`). */
+    private suspend fun keyKeyless(db: ExponentialDatabase, accountId: String, rootId: String, readers: Readers): Keyless {
+        var ownOnly = false
+        var attempt = 1
+        while (true) {
+            val failure = try {
+                val created = createKey(accountId, rootId, readers, ownOnly)
+                    ?: return Keyless.Arrived(null)
+                return Keyless.Created(created)
+            } catch (err: CancellationException) {
+                throw err
+            } catch (err: TrpcException) {
+                createFailure(err.code, err.message)
+            } catch (err: Exception) {
+                CreateFailure.Transient
+            }
+            when (keylessStep(failure, attempt, ownOnly)) {
+                KeylessStep.Plain -> return Keyless.Clear
+                KeylessStep.ServerKey -> return publicKey(accountId, rootId)?.let { Keyless.Arrived(it) } ?: askDevice(db, accountId, rootId)
+                KeylessStep.RequestKey -> return askDevice(db, accountId, rootId)
+                KeylessStep.RetryOwn -> ownOnly = true
+                KeylessStep.Retry -> delay(SEAL_CREATE_RETRY_MS * attempt)
+                else -> return Keyless.Arrived(null)
+            }
+            attempt++
+        }
+    }
+
+    /** The tree's devices asked to key it, then its key waited for; no host = fails at once. */
+    private suspend fun askDevice(db: ExponentialDatabase, accountId: String, rootId: String): Keyless {
+        var answer = RequestKeyAnswer.Error
+        val result = try {
+            sessionKeys.requestKey(accountId, rootId)
+        } catch (err: CancellationException) {
+            throw err
+        } catch (err: Exception) {
+            if (err is TrpcException && err.code == "NOT_FOUND") answer = RequestKeyAnswer.NotFound
+            null
+        }
+        if (result != null) {
+            answer = RequestKeyAnswer.entries.firstOrNull { it.name.replaceFirstChar(Char::lowercase) == result.state } ?: RequestKeyAnswer.Error
+        }
+        return when (keylessStep(answer)) {
+            KeylessStep.Plain -> Keyless.Clear
+            KeylessStep.Failed -> Keyless.Arrived(null)
+            KeylessStep.Sealed -> Keyless.Arrived(
+                result?.let { r -> r.publicKey?.let { key -> r.epoch?.let { PublicTreeKey(key, it) } } },
+            )
+            else -> waitForKey(db, accountId, rootId)
+        }
+    }
+
+    private suspend fun waitForKey(db: ExponentialDatabase, accountId: String, rootId: String): Keyless =
+        Keyless.Arrived(awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, rootId) })
 
     private fun sealedTo(input: SessionsSendInput, key: PublicTreeKey, body: String) =
         PreparedSend(input.copy(text = crypto.sealBody(key.publicKey, key.epoch, body)))
@@ -326,10 +380,11 @@ class SealedWriter @Inject constructor(
     }
 
     /** `sessionKeys.create` of a fresh key for the keyless [rootId]; null = this install cannot make it. */
-    private suspend fun createKey(accountId: String, rootId: String, readers: Readers): PublicTreeKey? {
+    private suspend fun createKey(accountId: String, rootId: String, readers: Readers, ownOnly: Boolean = false): PublicTreeKey? {
         val installId = nodes.get().installId(accountId) ?: return null
         val key = crypto.generateTreeKey()
-        val wraps = readerWraps(accountId, installId, readers, key.secret) ?: return null
+        // #EXP-1960: a refused wrap: once more for this account's installs only.
+        val wraps = readerWraps(accountId, installId, if (ownOnly) readers.copy(deviceId = null) else readers, key.secret) ?: return null
         sessionKeys.create(accountId, CreateSessionKeyInput(rootId, installId, FIRST_EPOCH, key.publicKey, wraps))
         keep(accountId, rootId, key.secret)
         return PublicTreeKey(key.publicKey, FIRST_EPOCH)

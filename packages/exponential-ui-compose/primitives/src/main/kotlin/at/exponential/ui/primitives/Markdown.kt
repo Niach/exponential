@@ -55,6 +55,18 @@ data class MarkdownAttachment(val type: String, val name: String) {
     }
 }
 
+/**
+ * #EXP-1926 (image-actions.json `imageSource`): what a picture's src renders
+ * as, a host's answer: [Load] (fetched through the media policy), a [Link]
+ * in the picture's place (another website: never fetched; a press opens
+ * [href] through the link path) or plain [Text] (nothing when empty).
+ */
+sealed interface ImageSource {
+    data object Load : ImageSource
+    data class Link(val href: String, val text: String) : ImageSource
+    data class Text(val text: String) : ImageSource
+}
+
 /** #VAPP-258: a host's `imageSize(src)` answer (natural size; non-positive or non-finite = unknown). */
 data class MarkdownSize(val width: Float, val height: Float) {
     /** Positive and finite. */
@@ -79,6 +91,8 @@ class MarkdownHooks(
     val options: MarkdownOptions = MarkdownOptions(),
     /** #VAPP-258 (markdown-host.json `loaded`): the size a block image DECODED at (the media cache, [MarkdownImageSizes]): an image [imageSize] cannot size takes it. */
     val loadedSize: ((String) -> MarkdownSize?)? = null,
+    /** #EXP-1926: the host's source rule for a block image (raw src, alt), before [imagePolicy]. */
+    val imageSource: ((src: String, alt: String) -> ImageSource)? = null,
 )
 
 /**
@@ -1057,6 +1071,20 @@ object Markdown {
     }
 
     /**
+     * #EXP-1926: block images through the host's [source] rule: a [ImageSource.Link]
+     * becomes a paragraph of one link (its text), a [ImageSource.Text] a paragraph
+     * of its text (dropped when empty); a [ImageSource.Load] stays an image.
+     */
+    fun resolveImageSources(blocks: List<MarkdownBlock>, source: (String, String) -> ImageSource): List<MarkdownBlock> = blocks.mapNotNull { b ->
+        val kind = b.kind as? MarkdownBlockKind.Image ?: return@mapNotNull b
+        when (val r = source(kind.src, kind.alt)) {
+            ImageSource.Load -> b
+            is ImageSource.Link -> MarkdownBlock(MarkdownBlockKind.Paragraph, listOf(MarkdownInline(text = r.text, link = r.href)))
+            is ImageSource.Text -> if (r.text.isEmpty()) null else MarkdownBlock(MarkdownBlockKind.Paragraph, listOf(MarkdownInline(text = r.text)))
+        }
+    }
+
+    /**
      * Every link href through [policy]: its result (the resolved href), or
      * null = the span paints as plain text and never navigates. Only the
      * marks change, so the layout is the same.
@@ -1180,6 +1208,7 @@ object Markdown {
     fun prepare(text: String, hooks: MarkdownHooks): List<MarkdownBlock> {
         var blocks = parse(text, hooks.options.hardBreaks, hooks.options.streaming)
         hooks.attachment?.let { blocks = resolveAttachments(blocks, hooks.linkPolicy, it) }
+        hooks.imageSource?.let { blocks = resolveImageSources(blocks, it) }
         hooks.imagePolicy?.let { blocks = resolveImages(blocks, it) }
         hooks.imageSize?.let { blocks = sizeImages(blocks, it) }
         hooks.loadedSize?.let { blocks = sizeLoaded(blocks, it) }

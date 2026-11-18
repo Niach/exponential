@@ -452,8 +452,6 @@ private struct SessionTabsSpecimens: View {
         VStack(alignment: .leading, spacing: 14) {
             caption("A chat: Chat · Issues · Sessions · Results, the counts muted")
             tabs(Self.screen(.session, .chat))
-            caption("An agent: the same tabs, Sessions active")
-            tabs(Self.screen(.agent, .sessions))
             caption("An app: Chat · Preview · Data · Versions")
             tabs(Self.screen(.app, .preview))
             caption("Issues: a sub-issue indented")

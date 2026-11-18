@@ -7716,7 +7716,7 @@
       "web": {
         "route": "/t/$teamSlug/agents/$agentId",
         "anchor": {
-          "testId": "session-tabs",
+          "testId": "session-menu",
           "timeoutMs": 30000
         },
         "settleMs": 1200

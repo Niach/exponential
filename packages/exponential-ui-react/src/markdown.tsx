@@ -19,7 +19,8 @@
 
 import { Fragment, createContext, createElement, memo, useContext, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { MARKDOWN_CELL_TEXT, watchMarkdownTable, glueChips, glueWidth, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
-import type { MarkdownVariant } from "@exponential_app/eui/web"
+import type { ImageSourceVerdict, MarkdownVariant } from "@exponential_app/eui/web"
+import { imageSourceOf } from "@exponential_app/eui/web"
 import type { ResolvedTheme, UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -57,11 +58,15 @@ const camel = (decls: [string, string][]): CSSProperties | undefined =>
  *  decoded aspect once loaded). A src the policy
  *  DENIES is a paragraph of its alt text (nothing without one). */
 function MarkdownImage({ host, src, alt, width, height, scope = `` }: { host: HostPlugin; src: string; alt: string; width?: number; height?: number; scope?: string }) {
-  const media = useMediaSource(host, src)
+  // #EXP-1945 (`host.imageSource`): a picture the host refuses never loads:
+  // a link in its place, or its alt as text.
+  const verdict = imageSourceOf(host, src, alt)
+  const media = useMediaSource(host, verdict.kind === `load` ? src : ``)
   // #VAPP-258 (markdown-host.json `loaded`): a size the host does not know
   // is the decoded one once the picture loads (one relayout to its real
   // aspect, remembered for the next mount); the placeholder box until then.
   const [loaded, setLoaded] = useState<{ src: string; size?: { width: number; height: number } }>()
+  if (verdict.kind !== `load`) return <MarkdownImageStandIn host={host} verdict={verdict} scope={scope} />
   if (mediaRequestOf(host, src) === null) return alt ? <p {...mdPart(host, scope, `paragraph`)}>{alt}</p> : null
   // #VAPP-258: a host-sized image keeps its aspect, capped by the width and
   // the host's `imageMaxHeight` (markdownImageStyle; null = no cap, the
@@ -88,6 +93,15 @@ function MarkdownImage({ host, src, alt, width, height, scope = `` }: { host: Ho
       {media.url && !media.error ? <img alt="" src={media.url} onLoad={(e) => setLoaded({ src, size: rememberImageSize(src, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) })} /> : <span className="xui-Markdown-imageAlt">{alt}</span>}
     </div>
   )
+}
+
+/** #EXP-1945: a refused picture's stand-in: THE Markdown link (the URL
+ *  policy and the host's opener) or the alt, as a paragraph; nothing for an
+ *  empty text. */
+function MarkdownImageStandIn({ host, verdict, scope }: { host: HostPlugin; verdict: Exclude<ImageSourceVerdict, { kind: `load` }>; scope: string }) {
+  if (!verdict.text) return null
+  const href = verdict.kind === `link` ? linkHref(host, verdict.href) : null
+  return <p {...mdPart(host, scope, `paragraph`)} data-image-stand-in={verdict.kind}>{href ? <MarkdownLink host={host} href={href} scope={scope}>{verdict.text}</MarkdownLink> : verdict.text}</p>
 }
 
 /** #VAPP-258: a host's chip, the catalog Chip's look inline (Chip/root +

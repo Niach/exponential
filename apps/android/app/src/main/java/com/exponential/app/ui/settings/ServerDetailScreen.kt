@@ -115,6 +115,7 @@ class ServerDetailViewModel @Inject constructor(
     private val pushTokenManager: PushTokenManager,
     private val enetNodeManager: EnetNodeManager,
     private val authApi: AuthApi,
+    private val chatStores: com.exponential.app.data.chatstore.ChatStoreManager,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
 
@@ -190,6 +191,8 @@ class ServerDetailViewModel @Inject constructor(
             // No push-token unregister here: deleting the user server-side
             // cascades their fcm_tokens rows away (and their installs).
             enetNodeManager.signOut(accountId, revoke = false, forget = true)
+            // #EDE-114 (chat-store.json SIGN-OUT): the account's chat store goes with it.
+            chatStores.signOut(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)
@@ -212,6 +215,8 @@ class ServerDetailViewModel @Inject constructor(
             // Revoke the server session AFTER the unregister (which needs it
             // live) and BEFORE the token drops locally (REV2-15).
             if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)
+            // #EDE-114 (chat-store.json SIGN-OUT): a deliberate sign-out deletes the account's chat store.
+            chatStores.signOut(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             // Keep the server URL around so the user can hit Reauthenticate
@@ -480,6 +485,7 @@ class ServerDetailViewModel @Inject constructor(
             // Revoke the server session AFTER the unregister (which needs it
             // live) and BEFORE the token drops locally (REV2-15).
             if (instanceUrl != null && token != null) authApi.signOut(instanceUrl, token)
+            chatStores.signOut(accountId)
             syncManager.signOut(accountId)
             auth.removeAccount(accountId)
             databaseHolder.deleteFiles(accountId)

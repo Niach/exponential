@@ -4,9 +4,9 @@
 //! IDE's (`chat_actions::send_to_agent`, `chat_launch`): a message into an
 //! open session, or to the picked agent (the server lands it in the
 //! person's conversation with that agent). A sealed tree's text is sealed
-//! to its public key first (`coding::sealing::seal_body`'s envelope); a
-//! tree without one takes the plaintext, as the IDE does without its
-//! sealing service.
+//! to its public key first (`coding::sealing::seal_body`'s envelope);
+//! #EDE-131: plaintext only into a clear tree, never otherwise
+//! ([`wire_text`]).
 
 use std::collections::HashMap;
 
@@ -252,12 +252,165 @@ pub fn target_root<'a>(rows: &'a AccountRows, input: &api::sessions::SendInput) 
     rows.sessions.iter().find(|s| s.is_root() && s.agent_id.as_deref() == Some(agent) && s.user_id.as_deref() == Some(rows.user_id.as_str()))
 }
 
-/// The text sealed to `root`'s tree key when it has one (the IDE's
-/// envelope); `None` = no key: the text goes as it is.
-pub fn seal(root: &SessionRow, text: &str) -> Option<String> {
-    let public = enet_core::sealed::public_key_from_b64(root.seal_public_key.as_deref()?).ok()?;
-    let epoch = u32::try_from(root.seal_epoch.unwrap_or(0)).ok()?;
-    enet_core::sealed::seal_body(&public, epoch, text).ok()
+/// #EDE-97 `noKeyRefusal` (`sealed-content.json`): what a send that cannot
+/// be sealed says instead of going out in clear.
+pub const NO_KEY_REFUSAL: &str = "This chat is end-to-end encrypted and this device holds no key for it yet. Try again in a moment.";
+
+/// What an answer to a card the shell cannot (re)seal says (the IDE's
+/// `LOCKED_ANSWER`).
+pub const LOCKED_ANSWER: &str = "This card can't be answered on this device yet.";
+
+/// #EDE-131: where a send's text goes, as far as the synced rows know (the
+/// IDE's `plan_send`); [`wire_text`] asks the server the rest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SendTree {
+    /// No text: nothing to seal (an attachment-only send).
+    None,
+    /// A `clear_tree` root: plaintext is its wire.
+    Clear,
+    /// A synced root's current key.
+    Keyed { root_id: String, epoch: u32, public: [u8; 32] },
+    /// A synced root without a usable key (pre-#EDE-97, a bad key or
+    /// epoch): the server names its current one.
+    Keyless(String),
+    /// A session the rows lack (a deep link, a push before sync): the
+    /// server names its tree.
+    Unsynced(String),
+    /// An agent send without a synced conversation: the server names the
+    /// conversation (`sessions.sendTarget`).
+    Agent(String),
+}
+
+/// The send's [`SendTree`] off the synced rows.
+pub fn send_tree(rows: &AccountRows, input: &api::sessions::SendInput) -> SendTree {
+    if input.text.is_none() {
+        return SendTree::None;
+    }
+    if let Some(session) = &input.session_id {
+        return match target_root(rows, input) {
+            Some(root) => root_tree(root),
+            None => SendTree::Unsynced(session.clone()),
+        };
+    }
+    match (target_root(rows, input), &input.agent_id) {
+        (Some(root), _) => root_tree(root),
+        (None, Some(agent)) => SendTree::Agent(agent.clone()),
+        (None, None) => SendTree::None,
+    }
+}
+
+fn root_tree(root: &SessionRow) -> SendTree {
+    if root.clear_tree {
+        return SendTree::Clear;
+    }
+    let key = root.seal_public_key.as_deref().and_then(|key| enet_core::sealed::public_key_from_b64(key).ok());
+    let epoch = root.seal_epoch.and_then(|epoch| u32::try_from(epoch).ok()).filter(|epoch| *epoch > 0);
+    match (key, epoch) {
+        (Some(public), Some(epoch)) => SendTree::Keyed { root_id: root.id.clone(), epoch, public },
+        _ => SendTree::Keyless(root.id.clone()),
+    }
+}
+
+/// The server's word on a tree the rows cannot settle (the IDE's
+/// `Writer::tree_of` after #EXP-1960).
+pub trait TreeServer {
+    /// `sessions get` (any member id resolves to its root): the root id
+    /// and its clear flag.
+    fn tree_of(&self, session_id: &str) -> Result<(String, bool), String>;
+    /// `sessionKeys.publicKeys` by the ROOT id (`None` = keyless).
+    fn key_of(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String>;
+    /// `sessions.sendTarget`: the person's conversation with `agent_id`.
+    fn send_target(&self, agent_id: &str) -> Result<api::sessions::SendTarget, String>;
+}
+
+/// The live [`TreeServer`]: the account's tRPC.
+pub struct Server<'a>(pub &'a api::TrpcClient);
+
+impl TreeServer for Server<'_> {
+    fn tree_of(&self, session_id: &str) -> Result<(String, bool), String> {
+        let tree = api::mcp_tools::sessions_get(self.0, session_id).map_err(|err| format!("sessions get: {err}"))?;
+        if tree.root.id.is_empty() {
+            return Err(format!("{session_id}: the server named no root"));
+        }
+        Ok((tree.root.id, tree.root.clear_tree))
+    }
+    fn key_of(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String> {
+        let keys = api::session_keys::public_keys(self.0, &[root_id.to_string()]).map_err(|err| format!("sessionKeys.publicKeys: {err}"))?;
+        keys.into_iter()
+            .find(|key| key.root_id == root_id)
+            .map(|key| enet_core::sealed::public_key_from_b64(&key.public_key).map(|public| (key.epoch, public)))
+            .transpose()
+            .map_err(|err| format!("{root_id}: {err}"))
+    }
+    fn send_target(&self, agent_id: &str) -> Result<api::sessions::SendTarget, String> {
+        api::sessions::send_target(self.0, Some(agent_id), None).map_err(|err| format!("sessions.sendTarget: {err}"))
+    }
+}
+
+/// #EDE-131 (`clearTree.writerCases`): the text that leaves for `tree`:
+/// SEALED to the tree's current key, plaintext ONLY into a clear tree. A
+/// tree the rows lack is asked of the server first; a keyless one (the
+/// shell holds no install, so it never keys one) or one the server cannot
+/// name is an `Err` and NOTHING is sent. A new conversation (the server
+/// names none) goes as the server's own start, keyed and re-sealed at its
+/// device's claim (`startCases`). BLOCKING (off the UI thread).
+pub fn wire_text(server: &dyn TreeServer, tree: &SendTree, text: &str) -> Result<String, String> {
+    let sealed = |root_id: &str, epoch: u32, public: &[u8; 32]| enet_core::sealed::seal_body(public, epoch, text).map_err(|err| format!("{root_id}: {err}"));
+    let by_key = |root_id: &str| match server.key_of(root_id)? {
+        Some((epoch, public)) => sealed(root_id, epoch, &public),
+        None => Err(format!("{root_id}: keyless")),
+    };
+    match tree {
+        SendTree::None | SendTree::Clear => Ok(text.to_string()),
+        SendTree::Keyed { root_id, epoch, public } => sealed(root_id, *epoch, public),
+        SendTree::Keyless(root_id) => by_key(root_id),
+        SendTree::Unsynced(session_id) => match server.tree_of(session_id)? {
+            (_, true) => Ok(text.to_string()),
+            (root_id, false) => by_key(&root_id),
+        },
+        SendTree::Agent(agent_id) => {
+            let target = server.send_target(agent_id)?;
+            match (target.root_id, target.epoch, target.public_key) {
+                (None, ..) => Ok(text.to_string()),
+                (Some(_), ..) if target.clear_tree => Ok(text.to_string()),
+                (Some(root_id), Some(epoch), Some(public)) => {
+                    let public = enet_core::sealed::public_key_from_b64(&public).map_err(|err| format!("{root_id}: {err}"))?;
+                    sealed(&root_id, epoch, &public)
+                }
+                (Some(root_id), ..) => by_key(&root_id),
+            }
+        }
+    }
+}
+
+/// #EDE-131: a question card's answer as it leaves (the IDE's
+/// `answer_wire`): a plaintext card's in clear, an opened sealed card's
+/// FULL card re-sealed with the answer to its tree's key; a card the rows
+/// lack, one the shell cannot open or a tree without a key here is refused
+/// locally, since a plaintext answer would leak it.
+pub fn answer_wire(rows: &TeamRows, input: &api::sessions::AnswerInput) -> Result<api::sessions::AnswerInput, String> {
+    use domain::sealed::SealState;
+    let row = rows.messages.iter().find(|m| m.id == input.message_id).ok_or(LOCKED_ANSWER)?;
+    match row.seal {
+        None => return Ok(input.clone()),
+        Some(SealState::Opened) => {}
+        Some(_) => return Err(LOCKED_ANSWER.into()),
+    }
+    let root_id = row.root_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(row.session_id.as_str());
+    let root = rows.account.sessions.iter().find(|s| s.id == root_id).ok_or(LOCKED_ANSWER)?;
+    let SendTree::Keyed { epoch, public, .. } = root_tree(root) else { return Err(LOCKED_ANSWER.into()) };
+    let card = row.card.as_ref().ok_or(LOCKED_ANSWER)?;
+    let answers = input.answers.as_ref().and_then(|answers| match answers {
+        serde_json::Value::Array(labels) => Some(domain::plan_card::CardAnswers::Labels(labels.iter().filter_map(|l| l.as_str().map(str::to_owned)).collect())),
+        _ => None,
+    });
+    let answered = domain::plan_card::answered_card(
+        card,
+        &domain::plan_card::CardAnswerInput { answer: input.answer.clone(), answers, ..Default::default() },
+    )
+    .ok_or(LOCKED_ANSWER)?;
+    let sealed = enet_core::sealed::seal_card(&public, epoch, &answered).map_err(|err| format!("{LOCKED_ANSWER} ({err})"))?;
+    Ok(api::sessions::AnswerInput { message_id: input.message_id.clone(), sealed_card: Some(sealed), ..Default::default() })
 }
 
 /// The demo's agents' glyphs: Triage, a purple bug.
@@ -425,14 +578,186 @@ mod tests {
         assert_eq!(target_root(&r.account, &home).map(|s| s.id.as_str()), Some("s1"), "my conversation with Triage");
     }
 
+    /// #EDE-131: a server-side tree for [`wire_text`]: `sessions get`'s
+    /// root + clear flag, `sessionKeys.publicKeys`, `sessions.sendTarget`,
+    /// and every call it saw.
+    struct FakeServer {
+        root: Option<(String, bool)>,
+        key: Option<(u32, [u8; 32])>,
+        target: api::sessions::SendTarget,
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl FakeServer {
+        fn new(root: Option<(&str, bool)>, key: Option<(u32, [u8; 32])>) -> Self {
+            Self { root: root.map(|(id, clear)| (id.to_string(), clear)), key, target: Default::default(), calls: Default::default() }
+        }
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl TreeServer for FakeServer {
+        fn tree_of(&self, session_id: &str) -> Result<(String, bool), String> {
+            self.calls.lock().unwrap().push(format!("sessions get {session_id}"));
+            self.root.clone().ok_or_else(|| "NOT_FOUND".to_string())
+        }
+        fn key_of(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String> {
+            self.calls.lock().unwrap().push(format!("publicKeys {root_id}"));
+            Ok(self.key)
+        }
+        fn send_target(&self, agent_id: &str) -> Result<api::sessions::SendTarget, String> {
+            self.calls.lock().unwrap().push(format!("sendTarget {agent_id}"));
+            Ok(self.target.clone())
+        }
+    }
+
+    const ROOT: &str = "6f1c2a4e-3b7d-4c1e-9a52-0d8e7f6b5a41";
+    const CHILD: &str = "a83d5c10-7e2f-4b96-8c3a-51f0e9d2b7c4";
+
+    /// The synced `sessions` row of a root, as the shape sends it.
+    fn root_row(extra: serde_json::Value) -> SessionRow {
+        let mut row = json!({"id": ROOT, "team_id": "t1", "user_id": "u1", "agent_id": "a2", "status": "idle", "created_at": "2026-11-18T08:00:00Z", "clear_tree": false, "seal_public_key": null, "seal_epoch": null});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(row).unwrap()
+    }
+
+    fn into(session: &str) -> api::sessions::SendInput {
+        api::sessions::SendInput { team_id: Some("t1".into()), session_id: Some(session.into()), text: Some("Ship it".into()), ..Default::default() }
+    }
+
+    fn opens(key: &enet_core::sealed::TreeKey, epoch: u32, body: &str) -> Option<String> {
+        let opened = enet_core::sealed::open_body(body, &|e| (e == epoch).then_some(key.secret));
+        opened.text.filter(|_| opened.status == sync::sealed::OpenStatus::Opened)
+    }
+
+    /// #EDE-131 (`clearTree.writerCases`): a synced keyed root seals with
+    /// its own key and asks nothing; a clear tree is the ONLY plaintext.
     #[test]
-    fn a_tree_without_a_key_is_not_sealed_and_one_with_a_key_is() {
-        let r = rows();
-        assert!(seal(&r.account.sessions[0], "hi").is_none());
-        let public = enet_core::sealed::generate_tree_key().public_key();
-        let keyed: SessionRow = serde_json::from_value(json!({"id": "s1", "seal_public_key": public, "seal_epoch": 2})).unwrap();
-        let sealed = seal(&keyed, "hi").expect("sealed");
-        assert!(sealed.starts_with("exp-sealed:v1:2:"), "{sealed}");
+    fn a_keyed_tree_is_sealed_and_only_a_clear_tree_goes_in_clear() {
+        let key = enet_core::sealed::generate_tree_key();
+        let mut r = rows();
+        r.account.sessions = vec![root_row(json!({"seal_public_key": key.public_key(), "seal_epoch": 2}))];
+        let tree = send_tree(&r.account, &into(ROOT));
+        assert!(matches!(tree, SendTree::Keyed { epoch: 2, .. }), "{tree:?}");
+        let server = FakeServer::new(None, None);
+        let wire = wire_text(&server, &tree, "Ship it").unwrap();
+        assert_eq!(opens(&key, 2, &wire).as_deref(), Some("Ship it"));
+        assert!(server.calls().is_empty());
+
+        r.account.sessions = vec![root_row(json!({"clear_tree": true}))];
+        assert_eq!(send_tree(&r.account, &into(ROOT)), SendTree::Clear);
+        assert_eq!(wire_text(&server, &SendTree::Clear, "Ship it").as_deref(), Ok("Ship it"));
+        // No text (attachments only): nothing to seal.
+        let files = api::sessions::SendInput { text: None, ..into(ROOT) };
+        assert_eq!(send_tree(&r.account, &files), SendTree::None);
+    }
+
+    /// #EDE-131: a pre-#EDE-97 keyless root (or a bad key on the row) asks
+    /// the server for its current key; none there = the send FAILS, never
+    /// plaintext (this shell holds no install that could key it).
+    #[test]
+    fn a_keyless_root_takes_the_server_s_key_or_is_refused() {
+        let mut r = rows();
+        r.account.sessions = vec![root_row(json!({}))];
+        let tree = send_tree(&r.account, &into(ROOT));
+        assert_eq!(tree, SendTree::Keyless(ROOT.into()));
+        let refused = FakeServer::new(None, None);
+        assert!(wire_text(&refused, &tree, "Ship it").is_err());
+        assert_eq!(refused.calls(), [format!("publicKeys {ROOT}")]);
+
+        let key = enet_core::sealed::generate_tree_key();
+        let keyed = FakeServer::new(None, Some((1, key.public)));
+        assert_eq!(opens(&key, 1, &wire_text(&keyed, &tree, "Ship it").unwrap()).as_deref(), Some("Ship it"));
+
+        r.account.sessions = vec![root_row(json!({"seal_public_key": "not a key", "seal_epoch": 1}))];
+        assert_eq!(send_tree(&r.account, &into(ROOT)), SendTree::Keyless(ROOT.into()), "a bad key is no key");
+    }
+
+    /// #EDE-131: a session the rows lack (a deep link before sync) asks the
+    /// server for its tree (`sessions get`, then the ROOT's key); a clear
+    /// one goes in clear, a keyed one sealed, an unknown or keyless one
+    /// fails.
+    #[test]
+    fn an_unsynced_session_asks_the_server_for_its_tree() {
+        let mut r = rows();
+        r.account.sessions.clear();
+        let tree = send_tree(&r.account, &into(CHILD));
+        assert_eq!(tree, SendTree::Unsynced(CHILD.into()));
+
+        let key = enet_core::sealed::generate_tree_key();
+        let keyed = FakeServer::new(Some((ROOT, false)), Some((4, key.public)));
+        assert_eq!(opens(&key, 4, &wire_text(&keyed, &tree, "Ship it").unwrap()).as_deref(), Some("Ship it"));
+        assert_eq!(keyed.calls(), [format!("sessions get {CHILD}"), format!("publicKeys {ROOT}")]);
+
+        let clear = FakeServer::new(Some((ROOT, true)), None);
+        assert_eq!(wire_text(&clear, &tree, "Ship it").as_deref(), Ok("Ship it"));
+        assert_eq!(clear.calls(), [format!("sessions get {CHILD}")], "a clear tree needs no key");
+
+        assert!(wire_text(&FakeServer::new(Some((ROOT, false)), None), &tree, "Ship it").is_err(), "keyless");
+        assert!(wire_text(&FakeServer::new(None, None), &tree, "Ship it").is_err(), "not found / offline");
+
+        // A child synced without its root is unsynced too.
+        let child: SessionRow = serde_json::from_value(json!({"id": CHILD, "root_id": ROOT, "parent_id": ROOT, "team_id": "t1", "status": "running"})).unwrap();
+        r.account.sessions = vec![child];
+        assert_eq!(send_tree(&r.account, &into(CHILD)), SendTree::Unsynced(CHILD.into()));
+    }
+
+    /// #EDE-131: an agent send without a synced conversation asks
+    /// `sessions.sendTarget`: the conversation's key seals it.
+    #[test]
+    fn an_agent_send_without_a_synced_conversation_asks_the_server() {
+        let mut r = rows();
+        r.account.sessions.clear();
+        let input = api::sessions::SendInput { team_id: Some("t1".into()), agent_id: Some("a2".into()), text: Some("Ship it".into()), ..Default::default() };
+        let tree = send_tree(&r.account, &input);
+        assert_eq!(tree, SendTree::Agent("a2".into()));
+        let key = enet_core::sealed::generate_tree_key();
+        let mut server = FakeServer::new(None, None);
+        server.target = serde_json::from_value(json!({"rootId": ROOT, "epoch": 3, "publicKey": key.public_key(), "clearTree": false})).unwrap();
+        assert_eq!(opens(&key, 3, &wire_text(&server, &tree, "Ship it").unwrap()).as_deref(), Some("Ship it"));
+        server.target = serde_json::from_value(json!({"rootId": ROOT, "epoch": null, "publicKey": null})).unwrap();
+        assert!(wire_text(&server, &tree, "Ship it").is_err(), "a keyless conversation");
+        server.target = serde_json::from_value(json!({"rootId": ROOT, "clearTree": true})).unwrap();
+        assert_eq!(wire_text(&server, &tree, "Ship it").as_deref(), Ok("Ship it"));
+    }
+
+    /// #EDE-131: an answer to a card the rows lack is refused locally; a
+    /// plaintext card's goes as given; an opened sealed card's is the FULL
+    /// card re-sealed with the answer, no plaintext answer fields.
+    #[test]
+    fn an_answer_is_sealed_for_a_sealed_card_and_refused_for_an_unknown_one() {
+        let key = enet_core::sealed::generate_tree_key();
+        let mut r = rows();
+        r.account.sessions = vec![root_row(json!({"seal_public_key": key.public_key(), "seal_epoch": 1}))];
+        let answer = |id: &str| api::sessions::AnswerInput { message_id: id.into(), answer: Some("Yes".into()), answers: Some(json!(["Yes"])), ..Default::default() };
+        assert_eq!(answer_wire(&r, &answer("m-unknown")), Err(LOCKED_ANSWER.to_string()));
+
+        let card = json!({"kind": "question", "question": "Ship it?", "options": ["Yes", "No"], "multi": false, "custom": false});
+        let mut plain: MessageRow = serde_json::from_value(json!({"id": "m-plain", "conversation_id": "c1", "session_id": ROOT, "root_id": ROOT, "author_kind": "agent", "body": "", "card": card})).unwrap();
+        r.messages.push(plain.clone());
+        assert_eq!(answer_wire(&r, &answer("m-plain")), Ok(answer("m-plain")));
+
+        plain.id = "m-sealed".into();
+        plain.seal = Some(domain::sealed::SealState::Opened);
+        r.messages.push(plain.clone());
+        let wire = answer_wire(&r, &answer("m-sealed")).unwrap();
+        assert!(wire.answer.is_none() && wire.answers.is_none());
+        let opened = enet_core::sealed::open_card(wire.sealed_card.as_ref().unwrap(), &|e| (e == 1).then_some(key.secret));
+        assert_eq!(opened.card["question"], json!("Ship it?"));
+        assert_ne!(opened.card, card, "the answer is in the sealed card");
+
+        plain.id = "m-locked".into();
+        plain.seal = Some(domain::sealed::SealState::Locked);
+        r.messages.push(plain);
+        assert_eq!(answer_wire(&r, &answer("m-locked")), Err(LOCKED_ANSWER.to_string()));
+    }
+
+    /// The refusal is the fixture's copy.
+    #[test]
+    fn the_no_key_refusal_is_the_fixture_s() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap();
+        assert_eq!(fixture["clearTree"]["noKeyRefusal"], json!(NO_KEY_REFUSAL));
     }
 
     /// #EDE-98: the header's marks come off the tree's root (chats.json marksCases).

@@ -15,7 +15,7 @@ object MobileNativeLibrary {
     const val NAME = "exponential_mobile_ffi"
 
     /** The UniFFI namespaces linked into [NAME]. */
-    val NAMESPACES = listOf("exponential_ui_ffi", "eengine_ffi", "exponential_net_ffi")
+    val NAMESPACES = listOf("exponential_ui_ffi", "eengine_ffi", "exponential_net_ffi", "chat_store_ffi")
 
     fun install(vmName: String? = System.getProperty("java.vm.name")) {
         if (vmName != "Dalvik") return

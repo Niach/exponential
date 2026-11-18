@@ -71,7 +71,6 @@ import com.exponential.app.ui.components.SelectionBarSlot
 import com.exponential.app.ui.components.BottomNavDefaults
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.ScheduleFieldsSpecimen
-import com.exponential.app.ui.components.agentMenuItems
 import com.exponential.app.ui.components.chatMenuItems
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
@@ -767,13 +766,15 @@ fun ChatMenusSpecimenScreen() {
             MenuCaptioned("An ended chat") {
                 ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.chatMenuEntries("ended", true, true)) {})
             }
+            // #FEED-271: THE session screen `…` of an agent (web's
+            // AGENT_MENU_INPUT: a member, Link or file an issue › first).
             MenuCaptioned("The agent menu (busy, owner)") {
-                ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
+                ChatMenuSheetFace("Triage", specimenAgentMenu(settings = true))
             }
             MenuCaptioned("The agent menu (idle, member)") {
                 // Web's specimen names no agent; every phone titles both agent
                 // menus with the same agent (iOS: Triage).
-                ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = false, isOwner = false)) {})
+                ChatMenuSheetFace("Triage", specimenAgentMenu(settings = false))
             }
             MenuCaptioned("The delete confirm") {
                 GlassAlertFace(
@@ -788,6 +789,20 @@ fun ChatMenusSpecimenScreen() {
         }
     }
 }
+
+private fun specimenAgentMenu(settings: Boolean) = com.exponential.app.ui.chat.sessionScreenMenuItems(
+    com.exponential.app.domain.SessionScreen.Kind.Agent,
+    com.exponential.app.domain.SessionScreen.menu(
+        com.exponential.app.domain.SessionScreen.Kind.Agent,
+        phone = false,
+        member = true,
+        settings = settings,
+        publish = false,
+        export = false,
+        delete = false,
+        linkIssue = true,
+    ),
+) {}
 
 /** A chat-menus specimen under web's caption (`text-xs` muted, 8dp above). */
 @Composable

@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -59,6 +60,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.exponential.app.ui.components.ImageActionsBox
+import com.exponential.app.ui.components.imageBytesForSrc
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
@@ -371,9 +374,12 @@ private fun groupAspect(picture: PlanPage.Picture?, card: JsonObject?): Float {
 /** One plan picture fitted (contain) on black; the muted fill while it loads
  *  (a styleguide specimen paints its sample, [LocalSpecimenPicture]). */
 @Composable
-internal fun PlanPictureImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Fit) {
+internal fun PlanPictureImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Fit, onClick: (() -> Unit)? = null) {
     var loaded by remember(src) { mutableStateOf(false) }
-    Box(modifier.background(if (loaded) Color.Black else DesignTokens.Palette.Muted)) {
+    // #EXP-1948: a rendered picture's long press = the image menu (the original bytes).
+    val context = LocalContext.current
+    val bytes = remember(src) { imageBytesForSrc(context, src) }
+    ImageActionsBox(bytes = if (loaded) bytes else null, modifier = modifier.background(if (loaded) Color.Black else DesignTokens.Palette.Muted), onClick = onClick) {
         AsyncImage(
             model = LocalSpecimenPicture.current?.invoke(src) ?: src,
             contentDescription = null,
@@ -406,8 +412,8 @@ fun PlanPictureCarousel(pictures: List<PlanPage.Picture>, aspect: Float, onOpen:
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(shape)
-                        .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-                        .clickable { onOpen(index) },
+                        .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape),
+                    onClick = { onOpen(index) },
                 )
             }
             Text(

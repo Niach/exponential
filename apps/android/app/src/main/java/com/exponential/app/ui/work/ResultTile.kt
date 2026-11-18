@@ -17,7 +17,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -28,11 +31,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import com.exponential.app.ui.components.ImageActionsBox
+import com.exponential.app.ui.components.attachmentImageBytes
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.sessionResultIsTall
 import com.exponential.app.domain.sessionResultTileWidth
@@ -77,16 +84,22 @@ internal fun ResultTile(
             .clip(TileShape)
             .background(GlassTokens.RowFill)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, TileShape)
-            .clickable(onClick = onOpen)
-        if (sessionResultIsTall(entry)) {
-            TallTileImage(entry = entry, tileHeight = tileHeight, modifier = frame)
-        } else {
-            AsyncImage(
-                model = sessionResultImageUrl(entry),
-                contentDescription = entry.label,
-                contentScale = ContentScale.Crop,
-                modifier = frame,
-            )
+        // #EXP-1948: a rendered tile's long press = the image menu (the original bytes).
+        val context = LocalContext.current
+        var loaded by remember(entry.attachmentId) { mutableStateOf(false) }
+        val bytes = remember(entry.attachmentId) { attachmentImageBytes(context, entry.attachmentId) }
+        ImageActionsBox(bytes = if (loaded) bytes else null, modifier = frame, name = entry.label, onClick = onOpen) {
+            if (sessionResultIsTall(entry)) {
+                TallTileImage(entry = entry, tileHeight = tileHeight, modifier = Modifier.fillMaxSize(), onReady = { loaded = it })
+            } else {
+                AsyncImage(
+                    model = sessionResultImageUrl(entry),
+                    contentDescription = entry.label,
+                    contentScale = ContentScale.Crop,
+                    onState = { loaded = it is AsyncImagePainter.State.Success },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         Text(
             caption,
@@ -105,7 +118,7 @@ internal fun ResultTile(
  * frame's fill stands in while the bytes load.
  */
 @Composable
-private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: Modifier) {
+private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: Modifier, onReady: (Boolean) -> Unit = {}) {
     val load = rememberTallImage(entry)
     val source = load.source
     val sourceWidth = entry.width ?: 0
@@ -118,6 +131,7 @@ private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: 
             }
         }
     }
+    LaunchedEffect(source, bitmap) { onReady(source == TallImageSource.Unsupported || bitmap != null) }
     Box(modifier = modifier) {
         when (source) {
             // A format the region decoder cannot read: Coil draws it, top-cropped.

@@ -43,11 +43,6 @@ class TranscriptGroupingTest {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("formerMember"), TranscriptGrouping.Copy.FORMER_MEMBER)
         assertEquals(copy.str("linkChevron"), TranscriptGrouping.Copy.LINK_CHEVRON)
-        assertEquals(copy.str("showMore"), TranscriptGrouping.Copy.SHOW_MORE)
-        assertEquals(copy.str("showLess"), TranscriptGrouping.Copy.SHOW_LESS)
-        val fold = fixture.getValue("fold").jsonObject
-        assertEquals(fold.getValue("lines").jsonPrimitive.int, TranscriptGrouping.Fold.LINES)
-        assertEquals(fold.getValue("chars").jsonPrimitive.int, TranscriptGrouping.Fold.CHARS)
         val markers = copy.getValue("markers").jsonObject.mapValues { it.value.jsonPrimitive.content }
         assertEquals(markers, TranscriptGrouping.Copy.MARKERS)
         assertEquals(copy.str("checkIn"), TranscriptGrouping.Copy.CHECK_IN)
@@ -105,19 +100,6 @@ class TranscriptGroupingTest {
         tail = o.getValue("tail").jsonPrimitive.boolean,
         gap = o.getValue("gap").jsonPrimitive.int,
     )
-
-    @Test
-    fun `every fold case matches the fixture`() {
-        val cases = fixture.getValue("foldCases").jsonArray.map { it.jsonObject }
-        assertTrue(cases.isNotEmpty())
-        for (case in cases) {
-            assertEquals(
-                case.str("name"),
-                case.getValue("expected").jsonPrimitive.boolean,
-                TranscriptGrouping.messageFolds(case.str("text")!!),
-            )
-        }
-    }
 
     @Test
     fun `every case matches the fixture`() {

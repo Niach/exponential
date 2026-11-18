@@ -32,6 +32,9 @@ final class NetworkPathWatcher: @unchecked Sendable {
     /// reason string (EXP-625). Off the main actor, like every other callback
     /// here, so the hook hops for itself.
     var onRegained: (@Sendable (String) -> Void)?
+    /// #EDE-114: whether the path is unmetered (satisfied, not expensive,
+    /// not constrained), on every path update.
+    var onUnmetered: (@Sendable (Bool) -> Void)?
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "at.exponential.network-path")
     // Both confined to `queue`: only the path-update handler ever touches them.
@@ -45,6 +48,7 @@ final class NetworkPathWatcher: @unchecked Sendable {
     func start() {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
+            self.onUnmetered?(path.status == .satisfied && !path.isExpensive && !path.isConstrained)
             let satisfied = path.status == .satisfied
             let interfaces = path.availableInterfaces.map(\.name).sorted().joined(separator: ",")
             let previous = self.wasSatisfied

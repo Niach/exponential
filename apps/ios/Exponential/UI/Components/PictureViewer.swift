@@ -206,6 +206,8 @@ private struct PictureViewerPage: View {
     }
 
     @State private var phase: Phase = .loading
+    /// #EXP-1949: the picture's original bytes (Copy image, Share).
+    @State private var original: Data?
 
     var body: some View {
         Group {
@@ -219,7 +221,13 @@ private struct PictureViewerPage: View {
                     .font(.callout)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             case let .ready(picture):
+                // #EXP-1949: THE image menu on the picture on screen (its taps,
+                // pinches and drags stay the zoom's).
                 zoomable(picture)
+                    .imageActionsMenu(name: item.label, bytes: {
+                        guard let original else { throw ImageBytes.Failure.undecodable }
+                        return original
+                    })
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -264,8 +272,10 @@ private struct PictureViewerPage: View {
 
     private func load() async {
         phase = .loading
+        original = nil
         onZoomed(false)
         if let tile = SpecimenPicture.image(item.src), let decoded = PictureViewerDecode(image: tile) {
+            original = tile.pngData()
             phase = .ready(decoded)
             return
         }
@@ -288,6 +298,7 @@ private struct PictureViewerPage: View {
         }
         guard !Task.isCancelled else { return }
         onTall(decoded.naturalSize.width / decoded.naturalSize.height < sessionResultTallAspect)
+        original = data
         phase = .ready(decoded)
     }
 }

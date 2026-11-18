@@ -6,8 +6,9 @@ import { getSteerRelayConfig, mintSteerTicket } from "@/lib/steer"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 
 // The steer relay (masterplan §3.5), VAPP-43: device presence, control and
-// eTalk calls, and NO session content. A device holds one CONTROL socket
-// (presence; `check_in`, `kill`, `interrupt` and `compact_request` routed
+// eTalk calls, and NO session content, EXCEPT a voice call's events and
+// audio, which the relay can read until #EXP-1941. A device holds one
+// CONTROL socket (presence; `check_in`, `kill`, `interrupt` and `compact_request` routed
 // down it from the server's admin calls); every viewer reads a session's
 // activity and steers it over eNet from the device that runs it
 // (fixtures/steer-enet.json). EXP-1291: starts, messages, Stop and End are

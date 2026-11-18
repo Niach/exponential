@@ -25,7 +25,7 @@ use smithay::{
     reexports::calloop::{generic::Generic, Interest, Mode, PostAction},
 };
 
-use crate::{desk::DeskId, state::Ede};
+use crate::{desk::DeskId, spaces::scope::Scope, state::Ede};
 
 /// The writes (a frame's length, its bytes) one connection may have
 /// waiting. Replies never pile up (a call waits for an empty queue, however
@@ -58,6 +58,8 @@ struct Conn {
     /// The call whose reply is deferred.
     busy: Option<u64>,
     token: Option<Token>,
+    /// Whose desk it acts on: its first hello's, never changed (#EDE-126).
+    scope: Option<Scope>,
     subscribed: bool,
     dead: bool,
     /// What the socket did not take yet; the first one is sent up to `out_at`.
@@ -196,7 +198,7 @@ impl Ede {
         let Ok(reader) = stream.try_clone() else { return };
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
-        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
+        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, scope: None, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
             let mut r: &UnixStream = reader;
@@ -220,11 +222,16 @@ impl Ede {
     /// shell's last one starts the recovery clock.
     fn ipc_dropped(&mut self, id: u64) {
         let was_shell = self.ipc.shell_subscribed();
+        // #EDE-126: the scope its hello gave it, read before it goes and
+        // never from its grant: a foreground run revokes its grant before
+        // its hold connection drops, and the hold must still end here.
+        let scope = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()).unwrap_or(Scope::Person);
         self.ipc.clients.retain(|c| c.id != id);
         self.ipc.shortcuts.drop_client(id);
-        let desk = self.desk_of_conn(id);
-        self.release_driven(desk, id);
-        self.release_input(desk, id);
+        if let Some(desk) = self.desk_of_scope(&scope) {
+            self.release_driven(desk, id);
+            self.release_input(desk, id);
+        }
         if was_shell && !self.ipc.shell_subscribed() {
             self.shell_left();
         }
@@ -390,10 +397,15 @@ impl Ede {
             }
             let grant = self.ipc.grant(token).filter(|g| g.expires_at.is_none_or(|e| now < e)).cloned();
             let Some(grant) = grant else { return Err(fail(ErrorCode::Unauthorized, "unknown or expired token")) };
+            let scope = Scope::of(&grant);
             if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                if c.scope.as_ref().is_some_and(|kept| *kept != scope) {
+                    return Err(fail(ErrorCode::Forbidden, "a connection keeps the desk of its first hello"));
+                }
                 c.token = Some(grant.token.clone());
+                c.scope = Some(scope);
             }
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id };
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: vec![] };
             return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
@@ -401,6 +413,10 @@ impl Ede {
         };
         if grant.expires_at.is_some_and(|e| now >= e) {
             return Err(fail(ErrorCode::Unauthorized, "the grant expired"));
+        }
+        // #EDE-126: a space connection never reaches the arms below.
+        if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
+            return self.space_scope_call(&session, &grant, now, request);
         }
         if let Some(cap) = request.capability() {
             if !grant.admits(cap, now) {
@@ -487,6 +503,9 @@ impl Ede {
                         let output = self.desk.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
                         crate::backend::capture_output(self, &output)
                     }
+                    // #EDE-126: named by the protocol, made by no compositor yet.
+                    CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
+                    CaptureTarget::Space { .. } => return Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
                         // frame (the taskbar's hover preview).
@@ -633,6 +652,9 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::MintGrant { session_id, run_id, capabilities, expires_at } => {
+                if let Some(why) = crate::spaces::scope::mint_refused(&session_id, &capabilities) {
+                    return Err(fail(ErrorCode::Invalid, why));
+                }
                 if let Some(extra) = capabilities.iter().find(|c| !grant.capabilities.contains(c)) {
                     return Err(fail(ErrorCode::Forbidden, &format!("cannot grant {}: not held", extra.as_str())));
                 }
@@ -660,6 +682,11 @@ impl Ede {
                 }
                 json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
             }
+            // #EDE-126: named by the protocol, made by no compositor yet
+            // (`Hello::features` offers no `spaces`).
+            Request::DestroySpace { .. } | Request::ListSpaces => Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
+            // Only a space grant has a space to make or to launch into.
+            Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
         }
     }
 

@@ -14,7 +14,8 @@ import SwiftUI
 public extension View {
     /// - Parameters:
     ///   - enabled: false = no menu (the row is only its tap).
-    ///   - onTap: the row's primary action; nil = the row has none.
+    ///   - onTap: the row's primary action; nil = the row has none (its
+    ///     taps, drags and pinches stay with what is around it).
     ///   - menu: `GlassMenuItem`s, exactly as in a `GlassMenu`.
     func glassLongPressMenu<MenuContent: View>(
         enabled: Bool = true,
@@ -75,18 +76,42 @@ private struct GlassLongPressMenu<MenuContent: View>: ViewModifier {
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                 anchor = frame
             }
-            // The tap is attached BEFORE the hold: SwiftUI then fires the
-            // tap only for a short press and the hold alone for a long one.
-            .onTapGesture { onTap?() }
-            .onLongPressGesture(minimumDuration: GlassLongPressMenuTokens.minimumDuration) {
-                guard enabled else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { isPresented = true }
-            }
+            .modifier(Arm(enabled: enabled, onTap: onTap, present: present))
             .sensoryFeedback(.impact(weight: .medium), trigger: isPresented) { _, presented in presented }
             .accessibilityAddTraits(onTap == nil ? [] : .isButton)
-            .accessibilityAction { onTap?() }
             .glassMenuOverlay(isPresented: $isPresented, anchor: anchor, content: menu)
+    }
+
+    private func present() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { isPresented = true }
+    }
+
+    /// With a tap, the row owns both: the tap is attached BEFORE the hold, so
+    /// SwiftUI fires the tap only for a short press and the hold alone for a
+    /// long one. Without one (#EXP-1926, a picture inside something that has
+    /// its own taps, drags or pinches), the hold rides alongside them.
+    private struct Arm: ViewModifier {
+        let enabled: Bool
+        let onTap: (() -> Void)?
+        let present: () -> Void
+
+        func body(content: Content) -> some View {
+            if let onTap {
+                content
+                    .onTapGesture { onTap() }
+                    .onLongPressGesture(minimumDuration: GlassLongPressMenuTokens.minimumDuration) {
+                        guard enabled else { return }
+                        present()
+                    }
+                    .accessibilityAction { onTap() }
+            } else {
+                content.simultaneousGesture(LongPressGesture(minimumDuration: GlassLongPressMenuTokens.minimumDuration).onEnded { _ in
+                    guard enabled else { return }
+                    present()
+                })
+            }
+        }
     }
 }

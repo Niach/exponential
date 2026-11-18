@@ -30,14 +30,16 @@ public struct ResultsTabView<Lead: View, Thumbnail: View, Surface: View>: View {
     let results: [ResultsTab.Result]
     let onOpenPicture: (ResultsTab.Result, Int) -> Void
     let lead: Lead
-    let thumbnail: (ResultsTab.Picture) -> Thumbnail
+    let thumbnail: (ResultsTab.Picture, @escaping () -> Void) -> Thumbnail
     let surface: (ResultsTab.Result) -> Surface
 
     public init(
         results: [ResultsTab.Result],
         onOpenPicture: @escaping (ResultsTab.Result, Int) -> Void,
         @ViewBuilder lead: () -> Lead,
-        @ViewBuilder thumbnail: @escaping (ResultsTab.Picture) -> Thumbnail,
+        /// The picture's bytes; `open` = its press (#EXP-1949: the host's
+        /// picture owns its tap with its long-press image menu).
+        @ViewBuilder thumbnail: @escaping (ResultsTab.Picture, _ open: @escaping () -> Void) -> Thumbnail,
         @ViewBuilder surface: @escaping (ResultsTab.Result) -> Surface
     ) {
         self.results = results
@@ -80,7 +82,7 @@ public struct ResultsTabView<Lead: View, Thumbnail: View, Surface: View>: View {
 struct ResultSection<Thumbnail: View, Surface: View>: View {
     let result: ResultsTab.Result
     let onOpenPicture: (Int) -> Void
-    let thumbnail: (ResultsTab.Picture) -> Thumbnail
+    let thumbnail: (ResultsTab.Picture, @escaping () -> Void) -> Thumbnail
     @ViewBuilder let surface: () -> Surface
 
     var body: some View {
@@ -111,10 +113,9 @@ struct ResultSection<Thumbnail: View, Surface: View>: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: gap) {
                         ForEach(Array(result.pictures.enumerated()), id: \.offset) { index, picture in
-                            Button { onOpenPicture(index) } label: {
-                                ResultThumbnail(picture: picture) { thumbnail(picture) }
+                            ResultThumbnail(picture: picture, onOpen: { onOpenPicture(index) }) {
+                                thumbnail(picture) { onOpenPicture(index) }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -133,6 +134,7 @@ struct ResultSection<Thumbnail: View, Surface: View>: View {
 /// caption-else-label line 6 under it.
 struct ResultThumbnail<Bytes: View>: View {
     let picture: ResultsTab.Picture
+    let onOpen: () -> Void
     @ViewBuilder let image: () -> Bytes
 
     var body: some View {
@@ -156,8 +158,11 @@ struct ResultThumbnail<Bytes: View>: View {
                 .truncationMode(.tail)
         }
         .frame(width: width, alignment: .leading)
-        .accessibilityElement(children: .ignore)
+        .contentShape(Rectangle())
+        .onTapGesture { onOpen() }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
     }
 }

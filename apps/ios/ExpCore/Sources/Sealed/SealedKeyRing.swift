@@ -199,6 +199,13 @@ public struct SealedMessage {
         return (text.text ?? "", opened?.json ?? card, worse(text.status, opened?.status))
     }
 
+    /// The text a bubble draws for a body (#EXP-1954): the opened text, or
+    /// the locked placeholder copy, never the envelope.
+    public static func shownBody(_ body: String, rootId: String?, opener: SealedOpener = .shared) -> String {
+        let opened = opener.body(body, rootId: rootId)
+        return SealedPlaceholder.reason(opened.status).map(SealedPlaceholder.copy) ?? opened.text ?? ""
+    }
+
     /// A digest entry (its card is already an object).
     public static func open(body: String, card: [String: Any]?, rootId: String?, opener: SealedOpener = .shared) -> (body: String, card: [String: Any]?, status: SealStatus) {
         guard let card, card["sealed"] != nil,
