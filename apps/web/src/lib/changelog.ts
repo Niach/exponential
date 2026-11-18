@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-whole-chat-messages`,
+    date: `2026-11-18`,
+    title: `Chat messages always show in full`,
+    summary: `Every chat message shows its whole text again, on web, desktop, iOS and Android: no more "Show more" under long messages.`,
+    body: `- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble.`,
+  },
+  {
     id: `2026-11-18-phones-keep-your-chats`,
     date: `2026-11-18`,
     title: `Your phone keeps your chats`,

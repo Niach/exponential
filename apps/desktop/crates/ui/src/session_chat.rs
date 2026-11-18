@@ -5802,10 +5802,17 @@ mod tests {
             image::DynamicImage::ImageRgba8(pixels).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).expect("a PNG");
             png
         };
+        // #EXP-1888: a bubble never folds: a long reply (a base64 token in it), a
+        // long relay and a long own message, each drawn whole.
+        let long_answer = vec![
+            steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+            steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Here is the log from the failing run:\nline 1: shape subscribe deferred\nline 2: shape subscribe deferred\nline 3: shape subscribe deferred\nline 4: shape subscribe deferred\nline 5: shape subscribe deferred\nline 6: shape subscribe deferred\nline 7: shape subscribe deferred\nline 8: shape subscribe deferred\nline 9: shape subscribe deferred\nline 10: shape subscribe deferred")),
+            steer::ViewerEvent::Activity(2, steer::ActivityEvent::narration("Cold start: where the 660 ms went (Pixel 6a, 20 cold runs):\n\n1. **Sync bootstrap**: 410 ms on the main thread before the first frame, now deferred until after it.\n2. **Board snapshot cache**: the last board paints at launch, visible at 380 ms.\n3. **Highlighting bundle**: 120 ms of grammar parsing, moved behind the first editor open.\n4. **Fonts**: 60 ms for weights the launch screen never uses, trimmed.\n5. **Shapes**: the four the board needs open first, the other seven after idle.\n\nResult: 740 ms median on the Galaxy A54, 690 ms on the Pixel 6a, both under the 800 ms target.\n\nThe trace, gzip + base64, for Perfetto:\nH4sIAAAAAAAAA+1d63LbOJbuz1bNO+Cyuqfb2W7Ldu+4pqtYU7Ilx7atjGnFsW+7NpXSFCVTlpSJp+FP4ihP4HyMjgnzEdRyezWTYF05thOrv6nMOpTqXWyRmK3YBWHbtL6uYhD4+zwF5ycxYVx+mJ4zgE5f2pM4OJbEQIrhXo3zHqm+Of87Fq2Zu5Pbi98wVK2ZqjHjb3kmd56NhYKsUKdz8rpOqahbCSSnmRbW4fe7O3pBcUo9EvDVUTj5jJ2qwlYzaL8bVSbk9LhEfMzlfE7c19HbjstuCGgdLXwUAHU1vdFnQ1cGzdQZy4l1Un5L9cWgCU9iZPA9DgbCubFGEs2ThbhgM8vOXdtnwsmrewFSbcpjvTDKbq4VfQ8bQh9pewGSi9ngfCDOWj9jZ5qhPfbvEp36SAXWgWB0lhsN9rqrxuqSzZYzNLKvgfi6nC0MbB0Qcr8oiU8gW76ZiVCTwYtXYyNj7z2EJ4QRWQk6VFn0nWJ0J8qdSQDbP6hZD3BuEfm3TZJmlYB2T0g8bcKRhOMYmoRzGIo1y5H3J")),
+        ];
         let image_events = short.clone();
-        for (name, events, attach) in [("chat-tab-long", long, false), ("chat-tab-short", short, false), ("chat-composer-image", image_events, true)] {
+        for (name, events, attach) in [("chat-tab-long-answer", long_answer, false), ("chat-tab-long", long, false), ("chat-tab-short", short, false), ("chat-composer-image", image_events, true)] {
             let window = cx
-                .open_window(gpui::size(gpui::px(1100.), gpui::px(760.)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
+                .open_window(gpui::size(gpui::px(1100.), gpui::px(if name == "chat-tab-long-answer" { 1300. } else { 760. })), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
                 .expect("a headless window");
             let view = window.root(&mut cx).expect("the view");
             cx.update_window(window.into(), |_, _, cx| {
