@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
@@ -54,7 +55,8 @@ import kotlin.math.sqrt
  * tone on the call's voice stream while the voice device warms up; the
  * threads start with [start] once the relay paired). [speaker] routes the
  * loudspeaker (default) or the earpiece; a headset (wired, USB or
- * Bluetooth) always wins over both.
+ * Bluetooth) always wins over both, also one that connects or leaves
+ * mid-call ([CallOutputRouter]).
  */
 internal class VoiceCallAudio(
     private val context: Context,
@@ -88,8 +90,42 @@ internal class VoiceCallAudio(
     @Volatile var speaker: Boolean = true
         set(value) {
             field = value
-            if (routed.get() && !released.get()) runCatching { routeOutput() }.onFailure { Log.w(TAG, "call speaker route failed", it) }
+            output.speaker = value
+            if (routed.get() && !released.get()) runCatching { output.apply() }.onFailure { Log.w(TAG, "call speaker route failed", it) }
         }
+
+    /** The call's output on this phone's AudioManager ([CallOutputRouter] picks it). */
+    private val output = CallOutputRouter(object : CallOutputRouter.Port {
+        private var callback: AudioDeviceCallback? = null
+
+        override fun outputs(): List<Int> =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.availableCommunicationDevices.map { it.type }
+            } else {
+                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+            }
+
+        @Suppress("DEPRECATION")
+        override fun route(type: Int) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val target = audioManager.availableCommunicationDevices.firstOrNull { it.type == type }
+                if (target != null) audioManager.setCommunicationDevice(target) else audioManager.clearCommunicationDevice()
+            } else {
+                audioManager.isSpeakerphoneOn = type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            }
+        }
+
+        override fun watch(onChange: (() -> Unit)?) {
+            callback?.let { runCatching { audioManager.unregisterAudioDeviceCallback(it) } }
+            callback = null
+            if (onChange == null) return
+            val changed = { runCatching(onChange).onFailure { Log.w(TAG, "call output route failed", it) } }
+            callback = object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) { changed() }
+                override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) { changed() }
+            }.also { audioManager.registerAudioDeviceCallback(it, null) }
+        }
+    })
 
     private var captureThread: Thread? = null
     private var decodeThread: Thread? = null
@@ -243,6 +279,8 @@ internal class VoiceCallAudio(
 
     fun release() {
         if (!released.compareAndSet(false, true)) return
+        // At once: a late device change never routes under the next call.
+        output.stop()
         stopRing()
         running.set(false)
         sending = false
@@ -292,29 +330,9 @@ internal class VoiceCallAudio(
         runCatching {
             routing.claim(this) { audioManager.mode to audioManager.isSpeakerphoneOn }
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            routeOutput()
+            output.start()
         }.onFailure { Log.w(TAG, "call routing failed", it) }
         return true
-    }
-
-    /**
-     * The call's output: a headset (wired, USB or Bluetooth) when one is on,
-     * else the loudspeaker while [speaker] (the default: the call is a full
-     * screen held in front of the face) or the earpiece.
-     */
-    @Suppress("DEPRECATION")
-    private fun routeOutput() {
-        val loud = speaker
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val devices = audioManager.availableCommunicationDevices
-            val headset = devices.firstOrNull { it.type in HEADSET_TYPES }
-            val builtIn = if (loud) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-            val target = headset ?: devices.firstOrNull { it.type == builtIn }
-            if (target != null) audioManager.setCommunicationDevice(target) else audioManager.clearCommunicationDevice()
-        } else {
-            val headset = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in HEADSET_TYPES }
-            audioManager.isSpeakerphoneOn = !headset && loud
-        }
     }
 
     @Suppress("DEPRECATION")
@@ -571,6 +589,50 @@ private val HEADSET_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
     AudioDeviceInfo.TYPE_BLE_HEADSET,
 )
+
+/**
+ * The call's output among the [available] ones (AudioDeviceInfo types): a
+ * headset when one is on, else the loudspeaker while [speaker] (the default:
+ * the call is a full screen held in front of the face) or the earpiece.
+ */
+internal fun pickCallOutput(available: List<Int>, speaker: Boolean): Int =
+    available.firstOrNull { it in HEADSET_TYPES }
+        ?: if (speaker) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+
+/**
+ * #EXP-1940: routes the call's output and FOLLOWS it: a headset that
+ * connects or leaves mid-call is picked up (voice-call.json: the output
+ * follows the route, the speaker choice stays), as iOS re-applies its
+ * override on every route change.
+ */
+internal class CallOutputRouter(private val port: Port) {
+    interface Port {
+        /** The types of the outputs a call can use now. */
+        fun outputs(): List<Int>
+        fun route(type: Int)
+        /** [onChange] runs whenever an output connects or leaves; null = no longer. */
+        fun watch(onChange: (() -> Unit)?)
+    }
+
+    /** The loudspeaker (true) or the earpiece. */
+    @Volatile var speaker: Boolean = true
+
+    @Volatile private var following = false
+
+    /** Route now and on every output change until [stop]. */
+    fun start() {
+        following = true
+        port.watch { if (following) apply() }
+        apply()
+    }
+
+    fun apply() = port.route(pickCallOutput(port.outputs(), speaker))
+
+    fun stop() {
+        following = false
+        port.watch(null)
+    }
+}
 
 /**
  * The downlink's jitter buffer: playback starts once [prebuffer] decoded

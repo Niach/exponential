@@ -37,8 +37,8 @@ pub const OPEN_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Wait for the audio thread's open, at most `timeout`. A timeout is
 /// `pending` (macOS: the permission prompt, `NotGranted`); the thread is
-/// left to finish on its own (its stream drops at once: its `done` sender
-/// is gone).
+/// left to finish on its own (its stream drops at once: it was told
+/// `done`).
 #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn await_open(
     ready: &Receiver<Result<(), (ListenFailure, String)>>,
@@ -52,6 +52,26 @@ fn await_open(
         }
         Err(RecvTimeoutError::Disconnected) => Err((ListenFailure::NoMicrophone, "audio thread ended".to_string())),
     }
+}
+
+/// EXP-1937: the stream's error callback (a device unplugged or failed):
+/// logged, and the audio thread is told, which drops the stream and with it
+/// every sender, so the listener sees `Disconnected`. cpal stops such a
+/// stream but keeps it, and its senders, alive.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+fn stream_lost(done: &std::sync::mpsc::Sender<()>, err: impl std::fmt::Display) {
+    eprintln!("voice: microphone stream error: {err}");
+    let _ = done.send(());
+}
+
+/// EXP-1937: the audio thread's wait: until the capture is closed or the
+/// stream was lost ([`stream_lost`]), then the stream drops. The error
+/// callback inside `stream` holds a sender of `done` too, so closing SENDS;
+/// dropping the closer's sender alone would never end this.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+fn hold<S>(stream: S, done: &Receiver<()>) {
+    let _ = done.recv();
+    drop(stream);
 }
 
 /// Hand `samples` to the listening thread without ever blocking the
@@ -177,24 +197,46 @@ pub fn read_wav(bytes: &[u8]) -> Result<Vec<f32>, String> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use std::io::Read;
-    use std::process::{Child, Command, Stdio};
-    use std::sync::mpsc::{self, Receiver};
+    use std::process::{Child, ChildStdout, Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{self, Receiver, SyncSender};
+    use std::sync::{Arc, Mutex};
 
     use etalk::ListenFailure;
 
-    /// Kills the recorder when dropped (its reader then sees EOF).
-    pub struct Closer(Child);
+    /// The recorder that runs now; EXP-1937: the capture thread swaps it
+    /// when one hands over to the next.
+    struct Recorder {
+        child: Mutex<Option<Child>>,
+        closed: AtomicBool,
+    }
 
-    impl Drop for Closer {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
+    impl Recorder {
+        fn kill(&self) {
+            let Some(mut child) = self.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() else { return };
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 
-    pub fn open() -> Result<(Receiver<Vec<f32>>, Closer), (ListenFailure, String)> {
+    /// Kills the recorder when dropped (its reader then sees EOF).
+    pub struct Closer(Arc<Recorder>);
+
+    impl Drop for Closer {
+        fn drop(&mut self) {
+            self.0.closed.store(true, Ordering::SeqCst);
+            self.0.kill();
+        }
+    }
+
+    /// A recorder and its arguments.
+    type Candidate = (&'static str, Vec<String>);
+    /// How a recorder is started ([`spawn`]; the tests start fakes).
+    type Spawn = dyn Fn(&str, &[String]) -> Result<Child, String> + Send;
+
+    fn candidates() -> Vec<Candidate> {
         let rate = crate::listen::RATE.to_string();
-        let candidates: [(&str, Vec<String>); 2] = [
+        vec![
             (
                 "pw-record",
                 vec![
@@ -220,52 +262,104 @@ mod platform {
                     "--latency-msec=20".into(),
                 ],
             ),
-        ];
+        ]
+    }
+
+    /// Absolute, from the system dirs: never a binary the PATH plants. Its
+    /// stderr is the worker's (EXP-1937: the log says why a recorder ended).
+    fn spawn(program: &str, args: &[String]) -> Result<Child, String> {
+        let path = etalk::system_binary(program).ok_or_else(|| format!("{program}: not in {}", etalk::SYSTEM_BIN_DIRS.join(", ")))?;
+        Command::new(path)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|err| format!("{program}: {err}"))
+    }
+
+    /// Start the first recorder from `candidates[*next..]` that spawns.
+    fn start(candidates: &[Candidate], next: &mut usize, spawn: &Spawn) -> Result<(&'static str, Child, ChildStdout), String> {
         let mut errors = Vec::new();
-        for (program, args) in candidates {
-            // Absolute, from the system dirs: never a binary the PATH plants.
-            let Some(path) = etalk::system_binary(program) else {
-                errors.push(format!("{program}: not in {}", etalk::SYSTEM_BIN_DIRS.join(", ")));
-                continue;
-            };
-            match Command::new(path).args(&args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+        while let Some((program, args)) = candidates.get(*next) {
+            *next += 1;
+            match spawn(program, args) {
                 Ok(mut child) => {
-                    let mut stdout = child.stdout.take().expect("piped");
-                    let (tx, rx) = mpsc::sync_channel(super::CAPACITY);
-                    let spawned = std::thread::Builder::new().name("voice-capture".into()).spawn(move || {
-                        let mut buffer = vec![0u8; 4096];
-                        let mut carry: Vec<u8> = Vec::new();
-                        let mut dropped = 0;
-                        loop {
-                            match stdout.read(&mut buffer) {
-                                Ok(0) | Err(_) => break,
-                                Ok(read) => {
-                                    carry.extend_from_slice(&buffer[..read]);
-                                    let whole = carry.len() / 4 * 4;
-                                    let samples: Vec<f32> = carry[..whole]
-                                        .chunks_exact(4)
-                                        .map(|quad| f32::from_le_bytes(quad.try_into().expect("4 bytes")))
-                                        .collect();
-                                    carry.drain(..whole);
-                                    if !super::offer(&tx, samples, &mut dropped) {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    if let Err(err) = spawned {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err((ListenFailure::NoMicrophone, err.to_string()));
-                    }
-                    describe_default_source(program);
-                    return Ok((rx, Closer(child)));
+                    let stdout = child.stdout.take().expect("piped");
+                    return Ok((program, child, stdout));
                 }
-                Err(err) => errors.push(format!("{program}: {err}")),
+                Err(err) => errors.push(err),
             }
         }
-        Err((ListenFailure::NoMicrophone, format!("no recorder (needs PipeWire or PulseAudio): {}", errors.join("; "))))
+        Err(format!("no recorder (needs PipeWire or PulseAudio): {}", errors.join("; ")))
+    }
+
+    pub fn open() -> Result<(Receiver<Vec<f32>>, Closer), (ListenFailure, String)> {
+        open_with(candidates(), Box::new(spawn))
+    }
+
+    fn open_with(candidates: Vec<Candidate>, spawn: Box<Spawn>) -> Result<(Receiver<Vec<f32>>, Closer), (ListenFailure, String)> {
+        let mut next = 0;
+        let (mut program, child, mut stdout) = start(&candidates, &mut next, &*spawn).map_err(|err| (ListenFailure::NoMicrophone, err))?;
+        let recorder = Arc::new(Recorder { child: Mutex::new(Some(child)), closed: AtomicBool::new(false) });
+        let running = recorder.clone();
+        let (tx, rx) = mpsc::sync_channel(super::CAPACITY);
+        let first = program;
+        let spawned = std::thread::Builder::new().name("voice-capture".into()).spawn(move || {
+            // EXP-1937: a recorder that ends before its first byte REFUSED
+            // (playback's rule, `crate::sink`: pw-record exists on a desktop
+            // without a PipeWire audio session too, and exits at once
+            // there): the next one takes over on the same channel. One that
+            // delivered audio and then ends is the device going away.
+            while !pump(&mut stdout, &tx) && !running.closed.load(Ordering::SeqCst) {
+                running.kill();
+                let (name, child, out) = match start(&candidates, &mut next, &*spawn) {
+                    Ok(started) => started,
+                    Err(err) => {
+                        eprintln!("microphone: {program} ended before any audio; {err}");
+                        return;
+                    }
+                };
+                eprintln!("microphone: {program} ended before any audio; {name} takes over");
+                (program, stdout) = (name, out);
+                *running.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(child);
+                // Closed meanwhile: the closer may have missed this one.
+                if running.closed.load(Ordering::SeqCst) {
+                    running.kill();
+                }
+            }
+        });
+        if let Err(err) = spawned {
+            recorder.kill();
+            return Err((ListenFailure::NoMicrophone, err.to_string()));
+        }
+        describe_default_source(first);
+        Ok((rx, Closer(recorder)))
+    }
+
+    /// Hand the recorder's samples on until it ends or the listener is
+    /// gone; `false` = it ended before its first byte.
+    fn pump(stdout: &mut ChildStdout, tx: &SyncSender<Vec<f32>>) -> bool {
+        let mut buffer = vec![0u8; 4096];
+        let mut carry: Vec<u8> = Vec::new();
+        let mut dropped = 0;
+        let mut heard = false;
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) | Err(_) => return heard,
+                Ok(read) => {
+                    heard = true;
+                    carry.extend_from_slice(&buffer[..read]);
+                    let whole = carry.len() / 4 * 4;
+                    let samples: Vec<f32> =
+                        carry[..whole].chunks_exact(4).map(|quad| f32::from_le_bytes(quad.try_into().expect("4 bytes"))).collect();
+                    carry.drain(..whole);
+                    if !super::offer(tx, samples, &mut dropped) {
+                        return true;
+                    }
+                }
+            }
+        }
     }
 
     /// S-3: log what `recorder` records (the default source), on a thread of
@@ -306,6 +400,72 @@ mod platform {
         }
         "default source unknown (no pactl or wpctl)".into()
     }
+
+    #[cfg(test)]
+    mod tests {
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::{Duration, Instant};
+
+        use super::*;
+
+        /// Fake recorders, never a microphone: each candidate's name is a
+        /// `/bin/sh` script.
+        fn open_fakes(scripts: &[&'static str]) -> Result<(Receiver<Vec<f32>>, Closer), (ListenFailure, String)> {
+            let fake = |script: &str, _: &[String]| {
+                if script == "missing" {
+                    return Err("missing: not installed".to_string());
+                }
+                Command::new("/bin/sh").args(["-c", script]).stdin(Stdio::null()).stdout(Stdio::piped()).spawn().map_err(|err| err.to_string())
+            };
+            open_with(scripts.iter().map(|script| (*script, Vec::new())).collect(), Box::new(fake))
+        }
+
+        /// One second of silence, then the recorder stays open.
+        const RECORDS: &str = "head -c 64000 /dev/zero; exec sleep 30";
+
+        /// EXP-1937: pw-record on a desktop without a PipeWire session
+        /// exits at once: the next recorder delivers on the same capture.
+        #[test]
+        fn a_recorder_that_exits_at_once_hands_over_to_the_next() {
+            let (samples, closer) = open_fakes(&["exit 1", RECORDS]).unwrap();
+            let heard = samples.recv_timeout(Duration::from_secs(10));
+            assert!(heard.is_ok_and(|samples| !samples.is_empty()), "the second recorder's audio arrives");
+            let closing = Instant::now();
+            drop(closer);
+            assert!(closing.elapsed() < Duration::from_secs(5), "the running recorder is killed");
+            // What it wrote, then the end: no third recorder is started.
+            while samples.recv_timeout(Duration::from_secs(10)).is_ok() {}
+            assert_eq!(samples.recv_timeout(Duration::from_secs(10)), Err(RecvTimeoutError::Disconnected));
+        }
+
+        /// EXP-1937: when every recorder refuses the capture closes (the
+        /// listener's `noMicrophone`); none installed fails the open.
+        #[test]
+        fn recorders_that_all_refuse_close_the_capture() {
+            let (samples, _closer) = open_fakes(&["exit 1", "missing", "exit 0"]).unwrap();
+            assert_eq!(samples.recv_timeout(Duration::from_secs(10)), Err(RecvTimeoutError::Disconnected));
+            let err = open_fakes(&["missing", "missing"]).err().expect("no recorder");
+            assert_eq!(err.0, ListenFailure::NoMicrophone);
+            assert!(err.1.contains("no recorder"), "{}", err.1);
+        }
+
+        /// EXP-1937: a recorder that delivered audio and then ends is the
+        /// device going away: the capture closes, nothing takes over. One
+        /// that never writes stays open (the listener's clock decides) and
+        /// is killed with the capture.
+        #[test]
+        fn a_recorder_that_ends_after_audio_closes_and_a_silent_one_stays_open() {
+            let (samples, _closer) = open_fakes(&["head -c 4096 /dev/zero", "exec sleep 30"]).unwrap();
+            assert!(samples.recv_timeout(Duration::from_secs(10)).is_ok());
+            assert_eq!(samples.recv_timeout(Duration::from_secs(10)), Err(RecvTimeoutError::Disconnected));
+            let (samples, closer) = open_fakes(&["exec sleep 30"]).unwrap();
+            assert_eq!(samples.recv_timeout(Duration::from_millis(300)), Err(RecvTimeoutError::Timeout));
+            let closing = Instant::now();
+            drop(closer);
+            assert!(closing.elapsed() < Duration::from_secs(5));
+            assert_eq!(samples.recv_timeout(Duration::from_secs(10)), Err(RecvTimeoutError::Disconnected));
+        }
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -327,7 +487,9 @@ mod platform {
 
     impl Drop for Closer {
         fn drop(&mut self) {
-            drop(self.done.take());
+            if let Some(done) = self.done.take() {
+                let _ = done.send(());
+            }
             if let Some(thread) = self.thread.take() {
                 let _ = thread.join();
             }
@@ -338,6 +500,7 @@ mod platform {
         let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(super::CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), (ListenFailure, String)>>();
         let (done_tx, done_rx) = mpsc::channel::<()>();
+        let lost = done_tx.clone();
         let thread = std::thread::Builder::new()
             .name("voice-capture".into())
             .spawn(move || {
@@ -357,9 +520,9 @@ mod platform {
                     );
                     let config: cpal::StreamConfig = supported.config();
                     let stream = match supported.sample_format() {
-                        cpal::SampleFormat::F32 => build::<f32>(&device, &config, channels, rate, tx.clone()),
-                        cpal::SampleFormat::I16 => build::<i16>(&device, &config, channels, rate, tx.clone()),
-                        cpal::SampleFormat::U16 => build::<u16>(&device, &config, channels, rate, tx.clone()),
+                        cpal::SampleFormat::F32 => build::<f32>(&device, &config, channels, rate, tx.clone(), lost.clone()),
+                        cpal::SampleFormat::I16 => build::<i16>(&device, &config, channels, rate, tx.clone(), lost.clone()),
+                        cpal::SampleFormat::U16 => build::<u16>(&device, &config, channels, rate, tx.clone(), lost.clone()),
                         other => Err(format!("unsupported sample format {other:?}")),
                     }
                     .map_err(|err| (ListenFailure::NoMicrophone, err))?;
@@ -369,8 +532,7 @@ mod platform {
                 match result {
                     Ok(stream) => {
                         let _ = ready_tx.send(Ok(()));
-                        let _ = done_rx.recv();
-                        drop(stream);
+                        super::hold(stream, &done_rx);
                     }
                     Err(err) => {
                         let _ = ready_tx.send(Err(err));
@@ -381,7 +543,7 @@ mod platform {
         // A timed-out open is never joined: the thread is parked in the OS.
         let pending = if cfg!(target_os = "macos") { ListenFailure::NotGranted } else { ListenFailure::NoMicrophone };
         if let Err(err) = super::await_open(&ready_rx, super::OPEN_TIMEOUT, pending) {
-            drop(done_tx);
+            let _ = done_tx.send(());
             drop(thread);
             return Err(err);
         }
@@ -394,6 +556,7 @@ mod platform {
         channels: usize,
         rate: u32,
         tx: SyncSender<Vec<f32>>,
+        lost: Sender<()>,
     ) -> Result<cpal::Stream, String>
     where
         T: SizedSample,
@@ -414,7 +577,7 @@ mod platform {
                     // Never blocks the audio callback.
                     super::offer(&tx, out, &mut dropped);
                 },
-                |err| eprintln!("voice: microphone stream error: {err}"),
+                move |err| super::stream_lost(&lost, err),
                 None,
             )
             .map_err(|err| err.to_string())
@@ -438,6 +601,29 @@ mod tests {
         assert_eq!(await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).unwrap_err().0, ListenFailure::NoMicrophone);
         drop(tx);
         assert_eq!(await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).unwrap_err().0, ListenFailure::NoMicrophone);
+    }
+
+    /// EXP-1937: a lost stream ends the capture (the listener sees
+    /// `Disconnected`), and closing ends it although the stream's error
+    /// callback still holds a sender. The stream here is a stand-in: what
+    /// cpal's holds (the samples' sender, the callback's `done` sender).
+    #[test]
+    fn a_lost_stream_disconnects_the_capture() {
+        for lose in [true, false] {
+            let (tx, samples) = std::sync::mpsc::sync_channel::<Vec<f32>>(CAPACITY);
+            let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+            let callback = done_tx.clone();
+            let lost = callback.clone();
+            let thread = std::thread::spawn(move || hold((tx, callback), &done_rx));
+            assert_eq!(samples.recv_timeout(Duration::from_millis(100)), Err(RecvTimeoutError::Timeout), "open and silent");
+            if lose {
+                stream_lost(&lost, "the device is no longer available");
+            } else {
+                let _ = done_tx.send(());
+            }
+            assert_eq!(samples.recv_timeout(Duration::from_secs(10)), Err(RecvTimeoutError::Disconnected), "lost {lose}");
+            thread.join().unwrap();
+        }
     }
 
     #[test]

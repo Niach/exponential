@@ -64,7 +64,8 @@ import kotlinx.serialization.json.put
  *
  * [VoiceCallService] holds the microphone foreground service from
  * `call_ready` on, so a call keeps running with the screen locked or another
- * app in front; everything is released on every end. Signing out or
+ * app in front (a service Android refuses fails the call `dropped`);
+ * everything is released on every end. Signing out or
  * switching accounts ends the call.
  */
 @Singleton
@@ -254,17 +255,14 @@ class VoiceCallController @Inject constructor(
                 }
             }
         }
+        if (current !== run) return
         val session = try {
-            client.webSocketSession(urlString = dialUrl(ticket.url))
+            dialCall({ client.webSocketSession(urlString = dialUrl(ticket.url)) }, { current === run }) { it.close() }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             Log.w(TAG, "call dial failed: ${t.javaClass.simpleName}")
             return fail(run, "dropped")
-        }
-        if (current !== run) {
-            runCatching { session.close() }
-            return
-        }
+        } ?: return
         run.session = session
         run.heardAt = SystemClock.elapsedRealtime()
         run.liveJob = scope.launch { watchLiveness(run) }
@@ -310,8 +308,16 @@ class VoiceCallController @Inject constructor(
                 // host's `rang` + `ready` answer it. The microphone opens
                 // now (the host's mic check reads its level during the ring).
                 // The microphone service starts with the microphone (never
-                // for a call refused before it rang).
-                VoiceCallService.start(context, VoiceCall.Copy.call(_ui.value.agent))
+                // for a call refused before it rang). Android refuses it
+                // when the app is not in front: the phone could not capture,
+                // so the call fails instead of running silent (#EXP-1940).
+                val started = VoiceCallService.start(context, VoiceCall.Copy.call(_ui.value.agent)) {
+                    scope.launch { if (current === run) fail(run, "dropped") }
+                }
+                if (!started) {
+                    fail(run, "dropped")
+                    return false
+                }
                 startAudio(run)
             }
             "call_event" -> {
@@ -396,7 +402,7 @@ class VoiceCallController @Inject constructor(
         }
         run.ringJob?.cancel()
         run.liveJob?.cancel()
-        VoiceCallService.stop(context)
+        VoiceCallService.stop()
     }
 
     /** The wave's level at ~30 fps while [run] lasts. */
@@ -432,3 +438,21 @@ class VoiceCallController @Inject constructor(
         fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
     }
 }
+
+/**
+ * #EXP-1940: the dial of a call. Ktor finishes a WebSocket handshake on the
+ * client's own coroutine, so a cancelled caller would leave a connected
+ * socket nobody holds (the relay rings the desktop for it). The wait
+ * therefore outlives a cancel, and a socket that connects once the call is
+ * no longer [wanted] is [close]d here; null = that happened.
+ */
+internal suspend fun <S : Any> dialCall(dial: suspend () -> S, wanted: () -> Boolean, close: suspend (S) -> Unit): S? =
+    withContext(NonCancellable) {
+        val session = dial()
+        if (wanted()) {
+            session
+        } else {
+            runCatching { close(session) }
+            null
+        }
+    }
