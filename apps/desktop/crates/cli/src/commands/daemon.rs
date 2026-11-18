@@ -934,8 +934,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 // #FEED-192: says so when the key holder is not running
                 // (the marker is what `exponential doctor` reads).
                 let missing = coding::sealing::key_holder_missing();
-                coding::device_doctor::record_key_holder(&ctx.data_dir, missing);
-                coding::device_doctor::add_key_holder(&mut device, !missing);
+                let off = coding::sealing::holder_off_reason().map(coding::sealing::HolderOff::detail);
+                coding::device_doctor::record_key_holder(&ctx.data_dir, missing, off);
+                coding::device_doctor::add_key_holder(&mut device, !missing, off);
                 // #EXP-1858: the `speech` row while an agent runs here.
                 if let Some(voice) = &voice {
                     voice.add_doctor(&mut device);
