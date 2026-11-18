@@ -66,7 +66,20 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// copies here and there, and a one-sided edit silently made one host
 /// un-targetable for the new feature.
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
+    device_caps_with(advertised, coding::sealing::service().is_some())
+}
+
+/// [`device_caps`] by whether this process has a key holder NOW. #EXP-1941:
+/// `call-seal` is advertised only while it has one: a host without one would
+/// end every sealing call `no_key`, and a cap that outlived its holder would
+/// make a sealing caller ring for 20 s and read `dropped`. The cap reaches
+/// the server only inside `devices.register`, so a change of this list is a
+/// register trigger ([`caps_changed`]).
+fn device_caps_with(advertised: &coding::AgentAdvertisement, key_holder: bool) -> Vec<String> {
     let mut caps = coding::device_caps(advertised);
+    if key_holder {
+        caps.push(etalk::call::VOICE_CALL.seal.cap.clone());
+    }
     caps.push(UPDATE_CHECK_CAP.to_string());
     // #EXP-1616: this daemon runs eCode's git jobs (`ecode_job`).
     caps.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
@@ -591,6 +604,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 };
                 coding::sealing::open_messages(&messages)
             }),
+            node: enet.clone(),
             beat_soon: Arc::clone(&check_in),
         })
     });
@@ -632,6 +646,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut last_heartbeat = Instant::now();
     let mut last_doctor = Instant::now();
     let mut last_session_env = Instant::now();
+    // #EXP-1941: at launch there is none yet (the node starts after the register).
+    let mut had_key_holder = false;
     // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
     // button via the heartbeat) parks here. EXP-1489: a live session holds
     // it only until every run pauses between turns, at most
@@ -1231,6 +1247,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 doctor_soon.store(true, Ordering::SeqCst);
             }
         }
+        // #EXP-1941: the key holder was installed (the node registered after
+        // this daemon's launch register) or dropped: the doctor pass, and
+        // with it the caps' register, runs at once.
+        let key_holder = coding::sealing::service().is_some();
+        if key_holder != had_key_holder {
+            had_key_holder = key_holder;
+            doctor_soon.store(true, Ordering::SeqCst);
+        }
         let doctor_due = if pending_advert.is_some() {
             ADVERT_CONFIRM_RECHECK
         } else {
@@ -1248,6 +1272,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let (agents, report) = probe_agents(&ctx);
             doctor = report;
             maybe_fetch_codex(&ctx, &doctor_soon);
+            // #EXP-1941: caps reach the server only inside a register.
+            if caps_changed(registration.caps.as_deref(), &device_caps(&advertised)) {
+                log::info!("the device caps changed: registering again");
+                registered_ok = register_device(&ctx, &device_id, &device_label, &advertised, &doctor, &device_worker, &mut registration);
+            }
             match advert_transition(&advertised, &agents, &mut pending_advert) {
                 AdvertStep::Keep => {}
                 AdvertStep::AwaitConfirmation => log::info!(
@@ -1425,6 +1454,12 @@ fn advert_transition(
 }
 
 /// EXP-1417 + FEED-154: what the daemon's registers carry across calls.
+/// #EXP-1941: the caps this daemon would register now are not the ones its
+/// last register carried (None = none landed yet: the retry path has it).
+fn caps_changed(registered: Option<&[String]>, now: &[String]) -> bool {
+    registered.is_some_and(|registered| registered != now)
+}
+
 struct Registration {
     /// The next register is this process's LAUNCH (until one lands): the
     /// only kind that brings back a machine its owner removed.
@@ -1432,11 +1467,13 @@ struct Registration {
     /// The owner removed this machine in the web UI: no register until the
     /// daemon is started again.
     removed: bool,
+    /// #EXP-1941: the caps the last register that landed carried.
+    caps: Option<Vec<String>>,
 }
 
 impl Registration {
     fn new(launch: bool) -> Self {
-        Self { launch_pending: launch, removed: false }
+        Self { launch_pending: launch, removed: false, caps: None }
     }
 
     fn mark_removed(&mut self) {
@@ -1520,6 +1557,7 @@ fn register_device(
         Ok(result) => {
             registration.launch_pending = false;
             registration.removed = false;
+            registration.caps = Some(caps.clone());
             if proof.is_some() && !result.key_accepted {
                 log::warn!(
                     "another account holds this machine's key in Exponential — sharing it with a team is refused until an instance admin resets the key"
@@ -4712,8 +4750,8 @@ mod tests {
         if updater::app_shot::capable() {
             shared.push(updater::app_shot::CAP.to_string());
         }
-        assert_eq!(device_caps(&advert(&["claude"])), shared);
-        let caps = device_caps(&advert(&["claude"]));
+        assert_eq!(device_caps_with(&advert(&["claude"]), false), shared);
+        let caps = device_caps_with(&advert(&["claude"]), false);
         for cap in coding::DEVICE_CAPS {
             assert!(caps.contains(&cap.to_string()), "missing build cap {cap}");
         }
@@ -4721,7 +4759,7 @@ mod tests {
             assert!(caps.contains(&cap.to_string()), "missing run cap {cap}");
         }
         // Nothing runnable = build caps only.
-        let signed_out = device_caps(&advert(&[]));
+        let signed_out = device_caps_with(&advert(&[]), false);
         // + update-check + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
         let actions = usize::from(crate::actions_runner::platform_asset().is_some());
         // + app-screenshot where a renderer is (#FEED-244).
@@ -4730,6 +4768,23 @@ mod tests {
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");
+    }
+
+    /// #EXP-1941: `call-seal` follows the key holder, and a changed cap list
+    /// is a register trigger: the holder is installed after the launch
+    /// register, a register that carries the cap follows; it goes, and the
+    /// cap leaves the row.
+    #[test]
+    fn the_call_seal_cap_follows_the_key_holder_and_registers() {
+        let cap = "call-seal".to_string();
+        let launch = device_caps_with(&advert(&["claude"]), false);
+        let with_holder = device_caps_with(&advert(&["claude"]), true);
+        assert!(!launch.contains(&cap) && with_holder.contains(&cap));
+        assert_eq!(with_holder.len(), launch.len() + 1);
+        assert!(!caps_changed(None, &with_holder), "no register landed yet: the retry path has it");
+        assert!(!caps_changed(Some(&launch), &launch));
+        assert!(caps_changed(Some(&launch), &with_holder), "the holder came: register again");
+        assert!(caps_changed(Some(&with_holder), &launch), "the holder went: the cap leaves the row");
     }
 
     /// The daemon's shapes are real shapes (the v2 pickup trio once

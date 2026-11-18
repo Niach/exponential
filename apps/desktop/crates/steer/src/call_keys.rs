@@ -274,12 +274,22 @@ pub struct HostKeys {
     pub call_id: String,
     pub agent_id: String,
     pub device_id: String,
+    /// Told the root the call adopted (a first call's chat exists from here
+    /// on): the host logic sends the first utterance into it, sealed.
+    pub adopted: Option<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 impl CallKeySource for HostKeys {
     fn key(&self, _peer: CallHello) -> CallKeyFuture<'_> {
         let (ops, call_id, agent_id, device_id) = (Arc::clone(&self.ops), self.call_id.clone(), self.agent_id.clone(), self.device_id.clone());
-        blocking(move |stop| host_key(&*ops, &call_id, &agent_id, &device_id, pull_every(), stop))
+        let adopted = self.adopted.clone();
+        blocking(move |stop| {
+            let key = host_key(&*ops, &call_id, &agent_id, &device_id, pull_every(), stop)?;
+            if let Some(adopted) = adopted {
+                adopted(key.root_id.clone());
+            }
+            Ok(key)
+        })
     }
 }
 
@@ -668,7 +678,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_source_stops_when_the_call_ends() {
         let ops = Arc::new(FakeOps::new(World { secrets: HashMap::new(), ..keyed(2, false) }));
-        let source = HostKeys { ops: ops.clone(), call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into() };
+        let source = HostKeys { ops: ops.clone(), call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into(), adopted: None };
         let hello = CallHello { epoch: 0, root: [0; 16], eph: [0; 32] };
         assert!(tokio::time::timeout(Duration::from_millis(100), source.key(hello)).await.is_err(), "still pulling");
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -676,7 +686,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(ops.log().len(), pulls, "abandoned: no pull after the call ended");
         let ready = Arc::new(FakeOps::new(keyed(2, false)));
-        let source = HostKeys { ops: ready, call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into() };
+        let roots = Arc::new(Mutex::new(Vec::new()));
+        let told = roots.clone();
+        let adopted: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |root| told.lock().unwrap().push(root));
+        let source = HostKeys { ops: ready, call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into(), adopted: Some(adopted) };
         assert_eq!(source.key(hello).await.unwrap().epoch, 2);
+        assert_eq!(*roots.lock().unwrap(), [ROOT], "the host logic is told the root the call adopted");
     }
 }
