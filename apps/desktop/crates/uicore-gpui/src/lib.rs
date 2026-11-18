@@ -598,6 +598,21 @@ impl Surfaces {
         self.command(document, SurfaceCommand::Focus { id: component.to_string() }, cx);
     }
 
+    /// #EDE-92: brings row `index` of the List `list` into view inside its
+    /// scroll container `scroll`; `false` (and nothing moves) when `scroll`
+    /// is no scroll container. Asked of a list that cannot scroll, the
+    /// core's `scrollToIndex` moves the list's own row window instead, and
+    /// the rows above that offset are drawn blank (the start menu's long
+    /// list in the VM): a reveal there does nothing.
+    pub fn reveal_row(&self, document: &str, scroll: &str, list: &str, index: usize, cx: &mut App) -> bool {
+        let Some(region) = self.open.get(document) else { return false };
+        if region.view.read(cx).scroll_extent(scroll).is_none() {
+            return false;
+        }
+        self.command(document, SurfaceCommand::ScrollToIndex { id: list.to_string(), index: index as u32, align: None }, cx);
+        true
+    }
+
     /// A surface command for an open document (the focus, #EDE-92: a list's
     /// selected row brought into view).
     pub fn command(&self, document: &str, command: SurfaceCommand, cx: &mut App) {

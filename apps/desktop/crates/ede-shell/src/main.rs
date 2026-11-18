@@ -2760,7 +2760,8 @@ fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64
     cx.defer(move |cx| {
         model_changed(&shell, cx);
         let (name, (list, index)) = moved;
-        shell.borrow().surfaces.command(name, eui_core::surface::SurfaceCommand::ScrollToIndex { id: list.into(), index: index as u32, align: None }, cx);
+        // The results' ScrollArea: a list that cannot scroll is left alone (its rows would go blank).
+        shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, index, cx);
     });
     true
 }

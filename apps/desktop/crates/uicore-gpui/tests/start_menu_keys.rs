@@ -8,7 +8,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use eui_core::surface::SurfaceCommand;
 use eui_gpui::host::{FunctionCallEvent, HostPlugin, InputEvent};
 use gpui::{App, TestAppContext, VisualTestContext};
 use serde_json::{json, Value};
@@ -65,27 +64,27 @@ fn start_menu(feed: &Feed, cx: &mut TestAppContext) -> (Plugin, Region, VisualTe
     start_menu_with(feed, false, cx)
 }
 
-fn results_scroll(n: &mut Value) {
+fn drop_direction(n: &mut Value) {
     if n.get("id").and_then(Value::as_str) == Some("apps_scroll") {
-        n["props"] = json!({"direction": "vertical"});
+        if let Some(props) = n.get_mut("props").and_then(Value::as_object_mut) {
+            props.remove("direction");
+        }
     }
     match n {
-        Value::Object(m) => m.values_mut().for_each(results_scroll),
-        Value::Array(a) => a.iter_mut().for_each(results_scroll),
+        Value::Object(m) => m.values_mut().for_each(drop_direction),
+        Value::Array(a) => a.iter_mut().for_each(drop_direction),
         _ => {}
     }
 }
 
-/// `scrolling`: the results' ScrollArea names its direction. The factory's
-/// names none, and this renderer then lays it out with `overflow: hidden`
-/// (the macro maps a missing `direction` to hidden), so its results do not
-/// scroll at all, by wheel or by command: found with #EDE-92, not changed
-/// by it.
-fn start_menu_with(feed: &Feed, scrolling: bool, cx: &mut TestAppContext) -> (Plugin, Region, VisualTestContext) {
+/// `unscrolled`: the results' ScrollArea without its `direction`, as it was
+/// before #EDE-92: the shared macro maps a missing direction to `overflow:
+/// hidden` (#EXP-1939), so the results are no scroll container at all.
+fn start_menu_with(feed: &Feed, unscrolled: bool, cx: &mut TestAppContext) -> (Plugin, Region, VisualTestContext) {
     cx.update(gpui_component::init);
     let mut factory = uicore_docs::doc("start-menu").expect("the factory start menu").json();
-    if scrolling {
-        results_scroll(&mut factory["root"]);
+    if unscrolled {
+        drop_direction(&mut factory["root"]);
     }
     let source = json!({
         "surface": {"layer": "top", "anchor": ["bottom", "left"], "size": {"width": 760, "height": 620}, "keyboard": "on-demand", "functions": factory["surface"]["functions"]},
@@ -168,21 +167,80 @@ fn tab_reaches_the_footer_and_enter_presses_its_button(cx: &mut TestAppContext) 
     assert_eq!(called[0].1["app"], "at.exponential");
 }
 
-/// Down past the fold: the shell's command brings the selected row into
-/// view, where the results scroll (see [`start_menu_with`]).
-#[gpui::test]
-fn a_selected_row_below_the_fold_scrolls_into_view(cx: &mut TestAppContext) {
+/// `/shell` while `e` is searched: 40 apps, row `selected` highlighted.
+fn long_feed(selected: usize) -> Feed {
     let mut feed = shell_feed(None);
-    let apps: Vec<Value> = (0..40).map(|i| json!({"id": format!("app{i}"), "name": format!("App {i}"), "comment": "An app", "icon": "", "category": "other", "selected": i == 30})).collect();
+    let apps: Vec<Value> = (0..40).map(|i| json!({"id": format!("app{i}"), "name": format!("App {i}"), "comment": "An app", "icon": "", "category": "other", "selected": i == selected})).collect();
     let mut shell = feed.get("/shell").cloned().unwrap();
+    shell["startMenu"]["query"] = json!("e");
+    shell["startMenu"]["issues"] = json!([]);
     shell["startMenu"]["apps"] = Value::Array(apps);
     feed.set("/shell", shell);
-    let (plugin, region, mut vcx) = start_menu_with(&feed, true, cx);
-    let offset = |vcx: &VisualTestContext| region.view.read_with(vcx, |v, _| v.surface().scroll_offset("apps_scroll").1);
-    assert_eq!(offset(&vcx), 0.0);
-    cx.update(|cx| plugin.surfaces.borrow().as_ref().unwrap().command("start-menu", SurfaceCommand::ScrollToIndex { id: "apps".into(), index: 30, align: None }, cx));
+    feed
+}
+
+type Span = (f32, f32);
+
+fn span(region: &Region, id: &str, cx: &VisualTestContext) -> Option<Span> {
+    region.view.read_with(cx, |v, _| v.painted_bounds(id).map(|b| (f32::from(b.origin.y), f32::from(b.origin.y + b.size.height))))
+}
+
+/// What the person sees of the results: the viewport, the app rows drawn
+/// inside it (by index) and the highlighted row's place.
+fn shown(region: &Region, cx: &VisualTestContext) -> (Span, Vec<usize>, Option<Span>) {
+    let viewport = span(region, "apps_scroll", cx).expect("the results are drawn");
+    let inside = |r: Span| r.0 >= viewport.0 - 0.5 && r.1 <= viewport.1 + 0.5;
+    let rows: Vec<usize> = (0..40).filter(|i| span(region, &format!("app.app{i}"), cx).is_some_and(inside)).collect();
+    let selected = region.view.read_with(cx, |v, _| {
+        v.placed_nodes().iter().find(|n| n.id.starts_with("app.") && n.accessibility.as_ref().and_then(|a| a.get("selected")) == Some(&json!(true))).map(|n| n.id.clone())
+    });
+    (viewport, rows, selected.and_then(|id| span(region, &id, cx)))
+}
+
+/// Down `steps` times as the shell does it: the mark moves, then the reveal.
+fn press_down(plugin: &Plugin, steps: usize, vcx: &mut VisualTestContext, cx: &mut TestAppContext) -> Vec<bool> {
+    let mut revealed = Vec::new();
+    for i in 1..=steps {
+        cx.update(|cx| plugin.surfaces.borrow().as_ref().unwrap().feed_all(&long_feed(i), cx));
+        draw(vcx);
+        revealed.push(cx.update(|cx| plugin.surfaces.borrow().as_ref().unwrap().reveal_row("start-menu", "apps_scroll", "apps", i, cx)));
+        draw(vcx);
+    }
+    revealed
+}
+
+/// The VM's long list (#EDE-92 B5): 40 results, 24 Downs. The highlighted
+/// row is inside the results' viewport, every row there is drawn (none
+/// blank), and Enter runs the row drawn highlighted.
+#[gpui::test]
+fn forty_results_and_twenty_four_downs_keep_the_highlight_in_view(cx: &mut TestAppContext) {
+    let (plugin, region, mut vcx) = start_menu(&long_feed(0), cx);
+    region.view.update(&mut vcx, |v, _| v.record_bounds(true));
     draw(&mut vcx);
-    // Row 30 of 50 px rows ends near 1550; the results' viewport is 525 high.
-    let at = offset(&vcx);
-    assert!(at > 900.0 && at < 1300.0, "the row is the last one in view: {at}");
+    assert!(press_down(&plugin, 24, &mut vcx, cx).iter().all(|r| *r), "the results scroll: every reveal ran");
+    let (viewport, rows, selected) = shown(&region, &vcx);
+    let selected = selected.expect("the highlighted row is drawn");
+    assert!(selected.0 >= viewport.0 - 0.5 && selected.1 <= viewport.1 + 0.5, "the highlight is in view: {selected:?} in {viewport:?}");
+    assert!(rows.contains(&24), "row 24 is the one shown: {rows:?}");
+    let full = ((viewport.1 - viewport.0) / 50.0).floor() as usize;
+    assert!(rows.len() + 1 >= full, "the viewport is full of drawn rows, none blank: {rows:?} in {viewport:?}");
+    assert!(rows.windows(2).all(|w| w[1] == w[0] + 1), "no gap between the drawn rows: {rows:?}");
+    // Enter: the shell runs the row the feed marks, the one drawn highlighted.
+    vcx.simulate_keystrokes("enter");
+    draw(&mut vcx);
+    assert_eq!(plugin.called.borrow().last().map(|c| c.0.as_str()), Some("ede_start_menu"));
+}
+
+/// A reveal on results that cannot scroll does nothing: the rows stay
+/// drawn (the VM drew the first rows blank, then all of them).
+#[gpui::test]
+fn a_reveal_on_results_that_cannot_scroll_does_nothing(cx: &mut TestAppContext) {
+    let (plugin, region, mut vcx) = start_menu_with(&long_feed(0), true, cx);
+    region.view.update(&mut vcx, |v, _| v.record_bounds(true));
+    draw(&mut vcx);
+    let (_, before, _) = shown(&region, &vcx);
+    assert!(before.starts_with(&[0, 1, 2, 3, 4, 5, 6]), "{before:?}");
+    assert!(press_down(&plugin, 24, &mut vcx, cx).iter().all(|r| !*r), "no reveal ran");
+    let (_, after, _) = shown(&region, &vcx);
+    assert_eq!(after, before, "every row is still drawn where it was");
 }
