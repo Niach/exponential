@@ -13,6 +13,7 @@ import type { ClientFunction } from "./data"
 import type { MarkdownOptions } from "./markdown"
 import type { QrScannerHost } from "./round5"
 import type { PopupHost } from "./popup-host"
+import type { ImageSourceVerdict } from "./image-actions"
 
 /** A registry name → the renderer's icon component (a map or a lookup). */
 export type IconMap<Icon = unknown> = Record<string, Icon | undefined> | ((name: string) => Icon | undefined)
@@ -111,6 +112,12 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
   /** #VAPP-258: a press on a Markdown block image (a lightbox); unset = not
    *  pressable. */
   onImagePress?: (src: string) => void
+  /** #EXP-1945 (`catalog/host.json` media.imageSource, web/image-actions.ts):
+   *  which pictures load at all (Image, ZoomableImage, Markdown images; asked
+   *  with the src and alt as written): `load` = the media policy as before,
+   *  `link` = an ordinary link in the picture's place, `text` = the alt as
+   *  plain text. Unset (or null) = `load`. */
+  imageSource?: (src: string, alt: string) => ImageSourceVerdict | null
   /** #VAPP-258: a Markdown paragraph that is exactly one link (asked with the
    *  destination as written) painted as a video, audio or file block; null =
    *  the paragraph. */

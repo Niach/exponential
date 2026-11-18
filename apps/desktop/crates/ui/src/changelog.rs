@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-copy-image-on-the-web",
+    date: "2026-11-18",
+    title: "Copy image on the web",
+    summary: "Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.",
+    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
+- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
+- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_320: ChangelogEntry = ChangelogEntry {
     id: "2026-11-17-chats-encrypted-by-default",
     date: "2026-11-17",
     title: "Chats are encrypted by default",
