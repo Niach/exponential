@@ -2697,6 +2697,39 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_text_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_text_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "highlight · current",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_marks",
+                "component": "Text",
+                "props": {
+                  "text": "Résumé review: the resume link, the RESUME button and the résumé PDF.",
+                  "highlight": {
+                    "query": "resume",
+                    "current": 1
+                  }
+                },
+                "style": {
+                  "maxWidth": 320
+                }
+              }
+            ]
           }
         ]
       }
@@ -2961,6 +2994,39 @@
                 "props": {
                   "text": "**Bold** and a list:\n\n- one\n- two",
                   "variant": "caption"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_markdown_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_markdown_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "highlight · current",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_md_marks",
+                "component": "Markdown",
+                "props": {
+                  "text": "The **printer** queue: run `printer --reset`, then see [printer notes](https://example.com/printer).\n\n- printer driver updated\n- paper tray",
+                  "highlight": {
+                    "query": "printer",
+                    "current": 2
+                  }
+                },
+                "style": {
+                  "maxWidth": 360
                 }
               }
             ]
@@ -16973,6 +17039,38 @@
             ]
           },
           {
+            "id": "specimen_row_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_row_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "highlight · current",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_hit",
+                "component": "Row",
+                "props": {
+                  "title": "Printer offline after update",
+                  "subtitle": "The printer driver crashed on resume",
+                  "icon": "settings-issues",
+                  "highlight": {
+                    "query": "printer",
+                    "current": 1
+                  }
+                }
+              }
+            ]
+          },
+          {
             "id": "specimen_row_state_0",
             "component": "Stack",
             "props": {
@@ -17501,6 +17599,62 @@
                       "side": "out",
                       "time": "20:21",
                       "status": "sending"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_message_bubble_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_message_bubble_case_7_label",
+                "component": "Text",
+                "props": {
+                  "text": "highlight",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7_chat_marks",
+                "component": "Stack",
+                "props": {
+                  "gap": "sm"
+                },
+                "style": {
+                  "width": 360
+                },
+                "children": [
+                  {
+                    "id": "c7_h1",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "Is the **printer** fixed?",
+                      "side": "out",
+                      "time": "18:00",
+                      "status": "read",
+                      "highlight": {
+                        "query": "printer"
+                      }
+                    }
+                  },
+                  {
+                    "id": "c7_h2",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": "Yes, the printer driver is updated. Print again.",
+                      "time": "18:02",
+                      "highlight": {
+                        "query": "printer",
+                        "current": 0
+                      }
                     }
                   }
                 ]

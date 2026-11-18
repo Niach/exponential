@@ -3,7 +3,7 @@
 
 import { displayString } from "@exponential_app/eui"
 import { useLayoutEffect, useRef, useState } from "react"
-import { liveOf, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
+import { liveOf, paintHighlights, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -30,6 +30,8 @@ export function TextNative({ props, rootProps }: NativeProps) {
   if (lines > 1) style.WebkitLineClamp = lines
   // Round 9 §5.1: `accessibility.live` (already on the root) wins over `live`.
   const live = liveOf(rootProps as Record<string, unknown>, props.live)
+  // #EDE-95: `highlight` marks the search term's matches in the shown text.
+  useHighlight(middle.ref, props.highlight, false, middle.shown ?? full)
   return (
     <span {...(rootProps as Record<string, unknown>)} ref={middle.ref} data-truncate={truncate} aria-live={live} aria-atomic={live && live !== `off` ? true : undefined} data-xui-align={align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
       {segments
@@ -58,6 +60,18 @@ export function TextNative({ props, rootProps }: NativeProps) {
   )
 }
 
+/** #EDE-95: paints `highlight` (the raw prop) over the rendered text of
+ *  `ref` (web/highlight.ts), again whenever `text` or the prop changes. */
+export function useHighlight(ref: { current: Element | null }, highlight: unknown, markdown: boolean, text: string) {
+  const key = highlight === undefined ? `` : JSON.stringify(highlight)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!key || !el) return
+    return paintHighlights(el, highlight, markdown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, markdown, text])
+}
+
 /** #EXP-1778: the middle-cut line of `text` in the span's box (null = off). */
 function useMiddleTruncate(text: string | null) {
   const ref = useRef<HTMLSpanElement>(null)
@@ -80,8 +94,11 @@ export function MarkdownNative({ domId, props, rootProps }: NativeProps) {
   const lines = num(props.lines, 0)
   // Round 9 §9.1: the inline profile is always the built-in painter.
   const inline = props.profile === `inline` ? (props.variant === `caption` ? `caption` : `body`) : undefined
+  const ref = useRef<HTMLDivElement>(null)
+  // #EDE-95: the search term's matches in the rendered markdown.
+  useHighlight(ref, props.highlight, true, text)
   return (
-    <div {...(rootProps as Record<string, unknown>)} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
+    <div ref={ref} {...(rootProps as Record<string, unknown>)} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
       {Host && !inline ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} id={domId} inline={inline} />}
     </div>
   )

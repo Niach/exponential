@@ -564,6 +564,9 @@ function deriveColors(theme: ResolvedTheme): void {
     // #EXP-1876: the glyph sheen = a flat `foreground` when the chain sets none.
     if (color.sheenFrom === undefined && color.foreground !== undefined) color.sheenFrom = color.foreground
     if (color.sheenTo === undefined && color.foreground !== undefined) color.sheenTo = color.foreground
+    // #EDE-95: search marks = `warning` at 30 % / 60 % alpha when the chain sets none.
+    if (color.match === undefined && color.warning !== undefined) color.match = withAlpha(color.warning, 0.3)
+    if (color.matchCurrent === undefined && color.warning !== undefined) color.matchCurrent = withAlpha(color.warning, 0.6)
     if (color.destructiveHover === undefined && color.destructive !== undefined) color.destructiveHover = withAlpha(color.destructive, mode === `dark` ? 0.2 : 0.1)
     // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
     const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined

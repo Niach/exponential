@@ -845,6 +845,20 @@
           "type": "boolean"
         }
       }
+    },
+    "highlight": {
+      "properties": {
+        "query": {
+          "type": "string",
+          "required": true
+        },
+        "current": {
+          "type": "number"
+        },
+        "before": {
+          "type": "string"
+        }
+      }
     }
   },
   "functions": {
@@ -1833,6 +1847,10 @@
           "enum": "live",
           "default": "off"
         },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight"
+        },
         "style": {
           "type": "style"
         }
@@ -1885,6 +1903,10 @@
         },
         "lines": {
           "type": "number"
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight"
         },
         "style": {
           "type": "style"
@@ -4804,6 +4826,10 @@
           "type": "boolean",
           "default": false,
           "bindable": true
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight"
         }
       },
       "events": [
@@ -4892,6 +4918,10 @@
         "href": {
           "type": "url",
           "bindable": true
+        },
+        "highlight": {
+          "type": "object",
+          "shape": "highlight"
         }
       },
       "events": [

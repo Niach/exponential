@@ -5,7 +5,7 @@
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { displayString } from "@exponential_app/eui"
-import { liveOf, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
+import { liveOf, paintHighlights, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -36,6 +36,8 @@ export function TextNative(props: NativeProps): JSX.Element {
   // `textAlign` (the node layer) wins over it.
   // Round 9 §5.1: `accessibility.live` (already on the root) wins over `live`.
   const live = () => liveOf(props.rootProps, props.props.live)
+  // #EDE-95 (React's): `highlight` marks the search term in the shown text.
+  createHighlight(el, () => props.props.highlight, false, () => `${middle() ?? full()}${segments()?.length ?? ``}`)
   return (
     <span
       {...props.rootProps}
@@ -78,14 +80,30 @@ export function TextNative(props: NativeProps): JSX.Element {
   )
 }
 
+/** #EDE-95 (React's `useHighlight`): paints `highlight` (the raw prop) over
+ *  the rendered text of `el` (web/highlight.ts), again whenever the text
+ *  key or the prop changes. */
+export function createHighlight(el: () => Element | undefined, highlight: () => unknown, markdown: boolean, text: () => string): void {
+  createEffect(() => {
+    const node = el()
+    const value = highlight()
+    text()
+    if (!node || value === undefined) return
+    onCleanup(paintHighlights(node, value, markdown))
+  })
+}
+
 export function MarkdownNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const text = () => displayString(props.props.text)
+  const [el, setEl] = createSignal<HTMLDivElement>()
+  // #EDE-95: the search term's matches in the rendered markdown.
+  createHighlight(el, () => props.props.highlight, true, text)
   const lines = () => num(props.props.lines, 0)
   // Round 9 §9.1: the inline profile is always the built-in painter.
   const inline = () => (props.props.profile === `inline` ? (props.props.variant === `caption` ? (`caption` as const) : (`body` as const)) : undefined)
   return (
-    <div {...props.rootProps} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
+    <div {...props.rootProps} ref={setEl} {...(ctx.host.markdownOptions?.density ? { [propAttribute(false, `density`)]: ctx.host.markdownOptions.density } : {})} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
       {ctx.host.Markdown && !inline() ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} id={props.domId} inline={inline()} />}
     </div>
   )

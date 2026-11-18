@@ -10,6 +10,7 @@
 pub mod chart;
 pub mod color;
 pub mod date;
+pub mod highlight;
 pub mod icons;
 pub mod markdown;
 pub mod markdown_memo;

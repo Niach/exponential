@@ -40,6 +40,8 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.primitives.MarkdownCodeHighlighter
+import at.exponential.ui.primitives.drawHighlightFills
+import androidx.compose.ui.draw.drawBehind
 import at.exponential.ui.primitives.MarkdownCodeSpan
 import at.exponential.ui.theme.PartStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,17 +152,91 @@ internal fun TextLeaf(cx: LeafContext) {
             at.exponential.ui.measure.middleTruncateWidth(full, cx.inner.width.toDouble()) { ch -> cache.getOrPut(ch) { measurer.measure(ch, style, softWrap = false, maxLines = 1).size.width / density.toDouble() } }
         }
     }
+    // #EDE-95: the search marks behind the shown text (a cut text = none).
+    val marked = highlightedText(cx, text, shown)
+    val fills = highlightFills(marked, style)
     InnerBox(cx) {
         BasicText(
-            shown,
-            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
+            marked,
+            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize().then(fills.modifier),
             style = style.let { if (shimmer != null) it.copy(brush = shimmer) else it },
             softWrap = lines != 1,
             maxLines = lines ?: Int.MAX_VALUE,
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
+            onTextLayout = fills.onTextLayout,
         )
     }
 }
+
+/** #EDE-95: a leaf text's mark fills: the modifier drawing them and the layout callback feeding it. */
+internal class HighlightFills(val modifier: Modifier, val onTextLayout: (androidx.compose.ui.text.TextLayoutResult) -> Unit)
+
+private val NO_HIGHLIGHT_FILLS = HighlightFills(Modifier) {}
+
+/**
+ * #EDE-95: the fills of [text]'s marks ([at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG])
+ * drawn behind it, each in its glyph box: the font of [style]'s own ascent and
+ * descent around the line's baseline, never the line height
+ * ([at.exponential.ui.primitives.drawHighlightFills]). Layout unchanged.
+ */
+@Composable
+internal fun highlightFills(text: AnnotatedString, style: androidx.compose.ui.text.TextStyle): HighlightFills {
+    val marked = remember(text) { text.hasStringAnnotations(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, 0, text.length) }
+    if (!marked) return NO_HIGHLIGHT_FILLS
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val metrics = remember(style, measurer) {
+        val r = measurer.measure(
+            "x",
+            style.copy(
+                lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
+                lineHeightStyle = null,
+                textDecoration = null,
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+        r.firstBaseline to (r.size.height - r.firstBaseline)
+    }
+    val laid = remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    return remember(metrics) {
+        HighlightFills(
+            Modifier.drawBehind {
+                val r = laid.value ?: return@drawBehind
+                drawHighlightFills(r) { metrics }
+            },
+        ) { laid.value = it }
+    }
+}
+
+/**
+ * #EDE-95 (`fixtures/text-highlight.json`): the fills of the leaf's
+ * `highlight` over [text] ([shownLength] = the painted text's length; a
+ * transform or cut that changes it = no marks): `$color.match` behind each
+ * match, `$color.matchCurrent` behind the local current one: per match its
+ * fill as a [at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG] annotation
+ * value, painted by [highlightFills] (the text keeps its colour and its layout).
+ */
+internal fun highlightMarks(cx: LeafContext, text: String, shownLength: Int): List<Pair<String, IntRange>> {
+    val spec = at.exponential.ui.measure.highlightSpec(cx.props["highlight"]) ?: return emptyList()
+    if (shownLength != text.length) return emptyList()
+    val local = at.exponential.ui.primitives.highlightLocalCurrent(spec)
+    val match = cx.themeColor("match") ?: HIGHLIGHT_MATCH
+    val current = cx.themeColor("matchCurrent") ?: HIGHLIGHT_MATCH_CURRENT
+    return at.exponential.ui.primitives.highlightRanges(text, spec.query).mapIndexed { i, r -> at.exponential.ui.primitives.highlightMarkValue(if (i == local) current else match) to r }
+}
+
+/** #EDE-95: [shown] with the leaf's search marks (the plain string's text when none). */
+@Composable
+internal fun highlightedText(cx: LeafContext, text: String, shown: String): AnnotatedString = remember(cx.props["highlight"], text, shown, cx.themeColor("match"), cx.themeColor("matchCurrent")) {
+    val marks = highlightMarks(cx, text, shown.length)
+    if (marks.isEmpty()) AnnotatedString(shown) else buildAnnotatedString {
+        append(shown)
+        marks.forEach { (value, r) -> addStringAnnotation(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, value, r.first, r.last + 1) }
+    }
+}
+
+/** #EDE-95: the fills with no theme token (the dark Exponential theme's). */
+private val HIGHLIGHT_MATCH = Color(0x4DFACC15)
+private val HIGHLIGHT_MATCH_CURRENT = Color(0x99F59E0B)
 
 /**
  * #EXP-1674: the links in the text's own colour, underlined. A tap on a link
@@ -182,16 +258,21 @@ private fun LinkedTextLeaf(cx: LeafContext, segments: List<TextLinkSegment>, ali
                     append(shown)
                 }
             }
+            // #EDE-95: the search marks over the joined segments.
+            highlightMarks(cx, segments.joinToString("") { it.text }, length).forEach { (value, range) -> addStringAnnotation(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, value, range.first, range.last + 1) }
         }
     }
+    val style = cx.composeTextStyle(align = align)
+    val fills = highlightFills(annotated, style)
     InnerBox(cx) {
         BasicText(
             annotated,
-            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
-            style = cx.composeTextStyle(align = align),
+            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize().then(fills.modifier),
+            style = style,
             softWrap = lines != 1,
             maxLines = lines ?: Int.MAX_VALUE,
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
+            onTextLayout = fills.onTextLayout,
         )
     }
 }
@@ -567,6 +648,12 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             onImagePress = model.host.onImagePress,
             chipIcon = { name, size, color -> IconView(name, size, color, model, rtl = cx.rtl) },
             attachmentView = { a, w, h -> MarkdownAttachmentView(cx, styles, a.type, a.name, a.href, w, h) },
+            // #EDE-95: the search marks, block by block (code blocks never; chips stay whole).
+            highlight = remember(cx.props["highlight"], cx.themeColor("match"), cx.themeColor("matchCurrent")) {
+                at.exponential.ui.measure.highlightSpec(cx.props["highlight"])?.let { spec ->
+                    at.exponential.ui.primitives.MarkdownHighlight(spec.query, at.exponential.ui.primitives.highlightLocalCurrent(spec), cx.themeColor("match") ?: HIGHLIGHT_MATCH, cx.themeColor("matchCurrent") ?: HIGHLIGHT_MATCH_CURRENT)
+                }
+            },
             codeHighlighter = remember(model, model.effectiveTheme, model.mode) { markdownCodeHighlighter(model) },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)

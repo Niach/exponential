@@ -2149,7 +2149,8 @@
                 "props": {
                   "text": "{props.title}",
                   "variant": "body",
-                  "lines": 1
+                  "lines": 1,
+                  "highlight": "{props.highlight}"
                 }
               },
               {
@@ -2160,7 +2161,17 @@
                   "text": "{props.subtitle}",
                   "variant": "muted",
                   "lines": 1,
-                  "hostLinks": true
+                  "hostLinks": true,
+                  "highlight": {
+                    "$cond": [
+                      "props.highlight",
+                      {
+                        "query": "{props.highlight.query}",
+                        "current": "{props.highlight.current}",
+                        "before": "{props.title}"
+                      }
+                    ]
+                  }
                 }
               }
             ]
@@ -6493,7 +6504,8 @@
                 "part": "text",
                 "component": "Markdown",
                 "props": {
-                  "text": "{props.text}"
+                  "text": "{props.text}",
+                  "highlight": "{props.highlight}"
                 }
               },
               {

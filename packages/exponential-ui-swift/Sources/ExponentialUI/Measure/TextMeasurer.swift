@@ -939,6 +939,14 @@ final class TextLines {
         self.wrap = wrap
     }
 
+    /// #EDE-95: `text` = `plain`'s runs with paint-only attributes added
+    /// (search marks), on `plain`'s lines: the marks never move a break.
+    init(_ text: NSAttributedString, sameLinesAs plain: TextLines) {
+        self.text = text
+        self.wrap = plain.wrap
+        self.broken = plain.lineBreaks()
+    }
+
     private(set) lazy var typesetter: CTTypesetter = CTTypesetterCreateWithAttributedString(text)
     private var broken: (ranges: [NSRange], breaks: [Int])?
 

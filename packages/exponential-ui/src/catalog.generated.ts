@@ -168,7 +168,7 @@ export type CountBadgeToneValue = (typeof ENUMS)["countBadgeTone"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover","strokeActive","destructiveHover","bubbleOwn","sheenFrom","sheenTo"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover","strokeActive","destructiveHover","bubbleOwn","sheenFrom","sheenTo","match","matchCurrent"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],
@@ -226,6 +226,7 @@ export interface Shapes {
   picture: { src: string; alt?: string }
   dateMark: { date: string; tone?: ToneValue }
   treeItem: { id: string; title: string; icon?: IconName; meta?: string; children?: Shapes["treeItem"][]; hasChildren?: boolean }
+  highlight: { query: string; current?: number; before?: string }
 }
 /** Every component's props, by name. */
 export interface ComponentProps {
@@ -245,9 +246,9 @@ export interface ComponentProps {
   Toolbar: { gap?: GapValue }
   Section: { title?: string | Dynamic; caption?: string | Dynamic; count?: number | Dynamic; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean | Dynamic; style?: Style }
   Group: { title?: string; footer?: string }
-  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
+  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; highlight?: Shapes["highlight"]; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
-  Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
+  Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; highlight?: Shapes["highlight"]; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; follow?: boolean; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
   Kbd: { keys: string }
   KbdGroup: { keys: string[] | Dynamic }
@@ -324,9 +325,9 @@ export interface ComponentProps {
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   QrScanner: { hint?: string | Dynamic; formats?: string[]; label?: string; disabled?: boolean }
   Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; layout?: "stacked" | "flat"; menuKeys?: boolean | Dynamic }
-  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
+  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic; highlight?: Shapes["highlight"] }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
-  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; tail?: MessageTailValue | Dynamic; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }
+  MessageBubble: { text: string | Dynamic; side?: MessageSideValue; tail?: MessageTailValue | Dynamic; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic; highlight?: Shapes["highlight"] }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }
   Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; stateMachine?: Record<string, unknown>; inputs?: Record<string, unknown> | Dynamic; label?: string; style?: Style }
