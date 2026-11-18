@@ -126,8 +126,9 @@ public enum SessionScreen {
 
     public static let kinds: [Kind: KindSpec] = [
         .session: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: false, wideChatTab: true, wideDefault: .chat),
-        .agent: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: true, wideChatTab: true, wideDefault: .chat),
-        .assistant: KindSpec(tabs: [.chat, .issues, .sessions, .results], settings: true, wideChatTab: true, wideDefault: .chat),
+        // #FEED-271: an agent's and the Assistant's chat is the only view.
+        .agent: KindSpec(tabs: [.chat], settings: true, wideChatTab: true, wideDefault: .chat),
+        .assistant: KindSpec(tabs: [.chat], settings: true, wideChatTab: true, wideDefault: .chat),
         .app: KindSpec(tabs: [.chat, .preview, .data, .events, .versions], settings: true, wideChatTab: false, wideDefault: .preview),
     ]
 
@@ -236,7 +237,8 @@ public enum SessionScreen {
         let spec = spec(kind)
         // #EXP-1834: a counted tab with nothing in it is disabled.
         func empty(_ tab: Tab) -> Bool { counted.contains(tab) && counts.value(tab) <= 0 }
-        let shown = wide && !spec.wideChatTab ? spec.tabs.filter { $0 != .chat } : spec.tabs
+        // #FEED-271: a kind with ONE tab (an agent, the Assistant) shows no strip.
+        let shown = spec.tabs.count <= 1 ? [] : wide && !spec.wideChatTab ? spec.tabs.filter { $0 != .chat } : spec.tabs
         let tabs = shown.map { tab -> TabEntry in
             let value = counted.contains(tab) ? counts.value(tab) : 0
             return TabEntry(id: tab, label: tab.label, count: value > 0 ? value : nil, disabled: empty(tab))

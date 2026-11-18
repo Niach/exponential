@@ -1399,9 +1399,10 @@ class StyleguideScreenshotsTest {
             if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
                 // S-3: the pinned agent row.
                 composeRule.onAllNodes(hasTestTag("chat-agent-row") and hasText(AGENT_NAME)).onFirst().performClick()
-                // #EXP-1732: THE session screen; its Chat tab = the agent
-                // root's own session view (the seeded messages are no feed).
-                flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
+                // #EXP-1732: THE session screen = the agent root's own
+                // session view (the seeded messages are no feed); #FEED-271:
+                // an agent's header has no tabs, so wait on the header itself.
+                flow.waitFor(hasTestTag("chat-title") and hasText(AGENT_NAME), NAV_TIMEOUT)
                 flow.settle(longer = true)
                 flow.screenshot("sg_agent-channel")
                 Espresso.pressBack()
