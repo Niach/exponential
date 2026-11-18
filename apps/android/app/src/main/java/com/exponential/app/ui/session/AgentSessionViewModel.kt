@@ -188,6 +188,8 @@ class AgentSessionViewModel @AssistedInject constructor(
     composerDrafts: ComposerDrafts,
     // #FEED-237: the persisted session outbox (message-delivery.json).
     private val outbox: com.exponential.app.data.outbox.SessionOutbox,
+    // #EDE-130: find in chat's older hits off the account's chat store.
+    private val chatStores: com.exponential.app.data.chatstore.ChatStoreManager,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -1689,6 +1691,15 @@ class AgentSessionViewModel @AssistedInject constructor(
     fun loadEarlier() {
         connection.loadEarlier()
     }
+
+    /** #EDE-130 (find-in-chat.json): the chat store's hits for [rootId]'s
+     *  chat (null = no store), newest first. */
+    suspend fun findInStore(rootId: String, query: String): List<com.exponential.app.data.chatstore.StoredChatHit>? =
+        chatStores.searchChat(rootId, query, com.exponential.app.domain.FindInChat.HITS_MAX)
+
+    /** #EDE-130: the running device's `search` frame below [beforeSeq] (#EDE-96). */
+    suspend fun findOnDevice(query: String, beforeSeq: Long?): com.exponential.app.data.steer.SteerSearchResult? =
+        connection.search(query, beforeSeq)
 
     /**
      * EXP-1291: Stop = `sessions.stop` — interrupts the current turn; the

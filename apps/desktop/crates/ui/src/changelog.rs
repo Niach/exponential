@@ -53,7 +53,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     body: r##"- **Search in chat**: open it from the chat's … menu or with Ctrl/Cmd+F (⌘K and Ctrl+K stay the global search).
 - **Every match marked**: the current one stands out; previous and next walk them in reading order and wrap around.
 - **The whole chat**: older messages from this device's local copy count too, and a folded tool group with a match opens itself.
-- **On web, desktop and eDE**; phones follow."##,
+- **On web, desktop, eDE, iOS and Android**: on phones the bar takes the chat header's place, “2/7” with up and down."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

@@ -775,6 +775,37 @@ final class AgentSessionModel {
         return true
     }
 
+    // MARK: - Find in chat (#EDE-130, find-in-chat.json)
+
+    /// The WHOLE loaded feed's rows as the transcript draws them (find in
+    /// chat counts every loaded row, not just the painted window).
+    func findFeedRows() -> [(row: AgentFeedRow, checkIns: Int?)] {
+        let shown = syncedTail.isEmpty ? feed : feed + syncedTail
+        return TranscriptEntry.shownRows(AgentFeed.rows(shown, from: 0, workflowIds: Set(workflows.map(\.id))))
+    }
+
+    /// The wire seq of feed item `id` (nil = not numbered: a synced tail
+    /// row, a publisher older than EXP-783).
+    func findSeq(_ id: Int) -> Int? { seqById[id] }
+
+    /// The lowest loaded seq (the device's `beforeSeq`).
+    var findLowestSeq: Int? { oldestSeq }
+
+    /// The loaded feed reaches the session's first event.
+    var findFromStart: Bool {
+        (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
+    }
+
+    /// Bumped by every projection of a moved feed (the find recount's cue).
+    private(set) var findRevision = 0
+
+    /// Make the painted window hold feed item `id` (it moves upward only).
+    func revealFind(_ id: Int) {
+        guard let at = feed.firstIndex(where: { $0.id == id }), at < windowStart else { return }
+        windowFrom = id
+        reproject()
+    }
+
     /// #EDE-96 (steer-enet.json SEARCH) — ask the device that holds the
     /// journal to search the transcript, newest first below `beforeSeq` (nil
     /// = from the newest event). ONE search in flight: a newer ask settles
@@ -902,6 +933,7 @@ final class AgentSessionModel {
         )
         guard key != projectedKey else { return }
         projectedKey = key
+        findRevision &+= 1
         let shown = syncedTail.isEmpty ? feed : feed + syncedTail
         if hasFeed == shown.isEmpty { hasFeed = !shown.isEmpty }
         // EXP-850 §3: a workflow's tool row never collapses into a "N tool

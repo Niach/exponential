@@ -114,12 +114,16 @@ struct ChatScreen: View {
     @State private var pendingChatPick: ChatMenuSheet.Entry?
     @State private var deleteTarget: String?
     @State private var isOwner = false
+    /// #EDE-130 (find-in-chat.json): find in chat over the root's transcript;
+    /// while open its bar REPLACES the header band (header + tabs).
+    @State private var find: ChatFind
     @Environment(\.dismiss) private var dismiss
 
     init(rootId: String, initialPage: ChatPage = .conversation, editor: ChatEditorSlot? = nil) {
         self.rootId = rootId
         self.initialPage = initialPage
         self.editor = editor
+        _find = State(initialValue: ChatFind(chatKey: rootId))
         switch initialPage {
         case .results:
             _ownTab = State(initialValue: .results)
@@ -251,9 +255,24 @@ struct ChatScreen: View {
                 // every tab — #EXP-1688: THE chat header over THE tabs,
                 // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
-                    chatHeader(rows: rows, view: view)
-                    SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
-                        selectTab(next)
+                    if find.open {
+                        FindInChatHeader(find: find)
+                    } else {
+                        chatHeader(rows: rows, view: view)
+                        SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
+                            selectTab(next)
+                        }
+                    }
+                }
+                // find-in-chat.json KEYS: ⌘F while the chat shows = find in
+                // chat (an open bar re-focuses its field).
+                .background {
+                    if shown.active == .chat, opened == nil, kind(rows) != .app {
+                        Button(FindInChat.Copy.menu) { find.openBar() }
+                            .keyboardShortcut("f", modifiers: .command)
+                            .opacity(0)
+                            .frame(width: 0, height: 0)
+                            .accessibilityHidden(true)
                     }
                 }
             } else if model?.missing == true {
@@ -758,6 +777,7 @@ struct ChatScreen: View {
             editorMove: editor?.appMove,
             editorPicks: editor?.picks
         )
+        .environment(\.chatFind, find)
         .id(rows.root.id)
     }
 
@@ -949,7 +969,16 @@ struct ChatScreen: View {
             export: app?.export ?? false,
             delete: screenKind == .app ? (app?.delete ?? false) : (screenKind == .session && canSteer && canDelete)
         )
-        let own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        var own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        // #EDE-130 (find-in-chat.json `menuCases`): Search in chat first, its
+        // own group, while the chat shows (an item over it: not).
+        if tab == .chat, opened == nil {
+            // The sheet draws its own dividers (`separates`): no separator row.
+            own = FindInChat.menu(
+                kind: screenKind.rawValue, entries: own.map { Optional($0) },
+                search: Optional(ChatMenuSheet.Entry.search), separator: nil
+            ).compactMap { $0 }
+        }
         guard screenKind == .session else { return own }
         return own + prMenuEntries.map { entry -> ChatMenuSheet.Entry in
             switch entry {
@@ -1008,6 +1037,8 @@ struct ChatScreen: View {
         case .resume: holdGuide(false)
         case .closePr:
             closePrTarget = rows.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
+        case .search:
+            find.openBar()
         }
     }
 
@@ -1260,6 +1291,7 @@ struct ChatScreen: View {
     /// A tab tap: the tab, nothing opened over it, a held request dropped.
     private func selectTab(_ next: SessionScreen.Tab) {
         pendingPage = nil
+        if next != .chat { find.close() }
         UIApplication.endEditing()
         withAnimation(motion.standard) {
             opened = nil
