@@ -21,6 +21,7 @@ import {
   callCard,
   callPrompt,
   callView,
+  feedCallSession,
   chatInStack,
   chatRowLeadPr,
   chatRowMarkState,
@@ -50,6 +51,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of card.callViewCases) {
     test(`call view: ${entry.name}`, () => {
       expect(callView(entry.input as never)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of card.feedCases) {
+    test(`call in the live feed: ${entry.name}`, () => {
+      expect(feedCallSession(entry.text, entry.calls)).toBe(entry.expected as never)
     })
   }
   test(`call prompts = the etalk callSession lines (drift)`, () => {

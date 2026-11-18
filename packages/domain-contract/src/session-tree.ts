@@ -16,7 +16,7 @@ import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { chatTimeLabel, commandDivider } from "./chats"
 import type { LockedReason } from "./sealed-content"
-import { isBlankText } from "./transcript-grouping"
+import { crossSessionInput, isBlankText } from "./transcript-grouping"
 
 export interface TreeSession {
   id: string
@@ -408,6 +408,15 @@ export function callPrompt(body: string): `request` | `resume` | `ended` | null 
     }
   }
   return null
+}
+
+/** The live feed (`feedCases`): the call session whose REPORT this device
+ *  input relays (`Report from <name> (session <id>): …`), else null. */
+export function feedCallSession(text: string, callIds: ReadonlySet<string> | readonly string[]): string | null {
+  const input = crossSessionInput(text)
+  if (!input || input.kind !== `report`) return null
+  const ids = callIds instanceof Set ? callIds : new Set(callIds as readonly string[])
+  return ids.has(input.sessionId) ? input.sessionId : null
 }
 
 export interface CallView {
