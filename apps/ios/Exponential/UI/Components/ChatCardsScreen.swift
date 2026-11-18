@@ -946,9 +946,13 @@ private struct VoiceCallSpecimens: View {
                             level: specimen.level,
                             animated: false
                         )
-                        ChatTranscriptSpecimens()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        // The transcript is taller than the frame: it fills
+                        // what is left under the bar, cut at the bottom.
+                        Color.clear
+                            .overlay(alignment: .top) { ChatTranscriptSpecimens() }
                             .clipped()
+                            // A still frame: the shot's scroll drags never press a bubble.
+                            .allowsHitTesting(false)
                     }
                 }
             }
