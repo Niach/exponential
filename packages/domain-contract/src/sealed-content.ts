@@ -463,6 +463,65 @@ export function sendWire(input: {
   return input.keyArrives ? `sealed` : `failed`
 }
 
+// ── a keyless tree's key (fixtures/sealed-content.json `clearTree.keylessCases`, #EXP-1960) ──
+
+/** How often a writer tries `sessionKeys.create` on a blip, and the backoff unit. */
+export const SEAL_CREATE_ATTEMPTS: number = placeholderFixture.clearTree.createAttempts
+export const SEAL_CREATE_RETRY_MS: number = placeholderFixture.clearTree.createRetryMs
+/** The server's refusal of a wrap for an install that is not a reader. */
+export const WRAP_REFUSAL: string = placeholderFixture.clearTree.wrapRefusal
+
+export type CreateFailure = `clear` | `stale` | `notReader` | `wrapRefused` | `refused` | `transient`
+export type RequestKeyAnswer = `keyed` | `clear` | `requested` | `noHost` | `notFound` | `error`
+export type KeylessStep = `plain` | `serverKey` | `requestKey` | `retryOwn` | `retry` | `failed` | `sealed` | `wait`
+
+/** tRPC error codes that are an answer, not a blip (a refusal is never retried). */
+const REFUSAL_CODES = new Set([`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `PRECONDITION_FAILED`, `PAYLOAD_TOO_LARGE`, `UNPROCESSABLE_CONTENT`, `METHOD_NOT_SUPPORTED`])
+
+/** A failed `sessionKeys.create`, read from its tRPC error code + message
+ *  (no code = no answer: a network blip). */
+export function createFailure(error: { code?: string | null; message?: string | null }): CreateFailure {
+  const { code, message } = error
+  if (message === CLEAR_TREE_REFUSAL) return `clear`
+  if (isStaleTreeRefusal(message) || code === `CONFLICT`) return `stale`
+  if (message === WRAP_REFUSAL) return `wrapRefused`
+  if (code === `NOT_FOUND`) return `notReader`
+  return code && REFUSAL_CODES.has(code) ? `refused` : `transient`
+}
+
+/** #EXP-1960: what a writer does after a failed create (`failure`) or after
+ *  asking the tree's device for its key (`answer`). Never a silent wait. */
+export function keylessStep(
+  input: { failure: CreateFailure; attempt?: number; ownOnly?: boolean } | { answer: RequestKeyAnswer }
+): KeylessStep {
+  if (`answer` in input) {
+    switch (input.answer) {
+      case `keyed`:
+        return `sealed`
+      case `clear`:
+        return `plain`
+      case `noHost`:
+        return `failed`
+      default:
+        return `wait`
+    }
+  }
+  switch (input.failure) {
+    case `clear`:
+      return `plain`
+    case `stale`:
+      return `serverKey`
+    case `notReader`:
+      return `requestKey`
+    case `wrapRefused`:
+      return input.ownOnly ? `requestKey` : `retryOwn`
+    case `refused`:
+      return `failed`
+    case `transient`:
+      return (input.attempt ?? 1) < SEAL_CREATE_ATTEMPTS ? `retry` : `failed`
+  }
+}
+
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
 
 /** Why content stays locked here: `noKey` = waiting for a holder's wrap

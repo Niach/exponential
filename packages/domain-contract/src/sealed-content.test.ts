@@ -30,6 +30,11 @@ import {
   NO_KEY_REFUSAL,
   SEALING_DEVICE_MIN_VERSION,
   sendWire,
+  CLEAR_TREE_REFUSAL,
+  createFailure,
+  keylessStep,
+  type CreateFailure,
+  type RequestKeyAnswer,
   type SendTree,
 } from "./sealed-content"
 
@@ -163,6 +168,25 @@ describe(`sealed by default (clearTree, #EDE-97)`, () => {
       ).toBe(c.wire as never)
     })
   }
+  for (const c of fixture.clearTree.keylessCases) {
+    test(`keyless (#EXP-1960): ${c.name}`, () => {
+      const row = c as { failure?: CreateFailure; attempt?: number; ownOnly?: boolean; answer?: RequestKeyAnswer; step: string }
+      const step = row.answer
+        ? keylessStep({ answer: row.answer })
+        : keylessStep({ failure: row.failure!, attempt: row.attempt, ownOnly: row.ownOnly })
+      expect(step).toBe(row.step as never)
+    })
+  }
+  test(`a create failure is read from its tRPC code and message`, () => {
+    expect(createFailure({ message: CLEAR_TREE_REFUSAL, code: `BAD_REQUEST` })).toBe(`clear`)
+    expect(createFailure({ code: `CONFLICT`, message: `The tree is at epoch 3` })).toBe(`stale`)
+    expect(createFailure({ code: `BAD_REQUEST`, message: fixture.clearTree.wrapRefusal })).toBe(`wrapRefused`)
+    expect(createFailure({ code: `NOT_FOUND`, message: `Session not found` })).toBe(`notReader`)
+    expect(createFailure({ code: `FORBIDDEN`, message: `Not your install` })).toBe(`refused`)
+    expect(createFailure({ code: `INTERNAL_SERVER_ERROR` })).toBe(`transient`)
+    expect(createFailure({ code: `TOO_MANY_REQUESTS` })).toBe(`transient`)
+    expect(createFailure({ message: `Failed to fetch` })).toBe(`transient`)
+  })
   test(`the copy and the floor come from the fixture`, () => {
     expect(NO_KEY_REFUSAL).toBe(fixture.clearTree.noKeyRefusal)
     expect(SEALING_DEVICE_MIN_VERSION).toBe(`0.14.96`)
