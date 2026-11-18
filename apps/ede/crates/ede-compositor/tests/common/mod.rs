@@ -43,6 +43,9 @@ pub struct Client {
     pub decoration_modes: std::collections::HashMap<usize, u32>,
     /// Every global the compositor advertised.
     pub globals: Vec<String>,
+    /// Their registry names, and the names it took back (`global_remove`).
+    pub global_names: Vec<u32>,
+    pub removed: Vec<u32>,
     /// `locked` / `finished` on our lock object.
     pub locked: bool,
     pub finished: bool,
@@ -386,8 +389,12 @@ impl Session {
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Client {
     fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
+        if let wl_registry::Event::GlobalRemove { name } = event {
+            state.removed.push(name);
+        }
         if let wl_registry::Event::Global { name, interface, version } = event {
             state.globals.push(interface.clone());
+            state.global_names.push(name);
             match interface.as_str() {
                 "ext_session_lock_manager_v1" => state.lock_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_idle_inhibit_manager_v1" => state.idle_inhibit_manager = Some(registry.bind(name, 1, qh, ())),

@@ -5,7 +5,10 @@ mod common;
 
 use std::os::unix::{fs::PermissionsExt, net::UnixStream};
 
-use common::{space::start_with_spaces, Session};
+use common::{
+    space::{person_key, spaces_settled, start_with_spaces, wait_for},
+    Session,
+};
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use ede_protocol::{ErrorCode, SessionId};
 
@@ -50,6 +53,9 @@ const SPACE_GLOBALS: [&str; 14] = [
     "wl_seat",
     "wl_output",
 ];
+
+const BLUE: u32 = 0xff00_00ff;
+const KEY_A: u32 = 30;
 
 fn owner(name: &str) -> SessionId {
     SessionId::new(name).unwrap()
@@ -121,4 +127,70 @@ fn no_space_no_difference() {
     let with = Session::connect(h.connect());
     assert_eq!(with.state.globals, PERSONS_GLOBALS);
     assert_eq!((with.state.seat_names.as_slice(), with.state.output_names.as_slice()), (["seat0".to_string()].as_slice(), ["HEADLESS-1".to_string()].as_slice()));
+}
+
+/// A space that closes takes its clients, its socket, its directory, its
+/// globals and its seat along; the person's client hears of two removals
+/// and of nothing else.
+#[test]
+fn a_closed_space_leaves_nothing() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let mut a = Session::connect(h.connect());
+    let window = a.toplevel("a");
+    a.draw(&window, 200, 150, BLUE);
+    let _keyboard = a.keyboard();
+    h.with(|state| {
+        let window = state.desk.space.elements().next().cloned();
+        state.focus(DeskId::PERSON, window);
+    });
+    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
+
+    let (desk, socket) = h.with(|state| {
+        let desk = state.create_space(owner("run-1"), 640, 480).expect("a space");
+        (desk, state.spaces.get(desk).unwrap().socket())
+    });
+    let mut b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+
+    assert!(h.with(move |state| state.close_space(desk)));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while b.queue.roundtrip(&mut b.state).is_ok() {
+        assert!(std::time::Instant::now() < deadline, "the space's client is still connected");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!socket.exists() && !socket.parent().unwrap().exists(), "its socket and its directory are gone");
+    assert!(UnixStream::connect(&socket).is_err());
+    h.with(move |state| {
+        assert!(state.try_desk(desk).is_none() && state.spaces.iter().count() == 0);
+        assert!(!state.close_space(desk), "it closes once");
+        assert!(!state.close_space(DeskId::PERSON), "the person's desk never closes");
+    });
+    spaces_settled(&h);
+
+    // The person's client heard two removals, of names it was never told.
+    a.roundtrip();
+    assert_eq!(a.state.removed.len(), 2);
+    assert!(a.state.removed.iter().all(|name| !a.state.global_names.contains(name)));
+    assert_eq!(a.state.globals, PERSONS_GLOBALS);
+    // It still has the keyboard, and one that comes now sees what one saw before.
+    person_key(&h, KEY_A);
+    wait_for(&mut a, |a| a.state.keys == [KEY_A]);
+    assert_eq!(Session::connect(h.connect()).state.globals, PERSONS_GLOBALS);
+
+    // A number is never given out twice; the compositor's end removes what is left.
+    let next = h.with(|state| state.create_space(owner("run-1"), 640, 480).map(|desk| state.spaces.get(desk).unwrap().socket())).expect("a space");
+    assert_eq!(next, dir.path().join("wayland-test.spaces/space-2/wayland-0"));
+    drop(h);
+    assert!(!dir.path().join("wayland-test.spaces").exists(), "nothing stays on disk after the compositor");
+}
+
+#[test]
+fn what_an_earlier_compositor_left_is_swept() {
+    let dir = tempfile::tempdir().unwrap();
+    let stale = dir.path().join("wayland-test.spaces");
+    std::fs::create_dir_all(stale.join("space-7")).unwrap();
+    std::fs::write(stale.join("space-7/wayland-0"), b"").unwrap();
+    let h = Harness::start(Config::default(), &[(800, 600)]);
+    let spaces = stale.clone();
+    h.with(move |state| state.spaces.open(spaces));
+    assert!(!stale.exists());
 }
