@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls`,
+    date: `2026-11-18`,
+    title: `Encrypted chats, a local chat search, and steadier calls`,
+    summary: `Desktop and CLI 0.14.169: chats are end-to-end encrypted by default, desktop keeps a local copy of your chats you can search, calls and voice are steadier, and computer use pastes and copies again in eDE 0.2.28.`,
+    body: `- **Chats are encrypted by default**: every new chat is end-to-end encrypted and shows a lock. Devices older than 0.14.96 can't send plans or questions into an encrypted chat, so please update them.
+- **Search your chats**: desktop and web keep a local copy of your chats, so search finds messages from earlier chats.
+- **Sign out deletes the local copy**: signing out on purpose deletes it on desktop, in the CLI (\`exponential logout\`) and on the web. An expired session or switching accounts keeps it. One edge: logging out in the CLI while the desktop app runs on the same account leaves the app writing to the deleted file until it restarts.
+- **Steadier calls and voice**: calls and push to talk connect and end more reliably, and calls are sealed end to end where the server asks for it.
+- **Steadier computer use**: computer use on X11, Wayland and eDE holds and releases your input more reliably.
+- **Paste and copy in eDE**: with eDE 0.2.28, computer use pastes and copies through the clipboard again instead of typing the text.`,
+  },
+  {
     id: `2026-11-18-copy-image-android`,
     date: `2026-11-18`,
     title: `Copy image on Android`,
