@@ -1,0 +1,208 @@
+package com.exponential.app.ui.chat
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.Chats
+import com.exponential.app.domain.FindInChat
+import com.exponential.app.ui.components.HeaderEdgeChrome
+import com.exponential.app.ui.components.SearchListInput
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.TextEmphasis
+import kotlinx.coroutines.delay
+
+/**
+ * #EDE-130 (fixtures/find-in-chat.json): find in chat on Android. The chat
+ * screen owns the bar ([FindInChatState]: open, the field, the steps it asks
+ * for, the counter and status line the transcript reports back); the root's
+ * transcript (`ActivityFeed`, [LocalFindInChat]) counts its rows, merges the
+ * older hits and lands on the current stop.
+ */
+@Stable
+class FindInChatState internal constructor(private val chatKey: String) {
+    var open by mutableStateOf(false)
+        private set
+
+    /** The field's text. */
+    var raw by mutableStateOf("")
+        private set
+
+    /** The query the transcript searches (collapsed, debounced; "" = none). */
+    var query by mutableStateOf("")
+        internal set
+
+    /** The last step the bar asked for ([StepRequest.n] bumps per press). */
+    var step by mutableStateOf<StepRequest?>(null)
+        private set
+
+    /** The transcript's report: the counter ("" = none) and the status line. */
+    var counter by mutableStateOf("")
+        private set
+    var status by mutableStateOf<String?>(null)
+        private set
+
+    /** Bumps whenever the bar (re)opens: the field remounts focused, its text selected. */
+    var openNonce by mutableIntStateOf(0)
+        private set
+
+    data class StepRequest(val step: FindInChat.Step, val n: Int)
+
+    fun openBar() {
+        if (!open) raw = LAST_QUERY[chatKey].orEmpty()
+        open = true
+        openNonce += 1
+    }
+
+    /** Escape, back: clears every mark, keeps the scroll and the opened groups. */
+    fun close() {
+        open = false
+        query = ""
+        step = null
+        counter = ""
+        status = null
+    }
+
+    fun updateRaw(value: String) {
+        LAST_QUERY[chatKey] = value
+        raw = value
+    }
+
+    fun go(step: FindInChat.Step) {
+        this.step = StepRequest(step, (this.step?.n ?: 0) + 1)
+    }
+
+    fun report(counter: String, status: String?) {
+        if (this.counter != counter) this.counter = counter
+        if (this.status != status) this.status = status
+    }
+
+    /** The query the transcript reads (none while closed). */
+    val activeQuery: String get() = if (open) query else ""
+
+    internal companion object {
+        /** The last query per chat, for the process (memory only). */
+        val LAST_QUERY = HashMap<String, String>()
+    }
+}
+
+/** The chat's find, for the ROOT's transcript under it (null = none). */
+val LocalFindInChat = staticCompositionLocalOf<FindInChatState?> { null }
+
+/** One [FindInChatState] per chat; typing re-searches after `debounceMs`. */
+@Composable
+fun rememberFindInChat(chatKey: String): FindInChatState {
+    val state = remember(chatKey) { FindInChatState(chatKey) }
+    val raw = state.raw
+    val open = state.open
+    LaunchedEffect(state, raw, open) {
+        if (!open) return@LaunchedEffect
+        val next = FindInChat.query(raw)
+        if (next.isEmpty()) {
+            state.query = ""
+            return@LaunchedEffect
+        }
+        delay(FindInChat.DEBOUNCE_MS)
+        state.query = next
+    }
+    return state
+}
+
+/**
+ * COMPACT (find-in-chat.json WHERE THE BAR SITS, phones): the bar REPLACES
+ * the chat header while open: back (closes), THE search field, the counter
+ * (`counterCompact`, muted), previous (chevron up), next (chevron down); the
+ * status line under it. Existing components only: the header's ghost
+ * buttons, the search list's field, muted Text. Enter = previous (older).
+ */
+@Composable
+fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
+    BackHandler(onBack = state::close)
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    HeaderEdgeChrome {
+        Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag(FindInChat.TestIds.BAR)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(end = Chats.Shell.ChatHeader.PADDING_X.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.runtime.key(state.openNonce) {
+                    SearchListInput(
+                        value = state.raw,
+                        onValueChange = state::updateRaw,
+                        placeholder = FindInChat.Copy.PLACEHOLDER,
+                        modifier = Modifier.weight(1f),
+                        autoFocus = true,
+                        onSubmit = { state.go(FindInChat.Step.Previous) },
+                        asField = true,
+                        leading = {
+                            ChatHeaderButton(
+                                ExpIcons.uiBack,
+                                FindInChat.Copy.CLOSE,
+                                onClick = state::close,
+                                modifier = Modifier.testTag(FindInChat.TestIds.CLOSE),
+                            )
+                        },
+                        selectAll = true,
+                        inputTestTag = FindInChat.TestIds.INPUT,
+                    )
+                }
+                if (state.counter.isNotEmpty()) {
+                    Text(
+                        state.counter,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        color = muted,
+                        maxLines = 1,
+                        modifier = Modifier.testTag(FindInChat.TestIds.COUNTER),
+                    )
+                    Spacer(Modifier.width(Chats.Shell.ChatHeader.GAP.dp))
+                }
+                ChatHeaderButton(
+                    ExpIcons.uiChevronUp,
+                    FindInChat.Copy.PREVIOUS,
+                    onClick = { state.go(FindInChat.Step.Previous) },
+                    modifier = Modifier.testTag(FindInChat.TestIds.PREVIOUS),
+                )
+                ChatHeaderButton(
+                    ExpIcons.uiChevronDown,
+                    FindInChat.Copy.NEXT,
+                    onClick = { state.go(FindInChat.Step.Next) },
+                    modifier = Modifier.testTag(FindInChat.TestIds.NEXT),
+                )
+            }
+            val status = state.status
+            if (status != null) {
+                Text(
+                    status,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 6.dp)
+                        .testTag(FindInChat.TestIds.STATUS),
+                )
+            }
+        }
+    }
+}

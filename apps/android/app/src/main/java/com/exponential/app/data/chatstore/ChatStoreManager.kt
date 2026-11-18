@@ -356,6 +356,16 @@ class ChatStoreManager internal constructor(
         }.getOrNull()?.takeIf { it.events.isNotEmpty() }
     }
 
+    /**
+     * #EDE-130 FIND IN CHAT (`chat-store.json` SEARCH): [rootId]'s chat
+     * (every session of its tree) searched for [query], newest first, at
+     * most [limit] hits. Null = no store open (or it failed).
+     */
+    suspend fun searchChat(rootId: String, query: String, limit: Int): List<StoredChatHit>? = withContext(Dispatchers.IO) {
+        val opened = open.value ?: return@withContext null
+        runCatching { ChatStoreCodec.parseHits(opened.store.searchChat(rootId, query, limit.toUInt())) }.getOrNull()
+    }
+
     /** Reads every old #PERF-9 tail of the account into the store (those that open here). */
     private suspend fun migrateTails(opened: Opened) {
         for (sessionId in tailFiles.sessions(opened.accountId)) {
