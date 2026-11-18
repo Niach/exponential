@@ -28,11 +28,14 @@ struct ChatMenuSheet: View {
         case resume
         /// EXP-1307: the Guide's Close PR (the chat header's `…` keeps it).
         case closePr
+        /// #EDE-130 (find-in-chat.json): Search in chat, first in its own
+        /// group (`FindInChat.menu`).
+        case search
 
         /// The chat PR's entries (`mergeMenuEntries`), apart from the chat's.
         var isPullRequest: Bool {
             switch self {
-            case .chat, .agent, .screen: false
+            case .chat, .agent, .screen, .search: false
             case .checks, .mergeNow, .hold, .resume, .closePr: true
             }
         }
@@ -137,6 +140,8 @@ struct ChatMenuSheet: View {
     /// draft's separator); the Guide's Close PR from the chat's entries.
     static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
+        // #EDE-130: Search in chat is its own group.
+        case (.search, _), (_, .search): true
         case (.agent(.newConversation), .agent): true
         // #FEED-239: `SessionScreen.menu`'s separators sit between its groups.
         case let (.screen(a, _), .screen(b, _)): screenGroup(a) != screenGroup(b)
@@ -174,6 +179,7 @@ struct ChatMenuSheet: View {
         case .hold: MergeTrain.Copy.Menu.hold
         case .resume: MergeTrain.Copy.Menu.resume
         case .closePr: ClosePrCopy.menuItem
+        case .search: FindInChat.Copy.menu
         }
     }
 
@@ -187,6 +193,7 @@ struct ChatMenuSheet: View {
         case .hold: AppIcons.prHold
         case .resume: AppIcons.prResume
         case .closePr: AppIcons.prClosed
+        case .search: AppIcons.navSearch
         }
     }
 
@@ -194,7 +201,7 @@ struct ChatMenuSheet: View {
         switch entry {
         case let .chat(e): e.destructive
         case let .screen(e, _): e.destructive
-        case .agent, .checks, .mergeNow, .hold, .resume: false
+        case .agent, .checks, .mergeNow, .hold, .resume, .search: false
         case .closePr: true
         }
     }
@@ -209,6 +216,7 @@ struct ChatMenuSheet: View {
         case .hold: "hold"
         case .resume: "resume"
         case .closePr: "close-pr"
+        case .search: "search"
         }
     }
 

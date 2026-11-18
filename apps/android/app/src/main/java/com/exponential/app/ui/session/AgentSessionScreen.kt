@@ -1274,7 +1274,22 @@ private fun RunFaceContent(
                 } else {
                     hostFooter
                 }
-                androidx.compose.runtime.CompositionLocalProvider(LocalFeedFooter provides transcriptFooter) {
+                // #EDE-130 (find-in-chat.json): what find in chat asks of this
+                // session (its keys, the store, the device and its name).
+                val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
+                    TranscriptFindHost(
+                        sessionId = viewModel.codingSessionId,
+                        rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
+                        deviceOnline = hostDevice.online,
+                        deviceName = hostDevice.displayLabel,
+                        searchStore = viewModel::findInStore,
+                        searchDevice = viewModel::findOnDevice,
+                    )
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalFeedFooter provides transcriptFooter,
+                    LocalTranscriptFindHost provides findHost,
+                ) {
                 ActivityFeed(
                     feed = feed,
                     live = phase == AgentPhase.Live,
@@ -1895,6 +1910,17 @@ private fun ActivityFeed(
     // while it is an unsettled tool call, and only in a LIVE run (an ended run's
     // trailing unsettled row is history, not a tail). The rule is shared ×4.
     val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
+    // #EDE-130 (find-in-chat.json): find in chat over the WHOLE loaded feed
+    // plus the store's and the device's older hits (the chat's root only).
+    val transcriptFind = rememberTranscriptFind(
+        find = com.exponential.app.ui.chat.LocalFindInChat.current,
+        host = LocalTranscriptFindHost.current,
+        feed = feed,
+        workflowIds = workflowIds,
+        liveRowId = liveRowId,
+        agent = agent,
+        canLoadEarlier = onCanLoadEarlier(),
+    )
     val shownRows = remember(feed, windowStart, workflowIds, docked) {
         // #EXP-1772: a hidden marker (a system input the agent answered with
         // no reply) and a blank agent turn are no rows at all.
@@ -1981,10 +2007,34 @@ private fun ActivityFeed(
             if (agentTab != null) onAgentTabChange(null)
         },
     )
+    // #EDE-130: find in chat's landing = THE deep-link scroll path: page
+    // older until the stop's row is loaded, centre it, ring it (an output
+    // or an older stop).
+    val findLink = rememberDeepLink(
+        listState = listState,
+        request = transcriptFind.request,
+        indexOf = { key ->
+            if (focused != null) {
+                null
+            } else {
+                val at = rows.indexOfFirst { findRowHolds(it, key, transcriptFind.keys) }
+                if (at < 0) null else (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + at
+            }
+        },
+        more = { canLoadEarlier },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        page = loadEarlier,
+        onTake = {
+            onFollowChange(false)
+            if (agentTab != null) onAgentTabChange(null)
+        },
+        reportSettled = false,
+    )
+    val findRing = findLink.ringing?.takeIf { transcriptFind.ring }
     // While a link is pending the transcript never follows its newest row.
-    val following = follow && !deepLink.pending
+    val following = follow && !deepLink.pending && !findLink.pending
     val followState = rememberUpdatedState(following)
-    val linkPending = rememberUpdatedState(deepLink.pending)
+    val linkPending = rememberUpdatedState(deepLink.pending || findLink.pending)
     // While the reader follows the tail the window may SLIDE with the stream
     // (invisible, and it keeps the projection bounded). The moment they scroll
     // up it stays pinned: rows vanishing above a reader is exactly the jump
@@ -2137,6 +2187,10 @@ private fun ActivityFeed(
             )
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        CompositionLocalProvider(
+            LocalFindPaint provides transcriptFind.paint,
+            LocalFindOpenGroups provides transcriptFind.openGroups,
+        ) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().detailHazeSource(),
@@ -2218,7 +2272,8 @@ private fun ActivityFeed(
             itemsIndexed(rows, key = { _, row -> row.id }, contentType = { _, row -> row.contentType }) { index, row ->
                 val feedLayout = feedLayouts[row.id]
                 val layout = feedLayout?.layout
-                Column {
+                // #EDE-130: an output or an older stop rings its row.
+                Column(modifier = Modifier.findRing(findRing != null && findRowHolds(row, findRing, transcriptFind.keys))) {
                 TranscriptRow(
                     if (feedLayout?.groupGap == true) {
                         layout?.gap?.dp ?: 0.dp
@@ -2273,6 +2328,8 @@ private fun ActivityFeed(
                                         item.text,
                                         softBreaksAsNewlines = true,
                                         streaming = working && index == rows.lastIndex,
+                                        // #EDE-130: find in chat's marks.
+                                        highlight = LocalFindPaint.current?.highlightOf(item.id),
                                     )
                                 }
                             } else {
@@ -2343,7 +2400,7 @@ private fun ActivityFeed(
                                             time = time,
                                             onOpen = if (link != null && open != null) ({ open(link) }) else null,
                                             tail = layout.hasTail(),
-                                        ) { UserMessageBody(relay?.body ?: item.text) }
+                                        ) { UserMessageBody(relay?.body ?: item.text, LocalFindPaint.current?.highlightOf(item.id)) }
                                     }
                                     // #FEED-237: the live echo of the person's
                                     // turn = processed into the session (two checks).
@@ -2352,7 +2409,7 @@ private fun ActivityFeed(
                                         time = time,
                                         status = com.exponential.app.domain.MessageDelivery.State.Read,
                                         tail = layout.hasTail(),
-                                    ) { UserMessageBody(item.text) }
+                                    ) { UserMessageBody(item.text, LocalFindPaint.current?.highlightOf(item.id)) }
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2451,6 +2508,7 @@ private fun ActivityFeed(
                 }
             }
             }
+        }
         }
         // EXP-1191: the shared round scroll-to-bottom button, centred 12dp
         // above the bar's rung (the list ends at the band's top edge, whose
@@ -3539,7 +3597,7 @@ private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? =
 /** A human turn's body inside its bubble: the prose (its `[Image #N]`
  *  markers as pills), the images, the file tiles. */
 @Composable
-private fun UserMessageBody(text: String) {
+private fun UserMessageBody(text: String, highlight: at.exponential.ui.primitives.MarkdownHighlight? = null) {
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
@@ -3554,7 +3612,7 @@ private fun UserMessageBody(text: String) {
             hasImages && parsed.markers.isNotEmpty() ->
                 MarkerProse(parsed.text, count = parsed.attachmentIds.size)
             prose.isNotEmpty() ->
-                MarkdownView(prose, softBreaksAsNewlines = true)
+                MarkdownView(prose, softBreaksAsNewlines = true, highlight = highlight)
         }
     }
     if (hasImages) {
@@ -4853,23 +4911,16 @@ private fun ToolRow(
 private fun TraceToolRow(item: AgentFeedItem.Tool, live: Boolean) {
     var open by remember { mutableStateOf(false) }
     val model = remember(item.toolKind, item.settled, item.output, item.name, item.detail, item.failed, live) {
-        val tests = if (item.toolKind == "execute" && item.settled && item.output != null) {
-            TraceModels.failedTests(TraceModels.parseTestResults(item.output))
-        } else {
-            null
-        }
-        tests ?: TraceModels.tool(
-            toolKind = item.toolKind ?: "other",
-            name = item.name,
-            detail = item.detail,
-            settled = item.settled || !live,
-            failed = item.failed,
-        )
+        traceToolModel(item, live)
     }
     val output = item.output
+    // #EDE-130: find in chat's marks on the title, and the output's hint.
+    val find = LocalFindPaint.current
+    val highlight = find?.highlightOf(item.id)
+    val hint = find?.outputHint(item.id)
     Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-tool-line")) {
         if (output == null || live) {
-            TraceLine(model)
+            TraceLine(model, highlight = highlight)
         } else {
             TraceCollapsible(
                 open = open,
@@ -4880,6 +4931,8 @@ private fun TraceToolRow(item: AgentFeedItem.Tool, live: Boolean) {
                         open = isOpen,
                         onClick = toggle,
                         onClickLabel = if (isOpen) "Hide the output" else "Show the output",
+                        highlight = highlight,
+                        hint = hint,
                     )
                 },
             ) {
@@ -5201,6 +5254,9 @@ private val ToolDiffMaxHeight = DomainContract.diffUiInlineDiffMaxHeight.dp
 @Composable
 private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
     var expanded by remember { mutableStateOf(false) }
+    // #EDE-130: a stop inside the fold opens it (it stays open, like a tap).
+    val findOpened = findGroupKey(items) in LocalFindOpenGroups.current
+    LaunchedEffect(findOpened) { if (findOpened) expanded = true }
     val caption = remember(items) {
         ToolGroupSummary.summarize(
             items.map { ToolCallSummary(it.toolKind ?: "other", it.detail, it.failed) },
@@ -6841,5 +6897,22 @@ private fun ColumnScope.DockWatchesSheet(watches: List<Dock.Watch>, onCancel: (S
                 }
             }
         }
+    }
+}
+
+/** #EDE-130 (find-in-chat.json LANDING): THE deep-link ring (2dp, the ring
+ *  token; lit fast, fading out slow) around a row an output or an older
+ *  stop landed on. */
+@Composable
+private fun Modifier.findRing(on: Boolean): Modifier {
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (on) 1f else 0f,
+        animationSpec = tween(if (on) 150 else 500),
+        label = "find-ring",
+    )
+    return if (alpha > 0f) {
+        this.border(2.dp, DesignTokens.Palette.Ring.copy(alpha = alpha), RoundedCornerShape(8.dp))
+    } else {
+        this
     }
 }

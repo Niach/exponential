@@ -90,6 +90,9 @@
 //! * [`chat_row_action`] — #EXP-1464: what a conversation's session row
 //!   does when tapped (expand into its card, open, nothing), byte-locked ×4
 //!   by `fixtures/chat-row-action.json`;
+//! * [`find_in_chat`] — #EDE-129: find in chat (the `…` entry, the query,
+//!   the stops, counter, steps, landing, status line, keys), byte-locked ×4
+//!   by `fixtures/find-in-chat.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
 //!   byte-locked ×4 by `fixtures/app-link.json`.
@@ -240,6 +243,8 @@ pub mod waiting_cards;
 pub mod work_screen;
 // #EXP-1464: what a conversation's session rows do (expand / open / none), fixture-locked ×4.
 pub mod chat_row_action;
+// #EDE-129: find in chat (stops, counter, steps, keys), fixture-locked ×4.
+pub mod find_in_chat;
 // #EXP-1736: ONE transcript ×4 (senders, groups, gaps, session inputs), fixture-locked ×4.
 pub mod transcript_grouping;
 

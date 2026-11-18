@@ -429,9 +429,17 @@ fun ChatScreen(
     val agentSettingsId = rootRow?.agentId?.takeIf { it.isNotEmpty() && agent != null }
     val mayOpenSettings = agentSettingsId != null &&
         (if (agent?.assistant == true) agentDefinition?.ownerId == me else isOwner)
+    // #EDE-130 (find-in-chat.json): find in chat, opened from the `…`.
+    val findInChat = rememberFindInChat(viewModel.rootId)
     val chatMenu = sessionScreenMenuGroups(
         kind,
-        SessionScreen.menu(
+        onFind = {
+            // The bar searches the Chat tab's transcript.
+            requestedTab = SessionScreen.Tab.Chat.wire
+            closeItem()
+            findInChat.openBar()
+        },
+        entries = SessionScreen.menu(
             kind = kind,
             phone = true,
             member = isMember,
@@ -666,6 +674,7 @@ fun ChatScreen(
                         feedFooter = if (sessionId == viewModel.rootId) rootFooter else null,
                     )
                 },
+                find = findInChat,
                 headerLead = headerLead,
                 headerSubtitle = headerSubtitle,
                 headerSubtitleColor = headerSubtitleColor,
@@ -960,6 +969,8 @@ fun ChatContent(
     initialCard: String? = null,
     /** #EXP-1662 (plan-page.json): the opened plan (`open: plan`). */
     plan: PlanPageState? = null,
+    /** #EDE-130: find in chat (the bar replaces the header while open). */
+    find: FindInChatState? = null,
 ) {
     // waiting-cards.json DEEP LINKS: a way in's card is ONE pending deep link,
     // held here until the transcript that draws it (the root's session view,
@@ -1112,6 +1123,10 @@ fun ChatContent(
         topBar = {
             if (com.exponential.app.ui.call.rememberCallDocked(callAgentId)) {
                 com.exponential.app.ui.call.CallChatBar()
+            // #EDE-130 (find-in-chat.json COMPACT): the bar REPLACES the
+            // chat header while open (the Chat tab only).
+            } else if (find != null && find.open && screen.active == SessionScreen.Tab.Chat) {
+                FindInChatHeader(find)
             } else ChatHeader(
                 title = agent?.name ?: view?.title ?: rootTitle.orEmpty(),
                 subtitle = headerSubtitle,
@@ -1157,7 +1172,7 @@ fun ChatContent(
             when (screen.active) {
                 // #EXP-1732: the Chat tab = the ROOT's own session view (its
                 // raw work + traces, its cards, THE Dock, THE composer).
-                SessionScreen.Tab.Chat -> sessionPage(rootId, padding)
+                SessionScreen.Tab.Chat -> CompositionLocalProvider(LocalFindInChat provides find) { sessionPage(rootId, padding) }
                 SessionScreen.Tab.Issues -> SessionIssuesBody(
                     issues = items.issues,
                     issueStatus = issueStatus,

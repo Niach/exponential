@@ -108,15 +108,16 @@ pub(crate) fn agent_header_menu(
 ) -> Option<AnyElement> {
     let (kind, entries) = crate::chat_actions::agent_screen_entries(agent_id, link.is_some(), cx);
     let agent_id = agent_id.to_string();
+    // #EDE-129: Search in chat makes the menu (whatever else it lists).
     crate::chat_actions::screen_menu_button(
-        !entries.is_empty(),
+        true,
         move |menu, window, cx| {
             let id = agent_id.clone();
             let on_settings = on_settings.clone();
             let on_entry: crate::chat_actions::OnMenuEntry = Rc::new(move |entry, window, cx| {
                 crate::chat_actions::run_agent_screen_entry(entry, &id, &*on_settings, window, cx)
             });
-            crate::session_chat::link_then_menu_items(menu, kind.as_str(), &entries, on_entry, link.as_ref(), window, cx)
+            crate::session_chat::link_then_menu_items(menu, kind.as_str(), &entries, on_entry, link.as_ref(), None, window, cx)
         },
         cx,
     )

@@ -28,6 +28,16 @@ data class StoredMessageRow(
     val createdAtMs: Long,
 )
 
+/** #EDE-130 (find in chat): one `searchChat` hit (chat-store.json SEARCH):
+ *  an event's names its [seq] (a tool output's = the tool row's), a synced
+ *  message's its [messageId]. */
+data class StoredChatHit(
+    val sessionId: String,
+    val kind: String,
+    val seq: Long?,
+    val messageId: String?,
+)
+
 /**
  * #EDE-114 (chat-store.json S3): the JSON the facade takes and gives
  * (`chat-store-ffi`): a feed's `[{seq, event}]`, OPEN's
@@ -68,6 +78,21 @@ object ChatStoreCodec {
         events.mapIndexedNotNull { index, element ->
             val event = element as? JsonObject ?: return@mapIndexedNotNull null
             TailEvent(event, (seqs.getOrNull(index) as? JsonPrimitive)?.longOrNull)
+        }
+    }.getOrDefault(emptyList())
+
+    /** #EDE-130: `searchChat`'s `{hits, total}` (newest first); empty = none or unreadable. */
+    fun parseHits(text: String): List<StoredChatHit> = runCatching {
+        val obj = Json.parseToJsonElement(text).jsonObject
+        (obj["hits"] as? JsonArray).orEmpty().mapNotNull { row ->
+            val hit = row as? JsonObject ?: return@mapNotNull null
+            val sessionId = (hit["sessionId"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            StoredChatHit(
+                sessionId = sessionId,
+                kind = (hit["kind"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+                seq = (hit["seq"] as? JsonPrimitive)?.longOrNull,
+                messageId = (hit["messageId"] as? JsonPrimitive)?.contentOrNull,
+            )
         }
     }.getOrDefault(emptyList())
 

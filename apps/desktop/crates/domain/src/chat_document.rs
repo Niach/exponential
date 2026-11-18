@@ -47,6 +47,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             queued: *queued,
             group: None,
             status: None,
+            highlight: None,
         },
         SessionChatRow::Session { id, card } => ChatRowInput::Card {
             id: id.clone(),

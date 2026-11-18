@@ -606,6 +606,21 @@ impl Surfaces {
     }
 }
 
+impl Surfaces {
+    /// #EDE-129: a list of an open document scrolled to row `index`
+    /// (`align` center | start | end), find in chat's landing.
+    pub fn scroll_to_index(&self, document: &str, list: &str, index: u32, align: &str, cx: &mut App) {
+        let Some(region) = self.open.get(document).cloned() else { return };
+        let (id, align) = (list.to_string(), align.to_string());
+        let _ = region.handle.update(cx, |_, _, cx| {
+            region.view.update(cx, |v, cx| {
+                v.command(&SurfaceCommand::ScrollToIndex { id, index, align: Some(align) }, cx);
+                cx.notify();
+            })
+        });
+    }
+}
+
 /// The chat document's rows (`apps/ede/ui/chat.json`).
 pub const CHAT_SCROLL: &str = "chat_scroll";
 

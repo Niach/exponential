@@ -40,16 +40,23 @@ pub(crate) fn dropped_paths(data: &str, is_uri_list: bool) -> SmallVec<[PathBuf;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::cell::Cell;
 
+    // The logger is process-wide and the crate's tests run in parallel
+    // threads: count per thread, so a test sees only its own records (#EXP-1964).
     struct Counter;
-    static RECORDS: AtomicUsize = AtomicUsize::new(0);
+    thread_local! {
+        static RECORDS: Cell<usize> = const { Cell::new(0) };
+    }
+    fn records() -> usize {
+        RECORDS.with(Cell::get)
+    }
     impl log::Log for Counter {
         fn enabled(&self, _: &log::Metadata) -> bool {
             true
         }
         fn log(&self, _: &log::Record) {
-            RECORDS.fetch_add(1, Ordering::SeqCst);
+            RECORDS.with(|n| n.set(n.get() + 1));
         }
         fn flush(&self) {}
     }
@@ -68,10 +75,22 @@ mod tests {
     fn plain_text_gives_no_paths_and_logs_nothing() {
         let _ = log::set_logger(&Counter);
         log::set_max_level(log::LevelFilter::Trace);
-        let before = RECORDS.load(Ordering::SeqCst);
+        let before = records();
+        log::warn!("probe: the counter sees this thread's records");
+        assert_eq!(records(), before + 1, "the installed logger is not the counter");
+        let before = records();
         let text = (0..34).map(|i| format!("line {i} of a text drop")).collect::<Vec<_>>().join("\n");
         assert!(dropped_paths(&text, false).is_empty());
         assert!(dropped_paths("file:///home/u/a.txt", false).is_empty());
-        assert_eq!(RECORDS.load(Ordering::SeqCst), before);
+        assert_eq!(records(), before);
+    }
+
+    // A guard: a parallel test that logs must never reach the count above.
+    #[test]
+    fn a_neighbour_that_logs_is_not_counted_by_plain_text() {
+        for i in 0..20_000 {
+            log::warn!("neighbour record {i}");
+            std::thread::yield_now();
+        }
     }
 }

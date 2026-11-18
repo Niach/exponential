@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-find-in-chat",
+    date: "2026-11-18",
+    title: "Find in a chat",
+    summary: "Search inside the chat you have open: Search in chat in its … menu or Ctrl/Cmd+F, every match marked, “2 of 7” with previous and next, older messages included.",
+    body: r##"- **Search in chat**: open it from the chat's … menu or with Ctrl/Cmd+F (⌘K and Ctrl+K stay the global search).
+- **Every match marked**: the current one stands out; previous and next walk them in reading order and wrap around.
+- **The whole chat**: older messages from this device's local copy count too, and a folded tool group with a match opens itself.
+- **On web, desktop, eDE, iOS and Android**: on phones the bar takes the chat header's place, “2/7” with up and down."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_327: ChangelogEntry = ChangelogEntry {
     id: "2026-11-18-calls-own-session",
     date: "2026-11-18",
     title: "Calls run in their own session",
