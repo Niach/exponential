@@ -318,6 +318,7 @@ export function IssuePickerHost<R extends IssuePickerRow>(
     onOpenChange(next)
     if (!next) setQuery(``)
   }
+  const chats = props.chats
   const bodyProps: IssuePickerBodyProps<R> =
     props.mode === `single`
       ? {
@@ -326,6 +327,16 @@ export function IssuePickerHost<R extends IssuePickerRow>(
             if (closeOnPick) handleOpenChange(false)
             props.onPick(row)
           },
+          // #EDE-99: a chat pick closes the search too.
+          chats: chats
+            ? {
+                ...chats,
+                onPick: (value: string) => {
+                  if (closeOnPick) handleOpenChange(false)
+                  chats.onPick(value)
+                },
+              }
+            : chats,
         }
       : props
   // Pickers off the shell never call the server.

@@ -327,6 +327,18 @@ export function useChatsList(teamId: string | readonly string[] | null | undefin
   }, [tree, context, isReady, reads, nowIso])
 }
 
+/** #EDE-99: the Chats list's title of every root of a team (the global
+ *  search's chat rows), over the same team-wide title context. */
+export function useTeamChatTitles(teamId: string | null | undefined): Map<string, string> {
+  const teamIds = teamScopeIds(teamId ?? undefined)
+  const { tree } = useTeamSessions(teamIds)
+  const context = useTitleContext(teamIds)
+  return useMemo(
+    () => sessionTitles(tree, context.sessionIssues, context.issues, context.messages),
+    [tree, context]
+  )
+}
+
 /** NEW-2: the rail's Agents section: the team's `agents` definitions, like
  *  boards; busy / needs-you from the viewer's own conversation with each. */
 export function useAgents(

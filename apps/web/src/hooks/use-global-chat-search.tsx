@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { conceptIcon, type PickerItem } from "@exp/ui"
-import { paintHighlights } from "@exponential_app/eui/web"
+import { AppHighlightText, conceptIcon, type PickerItem } from "@exp/ui"
 import type { ChatHit } from "@exp/domain-contract/chat-store"
 import { findInChatQuery } from "@exp/domain-contract/find-in-chat"
 import { globalChatPick, globalChatRows, SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
@@ -10,7 +9,7 @@ import { sessionCollection } from "@/lib/collections"
 import { sessionTarget } from "@/lib/session-back"
 import type { SessionRow } from "@/lib/session-tree"
 import { useSession } from "@/hooks/use-session"
-import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { useTeamChatTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { localUtcOffsetMinutes } from "@/hooks/use-chat-list"
 import { seedFindInChat } from "@/components/chat/find-in-chat"
 import type { GlobalChatsSection } from "@/components/issue-picker-host"
@@ -30,17 +29,6 @@ const ICONS = {
   [SEARCH_LIST_CHATS.icons.agent]: conceptIcon(`search-agent`),
 }
 
-/** The snippet with the genUI `highlight` painted over its matches. */
-function Snippet({ text, query }: { text: string; query: string }) {
-  const ref = useRef<HTMLSpanElement | null>(null)
-  useLayoutEffect(() => (ref.current ? paintHighlights(ref.current, { query }, false) : undefined), [text, query])
-  return (
-    <span ref={ref} className="block truncate">
-      {text}
-    </span>
-  )
-}
-
 export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; query: string; open: boolean }): GlobalChatsSection | null {
   const { teamId, teamSlug, open } = input
   const navigate = useNavigate()
@@ -48,7 +36,8 @@ export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; q
   const viewerId = auth?.user?.id ?? null
   const { rows } = useTeamSessions(open ? teamId : null)
   const roots = useMemo(() => rows.filter((row) => !row.parentId), [rows])
-  const { titles } = useSessionTitles(roots)
+  // The Chats list's titles (team-wide issue links and digests).
+  const titles = useTeamChatTitles(open ? teamId : null)
   const rootIds = useMemo(() => roots.map((row) => row.id).sort(), [roots])
   const rootKey = rootIds.join(`,`)
 
@@ -125,7 +114,11 @@ export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; q
         value: row.key,
         label: row.title,
         icon: Icon,
-        description: <Snippet text={row.subtitle} query={row.highlight} />,
+        description: (
+          <span className="block min-w-0 truncate">
+            <AppHighlightText text={row.subtitle} highlight={{ query: row.highlight }} />
+          </span>
+        ),
         hint: row.trailing,
       }
     })
