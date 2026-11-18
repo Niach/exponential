@@ -478,7 +478,8 @@ export const sessionsRouter = router({
       const text = manualLinkText(identifiers)
       if (text) {
         try {
-          await sendSession({ userId, input: { sessionId: session.id, text } })
+          // #EXP-1957: the server composes it from the linked identifiers: a server line.
+          await sendSession({ userId, input: { sessionId: session.id, text }, extras: { serverComposed: true } })
         } catch (err) {
           console.warn(`[sessions.linkIssues] the link message to ${session.id} failed`, err)
         }
