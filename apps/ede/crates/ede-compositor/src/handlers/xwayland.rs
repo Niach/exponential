@@ -312,7 +312,7 @@ impl XwmHandler for Ede {
             _ => None,
         };
         if let Some(owned) = ours {
-            self.serve_owned(&owned, &mime_type, fd);
+            self.serve_owned(DeskId::PERSON, &owned, &mime_type, fd);
         } else if let Err(e) = request_data_device_client_selection(&self.desk.seat, mime_type, fd) {
             tracing::warn!("clipboard to X11: {e:?}");
         }

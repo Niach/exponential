@@ -627,7 +627,7 @@ impl Ede {
                 self.ipc.shortcuts.unbind(&owner);
                 json(serde_json::Value::Null)
             }
-            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.desk.clipboard.serial }).unwrap()),
+            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.desk(desk).clipboard.serial }).unwrap()),
             Request::ClipboardSet { items, sensitive } => {
                 let serial = self.clipboard_set(desk, items, sensitive)?;
                 json(serde_json::to_value(ede_protocol::ClipboardSerial { serial }).unwrap())
