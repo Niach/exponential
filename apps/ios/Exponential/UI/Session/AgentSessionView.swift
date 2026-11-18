@@ -5175,7 +5175,9 @@ extension AppDependencies {
                 accountId: accountId,
                 session: session,
                 currentUserId: auth.userId,
-                sessionsApi: SessionsApi(trpc: trpc),
+                // #EXP-1956: the install's api, the one holding the sealer
+                // (a fresh `SessionsApi` sends in clear).
+                sessionsApi: sessionsApi,
                 attachmentsApi: attachmentsApi,
                 issuesApi: issuesApi,
                 db: db
