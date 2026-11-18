@@ -16,10 +16,23 @@ import UIKit
 /// One picture's bytes in a thumbnail's frame, cropped from the top.
 struct ResultThumbnailImage: View {
     let picture: ResultsTab.Picture
+    /// A press opens THE lightbox.
+    let onOpen: () -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var image: UIImage?
+
+    private var src: String { "/api/attachments/\(picture.attachmentId)" }
+
+    private var loader: AttachmentImageLoader {
+        AttachmentImageLoader(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient,
+            pendingImages: [:]
+        )
+    }
 
     var body: some View {
         // A clear ground: `.task` never fires on an empty view.
@@ -31,18 +44,17 @@ struct ResultThumbnailImage: View {
                     .scaledToFill()
             }
         }
+        // #EXP-1949: THE image menu once the picture rendered; the tap opens.
+        .imageActionsMenu(enabled: image != nil, name: picture.label, onTap: onOpen) {
+            if let sample = SpecimenPicture.image(picture.attachmentId), let png = sample.pngData() { return png }
+            return try await loader.data(src)
+        }
         .task(id: picture.attachmentId) {
             if let sample = SpecimenPicture.image(picture.attachmentId) {
                 image = sample
                 return
             }
-            let loader = AttachmentImageLoader(
-                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                accountId: accountId,
-                httpClient: deps.httpClient,
-                pendingImages: [:]
-            )
-            image = try? await loader.load("/api/attachments/\(picture.attachmentId)")
+            image = try? await loader.load(src)
         }
     }
 }
@@ -135,7 +147,7 @@ struct ChatResultsPage: View {
                         results: fold.results,
                         onOpenPicture: { result, index in lightbox = resultPictureSet(result, start: index) },
                         lead: { lead },
-                        thumbnail: { ResultThumbnailImage(picture: $0) },
+                        thumbnail: { ResultThumbnailImage(picture: $0, onOpen: $1) },
                         surface: { result in
                             if let surface = fold.cards[result.id]?.surface {
                                 ResultSurface(

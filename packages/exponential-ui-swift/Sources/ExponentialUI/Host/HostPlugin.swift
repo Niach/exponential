@@ -1,5 +1,6 @@
 import SwiftUI
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 /// A user action: a node's `on.<event>` with an `event` action, resolved.
 public struct SurfaceActionEvent: Sendable, Equatable {
@@ -180,6 +181,24 @@ public struct MarkdownOptions: Equatable, Sendable {
     }
 }
 
+/// #EXP-1926: a rendered content picture a host's `imageMenu` acts on: its
+/// RAW `src`, `alt` and `bytes()` = the ORIGINAL picture's bytes through the
+/// host's media policy (the thumbnail `w` dropped; thrown = failed).
+public struct ImageTarget: Sendable {
+    public let src: String
+    public let alt: String
+    private let load: @MainActor @Sendable () async throws -> Data
+
+    public init(src: String, alt: String, bytes: @escaping @MainActor @Sendable () async throws -> Data) {
+        self.src = src
+        self.alt = alt
+        self.load = bytes
+    }
+
+    @MainActor
+    public func bytes() async throws -> Data { try await load() }
+}
+
 @MainActor
 public protocol HostPlugin: AnyObject {
     /// The icon registry: a catalog icon NAME (a registry concept such as
@@ -207,6 +226,23 @@ public protocol HostPlugin: AnyObject {
     /// pressed (a lightbox). nil (the default) = block images are not
     /// pressable.
     var onImagePress: (@MainActor (String) -> Void)? { get }
+    /// #EXP-1926 (image-actions.json `imageSource`): a content picture's
+    /// source rule (genUI `Image` + Carousel / Mosaic slides, ZoomableImage,
+    /// Markdown block images), asked with the RAW src and its alt BEFORE the
+    /// media policy: `.link` paints a link in the picture's place (never
+    /// fetched; a press opens it through the URL policy and `openUrl`),
+    /// `.text` its text. nil (the default) = the media policy alone decides.
+    /// Avatars and video posters are never asked. Must be pure.
+    func imageSource(_ src: String, alt: String) -> ImageSource?
+    /// #EXP-1926: this host wraps every rendered content picture in its
+    /// image menu (`imageMenu`).
+    var hasImageMenu: Bool { get }
+    /// #EXP-1926: `content` (a RENDERED content picture) under the host's
+    /// image menu for `target` (a long press: Copy image, Share). `onTap` =
+    /// the picture's own tap (nil = none: taps, drags and pinches pass
+    /// through to what is around it). Only asked when `hasImageMenu`.
+    /// Default: `content` as it is.
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView
     /// #VAPP-258: a top-level Markdown paragraph that is exactly one link
     /// (asked with the raw destination): a video / audio / file attachment
     /// paints the media natives' look instead. nil = a paragraph.
@@ -275,6 +311,9 @@ public extension HostPlugin {
     func textLinks(_ text: String) -> [TextLinkSegment]? { nil }
     func imageSize(_ src: String) -> CGSize? { nil }
     var onImagePress: (@MainActor (String) -> Void)? { nil }
+    func imageSource(_ src: String, alt: String) -> ImageSource? { nil }
+    var hasImageMenu: Bool { false }
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView { content }
     func attachment(_ href: String) -> MarkdownAttachmentInfo? { nil }
     var markdownOptions: MarkdownOptions { MarkdownOptions() }
     var urlPolicy: UrlPolicy? { nil }

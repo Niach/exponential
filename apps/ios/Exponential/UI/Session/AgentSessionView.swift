@@ -3131,13 +3131,21 @@ private struct MessageBubbleContextMenu: ViewModifier {
     let actions: [MessageDelivery.Action]
     let onAction: (MessageDelivery.Action) -> Void
 
+    /// #EXP-1949 (`pressMenu`): a press on a rendered picture opens ITS menu
+    /// (Copy image, Share), never this one.
+    @State private var claim = ImagePressClaim()
+
     func body(content: Content) -> some View {
         if actions.isEmpty {
             content
         } else {
-            content.contextMenu {
-                MessageBubbleMenu(actions: actions, onAction: onAction)
-            }
+            content
+                .environment(\.imagePressClaim, claim)
+                .contextMenu {
+                    if !claim.active {
+                        MessageBubbleMenu(actions: actions, onAction: onAction)
+                    }
+                }
         }
     }
 }

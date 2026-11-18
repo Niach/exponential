@@ -12,7 +12,10 @@ enum MarkdownPainter {
     static func blocks(_ text: String, model: SurfaceModel, options: MarkdownOptions? = nil) -> [MarkdownBlock] {
         // #VAPP-258 step 5: the host's options (hard breaks, a streamed prefix).
         let o = options ?? model.host.markdownOptions
-        return Markdown.resolveImages(Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming)) { model.mediaRequest($0) != nil }
+        let parsed = Markdown.parse(text, hardBreaks: o.hardBreaks, streaming: o.streaming)
+        // #EXP-1926: the host's source rule first (another website = a link, never fetched).
+        let sourced = Markdown.resolveImageSources(parsed) { model.imageSource($0, alt: $1) }
+        return Markdown.resolveImages(sourced) { model.mediaRequest($0) != nil }
     }
 
     /// #VAPP-258 (`markdown.options.imageMaxHeight`): `styles` with the
@@ -509,8 +512,13 @@ struct MarkdownView: View {
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil
+            let press = model.host.onImagePress
+            let menu = model.host.hasImageMenu
             let image = MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy, appFile: model.appFile) { image in
                 image.resizable().scaledToFit().frame(maxWidth: boxWidth, maxHeight: box.height, alignment: .topLeading)
+                    // #EXP-1926: a rendered picture carries the host's image
+                    // menu, which then owns its tap too.
+                    .hostImageMenu(model, src: src, alt: alt, onTap: menu ? press.map { p in { p(src) } } : nil)
                     // #VAPP-258: the picture decoded while its box was the
                     // placeholder: the leaf measures again at its aspect.
                     .onAppear {
@@ -531,8 +539,9 @@ struct MarkdownView: View {
                 }
             }
             .accessibilityLabel(alt)
-            // #VAPP-258: a press calls the host's `onImagePress` (raw src).
-            if let press = model.host.onImagePress {
+            // #VAPP-258: a press calls the host's `onImagePress` (raw src);
+            // under an image menu the rendered picture owns it (above).
+            if let press, !menu {
                 image.contentShape(Rectangle()).onTapGesture { press(src) }
                     .accessibilityAddTraits(.isButton)
                     .frame(width: width, alignment: .topLeading)

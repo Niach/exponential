@@ -1,5 +1,6 @@
 import SwiftUI
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 /// #EDE-65 lane M (`fixtures/embed.json`): an Embed paints a NESTED surface
 /// in place, SANDBOXED. The pure half every painter shares (the twin of
@@ -133,6 +134,14 @@ final class EmbedHost: HostPlugin {
     func imageSize(_ src: String) -> CGSize? { base?.imageSize(src) }
 
     var onImagePress: (@MainActor (String) -> Void)? { base?.onImagePress }
+
+    func imageSource(_ src: String, alt: String) -> ImageSource? { base?.imageSource(src, alt: alt) }
+
+    var hasImageMenu: Bool { base?.hasImageMenu ?? false }
+
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView {
+        base?.imageMenu(target, onTap: onTap, content: content) ?? content
+    }
 
     func attachment(_ href: String) -> MarkdownAttachmentInfo? { base?.attachment(href) }
 

@@ -12,6 +12,16 @@ import Foundation
 // No dependency: the parser is ours so the measurer and the painter share
 // ONE block model, and the layout rule below is what both use.
 
+/// #EXP-1926 (image-actions.json `imageSource`): what a picture's src
+/// renders as, a host's answer: `.load` (fetched through the media policy),
+/// a `.link` in the picture's place (another website: never fetched; a press
+/// opens `href` through the link path) or plain `.text` (nothing when empty).
+public enum ImageSource: Equatable, Sendable {
+    case load
+    case link(href: String, text: String)
+    case text(String)
+}
+
 public struct MarkdownInline: Equatable, Sendable {
     public var text: String
     public var bold = false
@@ -833,6 +843,20 @@ public enum Markdown {
         }
         flush()
         return blocks
+    }
+
+    /// #EXP-1926: block images through the host's `source` rule (raw src,
+    /// alt): a `.link` becomes a paragraph of one link (its text), a `.text`
+    /// a paragraph of its text (dropped when empty); a `.load` stays an image.
+    public static func resolveImageSources(_ blocks: [MarkdownBlock], source: (String, String) -> ImageSource) -> [MarkdownBlock] {
+        blocks.compactMap { b in
+            guard case let .image(src, alt) = b.kind else { return b }
+            switch source(src, alt) {
+            case .load: return b
+            case let .link(href, text): return MarkdownBlock(kind: .paragraph, inlines: [MarkdownInline(text: text, link: href)])
+            case let .text(text): return text.isEmpty ? nil : MarkdownBlock(kind: .paragraph, inlines: [MarkdownInline(text: text)])
+            }
+        }
     }
 
     /// Image blocks whose src `allowed` refuses become a paragraph of their
