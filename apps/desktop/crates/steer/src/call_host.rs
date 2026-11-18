@@ -66,12 +66,19 @@ pub(crate) struct Timing {
     /// #EXP-1941: `maxCallMs`, from the socket's open: the host ends every
     /// call it answered itself, sealed or clear; the relay need not.
     pub max_call: Duration,
+    /// #EXP-1941: `seal.helloEveryMs`: a caller sends its hello again this
+    /// often until a host hello is taken.
+    pub hello_every: Duration,
 }
 
 impl Timing {
     pub(crate) fn fixture() -> Self {
         let spec = &*etalk::call::VOICE_CALL;
-        Timing { idle: idle_timeout(), handshake: Duration::from_millis(spec.seal.handshake_ms), max_call: Duration::from_millis(spec.constants.max_call_ms) }
+        Timing {
+            idle: idle_timeout(),
+            handshake: Duration::from_millis(spec.seal.handshake_ms), max_call: Duration::from_millis(spec.constants.max_call_ms),
+            hello_every: Duration::from_millis(spec.seal.hello_every_ms),
+        }
     }
 }
 
@@ -137,7 +144,7 @@ pub enum CallHostEvent {
     Dropped(String),
 }
 
-enum Outbound {
+pub(crate) enum Outbound {
     Event(Value),
     Speech { pcm: Vec<i16>, rate: u32 },
     /// Barge-in: drop the encoder's partial frame.
@@ -154,6 +161,11 @@ pub struct CallHost {
 }
 
 impl CallHost {
+    #[cfg(test)]
+    pub(crate) fn from_sender(tx: flume::Sender<Outbound>) -> Self {
+        Self { tx }
+    }
+
     /// A host whose socket is already gone: every send is dropped (the IDE's
     /// call lifecycle tests).
     #[doc(hidden)]
@@ -277,7 +289,7 @@ enum Step {
     End(&'static str),
 }
 
-fn seal_pad() -> CallSealPad {
+pub(crate) fn seal_pad() -> CallSealPad {
     let spec = &etalk::call::VOICE_CALL.seal;
     CallSealPad { audio_up: spec.audio_pad_step.up, audio_down: spec.audio_pad_step.down, control_pad: spec.control_pad_bytes, max_plain: spec.max_plain_bytes }
 }
@@ -444,7 +456,7 @@ pub fn connect_sealed(
     CallHost { tx }
 }
 
-async fn run(
+pub(crate) async fn run(
     url: &str,
     rx: &flume::Receiver<Outbound>,
     on_event: &(impl Fn(CallHostEvent) + Send + Sync),
@@ -666,7 +678,7 @@ mod tests {
 
     const TEST_TIMEOUT: Duration = Duration::from_millis(300);
     /// The idle deadline shortened; the two others far away.
-    const TEST_TIMING: Timing = Timing { idle: TEST_TIMEOUT, handshake: Duration::from_secs(600), max_call: Duration::from_secs(600) };
+    const TEST_TIMING: Timing = Timing { idle: TEST_TIMEOUT, handshake: Duration::from_secs(600), max_call: Duration::from_secs(600), hello_every: Duration::from_millis(50) };
 
     // --- #EXP-1941: the sealed wire against a scripted relay -----------------
 
@@ -706,7 +718,7 @@ mod tests {
     }
 
     fn sealing(key: Option<(String, u32, [u8; 32])>, delay: Duration) -> CallSealing {
-        CallSealing { call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into(), keys: Arc::new(FixedKeySource { key, delay }) }
+        CallSealing { call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into(), caller_target: None, keys: Arc::new(FixedKeySource { key, delay }) }
     }
 
     fn finish<'a>(peer_hello: &'a [u8]) -> CallFinish<'a> {
