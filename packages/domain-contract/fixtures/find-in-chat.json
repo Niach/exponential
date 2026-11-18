@@ -1,0 +1,209 @@
+{
+  "$comment": "#EDE-129 (part a of #EDE-94, approved with Danny's drafts 2026-11-17): FIND IN CHAT ×4 (web + desktop IDE + eDE now, iOS + Android in #EDE-130). Reference src/find-in-chat.ts; mirrors: desktop `domain::find_in_chat` (the IDE and eDE share it). OPENING: the chat screen's `…` menu (session-screen.json `sessionScreenMenu`) gets `search` (copy `menu`) as its FIRST entry in its own group (`menuCases`: every kind with a transcript, `session`, `agent`, `assistant`; never `app`), with the shortcut hint (`shortcut.mac` on Apple platforms, else `shortcut.other`; phones show no hint) through the menu's existing trailing shortcut slot. KEYS (`keyCases`): Ctrl/Cmd+F while a chat screen is open (focus anywhere in it, the composer too) = find in chat (an open bar re-focuses its field with the query selected); Ctrl/Cmd+F with no chat open stays THE global search; Ctrl/Cmd+K is the global search everywhere, a chat too; inside the field Enter = previous (OLDER, the way a chat is read back), Shift+Enter = next (newer), Escape = close; nothing else is bound. WHERE THE BAR SITS: WIDE (web desktop, the desktop IDE, eDE) = a band right under the chat header across the chat column, above the transcript: search icon, the field (placeholder `placeholder`), the counter (`counter`, muted), previous (chevron up), next (chevron down), close (×); COMPACT (phones, web-mobile) = the bar REPLACES the chat header while open: back (closes), the field, the counter (`counterCompact`), previous, next. Existing components only: genUI Input, icon Buttons (ghost), muted Text. The STATUS LINE (`statusCases`, muted Text, the transcript's first line under the bar while it has one): `searchingOlder` while the store answers, `searchingDevice` while the running device answers (#EDE-96 `search`), `deviceOffline` when the store lacks older events of a session whose device is offline; none otherwise. QUERY (`queryCases`): the field's text is the query AFTER the chat store's collapse (chat-store.json / steer-enet.json SEARCH: every run of ASCII whitespace = one space, trimmed, the first `queryMaxChars` code points), the same literal goes to the genUI `highlight` (text-highlight.json: fold per scalar, NFD, lower case, marks dropped) and to every search; a blank query = no matches, no counter, nothing asked. Typing re-searches after `debounceMs`; a new query drops the answers of the old one. WHAT IS SEARCHED = the WHOLE chat (every session of the tree): (1) the LOADED rows at once, as painted: each row's `count` = the genUI highlight count of what it shows (`nodeHighlightCount`: a bubble's or narration's markdown, a tool row's title, a card's text), PLUS one stop for a tool row whose output matches (`outputHit`, never painted inside the output; the row shows `outputHint` beside its title and the stop RINGS the row), never thoughts or slots (chat-store.json INDEX SCOPE); a row inside a FOLDED tool group counts like any row (`group` = the group's key); (2) OLDER history: the chat store's `searchChat(rootId, query, hitsMax)` (desktop, web), and for a session whose stored events stop above seq 1 while its device is online, that device's `search` frame below the store's lowest seq (#EDE-96), answers merged as one list (`older`): the store's hits in its order, then the device's (newest first), first key wins; an older hit whose `key` is a loaded row's is that row (dropped from `older`). KEYS of a hit: an event = `e:<sessionId>:<seq>` (seq = the tool row's for output), a synced message = `m:<messageId>` (a loaded row carries the same key). COUNTING ORDER (`matchCases`) = READING ORDER, newest LAST: every older hit (not loaded) first, ONE stop each, oldest first (the reverse of `older`), then the loaded rows top to bottom, each row's `count` stops then its `outputHit` stop. The counter = `counter` with n = the current stop's 1-based place, m = all stops known; `noResults` when the search finished with none; no counter while nothing is known yet (the status line says it is searching). START + STEPS (`stepCases`): a new query starts at the NEWEST stop (m of m: the chat sits at its bottom); previous / next move one stop and WRAP (previous from 1 = m, next from m = 1). ANSWERS ARRIVING (`resultCases`): the current stop stays the SAME stop (same key and local index) while older hits arrive (its number grows by what was added before it) and while new rows stream in; a stop that vanished (its row left) falls back to the newest stop. LANDING on a stop (`landCases`): a loaded stop = its row scrolls to centre and that match paints `matchCurrent` (every other match `match`; the row's genUI `highlight.current` = the stop's local index, none for an output stop); a stop in a FOLDED group OPENS that group first (it stays open after the bar closes, like a tap); an OUTPUT stop rings the row; an OLDER stop pages its row in (THE deep-link scroll path: page older until the row is loaded, centre, ring), after which it counts as a loaded row (its full `count` + output stop, the same stop stays current: the first of its row's stops, or its output stop for an output hit). CLOSING (Escape, ×, back): clears every mark, keeps the scroll and the opened groups, forgets nothing else; reopening in the same chat shows the last query selected (memory only, per chat). A hit of a kind the host does not know is skipped. eDE (synced rows only): its chat has no transcript, so its rows are the synced messages (`m:` keys) and its older hits come from the chat store when one is wired, else none.",
+  "queryMaxChars": 200,
+  "hitsMax": 50,
+  "debounceMs": 150,
+  "copy": {
+    "menu": "Search in chat",
+    "placeholder": "Search in chat",
+    "counter": "{n} of {m}",
+    "counterCompact": "{n}/{m}",
+    "noResults": "No results",
+    "searchingOlder": "Searching older messages…",
+    "searchingDevice": "Searching older messages on {device}…",
+    "deviceOffline": "{device} is offline: older tool output not searched",
+    "outputHintOne": "1 match in output",
+    "outputHintMany": "{n} matches in output",
+    "previous": "Previous match",
+    "next": "Next match",
+    "close": "Close search"
+  },
+  "shortcut": { "mac": "⌘F", "other": "Ctrl F" },
+  "testIds": {
+    "bar": "find-in-chat",
+    "input": "find-in-chat-input",
+    "counter": "find-in-chat-counter",
+    "previous": "find-in-chat-previous",
+    "next": "find-in-chat-next",
+    "close": "find-in-chat-close",
+    "status": "find-in-chat-status",
+    "outputHint": "find-in-chat-output-hint"
+  },
+  "menuCases": [
+    { "name": "a chat: Search in chat first, its own group", "kind": "session", "entries": ["linkIssue", "separator", "delete"], "expected": ["search", "separator", "linkIssue", "separator", "delete"] },
+    { "name": "a chat the viewer may not delete still finds", "kind": "session", "entries": [], "expected": ["search"] },
+    { "name": "an agent's chat", "kind": "agent", "entries": ["compact", "newConversation", "separator", "settings"], "expected": ["search", "separator", "compact", "newConversation", "separator", "settings"] },
+    { "name": "the assistant", "kind": "assistant", "entries": ["delete"], "expected": ["search", "separator", "delete"] },
+    { "name": "an app has no transcript to find in", "kind": "app", "entries": ["export", "delete"], "expected": ["export", "delete"] }
+  ],
+  "queryCases": [
+    { "name": "trimmed", "raw": "  cache ", "query": "cache" },
+    { "name": "whitespace runs collapse", "raw": "snapshot \t\n cache", "query": "snapshot cache" },
+    { "name": "blank", "raw": " \n ", "query": "" },
+    { "name": "case and accents stay (the fold is the matcher's)", "raw": "Crème", "query": "Crème" },
+    { "name": "cut to queryMaxChars code points", "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "query": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  ],
+  "matchCases": [
+    {
+      "name": "loaded rows in reading order, a row's matches in order",
+      "rows": [
+        { "key": "m:u1", "count": 0 },
+        { "key": "e:s1:4", "count": 1, "group": "g1" },
+        { "key": "m:a1", "count": 1 },
+        { "key": "m:u2", "count": 1 },
+        { "key": "m:a2", "count": 2 }
+      ],
+      "older": [],
+      "expected": [
+        { "key": "e:s1:4", "local": 0, "loaded": true, "group": "g1", "output": false },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:u2", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 1, "loaded": true, "group": null, "output": false }
+      ]
+    },
+    {
+      "name": "a tool row's output stop comes after its title's matches",
+      "rows": [
+        { "key": "e:s1:4", "count": 1, "group": "g1", "outputHit": true },
+        { "key": "e:s1:6", "count": 0, "group": "g1", "outputHit": true }
+      ],
+      "older": [],
+      "expected": [
+        { "key": "e:s1:4", "local": 0, "loaded": true, "group": "g1", "output": false },
+        { "key": "e:s1:4", "local": 0, "loaded": true, "group": "g1", "output": true },
+        { "key": "e:s1:6", "local": 0, "loaded": true, "group": "g1", "output": true }
+      ]
+    },
+    {
+      "name": "older hits number first, oldest first, one stop each; a loaded one is its row",
+      "rows": [
+        { "key": "m:a1", "count": 1 },
+        { "key": "m:a2", "count": 1 }
+      ],
+      "older": [
+        { "key": "m:a1" },
+        { "key": "e:s1:30", "output": true },
+        { "key": "m:old2" },
+        { "key": "e:s1:12" },
+        { "key": "m:old2" }
+      ],
+      "expected": [
+        { "key": "e:s1:12", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:old2", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "e:s1:30", "local": 0, "loaded": false, "group": null, "output": true },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false }
+      ]
+    },
+    { "name": "nothing matches", "rows": [{ "key": "m:a1", "count": 0 }], "older": [], "expected": [] }
+  ],
+  "counterCases": [
+    { "name": "wide", "current": 1, "total": 7, "done": false, "compact": false, "expected": "2 of 7" },
+    { "name": "compact", "current": 1, "total": 5, "done": true, "compact": true, "expected": "2/5" },
+    { "name": "nothing found yet while searching", "current": null, "total": 0, "done": false, "compact": false, "expected": "" },
+    { "name": "nothing found", "current": null, "total": 0, "done": true, "compact": false, "expected": "No results" },
+    { "name": "nothing found, compact", "current": null, "total": 0, "done": true, "compact": true, "expected": "No results" }
+  ],
+  "stepCases": [
+    { "name": "a new query starts at the newest", "current": null, "total": 7, "step": "start", "expected": 6 },
+    { "name": "previous = older", "current": 6, "total": 7, "step": "previous", "expected": 5 },
+    { "name": "next = newer", "current": 2, "total": 7, "step": "next", "expected": 3 },
+    { "name": "previous wraps from the oldest to the newest", "current": 0, "total": 7, "step": "previous", "expected": 6 },
+    { "name": "next wraps from the newest to the oldest", "current": 6, "total": 7, "step": "next", "expected": 0 },
+    { "name": "nothing to step through", "current": null, "total": 0, "step": "next", "expected": null },
+    { "name": "no start without stops", "current": null, "total": 0, "step": "start", "expected": null }
+  ],
+  "resultCases": [
+    {
+      "name": "older hits arriving keep the current stop, its number grows",
+      "before": [
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "current": 0,
+      "after": [
+        { "key": "m:old1", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:old2", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "expected": 2
+    },
+    {
+      "name": "a paged-in older stop keeps its row's first stop",
+      "before": [
+        { "key": "m:old1", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "current": 0,
+      "after": [
+        { "key": "m:old1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:old1", "local": 1, "loaded": true, "group": null, "output": false },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "expected": 0
+    },
+    {
+      "name": "a paged-in older output hit keeps its output stop",
+      "before": [
+        { "key": "e:s1:30", "local": 0, "loaded": false, "group": null, "output": true },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "current": 0,
+      "after": [
+        { "key": "e:s1:30", "local": 0, "loaded": true, "group": "g4", "output": false },
+        { "key": "e:s1:30", "local": 0, "loaded": true, "group": "g4", "output": true },
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "expected": 1
+    },
+    {
+      "name": "a vanished stop falls back to the newest",
+      "before": [
+        { "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "current": 0,
+      "after": [
+        { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a3", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "expected": 1
+    },
+    {
+      "name": "no stops left",
+      "before": [{ "key": "m:a1", "local": 0, "loaded": true, "group": null, "output": false }],
+      "current": 0,
+      "after": [],
+      "expected": null
+    }
+  ],
+  "landCases": [
+    { "name": "a loaded match", "match": { "key": "m:a2", "local": 1, "loaded": true, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": false, "scroll": "centre", "ring": false, "current": 1 } },
+    { "name": "a match in a folded group opens it", "match": { "key": "e:s1:4", "local": 0, "loaded": true, "group": "g1", "output": false }, "expected": { "openGroup": "g1", "pageIn": false, "scroll": "centre", "ring": false, "current": 0 } },
+    { "name": "an output stop rings the row", "match": { "key": "e:s1:6", "local": 0, "loaded": true, "group": "g1", "output": true }, "expected": { "openGroup": "g1", "pageIn": false, "scroll": "centre", "ring": true, "current": null } },
+    { "name": "an older stop pages its row in", "match": { "key": "m:old1", "local": 0, "loaded": false, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": true, "scroll": "centre", "ring": true, "current": null } }
+  ],
+  "statusCases": [
+    { "name": "idle", "input": { "store": "done", "device": "none", "deviceName": "Alex's MacBook" }, "expected": null },
+    { "name": "the store is answering", "input": { "store": "searching", "device": "none", "deviceName": "Alex's MacBook" }, "expected": "Searching older messages…" },
+    { "name": "the device is answering", "input": { "store": "done", "device": "searching", "deviceName": "Alex's MacBook" }, "expected": "Searching older messages on Alex's MacBook…" },
+    { "name": "the device is answering while the store still is", "input": { "store": "searching", "device": "searching", "deviceName": "Alex's MacBook" }, "expected": "Searching older messages on Alex's MacBook…" },
+    { "name": "the store lacks older events and the device is offline", "input": { "store": "done", "device": "offline", "deviceName": "Alex's MacBook" }, "expected": "Alex's MacBook is offline: older tool output not searched" },
+    { "name": "offline wins over a store still answering", "input": { "store": "searching", "device": "offline", "deviceName": "Alex's MacBook" }, "expected": "Alex's MacBook is offline: older tool output not searched" },
+    { "name": "the device answered", "input": { "store": "done", "device": "done", "deviceName": "Alex's MacBook" }, "expected": null }
+  ],
+  "keyCases": [
+    { "name": "Ctrl+F in a chat", "input": { "key": "f", "mod": true, "shift": false, "inChat": true, "inField": false }, "expected": "find" },
+    { "name": "Ctrl+F outside a chat = global search", "input": { "key": "f", "mod": true, "shift": false, "inChat": false, "inField": false }, "expected": "global" },
+    { "name": "Ctrl+K in a chat = global search", "input": { "key": "k", "mod": true, "shift": false, "inChat": true, "inField": false }, "expected": "global" },
+    { "name": "Ctrl+K outside a chat", "input": { "key": "k", "mod": true, "shift": false, "inChat": false, "inField": false }, "expected": "global" },
+    { "name": "Ctrl+F in the open bar re-focuses it", "input": { "key": "f", "mod": true, "shift": false, "inChat": true, "inField": true }, "expected": "find" },
+    { "name": "Enter in the field = previous (older)", "input": { "key": "Enter", "mod": false, "shift": false, "inChat": true, "inField": true }, "expected": "previous" },
+    { "name": "Shift+Enter in the field = next (newer)", "input": { "key": "Enter", "mod": false, "shift": true, "inChat": true, "inField": true }, "expected": "next" },
+    { "name": "Escape in the field closes", "input": { "key": "Escape", "mod": false, "shift": false, "inChat": true, "inField": true }, "expected": "close" },
+    { "name": "Enter outside the field is the composer's", "input": { "key": "Enter", "mod": false, "shift": false, "inChat": true, "inField": false }, "expected": null },
+    { "name": "a plain letter types", "input": { "key": "f", "mod": false, "shift": false, "inChat": true, "inField": true }, "expected": null }
+  ]
+}
