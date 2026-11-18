@@ -32,6 +32,8 @@ pub(crate) struct Row {
     pub body: String,
     pub has_card: bool,
     pub created_at: String,
+    /// #EXP-1961: the call's own session (None = the conversation).
+    pub session_id: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -44,6 +46,11 @@ struct State {
     input_held: bool,
     /// FEED-276: the agent's own voice (None = the member's).
     voice: Option<AgentVoice>,
+    /// #EXP-1961: the call session `voice.callSession` answers (None = a host without).
+    call_session: Option<&'static str>,
+    /// #EXP-1961: the sends' targets and the hang-ups told.
+    sends: Vec<String>,
+    ended: Vec<String>,
 }
 
 /// A streamed call's link that writes down what the host did with it.
@@ -97,14 +104,24 @@ impl TalkHost for TestHost {
                 body: Some(&row.body),
                 has_card: row.has_card,
                 author_session_id: None,
-                session_id: Some(CONVERSATION),
+                session_id: Some(row.session_id.unwrap_or(CONVERSATION)),
                 created_at: Some(&row.created_at),
             };
             visit(&TalkMessage { id: &row.id, message });
         }
         true
     }
-    fn send(&self, _: Outgoing, _: &App) -> Option<SendJob> {
+    fn call_session(&self, _: &str, _: Option<&str>, _: &App) -> Option<crate::host::CallSessionJob> {
+        let session = self.state.borrow().call_session?;
+        Some(Box::new(move || Some(session.to_string())))
+    }
+    fn call_ended(&self, session_id: &str, _: &App) {
+        self.state.borrow_mut().ended.push(session_id.to_string());
+    }
+    fn send(&self, outgoing: Outgoing, _: &App) -> Option<SendJob> {
+        if let etalk::voice::UtteranceTarget::Session { session_id, .. } = &outgoing.target {
+            self.state.borrow_mut().sends.push(session_id.clone());
+        }
         Some(Box::new(|| Ok(Sent { session_id: CONVERSATION.into(), message_id: Some(SENT.into()) })))
     }
     fn write(&self, _: VoiceWrite, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
@@ -177,7 +194,24 @@ impl Rig {
 
     /// A row lands in the conversation (`created_at` = seconds after 10:00).
     pub(crate) fn message(&self, id: &str, author_kind: &'static str, body: &str, second: u32, cx: &mut gpui::TestAppContext) {
-        self.row(Row { id: id.into(), author_kind, body: body.into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z") }, cx);
+        self.row(Row { id: id.into(), author_kind, body: body.into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: None }, cx);
+    }
+
+    /// #EXP-1961: the next call gets its own session `session`.
+    pub(crate) fn with_call_session(&self, session: &'static str) {
+        self.state.borrow_mut().call_session = Some(session);
+    }
+
+    /// #EXP-1961: the agent's reply in the call's own session.
+    pub(crate) fn call_message(&self, id: &str, body: &str, second: u32, cx: &mut gpui::TestAppContext) {
+        let session_id = self.state.borrow().call_session;
+        self.row(Row { id: id.into(), author_kind: "agent", body: body.into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id }, cx);
+    }
+
+    /// #EXP-1961: the sends' session targets and the hang-ups told, since the last look.
+    pub(crate) fn call_log(&self) -> (Vec<String>, Vec<String>) {
+        let mut state = self.state.borrow_mut();
+        (std::mem::take(&mut state.sends), std::mem::take(&mut state.ended))
     }
 
     pub(crate) fn row(&self, row: Row, cx: &mut gpui::TestAppContext) {

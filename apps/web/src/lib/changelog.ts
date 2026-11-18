@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-calls-own-session`,
+    date: `2026-11-18`,
+    title: `Calls run in their own session`,
+    summary: `A call with your agent now runs in its own session under the chat: the agent opens with its own words in its own voice, and when you hang up a summary lands in the chat.`,
+    body: `- **Its own words**: the agent writes and says its own opening line while the phone rings; no fixed "Hello?" any more. If it has nothing ready in time, the call picks up and listens.
+- **Its own session**: the call reads where the chat stands and what you type there, does small things itself and hands bigger work to the chat.
+- **A summary after**: when the call ends, its summary arrives in the chat, and calling back within 10 minutes picks up the same call.`,
+  },
+  {
     id: `2026-11-18-whole-chat-messages`,
     date: `2026-11-18`,
     title: `Chat messages always show in full`,

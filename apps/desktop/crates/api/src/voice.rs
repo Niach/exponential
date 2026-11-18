@@ -117,6 +117,44 @@ pub fn voice_call_host_ticket(trpc: &TrpcClient, call_id: &str, device_id: Optio
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CallSessionInput<'a> {
+    agent_id: &'a str,
+    call_id: &'a str,
+}
+
+/// #EXP-1961: `voice.callSession`'s answer: the call's own session (a child
+/// of the chat).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSession {
+    pub session_id: String,
+    pub chat_id: String,
+    #[serde(default)]
+    pub resumed: bool,
+}
+
+/// #EXP-1961: `voice.callSession` — mutation; the host asks while it rings.
+/// `None` = no call session (no chat yet, no room): the old path.
+pub fn voice_call_session(trpc: &TrpcClient, agent_id: &str, call_id: &str) -> Result<Option<CallSession>, ApiError> {
+    trpc.mutation("voice.callSession", &CallSessionInput { agent_id, call_id })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallEndedInput<'a> {
+    session_id: &'a str,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CallEnded {}
+
+/// #EXP-1961: `voice.callEnded` — mutation; the hang-up (its summary follows).
+pub fn voice_call_ended(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
+    trpc.mutation::<_, CallEnded>("voice.callEnded", &CallEndedInput { session_id }).map(|_| ())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StartCallInput<'a> {
     agent_id: &'a str,
     platform: &'a str,

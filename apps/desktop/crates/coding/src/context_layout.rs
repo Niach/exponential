@@ -52,20 +52,24 @@ pub fn team_bytes(system_append: &str) -> Option<usize> {
 /// owners' prompt). The longest candidate that is a prefix wins.
 pub fn playbook_bytes(system_append: &str) -> usize {
     let mut candidates: Vec<String> = Vec::new();
-    for dispatch in [true, false] {
-        for code_mode in [true, false] {
-            for model in crate::settings::MODEL_ALIASES {
+    for voice_call in [true, false] {
+        for dispatch in [true, false] {
+            for code_mode in [true, false] {
+                for model in crate::settings::MODEL_ALIASES {
+                    candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
+                        computer_use: Some(model.to_string()),
+                        code_mode,
+                        dispatch,
+                        voice_call,
+                    }));
+                }
                 candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
-                    computer_use: Some(model.to_string()),
+                    computer_use: None,
                     code_mode,
                     dispatch,
+                    voice_call,
                 }));
             }
-            candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
-                computer_use: None,
-                code_mode,
-                dispatch,
-            }));
         }
     }
     candidates.sort_by_key(|text| std::cmp::Reverse(text.len()));
@@ -249,7 +253,7 @@ mod tests {
         assert_eq!(playbook_bytes(&without), crate::skill::playbook(false).len());
         for extras in [
             Extras { computer_use: Some("haiku".into()), ..Extras::NONE },
-            Extras { computer_use: Some("opus".into()), code_mode: true, dispatch: false },
+            Extras { computer_use: Some("opus".into()), code_mode: true, dispatch: false, voice_call: false },
             Extras { code_mode: true, ..Extras::NONE },
             Extras { dispatch: true, ..Extras::NONE },
             Extras { code_mode: true, dispatch: true, ..Extras::NONE },
