@@ -4,7 +4,7 @@ mod compositor;
 mod decoration;
 mod dmabuf;
 mod input_method;
-mod layer_shell;
+pub(crate) mod layer_shell;
 mod xdg_shell;
 #[cfg(feature = "xwayland")]
 mod xwayland;

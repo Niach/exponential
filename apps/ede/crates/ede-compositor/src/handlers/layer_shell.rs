@@ -38,6 +38,14 @@ fn shows_exclusive(layer: &LayerSurface) -> bool {
         && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)
 }
 
+/// A sealed prompt (#EDE-107): an Exclusive layer of `exponential-sealed`
+/// (polkit, consent, share) that drew. It holds the keyboard, so it is the
+/// one layer a fullscreen window does not hide: drawn above it, and the
+/// press on it is its own.
+pub(crate) fn is_sealed_prompt(layer: &LayerSurface) -> bool {
+    crate::sealed::layer_origin(layer).sealed && shows_exclusive(layer)
+}
+
 fn root_of(surface: &WlSurface) -> WlSurface {
     let mut root = surface.clone();
     while let Some(parent) = get_parent(&root) {
