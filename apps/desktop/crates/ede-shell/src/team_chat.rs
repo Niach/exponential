@@ -442,6 +442,7 @@ pub fn demo_input() -> ChatInput {
         queued: false,
         group: None,
         status: None,
+        highlight: None,
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },

@@ -1,4 +1,5 @@
 import { ReadMarkdown } from "@/components/read-markdown"
+import { useFindRowHighlight } from "@/components/chat/find-in-chat"
 
 // The run view's and every chat's text (EXP-440, #EXP-1380 chats.json):
 // genUI's Markdown through the app's host (#VAPP-258, `ReadMarkdown`): agent
@@ -20,5 +21,7 @@ export function FeedText({
   /** The reply is still streaming in. */
   streaming?: boolean
 }) {
-  return <ReadMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} streaming={streaming} agentProse />
+  // #EDE-129: inside a transcript row find in chat counts, its marks.
+  const highlight = useFindRowHighlight()
+  return <ReadMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} streaming={streaming} agentProse highlight={highlight} />
 }

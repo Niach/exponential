@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { conceptIcon, type MenuEntry } from "@exp/ui"
+import { conceptIcon, useIsMobile, type MenuEntry } from "@exp/ui"
 import { SESSION_SCREEN_COPY } from "@exp/domain-contract/session-screen"
 import { IssuePickerBody } from "@/components/issue-picker-host"
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
@@ -12,6 +12,7 @@ import { usePullRequestClose, usePullRequestTrainRows } from "@/components/sessi
 import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import type { PullRequestRow, SessionRow } from "@/lib/session-tree"
 import { SessionScreenMenuButton, useChatScreenMenuRows, type useChatActions } from "@/components/chat/chat-menu"
+import { findInChatMenuEntries } from "@/components/chat/find-in-chat"
 
 // EXP-1284 / EXP-1293 / EXP-1334 / #EXP-1732: the issues' ONE menu (THE
 // Menu), behind the Issues tab's "+" and every issue row's context menu
@@ -213,7 +214,10 @@ export function ChatScreenHeaderMenu({
   linkIssue,
   closeRef,
   className,
+  onFind,
 }: {
+  /** #EDE-129: Search in chat (first, its own group). */
+  onFind?: () => void
   root: SessionRow
   title: string
   /** #EXP-1834: THE link menu's rows (`useChatTabMenu().linkRows`). */
@@ -237,10 +241,14 @@ export function ChatScreenHeaderMenu({
     { member: canClosePr, owner: isOwner && canClosePr },
     { "close-pr": close.entry, "merge-now": train.mergeNow, hold: train.hold, resume: train.resume }
   )
-  const entries: MenuEntry[] =
+  const isMobile = useIsMobile()
+  const entries: MenuEntry[] = findInChatMenuEntries(
     chat.length > 0 && prEntries.length > 0
       ? [...chat, { kind: `separator`, id: `sep-pr` }, ...prEntries]
-      : [...chat, ...prEntries]
+      : [...chat, ...prEntries],
+    onFind,
+    isMobile
+  )
   return (
     <>
       <SessionScreenMenuButton entries={entries} title={title} className={className} closeRef={closeRef} />
