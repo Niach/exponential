@@ -1702,5 +1702,62 @@
         "accepted": true
       }
     ]
+  },
+  "serverComposed": {
+    "$comment": "#EXP-1957 SERVER-COMPOSED LINES (the server half; replayed by apps/web server-composed.real-db.test.ts): a keyed tree refuses plaintext from every WRITER (`PLAIN_IN_SEALED_TREE_MESSAGE`), but text the SERVER composes from data it already holds in clear is a server line, legal plaintext there, like the bare issue-forward line: a reply chip or a suggestion's Do it here / Start of an UNSEALED card (the item text is clear on the card), an app's hand-off brief to a team agent (the package's prompt + the input as a data block), the `Link #A #B` wake line of a manual link. Only server code marks a send server-composed (`SendExtras.serverComposed`), never a tRPC or MCP input: the same text sent by a client or an MCP caller into the same keyed tree is still refused. A SEALED card stays refused (`SEALED_SUGGESTIONS_MESSAGE`): its items are not the server's to read (#EXP-1958, the client half). `via` = the path, `card` = the card's state where one is acted on, `landed` = the plaintext line is posted (and the card item stamped).",
+    "cases": [
+      {
+        "name": "a reply chip of an unsealed replies card",
+        "via": "sendReply",
+        "tree": "keyed",
+        "card": "plain",
+        "landed": true
+      },
+      {
+        "name": "Do it here on an unsealed suggestions card",
+        "via": "startSuggestionHere",
+        "tree": "keyed",
+        "card": "plain",
+        "landed": true
+      },
+      {
+        "name": "Start on an unsealed suggestions card (a child in the keyed tree)",
+        "via": "startSuggestionChild",
+        "tree": "keyed",
+        "card": "plain",
+        "landed": true
+      },
+      {
+        "name": "a second app hand-off into the member's keyed conversation",
+        "via": "appHandoff",
+        "tree": "keyed",
+        "landed": true
+      },
+      {
+        "name": "the Link #A #B wake line",
+        "via": "linkIssues",
+        "tree": "keyed",
+        "landed": true
+      },
+      {
+        "name": "a reply chip of a sealed card",
+        "via": "sendReply",
+        "tree": "keyed",
+        "card": "sealed",
+        "landed": false
+      },
+      {
+        "name": "the same text from a client over tRPC",
+        "via": "trpcSend",
+        "tree": "keyed",
+        "landed": false
+      },
+      {
+        "name": "the same text from an MCP caller",
+        "via": "mcpSend",
+        "tree": "keyed",
+        "landed": false
+      }
+    ]
   }
 }

@@ -195,7 +195,9 @@ export async function sendReply(
   const result = await sendSession({
     userId,
     input: { sessionId: message.sessionId, text: item.text },
-    extras: { within: (tx) => stampReplies(tx, message.id, item.id) },
+    // #EXP-1957: the item text of an UNSEALED card (a sealed one is refused
+    // above) is clear data the server holds: a server line in a keyed tree.
+    extras: { serverComposed: true, within: (tx) => stampReplies(tx, message.id, item.id) },
   })
   return { sessionId: result.sessionId, txid: result.txid }
 }
@@ -235,6 +237,7 @@ export async function startSuggestion(
       userId,
       input: { sessionId: message.sessionId, text },
       extras: {
+        serverComposed: true,
         within: async (tx) => {
           await stampItem(tx, message.id, item.id, { here: true })
         },
@@ -252,6 +255,8 @@ export async function startSuggestion(
       ...(input.model ? { model: input.model } : {}),
     },
     extras: {
+      // #EXP-1957: composed from an unsealed card's item (sealed = refused above).
+      serverComposed: true,
       title: item.title,
       within: async (tx, started) => {
         await stampItem(tx, message.id, item.id, { sessionId: started.sessionId })
