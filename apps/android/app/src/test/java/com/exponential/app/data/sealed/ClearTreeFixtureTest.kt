@@ -48,6 +48,29 @@ class ClearTreeFixtureTest {
         }
     }
 
+    /**
+     * #EXP-1955: the writer's up-front refusal never pre-empts a case the
+     * fixture sends: a keyless tree with a ready holder reaches the create
+     * branch (`sessionKeys.create` / the device's key) and only a missing
+     * holder or install fails before it.
+     */
+    @Test
+    fun theUpFrontRefusalOnlyFailsWithoutAHolder() {
+        val cases = clearTree.getValue("writerCases").jsonArray
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val name = case.str("name")
+            val tree = SendTree.entries.single { it.name.lowercase() == case.str("tree") }
+            val holder = SendHolder.entries.single { it.name.lowercase() == case.str("holder") }
+            val refused = refusesUpFront(tree, holder, hasInstall = holder != SendHolder.None)
+            if (case.str("wire") != "failed") assertEquals(name, false, refused)
+            if (holder == SendHolder.None && tree != SendTree.Clear) assertEquals(name, true, refused)
+        }
+        assertEquals(false, refusesUpFront(SendTree.Keyless, SendHolder.Ready, hasInstall = true))
+        assertEquals(true, refusesUpFront(SendTree.Keyless, SendHolder.Ready, hasInstall = false))
+        assertEquals(false, refusesUpFront(SendTree.Clear, SendHolder.None, hasInstall = false))
+    }
+
     /** A clear root (Room's or the server's word) resolves to plaintext, never a key lookup or create. */
     @Test
     fun aClearRootResolvesClear() = runBlocking {
