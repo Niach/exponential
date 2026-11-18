@@ -57,6 +57,11 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import com.exponential.app.domain.tallImageStripRanges
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.ImageActionsMenu
+import com.exponential.app.ui.components.OverlayToastHost
+import com.exponential.app.ui.components.attachmentImageBytes
+import com.exponential.app.ui.components.imageBytesForSrc
+import com.exponential.app.ui.components.imageLongPress
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.attachmentIdFromUrl
 import com.exponential.app.ui.theme.AppPrimitiveTokens
@@ -153,6 +158,8 @@ fun PictureViewer(items: List<PictureViewerItem>, start: Int = 0, onClose: () ->
                     borderless = true,
                 )
             }
+            // #EXP-1948: the image menu's toasts over the viewer's window.
+            OverlayToastHost()
             HorizontalPager(
                 state = pager,
                 modifier = Modifier.fillMaxWidth().weight(1f).navigationBarsPadding(),
@@ -228,17 +235,26 @@ private fun ZoomablePicture(
     onZoomed: (Boolean) -> Unit,
     content: @Composable () -> Unit,
 ) {
-    ZoomableImageView(
-        naturalSize = naturalSize,
-        state = state,
-        modifier = Modifier.fillMaxSize(),
-        contentKey = item.id,
-        contentDescription = item.label,
-        onZoom = { _, atRest -> onZoomed(!atRest) },
-        appearance = pictureViewerPill(),
-        motion = ZoomMotion(spec = Motion.standard(), reduced = LocalReduceMotion.current),
-        content = content,
-    )
+    // #EXP-1948: the picture on screen answers a long press with the image menu.
+    val context = LocalContext.current
+    var menu by remember(item.id) { mutableStateOf(false) }
+    val bytes = remember(item.src) { attachmentIdFromUrl(item.src)?.let { attachmentImageBytes(context, it) } ?: imageBytesForSrc(context, item.src) }
+    Box(Modifier.fillMaxSize().imageLongPress(enabled = true) { menu = true }) {
+        ZoomableImageView(
+            naturalSize = naturalSize,
+            state = state,
+            modifier = Modifier.fillMaxSize(),
+            contentKey = item.id,
+            contentDescription = item.label,
+            onZoom = { _, atRest -> onZoomed(!atRest) },
+            appearance = pictureViewerPill(),
+            motion = ZoomMotion(spec = Motion.standard(), reduced = LocalReduceMotion.current),
+            content = content,
+        )
+        Box(Modifier.align(Alignment.Center)) {
+            ImageActionsMenu(expanded = menu, onDismiss = { menu = false }, bytes = bytes, name = item.label)
+        }
+    }
 }
 
 /**
