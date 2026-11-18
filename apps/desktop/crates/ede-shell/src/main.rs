@@ -1786,6 +1786,9 @@ fn dispatch(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
     {
         let mut s = shell.borrow_mut();
         s.model = reduce(&s.model, &event);
+        // #EDE-92: an open, a close or new text = the first result again.
+        let open = s.model.start_menu.open;
+        s.menu_selection.follow(&event, open);
     }
     model_changed(shell, cx);
 }
@@ -2772,6 +2775,13 @@ const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
     dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
+    // #EDE-92: the rebuilt results start at their top, on the first row.
+    let first = shell.borrow().feed.get("/shell").map(|v| if v["startMenu"]["apps"].as_array().is_some_and(|a| !a.is_empty()) { "apps" } else { "issues" });
+    if let Some(list) = first {
+        for name in ["start-menu", "menu"] {
+            shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, 0, cx);
+        }
+    }
     issues_search(shell, cx);
 }
 

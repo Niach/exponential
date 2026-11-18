@@ -36,6 +36,18 @@ impl Selection {
     }
 }
 
+impl Selection {
+    /// After the reducer ran `event`: the menu opened, closed or got its
+    /// text (the list rebuilt, the same text too) = back to the first row;
+    /// a closed menu keeps no selection.
+    pub fn follow(&mut self, event: &uicore_model::ShellEvent, open: bool) {
+        use uicore_model::ShellEvent::*;
+        if !open || matches!(event, StartMenuOpen | StartMenuClose | StartMenuToggle | StartMenuQuery { .. }) {
+            *self = Selection::default();
+        }
+    }
+}
+
 fn len(start_menu: &Value, list: &str) -> usize {
     start_menu[list].as_array().map_or(0, Vec::len)
 }
@@ -191,6 +203,75 @@ mod tests {
         assert_eq!(s.step("zzzz", rows(&m), 1), None, "and the arrows are not the menu's");
         // A menu that was never marked (an older shell's feed) runs nothing either.
         assert_eq!(activation(&term()), None);
+    }
+
+    use uicore_model::{reduce, ShellEvent, ShellState, StartMenuApp};
+
+    /// The shell's path for one event: the reducer, then the selection follows it.
+    fn send(state: &mut ShellState, selection: &mut Selection, event: ShellEvent) {
+        *state = reduce(state, &event);
+        selection.follow(&event, state.start_menu.open);
+    }
+
+    /// `/shell/startMenu` as the shell feeds it, marked: 40 apps match "e".
+    fn fed(state: &ShellState, selection: &Selection) -> Value {
+        let apps: Vec<StartMenuApp> = (0..40).map(|i| StartMenuApp { id: format!("app{i:02}"), name: format!("Edit {i:02}"), comment: String::new(), categories: Vec::new(), keywords: String::new() }).collect();
+        let mut menu = uicore_data::shell_feed(state, &apps, &[])["startMenu"].clone();
+        menu["issues"] = json!([]);
+        mark(&mut menu, selection);
+        menu
+    }
+
+    /// The VM's reopen (#EDE-92, 4 of 4): open, type, Down ×24, close; open,
+    /// the same text: the first row is the selected one again, and Enter
+    /// runs it. Closed by Escape (the popup's dismissal) or by Enter.
+    #[test]
+    fn the_selection_resets_when_the_menu_closes_and_opens() {
+        for close in ["escape", "enter"] {
+            let (mut state, mut selection) = (ShellState::default(), Selection::default());
+            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+            send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+            for _ in 0..24 {
+                let menu = fed(&state, &selection);
+                selection.step("e", rows(&menu), 1).expect("a row");
+            }
+            assert_eq!(selected_rows(&fed(&state, &selection)), ["app24"], "{close}: Down ×24");
+            if close == "enter" {
+                assert_eq!(activation(&fed(&state, &selection)), Some(("ede_launch", json!({"app": "app24"}))));
+            }
+            // Both close the same way: the launch or the dismissal closes the menu.
+            send(&mut state, &mut selection, ShellEvent::StartMenuClose);
+            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+            send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+            let menu = fed(&state, &selection);
+            assert_eq!(selected_rows(&menu), ["app00"], "{close}: the first row after the reopen");
+            assert_eq!(activation(&menu), Some(("ede_launch", json!({"app": "app00"}))), "{close}: Enter runs row 0");
+        }
+    }
+
+    /// A menu closed without the shell hearing it (Lock closes the popup
+    /// alone) still opens with the first row; the same text typed again
+    /// (the list rebuilt) selects the first row too.
+    #[test]
+    fn opening_or_retyping_selects_the_first_row() {
+        let (mut state, mut selection) = (ShellState::default(), Selection::default());
+        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+        for _ in 0..5 {
+            selection.step("e", 40, 1);
+        }
+        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+        assert_eq!(selected_rows(&fed(&state, &selection)), ["app00"], "the same text again");
+        for _ in 0..5 {
+            selection.step("e", 40, 1);
+        }
+        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+        assert_eq!(selected_rows(&fed(&state, &selection)), ["app00"], "an open without a close");
+        // A category pick keeps the menu open and its text: the selection stays.
+        selection.step("e", 40, 1);
+        send(&mut state, &mut selection, ShellEvent::StartMenuCategory { category: "all".into() });
+        assert_eq!(selection.index("e", 40), Some(1));
     }
 
     #[test]
