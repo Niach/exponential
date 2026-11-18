@@ -456,3 +456,10 @@ internal suspend fun <S : Any> dialCall(dial: suspend () -> S, wanted: () -> Boo
             null
         }
     }
+
+/** #EXP-1942: a call's start, in order. */
+internal fun beginCall(hold: () -> Boolean, ring: () -> Unit, dial: () -> Unit): Boolean {
+    ring()
+    dial()
+    return true
+}
