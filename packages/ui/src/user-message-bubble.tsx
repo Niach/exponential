@@ -1,4 +1,4 @@
-import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
 import { tailRules } from "@exponential_app/eui/web"
 import type { DeliveryState } from "@exp/domain-contract/message-delivery"
 import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
@@ -66,8 +66,16 @@ const BUBBLE_WIDTH = { out: `max-w-full`, in: `max-w-full md:max-w-[62%]` }
  *  text `messageFolds` shows its first `fold.lines` lines, then THE text
  *  button Show more / Show less under them. `text` = what is measured
  *  (the prose, without its attachment lines). */
+/** #EDE-129: true = the fold under it opens (find in chat landed on a match
+ *  inside it); it stays open after, like the reader's own tap. */
+export const MessageFoldOpenContext = createContext(false)
+
 export function MessageFold({ text, children }: { text: string; children: ReactNode }) {
   const [expanded, setExpanded] = useState(false)
+  const forceOpen = useContext(MessageFoldOpenContext)
+  useEffect(() => {
+    if (forceOpen) setExpanded(true)
+  }, [forceOpen])
   if (!messageFolds(text)) return <>{children}</>
   return (
     <>

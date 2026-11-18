@@ -65,6 +65,8 @@ export interface ReadMarkdownProps {
   /** The text is a growing prefix (a reply mid-stream). */
   streaming?: boolean
   className?: string
+  /** #EDE-129: genUI's search marks (find in chat). */
+  highlight?: unknown
 }
 
 /** A chat picture's height cap (px); a document has none. */
@@ -236,7 +238,7 @@ export function useReadMarkdownHost(options: MarkdownOptions, agentProse: boolea
 }
 
 /** THE read-only Markdown of the app. */
-export function ReadMarkdown({ text, surface = `chat`, ariaLabel, hardBreaks, agentProse = false, streaming, className }: ReadMarkdownProps) {
+export function ReadMarkdown({ text, surface = `chat`, ariaLabel, hardBreaks, agentProse = false, streaming, className, highlight }: ReadMarkdownProps) {
   const onLinkClick = useAppLinkClick()
   const [preview, setPreview] = useState<string | null>(null)
   const chipped = useChippedProse(agentProse ? text : ``)
@@ -264,7 +266,7 @@ export function ReadMarkdown({ text, surface = `chat`, ariaLabel, hardBreaks, ag
   const row = preview ? attachmentCollection.get(attachmentIdFromSrc(preview) ?? ``) : undefined
   return (
     <div onClickCapture={onClickCapture}>
-      <AppMarkdown text={shown} host={host} ariaLabel={ariaLabel} className={className} />
+      <AppMarkdown text={shown} host={host} ariaLabel={ariaLabel} className={className} highlight={highlight} />
       {preview ? (
         <ImagePreviewDialog
           open

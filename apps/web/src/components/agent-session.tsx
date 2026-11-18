@@ -1,4 +1,9 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import { FIND_IN_CHAT_TEST_IDS, findEventKey, findInChatOutputHint } from "@exp/domain-contract/find-in-chat"
+import { highlightCount } from "@exponential_app/eui"
+import { markdownHighlightCount } from "@exponential_app/eui/web"
+import { FindInChatContext, FindPaintContext, FindRow, type FindPaint } from "@/components/chat/find-in-chat"
+import { useTranscriptFind, type TranscriptFindRow } from "@/components/chat/use-transcript-find"
 import { DOCK_COPY, DOCK_TEST_IDS } from "@exp/domain-contract/dock"
 import { trpc } from "@/lib/trpc-client"
 import { sessionCollection } from "@/lib/collections"
@@ -107,6 +112,8 @@ import {
   type UserAvatarUser,
   type WorkCardLaneTarget,
   type MenuEntry,
+  useIsMobile,
+  AppHighlightText,
 } from "@exp/ui"
 import {
   TRANSCRIPT_LAYOUT,
@@ -792,6 +799,45 @@ export function AgentSessionView({
     [session, sessionMessages, tree, issues, syncedTailIds]
   )
   const deviceName = device.label || `Desktop`
+  // #EDE-129 (find-in-chat.json): find in chat over the WHOLE loaded feed
+  // (not just the painted window) plus the store's and the device's older
+  // hits; the rows read the paint through `FindPaintContext`.
+  const findInChat = useContext(FindInChatContext)
+  const isCommandText = useCallback((text: string) => parseSteerCommand(text, agentCommands) !== null, [agentCommands])
+  const findRowsFor = useCallback(
+    (query: string) => transcriptFindRows(feed, session.id, query, isCommandText),
+    [feed, session.id, isCommandText]
+  )
+  const revealFindItem = useCallback(
+    (itemId: number) => {
+      const at = feed.findIndex((item) => item.id === itemId)
+      if (at >= 0 && at < windowStart) startTransition(() => setWindowFrom(itemId))
+    },
+    [feed, windowStart]
+  )
+  const pageFindOlder = useCallback(() => {
+    startTransition(() => setWindowFrom(WINDOW_FROM_START))
+    store.loadEarlier()
+  }, [store])
+  const isMobileFind = useIsMobile()
+  const transcriptFind = useTranscriptFind({
+    find: findInChat,
+    compact: isMobileFind,
+    sessionId: session.id,
+    rootId: session.rootId ?? session.id,
+    rowsFor: findRowsFor,
+    lowestSeq: feed[0]?.seq,
+    fromStart: !snapshotCanLoadEarlier,
+    deviceOnline: device.online ?? null,
+    deviceName,
+    search: store.search,
+    reveal: revealFindItem,
+    pageOlder: pageFindOlder,
+    canPageOlder: snapshotCanLoadEarlier,
+    scrollRef,
+  })
+  const findPaint = transcriptFind.paint
+  const findHolding = transcriptFind.holding
   // EXP-773: the device-offline copy names the machine the transcript lives on.
   useEffect(
     () => store.noteDeviceLabel(device.label),
@@ -879,7 +925,7 @@ export function AgentSessionView({
       isBubbleRow(r) && feedLayouts.get(feedRowKey(r))?.side !== `full`
     const bubbles = index > 0 && isBubble(row) && isBubble(list[index - 1]!)
     const sender = layout?.sender ?? null
-    const wrap = (content: ReactNode) => (
+    const wrap = (content: ReactNode, findKey: string | null = null) => (
       <TranscriptRow
         key={row.kind === `single` ? row.item.id : row.id}
         layout={layout ? { ...layout, gap: bubbles ? layout.gap : 0 } : null}
@@ -893,7 +939,7 @@ export function AgentSessionView({
         }
         className={bubbles ? undefined : gap}
       >
-        {content}
+        <FindRow findKey={findKey}>{content}</FindRow>
       </TranscriptRow>
     )
     const bubbleName = layout?.name ? transcriptSenderName(sender) : null
@@ -962,7 +1008,7 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} author={bubbleName} tail={layout?.tail ?? false} time={item.at ? userMessageTime(item.at) : null} />)
+        return wrap(<NarrationBubble text={item.text} author={bubbleName} tail={layout?.tail ?? false} time={item.at ? userMessageTime(item.at) : null} />, findKeys.get(item.id) ?? null)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -1038,7 +1084,8 @@ export function AgentSessionView({
             time={item.at ? userMessageTime(item.at) : null}
             // #FEED-237: the transcript's echo = processed into the session.
             status={layout?.side === `other` ? null : `read`}
-          />
+          />,
+          findKeys.get(item.id) ?? null
         )
       }
       case `compaction`:
@@ -1081,6 +1128,9 @@ export function AgentSessionView({
   }
 
 
+  // #EDE-129: the feed items' find keys (the same rule `transcriptFindRows` keys by).
+  const findKeys = useMemo(() => transcriptFindKeys(feed, session.id), [feed, session.id])
+
   // #PERF-9: a row's element is reused while nothing it reads moved, so a
   // streamed event or a `Load earlier` page re-renders only the rows it
   // touched (every row re-rendered: the page's long tasks).
@@ -1088,7 +1138,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
-    viewerAvatar,
+    viewerAvatar, findKeys,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -1233,8 +1283,8 @@ export function AgentSessionView({
   const settleDeepLink = deepLinks?.settle
   const holdFollow = follow.hold
   useEffect(() => {
-    holdFollow(deepLink !== null)
-  }, [deepLink, holdFollow])
+    holdFollow(deepLink !== null || findHolding)
+  }, [deepLink, findHolding, holdFollow])
   useEffect(() => () => holdFollow(false), [holdFollow])
   // The feed still dialing in (its replay lands next): a card drawn under
   // the placeholder now moves once it does, so the link waits for it.
@@ -1303,6 +1353,7 @@ export function AgentSessionView({
   useReaderScrollDrops(scrollRef, deepLink !== null, dropDeepLink)
 
   return (
+    <FindPaintContext.Provider value={findPaint}>
     <SessionResultsRawContext.Provider value={session.guide}>
     <RunCardsContext.Provider value={runCards}>
     <TranscriptStreamingContext.Provider value={streaming}>
@@ -1573,6 +1624,7 @@ export function AgentSessionView({
     </TranscriptStreamingContext.Provider>
     </RunCardsContext.Provider>
     </SessionResultsRawContext.Provider>
+    </FindPaintContext.Provider>
   )
 }
 
@@ -1734,6 +1786,73 @@ function isBubbleRow(row: FeedRowLike): boolean {
 /** The viewer stands in for whoever typed into the raw feed (it carries no
  *  author): a typed turn is the viewer's own. */
 const FEED_VIEWER = `viewer`
+
+/** #EDE-129: every feed item's find key (`e:<session>:<seq>`); a made-up
+ *  echo that inherited a seq already keyed gets its own (`#<id>`). */
+export function transcriptFindKeys(feed: readonly { id: number; seq: number }[], sessionId: string): Map<number, string> {
+  const keys = new Map<number, string>()
+  const seen = new Set<string>()
+  for (const item of feed) {
+    const base = findEventKey(sessionId, item.seq)
+    const key = seen.has(base) ? `${base}#${item.id}` : base
+    seen.add(base)
+    keys.set(item.id, key)
+  }
+  return keys
+}
+
+/** #EDE-129: a plain tool line's title (what `ToolRow` paints) or null for
+ *  a call drawn another way (a script card, one of our tools). */
+function findToolTitle(item: ToolItem): string | null {
+  if (isScriptCall(item) || expToolDisplay(item.name)) return null
+  return toolLineModel(item, false, false).title
+}
+
+function findToolRow(item: ToolItem, key: string, query: string, group: string | null, itemId: number): TranscriptFindRow {
+  const title = findToolTitle(item)
+  const outputCount = title !== null && item.output ? highlightCount(item.output, query) : 0
+  return { key, count: title === null ? 0 : highlightCount(title, query), group, outputHit: outputCount > 0, itemId, outputCount }
+}
+
+/** #EDE-129 (find-in-chat.json): the loaded transcript's countable rows for
+ *  `query`, top to bottom, over the WHOLE feed: a narration's and a person's
+ *  bubble text (as `NarrationBubble` / `UserMessageBubble` draw it), a
+ *  plain tool line's title (+ its output's stop), a folded run's members
+ *  (`group`); never thoughts, cards or markers. */
+export function transcriptFindRows(
+  feed: readonly FeedItem[],
+  sessionId: string,
+  query: string,
+  isCommand: (text: string) => boolean
+): TranscriptFindRow[] {
+  const keys = transcriptFindKeys(feed, sessionId)
+  const out: TranscriptFindRow[] = []
+  for (const row of shownFeedRows(groupFeedRows(feed, 0))) {
+    if (row.kind === `toolRun`) {
+      const group = `g:${row.items[0]?.id}`
+      for (const item of row.items) if (item.kind === `tool`) out.push(findToolRow(item, keys.get(item.id)!, query, group, item.id))
+      continue
+    }
+    if (row.kind !== `single`) continue
+    const item = row.item
+    const key = keys.get(item.id)!
+    if (item.kind === `narration`) {
+      out.push({ key, count: markdownHighlightCount(item.text, query), itemId: item.id, outputCount: 0 })
+    } else if (item.kind === `user_message`) {
+      if (commandDivider(item.text) || isCommand(item.text) || item.checkIns) continue
+      const input = feedInput(item.text)
+      if (input?.kind === `marker`) continue
+      const text = input?.kind === `relay` ? input.body : item.text
+      const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
+      const attached = attachmentIds.length > 0 || files.length > 0
+      const shown = attached ? (markers.length > 0 ? `` : body) : text
+      out.push({ key, count: shown ? markdownHighlightCount(shown, query) : 0, itemId: item.id, outputCount: 0 })
+    } else if (item.kind === `tool` && !item.workflowId && !traceNotice(item.name) && !item.diff) {
+      out.push(findToolRow(item, key, query, null, item.id))
+    }
+  }
+  return out
+}
 
 /** #EXP-1736 (transcript-grouping.json): the raw feed's rows as transcript
  *  items: prose and session inputs are messages, the work rows the agent's
@@ -1908,7 +2027,10 @@ function TraceModelLine({
   description,
   trailing,
   tooltip,
+  highlight,
 }: {
+  /** #EDE-129: find in chat's marks on the title. */
+  highlight?: { query: string; current?: number }
   model: TraceLineModel
   /** Overrides the model's description slot (the subagent's badge). */
   description?: ReactNode
@@ -1922,7 +2044,7 @@ function TraceModelLine({
         {/* The slot's own size, whatever button wraps the line. */}
         <Icon className="size-full" />
       </TraceIcon>
-      <TraceTitle title={tooltip ?? model.title}>{model.title}</TraceTitle>
+      <TraceTitle title={tooltip ?? model.title}>{highlight ? <AppHighlightText text={model.title} highlight={highlight} /> : model.title}</TraceTitle>
       {description ??
         (model.description ? (
           <TraceDescription>{model.description}</TraceDescription>
@@ -3627,20 +3749,13 @@ function ToolRow({
   const streaming = useContext(TranscriptStreamingContext)
   const [pinned, setPinned] = useState(false)
   const open = !live && pinned
-  const model = useMemo(() => {
-    const settled = item.settled === true || (!live && !streaming)
-    if (item.toolKind === `execute` && item.settled === true && item.output) {
-      const tests = traceFailedTests(parseTestResults(item.output))
-      if (tests) return tests
-    }
-    return traceTool({
-      toolKind: item.toolKind ?? `other`,
-      name: item.name,
-      detail: item.detail ?? null,
-      settled,
-      failed,
-    })
-  }, [item.toolKind, item.settled, item.output, item.name, item.detail, live, streaming, failed])
+  const model = useMemo(() => toolLineModel(item, live, streaming), [item, live, streaming])
+  // #EDE-129: find in chat paints the title and names the output's matches.
+  const findPaint = useContext(FindPaintContext)
+  const findKey = findPaint && findToolTitle(item) !== null ? findEventKey(findPaint.sessionId, item.seq) : null
+  const findMark = findKey ? findHighlightOf(findPaint!, findKey) : undefined
+  const outputMatches = findKey ? (findPaint!.outputHits.get(findKey) ?? 0) : 0
+  const findHint = outputMatches > 0 ? <TraceDescription data-testid={FIND_IN_CHAT_TEST_IDS.outputHint}>{findInChatOutputHint(outputMatches)}</TraceDescription> : undefined
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it.
   // EXP-1279: a code-mode call is its Script card.
   if (isScriptCall(item)) return <ScriptCallRow item={item} flush={flush} />
@@ -3659,18 +3774,21 @@ function ToolRow({
     item.detail && model.description === null ? item.detail : undefined
   if (item.output === undefined || live) {
     return (
-      <Trace size="sm" data-testid="session-tool-line">
-        <TraceModelLine model={model} tooltip={tooltip} />
-      </Trace>
+      <FindRow findKey={findKey}>
+        <Trace size="sm" data-testid="session-tool-line">
+          <TraceModelLine model={model} tooltip={tooltip} highlight={findMark} description={findHint} />
+        </Trace>
+      </FindRow>
     )
   }
   return (
+    <FindRow findKey={findKey}>
     <Trace size="sm" data-testid="session-tool-line">
       <TraceCollapsible open={open} onOpenChange={setPinned}>
         <TraceCollapsibleTrigger
           aria-label={open ? `Hide the output` : `Show the output`}
         >
-          <TraceModelLine model={model} tooltip={tooltip} />
+          <TraceModelLine model={model} tooltip={tooltip} highlight={findMark} description={findHint} />
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>
           <ToolOutput
@@ -3681,7 +3799,29 @@ function ToolRow({
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>
+    </FindRow>
   )
+}
+
+/** A tool call's Trace line model (`ToolRow`'s, and find in chat's title). */
+function toolLineModel(item: ToolItem, live: boolean, streaming: boolean): TraceLineModel {
+  const settled = item.settled === true || (!live && !streaming)
+  if (item.toolKind === `execute` && item.settled === true && item.output) {
+    const tests = traceFailedTests(parseTestResults(item.output))
+    if (tests) return tests
+  }
+  return traceTool({
+    toolKind: item.toolKind ?? `other`,
+    name: item.name,
+    detail: item.detail ?? null,
+    settled,
+    failed: item.failed === true,
+  })
+}
+
+/** #EDE-129: a row's `highlight` under the paint (current = its local). */
+function findHighlightOf(paint: FindPaint, key: string): { query: string; current?: number } {
+  return paint.current && paint.current.key === key ? { query: paint.query, current: paint.current.local } : { query: paint.query }
 }
 
 /** EXP-1279: a code-mode `exec` call as its Script card ("Ran a script · 59
@@ -4004,6 +4144,11 @@ function ToolGroupRow({
   liveTail: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  // #EDE-129: a find stop inside the run opens it (it stays open).
+  const findOpens = useContext(FindPaintContext)?.openGroups.has(`g:${items[0]?.id}`) ?? false
+  useEffect(() => {
+    if (findOpens) setExpanded(true)
+  }, [findOpens])
   const latest = items[items.length - 1]
   const caption = useMemo(() => toolGroupCaption(items), [items])
   return (
