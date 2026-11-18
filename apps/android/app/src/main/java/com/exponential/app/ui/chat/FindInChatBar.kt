@@ -22,12 +22,28 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.FindInChat
 import com.exponential.app.ui.components.HeaderEdgeChrome
-import com.exponential.app.ui.components.SearchListInput
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.delay
@@ -133,7 +149,8 @@ fun rememberFindInChat(chatKey: String): FindInChatState {
  * the chat header while open: back (closes), THE search field, the counter
  * (`counterCompact`, muted), previous (chevron up), next (chevron down); the
  * status line under it. Existing components only: the header's ghost
- * buttons, the search list's field, muted Text. Enter = previous (older).
+ * buttons, the BORDERLESS glass field (iOS `GlassTextField(bordered: false)`:
+ * no outline, glyph or clear button), muted Text. Enter = previous (older).
  */
 @Composable
 fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
@@ -142,29 +159,17 @@ fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag(FindInChat.TestIds.BAR)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(end = Chats.Shell.ChatHeader.PADDING_X.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                ChatHeaderButton(
+                    ExpIcons.uiBack,
+                    FindInChat.Copy.CLOSE,
+                    onClick = state::close,
+                    modifier = Modifier.testTag(FindInChat.TestIds.CLOSE),
+                )
                 androidx.compose.runtime.key(state.openNonce) {
-                    SearchListInput(
-                        value = state.raw,
-                        onValueChange = state::updateRaw,
-                        placeholder = FindInChat.Copy.PLACEHOLDER,
-                        modifier = Modifier.weight(1f),
-                        autoFocus = true,
-                        onSubmit = { state.go(FindInChat.Step.Previous) },
-                        asField = true,
-                        leading = {
-                            ChatHeaderButton(
-                                ExpIcons.uiBack,
-                                FindInChat.Copy.CLOSE,
-                                onClick = state::close,
-                                modifier = Modifier.testTag(FindInChat.TestIds.CLOSE),
-                            )
-                        },
-                        selectAll = true,
-                        inputTestTag = FindInChat.TestIds.INPUT,
-                    )
+                    FindInChatField(state, Modifier.weight(1f))
                 }
                 if (state.counter.isNotEmpty()) {
                     Text(
@@ -205,4 +210,54 @@ fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * THE find field: the borderless [GlassTextField] (the composer's), its
+ * text opening SELECTED (a reopened bar shows the last query, typing
+ * replaces it) and focused. Enter / the IME's search = previous (older).
+ */
+@Composable
+private fun FindInChatField(state: FindInChatState, modifier: Modifier = Modifier) {
+    var field by remember { mutableStateOf(TextFieldValue(state.raw, TextRange(0, state.raw.length))) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        // The bar is placed a frame or two after it composes; requestFocus on
+        // an unplaced node no-ops, so retry until it lands.
+        var attempts = 0
+        while (attempts < 10 && !focused) {
+            runCatching { focusRequester.requestFocus() }
+            withFrameNanos { }
+            attempts++
+        }
+        keyboard?.show()
+    }
+    GlassTextField(
+        value = field,
+        onValueChange = { next ->
+            field = next
+            if (next.text != state.raw) state.updateRaw(next.text)
+        },
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && (event.key == Key.Enter || event.key == Key.NumPadEnter)) {
+                    state.go(FindInChat.Step.Previous)
+                    true
+                } else {
+                    false
+                }
+            }
+            .testTag(FindInChat.TestIds.INPUT),
+        placeholder = FindInChat.Copy.PLACEHOLDER,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+        keyboardActions = KeyboardActions(onSearch = { state.go(FindInChat.Step.Previous) }),
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        containerColor = Color.Transparent,
+        bordered = false,
+    )
 }

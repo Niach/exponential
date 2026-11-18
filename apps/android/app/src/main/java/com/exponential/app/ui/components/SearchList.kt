@@ -117,15 +117,10 @@ fun SearchListInput(
      */
     asField: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
-    /** #EDE-130: the prefilled text opens SELECTED (find in chat reopened
-     *  with its last query); false = the caret after it. */
-    selectAll: Boolean = false,
-    /** The field's test tag (find in chat names its own). */
-    inputTestTag: String = SearchList.INPUT_TEST_ID,
 ) {
     // The field keeps its own caret: a prefilled token opens with the caret
     // AFTER it, ready to keep typing.
-    var field by remember { mutableStateOf(TextFieldValue(value, if (selectAll) TextRange(0, value.length) else TextRange(value.length))) }
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
     LaunchedEffect(value) {
         if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
     }
@@ -181,7 +176,7 @@ fun SearchListInput(
                             else -> false
                         }
                     }
-                    .testTag(inputTestTag),
+                    .testTag(SearchList.INPUT_TEST_ID),
             )
         }
     }
