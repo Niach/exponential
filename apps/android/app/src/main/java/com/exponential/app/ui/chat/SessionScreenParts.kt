@@ -153,6 +153,8 @@ fun SessionScreenTabs(
     onSelect: (SessionScreen.Tab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
+    if (tabs.isEmpty()) return
     Box(
         modifier = modifier
             .fillMaxWidth()
