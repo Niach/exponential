@@ -960,6 +960,37 @@ impl SurfaceView {
         Some(Rc::new(move |cx: &mut gpui::App| crate::media::play(host.clone(), &src, fallback, cx)))
     }
 
+    /// #EXP-1947: an Image / ZoomableImage the host's
+    /// [`crate::host::HostPlugin::image_source`] refuses: its stand-in text
+    /// and, for a link, the press (the URL policy and the host's opener).
+    /// `None` = it loads.
+    pub(crate) fn image_stand_in(&self, n: &PlacedNode) -> Option<(String, Option<Rc<dyn Fn(&mut gpui::App)>>)> {
+        let prop = |key: &str| n.props.get(key).and_then(Value::as_str).unwrap_or("");
+        // An empty src keeps the catalog's empty-image look (the web's
+        // `imageSourceOf`: no src, no question).
+        if prop("src").is_empty() {
+            return None;
+        }
+        match self.host.image_source(prop("src"), prop("alt"))? {
+            crate::host::ImageSourceVerdict::Load => None,
+            crate::host::ImageSourceVerdict::Text(text) => Some((text, None)),
+            crate::host::ImageSourceVerdict::Link { href, text } => {
+                let host = self.host.clone();
+                Some((text, Some(Rc::new(move |cx: &mut gpui::App| host.open_url(&href, cx)) as Rc<dyn Fn(&mut gpui::App)>)))
+            }
+        }
+    }
+
+    /// #EXP-1947: a content picture under the host's image menu once it
+    /// rendered (unchanged when the host has none).
+    fn with_image_menu(&self, n: &PlacedNode, picture: AnyElement, cx: &mut gpui::App) -> AnyElement {
+        if !self.host.has_image_menu(cx) {
+            return picture;
+        }
+        let prop = |key: &str| n.props.get(key).and_then(Value::as_str).unwrap_or("");
+        crate::image_menu::with_image_menu(self.host.clone(), SharedString::from(format!("{}.picture", n.id)), prop("src"), prop("alt"), picture)
+    }
+
     /// Did `n`'s painter fail on these very props? Then it stays an empty
     /// box. Changed props forget the failure (here and the host's dedupe:
     /// [`HostPlugin::on_paint_retry`]) and paint again.
@@ -1049,10 +1080,22 @@ impl SurfaceView {
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx, cx),
             ("Avatar", _) => natives::avatar(&lcx, window, cx),
-            ("Image", _) => natives::image(&lcx, self.image_surround(n), self.cache.ids.get(i).map(|id| (id, &self.held_images)), window, cx),
+            // #EXP-1947: a picture the host refuses is a link or its text;
+            // a rendered one answers the host's image menu.
+            ("Image" | "ZoomableImage", None) if self.image_stand_in(n).is_some() => {
+                let (text, open) = self.image_stand_in(n).unwrap_or_default();
+                natives::image_stand_in(&lcx, &text, open)
+            }
+            ("Image", _) => {
+                let picture = natives::image(&lcx, self.image_surround(n), self.cache.ids.get(i).map(|id| (id, &self.held_images)), window, cx);
+                self.with_image_menu(n, picture, cx)
+            }
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
-            ("ZoomableImage", _) => self.zoom_element(&n.id, w, h, cx)?,
+            ("ZoomableImage", _) => {
+                let picture = self.zoom_element(&n.id, w, h, cx)?;
+                self.with_image_menu(n, picture, cx)
+            }
             // EXP-1604: the raster's frame as an image (view/motion_leaf.rs).
             ("Motion", _) => self.motion_element(n, cx),
             // Round 8: the shapes' raster + native text (view/canvas_leaf.rs).
@@ -1497,6 +1540,10 @@ impl SurfaceView {
                 let host = self.host.clone();
                 Rc::new(move |name, size, color| host.chip_icon(name, size, color).unwrap_or_else(|| crate::paint::icons::concept(host.as_ref(), name, size, color)))
             },
+            image_menu: self.host.has_image_menu(cx).then(|| {
+                let host = self.host.clone();
+                Rc::new(move |id: SharedString, src: &str, alt: &str, picture: AnyElement| crate::image_menu::with_image_menu(host.clone(), id, src, alt, picture)) as markdown::ImageMenuWrap
+            }),
             image_press: self.host.image_pressable(cx).then(|| {
                 let host = self.host.clone();
                 Rc::new(move |src: &str, window: &mut Window, cx: &mut gpui::App| host.on_image_press(src, window, cx)) as markdown::LinkHandler
