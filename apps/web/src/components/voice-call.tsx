@@ -73,7 +73,7 @@ const WEB_CALL_DEPS: CallDeps = {
 export interface VoiceCallAvailability extends CallTarget {
   /** The target desktop's name (the toasts' `{device}`). */
   device: string
-  /** The member's voice language (the greeting the caption shows). */
+  /** The member's voice language. */
   language: string | undefined
 }
 

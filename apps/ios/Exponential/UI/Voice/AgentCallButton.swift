@@ -15,7 +15,7 @@ struct AgentCallButton: View {
     var agentIcon: String? = nil
     var agentColor: String? = nil
     /// EXP-1857: the agent's Runs on device (the call rings it) and its own
-    /// voice language (the greeting; nil = the member's).
+    /// voice language (nil = the member's).
     var agentDevice: String? = nil
     var agentLanguage: String? = nil
 

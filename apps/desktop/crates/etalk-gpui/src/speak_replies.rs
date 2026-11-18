@@ -652,7 +652,7 @@ pub fn voice_turn(session_id: &str, cx: &mut App) {
     }
 }
 
-/// S-3: a call was answered: the device says `text` (`callGreeting`) on the
+/// S-3: a call was answered: the device says `text` (the opening line) on the
 /// call's output stream, tracked like a reply (`speaking`, its `Finished`)
 /// so the call's Speaking follows it, but no agent message and no banner
 /// (no session). False = nothing here can speak it.

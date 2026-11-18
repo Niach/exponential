@@ -17,18 +17,18 @@
 //!
 //! S-3: a call RINGS first: `Start` = ringing; the worker warms up (`Call`
 //! with `ring_ms`, a local call's ring tone on its one output stream until
-//! the greeting) and confirms with `CallListening` (= `Ready`); EXP-1423:
+//! the opening) and confirms with `CallListening` (= `Ready`); EXP-1423:
 //! the ring's earliest answer, drawn per call (`etalk::call::call_ring_ms`), =
-//! `Rang`; both = answered: the device says `callGreeting(language)`
-//! through the worker's `Speak` ([`speak_replies::speak_greeting`], never an
-//! agent message), its end listens. No `CallListening` within `maxRingMs`
+//! `Rang`; both = answered: it listens (#EXP-1966: no fixed greeting); the
+//! agent's own opening line goes through the worker's `Speak`
+//! ([`speak_replies::speak_greeting`]). No `CallListening` within `maxRingMs`
 //! (or a failed download) fails it `unavailable`; a voice still downloading
 //! keeps ringing. MIC CHECK: no `Level` ≥ `noSoundLevel` from
 //! `CallListening` until the ring's end (at least 1.5 s of listening) steps
 //! `NoSound`. FEED-276: `Ready` also waits for the agent's own voice
 //! (`hostVoice`: its clip on disk and prepared; a clip still fetching after
 //! `hostVoice.waitMs`, or one that failed, speaks the built-in voice,
-//! logged), so the greeting is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
+//! logged), so the opening is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
 //! body ([`CallPanel`]) and, while no IDE window is focused, the FLOATING
 //! PILL (`push_to_talk::overlay`, [`Face::Call`]); both read [`face`]. The
 //! live level and the timer repaint only them ([`CallLive`]).
