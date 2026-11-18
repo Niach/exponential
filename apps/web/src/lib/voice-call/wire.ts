@@ -3,7 +3,8 @@
 // host's `call_host.rs`). Binary frames carry the audio: byte 0 = kind
 // (`up` caller → host, `down` host → caller), bytes 1-2 = a u16 big-endian
 // sequence that wraps, then ONE Opus packet of `frameMs`. JSON text frames
-// carry the control.
+// carry the control. Neither is sealed yet: the relay can read the events'
+// words and the Opus until #EXP-1941 (`seal` in the fixture is its contract).
 
 import { VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/etalk/voice-call"
 

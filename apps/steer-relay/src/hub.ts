@@ -4,7 +4,11 @@
 // relay restarts, sockets reconnect and re-announce; nothing durable is lost
 // because nothing durable existed.
 //
-// VAPP-43: the hub carries NO session content. Session rooms, the activity
+// VAPP-43: the hub carries NO session content, EXCEPT a voice call's events
+// and audio, which the relay can read until #EXP-1941 seals them (the member's
+// words and each sentence of the reply cross as `call_event` text, the Opus
+// as plain binary frames; voice-call.json `seal` is the contract, no end
+// seals yet). Session rooms, the activity
 // log + replay, viewers, keepalives and the stored-transcript machinery are
 // gone: every viewer reads a session over eNet from the device that runs it
 // (fixtures/steer-enet.json). A content frame (`CONTENT_FRAME_TYPES`) from any

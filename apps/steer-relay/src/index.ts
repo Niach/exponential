@@ -10,7 +10,10 @@
 // voice call rooms, whose binary Opus frames it forwards undecoded. VAPP-43:
 // it carries NO session content: no session rooms, no activity, no history;
 // viewers read sessions over eNet from the device (fixtures/steer-enet.json)
-// and every content frame is refused. It never persists a byte.
+// and every content frame is refused. THE EXCEPTION is a voice call: its
+// events (the member's words, the reply's sentences) and its audio cross
+// this process readable until #EXP-1941 seals them end to end. It never
+// persists a byte.
 // `STEER_RELAY_SECRET` unset ⇒ the relay refuses connections (503) — the web
 // app equally treats the subsystem as off when STEER_RELAY_URL is unset.
 
