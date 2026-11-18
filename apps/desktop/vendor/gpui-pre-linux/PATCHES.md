@@ -22,7 +22,10 @@ Each is marked `Exponential patch (#ERR-4)` in the source.
   logs a warning. Anything else (plain text) yields no paths and logs
   nothing. Before the patch, gpui ran `Url::parse(line).log_err()` on every
   line of any accepted drag, so dropping 34 lines of text logged 34
-  "relative URL without a base" errors (GlitchTip DESKTOP-G).
+  "relative URL without a base" errors (GlitchTip DESKTOP-G). Its test
+  logger counts records per thread (#EXP-1964): the logger is
+  process-wide and the crate's tests run in parallel, so a global count
+  saw a neighbour's records; a logging neighbour test guards it.
 - **`src/linux/x11/client.rs`:** `SelectionNotify` calls `dropped_paths`
   with `drag_type == TextUriList`. The X11 client still accepts the
   TEXT/STRING/UTF8_STRING/text/plain drag types, but they yield no paths.
