@@ -57,9 +57,6 @@ pub struct TranscriptCopy {
     pub link_chevron: String,
     /// #EXP-1772: the inline marker's label per system-input key.
     pub markers: std::collections::BTreeMap<String, String>,
-    /// #FEED-238: THE fold's text button.
-    pub show_more: String,
-    pub show_less: String,
     /// #EXP-1873: the quiet check-in line's label (one, `{count}` many).
     pub check_in: String,
     pub check_ins: String,
@@ -67,19 +64,10 @@ pub struct TranscriptCopy {
     pub check_in_time_separator: String,
 }
 
-/// #FEED-238 THE FOLD (`fold`): a bubble over `chars` characters or
-/// `lines` lines shows its first `lines` lines behind Show more.
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub struct TranscriptFold {
-    pub lines: usize,
-    pub chars: usize,
-}
-
 #[derive(Debug, Deserialize)]
 struct Fixture {
     layout: TranscriptLayout,
     copy: TranscriptCopy,
-    fold: TranscriptFold,
     /// #EXP-1864: the Exponential tool rows that draw as THE inline marker.
     notices: std::collections::BTreeMap<String, String>,
     /// #EXP-1873: the chat-transcript specimen's check-ins.
@@ -151,19 +139,6 @@ pub fn layout() -> &'static TranscriptLayout {
 /// `copy` of transcript-grouping.json.
 pub fn copy() -> &'static TranscriptCopy {
     &FIXTURE.copy
-}
-
-/// `fold` of transcript-grouping.json.
-pub fn fold() -> &'static TranscriptFold {
-    &FIXTURE.fold
-}
-
-/// #FEED-238 THE FOLD ×4 (`messageFolds`, `foldCases`): a message bubble
-/// longer than `fold.chars` characters (UTF-16 units, the TS reference's
-/// `length`) or `fold.lines` lines folds behind Show more.
-pub fn message_folds(text: &str) -> bool {
-    let fold = fold();
-    text.encode_utf16().count() > fold.chars || text.split('\n').count() > fold.lines
 }
 
 /// #EXP-1864 NOTICES ×4 (`traceNotice`, `noticeCases`): the label an
@@ -983,19 +958,6 @@ mod tests {
         assert_eq!(layout.max_width.phone_in, 1.0);
         assert_eq!(layout.max_width.own, 1.0);
         assert_eq!(copy().link_chevron, "›");
-        assert_eq!(copy().show_more, "Show more");
-        assert_eq!(copy().show_less, "Show less");
-    }
-
-    #[test]
-    fn every_fold_case_matches() {
-        let fixture = fixture();
-        let cases = fixture["foldCases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            assert_eq!(message_folds(case["text"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{name}");
-        }
     }
 
     #[test]
