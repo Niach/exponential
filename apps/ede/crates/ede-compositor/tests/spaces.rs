@@ -11,6 +11,7 @@ use common::{
 };
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use ede_protocol::{ErrorCode, SessionId};
+use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
 const PERSONS_GLOBALS: [&str; 19] = [
@@ -58,6 +59,9 @@ const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
 const KEY_A: u32 = 30;
 const KEY_B: u32 = 48;
+const KEY_G: u32 = 34;
+const KEY_LEFTSHIFT: u32 = 42;
+const BTN_LEFT: u32 = 0x110;
 
 /// A client of the person with one focused window, its keyboard bound.
 fn person_with_a_window(h: &Harness) -> Session {
@@ -169,6 +173,16 @@ fn a_closed_space_leaves_nothing() {
     let window = b.toplevel("b");
     b.draw_configured(&window, 64, 64, RED);
     wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
+    // And with a key and a button down, in the middle of a drag.
+    b.pointer();
+    let device = b.data_device();
+    h.with(move |state| {
+        state.drive_pointer_motion(desk, (10.0, 10.0).into(), 0).unwrap();
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Pressed, 0, false).unwrap();
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Pressed, 0).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.press_serial.is_some() && b.state.keys == [KEY_G]);
+    b.start_drag(&device, &window.surface);
 
     assert!(h.with(move |state| state.close_space(desk)));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -351,4 +365,77 @@ fn a_space_has_its_own_frames_and_capture() {
     assert!(h.capture_shared(0).pixels.iter().all(|p| *p == 0xff00_0000));
     assert_eq!(h.with(move |state| state.capture_space(desk)).expect("a capture").at(320, 240), GREEN);
     assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+}
+
+/// What an agent drives lands in its space and nowhere else: its keys
+/// never carry the Shift the person holds, its click neither reaches the
+/// person's client nor closes the shell's menu, its seat's idle
+/// notification resumes while the person's idle clock stands still.
+#[test]
+fn driven_input_lands_on_its_desk() {
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    const SHIFT: u32 = 1;
+
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    shell.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+    let mut a = person_with_a_window(&h);
+    a.pointer();
+    // The shell's menu is open: a press of the person outside it would dismiss it.
+    let panel = a.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    a.draw_layer(&panel, BLUE);
+    let _menu = a.layer_popup(&panel, (100, 100), false, BLUE);
+    assert!(h.with(|state| state.layer_popups_open()));
+
+    let (desk, _socket, mut b) = space_with_a_client(&h);
+    b.keyboard();
+    b.pointer();
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.as_ref() == Some(&window.surface));
+    let _idle = b.idle_notification(50);
+    wait_for(&mut b, |b| b.state.idled == 1);
+
+    // The person holds Shift through everything the agent does.
+    h.with(|state| state.keyboard_key((KEY_LEFTSHIFT + 8).into(), KeyState::Pressed, 0));
+    wait_for(&mut a, |a| a.state.modifiers.last() == Some(&SHIFT));
+    events_until_mark(&h, &mut shell, "test.start");
+    let before = person_snapshot(&h);
+    let active = h.with(|state| state.idle.last_activity);
+    let heard = |a: &Session| (a.state.keys.len(), a.state.modifiers.len(), a.state.pointer_enters, a.state.pointer_motions, a.state.buttons.len());
+    let persons = heard(&a);
+
+    // A key: the space's client gets a plain g, and its user is back.
+    h.with(move |state| {
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Pressed, 0, false).unwrap();
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Released, 0, false).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.keys == [KEY_G] && b.state.resumed == 1);
+    assert!(b.state.modifiers.iter().all(|m| *m == 0), "the person's Shift is not the space's: {:?}", b.state.modifiers);
+    // A keysym that needs Shift holds the space's own.
+    h.with(move |state| {
+        assert!(state.drive_keysym(desk, 0x47, true, false, 0).unwrap());
+        assert!(state.drive_keysym(desk, 0x47, false, false, 0).unwrap());
+    });
+    wait_for(&mut b, |b| b.state.keys == [KEY_G, KEY_LEFTSHIFT, KEY_G] && b.state.modifiers.contains(&SHIFT) && b.state.modifiers.last() == Some(&0));
+    // The pointer stays inside the space's output; a click reaches its client.
+    h.with(move |state| {
+        state.drive_pointer_motion(desk, (5000.0, 100.0).into(), 0).unwrap();
+        assert_eq!(state.desk(desk).seat.get_pointer().unwrap().current_location(), (639.0, 100.0).into());
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Pressed, 0).unwrap();
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Released, 0).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.pointer_enters == 1 && b.state.buttons == [(BTN_LEFT, true), (BTN_LEFT, false)]);
+
+    // The person's client heard none of it, their idle clock did not move,
+    // their desk is as it was and the shell was told nothing: the menu stays.
+    a.roundtrip();
+    assert_eq!(heard(&a), persons);
+    assert_eq!(h.with(|state| state.idle.last_activity), active);
+    assert_person_untouched(&h, &before);
+    assert_eq!(events_until_mark(&h, &mut shell, "test.end"), Vec::<String>::new());
+    assert!(h.with(|state| state.layer_popups_open()));
+    h.with(|state| state.keyboard_key((KEY_LEFTSHIFT + 8).into(), KeyState::Released, 0));
+    wait_for(&mut a, |a| a.state.modifiers.last() == Some(&0));
 }
