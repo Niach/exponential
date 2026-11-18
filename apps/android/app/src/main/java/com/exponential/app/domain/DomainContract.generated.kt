@@ -173,6 +173,12 @@ object DomainContract {
     const val composerUiChatPlaceholder: String = "Ask the agent…"
     const val composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     const val composerUiDialogTitle: String = "Start a session"
+    const val imageActionsCopyImage: String = "Copy image"
+    const val imageActionsShare: String = "Share"
+    const val imageActionsCopied: String = "Image copied"
+    const val imageActionsCopyFailed: String = "Couldn't copy image"
+    const val imageActionsShareFailed: String = "Couldn't share image"
+    const val imageActionsLinkHost: String = "Image: {host}"
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"
