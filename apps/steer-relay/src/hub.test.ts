@@ -549,6 +549,8 @@ describe(`stats counters (EXP-553)`, () => {
       callBusy: 0,
       callNoAnswer: 0,
       callsExpired: 0,
+      callsSealed: 0,
+      callsLegacy: 0,
       callFramesForwarded: 0,
       callFramesDropped: 0,
       callFramesSkipped: 0,

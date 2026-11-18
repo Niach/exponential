@@ -228,10 +228,14 @@ export class CallHandshake {
   static create(role: CallRole, rootId: string | null, epoch: number): CallHandshake {
     const ephSecret = new Uint8Array(32)
     globalThis.crypto.getRandomValues(ephSecret)
-    return new CallHandshake(role, rootId, epoch, ephSecret)
+    try {
+      return CallHandshake.withEphSecret(role, rootId, epoch, ephSecret)
+    } finally {
+      ephSecret.fill(0)
+    }
   }
 
-  /** VECTORS ONLY, so private: a fixed eph secret must never reach a call. */
+  /** Private: outside `create` only the VECTORS give an eph secret; a fixed one must never reach a call. */
   private static withEphSecret(role: CallRole, rootId: string | null, epoch: number, ephSecret: Uint8Array): CallHandshake {
     return new CallHandshake(role, rootId, epoch, ephSecret.slice())
   }
