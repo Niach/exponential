@@ -193,17 +193,21 @@ export const sessionKeysRouter = router({
     }),
 
   /** Readers still missing the current epoch's wrap, on trees whose current
-   *  epoch this install holds. */
+   *  epoch this install holds. #EXP-1941 `rootIds`: only these trees: one
+   *  pass over every tree answers at most the limit, sorted by root id, so
+   *  the pair a call waits for (a new install on ONE root) may not be in it. */
   pending: authedProcedure
     .input(
       z.object({
         installId: uuid,
+        rootIds: z.array(uuid).max(BATCH_MAX).optional(),
         limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX),
       })
     )
     .query(async ({ ctx, input }) => {
       await ownInstall(ctx.db, ctx.session.user.id, input.installId)
-      const held = await heldEpochs(ctx.db, input.installId)
+      if (input.rootIds?.length === 0) return []
+      const held = await heldEpochs(ctx.db, input.installId, input.rootIds)
       const rootIds = [...new Set(held.map((row) => row.rootId))].sort()
       if (rootIds.length === 0) return []
       // #PERF-6: only the trees whose CURRENT epoch this install holds, their
