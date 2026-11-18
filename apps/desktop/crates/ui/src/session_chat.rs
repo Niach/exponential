@@ -4761,9 +4761,10 @@ mod tests {
             }
         };
         draw(cx);
-        // The chat full width, THE tabs over it; no strip, no plan tab.
+        // The chat full width; #FEED-271: an agent's chat has no tabs at
+        // all (no Segmented), no plan tab.
         view.read_with(cx, |view, _| assert_eq!((view.tab, view.opened.clone()), (SessionScreenTab::Chat, None)));
-        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.tabs.as_str()).is_some(), "THE Segmented");
+        assert!(cx.debug_bounds(SESSION_SCREEN.test_ids.tabs.as_str()).is_none(), "no Segmented for an agent");
         assert!(cx.debug_bounds(beside).is_none(), "Chat alone = the chat full width");
         assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_none(), "no plan tab");
 
@@ -4785,8 +4786,8 @@ mod tests {
         view.read_with(cx, |view, _| assert_eq!(view.opened, None));
         assert!(cx.debug_bounds(beside).is_none());
 
-        // #EXP-1834: an EMPTY Results tab is disabled: asked for, it never
-        // opens beside the chat (the chat stays full width).
+        // An agent has no Results tab: asked for, it never opens beside
+        // the chat (the chat stays full width).
         cx.update(|window, cx| view.update(cx, |view, cx| view.set_tab(SessionScreenTab::Results, window, cx)));
         draw(cx);
         assert!(cx.debug_bounds(beside).is_none());
