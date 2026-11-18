@@ -436,7 +436,14 @@ pub const LOCKED_ANSWER: &str = "This card can't be answered on this device yet.
 
 pub fn plan_answer(message_id: &str, cx: &App) -> AnswerPlan {
     let messages = Store::global(cx).collections().messages.read(cx);
-    messages.get(message_id).map(answer_plan_for).unwrap_or_default()
+    answer_plan_of(messages.get(message_id))
+}
+
+/// #EDE-131: a card the store does not have (not synced yet) is refused
+/// locally like a locked one: whether it is sealed is unknown, and a
+/// plaintext answer would reach the server before it refused.
+fn answer_plan_of(row: Option<&MessageRow>) -> AnswerPlan {
+    row.map_or(AnswerPlan { locked: true, ..AnswerPlan::default() }, answer_plan_for)
 }
 
 /// A synced row's [`AnswerPlan`]: `seal` is `None` for a plaintext row.
@@ -619,6 +626,17 @@ mod tests {
     /// the wire. A plaintext plan inside a keyed tree answers in clear (0.14.88
     /// sealed it and the server refused), a sealed one re-seals, a locked one
     /// never leaves.
+    /// #EDE-131: an answer to a card the store lacks never leaves (a
+    /// dismiss still does: it carries nothing).
+    #[test]
+    fn an_answer_to_a_card_the_store_lacks_is_refused_locally() {
+        let plan = answer_plan_of(None);
+        let input = AnswerInput { message_id: "m-unsynced".into(), answer: Some("Yes".into()), answers: Some(serde_json::json!(["Yes"])), ..AnswerInput::default() };
+        assert_eq!(answer_wire(None, &input, &plan), Err(LOCKED_ANSWER.to_string()));
+        let dismiss = AnswerInput { message_id: "m-unsynced".into(), dismissed: Some(true), ..AnswerInput::default() };
+        assert_eq!(answer_wire(None, &dismiss, &plan).map(|wire| wire.dismissed), Ok(Some(true)));
+    }
+
     #[test]
     fn the_fixture_answer_cases_pick_the_wire_by_the_stored_card() {
         struct FixtureKeys(Option<[u8; 32]>);

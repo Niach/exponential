@@ -392,6 +392,7 @@ pub fn install(service: Arc<dyn SealService>) {
 pub fn uninstall() {
     *write(&SERVICE) = None;
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    *HELD_CLAIMS.lock().unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 /// The keyring persisted at `path`, loaded now and made the process's
@@ -489,6 +490,40 @@ pub fn sealer() -> Result<Arc<dyn SealService>, SealError> {
         }
         std::thread::sleep(left.min(SERVICE_POLL));
     }
+}
+
+/// #EXP-1959 (b): a claim's keying + re-seal that found no key holder
+/// (a boot claiming queued sessions before its install registered), by
+/// session id: run by that session's first sealed write, before it posts
+/// ([`seal_body_for_session`] / [`seal_card_for_session`]), so the re-seal
+/// still lands while no agent reply follows the first message.
+type HeldClaim = Box<dyn FnOnce() + Send>;
+static HELD_CLAIMS: Mutex<Option<HashMap<String, HeldClaim>>> = Mutex::new(None);
+
+/// Holds `session_id`'s claim work until a key holder runs (a later hold
+/// of the same session replaces it).
+pub fn hold_claim(session_id: &str, run: HeldClaim) {
+    HELD_CLAIMS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).insert(session_id.to_string(), run);
+}
+
+/// Whether `session_id`'s claim work still waits for a key holder.
+pub fn claim_held(session_id: &str) -> bool {
+    HELD_CLAIMS.lock().unwrap_or_else(|p| p.into_inner()).as_ref().is_some_and(|held| held.contains_key(session_id))
+}
+
+/// Runs `session_id`'s held claim work once a key holder is up (waited for
+/// like any write, [`sealer`]); while none is, the write fails too (it is
+/// retried, never sent ahead of the re-seal). BLOCKING.
+fn run_held_claim(session_id: &str) -> Result<(), SealError> {
+    if !claim_held(session_id) {
+        return Ok(());
+    }
+    sealer()?;
+    let run = HELD_CLAIMS.lock().unwrap_or_else(|p| p.into_inner()).as_mut().and_then(|held| held.remove(session_id));
+    if let Some(run) = run {
+        run();
+    }
+    Ok(())
 }
 
 /// EXP-1472: the server's `check_in` nudge (a new install may wait for its
@@ -743,7 +778,10 @@ pub fn seal_body_for_session(session_id: &str, text: &str) -> Result<String, Sea
     if text.is_empty() || matches!(parse_body_envelope(text), BodyEnvelope::Value(_)) {
         return Ok(text.to_string());
     }
-    match session_root(session_id).and_then(|root| seal_body_for_tree(&root, text)) {
+    match session_root(session_id).and_then(|root| {
+        run_held_claim(session_id)?;
+        seal_body_for_tree(&root, text)
+    }) {
         Err(SealError::ClearTree) => Ok(text.to_string()),
         other => other,
     }
@@ -755,7 +793,10 @@ pub fn seal_card_for_session(session_id: &str, card: &Value) -> Result<Value, Se
     if card.get("sealed").is_some() {
         return Ok(card.clone());
     }
-    match session_root(session_id).and_then(|root| seal_card_for_tree(&root, card)) {
+    match session_root(session_id).and_then(|root| {
+        run_held_claim(session_id)?;
+        seal_card_for_tree(&root, card)
+    }) {
         Err(SealError::ClearTree) => Ok(card.clone()),
         other => other,
     }
