@@ -14,7 +14,7 @@ use etalk::voice::{VoiceMessage, VoiceSettings};
 use gpui::{App, Task};
 
 use crate::host::{
-    Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
+    AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, Notice, Outgoing, SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite,
 };
 
 /// This desktop, its one agent and the member's conversation with it.
@@ -42,6 +42,8 @@ struct State {
     call: Option<CallConnection>,
     /// #EXP-1938: computer use holds the person's input.
     input_held: bool,
+    /// FEED-276: the agent's own voice (None = the member's).
+    voice: Option<AgentVoice>,
 }
 
 /// A streamed call's link that writes down what the host did with it.
@@ -81,6 +83,9 @@ impl TalkHost for TestHost {
     }
     fn agent(&self, agent_id: &str, _: &App) -> Option<TalkAgent> {
         (agent_id == AGENT).then(|| TalkAgent { name: "Studio".into(), title: "Studio".into(), team_id: "t1".into(), ..TalkAgent::default() })
+    }
+    fn agent_voice(&self, agent_id: &str, _: &VoiceSettings, _: &App) -> Option<AgentVoice> {
+        (agent_id == AGENT).then(|| self.state.borrow().voice.clone()).flatten()
     }
     fn conversation(&self, agent_id: &str, _: &App) -> Option<String> {
         (agent_id == AGENT).then(|| CONVERSATION.to_string())
@@ -198,6 +203,14 @@ impl Rig {
         let log = Rc::new(RefCell::new(Vec::new()));
         self.state.borrow_mut().call = Some(CallConnection { link: Box::new(LinkLog(log.clone())), events });
         (tx, log)
+    }
+
+    /// FEED-276: the agent's own voice changes (a clip landed or failed):
+    /// the host tells eTalk, as `talk_host` does.
+    pub(crate) fn agent_voice(&self, voice: AgentVoice, cx: &mut gpui::TestAppContext) {
+        self.state.borrow_mut().voice = Some(voice);
+        cx.update(crate::agents_changed);
+        cx.run_until_parked();
     }
 
     /// #EXP-1938: computer use takes (or lets go of) the person's input.
