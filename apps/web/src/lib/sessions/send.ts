@@ -104,6 +104,7 @@ import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-ke
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
+import { copyChatIntoCall } from "@/lib/sessions/call-chat"
 
 // EXP-1291/NEW-1/NEW-2: `sessions.send` — THE entrypoint (tRPC
 // `sessions.send` and MCP `exponential_sessions_send` both land here). Four
@@ -1463,6 +1464,8 @@ async function messageSession(
         }
       }
       const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
+      // #EXP-1961: a call reads what was typed in its chat before its next answer.
+      if (target.voiceCall && !from) await copyChatIntoCall(tx, target)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
       // A PERSON's message into a worker = it takes its issues again.
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)

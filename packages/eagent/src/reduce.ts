@@ -295,6 +295,28 @@ function busLine(
 function busRelayTurn(ctx: Ctx, child: HubSession, body: string, sealed: boolean, copies?: Record<string, string>) {
   const text = body.trim()
   if (!text) return
+  // EXP-1961: a call session is spoken, never relayed; after its hang-up its next reply is the summary.
+  if (child.voiceCall) {
+    const call = child.voiceCall
+    if (!call.summaryPending) return
+    ctx.state.sessions[child.id]!.voiceCall = { ...call, summaryPending: false }
+    const card: Card = {
+      kind: `report`,
+      sessionId: child.id,
+      summary: sealed ? `` : text,
+      final: false,
+      call: { startedAt: call.startedAt, endedAt: call.endedAt, durationMs: call.durationMs },
+    }
+    deliver(ctx, child, {
+      ...(sealed ? { sealed: { copies } } : {}),
+      authorKind: `agent`,
+      body: text,
+      card,
+      hidden: { body: privateText(child.id, copy.privateReportLead), card: { ...card, summary: copy.privateReportLead } },
+      waking: true,
+    })
+    return
+  }
   deliver(ctx, child, {
     ...(sealed ? { sealed: { copies } } : {}),
     authorKind: `agent`,

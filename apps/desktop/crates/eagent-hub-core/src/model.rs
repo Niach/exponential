@@ -145,6 +145,9 @@ pub struct HubSession {
     /// member's, emcp access.json `assistantScope`); `None` = its own team only.
     #[serde(default)]
     pub scope_team_ids: Option<Vec<String>>,
+    /// EXP-1961: a CALL session's call (etalk voice-call.json `callSession`); `None` = not a call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_call: Option<VoiceCall>,
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
@@ -233,6 +236,25 @@ impl EventCard {
     }
 }
 
+/// EXP-1961: a call session's call (ms). `summary_pending` = it ended and its next reply is the summary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceCall {
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub duration_ms: i64,
+    pub summary_pending: bool,
+}
+
+/// EXP-1961: the call's times on its summary card.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallTimes {
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub duration_ms: i64,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum Card {
@@ -260,6 +282,9 @@ pub enum Card {
         summary: String,
         #[serde(rename = "final")]
         is_final: bool,
+        /// EXP-1961: a call's summary carries the call's times (bus.json).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        call: Option<CallTimes>,
     },
     Event(EventCard),
     Session {
