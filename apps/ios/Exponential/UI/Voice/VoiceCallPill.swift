@@ -19,6 +19,9 @@ struct VoiceCallPill: View {
     var animated: Bool = true
     var onMute: () -> Void = {}
     var onEnd: () -> Void = {}
+    /// FEED-272: the row docked on the call's Chat tab: full width, no drag
+    /// handle, no shadow, a card's corners.
+    var docked = false
 
     /// The avatar disc (web `CallAvatar` sm, desktop `AVATAR_SM`).
     static let avatar: CGFloat = 28
@@ -26,8 +29,9 @@ struct VoiceCallPill: View {
     static let button: CGFloat = 36
 
     var body: some View {
+        let shape = docked ? AnyShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)) : AnyShape(Capsule())
         HStack(spacing: 8) {
-            handle
+            if !docked { handle }
             avatar
             VStack(alignment: .leading, spacing: 0) {
                 Text(callee.name)
@@ -45,10 +49,11 @@ struct VoiceCallPill: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)
-        .frame(width: width, height: CGFloat(VoiceCall.Pill.height))
-        .background(GlassTokens.opaqueCardFill, in: Capsule())
-        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+        .frame(width: docked ? nil : width, height: CGFloat(VoiceCall.Pill.height))
+        .frame(maxWidth: docked ? .infinity : nil)
+        .background(GlassTokens.opaqueCardFill, in: shape)
+        .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .shadow(color: .black.opacity(docked ? 0 : 0.25), radius: docked ? 0 : 12, y: docked ? 0 : 6)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(VoiceCall.TestIds.pill)
     }

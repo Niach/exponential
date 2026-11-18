@@ -394,10 +394,23 @@ struct AppNavigator: View {
         // NEW-69: THE call surface (voice-call.json), full screen above every
         // screen so a call outlives the chat that started it; EXP-1681: a
         // minimized call is the floating pill over every screen instead.
+        // FEED-272: the cover is the Voice tab; the Chat tab is the agent's
+        // chat itself (its header = the call's bar), opened once the cover
+        // is gone when none shows.
         .background {
-            let shown = voiceCall.view != nil && !voiceCall.minimized
+            let shown = voiceCall.view != nil && !voiceCall.minimized && voiceCall.tab == .voice
             Color.clear
-                .fullScreenCover(isPresented: Binding(get: { shown }, set: { if !$0 { voiceCall.minimize() } })) {
+                .fullScreenCover(
+                    isPresented: Binding(get: { shown }, set: { if !$0, voiceCall.tab == .voice { voiceCall.minimize() } }),
+                    onDismiss: {
+                        Task { @MainActor in
+                            await Task.yield()
+                            if voiceCall.chatMissing, let agentId = voiceCall.agentId {
+                                deps.deepLinkBus.navigateToLaunch(.shortcut(.agent(agentId)))
+                            }
+                        }
+                    }
+                ) {
                     VoiceCallScreen(client: voiceCall)
                 }
         }

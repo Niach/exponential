@@ -89,6 +89,19 @@ final class VoiceCallTests: XCTestCase {
             "end": VoiceCall.Icons.end,
             "minimize": VoiceCall.Icons.minimize,
         ])
+        // FEED-272: the tabs.
+        let tabs = try XCTUnwrap(fixture["tabs"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(tabs["order"] as? [String]), VoiceCall.Tabs.order.map(\.rawValue))
+        XCTAssertEqual(try XCTUnwrap(tabs["initial"] as? String), VoiceCall.Tabs.initial.rawValue)
+        XCTAssertEqual(
+            try XCTUnwrap(tabs["copy"] as? [String: String]),
+            Dictionary(uniqueKeysWithValues: VoiceCall.Tab.allCases.map { ($0.rawValue, VoiceCall.Tabs.label($0)) })
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(tabs["testIds"] as? [String: String]),
+            Dictionary(uniqueKeysWithValues: VoiceCall.Tab.allCases.map { ($0.rawValue, VoiceCall.Tabs.testId($0)) })
+                .merging(["tabs": VoiceCall.Tabs.tabsId]) { a, _ in a }
+        )
         XCTAssertEqual(try XCTUnwrap(fixture["pill"] as? [String: Int]), [
             "width": VoiceCall.Pill.width,
             "height": VoiceCall.Pill.height,

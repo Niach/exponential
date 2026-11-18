@@ -39,6 +39,12 @@ final class VoiceCallClient {
     private(set) var answeredAt: Date?
     /// EXP-1681: the call screen is minimized into the floating pill.
     private(set) var minimized = false
+    /// FEED-272: the tab on top of the call (a call opens on Voice).
+    private(set) var tab: VoiceCall.Tab = VoiceCall.Tabs.initial
+    /// The called agent's definition id (its chat is the Chat tab's).
+    private(set) var agentId: String?
+    /// FEED-272: the agent chats on screen now (each registers while shown).
+    private(set) var chatsShown: [String: Int] = [:]
 
     /// What the call surface shows; nil = no call.
     var view: VoiceCall.View? { VoiceCall.callView(state, platform: .phone) }
@@ -65,8 +71,10 @@ final class VoiceCallClient {
     ) {
         guard state.phase == .hidden else { return }
         self.callee = callee
-        // A new call always opens full screen.
+        // A new call always opens full screen, on Voice.
         minimized = false
+        tab = VoiceCall.Tabs.initial
+        self.agentId = agentId
         generation += 1
         let generation = generation
         step(.start(device: device, language: language, fallback: fallback))
@@ -123,9 +131,37 @@ final class VoiceCallClient {
         minimized = true
     }
 
-    /// A tap on the pill: the call screen again.
+    /// A tap on the pill: the call screen again (on Voice).
     func expand() {
         minimized = false
+        tab = .voice
+    }
+
+    /// FEED-272: Chat / Voice; never ends, mutes or re-dials the call.
+    func showTab(_ tab: VoiceCall.Tab) {
+        guard state.phase != .hidden else { return }
+        self.tab = tab
+        minimized = false
+    }
+
+    /// FEED-272: the call runs for `agentId` on its Chat tab: that agent's
+    /// chat draws the tabs and the pill's row docked in place of its header.
+    func docked(agentId: String?) -> Bool {
+        agentId != nil && view != nil && !minimized && tab == .chat && self.agentId == agentId
+    }
+
+    /// The Chat tab while no chat of the call's agent shows (the root opens it).
+    var chatMissing: Bool {
+        guard view != nil, !minimized, tab == .chat, let agentId else { return false }
+        return chatsShown[agentId] == nil
+    }
+
+    /// An agent chat appears / leaves the screen. Leaving the call's chat on
+    /// its Chat tab minimizes the call into the pill.
+    func chatShown(agentId: String, _ shown: Bool) {
+        let count = (chatsShown[agentId] ?? 0) + (shown ? 1 : -1)
+        chatsShown[agentId] = count > 0 ? count : nil
+        if !shown, chatsShown[agentId] == nil, self.agentId == agentId, tab == .chat { minimize() }
     }
 
     /// Mute / Unmute: the microphone closes (silence goes up, which keeps
