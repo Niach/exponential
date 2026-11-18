@@ -12,7 +12,12 @@
 //!   [`activity`] stream (the [`journal`] + the [`history`] file), serve it
 //!   to eNet viewers ([`enet_steer`]), route remote `input`/`answer`/
 //!   `set_config` into the engine, and kill. VAPP-43: it never dials the
-//!   relay — the relay carries no session content.
+//!   relay. The relay carries no session content EXCEPT a Voice call's
+//!   events and audio ([`call_host`], [`call_caller`]): #EXP-1941 seals
+//!   them end to end ([`call_keys`], `enet_core::call_seal`) only when the
+//!   server marks a call sealed, which needs both ends to seal and, until
+//!   sealing is switched on, no call is; until then a call crosses the
+//!   relay readable.
 //! - [`viewer`] (EXP-696) — the other end: watch and steer a session running
 //!   on ANOTHER of the user's devices, over eNet to that device only. It
 //!   joins `channel:'activity'`, turns the inbound stream into
@@ -58,6 +63,7 @@
 
 pub mod call_caller;
 pub mod call_host;
+pub mod call_keys;
 pub mod activity;
 // EXP-1426: the login-screen scrapers live in the agent core now.
 pub use eagent::login_screen as agent_login_driver;
