@@ -829,7 +829,8 @@ struct ChatMenuSpecimens: View {
                 GlassMenuItemLabel(
                     ChatMenuSheet.label(entry),
                     icon: ChatMenuSheet.icon(entry),
-                    destructive: ChatMenuSheet.destructive(entry)
+                    destructive: ChatMenuSheet.destructive(entry),
+                    chevron: ChatMenuSheet.opensSheet(entry)
                 )
             }
         }
