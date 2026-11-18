@@ -486,7 +486,8 @@ fn session_card_framed(
             icon: registry::concept_by_name(&card.icon).unwrap_or(registry::CODING_SUBAGENT),
             icon_tint: Some(session_tone_color(&card.tone, cx)),
             name: SharedString::from(card.name.clone()),
-            kind_word: Some(SharedString::from(card.kind_word.clone())),
+            // #EXP-1943: a call card carries no kind word.
+            kind_word: (!card.kind_word.is_empty()).then(|| SharedString::from(card.kind_word.clone())),
             // #EXP-1466 session-card.json: the word stays muted unless amber.
             kind_tint: (card.tone == "amber").then(|| session_tone_color(&card.tone, cx)),
             running: card.running,
@@ -518,5 +519,23 @@ fn session_card_framed(
             this.cursor_pointer().on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
         })
         .child(header)
+        // #EXP-1943 (session-card.json `call`): a call card's summary = the
+        // muted second line under the name, aligned with it (the row's 12px
+        // padding + the 12px glyph + its 8px gap).
+        .when_some(card.caption().map(str::to_string), |this, caption| {
+            this.child(
+                tool_text(div())
+                    .id(ElementId::from(SharedString::from(format!("session-card-caption-{}", card.session_id))))
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
+                    .mt(px(-6.))
+                    .pb_2()
+                    .pr_3()
+                    .pl(px(28.))
+                    .text_color(muted)
+                    .child(SharedString::from(caption)),
+            )
+        })
         .into_any_element()
 }
