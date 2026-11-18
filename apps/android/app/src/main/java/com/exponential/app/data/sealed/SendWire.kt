@@ -53,6 +53,55 @@ fun sendWire(tree: SendTree, holder: SendHolder, reader: Boolean = false, keyArr
 fun refusesUpFront(tree: SendTree, holder: SendHolder, hasInstall: Boolean): Boolean =
     tree != SendTree.Clear && (holder == SendHolder.None || !hasInstall)
 
+/** #EXP-1960 (`clearTree.keylessCases`): how often a blip on `sessionKeys.create` is retried, the backoff unit. */
+const val SEAL_CREATE_ATTEMPTS = 3
+const val SEAL_CREATE_RETRY_MS = 500L
+
+/** The server's refusal of a wrap for an install that is not a reader. */
+const val WRAP_REFUSAL = "A wrap names an install that is not a reader"
+
+/** A failed `sessionKeys.create`. */
+enum class CreateFailure { Clear, Stale, NotReader, WrapRefused, Refused, Transient }
+
+/** `sessionKeys.requestKey`'s answer ([NotFound] = a real NOT_FOUND, [Error] = no answer / an older server). */
+enum class RequestKeyAnswer { Keyed, Clear, Requested, NoHost, NotFound, Error }
+
+/** What a writer does next with a keyless tree. Never a silent wait. */
+enum class KeylessStep { Plain, ServerKey, RequestKey, RetryOwn, Retry, Failed, Sealed, Wait }
+
+private val REFUSAL_CODES = setOf(
+    "BAD_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED",
+    "PAYLOAD_TOO_LARGE", "UNPROCESSABLE_CONTENT", "METHOD_NOT_SUPPORTED",
+)
+
+/** A failed create read from its tRPC [code] + [message] (no code = no answer: a blip). */
+fun createFailure(code: String?, message: String?): CreateFailure = when {
+    message == CLEAR_TREE_REFUSAL -> CreateFailure.Clear
+    code == "CONFLICT" || isStaleTreeRefusal(message) -> CreateFailure.Stale
+    message == WRAP_REFUSAL -> CreateFailure.WrapRefused
+    code == "NOT_FOUND" -> CreateFailure.NotReader
+    code != null && code in REFUSAL_CODES -> CreateFailure.Refused
+    else -> CreateFailure.Transient
+}
+
+/** #EXP-1960: the next step after a failed create (the TS `keylessStep`). */
+fun keylessStep(failure: CreateFailure, attempt: Int = 1, ownOnly: Boolean = false): KeylessStep = when (failure) {
+    CreateFailure.Clear -> KeylessStep.Plain
+    CreateFailure.Stale -> KeylessStep.ServerKey
+    CreateFailure.NotReader -> KeylessStep.RequestKey
+    CreateFailure.WrapRefused -> if (ownOnly) KeylessStep.RequestKey else KeylessStep.RetryOwn
+    CreateFailure.Refused -> KeylessStep.Failed
+    CreateFailure.Transient -> if (attempt < SEAL_CREATE_ATTEMPTS) KeylessStep.Retry else KeylessStep.Failed
+}
+
+/** #EXP-1960: the next step once the tree's devices were asked. */
+fun keylessStep(answer: RequestKeyAnswer): KeylessStep = when (answer) {
+    RequestKeyAnswer.Keyed -> KeylessStep.Sealed
+    RequestKeyAnswer.Clear -> KeylessStep.Plain
+    RequestKeyAnswer.NoHost -> KeylessStep.Failed
+    RequestKeyAnswer.Requested, RequestKeyAnswer.NotFound, RequestKeyAnswer.Error -> KeylessStep.Wait
+}
+
 /** [probe] until it answers non-null, every [pollMs], for at most [timeoutMs]; null = it never did. */
 internal suspend fun <T : Any> awaitWithin(timeoutMs: Long, pollMs: Long, probe: suspend () -> T?): T? =
     withTimeoutOrNull(timeoutMs) {

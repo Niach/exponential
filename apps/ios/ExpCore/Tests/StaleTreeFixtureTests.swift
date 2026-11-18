@@ -45,6 +45,10 @@ final class StaleTreeFixtureTests: XCTestCase {
             asks.mutate { $0.append("publicKeys") }
             return tree == "keyed" ? rootIds.map { TreePublicKey(rootId: $0, epoch: 1, publicKey: "server-tree") } : []
         }
+        func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult {
+            asks.mutate { $0.append("requestKey") }
+            return RequestKeyResult(state: "noHost")
+        }
     }
 
     private static func stale() throws -> [String: Any] {

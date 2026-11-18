@@ -1263,6 +1263,37 @@ fn run_device_command(
         }
         return CommandDisposition::Spawned;
     }
+    // #EXP-1960: a writer that may not key a keyless tree of this device
+    // asked it to (`sessionKeys.requestKey`): keyed like at a claim, on its
+    // OWN thread (network), completing itself.
+    if command.kind == "tree_key" {
+        let Some(root_id) = command.payload["rootId"].as_str().map(str::to_string) else {
+            complete(snapshot, &command.id, false, "Malformed command payload.");
+            return CommandDisposition::Completed;
+        };
+        if !claim_login(&snapshot.inflight_logins, &command.id) {
+            return CommandDisposition::AlreadyRunning;
+        }
+        let trpc = Arc::clone(&snapshot.trpc);
+        let claimed = Arc::clone(&snapshot.inflight_logins);
+        let command_id = command.id.clone();
+        let spawned = std::thread::Builder::new().name("exp-tree-key".to_string()).spawn(move || {
+            coding::sealing::ensure_tree_key(&root_id);
+            let keyed = coding::sealing::tree_keyed(&root_id);
+            complete_with(&trpc, &command_id, keyed, if keyed { "Keyed." } else { "This machine could not key the chat." });
+            if let Ok(mut guard) = claimed.lock() {
+                guard.remove(&command_id);
+            }
+        });
+        if spawned.is_err() {
+            if let Ok(mut guard) = snapshot.inflight_logins.lock() {
+                guard.remove(&command.id);
+            }
+            complete(snapshot, &command.id, false, "This machine could not key the chat.");
+            return CommandDisposition::Completed;
+        }
+        return CommandDisposition::Spawned;
+    }
     // #FEED-244: one app screen painted headless and uploaded, on its OWN
     // thread (the first one fetches the renderer), completing itself; the
     // claim set keeps a redelivered id from painting twice.

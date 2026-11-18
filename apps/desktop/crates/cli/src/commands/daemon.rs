@@ -2680,6 +2680,41 @@ fn run_device_command(
             }
             (false, "This machine could not start the eCode job.".to_string())
         }
+        // #EXP-1960: a writer that may not key a keyless tree of this
+        // device's asked it to (`sessionKeys.requestKey`): keyed like at a
+        // claim, on its OWN thread (network), completing itself.
+        "tree_key" if command.payload["rootId"].as_str().is_none() => (false, "Malformed command payload.".to_string()),
+        "tree_key" => {
+            let root_id = command.payload["rootId"].as_str().unwrap_or_default().to_string();
+            {
+                let Ok(mut guard) = logins_inflight.lock() else {
+                    return;
+                };
+                if !guard.insert(command.id.clone()) {
+                    return;
+                }
+            }
+            let (ctx, command_id) = (Arc::clone(ctx), command.id.clone());
+            let claimed = Arc::clone(logins_inflight);
+            let spawned = std::thread::Builder::new().name("exp-tree-key".to_string()).spawn(move || {
+                coding::sealing::ensure_tree_key(&root_id);
+                let keyed = coding::sealing::tree_keyed(&root_id);
+                let message = if keyed { "Keyed." } else { "This machine could not key the chat." };
+                if let Err(err) = api::devices::complete_command(&ctx.trpc, &command_id, keyed, Some(message)) {
+                    log::debug!("completeCommand failed (redelivery will retry): {err}");
+                }
+                if let Ok(mut guard) = claimed.lock() {
+                    guard.remove(&command_id);
+                }
+            });
+            if spawned.is_ok() {
+                return;
+            }
+            if let Ok(mut guard) = logins_inflight.lock() {
+                guard.remove(&command.id);
+            }
+            (false, "This machine could not key the chat.".to_string())
+        }
         // #FEED-244: one app screen painted headless and uploaded, on its
         // OWN thread (the first one fetches the renderer), completing itself;
         // the claim set makes a redelivered id a no-op.

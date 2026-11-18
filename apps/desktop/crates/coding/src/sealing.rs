@@ -359,6 +359,11 @@ pub trait SealService: Send + Sync {
     }
     /// EXP-1472: run a holder pass soon (a reader may be waiting for a wrap).
     fn wake(&self) {}
+    /// #EXP-1960: `sessionKeys.requestKey`: a keyless tree this install may
+    /// not key asks its devices to key it. Default: no answer (the bare wait).
+    fn request_key(&self, _root_id: &str) -> RequestKeyAnswer {
+        RequestKeyAnswer::Error
+    }
 }
 
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
@@ -738,9 +743,23 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         Err(SealError::NotReader) => {}
         other => return other,
     }
-    // Not a reader: only a claim can key it. Wait for one rather than send
-    // in clear (EXP-1472); #EDE-97: after that the send FAILS (NotReader),
-    // never plaintext.
+    // Not a reader: #EXP-1960 an idle chat's device claims nothing, so it is
+    // ASKED to key the tree (`sessionKeys.requestKey`), then its key is
+    // waited for (EXP-1472); a tree no device hosts fails at once. #EDE-97:
+    // after the wait the send FAILS (NotReader), never plaintext.
+    let answer = service.request_key(root_id);
+    match (keyless_step_after_request(&answer), answer) {
+        (KeylessStep::Sealed, RequestKeyAnswer::Keyed(epoch, public)) => {
+            service.keyring().set_current(root_id, epoch, public);
+            return Ok((epoch, public));
+        }
+        (KeylessStep::Plain, _) => {
+            note_clear_tree(root_id);
+            return Err(SealError::ClearTree);
+        }
+        (KeylessStep::Failed, _) => return Err(SealError::NotReader),
+        _ => {}
+    }
     let deadline = Instant::now() + Duration::from_millis(SEND_KEY_WAIT_MS.load(Ordering::SeqCst));
     loop {
         if let Some(key) = service.public_key(root_id).map_err(SealError::NoKey)? {
@@ -903,6 +922,98 @@ pub fn send_wire(tree: SendTree, holder: Holder, reader: bool, key_arrives: bool
         (SendTree::Keyless, _) if reader => SendWire::Create,
         (SendTree::Keyless, _) if key_arrives => SendWire::Sealed,
         (SendTree::Keyless, _) => SendWire::Failed,
+    }
+}
+
+// --- a keyless tree's key (`clearTree.keylessCases`, #EXP-1960) ----------
+
+/// `sealed-content.json` `clearTree.createAttempts` / `createRetryMs`.
+pub const CREATE_ATTEMPTS: u32 = 3;
+pub const CREATE_RETRY: Duration = Duration::from_millis(500);
+
+/// A failed `sessionKeys.create` (`keylessCases`' `failure`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreateFailure {
+    Clear,
+    Stale,
+    NotReader,
+    WrapRefused,
+    Refused,
+    Transient,
+}
+
+/// `sessionKeys.requestKey`'s answer (`keylessCases`' `answer`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RequestKeyAnswer {
+    Keyed(u32, [u8; 32]),
+    Clear,
+    Requested,
+    NoHost,
+    /// A real NOT_FOUND: the bare wait.
+    NotFound,
+    /// No answer, an older server: the bare wait.
+    Error,
+}
+
+/// What a writer does next (`keylessCases`' `step`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeylessStep {
+    Plain,
+    ServerKey,
+    RequestKey,
+    RetryOwn,
+    Retry,
+    Failed,
+    Sealed,
+    Wait,
+}
+
+/// A failed create read from its HTTP status + message (the TS `createFailure`;
+/// `None` = no answer: a transport blip).
+pub fn create_failure(status: Option<u16>, message: &str) -> CreateFailure {
+    if message.contains(CLEAR_REFUSAL) {
+        return CreateFailure::Clear;
+    }
+    if status == Some(409) || message.starts_with("The tree is at epoch") || message.contains(STALE_REFUSAL_MARK) {
+        return CreateFailure::Stale;
+    }
+    if message.contains(WRAP_REFUSAL) {
+        return CreateFailure::WrapRefused;
+    }
+    match status {
+        Some(404) => CreateFailure::NotReader,
+        Some(408 | 429) | None => CreateFailure::Transient,
+        Some(code) if (400..500).contains(&code) => CreateFailure::Refused,
+        _ => CreateFailure::Transient,
+    }
+}
+
+/// `sealed-content.json` `clearTree.wrapRefusal`.
+pub const WRAP_REFUSAL: &str = "A wrap names an install that is not a reader";
+/// `staleTree.refusal` (the CONFLICT for a key write into a tree that moved on).
+const STALE_REFUSAL_MARK: &str = "This chat's encryption key changed. Try again in a moment.";
+
+/// #EXP-1960: the next step after a failed create (the TS `keylessStep`).
+pub fn keyless_step(failure: CreateFailure, attempt: u32, own_only: bool) -> KeylessStep {
+    match failure {
+        CreateFailure::Clear => KeylessStep::Plain,
+        CreateFailure::Stale => KeylessStep::ServerKey,
+        CreateFailure::NotReader => KeylessStep::RequestKey,
+        CreateFailure::WrapRefused if own_only => KeylessStep::RequestKey,
+        CreateFailure::WrapRefused => KeylessStep::RetryOwn,
+        CreateFailure::Refused => KeylessStep::Failed,
+        CreateFailure::Transient if attempt < CREATE_ATTEMPTS => KeylessStep::Retry,
+        CreateFailure::Transient => KeylessStep::Failed,
+    }
+}
+
+/// #EXP-1960: the next step once the tree's devices were asked.
+pub fn keyless_step_after_request(answer: &RequestKeyAnswer) -> KeylessStep {
+    match answer {
+        RequestKeyAnswer::Keyed(..) => KeylessStep::Sealed,
+        RequestKeyAnswer::Clear => KeylessStep::Plain,
+        RequestKeyAnswer::NoHost => KeylessStep::Failed,
+        RequestKeyAnswer::Requested | RequestKeyAnswer::NotFound | RequestKeyAnswer::Error => KeylessStep::Wait,
     }
 }
 
@@ -1158,6 +1269,12 @@ pub(crate) mod test_support {
         pub device_installs: Vec<(String, String, String)>,
         /// Roots [`SealService::ensure_key`] refuses to key (not a reader).
         pub not_reader_of: Mutex<Vec<String>>,
+        /// #EXP-1960: [`SealService::request_key`]'s answer (`None` = no answer).
+        pub request_answer: Mutex<Option<RequestKeyAnswer>>,
+        /// The roots whose devices were asked.
+        pub requested: Mutex<Vec<String>>,
+        /// The key the asked device makes (it lands on the next poll).
+        pub device_keys: Mutex<Option<(u32, [u8; 32])>>,
     }
 
     impl SealService for FakeService {
@@ -1197,6 +1314,13 @@ pub(crate) mod test_support {
             Ok(self.keyring.current(root_id))
         }
         fn fetch_secrets(&self, _root_id: &str) {}
+        fn request_key(&self, root_id: &str) -> RequestKeyAnswer {
+            self.requested.lock().unwrap().push(root_id.to_string());
+            if let Some((epoch, public)) = *self.device_keys.lock().unwrap() {
+                self.keyring.set_current(root_id, epoch, public);
+            }
+            self.request_answer.lock().unwrap().clone().unwrap_or(RequestKeyAnswer::Error)
+        }
         fn deliver_direct(&self, to: &DeliverTo, message: &MessageRow) {
             self.delivered.lock().unwrap().push((to.endpoint_id.clone(), message.clone()));
         }
@@ -1430,6 +1554,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #EXP-1960: `clearTree.keylessCases` replayed through the pure steps.
+    #[test]
+    fn the_keyless_steps_replay_the_fixture() {
+        let fx = fixture();
+        let clear = &fx["clearTree"];
+        assert_eq!(CREATE_ATTEMPTS as u64, clear["createAttempts"].as_u64().unwrap());
+        assert_eq!(CREATE_RETRY.as_millis() as u64, clear["createRetryMs"].as_u64().unwrap());
+        assert_eq!(WRAP_REFUSAL, clear["wrapRefusal"].as_str().unwrap());
+        assert_eq!(STALE_REFUSAL_MARK, fx["staleTree"]["refusal"].as_str().unwrap());
+        let step_of = |name: &str| match name {
+            "plain" => KeylessStep::Plain,
+            "serverKey" => KeylessStep::ServerKey,
+            "requestKey" => KeylessStep::RequestKey,
+            "retryOwn" => KeylessStep::RetryOwn,
+            "retry" => KeylessStep::Retry,
+            "failed" => KeylessStep::Failed,
+            "sealed" => KeylessStep::Sealed,
+            "wait" => KeylessStep::Wait,
+            other => panic!("step {other}"),
+        };
+        for case in clear["keylessCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let got = if let Some(answer) = case["answer"].as_str() {
+                keyless_step_after_request(&match answer {
+                    "keyed" => RequestKeyAnswer::Keyed(1, [0; 32]),
+                    "clear" => RequestKeyAnswer::Clear,
+                    "requested" => RequestKeyAnswer::Requested,
+                    "noHost" => RequestKeyAnswer::NoHost,
+                    "notFound" => RequestKeyAnswer::NotFound,
+                    "error" => RequestKeyAnswer::Error,
+                    other => panic!("{name}: answer {other}"),
+                })
+            } else {
+                let failure = match case["failure"].as_str().unwrap() {
+                    "clear" => CreateFailure::Clear,
+                    "stale" => CreateFailure::Stale,
+                    "notReader" => CreateFailure::NotReader,
+                    "wrapRefused" => CreateFailure::WrapRefused,
+                    "refused" => CreateFailure::Refused,
+                    "transient" => CreateFailure::Transient,
+                    other => panic!("{name}: failure {other}"),
+                };
+                keyless_step(failure, case["attempt"].as_u64().unwrap_or(1) as u32, case["ownOnly"].as_bool().unwrap_or(false))
+            };
+            assert_eq!(got, step_of(case["step"].as_str().unwrap()), "{name}");
+        }
+        assert_eq!(create_failure(Some(404), "Session not found"), CreateFailure::NotReader);
+        assert_eq!(create_failure(Some(400), CLEAR_REFUSAL), CreateFailure::Clear);
+        assert_eq!(create_failure(Some(409), "x"), CreateFailure::Stale);
+        assert_eq!(create_failure(Some(400), WRAP_REFUSAL), CreateFailure::WrapRefused);
+        assert_eq!(create_failure(Some(403), "Not your install"), CreateFailure::Refused);
+        assert_eq!(create_failure(Some(502), "bad gateway"), CreateFailure::Transient);
+        assert_eq!(create_failure(None, "connection reset"), CreateFailure::Transient);
+    }
+
     /// #EDE-97: `clearTree.writerCases` and `claimCases` replayed through
     /// the pure decisions; the waits are the fixture's.
     #[test]
@@ -1510,6 +1689,38 @@ mod tests {
         uninstall();
         // The same tree without a holder: nothing leaves.
         assert_eq!(seal_body_for_session("sealed-root", "secret"), Err(SealError::NoService));
+    }
+
+    /// #EXP-1960: a pre-#EDE-97 keyless root this install may not key, its
+    /// device idle: the device is asked to key it, the send is sealed once
+    /// it did; a tree no device hosts fails at once, never a silent wait.
+    #[test]
+    fn a_keyless_tree_asks_its_device_and_no_host_fails_at_once() {
+        let _serial = serial();
+        let root = "8e2f6a90-1c3b-4d5e-8f70-a1b2c3d4e5f6";
+        let child = "3a9d0c4e-5b6f-4a70-8c91-d2e3f4a5b6c7";
+        let fake = install_fake();
+        fake.keyring.note_root(child, root);
+        fake.not_reader_of.lock().unwrap().push(root.into());
+        let key = generate_tree_key();
+        *fake.device_keys.lock().unwrap() = Some((1, key.public));
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::Requested);
+        let body = seal_body_for_session(child, "still there?").unwrap();
+        assert!(body.starts_with(SEALED_BODY_PREFIX), "{body}");
+        assert_eq!(fake.requested.lock().unwrap().as_slice(), [root]);
+        uninstall();
+
+        let fake = install_fake();
+        fake.keyring.note_root(child, root);
+        fake.not_reader_of.lock().unwrap().push(root.into());
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::NoHost);
+        set_send_key_wait(Duration::from_secs(10));
+        let started = Instant::now();
+        let refused = seal_body_for_session(child, "hello");
+        set_send_key_wait(SEND_KEY_WAIT);
+        assert_eq!(refused, Err(SealError::NotReader));
+        assert!(started.elapsed() < Duration::from_secs(2), "no silent wait");
+        uninstall();
     }
 
     /// #EDE-97: a keyless tree this install may not key and no claim keys
