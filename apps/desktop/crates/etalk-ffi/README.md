@@ -26,8 +26,9 @@ TypeScript reference is `packages/etalk/src/voice-call.ts`.
   - The ring (#EXP-1423): the HOST draws `callRingRandom()` once per call and
     steps `rang` at `callRingMs(random)`; `ready` = the voice device's warm-up
     done; `callAnswerMs(random, readyMs)` = when it answers (None = never:
-    fail it `unavailable` at `maxRingMs`); then the agent speaks first (the
-    greeting, `callGreeting(language)`). `callRingToneOn(ms)` = the ring
+    fail it `unavailable` at `maxRingMs`); then it listens (#EXP-1966: no
+    fixed greeting; the agent's own opening line is its first reply).
+    `callRingToneOn(ms)` = the ring
     tone's cadence (`ringLowHz` + `ringHighHz`, looping until answered).
   - `callTimer(ms since answered)`.
   - The wire form of a flow event: `callEventOfWire(json)` for a caller's

@@ -38,9 +38,6 @@ object VoiceCall {
         const val VIA = "Voice on {device}"
         const val QUEUED = "{count} queued · {text}"
 
-        /** What the device says once answered, by language (`en` the fallback). */
-        val greeting: Map<String, String> = linkedMapOf("en" to "Hello?", "de" to "Hallo?")
-
         object Reasons {
             /** NEW-99: the member has no voice Assistant yet. */
             const val NO_AGENT = "Set up your Assistant in Settings → Agents"
@@ -379,8 +376,6 @@ object VoiceCall {
         val device: String,
         /** EXP-1857: the device is not the agent's own ([Copy.VIA] shows it). */
         val fallback: Boolean,
-        /** The greeting the device says once answered. */
-        val greeting: String,
         /** The ring's earliest answer ([callRingMs]) passed. */
         val rang: Boolean,
         /** The worker confirmed it listens (`CallListening`). */
@@ -399,7 +394,6 @@ object VoiceCall {
         speaker = true,
         device = "",
         fallback = false,
-        greeting = "",
         rang = false,
         ready = false,
         noSound = false,
@@ -407,10 +401,6 @@ object VoiceCall {
         line = "",
         toast = null,
     )
-
-    /** The greeting in [language] (English for an unknown one). */
-    fun callGreeting(language: String?): String =
-        Copy.greeting[language ?: "en"] ?: Copy.greeting.getValue("en")
 
     /** One `flowCases` event (`t` on the wire). */
     sealed interface Event {
@@ -477,9 +467,12 @@ object VoiceCall {
 
     private fun quoted(text: String): String = "“$text”"
 
-    /** Rang and ready: the device speaks its greeting (not an agent turn). */
+    /**
+     * Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+     * own opening line, if any, arrives as its first reply).
+     */
     private fun answered(state: State): State =
-        state.copy(phase = Phase.Speaking, line = state.greeting, toast = null)
+        state.copy(phase = Phase.Listening, line = "", toast = null)
 
     /** One step of the call (the same machine on the voice device and a caller). */
     fun callStep(state: State, event: Event): State {
@@ -490,7 +483,6 @@ object VoiceCall {
                 phase = Phase.Ringing,
                 device = event.device,
                 fallback = event.fallback,
-                greeting = callGreeting(event.language),
             )
         }
         if (state.phase == Phase.Hidden) return state

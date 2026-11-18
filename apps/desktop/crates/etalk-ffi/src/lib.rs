@@ -7,7 +7,7 @@
 //!   pure free functions over plain records. `callIdle()` → `callStep(state,
 //!   event)` → `callView(state, platform)`, `callUnavailable(input)`,
 //!   `callSpeechOf(row state)`, the ring (`callRingMs`, `callAnswerMs`,
-//!   `callRingToneOn`, `callRingRandom`), `callTimer`, `callGreeting`, and the
+//!   `callRingToneOn`, `callRingRandom`), `callTimer`, and the
 //!   wire form of a flow event (`callEventOfWire` for an incoming `call_event`,
 //!   `callWireEvent` for a host's). The host owns time: it draws one
 //!   `callRingRandom()` per call and steps `rang` at `callRingMs(random)`.
@@ -166,8 +166,6 @@ pub struct TalkCallState {
     /// Phones: the loudspeaker (false = the earpiece).
     pub speaker: bool,
     pub device: String,
-    /// The greeting the device says once answered.
-    pub greeting: String,
     /// The ring's earliest answer passed.
     pub rang: bool,
     /// The voice device's warm-up is done.
@@ -188,7 +186,6 @@ impl From<CallState> for TalkCallState {
             muted: state.muted,
             speaker: state.speaker,
             device: state.device,
-            greeting: state.greeting,
             rang: state.rang,
             ready: state.ready,
             no_sound: state.no_sound,
@@ -207,7 +204,6 @@ impl From<TalkCallState> for CallState {
             speaker: state.speaker,
             device: state.device,
             fallback: false,
-            greeting: state.greeting,
             rang: state.rang,
             ready: state.ready,
             no_sound: state.no_sound,
@@ -430,12 +426,6 @@ pub fn call_ring_random() -> f64 {
 #[uniffi::export]
 pub fn call_timer(ms: u64) -> String {
     call::call_timer(ms)
-}
-
-/// What the device says once answered (English for an unknown language).
-#[uniffi::export]
-pub fn call_greeting(language: Option<String>) -> String {
-    call::call_greeting(language.as_deref())
 }
 
 /// An incoming `call_event`'s `event` (JSON text, `{t, ...}`); None = not a

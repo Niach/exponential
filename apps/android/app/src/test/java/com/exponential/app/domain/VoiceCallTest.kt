@@ -69,8 +69,7 @@ class VoiceCallTest {
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
-        assertEquals(copy.keys - setOf("reasons", "failed", "greeting"), flat.keys)
-        assertEquals(copy.getValue("greeting").jsonObject.strings(), c.greeting)
+        assertEquals(copy.keys - setOf("reasons", "failed"), flat.keys)
         flat.forEach { (key, value) -> assertEquals(key, copy.str(key), value) }
         val reasons = mapOf(
             "noAgent" to VoiceCall.Copy.Reasons.NO_AGENT,
@@ -328,13 +327,6 @@ class VoiceCallTest {
             val ms = case.getValue("ms").jsonPrimitive.long
             assertEquals("$ms", case.getValue("on").jsonPrimitive.boolean, VoiceCall.callRingToneOn(ms))
         }
-    }
-
-    @Test
-    fun `the greeting falls back to English`() {
-        assertEquals("Hallo?", VoiceCall.callGreeting("de"))
-        assertEquals("Hello?", VoiceCall.callGreeting(null))
-        assertEquals("Hello?", VoiceCall.callGreeting("fr"))
     }
 
     /** A code the fixture has no copy for (the relay's `no_such_call`) reads "dropped". */

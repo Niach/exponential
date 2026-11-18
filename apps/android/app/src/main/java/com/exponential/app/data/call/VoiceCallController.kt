@@ -163,7 +163,7 @@ class VoiceCallController @Inject constructor(
     /**
      * Call [agentId] ([agentName] for the copy) on the desktop named
      * [device] (EXP-1857 `callTarget`); [language] = the agent's voice
-     * language, the greeting the device answers with; [fallback] = that
+     * language; [fallback] = that
      * desktop is not the agent's own (the surface's `via` line names it).
      */
     fun start(

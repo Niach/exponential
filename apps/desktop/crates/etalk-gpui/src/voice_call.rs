@@ -17,18 +17,18 @@
 //!
 //! S-3: a call RINGS first: `Start` = ringing; the worker warms up (`Call`
 //! with `ring_ms`, a local call's ring tone on its one output stream until
-//! the greeting) and confirms with `CallListening` (= `Ready`); EXP-1423:
+//! the opening) and confirms with `CallListening` (= `Ready`); EXP-1423:
 //! the ring's earliest answer, drawn per call (`etalk::call::call_ring_ms`), =
-//! `Rang`; both = answered: the device says `callGreeting(language)`
-//! through the worker's `Speak` ([`speak_replies::speak_greeting`], never an
-//! agent message), its end listens. No `CallListening` within `maxRingMs`
+//! `Rang`; both = answered: it listens (#EXP-1966: no fixed greeting); the
+//! agent's own opening line goes through the worker's `Speak`
+//! ([`speak_replies::speak_greeting`]). No `CallListening` within `maxRingMs`
 //! (or a failed download) fails it `unavailable`; a voice still downloading
 //! keeps ringing. MIC CHECK: no `Level` ≥ `noSoundLevel` from
 //! `CallListening` until the ring's end (at least 1.5 s of listening) steps
 //! `NoSound`. FEED-276: `Ready` also waits for the agent's own voice
 //! (`hostVoice`: its clip on disk and prepared; a clip still fetching after
 //! `hostVoice.waitMs`, or one that failed, speaks the built-in voice,
-//! logged), so the greeting is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
+//! logged), so the opening is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
 //! body ([`CallPanel`]) and, while no IDE window is focused, the FLOATING
 //! PILL (`push_to_talk::overlay`, [`Face::Call`]); both read [`face`]. The
 //! live level and the timer repaint only them ([`CallLive`]).
@@ -610,9 +610,10 @@ impl VoiceCall {
             self.toasts.push(toast.clone());
             host::notify(Notice::Error(toast), cx);
         }
-        // S-3: rang and ready answered it: the device says its greeting
-        // (EXP-1857: a dialled call's host says it; only the timer starts).
-        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
+        // S-3: rang and ready answered it (#EXP-1966: on Listening): the
+        // device says the agent's opening, or listens (EXP-1857: a dialled
+        // call's host does; only the timer starts).
+        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Listening {
             if self.dialled() {
                 if let Some(active) = self.active.as_mut() {
                     active.answered_at = Some(Instant::now());
@@ -1889,8 +1890,8 @@ mod tests {
         global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Event(event), cx));
     }
 
-    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (the
-    /// host greets; no greeting here), its flow events step this machine,
+    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (on
+    /// Listening, #EXP-1966; the host speaks), its flow events step this machine,
     /// the microphone goes up, mute and End reach the host; the via line
     /// names the desktop that speaks; Speak replies never speaks it here.
     #[gpui::test]
@@ -1905,7 +1906,7 @@ mod tests {
             assert_eq!(phase(cx), CallPhase::Ringing, "the ring is the host's");
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
-            assert_eq!(phase(cx), CallPhase::Speaking, "the host greets");
+            assert_eq!(phase(cx), CallPhase::Listening, "answered (#EXP-1966: the host speaks its opening as a reply)");
             assert!(global(cx).unwrap().read(cx).active.as_ref().unwrap().answered_at.is_some(), "the timer runs");
             host_event(&id, serde_json::json!({ "t": "replyFinished" }), cx);
             assert_eq!(phase(cx), CallPhase::Listening);
@@ -2149,7 +2150,7 @@ mod tests {
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
             let before = global(cx).unwrap().read(cx).state.clone();
-            assert_eq!(before.phase, CallPhase::Speaking);
+            assert_eq!(before.phase, CallPhase::Listening);
             for foreign in [
                 serde_json::json!({ "t": "start", "device": "elsewhere" }),
                 serde_json::json!({ "t": "mute" }),

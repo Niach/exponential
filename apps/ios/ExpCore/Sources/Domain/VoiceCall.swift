@@ -32,8 +32,6 @@ public enum VoiceCall {
         public static let queued = "{count} queued · {text}"
         /// EXP-1857: the second status line while the call falls back.
         public static let via = "Voice on {device}"
-        /// S-3: what the voice device says once the call is answered.
-        public static let greeting: [String: String] = ["en": "Hello?", "de": "Hallo?"]
 
         /// Why the telephone is disabled (`callAvailability`, in order).
         public enum Reasons {
@@ -501,8 +499,6 @@ public enum VoiceCall {
         public var device: String
         /// EXP-1857: the device is not the agent's own (`Copy.via` shows it).
         public var fallback: Bool
-        /// The greeting the device says once answered.
-        public var greeting: String
         /// The ring's earliest answer (`callRingMs`) passed.
         public var rang: Bool
         /// The worker confirmed it listens (`CallListening`).
@@ -516,7 +512,7 @@ public enum VoiceCall {
 
         public init(
             phase: Phase, muted: Bool = false, speaker: Bool = true, device: String = "",
-            fallback: Bool = false, greeting: String = "", rang: Bool = false, ready: Bool = false, noSound: Bool = false,
+            fallback: Bool = false, rang: Bool = false, ready: Bool = false, noSound: Bool = false,
             said: String = "", line: String = "", toast: String? = nil
         ) {
             self.phase = phase
@@ -524,7 +520,6 @@ public enum VoiceCall {
             self.speaker = speaker
             self.device = device
             self.fallback = fallback
-            self.greeting = greeting
             self.rang = rang
             self.ready = ready
             self.noSound = noSound
@@ -598,22 +593,18 @@ public enum VoiceCall {
     /// No call (`CALL_IDLE`).
     public static let idle = State(phase: .hidden)
 
-    /// The greeting in `language` (English for an unknown one).
-    public static func callGreeting(_ language: String?) -> String {
-        Copy.greeting[language ?? "en"] ?? Copy.greeting["en"] ?? ""
-    }
-
     private static func quoted(_ text: String) -> String { "“\(text)”" }
 
     private static func trimmed(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Rang and ready: the device speaks its greeting (not an agent turn).
+    /// Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+    /// own opening line, if any, arrives as its first reply).
     private static func answered(_ state: State) -> State {
         var next = state
-        next.phase = .speaking
-        next.line = state.greeting
+        next.phase = .listening
+        next.line = ""
         next.toast = nil
         return next
     }
@@ -629,12 +620,11 @@ public enum VoiceCall {
             if let noSound { next.noSound = noSound }
             return next
         }
-        if case let .start(device, language, fallback) = event {
+        if case let .start(device, _, fallback) = event {
             var next = idle
             next.phase = .ringing
             next.device = device
             next.fallback = fallback
-            next.greeting = callGreeting(language)
             return next
         }
         if state.phase == .hidden { return state }

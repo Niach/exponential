@@ -52,8 +52,6 @@ pub struct CallCopy {
     /// EXP-1857: the device that speaks while a call falls back.
     pub via: String,
     pub queued: String,
-    /// S-3: what the device says once answered, by language.
-    pub greeting: HashMap<String, String>,
     pub reasons: CallReasons,
     pub failed: HashMap<String, String>,
 }
@@ -312,7 +310,7 @@ pub enum CallVoiceReady {
 /// `waited_ms` after the ring started, given the agent's voice: none or
 /// installed = ready; failed = the built-in voice at once; fetching waits
 /// until `hostVoice.waitMs`, then the built-in voice; installing waits
-/// until then, then ready (the greeting queues behind its Prepare).
+/// until then, then ready (the opening queues behind its Prepare).
 pub fn call_voice_ready(voice: CallVoice, waited_ms: u64) -> CallVoiceReady {
     let bound = waited_ms >= VOICE_CALL.host_voice.wait_ms;
     match voice {
@@ -515,8 +513,6 @@ pub struct CallState {
     pub device: String,
     /// EXP-1857: the device is not the agent's own (`copy.via` shows it).
     pub fallback: bool,
-    /// The greeting the device says once answered.
-    pub greeting: String,
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     pub rang: bool,
     /// The worker confirmed it listens (`CallListening`).
@@ -539,7 +535,6 @@ impl Default for CallState {
             speaker: true,
             device: String::new(),
             fallback: false,
-            greeting: String::new(),
             rang: false,
             ready: false,
             no_sound: false,
@@ -554,6 +549,8 @@ impl Default for CallState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallEvent {
     /// EXP-1857: `fallback` = the device is not the agent's own.
+    /// `language` stays on the wire for older callers; the machine ignores
+    /// it since #EXP-1966 (no fixed greeting).
     Start { device: String, language: Option<String>, fallback: bool },
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     Rang,
@@ -577,12 +574,6 @@ pub enum CallEvent {
     Failed(String),
 }
 
-/// The greeting in `language` (English for an unknown one).
-pub fn call_greeting(language: Option<&str>) -> String {
-    let greetings = &VOICE_CALL.copy.greeting;
-    greetings.get(language.unwrap_or("en")).or_else(|| greetings.get("en")).cloned().unwrap_or_default()
-}
-
 fn quoted(text: &str) -> String {
     format!("“{text}”")
 }
@@ -593,20 +584,20 @@ fn failed_state(state: &CallState, code: &str) -> CallState {
     CallState { toast: Some(text.replace("{device}", &state.device)), ..CallState::default() }
 }
 
-/// Rang and ready: the device speaks its greeting (not an agent turn).
+/// Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+/// own opening line, if any, arrives as its first reply).
 fn answered(state: CallState) -> CallState {
-    CallState { phase: CallPhase::Speaking, line: state.greeting.clone(), toast: None, ..state }
+    CallState { phase: CallPhase::Listening, line: String::new(), toast: None, ..state }
 }
 
 /// One step of the call (the same machine on the voice device and a caller).
 pub fn call_step(state: &CallState, event: &CallEvent) -> CallState {
     let at = |phase: CallPhase, line: String| CallState { phase, line, toast: None, ..state.clone() };
-    if let CallEvent::Start { device, language, fallback } = event {
+    if let CallEvent::Start { device, fallback, .. } = event {
         return CallState {
             phase: CallPhase::Ringing,
             device: device.clone(),
             fallback: *fallback,
-            greeting: call_greeting(language.as_deref()),
             ..CallState::default()
         };
     }
@@ -921,13 +912,6 @@ mod tests {
             assert!((0.0..1.0).contains(&random), "{random}");
         }
         assert_ne!(call_ring_random(), call_ring_random());
-    }
-
-    #[test]
-    fn the_greeting_falls_back_to_english() {
-        assert_eq!(call_greeting(Some("de")), "Hallo?");
-        assert_eq!(call_greeting(Some("xx")), "Hello?");
-        assert_eq!(call_greeting(None), "Hello?");
     }
 
     #[test]

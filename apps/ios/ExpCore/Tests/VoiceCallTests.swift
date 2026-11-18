@@ -31,7 +31,6 @@ final class VoiceCallTests: XCTestCase {
         var copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
         let reasons = try XCTUnwrap(copy.removeValue(forKey: "reasons") as? [String: String])
         let failed = try XCTUnwrap(copy.removeValue(forKey: "failed") as? [String: String])
-        let greeting = try XCTUnwrap(copy.removeValue(forKey: "greeting") as? [String: String])
         XCTAssertEqual(copy as? [String: String], [
             "call": VoiceCall.Copy.call,
             "calling": VoiceCall.Copy.calling,
@@ -51,10 +50,6 @@ final class VoiceCallTests: XCTestCase {
             "queued": VoiceCall.Copy.queued,
             "via": VoiceCall.Copy.via,
         ])
-        XCTAssertEqual(greeting, VoiceCall.Copy.greeting)
-        XCTAssertEqual(VoiceCall.callGreeting("de"), "Hallo?")
-        XCTAssertEqual(VoiceCall.callGreeting("fr"), "Hello?")
-        XCTAssertEqual(VoiceCall.callGreeting(nil), "Hello?")
         XCTAssertEqual(reasons, [
             "noAgent": VoiceCall.Copy.Reasons.noAgent,
             "noVoiceDevice": VoiceCall.Copy.Reasons.noVoiceDevice,

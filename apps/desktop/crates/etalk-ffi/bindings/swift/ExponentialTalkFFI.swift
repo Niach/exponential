@@ -1454,10 +1454,6 @@ public struct TalkCallState: Equatable, Hashable {
     public var speaker: Bool
     public var device: String
     /**
-     * The greeting the device says once answered.
-     */
-    public var greeting: String
-    /**
      * The ring's earliest answer passed.
      */
     public var rang: Bool
@@ -1486,9 +1482,6 @@ public struct TalkCallState: Equatable, Hashable {
          * Phones: the loudspeaker (false = the earpiece).
          */speaker: Bool, device: String, 
         /**
-         * The greeting the device says once answered.
-         */greeting: String, 
-        /**
          * The ring's earliest answer passed.
          */rang: Bool, 
         /**
@@ -1507,7 +1500,6 @@ public struct TalkCallState: Equatable, Hashable {
         self.muted = muted
         self.speaker = speaker
         self.device = device
-        self.greeting = greeting
         self.rang = rang
         self.ready = ready
         self.noSound = noSound
@@ -1536,7 +1528,6 @@ public struct FfiConverterTypeTalkCallState: FfiConverterRustBuffer {
                 muted: FfiConverterBool.read(from: &buf), 
                 speaker: FfiConverterBool.read(from: &buf), 
                 device: FfiConverterString.read(from: &buf), 
-                greeting: FfiConverterString.read(from: &buf), 
                 rang: FfiConverterBool.read(from: &buf), 
                 ready: FfiConverterBool.read(from: &buf), 
                 noSound: FfiConverterBool.read(from: &buf), 
@@ -1551,7 +1542,6 @@ public struct FfiConverterTypeTalkCallState: FfiConverterRustBuffer {
         FfiConverterBool.write(value.muted, into: &buf)
         FfiConverterBool.write(value.speaker, into: &buf)
         FfiConverterString.write(value.device, into: &buf)
-        FfiConverterString.write(value.greeting, into: &buf)
         FfiConverterBool.write(value.rang, into: &buf)
         FfiConverterBool.write(value.ready, into: &buf)
         FfiConverterBool.write(value.noSound, into: &buf)
@@ -2514,17 +2504,6 @@ public func callEventOfWire(json: String) -> TalkCallEvent?  {
 })
 }
 /**
- * What the device says once answered (English for an unknown language).
- */
-public func callGreeting(language: String?) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_etalk_ffi_fn_func_call_greeting(
-        FfiConverterOptionString.lower(language),uniffiCallStatus
-    )
-})
-}
-/**
  * `CALL_IDLE`: no call.
  */
 public func callIdle() -> TalkCallState  {
@@ -2679,9 +2658,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_etalk_ffi_checksum_func_call_event_of_wire() != 56908) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_etalk_ffi_checksum_func_call_greeting() != 52618) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_etalk_ffi_checksum_func_call_idle() != 46858) {
