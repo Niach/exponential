@@ -46,6 +46,21 @@ final class SearchViewModel {
     /// three started statuses, as web draws it).
     private(set) var teamStatuses: [ResolvedIssueStatus] = []
 
+    // #EDE-99 (search-list.json CHATS): the chat store's `searchAll`, the
+    // active team's roots only. nil `chatHits` = no store on this client.
+    /// The Chats rows on screen (the previous query's while a newer one runs).
+    private(set) var chatRows: [SearchList.GlobalChatRow] = []
+    /// A newer query is with the store (the Section's spinner).
+    private(set) var chatsLoading = false
+    /// The client has a chat store (no store = today's list).
+    let hasChatStore = ChatStoreHub.shared.isAvailable
+    private var chatHits: [SearchList.ChatHitChat] = []
+    private var chatHitsQuery = ""
+    private var chatAuthors: [String: String] = [:]
+    private var chatRoots: [String: SearchList.GlobalChatRoot] = [:]
+    private var chatQuery = ""
+    private var chatTask: Task<Void, Never>?
+
     private var teamId: String?
     private var query = ""
     /// The active team's issues, prepared once per snapshot.
@@ -85,6 +100,9 @@ final class SearchViewModel {
             serverHitsQuery = ""
             results = []
             teamStatuses = []
+            chatHits = []
+            chatHitsQuery = ""
+            chatRows = []
         }
         guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
 
@@ -153,6 +171,9 @@ final class SearchViewModel {
         rankTask = nil
         searchTask?.cancel()
         searchTask = nil
+        chatTask?.cancel()
+        chatTask = nil
+        chatsLoading = false
     }
 
     /// The view calls this on every keystroke. Both the rank and the server
@@ -162,6 +183,7 @@ final class SearchViewModel {
         self.query = trimmed
         searchTask?.cancel()
         searchTask = nil
+        searchChats(query)
 
         guard !trimmed.isEmpty else {
             rankTask?.cancel()
@@ -194,6 +216,73 @@ final class SearchViewModel {
             self.serverHitsQuery = trimmed
             self.publish()
         }
+    }
+
+    /// The active team's roots (`SessionListsModel.searchRoots`): a change
+    /// re-filters the rows on screen.
+    func setChatRoots(_ roots: [String: SearchList.GlobalChatRoot]) {
+        guard roots != chatRoots else { return }
+        chatRoots = roots
+        publishChats()
+    }
+
+    /// #EDE-99: the store is asked `debounceMs` after the last keystroke, in
+    /// a detached task (never the main actor); a newer query drops the older
+    /// answer, and the previous rows stay under the spinner meanwhile.
+    private func searchChats(_ raw: String) {
+        chatTask?.cancel()
+        chatTask = nil
+        let next = FindInChat.query(raw)
+        chatQuery = next
+        guard hasChatStore, !next.isEmpty else {
+            chatsLoading = false
+            chatHits = []
+            chatHitsQuery = ""
+            chatRows = []
+            return
+        }
+        guard next != chatHitsQuery else {
+            chatsLoading = false
+            return
+        }
+        chatsLoading = true
+        let accountId = accountId
+        let db = db
+        chatTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(SearchList.GlobalChats.debounceMs))
+            guard !Task.isCancelled else { return }
+            let (hits, authors) = await Task.detached(priority: .userInitiated) { () -> ([SearchList.ChatHitChat], [String: String]) in
+                let hits = SearchList.chatHits(
+                    ChatStoreHub.shared.searchAll(accountId: accountId, query: next, limit: FindInChat.hitsMax)
+                )
+                // A synced message's author leads a person's line with You.
+                let ids = hits.compactMap { $0.hit.kind == "message" ? $0.hit.messageId : nil }
+                guard !ids.isEmpty, let pool = try? db.pool(forAccountId: accountId) else { return (hits, [:]) }
+                let authors = (try? pool.read { db in
+                    try MessageEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+                }).map { rows in Dictionary(rows.map { ($0.id, $0.authorKind) }, uniquingKeysWith: { a, _ in a }) } ?? [:]
+                return (hits, authors)
+            }.value
+            guard let self, !Task.isCancelled, self.chatQuery == next else { return }
+            self.chatHits = hits
+            self.chatAuthors = authors
+            self.chatHitsQuery = next
+            self.chatsLoading = false
+            self.publishChats()
+        }
+    }
+
+    private func publishChats() {
+        guard !chatHitsQuery.isEmpty else { return }
+        chatRows = SearchList.globalChatRows(
+            query: chatHitsQuery,
+            now: Date(),
+            utcOffsetMinutes: TimeZone.current.secondsFromGMT() / 60,
+            chats: chatHits,
+            roots: chatRoots,
+            messageAuthors: chatAuthors,
+            limit: SearchList.GlobalChats.chatsMax
+        )
     }
 
     /// Ranks the current query over the prepared pool in a detached task

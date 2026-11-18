@@ -70,6 +70,9 @@ final class SessionListsModel {
     /// unsynced (personal) team show in every team (`inTeamOrPersonal`).
     private(set) var syncedTeamIds: Set<String> = []
     private(set) var viewerId: String?
+    /// #EDE-99: every synced root (its team, starter, title, agent), by id:
+    /// what the global search's Chats rows name.
+    private(set) var chatRoots: [String: ChatRootEntry] = [:]
 
     @ObservationIgnored private var task: Task<Void, Never>?
     /// Bumped by every `apply`/`stop`: what `chatList`'s memo is valid for.
@@ -135,6 +138,19 @@ final class SessionListsModel {
             teamId: row.teamId, userId: rootStarter[row.rootId], team: teamId,
             teamIds: syncedTeamIds, me: viewerId
         )
+    }
+
+    /// #EDE-99 (search-list.json `globalChatRows`): the ACTIVE team's synced
+    /// roots I can see, titled as the chat list titles them.
+    func searchRoots(teamId: String?) -> [String: SearchList.GlobalChatRoot] {
+        guard let teamId else { return [:] }
+        var out: [String: SearchList.GlobalChatRoot] = [:]
+        for (id, root) in chatRoots where AgentSettings.inTeamOrPersonal(
+            teamId: root.teamId, userId: root.userId, team: teamId, teamIds: syncedTeamIds, me: viewerId
+        ) {
+            out[id] = SearchList.GlobalChatRoot(title: root.title, agent: root.agent)
+        }
+        return out
     }
 
     /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
@@ -214,6 +230,7 @@ final class SessionListsModel {
         needsYouInputs = [:]
         syncedTeamIds = []
         viewerId = nil
+        chatRoots = [:]
         loaded = false
     }
 
@@ -259,6 +276,7 @@ final class SessionListsModel {
         var needsYouInputs: [String: NeedsYouInput]
         var syncedTeamIds: Set<String>
         var viewerId: String?
+        var chatRoots: [String: ChatRootEntry]
     }
 
     private func apply(_ derived: Derived) {
@@ -284,6 +302,7 @@ final class SessionListsModel {
         needsYouInputs = derived.needsYouInputs
         syncedTeamIds = derived.syncedTeamIds
         viewerId = derived.viewerId
+        chatRoots = derived.chatRoots
         loaded = true
     }
 
@@ -476,8 +495,27 @@ final class SessionListsModel {
             needsYouInputs: needsYouInputs(rows),
             // #EXP-1714: `mergeModes` is keyed by every synced `teams` row.
             syncedTeamIds: Set(rows.mergeModes.keys),
-            viewerId: userId
+            viewerId: userId,
+            chatRoots: chatRoots(rows)
         )
+    }
+
+    /// #EDE-99: every root as the global search names it: an agent's
+    /// conversation by its agent, any other by THE session title.
+    nonisolated private static func chatRoots(_ rows: Rows) -> [String: ChatRootEntry] {
+        let roots = rows.sessions.filter { $0.parentId == nil }
+        let titles = SessionTitle.titles(roots, sessionIssues: rows.sessionIssues, issues: rows.issues, messages: rows.messages)
+        let agentNames = Dictionary(rows.agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        var out: [String: ChatRootEntry] = [:]
+        for root in roots {
+            let agentId = (root.agentId ?? "").isEmpty ? nil : root.agentId
+            out[root.id] = ChatRootEntry(
+                teamId: root.teamId, userId: root.userId,
+                title: agentId.flatMap { agentNames[$0] } ?? titles[root.id] ?? root.title ?? SessionTitle.Copy.untitled,
+                agent: agentId != nil
+            )
+        }
+        return out
     }
 
     /// #FEED-191: the fold's input per team, web `useNeedsYou`'s: a session is
@@ -587,4 +625,12 @@ struct ChatRowDevice: Equatable, Sendable {
 struct ChatRowWall: Equatable, Sendable {
     let kind: String
     let device: String?
+}
+
+/// #EDE-99: one synced root as the global search's Chats rows read it.
+struct ChatRootEntry: Equatable, Sendable {
+    let teamId: String
+    let userId: String?
+    let title: String
+    let agent: Bool
 }
