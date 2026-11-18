@@ -281,10 +281,9 @@ pub struct ChatRow {
     /// (out) on a group's first bubble, blank (left out) otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tail: String,
-    /// #EDE-129: the bubble's MessageBubble `highlight` (find in chat),
-    /// left out of the row when none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub highlight: Option<Value>,
+    /// #EDE-129: the bubble's MessageBubble `highlight` (find in chat,
+    /// `{query, current?}`), null = no marks.
+    pub highlight: Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -453,7 +452,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         gap: 0,
         status: String::new(),
         tail: String::new(),
-        highlight: None,
+        highlight: Value::Null,
     }
 }
 
@@ -482,7 +481,7 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
                     link: group.link.clone(),
                     gap: group.gap,
                     status: own_status,
-                    highlight: if bubbles { highlight.clone() } else { None },
+                    highlight: highlight.clone().filter(|_| bubbles).unwrap_or(Value::Null),
                     ..blank(id, kind)
                 }
             };

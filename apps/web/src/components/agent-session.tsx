@@ -1138,7 +1138,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
-    viewerAvatar, findKeys,
+    viewerAvatar,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -1147,6 +1147,9 @@ export function AgentSessionView({
     const deps = [
       ...rowGlobals,
       ...(row.kind === `single` ? [row.item] : [row.kind, ...row.items]),
+      // #EDE-129: the row's own find key (never the whole map: one streamed
+      // event would re-render every row).
+      row.kind === `single` ? (findKeys.get(row.item.id) ?? null) : null,
       prev === undefined ? null : rowClass(prev),
       prev === undefined ? null : isBubbleRow(prev),
       prev === undefined ? null : layoutSignature(feedLayouts.get(feedRowKey(prev))),
