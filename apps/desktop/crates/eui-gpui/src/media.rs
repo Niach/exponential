@@ -321,6 +321,26 @@ pub fn image_key(host: &dyn HostPlugin, src: &str) -> Option<MediaKey> {
     Some(MediaKey::new(&req, &host.media_options()))
 }
 
+/// #EXP-1947 (`fixtures/image-actions.json` copy rule): the src a copy
+/// fetches: the thumbnail width parameter `w` dropped from the query (the
+/// ORIGINAL picture, never a thumbnail), any other parameter and the
+/// fragment kept; a `data:` url as it is.
+pub fn original_src(src: &str) -> String {
+    if src.len() >= 5 && src.as_bytes()[..5].eq_ignore_ascii_case(b"data:") {
+        return src.to_string();
+    }
+    let (head, fragment) = src.split_at(src.find('#').unwrap_or(src.len()));
+    let Some(q) = head.find('?') else { return src.to_string() };
+    let kept: Vec<&str> = head[q + 1..].split('&').filter(|p| !p.is_empty() && *p != "w" && !p.starts_with("w=")).collect();
+    let mut out = head[..q].to_string();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    out.push_str(fragment);
+    out
+}
+
 /// The host's request for `src` when the media policy allows it.
 pub fn allowed_request(host: &dyn HostPlugin, src: &str) -> Option<MediaRequest> {
     if src.is_empty() {

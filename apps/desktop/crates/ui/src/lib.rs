@@ -113,6 +113,7 @@ mod getting_started;
 mod github_connect;
 mod home_greeting;
 mod icons;
+mod image_actions;
 mod image_preview;
 mod inbox;
 mod invite_link;
