@@ -537,9 +537,11 @@ fun MarkdownView(
     hug: Boolean = false,
     /** #EDE-95: search marks (each searched block of the normal form apart, the current one counted across them); null = none. */
     highlight: MarkdownHighlight? = null,
+    /** #EXP-1926: the host's source rule for block images ([MarkdownHooks.imageSource]); null = none. */
+    imageSource: ((src: String, alt: String) -> ImageSource)? = null,
 ) {
-    val prepared = remember(text, linkPolicy, imagePolicy, attachments, imageSize, options.hardBreaks, options.streaming) {
-        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options))
+    val prepared = remember(text, linkPolicy, imagePolicy, imageSource, attachments, imageSize, options.hardBreaks, options.streaming) {
+        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options, imageSource = imageSource))
     }
     // #VAPP-258: an image the host could not size takes its decoded size
     // once it loaded (the media cache; this read recomposes when one lands).

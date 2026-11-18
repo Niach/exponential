@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-copy-image-android`,
+    date: `2026-11-18`,
+    title: `Copy image on Android`,
+    summary: `Long-press a picture on Android to copy it or share it. A picture from another website shows as a link and is never loaded.`,
+    body: `- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it.`,
+  },
+  {
     id: `2026-11-18-copy-image-ios`,
     date: `2026-11-18`,
     title: `Copy image on iOS`,
