@@ -85,6 +85,8 @@ export interface SessionScreenFrameProps {
   /** #EDE-129 (find-in-chat.json WHERE THE BAR SITS): wide = the band over
    *  the chat column, compact = it replaces the phone header while open. */
   find?: { open: boolean; wide: ReactNode; compact: ReactNode }
+  /** #EDE-99: the opened child session's own find (same places, over the item). */
+  itemFind?: { open: boolean; wide: ReactNode; compact: ReactNode }
 }
 
 /** THE tab strip: the existing SegmentedControl, each label followed by its
@@ -179,14 +181,17 @@ export function SessionScreenFrame({
   itemTitle,
   overlay,
   find,
+  itemFind,
 }: SessionScreenFrameProps) {
   const phone = useIsMobile()
   const findBand = find?.open && !phone ? find.wide : null
+  const itemFindBand = itemFind?.open && !phone ? itemFind.wide : null
   // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
   const tabs = screen.tabs.length > 0 ? <SessionScreenTabs screen={screen} onTab={onTab} phone={phone} /> : null
 
   const opened = item ? (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="session-item">
+      {itemFindBand}
       {item}
     </div>
   ) : null
@@ -230,11 +235,15 @@ export function SessionScreenFrame({
   if (phone && screen.layout === `item` && item) {
     return (
       <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid={testId} data-layout={screen.layout}>
-        <MobileDetailHeader
-          title={<span data-testid="session-item-title">{itemTitle ?? ``}</span>}
-          onBack={onCloseItem}
-          backLabel={SESSION_SCREEN_COPY.back}
-        />
+        {itemFind?.open ? (
+          itemFind.compact
+        ) : (
+          <MobileDetailHeader
+            title={<span data-testid="session-item-title">{itemTitle ?? ``}</span>}
+            onBack={onCloseItem}
+            backLabel={SESSION_SCREEN_COPY.back}
+          />
+        )}
         {overlay}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="session-item">
           {item}

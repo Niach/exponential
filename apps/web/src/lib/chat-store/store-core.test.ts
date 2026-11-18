@@ -90,6 +90,25 @@ describe.skipIf(!wasmBuilt)(`the web's chat store (wasm + OPFS)`, () => {
     expect(found.hits[0]!.messageId).toBe(`m1`)
   })
 
+  it(`#EDE-99 searchAll: one row per chat, newest first, only the asked roots, never an evicted open chat`, async () => {
+    const wasm = await loadTestWasm()
+    const opfs = memoryOpfs()
+    const core = new ChatStoreCore(wasm, opfs.host)
+    const message = (id: string, rootId: string, createdAt: number, body: string | null) => ({ id, rootId, sessionId: rootId, authorKind: `agent`, createdAt, body })
+    await core.putMessages([message(`a1`, `r1`, 5, `cache one`), message(`a2`, `r1`, 9, `cache two`), message(`b1`, `r2`, 20, `the cache`), message(`c1`, `r3`, 30, null)])
+    const all = await core.searchAll(null, `CACHE`, 50)
+    expect(all?.total).toBe(2)
+    expect(all?.chats.map((chat) => [chat.rootId, chat.count, chat.hit.messageId])).toEqual([
+      [`r2`, 1, `b1`],
+      [`r1`, 2, `a2`],
+    ])
+    expect((await core.searchAll([`r1`], `cache`, 50))?.chats.map((chat) => chat.rootId)).toEqual([`r1`])
+    expect((await core.searchAll(null, `cache`, 1))?.chats.length).toBe(1)
+    // A fresh tab reads every chat without caching them.
+    const other = new ChatStoreCore(wasm, opfs.host)
+    expect((await other.searchAll(null, `cache`, 50))?.total).toBe(2)
+  })
+
   it(`walks a holder's store to complete and resumes from the watermark`, async () => {
     const wasm = await loadTestWasm()
     const holder = new ChatStoreCore(wasm, memoryOpfs().host)

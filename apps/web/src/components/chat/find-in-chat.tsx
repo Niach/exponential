@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import {
   FIND_IN_CHAT_COPY,
   FIND_IN_CHAT_DEBOUNCE_MS,
@@ -45,6 +45,32 @@ export interface FindInChat {
   setReport: (report: FindReport) => void
   /** Bumps when the field should take the focus (open, Ctrl/Cmd+F again). */
   focusNonce: number
+  /** #EDE-99: a global search pick's stop to start at (search-list.json
+   *  `globalChatStart`) for `query`; null once found, stepped or edited. */
+  target: FindTarget | null
+  dropTarget: () => void
+}
+
+export interface FindTarget {
+  query: string
+  key: string
+  output: boolean
+}
+
+// #EDE-99 (search-list.json A PICK): the global search seeds the find of the
+// session it opens; that session's screen takes it (open, the query, the
+// target) as it mounts or, already open, at once.
+const SEEDS = new Map<string, FindTarget>()
+const seedListeners = new Set<() => void>()
+let seedVersion = 0
+export function seedFindInChat(sessionId: string, seed: FindTarget) {
+  SEEDS.set(sessionId, seed)
+  seedVersion++
+  for (const listener of seedListeners) listener()
+}
+const subscribeSeeds = (listener: () => void) => {
+  seedListeners.add(listener)
+  return () => seedListeners.delete(listener)
 }
 
 /** The chat screen's find, for the ROOT's transcript under it. */
@@ -61,11 +87,25 @@ export function useFindInChat(chatKey: string): FindInChat {
   const [step, setStep] = useState<{ dir: FindStepDir; n: number } | null>(null)
   const [report, setReportState] = useState<FindReport>(NO_REPORT)
   const [focusNonce, setFocusNonce] = useState(0)
+  const [target, setTarget] = useState<FindTarget | null>(null)
+  const seeds = useSyncExternalStore(subscribeSeeds, () => seedVersion, () => 0)
   useEffect(() => {
     setOpen(false)
     setRawState(``)
     setQuery(``)
+    setTarget(null)
   }, [chatKey])
+  useEffect(() => {
+    const seed = SEEDS.get(chatKey)
+    if (!seed) return
+    SEEDS.delete(chatKey)
+    LAST_QUERY.set(chatKey, seed.query)
+    setOpen(true)
+    setRawState(seed.query)
+    setQuery(seed.query)
+    setStep(null)
+    setTarget(seed)
+  }, [chatKey, seeds])
   useEffect(() => {
     if (!open) return
     const next = findInChatQuery(raw)
@@ -87,20 +127,26 @@ export function useFindInChat(chatKey: string): FindInChat {
     setOpen(false)
     setQuery(``)
     setStep(null)
+    setTarget(null)
     setReportState(NO_REPORT)
   }, [])
   const setRaw = useCallback(
     (value: string) => {
       LAST_QUERY.set(chatKey, value)
       setRawState(value)
+      setTarget(null)
     },
     [chatKey]
   )
-  const go = useCallback((dir: FindStepDir) => setStep((prev) => ({ dir, n: (prev?.n ?? 0) + 1 })), [])
+  const go = useCallback((dir: FindStepDir) => {
+    setTarget(null)
+    setStep((prev) => ({ dir, n: (prev?.n ?? 0) + 1 }))
+  }, [])
+  const dropTarget = useCallback(() => setTarget(null), [])
   const setReport = useCallback((next: FindReport) => {
     setReportState((prev) => (prev.counter === next.counter && prev.status === next.status ? prev : next))
   }, [])
-  return { open, raw, query: open ? query : ``, step, report, openBar, close, setRaw, go, setReport, focusNonce }
+  return { open, raw, query: open ? query : ``, step, report, openBar, close, setRaw, go, setReport, focusNonce, target, dropTarget }
 }
 
 /** Ctrl/Cmd+F inside an open chat = find in chat (before the app's global

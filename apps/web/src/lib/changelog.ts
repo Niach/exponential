@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-global-search-chats`,
+    date: `2026-11-18`,
+    title: `Global search finds chats`,
+    summary: `Search now finds your chats too: a Chats section under the issues, each chat with the matching line highlighted; pick one and it opens on that message with find in chat on your words.`,
+    body: `- **Chats under Issues**: the global search (⌘K / Ctrl+K, the phones' search tab) lists the chats that mention your words after the matching issues, newest first.
+- **The matching line**: each chat shows its title, the line that matched with your words highlighted, and when it was said.
+- **Straight to the message**: picking a chat opens it on that message with find in chat already on your search, so previous and next walk the other matches.
+- **From this device's copy**: chats are searched in the local chat store, so it works offline; a private chat's messages are found once they open on this device.`,
+  },
+  {
     id: `2026-11-18-find-in-chat`,
     date: `2026-11-18`,
     title: `Find in a chat`,

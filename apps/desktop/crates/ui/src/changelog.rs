@@ -46,14 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-find-in-chat",
+    id: "2026-11-18-global-search-chats",
     date: "2026-11-18",
-    title: "Find in a chat",
-    summary: "Search inside the chat you have open: Search in chat in its … menu or Ctrl/Cmd+F, every match marked, “2 of 7” with previous and next, older messages included.",
-    body: r##"- **Search in chat**: open it from the chat's … menu or with Ctrl/Cmd+F (⌘K and Ctrl+K stay the global search).
-- **Every match marked**: the current one stands out; previous and next walk them in reading order and wrap around.
-- **The whole chat**: older messages from this device's local copy count too, and a folded tool group with a match opens itself.
-- **On web, desktop, eDE, iOS and Android**: on phones the bar takes the chat header's place, “2/7” with up and down."##,
+    title: "Global search finds chats",
+    summary: "Search now finds your chats too: a Chats section under the issues, each chat with the matching line highlighted; pick one and it opens on that message with find in chat on your words.",
+    body: r##"- **Chats under Issues**: the global search (⌘K / Ctrl+K, the phones' search tab) lists the chats that mention your words after the matching issues, newest first.
+- **The matching line**: each chat shows its title, the line that matched with your words highlighted, and when it was said.
+- **Straight to the message**: picking a chat opens it on that message with find in chat already on your search, so previous and next walk the other matches.
+- **From this device's copy**: chats are searched in the local chat store, so it works offline; a private chat's messages are found once they open on this device."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

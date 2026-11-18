@@ -451,6 +451,9 @@ export function ChatScreen({
   // #EDE-129 (find-in-chat.json): the `…`'s Search in chat and Ctrl/Cmd+F
   // while the chat shows (an item over it on a phone: not).
   const find = useFindInChat(root.id)
+  // #EDE-99: an opened child keeps its own find (a global search pick of a
+  // hit said in it opens it with find on the query).
+  const itemFind = useFindInChat(openSessionRow?.id ?? ``)
   const chatShown = screen.layout === `beside` || screen.layout === `chat`
   useFindInChatShortcut(find, chatShown)
   const closeFind = find.close
@@ -511,13 +514,15 @@ export function ChatScreen({
   if (screen.open === `session` && openSessionRow) {
     itemTitle = titles.get(openSessionRow.id) ?? ``
     item = (
-      <InPlaceSession
-        key={openSessionRow.id}
-        row={openSessionRow}
-        floating={isMobile}
-        origin={view.origin}
-        onOpenXref={nav.open}
-      />
+      <FindInChatContext.Provider value={itemFind}>
+        <InPlaceSession
+          key={openSessionRow.id}
+          row={openSessionRow}
+          floating={isMobile}
+          origin={view.origin}
+          onOpenXref={nav.open}
+        />
+      </FindInChatContext.Provider>
     )
   } else if (screen.open === `plan` && planPending) {
     itemTitle = PLAN_PAGE_COPY.title
@@ -684,6 +689,11 @@ export function ChatScreen({
             itemTitle={itemTitle}
             overlay={agent?.overlay}
             find={{ open: find.open, wide: <FindInChatBar find={find} />, compact: <FindInChatHeader find={find} /> }}
+            itemFind={
+              screen.open === `session` && openSessionRow
+                ? { open: itemFind.open, wide: <FindInChatBar find={itemFind} />, compact: <FindInChatHeader find={itemFind} /> }
+                : undefined
+            }
           />
           </CardHighlightContext.Provider>
           </DeepLinkContext.Provider>
