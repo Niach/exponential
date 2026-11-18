@@ -29,6 +29,7 @@ mod access;
 mod blobs;
 #[cfg(feature = "node")]
 mod call;
+pub mod call_seal;
 #[cfg(feature = "node")]
 mod chat;
 #[cfg(feature = "node")]
