@@ -49,6 +49,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var secureStore: SecureStore
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
     @Inject lateinit var steerConnectionStore: SteerConnectionStore
+    @Inject lateinit var chatStores: com.exponential.app.data.chatstore.ChatStoreManager
     @Inject lateinit var directShareShortcuts: com.exponential.app.data.share.DirectShareShortcuts
     // #EXP-1830: the home screen widgets' data + drawing.
     @Inject lateinit var homeWidgetsRefresher: com.exponential.app.widget.HomeWidgetsRefresher
@@ -97,6 +98,10 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         // EXP-1457: one eNet node per signed-in account, started lazily on
         // Dispatchers.IO (JNA + the .so never load on the main thread).
         enetNodeManager.start()
+        // #EDE-114 (chat-store.json S3): the signed-in account's chat store, and
+        // its background catch-up window (unmetered + charging).
+        chatStores.start()
+        com.exponential.app.data.chatstore.ChatStoreCatchUpWorker.schedule(this)
         // Claim-once loop: stamps the device timezone on accounts that never
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()
@@ -129,6 +134,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
                 // app-held now, so backgrounding parks them after their own
                 // grace window and coming back revives them.
                 steerConnectionStore.setForeground(true)
+                chatStores.setForeground(true)
             }
 
             override fun onStop(owner: LifecycleOwner) {
@@ -137,6 +143,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
                 composerDrafts.flushAll()
                 syncManager.setForeground(false)
                 steerConnectionStore.setForeground(false)
+                chatStores.setForeground(false)
             }
         })
     }

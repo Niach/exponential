@@ -10,7 +10,8 @@ import java.util.zip.ZipFile
 
 /**
  * #PERF-11: the APK carries ONE Rust library, and genUI's, the Engine's and
- * eNet's bindings all load and call into it (MobileNativeLibrary).
+ * eNet's (and #EDE-114 the chat store's) bindings all load and call into it
+ * (MobileNativeLibrary).
  */
 @RunWith(AndroidJUnit4::class)
 class MobileNativeLibraryTest {
@@ -33,5 +34,8 @@ class MobileNativeLibraryTest {
         at.exponential.engine.ffi.uniffiEnsureInitialized()
         // eNet: a call into the node's crypto.
         assertTrue(at.exponential.net.ffi.pushKeypairGenerate().`public`.size == 32)
+        // #EDE-114 the chat store: SQLite bundled into the same library.
+        assertEquals(30u, at.exponential.chatstore.ffi.phoneRetentionDays())
+        at.exponential.chatstore.ffi.ChatStore.inMemory().use { store -> assertEquals(0uL, store.count("s", "d")) }
     }
 }
