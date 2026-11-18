@@ -339,7 +339,9 @@ jobs:
       # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
       # #EXP-1941: P2P's core (enet-core) for the call seal: its unit tests
       # replay voice-call.json `seal` byte for byte; its node tests (real
-      # endpoints over localhost UDP) stay in the release suite.
+      # endpoints over localhost UDP) stay in the release suite. Its phone
+      # binding (exponential-net-ffi) too: the fixture replays through the
+      # facade, without `facade` (nodes again).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding, ui and enet-core stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -352,9 +354,9 @@ jobs:
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
-          -p epilot -p epilot-screen -p emcp -p enet-core
+          -p epilot -p epilot-screen -p emcp -p enet-core -p exponential-net-ffi
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
-          -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui) | package(enet-core))'
+          -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui) | package(enet-core) | (package(exponential-net-ffi) & binary(facade)))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
       # outside the workspace, so nextest's package filters cannot name it.

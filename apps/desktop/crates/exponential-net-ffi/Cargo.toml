@@ -43,3 +43,7 @@ data-encoding = "2"
 [[test]]
 name = "facade"
 required-features = ["node"]
+
+[[test]]
+name = "call_seal_fixture"
+required-features = ["node"]
