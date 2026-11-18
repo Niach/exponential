@@ -270,11 +270,10 @@ public enum ChatStoreWire {
         return (object["t"] as? String, object["requestId"] as? String)
     }
 
-    /// An ISO-8601 stamp as epoch ms.
+    /// A wire stamp as epoch ms: ISO-8601 or Electric's Postgres text form
+    /// (`2026-11-17 16:18:48.948+00`, what every synced message carries).
     public static func isoMs(_ value: String) -> Int64? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return nil }
+        guard let date = WireTimestamps.parse(value) else { return nil }
         return Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 }
