@@ -629,8 +629,18 @@ struct AgentSessionView: View {
 
     // MARK: - Feed
 
-    @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
+        // #EDE-130: find in chat runs with or without a feed (the store's
+        // and the device's older hits still count).
+        feedBodyContent(model)
+            .modifier(TranscriptFindDriver(
+                find: chatFind, transcriptFind: transcriptFind, model: model,
+                accountId: accountId, rootId: session.rootId, sessionId: session.id
+            ))
+    }
+
+    @ViewBuilder
+    private func feedBodyContent(_ model: AgentSessionModel) -> some View {
         if let placeholder = noFeedPlaceholder(model) {
             noFeedBody(placeholder, model: model)
         } else {
@@ -1139,15 +1149,13 @@ struct AgentSessionView: View {
                     more: model.canLoadEarlier,
                     arrival: "\(model.transcript.first?.id ?? -1)",
                     page: { model.loadEarlier() },
-                    scrollId: { AnyHashable(findEntryId($0, model: model) ?? Int.min) },
+                    centre: { key in
+                        if let entry = findEntryId(key, model: model) { proxy.scrollTo(entry, anchor: .center) }
+                    },
                     onTake: {
                         atBottom = false
                         agentTab = nil
                     }
-                ))
-                .modifier(TranscriptFindDriver(
-                    find: chatFind, transcriptFind: transcriptFind, model: model,
-                    accountId: accountId, rootId: session.rootId, sessionId: session.id
                 ))
                 .onAppear {
                     if deepLink == nil {
