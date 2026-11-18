@@ -336,9 +336,11 @@ internal fun rememberTranscriptFind(
         nonce += 1
         request = CardScrollRequest(stop.key, nonce)
     }
-    // A new query starts at the newest stop and lands there.
-    LaunchedEffect(current == null, shown) {
-        if (current == null && shown != null) land(shown)
+    // A new query starts at the newest stop (once the loaded rows are
+    // counted for it) and lands there.
+    val rowsCounted = counted.first == query
+    LaunchedEffect(current == null, shown, rowsCounted) {
+        if (current == null && shown != null && rowsCounted) land(shown)
     }
     val step = find?.step
     var stepSeen by remember { mutableIntStateOf(step?.n ?: 0) }
