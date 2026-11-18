@@ -70,7 +70,7 @@ impl KeyApi for NoKeys {
     fn mine(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
         Ok(Vec::new())
     }
-    fn pending(&self, _install_id: &str) -> Result<Vec<PendingWrap>, ApiError> {
+    fn pending(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
         Ok(Vec::new())
     }
     fn wrap(&self, _install_id: &str, _wraps: &[PairWrap]) -> Result<(), ApiError> {
