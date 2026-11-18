@@ -208,6 +208,14 @@ struct AgentSessionView: View {
     @State private var deepLinkFrame: CGRect?
     /// The session's cards have been read once (a link waits for them).
     @State private var cardsLoaded = false
+    /// #EDE-130 (find-in-chat.json): the chat screen's find (the ROOT's
+    /// transcript only), this transcript's half of it, and its landing on
+    /// THE deep-link scroll path (the stop's key as the link's target).
+    @Environment(\.chatFind) private var chatFind
+    @State private var transcriptFind = TranscriptFind()
+    @State private var findTaken: WaitingFocus?
+    @State private var findLink: WaitingCards.DeepLink?
+    @State private var findFrame: CGRect?
     /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
     /// person inputs, oldest first, drawn as the viewer's bubbles under a
     /// no-feed placeholder.
@@ -621,8 +629,18 @@ struct AgentSessionView: View {
 
     // MARK: - Feed
 
-    @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
+        // #EDE-130: find in chat runs with or without a feed (the store's
+        // and the device's older hits still count).
+        feedBodyContent(model)
+            .modifier(TranscriptFindDriver(
+                find: chatFind, transcriptFind: transcriptFind, model: model,
+                accountId: accountId, rootId: session.rootId, sessionId: session.id
+            ))
+    }
+
+    @ViewBuilder
+    private func feedBodyContent(_ model: AgentSessionModel) -> some View {
         if let placeholder = noFeedPlaceholder(model) {
             noFeedBody(placeholder, model: model)
         } else {
@@ -964,6 +982,8 @@ struct AgentSessionView: View {
                             // #EXP-1736 (transcript-grouping.json): who sent
                             // each row, its group, its avatar.
                             let grouping = feedGrouping(entries, anchors: toolCardAnchors, model: model)
+                            // #EDE-130: the row find in chat is landing on.
+                            let findEntry = findLink.flatMap { findEntryId($0.target, model: model) }
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -995,6 +1015,7 @@ struct AgentSessionView: View {
                                     }
                                     .equatable()
                                 }
+                                .deepLinkRow(entry.id == findEntry, frame: $findFrame)
                                 inlineToolCards(
                                     Self.rowItemIds(entry.row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
                                     model: model
@@ -1062,6 +1083,8 @@ struct AgentSessionView: View {
                 // EXP-1162: no `stickyHeaderFade` — the Work screen's header
                 // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
+                // #EDE-130: what the rows paint for find in chat.
+                .environment(\.findPaint, transcriptFind.paint)
                 // Large chats: the first layout starts at the bottom (the
                 // initial offset only, never re-anchored on size changes,
                 // EXP-70), so the opening pass sizes the newest rows, not the
@@ -1070,7 +1093,7 @@ struct AgentSessionView: View {
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
-                    hold: deepLink != nil,
+                    hold: deepLink != nil || findLink != nil || transcriptFind.holding,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
                 // steer-enet.json REPLAY TAIL: within one viewport of the
@@ -1079,7 +1102,7 @@ struct AgentSessionView: View {
                 // were reading once the page lands above it.
                 .modifier(LoadEarlierNearTop(
                     // A pending deep link pages for itself, one page at a time.
-                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier && deepLink == nil,
+                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier && deepLink == nil && findLink == nil,
                     load: {
                         let anchor = model.transcript.first?.id
                         loadEarlierMessages()
@@ -1113,6 +1136,25 @@ struct AgentSessionView: View {
                     onMissing: {
                         atBottom = true
                         proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    }
+                ))
+                // #EDE-130 (find-in-chat.json LANDING): THE deep-link path
+                // lands on find's current stop: page an older row in, reveal
+                // it, centre it, ring it (an output or paged-in stop only).
+                .modifier(DeepLinkScroll(
+                    focus: transcriptFind.focus, taken: $findTaken, link: $findLink,
+                    highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
+                    targetFrame: findFrame, proxy: proxy,
+                    ready: true, found: { findEntryId($0, model: model) != nil },
+                    more: model.canLoadEarlier,
+                    arrival: "\(model.transcript.first?.id ?? -1)",
+                    page: { model.loadEarlier() },
+                    centre: { key in
+                        if let entry = findEntryId(key, model: model) { proxy.scrollTo(entry, anchor: .center) }
+                    },
+                    onTake: {
+                        atBottom = false
+                        agentTab = nil
                     }
                 ))
                 .onAppear {
@@ -1309,7 +1351,7 @@ struct AgentSessionView: View {
             case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
                 // #FEED-256: a blank narration draws nothing.
                 EmptyView()
-            case let .narration(_, text, _, _, at):
+            case let .narration(id, text, _, _, at):
                 // #EXP-1736: the agent's prose = THE message bubble under its
                 // avatar. #VAPP-258: the live tail is the reply being written.
                 // #EXP-1864: its first fragment's `HH:mm`.
@@ -1317,6 +1359,7 @@ struct AgentSessionView: View {
                     text, layout: layout, streaming: isLast && model?.agentWorking == true,
                     time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 )
+                .modifier(FindRowMark(id: id))
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _)
@@ -1334,7 +1377,7 @@ struct AgentSessionView: View {
                     preview: preview, output: output, live: id == liveToolRowId,
                     script: script, settledAt: settledAt
                 )
-            case let .userMessage(_, text, _, at):
+            case let .userMessage(id, text, _, at):
                 // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                 let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 // EXP-724: a steered slash command is a control action, not
@@ -1361,13 +1404,16 @@ struct AgentSessionView: View {
                     // its name ` ›` above it the only press; #FEED-238: it
                     // folds like every bubble.
                     senderBubble(input.body, layout: layout, streaming: false, time: time)
+                        .modifier(FindRowMark(id: id))
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
                     // origin's bubble (the session that started this one).
                     senderBubble(text, layout: layout, streaming: false, time: time)
+                        .modifier(FindRowMark(id: id))
                 } else {
                     // #FEED-237: the live transcript's echo of the turn = two checks.
                     UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read, tail: layout?.tail == true)
+                        .modifier(FindRowMark(id: id))
                 }
             case let .question(question):
                 questionCard(question)
@@ -1416,8 +1462,8 @@ struct AgentSessionView: View {
             // #EXP-1876: the group's first bubble wears THE tail.
             tail: layout?.tail == true
         ) {
-            // #FEED-238: every bubble folds, a relay's too.
-            MessageFold(text: text) {
+            // #EXP-1888: every bubble whole, a relay's too.
+            Group {
                 AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
             }
         }
@@ -1668,7 +1714,8 @@ struct AgentSessionView: View {
                 settled: settled, preview: preview,
                 refs: markdownContext.issueRefs, output: output, live: live,
                 kind: kind,
-                testResults: callId.flatMap { model?.testResults[$0] }
+                testResults: callId.flatMap { model?.testResults[$0] },
+                findId: item.id
             )
         }
     }
@@ -1711,6 +1758,13 @@ struct AgentSessionView: View {
     private static func callId(_ item: AgentFeedItem) -> String? {
         guard case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item else { return nil }
         return callId
+    }
+
+    /// #EDE-130: the transcript entry drawing find key `key` (nil = not in
+    /// the painted window yet).
+    private func findEntryId(_ key: String, model: AgentSessionModel) -> Int? {
+        guard let id = transcriptFind.itemId(key) else { return nil }
+        return model.transcript.first { Self.rowItemIds($0.row).contains(id) }?.id
     }
 
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
@@ -2998,48 +3052,10 @@ struct NarrationBubble: View {
     }
 }
 
-/// #FEED-238 THE FOLD ×4 (transcript-grouping.json `fold`): a message
-/// bubble's text past `TranscriptGrouping.messageFolds` shows its first
-/// `fold.lines` lines (a block render has no `lineLimit`, so a clipped
-/// height cap, QuestionCard's approach), then THE transcript's Show more /
-/// Show less text button under it. Every bubble: own, a member's, the
-/// chat's agent, a relay, a child's report.
-struct MessageFold<Content: View>: View {
-    /// The text `messageFolds` measures (a steer's PROSE, never its embeds).
-    let text: String
-    @ViewBuilder let content: () -> Content
-
-    @State private var expanded = false
-
-    /// `fold.lines` lines of the body text.
-    static var foldHeight: CGFloat {
-        UIFont.preferredFont(forTextStyle: .body).lineHeight * CGFloat(TranscriptGrouping.Fold.lines)
-    }
-
-    var body: some View {
-        if TranscriptGrouping.messageFolds(text) {
-            VStack(alignment: .leading, spacing: 4) {
-                content()
-                    .frame(maxHeight: expanded ? nil : Self.foldHeight, alignment: .top)
-                    .clipped()
-                Button(expanded ? TranscriptGrouping.Copy.showLess : TranscriptGrouping.Copy.showMore) {
-                    expanded.toggle()
-                }
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("message-fold-toggle")
-            }
-        } else {
-            content()
-        }
-    }
-}
-
 /// A human turn (EXP-78): the initial prompt or a steered message — the
 /// viewer's own side of THE message bubble (#EXP-1736 `MessageBubble`
 /// `.own`: right; #FEED-239 the whole column left of the viewer's avatar),
-/// long text folded (#FEED-238 `MessageFold`).
+/// always whole (#EXP-1888: a bubble never folds).
 struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
@@ -3068,13 +3084,10 @@ struct UserMessageBubble: View {
         let parsed = parsed
         // Wave D: trailing file lines split off exactly like the embeds.
         let hasImages = !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty
-        // Fold the PROSE, never the wire message: four embed lines are four
-        // more "lines" of nothing, and they used to push a two-line steer into
-        // the fold — which then hid the images the fold was measuring.
         let hasCaption = (caption?.isEmpty == false) || status != nil
         return MessageBubble(side: .own, hasFooter: hasCaption, tail: tail) {
             VStack(alignment: .leading, spacing: 4) {
-                MessageFold(text: hasImages ? parsed.text : text) {
+                Group {
                     if !hasImages {
                         AgentMarkdownText(
                             text: text,
@@ -3096,8 +3109,6 @@ struct UserMessageBubble: View {
                         }
                     }
                 }
-                // OUTSIDE the fold: the images are the point of the message,
-                // and a long prose clamp must never be what hides them.
                 if !parsed.attachmentIds.isEmpty {
                     AgentMarkdownText(
                         text: SteerImageMessage.build(
@@ -4175,6 +4186,10 @@ private struct ToolRow: View {
     /// A settled `execute`'s output parsed as a test run — ONCE, when its
     /// settle landed (`AgentSessionModel.testResults`), never per render.
     var testResults: TestResults? = nil
+    /// #EDE-130: the feed item find in chat paints this line as (nil = none).
+    var findId: Int? = nil
+
+    @Environment(\.findPaint) private var findPaint
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools keeps its own sentence + mark (as
@@ -4211,6 +4226,16 @@ private struct ToolRow: View {
         return Trace.failedTests(testResults)
     }
 
+    /// #EDE-130 (find-in-chat.json): the line with find's marks on its
+    /// title and, while its output matches, `outputHint` beside it.
+    private func findLine(_ model: TraceLineModel) -> some View {
+        let mark = findId.flatMap { id in findPaint?.mark(id) }
+        let hint = findId.flatMap { id in findPaint?.outputHits[id] }.map(FindInChat.outputHint)
+        let shown = hint.map { TraceLineModel(icon: model.icon, title: model.title, description: $0, status: model.status) } ?? model
+        return TraceLine(shown, size: .sm)
+            .environment(\.traceTitleMarks, mark.flatMap { FindMarks.title(model.title, mark: $0) })
+    }
+
     @ViewBuilder
     private var genericRow: some View {
         TraceStack(size: .sm) {
@@ -4219,13 +4244,13 @@ private struct ToolRow: View {
             // call's own "Ran …" line, as on web, desktop and Android.
             if let failedTests, let shownOutput {
                 TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
-                    TraceLine(failedTests, size: .sm)
+                    findLine(failedTests)
                 } content: {
                     CodeBlockView(shownOutput, language: .ansi, destructive: true)
                 }
             } else if let shownOutput {
                 TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
-                    TraceLine(line, size: .sm)
+                    findLine(line)
                 } content: {
                     CodeBlockView(
                         shownOutput,
@@ -4234,10 +4259,12 @@ private struct ToolRow: View {
                     )
                 }
             } else {
-                TraceLine(line, size: .sm)
+                findLine(line)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // An output stop (or a paged-in one) rings the row.
+        .waitingHighlight(findId != nil && findPaint?.ring == findId)
     }
 }
 
@@ -4461,6 +4488,13 @@ private struct ToolGroupRow: View {
     var testResults: [String: TestResults] = [:]
 
     @State private var expanded = false
+    /// #EDE-130: a stop inside the fold opens it (it stays open, like a tap).
+    @Environment(\.findPaint) private var findPaint
+
+    private var findOpens: Bool {
+        guard let open = findPaint?.openGroups, !open.isEmpty else { return false }
+        return items.contains { open.contains($0.id) }
+    }
 
     /// EXP-785: the collapsed caption is what the calls DID ("Ran 3 commands
     /// · edited 2 files"), the one summary every client derives from the
@@ -4502,7 +4536,8 @@ private struct ToolGroupRow: View {
                             settled: settled, preview: preview, refs: refs,
                             output: output, live: liveTail && id == items.last?.id,
                             kind: kind,
-                            testResults: callId.flatMap { testResults[$0] }
+                            testResults: callId.flatMap { testResults[$0] },
+                            findId: id
                         )
                     }
                 }
@@ -4521,6 +4556,23 @@ private struct ToolGroupRow: View {
                 .padding(.top, Trace.Geometry.sm.contentTop)
             }
         }
+        .onChange(of: findOpens, initial: true) { _, open in
+            if open { expanded = true }
+        }
+    }
+}
+
+/// #EDE-130 (find-in-chat.json): a bubble's find marks (genUI's
+/// `highlight` on its markdown, the current match when it is the current
+/// stop's row) and its ring when a landing rings it.
+struct FindRowMark: ViewModifier {
+    let id: Int
+    @Environment(\.findPaint) private var findPaint
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.findMark, findPaint?.mark(id))
+            .waitingHighlight(findPaint?.ring == id)
     }
 }
 
@@ -4693,7 +4745,7 @@ struct SubagentItemRow: View {
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
                 MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }, tail: tail) {
-                    MessageFold(text: text) {
+                    Group {
                         AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
                     }
                 }
@@ -5175,7 +5227,9 @@ extension AppDependencies {
                 accountId: accountId,
                 session: session,
                 currentUserId: auth.userId,
-                sessionsApi: SessionsApi(trpc: trpc),
+                // #EXP-1956: the install's api, the one holding the sealer
+                // (a fresh `SessionsApi` sends in clear).
+                sessionsApi: sessionsApi,
                 attachmentsApi: attachmentsApi,
                 issuesApi: issuesApi,
                 db: db

@@ -1,0 +1,7 @@
+- Long-press a picture to Copy image or Share it
+- A picture or video from another website shows as a link and is never loaded
+- New chats are encrypted by default; a chat's mark shows when it is shared or not encrypted
+- Calls keep their sound on a headset you plug in or connect mid-call
+- Leaving the app while a call rings keeps the call
+- A call whose connection died says so instead of hanging
+- Computer use follows the device's switch in the + menu

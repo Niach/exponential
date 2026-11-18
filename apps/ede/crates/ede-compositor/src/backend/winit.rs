@@ -30,7 +30,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
         "winit".to_string(),
         PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into(), serial_number: "Unknown".into() },
     );
-    let _global = output.create_global::<Ede>(&state.display_handle);
+    let _global = state.person_output_global(&output);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
     state.add_output(&output);
@@ -44,8 +44,9 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
         .and_then(|d| d.try_get_render_node().ok().flatten());
     let feedback = node.and_then(|n| DmabufFeedbackBuilder::new(n.dev_id(), formats.clone()).build().ok());
     let global = match &feedback {
-        Some(f) => state.dmabuf_state.create_global_with_default_feedback::<Ede>(&state.display_handle, f),
-        None => state.dmabuf_state.create_global::<Ede>(&state.display_handle, formats),
+        // #EDE-125: GPU buffers are the person's clients' alone.
+        Some(f) => state.dmabuf_state.create_global_with_filter_and_default_feedback::<Ede, _>(&state.display_handle, f, crate::desk::on_person),
+        None => state.dmabuf_state.create_global_with_filter::<Ede, _>(&state.display_handle, formats, crate::desk::on_person),
     };
     let _ = global;
     let backend = Rc::new(RefCell::new(backend));

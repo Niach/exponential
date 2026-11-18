@@ -358,7 +358,7 @@ jobs:
       # The vendored gpui-pre-windows' run in check-desktop-windows.yml.
       - name: Vendored gpui-pre-linux patch tests
         working-directory: apps/desktop
-        run: cargo test --locked -p gpui-pre-linux --lib -- uri_list input_shape pointer_left
+        run: cargo test --locked -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard
 
   # systemd 258 expands `${VAR}` in a scope's argv, which would put agent
   # secrets on `ps`. The Mint's runner container has no systemd, so this runs
@@ -422,6 +422,10 @@ jobs:
       - name: Build the Engine facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p eengine-ffi --release --features cli --locked
+      # #EDE-114: the chat store's facade, loaded by ChatStoreManagerTest.
+      - name: Build the chat store facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p chat-store-ffi --release --locked
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v4

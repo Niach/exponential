@@ -31,7 +31,8 @@ use smithay::{
 
 use crate::{
     config::Config,
-    desk::DeskId,
+    desk::{on_person, DeskId},
+    handlers::layer_shell::is_sealed_prompt,
     layout::{self, Rect, Tile},
 };
 
@@ -55,6 +56,9 @@ pub struct Ede {
     pub data_device_state: DataDeviceState,
     /// The person's desk: seat, windows, clipboard, cursor ([`crate::desk`]).
     pub desk: crate::desk::Desk,
+    /// The agent spaces: each a desk of its own beside the person's
+    /// ([`crate::spaces`]). The person's desk is in no collection.
+    pub spaces: crate::spaces::Spaces,
 
     /// Set by a backend that owns a seat session: switch to VT n.
     pub vt_switch: Option<Box<dyn FnMut(i32)>>,
@@ -114,6 +118,13 @@ pub struct Ede {
     pub fatal: Option<String>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
     pub debug_captures: bool,
+    /// A test's own process standing in for `exponential-sealed` (as
+    /// [`Ede::begin_sealed_lock_as`] does for the lock): a layer surface it
+    /// maps meanwhile is a sealed one ([`crate::sealed::origin_of`]). It
+    /// decides what counts as sealed, so only code inside this process
+    /// sets it (the headless tests): no protocol request, no config key
+    /// and no environment variable ever does. Always `None` in a session.
+    pub sealed_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
     pub frame_serial: u64,
@@ -156,13 +167,14 @@ impl Ede {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new_with_filter::<Self, _>(&dh, on_person);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let mut seat_state = SeatState::new();
 
-        let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
+        // #EDE-125: the person's seat is announced to the person's clients only.
+        let mut seat: Seat<Self> = seat_state.new_wl_seat_with_filter(&dh, "seat0", on_person);
         #[cfg(feature = "xwayland")]
         let mut x11_focus_seat = seat_state.new_seat("x11-focus");
         // smithay's Wayland enter wants a keyboard on the seat; no client
@@ -222,6 +234,7 @@ impl Ede {
                 workspaces: crate::workspaces::Workspaces::default(),
                 title_click: None,
             },
+            spaces: Default::default(),
             vt_switch: None,
             autostart: Vec::new(),
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
@@ -235,24 +248,25 @@ impl Ede {
             xwm: None,
             #[cfg(feature = "xwayland")]
             xdisplay: None,
-            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
+            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, on_person),
             lock: crate::lock::LockState::default(),
             idle_notifier,
             idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh),
             idle: crate::idle::Idle::default(),
-            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
+            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, on_person),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
-            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
+            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, on_person),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
-            xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
+            xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new_with_filter::<Self, _>(&dh, on_person),
             xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
             debug_captures: false,
+            sealed_stand_in: None,
             frame_serial: 0,
             config_path: None,
         }
@@ -275,6 +289,9 @@ impl Ede {
                 Ok(path) => tracing::info!("ede-protocol on {}", path.display()),
                 Err(e) => tracing::warn!("ede-protocol socket: {e}"),
             }
+            // The agent spaces' directories live beside it; nothing of an
+            // earlier compositor of this name is kept (#EDE-125).
+            self.spaces.open(std::path::Path::new(&runtime).join("exponential-desktop").join(format!("{}.spaces", name.to_string_lossy())));
         }
         Ok(name)
     }
@@ -333,6 +350,13 @@ impl Ede {
             cmd.env("DISPLAY", format!(":{n}"));
         }
         Some(cmd)
+    }
+
+    /// The `wl_output` global of one of the person's outputs: announced to
+    /// the person's clients only (#EDE-125). Every backend makes its
+    /// outputs' globals here.
+    pub fn person_output_global(&self, output: &Output) -> smithay::reexports::wayland_server::backend::GlobalId {
+        output.create_global_with_filter::<Ede, _>(&self.display_handle, on_person)
     }
 
     /// Lays outputs out left to right in the order they were added, unless
@@ -434,7 +458,12 @@ impl Ede {
         }
         if let Some(window) = self.fullscreen_on(output) {
             // #EDE-103: the output draws only that window (and its popups):
-            // nothing hidden behind it takes the pointer.
+            // nothing hidden behind it takes the pointer. #EDE-107: but a
+            // sealed prompt, drawn above it.
+            let prompt = sealed_prompt_under(&layer_map_for_output(output), output_geo.loc, pos);
+            if prompt.is_some() {
+                return prompt;
+            }
             let location = self.desk.space.element_location(&window)? - window.geometry().loc;
             return window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + location).to_f64()));
         }
@@ -761,6 +790,15 @@ fn layer_surface_under(layers: &LayerMap, origin: Point<i32, Logical>, layer: Wl
     })
 }
 
+/// The topmost sealed prompt ([`is_sealed_prompt`]) under `pos`, or its
+/// popup: what a fullscreen window does not hide (#EDE-107).
+fn sealed_prompt_under(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    layers.layers().rev().filter(|l| is_sealed_prompt(l)).find_map(|l| {
+        let loc = layers.layer_geometry(l)?.loc + origin;
+        l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
+    })
+}
+
 /// What the shell draws above every window at `pos`: a popup of an overlay
 /// or top layer (the scene draws a layer's popups above the whole layer, so
 /// they take the hit first), then those layers themselves.
@@ -798,6 +836,8 @@ fn tile_edges(tile: Tile) -> Vec<xdg_toplevel::State> {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// The desk its socket belongs to; the person's unless said otherwise.
+    pub desk: DeskId,
 }
 
 impl ClientData for ClientState {

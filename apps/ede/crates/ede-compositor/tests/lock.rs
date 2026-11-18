@@ -250,6 +250,70 @@ fn protected_windows_are_never_captured_or_driven() {
     assert_eq!(h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false)), Err(Refused::Locked));
 }
 
+/// #EDE-121: a sealed prompt (polkit, consent, share) on the plain desktop
+/// is the person's to see and black in everything else: a shared frame, a
+/// capture over the protocol, a `since` capture; a window's preview never
+/// has it.
+#[test]
+fn a_sealed_prompt_on_the_desktop_is_black_in_every_capture() {
+    use ede_protocol::CaptureTarget;
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    const GREEN: u32 = 0xff00_ff00;
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("notes");
+    app.draw(&t, 600, 400, RED);
+    let (cx, cy) = {
+        let frame = h.capture(0);
+        (frame.width / 2, frame.height / 2)
+    };
+    // A corner of the window the prompt (200×100, centred) leaves uncovered.
+    let (wx, wy) = h.with(|ede| {
+        let g = ede.desk.space.element_geometry(ede.desk.space.elements().last().unwrap()).unwrap();
+        (g.loc.x + 5, g.loc.y + 5)
+    });
+    assert!(wx < cx - 100 && wy < cy - 50);
+
+    // The test's own process plays `exponential-sealed` while the prompt maps.
+    let mut sealed = Session::connect(h.connect());
+    let pid = std::process::id();
+    h.with(move |ede| ede.sealed_stand_in = Some(pid));
+    let l = sealed.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    h.with(|ede| ede.sealed_stand_in = None);
+    sealed.draw_layer(&l, BLUE);
+    // Any other client's overlay is captured as drawn: (0, 0) to (40, 40).
+    let mut shell = Session::connect(h.connect());
+    let toast = shell.layer("toast", wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor::Top | wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor::Left, (40, 40), 0);
+    shell.draw_layer(&toast, GREEN);
+    wait_for(&mut sealed, |_| {
+        let frame = h.capture(0);
+        (frame.at(cx, cy), frame.at(5, 5)) == (BLUE, GREEN)
+    });
+    assert_eq!(h.capture(0).at(wx, wy), RED);
+
+    let prompt = [(cx - 100, cy - 50), (cx, cy), (cx + 99, cy + 49)];
+    let shared = h.capture_shared(0);
+    for (x, y) in prompt {
+        assert_eq!(shared.at(x, y), BLACK, "the prompt leaked into a shared frame at ({x}, {y})");
+    }
+    assert_eq!((shared.at(wx, wy), shared.at(5, 5)), (RED, GREEN), "everything else still shows");
+
+    let mut ipc = h.ipc();
+    let output = CaptureTarget::Output { name: "HEADLESS-1".into() };
+    let shot = ipc.capture(output.clone()).unwrap();
+    let since = ipc.capture_since(output, None).unwrap().expect("a first capture has pixels");
+    for (x, y) in prompt {
+        assert_eq!(shot.at(x, y), BLACK, "the prompt leaked into a capture at ({x}, {y})");
+        assert_eq!(since.at(x, y), BLACK, "the prompt leaked into a since capture at ({x}, {y})");
+    }
+    assert_eq!((shot.at(wx, wy), since.at(wx, wy), shot.at(5, 5)), (RED, RED, GREEN));
+
+    let id = ipc.windows().unwrap()[0].id.clone();
+    let preview = ipc.capture(CaptureTarget::Window { window: id }).unwrap();
+    assert_eq!((preview.info.width, preview.info.height), (600, 400));
+    assert_eq!((preview.at(300, 200), preview.at(5, 5)), (RED, RED), "a window's preview is the window alone");
+}
+
 #[test]
 fn a_virtual_keyboard_cannot_type_into_a_protected_window() {
     let h = harness(Config::default());

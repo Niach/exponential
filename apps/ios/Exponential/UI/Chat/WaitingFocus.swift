@@ -117,6 +117,10 @@ struct DeepLinkScroll: ViewModifier {
     var arrival = ""
     /// One older page (the transcript's Load earlier); false = none came.
     var page: () -> Bool = { false }
+    /// #EDE-130: centres the target when it is drawn under another id (a
+    /// find key's transcript row, an `Int`: the proxy matches ids by their
+    /// own type); nil = `proxy.scrollTo(target)` (a card).
+    var centre: ((String) -> Void)? = nil
     /// The link was taken: stop following the newest row.
     var onTake: () -> Void = {}
     /// The link settled `missing`: back to the newest rows.
@@ -233,12 +237,12 @@ struct DeepLinkScroll: ViewModifier {
         case .none:
             break
         case .reveal:
-            proxy.scrollTo(target, anchor: .center)
+            scrollToCentre(target)
             schedule(afterMs: 50)
         case .scroll:
             let duration = DesignTokens.Motion.Duration.standard
             animatingUntil = Date().addingTimeInterval(duration)
-            withAnimation(motion.standard) { proxy.scrollTo(target, anchor: .center) }
+            withAnimation(motion.standard) { scrollToCentre(target) }
             schedule(afterMs: duration * 1000 + 50)
         case .page:
             if !page() {
@@ -251,6 +255,10 @@ struct DeepLinkScroll: ViewModifier {
         case .missing:
             onMissing()
         }
+    }
+
+    private func scrollToCentre(_ target: String) {
+        if let centre { centre(target) } else { proxy.scrollTo(target, anchor: .center) }
     }
 
     private func ring(_ id: String) {

@@ -91,6 +91,10 @@ use steer::{
 use theme::tokens::transcript;
 
 use crate::composer_images::{self, PendingImages};
+// #EDE-129: find in chat over this transcript (the bar, stops, landing).
+#[path = "chat_find.rs"]
+mod chat_find;
+pub(crate) use chat_find::{find_key_bindings, request_find, find_shortcut_hint, FindInChat};
 use crate::controls::{text_button, TextButtonVariant, WebText as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
@@ -577,6 +581,8 @@ pub(crate) struct SteerSessionView {
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
     picked: HashMap<String, Vec<String>>,
+    /// #EDE-129: find in chat's bar while it is open.
+    find: Option<chat_find::ChatFind>,
     /// Expanded tool-run / subagent group rows, and expanded long bodies.
     expanded_groups: HashSet<FeedItemId>,
     expanded_bodies: HashSet<FeedItemId>,
@@ -1001,6 +1007,7 @@ impl SteerSessionView {
             notice: None,
             picked: HashMap::new(),
             images: image_cache,
+            find: None,
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
             extras: crate::session_extras::LocalExtras::default(),
@@ -2142,7 +2149,9 @@ impl SteerSessionView {
         // #VAPP-258: the live reply (the run's last item, a narration, while
         // live) streams, as `render_narration` did.
         let streaming = self.streaming_row().and_then(|ix| self.row_keys.get(ix)).map(|key| row_key(key.id));
-        let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref();
+        // #EDE-129: find in chat's marks (a moved stop pushes the bubbles).
+        let find = self.find_frame(cx);
+        let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref() || self.chat.find_moved(find.as_ref());
         let chips_moved = self.chat.revision() != revision;
         if rows_moved || (chips_moved && self.chat_cycle.ready(cx, |view| &mut view.chat_cycle)) {
             let _span = tracing::trace_span!("steer.chat_push").entered();
@@ -2236,7 +2245,7 @@ impl SteerSessionView {
                 on_open_link: Some(std::rc::Rc::new(crate::links::link_opener(team_id.clone()))),
                 chip_team: team_id,
             };
-            let push = ChatPush { session_id: self.session_id.clone(), prose, host_rows, senders, streaming };
+            let push = ChatPush { session_id: self.session_id.clone(), prose, host_rows, senders, streaming, find };
             // The new and changed host rows measure where the document is
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
@@ -5075,16 +5084,20 @@ fn lower_first(text: &str) -> String {
     }
 }
 
-/// A body long enough to fold behind "Show more": #FEED-238 THE FOLD ×4
-/// (transcript-grouping.json `messageFolds`: over `fold.chars` characters
-/// or `fold.lines` lines).
-pub(crate) fn clampable(text: &str) -> bool {
-    domain::transcript_grouping::message_folds(text)
+/// A question card's body folds behind "Show more" past this many lines
+/// or characters (web `QuestionCard`'s `CLAMP_LINES` / `CLAMP_CHARS`).
+/// #EXP-1888: chat message bubbles never fold; only card bodies do.
+const CARD_FOLD_LINES: usize = 6;
+const CARD_FOLD_CHARS: usize = 600;
+
+/// A card body long enough to fold behind "Show more".
+fn card_clampable(text: &str) -> bool {
+    text.encode_utf16().count() > CARD_FOLD_CHARS || text.split('\n').count() > CARD_FOLD_LINES
 }
 
-/// #FEED-238: a folded body shows its first `fold.lines` lines.
+/// A folded card body shows its first [`CARD_FOLD_LINES`] lines.
 fn fold_height() -> Pixels {
-    px(domain::transcript_grouping::fold().lines as f32 * theme::tokens::transcript::BODY_LINE_HEIGHT)
+    px(CARD_FOLD_LINES as f32 * theme::tokens::transcript::BODY_LINE_HEIGHT)
 }
 
 /// The composer's hint. EXP-724: the `/` menu is invisible until it is
@@ -6444,15 +6457,13 @@ impl SteerSessionView {
         if domain::transcript_grouping::is_blank_text(&text) {
             return div().into_any_element();
         }
-        // #FEED-238 THE FOLD: the agent's bubble folds too (never while it
-        // streams).
-        let folds = !streaming && clampable(&text);
+        // #EXP-1888: the whole reply, never folded.
         let view = self.with_issue_chips(
             self.prose(SharedString::from(format!("steer-narration-{id}")), text).streaming(streaming),
             cx,
         );
         let layout = self.item_layout(id);
-        let body = self.fold_element(id, body_text(div()).min_w_0().child(view).into_any_element(), folds, cx);
+        let body = div().w_full().min_w_0().child(body_text(div()).min_w_0().child(view)).into_any_element();
         crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-bubble-{id}")),
@@ -6586,7 +6597,7 @@ impl SteerSessionView {
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
                         body: if relay {
-                            self.render_body_folding(item.id, body, true, cx)
+                            self.render_body_folding(item.id, body, false, cx)
                         } else {
                             self.render_user_message(item.id, body, cx)
                         },
@@ -6975,9 +6986,9 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// A body that folds behind "Show more" once it runs long.
+    /// A message bubble's body: #EXP-1888 always whole, never folded.
     fn render_body(&self, id: FeedItemId, text: &str, cx: &mut gpui::Context<Self>) -> AnyElement {
-        self.render_body_folding(id, text, true, cx)
+        self.render_body_folding(id, text, false, cx)
     }
 
     /// EXP-895 — the mode row `item` renders in: [`ToolRowMode::Live`] for the
@@ -7175,7 +7186,11 @@ impl SteerSessionView {
             }
             None => {
                 let model = steer::trace::trace_tool(kind, name, detail.as_deref(), *settled, *failed);
-                let line = TraceLine::from_model(("steer-tool", id as usize), &model);
+                // #EDE-129: find in chat's marks on the title, its output's hint.
+                let mut line = TraceLine::from_model(("steer-tool", id as usize), &model).marks(self.find_title_marks(item, &model.title));
+                if let Some(hint) = self.find_output_hint(item) {
+                    line = line.description(Some(hint));
+                }
                 match printed {
                     Some(printed) => {
                         let open = self.expanded_extras.contains(&id);
@@ -7504,11 +7519,11 @@ impl SteerSessionView {
             .images(self.images.clone()),
             cx,
         );
-        self.fold_element(id, view.into_any_element(), fold && clampable(text), cx)
+        self.fold_element(id, view.into_any_element(), fold && card_clampable(text), cx)
     }
 
-    /// #FEED-238 THE FOLD: `view` folded to its first `fold.lines` lines
-    /// behind THE "Show more" / "Show less" text button when `folds`.
+    /// A card body folded to its first [`CARD_FOLD_LINES`] lines behind
+    /// THE "Show more" / "Show less" text button when `folds`.
     fn fold_element(&self, id: FeedItemId, view: AnyElement, folds: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
         if !folds {
             return div().w_full().min_w_0().child(view).into_any_element();
@@ -7529,11 +7544,7 @@ impl SteerSessionView {
                 // of this view's own.
                 text_button(
                     ("steer-body-toggle", id as usize),
-                    if expanded {
-                        domain::transcript_grouping::copy().show_less.as_str()
-                    } else {
-                        domain::transcript_grouping::copy().show_more.as_str()
-                    },
+                    if expanded { "Show less" } else { "Show more" },
                     TextButtonVariant::Text,
                     cx,
                 )
@@ -8228,7 +8239,7 @@ impl SteerSessionView {
             .w_full()
             .min_w_0()
             .mt_1p5()
-            .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
+            .child(ask_body_text(cx).child(self.render_body_folding(item.id, &text, true, cx)))
             .child(self.render_prompt(item, active, false, true, window, cx))
             .child(
                 div().mt_1p5().child(
@@ -10286,6 +10297,8 @@ impl Render for SteerSessionView {
         }
         self.dev_scroll_to_script_card(window);
         self.dev_type_composer_text(window, cx);
+        self.take_find_request(window, cx);
+        let find_bar = self.render_find_bar(window, cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = {
@@ -10338,8 +10351,10 @@ impl Render for SteerSessionView {
                     .children(sheet),
             );
         v_flex()
-            .key_context("SteerSession")
+            .key_context(chat_find::KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &FindInChat, window, cx| this.open_find(window, cx)))
+            .children(find_bar)
             // EXP-820: the card keyboard lives on the ROOT — it has to work
             // with the composer hidden (a card pending) and while the
             // composer or the inline field is focused (both are descendants;
@@ -11248,13 +11263,12 @@ mod tests {
     }
 
     #[test]
-    fn long_bodies_fold_behind_show_more() {
-        assert!(!clampable("short"));
-        let fold = domain::transcript_grouping::fold();
-        assert!(clampable(&"x".repeat(fold.chars + 1)));
-        assert!(!clampable(&"x".repeat(fold.chars)));
-        assert!(clampable(&"line\n".repeat(fold.lines + 1)));
-        assert!(!clampable(&"line\n".repeat(fold.lines - 1)));
+    fn long_card_bodies_fold_behind_show_more() {
+        assert!(!card_clampable("short"));
+        assert!(card_clampable(&"x".repeat(CARD_FOLD_CHARS + 1)));
+        assert!(!card_clampable(&"x".repeat(CARD_FOLD_CHARS)));
+        assert!(card_clampable(&"line\n".repeat(CARD_FOLD_LINES + 1)));
+        assert!(!card_clampable(&"line\n".repeat(CARD_FOLD_LINES - 1)));
     }
 
 

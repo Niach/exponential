@@ -38,7 +38,7 @@ pub(crate) const SCROLL: &str = "chat_scroll";
 /// The document's host row (an Embed): `chat_row_host.<key>` once painted.
 pub(crate) const HOST_NODE: &str = "chat_row_host";
 /// What the IDE draws itself: the eDE home, the header, the composer.
-pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_footer"];
+pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_find", "chat_footer"];
 /// The paging sentinel's row id (the old list's top padding, `pt_2`).
 pub(crate) const PAGE_ROW: &str = "page";
 const PAGE_HEIGHT: f32 = 8.;
@@ -95,18 +95,12 @@ pub(crate) struct RowFacts<'a> {
     pub at: Option<i64>,
 }
 
-/// A prompt the document's bubble shows as the IDE did: no picture
-/// markers, no file chips, short enough that the IDE never folded it.
+/// A prompt (or #EXP-1772 a relay) the document's bubble shows as the IDE
+/// did: no picture markers, no file chips (#EXP-1888: any length, a bubble
+/// never folds).
 pub(crate) fn prompt_is_plain(text: &str) -> bool {
     let parsed = steer::parse_steer_message(text);
-    parsed.files.is_empty() && parsed.attachment_ids.is_empty() && !crate::steer_viewer::clampable(text)
-}
-
-/// #EXP-1772: a relay the document's bubble shows whole (no picture
-/// markers, no file chips); #FEED-238: one that folds is the IDE's bubble.
-fn plain_relay(text: &str) -> bool {
-    let parsed = steer::parse_steer_message(text);
-    parsed.files.is_empty() && parsed.attachment_ids.is_empty() && !crate::steer_viewer::clampable(text)
+    parsed.files.is_empty() && parsed.attachment_ids.is_empty()
 }
 
 /// The document's gap spacers (3, 8, 12, 16 px): the nearest one.
@@ -121,8 +115,7 @@ fn spacer(gap: f32) -> u32 {
 /// prompt or the agent's narration (no cards beside it, nothing to fold),
 /// else a host row. #FEED-239: the viewer's OWN bubble is the IDE's row (it
 /// wears the viewer's avatar on the right, [`crate::session_chat::own_row`],
-/// which the document's `out` bubble has no column for); #FEED-238: so is
-/// every bubble that folds (THE fold's Show more).
+/// which the document's `out` bubble has no column for).
 pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     let host = || ChatRowInput::Host { id: facts.key.to_string() };
     if facts.cards {
@@ -130,14 +123,13 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     }
     let sender = facts.layout.and_then(|layout| layout.sender.as_ref());
     let other = facts.layout.is_some_and(|layout| layout.side == TranscriptSide::Other);
-    let relay = other && sender.is_some_and(|sender| sender.link.is_some());
     let own = match facts.content {
         // #EXP-1772: a system input is THE marker, the IDE's own row.
         RowContent::Prompt(text) if matches!(feed_input(text), Some(FeedInput::Marker { .. })) => return host(),
-        RowContent::Prompt(text) if prompt_is_plain(text) || (relay && plain_relay(text)) => {
+        RowContent::Prompt(text) if prompt_is_plain(text) => {
             facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own)
         }
-        RowContent::Narration(text) if !crate::steer_viewer::clampable(text) => false,
+        RowContent::Narration(_) => false,
         _ => return host(),
     };
     if own {
@@ -175,6 +167,8 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
             // #EXP-1876: the group's first bubble wears THE tail.
             tail: facts.layout.is_some_and(|layout| layout.tail),
         }),
+        // #EDE-129: find in chat sets it at the push.
+        highlight: None,
     }
 }
 
@@ -280,6 +274,16 @@ pub(crate) struct ChatPush {
     pub senders: HashMap<String, (TranscriptSender, Option<Arc<gpui::Image>>)>,
     /// The live reply's row key (its bubble's Markdown streams).
     pub streaming: Option<String>,
+    /// #EDE-129: find in chat's marks on the bubbles.
+    pub find: Option<FindPaint>,
+}
+
+/// #EDE-129 (find-in-chat.json): the marks the bubbles paint: every match
+/// of `query`, the match `current = (row id, local index)` as the current one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FindPaint {
+    pub query: String,
+    pub current: Option<(String, usize)>,
 }
 
 /// The Chat tab's transcript: the mounted document, the host rows, the
@@ -297,6 +301,10 @@ pub(crate) struct ChatTranscript {
     count: usize,
     /// The live reply's row key at the last push.
     streaming_key: Option<String>,
+    /// #EDE-129: the find marks at the last push, and each bubble's match
+    /// count (row id → the genUI highlight count of its prepared body).
+    find: Option<FindPaint>,
+    find_counts: HashMap<String, usize>,
     /// The document's list follows its newest row (as of this frame's
     /// render; the document holds it, [`SurfaceView::keep_list_place`]).
     follow: bool,
@@ -331,6 +339,8 @@ impl ChatTranscript {
             revision: u64::MAX,
             count: 0,
             streaming_key: None,
+            find: None,
+            find_counts: HashMap::new(),
             follow: true,
             to_end: true,
             scroll_to: None,
@@ -411,6 +421,22 @@ impl ChatTranscript {
             }
         }
         self.streaming_key = push.streaming;
+        // #EDE-129: each bubble's matches, counted on what it paints.
+        self.find_counts.clear();
+        if let Some(find) = &push.find {
+            for row in &mut rows {
+                if let ChatRowInput::Message { id, body, highlight, .. } = row {
+                    let count = eui_gpui::paint::highlight::markdown_highlight_count(body, &find.query);
+                    self.find_counts.insert(id.clone(), count);
+                    let current = find.current.as_ref().filter(|(row, _)| row == id).map(|(_, local)| *local);
+                    *highlight = Some(match current {
+                        Some(local) => json!({"query": find.query, "current": local}),
+                        None => json!({"query": find.query}),
+                    });
+                }
+            }
+        }
+        self.find = push.find;
         // The reply that stopped streaming (or started) lays out again under
         // its new options (its text may be the same).
         let restream = {
@@ -468,6 +494,17 @@ impl ChatTranscript {
                 }
             });
         }
+    }
+
+    /// #EDE-129: the find marks differ from the last push's.
+    pub(crate) fn find_moved(&self, find: Option<&FindPaint>) -> bool {
+        self.find.as_ref() != find
+    }
+
+    /// #EDE-129: bubble `id`'s match count at the last push (`None` = not
+    /// a bubble of the document).
+    pub(crate) fn find_count(&self, id: &str) -> Option<usize> {
+        self.find_counts.get(id).copied()
     }
 
     /// The live reply's row key as last pushed.
@@ -900,6 +937,19 @@ impl HostPlugin for TranscriptHost {
         self.md.attachment(href, cx)
     }
 
+    // #EXP-1947: the source rule and THE image menu pass through.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        self.md.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.md.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.md.image_menu(target, picture, window, cx)
+    }
+
     fn markdown_hooks_version(&self, text: &str, cx: &App) -> Option<u64> {
         self.md.markdown_hooks_version(text, cx)
     }
@@ -1012,18 +1062,20 @@ mod tests {
         assert!(matches!(chat_row(&facts(RowContent::Prompt("Ship it"), None, 16., false)), ChatRowInput::Host { .. }));
     }
 
-    /// #FEED-238 THE FOLD: a bubble that folds is the IDE's row (its Show
-    /// more), the agent's narration and a relay included.
+    /// #EXP-1888: a bubble never folds, so a long one is the document's
+    /// bubble with its WHOLE text, the agent's narration and a relay included.
     #[test]
-    fn a_bubble_that_folds_is_the_ides_row() {
+    fn a_long_bubble_is_the_documents_whole_bubble() {
         let agent = TranscriptSender { kind: SenderKind::Agent, id: "ag1".into(), name: "Bro".into(), link: None };
         let first = layout(TranscriptSide::Other, Some(agent), true, true);
         let long = "word ".repeat(200);
-        assert!(matches!(chat_row(&facts(RowContent::Narration(&long), Some(&first), 12., false)), ChatRowInput::Host { .. }));
+        let ChatRowInput::Message { body, .. } = chat_row(&facts(RowContent::Narration(&long), Some(&first), 12., false)) else { panic!("a bubble") };
+        assert_eq!(body, long);
         let session = TranscriptSender { kind: SenderKind::Session, id: "s2".into(), name: "Fix login".into(), link: Some("s2".into()) };
         let relay = layout(TranscriptSide::Other, Some(session), true, true);
         let text = format!("Message from Fix login (session s2): {long}");
-        assert!(matches!(chat_row(&facts(RowContent::Prompt(&text), Some(&relay), 8., false)), ChatRowInput::Host { .. }));
+        let ChatRowInput::Message { body, .. } = chat_row(&facts(RowContent::Prompt(&text), Some(&relay), 8., false)) else { panic!("a bubble") };
+        assert_eq!(body, long);
     }
 
     #[test]
@@ -1061,7 +1113,7 @@ mod tests {
         assert!(host(chat_row(&facts(RowContent::Other, None, 12., false))));
         // Cards ride the row: the IDE paints it with them.
         assert!(host(chat_row(&facts(RowContent::Narration("Posted a plan."), None, 12., true))));
-        // A folded prompt, a picture, a file: the IDE's bubble.
+        // The viewer's own prompt (any length), a picture, a file: the IDE's bubble.
         let long = "word ".repeat(400);
         assert!(host(chat_row(&facts(RowContent::Prompt(&long), None, 12., false))));
         let picture = steer::build_steer_image_message("Look", &["a1".to_string()]);

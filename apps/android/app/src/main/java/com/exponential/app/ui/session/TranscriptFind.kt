@@ -1,0 +1,380 @@
+package com.exponential.app.ui.session
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import at.exponential.ui.primitives.Markdown
+import at.exponential.ui.primitives.MarkdownHighlight
+import at.exponential.ui.primitives.MarkdownHooks
+import at.exponential.ui.primitives.MarkdownOptions
+import at.exponential.ui.primitives.highlightCount
+import at.exponential.ui.primitives.markdownHighlightCount
+import com.exponential.app.data.chatstore.StoredChatHit
+import com.exponential.app.data.steer.SteerSearchResult
+import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.Chats
+import com.exponential.app.domain.ExpToolDisplay
+import com.exponential.app.domain.FindInChat
+import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.TraceLineModel
+import com.exponential.app.domain.Trace as TraceModels
+import com.exponential.app.domain.TranscriptGrouping
+import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.isScriptCall
+import com.exponential.app.domain.parseSteerMessage
+import com.exponential.app.domain.splitWorkflowToolRows
+import com.exponential.app.ui.chat.FindInChatState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// #EDE-130 (fixtures/find-in-chat.json): the transcript's half of find in
+// chat on Android: counts the WHOLE loaded feed (not the painted window),
+// merges the chat store's and the device's older hits, keeps the current
+// stop while answers arrive, lands on it through THE deep-link scroll path
+// ([rememberDeepLink]: page older until loaded, centre, ring) and reports
+// the counter and status line to the bar ([FindInChatState]).
+
+/** What find in chat asks of the session on show. */
+internal class TranscriptFindHost(
+    val sessionId: String,
+    val rootId: String,
+    /** The session's device: true = online, false = offline, null = unknown. */
+    val deviceOnline: Boolean?,
+    val deviceName: String,
+    val searchStore: suspend (rootId: String, query: String) -> List<StoredChatHit>?,
+    val searchDevice: suspend (query: String, beforeSeq: Long?) -> SteerSearchResult?,
+)
+
+internal val LocalTranscriptFindHost = staticCompositionLocalOf<TranscriptFindHost?> { null }
+
+/** text-highlight.json: the dark theme's `match` / `matchCurrent` fills. */
+internal object FindMarks {
+    val Match = Color(0x4DFACC15)
+    val MatchCurrent = Color(0x99F59E0B)
+}
+
+/** What the transcript's rows paint while a query is on. */
+@Immutable
+internal data class FindPaint(
+    val query: String,
+    /** The current stop's row and its local index (null = none painted). */
+    val currentKey: String?,
+    val currentLocal: Int,
+    /** Tool rows whose output matches → that output's match count (the hint). */
+    val outputHits: Map<String, Int>,
+    /** Feed item id → its find key. */
+    val keys: Map<Long, String>,
+) {
+    /** The genUI `highlight` of the row [key] ([highlight.current] = its local current). */
+    fun highlight(key: String?): MarkdownHighlight? {
+        if (key == null) return null
+        return MarkdownHighlight(query, if (key == currentKey) currentLocal else -1, FindMarks.Match, FindMarks.MatchCurrent)
+    }
+
+    fun highlightOf(itemId: Long): MarkdownHighlight? = highlight(keys[itemId])
+
+    fun outputHint(itemId: Long): String? = keys[itemId]?.let { outputHits[it] }?.let(FindInChat::outputHint)
+}
+
+internal val LocalFindPaint = compositionLocalOf<FindPaint?> { null }
+
+/** The find group key of a folded tool run (stable for the run's first call). */
+internal fun findGroupKey(items: List<AgentFeedItem>): String = "g:${items.first().id}"
+
+/** Every feed item's find key: `e:<session>:<seq>`; an item without a seq
+ *  (or one repeating a seq already keyed) gets its own local key. */
+internal fun transcriptFindKeys(feed: List<AgentFeedItem>, sessionId: String): Map<Long, String> {
+    val keys = HashMap<Long, String>(feed.size)
+    val seen = HashSet<String>()
+    for (item in feed) {
+        val seq = item.seq
+        val base = if (seq != null) FindInChat.eventKey(sessionId, seq) else "i:$sessionId:${item.id}"
+        keys[item.id] = if (seen.add(base)) base else "$base#${item.id}"
+    }
+    return keys
+}
+
+/** EXP-1324: a plain tool call's Trace line model (what [TraceToolRow] paints). */
+internal fun traceToolModel(item: AgentFeedItem.Tool, live: Boolean): TraceLineModel {
+    val tests = if (item.toolKind == "execute" && item.settled && item.output != null) {
+        TraceModels.failedTests(TraceModels.parseTestResults(item.output))
+    } else {
+        null
+    }
+    return tests ?: TraceModels.tool(
+        toolKind = item.toolKind ?: "other",
+        name = item.name,
+        detail = item.detail,
+        settled = item.settled || !live,
+        failed = item.failed,
+    )
+}
+
+/** A plain tool line's title (what [TraceToolRow] paints), or null for a
+ *  call drawn another way (a notice, a script card, a comment, our tools). */
+internal fun findToolTitle(item: AgentFeedItem.Tool, live: Boolean): String? {
+    if (TranscriptGrouping.traceNotice(item.name) != null || item.isScriptCall || isCommentCallCard(item)) return null
+    if (ExpToolDisplay.forName(item.name, item.settled) != null) return null
+    return traceToolModel(item, live).title
+}
+
+/** One countable loaded row with the feed item landing reveals. */
+internal data class TranscriptFindRow(val row: FindInChat.Row, val itemId: Long, val outputCount: Int)
+
+/** Markdown matches as genUI's Markdown paints them (its normal form). */
+internal fun findMarkdownCount(text: String, query: String): Int {
+    if (text.isBlank()) return 0
+    val blocks = Markdown.prepare(text, MarkdownHooks(options = MarkdownOptions(hardBreaks = true, chat = true)))
+    return markdownHighlightCount(blocks, query)
+}
+
+/**
+ * #EDE-130 (find-in-chat.json): the loaded transcript's countable rows for
+ * [query], top to bottom, over the WHOLE feed: a narration's and a person's
+ * bubble text (as the bubbles draw it), a plain tool line's title (+ its
+ * output's stop), a folded run's members (`group`); never thoughts, cards,
+ * markers or a subagent's rows.
+ */
+internal fun transcriptFindRows(
+    feed: List<AgentFeedItem>,
+    sessionId: String,
+    query: String,
+    workflowIds: Set<String> = emptySet(),
+    liveRowId: Long? = null,
+    agent: String? = null,
+    countMarkdown: (String) -> Int = { findMarkdownCount(it, query) },
+): List<TranscriptFindRow> {
+    if (query.isEmpty()) return emptyList()
+    val keys = transcriptFindKeys(feed, sessionId)
+    val shown = dropHiddenFeedRows(splitWorkflowToolRows(groupFeedRows(feed, 0, workflowIds), workflowIds))
+    val out = ArrayList<TranscriptFindRow>()
+    fun tool(item: AgentFeedItem.Tool, group: String?) {
+        val title = findToolTitle(item, live = item.id == liveRowId) ?: return
+        val output = item.output
+        val outputCount = if (output != null && item.id != liveRowId) highlightCount(output, query) else 0
+        out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), highlightCount(title, query), group, outputCount > 0), item.id, outputCount)
+    }
+    for (row in shown.rows) {
+        when (row) {
+            is AgentFeedRow.ToolRun -> {
+                val group = findGroupKey(row.items)
+                row.items.forEach { tool(it, group) }
+            }
+            is AgentFeedRow.Single -> when (val item = row.item) {
+                is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(item.text)) {
+                    out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(item.text)), item.id, 0)
+                }
+                is AgentFeedItem.UserMessage -> {
+                    val skip = shown.checkIns.containsKey(row.id) ||
+                        Chats.commandDivider(item.text) != null ||
+                        SlashCommands.commandFor(item.text, agent) != null
+                    val input = if (skip) null else TranscriptGrouping.feedInput(item.text)
+                    if (!skip && input !is TranscriptGrouping.FeedInput.Marker) {
+                        val text = (input as? TranscriptGrouping.FeedInput.Relay)?.body ?: item.text
+                        out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(findUserMessageProse(text))), item.id, 0)
+                    }
+                }
+                is AgentFeedItem.Tool -> if (item.diff.isNullOrEmpty() && item.callId !in workflowIds) tool(item, null)
+                else -> Unit
+            }
+            else -> Unit
+        }
+    }
+    return out
+}
+
+/** The searched prose of a person's bubble ([UserMessageBody]): its prose
+ *  without the image and file lines; a message naming its images
+ *  (`[Image #N]` pills) paints no marks. */
+internal fun findUserMessageProse(text: String): String {
+    val parsed = parseSteerMessage(text)
+    val images = parsed.attachmentIds.isNotEmpty()
+    if (images && parsed.markers.isNotEmpty()) return ""
+    return if (images || parsed.files.isNotEmpty()) parsed.text else text
+}
+
+private data class OlderAnswers(
+    val query: String,
+    val store: List<FindInChat.OlderHit> = emptyList(),
+    val device: List<FindInChat.OlderHit> = emptyList(),
+    val storePhase: FindInChat.Phase = FindInChat.Phase.None,
+    val devicePhase: FindInChat.Phase = FindInChat.Phase.None,
+)
+
+/** The transcript's find: what the rows paint and the landing to drive. */
+internal class TranscriptFind(
+    val paint: FindPaint?,
+    /** The pending landing ([rememberDeepLink]'s request; its id = the stop's key). */
+    val request: CardScrollRequest?,
+    /** The landing rings its row (an output or an older stop). */
+    val ring: Boolean,
+    /** Folded groups find opened (they stay open after the bar closes). */
+    val openGroups: Set<String>,
+    /** Feed item id → its find key. */
+    val keys: Map<Long, String>,
+)
+
+/** Whether a transcript row draws the feed item keyed [key]. */
+internal fun findRowHolds(row: AgentFeedRow, key: String, keys: Map<Long, String>): Boolean = when (row) {
+    is AgentFeedRow.Single -> keys[row.item.id] == key
+    is AgentFeedRow.ToolRun -> row.items.any { keys[it.id] == key }
+    is AgentFeedRow.Edits -> row.items.any { keys[it.id] == key }
+    is AgentFeedRow.ExpRun -> row.items.any { keys[it.id] == key }
+    else -> false
+}
+
+/** The folded groups find opened (a group row opens itself when it is in). */
+internal val LocalFindOpenGroups = compositionLocalOf<Set<String>> { emptySet() }
+
+/**
+ * The transcript half of find in chat (`ActivityFeed`): [find] = the bar
+ * (null = no find here), [canLoadEarlier] = the loaded stretch does not
+ * reach the session's first event.
+ */
+@Composable
+internal fun rememberTranscriptFind(
+    find: FindInChatState?,
+    host: TranscriptFindHost?,
+    feed: List<AgentFeedItem>,
+    workflowIds: Set<String>,
+    liveRowId: Long?,
+    agent: String?,
+    canLoadEarlier: Boolean,
+): TranscriptFind {
+    val query = if (host != null) find?.activeQuery.orEmpty() else ""
+    val sessionId = host?.sessionId.orEmpty()
+
+    // ── The loaded rows, counted off the main thread ─────────────────────
+    var counted by remember { mutableStateOf<Pair<String, List<TranscriptFindRow>>>("" to emptyList()) }
+    LaunchedEffect(query, feed, workflowIds, liveRowId, agent, sessionId) {
+        if (query.isEmpty()) {
+            counted = "" to emptyList()
+            return@LaunchedEffect
+        }
+        val rows = withContext(Dispatchers.Default) { transcriptFindRows(feed, sessionId, query, workflowIds, liveRowId, agent) }
+        counted = query to rows
+    }
+    val rows = if (counted.first == query) counted.second else emptyList()
+    val keys = remember(feed, sessionId) { if (sessionId.isEmpty()) emptyMap() else transcriptFindKeys(feed, sessionId) }
+
+    // ── Older hits (store, then device) ───────────────────────────────────
+    val lowest = feed.firstNotNullOfOrNull { it.seq }
+    val latestLowest by rememberUpdatedState(lowest)
+    val latestFromStart by rememberUpdatedState(!canLoadEarlier)
+    var older by remember { mutableStateOf(OlderAnswers("")) }
+    LaunchedEffect(query, host) {
+        if (query.isEmpty() || host == null) {
+            older = OlderAnswers("")
+            return@LaunchedEffect
+        }
+        val fromStart = latestFromStart
+        val askDevice = !fromStart && host.deviceOnline == true
+        older = OlderAnswers(
+            query,
+            storePhase = FindInChat.Phase.Searching,
+            devicePhase = when {
+                fromStart -> FindInChat.Phase.None
+                askDevice -> FindInChat.Phase.Searching
+                host.deviceOnline == false -> FindInChat.Phase.Offline
+                else -> FindInChat.Phase.None
+            },
+        )
+        launch {
+            val hits = runCatching { host.searchStore(host.rootId, query) }.getOrNull().orEmpty()
+                .filter { it.sessionId == host.sessionId && it.seq != null && it.kind in STORE_EVENT_KINDS }
+                .map { FindInChat.OlderHit(FindInChat.eventKey(host.sessionId, it.seq!!), output = it.kind == "tool_output") }
+            if (older.query == query) older = older.copy(store = hits, storePhase = FindInChat.Phase.Done)
+        }
+        if (askDevice) {
+            launch {
+                val result = runCatching { host.searchDevice(query, latestLowest) }.getOrNull()
+                val hits = result?.hits.orEmpty()
+                    .map { FindInChat.OlderHit(FindInChat.eventKey(host.sessionId, it.seq), output = it.kind == "tool_output") }
+                if (older.query == query) older = older.copy(device = hits, devicePhase = FindInChat.Phase.Done)
+            }
+        }
+    }
+    val olderHits = if (older.query != query) {
+        emptyList()
+    } else {
+        (older.store + older.device).filter { hit ->
+            val seq = FindInChat.eventSeq(hit.key)
+            lowest == null || (seq != null && seq < lowest)
+        }
+    }
+    val stops = remember(rows, olderHits) { FindInChat.stops(rows.map { it.row }, olderHits) }
+
+    // ── The current stop (kept by identity while answers arrive) ──────────
+    var current by remember { mutableStateOf<FindInChat.Stop?>(null) }
+    var nonce by remember { mutableIntStateOf(0) }
+    var request by remember { mutableStateOf<CardScrollRequest?>(null) }
+    var ring by remember { mutableStateOf(false) }
+    var openGroups by remember(sessionId) { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(query) {
+        current = null
+        if (query.isEmpty()) request = null
+    }
+    var index = current?.let { c -> stops.indexOfFirst { it.same(c) } } ?: -1
+    if (index < 0 && stops.isNotEmpty()) index = stops.lastIndex
+    val shown = stops.getOrNull(index)
+    val land: (FindInChat.Stop) -> Unit = { stop ->
+        current = stop
+        val landing = FindInChat.land(stop)
+        landing.openGroup?.let { group -> if (group !in openGroups) openGroups = openGroups + group }
+        ring = landing.ring
+        nonce += 1
+        request = CardScrollRequest(stop.key, nonce)
+    }
+    // A new query starts at the newest stop (once the loaded rows are
+    // counted for it) and lands there.
+    val rowsCounted = counted.first == query
+    LaunchedEffect(current == null, shown, rowsCounted) {
+        if (current == null && shown != null && rowsCounted) land(shown)
+    }
+    val step = find?.step
+    var stepSeen by remember { mutableIntStateOf(step?.n ?: 0) }
+    val latestStops by rememberUpdatedState(stops)
+    val latestIndex by rememberUpdatedState(index)
+    LaunchedEffect(step) {
+        if (step == null || step.n == stepSeen) return@LaunchedEffect
+        stepSeen = step.n
+        val list = latestStops
+        val next = FindInChat.step(latestIndex.takeIf { it >= 0 }, list.size, step.step) ?: return@LaunchedEffect
+        land(list[next])
+    }
+
+    // ── The bar's counter and status line ─────────────────────────────────
+    val done = older.query == query && counted.first == query &&
+        older.storePhase != FindInChat.Phase.Searching && older.devicePhase != FindInChat.Phase.Searching
+    val counter = if (query.isEmpty()) "" else FindInChat.counter(index.takeIf { it >= 0 }, stops.size, done, compact = true)
+    val status = if (query.isNotEmpty() && older.query == query) {
+        FindInChat.status(older.storePhase, older.devicePhase, host?.deviceName.orEmpty())
+    } else {
+        null
+    }
+    LaunchedEffect(find, counter, status) {
+        if (find != null && find.open) find.report(counter, status)
+    }
+
+    val outputHits = remember(rows) { rows.filter { it.outputCount > 0 }.associate { it.row.key to it.outputCount } }
+    val mark = shown?.takeIf { it.loaded && !it.output }
+    val paint = remember(query, mark?.key, mark?.local, outputHits, keys) {
+        if (query.isEmpty()) null else FindPaint(query, mark?.key, mark?.local ?: -1, outputHits, keys)
+    }
+    return TranscriptFind(paint, if (query.isEmpty()) null else request, ring, openGroups, keys)
+}
+
+/** The store's hit kinds that are transcript events of the session (a synced
+ *  `message` is the synced rows', drawn outside the feed). */
+private val STORE_EVENT_KINDS = setOf("user_message", "narration", "tool", "tool_output")

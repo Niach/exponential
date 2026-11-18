@@ -57,6 +57,8 @@ export const SESSION_COLUMNS = [
   `digest`,
   // #EXP-1720: the Assistant conversation root's Teams pick (null = all).
   `scope_team_ids`,
+  // #EXP-1961: a call session's call (the call card, phase 4).
+  `voice_call`,
   // VAPP-229: the app that started it ("via <app>", via-app.json; NOT
   // `app_id`, an editor session's app).
   `via_app_id`,

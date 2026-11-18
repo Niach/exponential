@@ -274,14 +274,6 @@ export function isBlankText(text: string | null | undefined): boolean {
   return true
 }
 
-export const TRANSCRIPT_FOLD = fixture.fold
-
-/** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than
- *  `fold.chars` characters or `fold.lines` lines folds behind Show more. */
-export function messageFolds(text: string): boolean {
-  return text.length > fixture.fold.chars || text.split(`\n`).length > fixture.fold.lines
-}
-
 /** #EXP-1864 (`notices`): the label an Exponential tool row draws as THE
  *  inline marker (its own line, never a trace beside the avatar), else null.
  *  The name must end in the contract prefix + the row, whatever namespace

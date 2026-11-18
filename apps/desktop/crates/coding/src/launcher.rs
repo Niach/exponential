@@ -1809,11 +1809,13 @@ fn run_extras(
     computer_use: bool,
     code_mode: bool,
     dispatch: bool,
+    voice_call: bool,
 ) -> crate::skill::Extras {
     crate::skill::Extras {
         computer_use: computer_use.then(|| deps.settings.computer_use_model.clone()),
         code_mode,
         dispatch,
+        voice_call,
     }
 }
 
@@ -2479,7 +2481,7 @@ fn prepare_session(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, dispatches(row)),
+        &run_extras(deps, computer_use, code_mode, dispatches(row), req.brief.call),
     );
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
@@ -3204,7 +3206,7 @@ fn prepare_resume(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, record.kind.is_persistent() || dispatches(row)),
+        &run_extras(deps, computer_use, code_mode, record.kind.is_persistent() || dispatches(row), req.brief.call),
     );
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the recorded measured number is the only

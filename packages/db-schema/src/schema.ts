@@ -24,6 +24,7 @@ import { createSchemaFactory } from "drizzle-zod"
 import { z } from "zod"
 import {
   type CodingSessionBlocked,
+  type SessionVoiceCall,
   type AgentTrigger,
   type AgentVoice,
   type AgentTriggerState,
@@ -2315,6 +2316,12 @@ export const sessions = pgTable(
     // turn (the composer's Teams row); NULL = every team they belong to. The
     // gate clamps the tree to the pick ∩ their teams. SYNCED (the picker).
     scopeTeamIds: uuid(`scope_team_ids`).array(),
+    // #EXP-1961 (etalk voice-call.json `callSession`): non-null = a CALL
+    // session, a child of the chat it runs under (the server's mark, like a
+    // meeting's; never on the wire). Its call's times, whether its next
+    // reply is the summary, and how far it read the chat. SYNCED (the call
+    // card, phase 4).
+    voiceCall: jsonb(`voice_call`).$type<SessionVoiceCall>(),
     // #EXP-1731 (eagent subagents.json): non-null = a CLI SUBAGENT row the
     // device writes (`sessions.subagent`): the CLI's own id of it (Claude's
     // Task/Agent tool id, Codex's spawned thread). It shares its parent's

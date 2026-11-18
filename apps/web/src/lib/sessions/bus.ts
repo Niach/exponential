@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assistant-chat"
-import type { CodingSessionBlocked, MessageCard, MessageEventKind } from "@exp/db-schema/domain"
+import type { CodingSessionBlocked, MessageCard, MessageEventKind, SessionVoiceCall } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { sliceUnits } from "@exp/eagent/copy"
@@ -320,6 +320,9 @@ export async function busRelayTurn(
   const text = body.trim()
   // #FEED-254: a blank turn (a lone U+200B) reaches no listener.
   if (isBlankText(text)) return []
+  // #EXP-1961: a call session is spoken, never relayed (bus.json).
+  const [mark] = await tx.select({ voiceCall: sessions.voiceCall }).from(sessions).where(eq(sessions.id, child.id)).limit(1)
+  if (mark?.voiceCall) return busCallTurn(tx, child, text, mark.voiceCall, originMessageId, copies)
   return deliver(tx, child, {
     ...(isSealedBody(text) ? { sealed: { copies } } : {}),
     authorKind: `agent`,
@@ -330,6 +333,42 @@ export async function busRelayTurn(
     originMessageId,
     skip: (listener) =>
       listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
+  })
+}
+
+/** #EXP-1961 (bus.json): a call session's turn reaches nobody, except the
+ *  first reply after its hang-up (`summaryPending`): the call's summary, a
+ *  waking `report` card (not final: the session idles for the resume
+ *  window) with the call's times. A sealed reply rides as the body. */
+async function busCallTurn(
+  tx: Tx,
+  child: Pick<Session, `id` | `parentId`>,
+  text: string,
+  call: SessionVoiceCall,
+  originMessageId: string | null,
+  copies?: readonly ListenerCopy[]
+): Promise<string[]> {
+  if (!call.summaryPending) return []
+  await tx
+    .update(sessions)
+    .set({ voiceCall: { ...call, summaryPending: false } })
+    .where(eq(sessions.id, child.id))
+  const sealed = isSealedBody(text)
+  const card = (summary: string): MessageCard => ({
+    kind: `report`,
+    sessionId: child.id,
+    summary,
+    final: false,
+    call: { startedAt: call.startedAt, endedAt: call.endedAt, durationMs: call.durationMs },
+  })
+  return deliver(tx, child, {
+    ...(sealed ? { sealed: { copies } } : {}),
+    authorKind: `agent`,
+    body: sealed ? text : sliceUnits(text, REPORT_MAX),
+    card: card(sealed ? `` : sliceUnits(text, REPORT_MAX)),
+    hidden: { body: privateText(child, PRIVATE_REPORT_LEAD), card: card(PRIVATE_REPORT_LEAD) },
+    waking: true,
+    originMessageId,
   })
 }
 

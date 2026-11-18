@@ -304,6 +304,9 @@ final class AppDependencies: @unchecked Sendable {
             // VAPP-235: the queued app record writes replay on the same edge.
             Task { @MainActor in recordOutbox.flushAll() }
         }
+        // #EDE-114: the chat store's foreground walk runs only on an
+        // unmetered network.
+        networkPathWatcher.onUnmetered = { ChatStoreHub.shared.setForeground(unmetered: $0) }
         // Watches for the offline → online edge and restarts the pipelines
         // there, so a recovered connection doesn't wait out a 30s backoff.
         networkPathWatcher.start()
@@ -314,6 +317,11 @@ final class AppDependencies: @unchecked Sendable {
         // Lazy and off the main thread: the node starts on the coordinator's
         // own task once an account is signed in.
         installNode?.start()
+        // #EDE-114 (chat-store.json S3): every signed-in account's chat
+        // store, fed by what the phone receives; the walk rides the node.
+        ChatStoreHub.shared.configure(db: db, opener: opener)
+        if let installNode { ChatStoreHub.shared.attach(node: installNode) }
+        ChatStoreHub.shared.sync(accounts: Self.chatStoreAccounts(auth))
         treeKeys.start()
         // VAPP-235: what the app hosts queued last time replays at launch.
         Task { @MainActor in recordOutbox.flushAll() }
@@ -326,5 +334,25 @@ final class AppDependencies: @unchecked Sendable {
         if !ProcessInfo.processInfo.arguments.contains("-uiTesting") {
             notificationDelegate.requestPermission()
         }
+    }
+}
+
+extension AppDependencies {
+    /// #EDE-114: the signed-in accounts the chat store serves (id → user).
+    static func chatStoreAccounts(_ auth: AuthRepository) -> [String: String] {
+        Dictionary(
+            auth.accounts.compactMap { account in
+                guard account.token != nil, let userId = account.userId else { return nil }
+                return (account.id, userId)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// #EDE-120 SIGN-OUT (a DELIBERATE one: the person's Sign out, Remove
+    /// server, Delete account): the account's chat store stops and its files
+    /// go. A session expiry never comes here (its store stays).
+    func signOutChatStore(accountId: String) {
+        ChatStoreHub.shared.signOut(accountId: accountId)
     }
 }

@@ -100,6 +100,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-k", OpenSearch, None),
         KeyBinding::new("ctrl-f", OpenSearch, None),
     ]);
+    // #EDE-129: inside a session view Ctrl/Cmd+F is find in chat instead.
+    cx.bind_keys(crate::steer_viewer::find_key_bindings());
 }
 
 /// Open the search dialog on `window` (no-op unless the session is `Synced`

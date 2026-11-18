@@ -67,6 +67,11 @@ pub struct SessionBrief {
     /// `false` from a server that does not send it (fails closed).
     #[serde(default)]
     pub screen_memory: bool,
+    /// #EXP-1961 (etalk voice-call.json `callSession`): this session is a
+    /// voice CALL (a child of the chat): its launch adds the voice section;
+    /// `false` from a server that does not send it.
+    #[serde(default)]
+    pub call: bool,
     /// EXP-1458 (FEED-178): the first person message when it is SEALED
     /// (its envelope, untouched): `brief` was composed WITHOUT its text,
     /// and the device opens it and puts it in as the Request itself.
@@ -539,6 +544,22 @@ pub fn leftover(trpc: &TrpcClient, session_id: &str, branch: &str) -> Result<(),
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoKeyHolderInput<'a> {
+    session_id: &'a str,
+    reason: &'a str,
+}
+
+/// #EXP-1959: `sessions.noKeyHolder` — mutation: this device holds no key
+/// holder (eNet off for `reason`, a `sealing::HolderOff` code), so its
+/// agent's replies into the session's encrypted tree cannot be sealed. The
+/// server posts the conversation's ONE line (its own words, in clear).
+pub fn no_key_holder(trpc: &TrpcClient, session_id: &str, reason: &str) -> Result<(), ApiError> {
+    let _: serde::de::IgnoredAny = trpc.mutation("sessions.noKeyHolder", &NoKeyHolderInput { session_id, reason })?;
+    Ok(())
+}
+
 /// EXP-1458: [`reply`] as the engine posts it: the card as JSON (a SEALED
 /// card, `{...clear, sealed}`, is no [`ReplyCard`]), `body` possibly a body
 /// envelope, and the sealed reply's [`ReplyExtras`]. Returns the row id and
@@ -673,6 +694,7 @@ mod tests {
                 root_agent_id: None,
                 voice_policy: true,
                 screen_memory: true,
+                call: false,
                 sealed_text: Some("exp-sealed:v1:1:AAAA".to_string()),
                 sealed_attachments: vec!["![a.png](/api/attachments/a-1)".to_string()],
                 // EXP-1542: the move it continues, handed off.

@@ -3,8 +3,8 @@
 //! `agentMenuCases`), the twin of web `chat-menus.tsx`. The demo IS the
 //! builders every way in calls ([`crate::chat_actions::chat_entry_items`]
 //! behind a chat row's right-click, #FEED-239's
-//! [`crate::chat_actions::screen_menu_items`] behind the rail's agent row
-//! and every session screen's `…`) over the fixture's entries, drawn open
+//! [`crate::session_chat::link_then_menu_items`] behind every session
+//! screen's `…`, its Link or file an issue › included) over the fixture's entries, drawn open
 //! in place, plus THE delete confirm ([`crate::chat_actions::delete_alert`]).
 
 use gpui::{div, px, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Styled as _, Window};
@@ -48,15 +48,26 @@ impl MenusDemo {
         let menus = specimens()
             .into_iter()
             .map(|(caption, specimen)| {
-                let menu = PopupMenu::build(window, cx, move |menu, _window, cx| {
+                let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
                     let menu = menu.min_w(px(220.));
                     match &specimen {
                         Specimen::Chat(entries) => crate::chat_actions::chat_entry_items(menu, "sg-chat", entries, cx),
-                        Specimen::Agent(entries) => crate::chat_actions::screen_menu_items(
+                        // #FEED-271: the header's own builder, so its Link
+                        // or file an issue › is THE submenu row it draws.
+                        Specimen::Agent(entries) => crate::session_chat::link_then_menu_items(
                             menu,
                             "agent",
                             entries,
                             std::rc::Rc::new(|_, _, _| {}),
+                            Some(&crate::session_chat::ChatMenuTarget {
+                                root_id: "sg-agent-root".into(),
+                                team_id: None,
+                                chip: None,
+                                linked: Vec::new(),
+                            }),
+                            None,
+                            window,
+                            cx,
                         ),
                     }
                 });

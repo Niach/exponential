@@ -21,6 +21,33 @@ export interface BriefInput {
   issueBrief?: string | null
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
+  /** EXP-1961: a CALL session's chat (`callCases`): replaces Parent. */
+  call?: BriefCall | null
+}
+
+/** EXP-1961: how many recent chat messages a call's brief lists. */
+export const BRIEF_RECENT_MAX = fixture.recentMax
+
+/** EXP-1961: what a call session's brief says about its chat. */
+export interface BriefCall {
+  title: string
+  chatId: string
+  /** The chat's recent plaintext messages, oldest first. */
+  recent: { who: string; text: string }[]
+  /** Open work, one line each (issues, live children). */
+  work: string[]
+}
+
+function callBody(call: BriefCall): string {
+  const recent = call.recent.slice(-fixture.recentMax).map(({ who, text }) => {
+    const flat = text.replace(/\s+/g, ` `).trim()
+    const clipped = [...flat].length > fixture.recentLineMax ? `${[...flat].slice(0, fixture.recentLineMax - 1).join(``)}…` : flat
+    return `- ${who}: ${clipped}`
+  })
+  const parts = [fixture.call.replaceAll(`{title}`, call.title).replaceAll(`{chatId}`, call.chatId)]
+  if (recent.length > 0) parts.push(`### ${fixture.headings.recent}\n\n${recent.join(`\n`)}`)
+  if (call.work.length > 0) parts.push(`### ${fixture.headings.work}\n\n${call.work.map((line) => `- ${line}`).join(`\n`)}`)
+  return parts.join(`\n\n`)
 }
 
 function cutToBytes(text: string, maxBytes: number): string {
@@ -84,7 +111,8 @@ export function composeBrief(input: BriefInput): string {
   section(fixture.headings.request, (input.text ?? ``).trim())
   section(fixture.headings.issues, issuesBody(input.issues ?? []))
   if (input.issueBrief?.trim()) sections.push(input.issueBrief.trim())
-  if (input.parent) {
+  if (input.call) section(fixture.headings.call, callBody(input.call))
+  else if (input.parent) {
     const template = input.parent.branch ? fixture.parent : fixture.parentNoBranch
     section(
       fixture.headings.parent,

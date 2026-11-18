@@ -1,10 +1,11 @@
 //! #EDE-90: a desk is what belongs to one person (or, later, one agent
 //! space): the seat and what it holds down, the windows and their
 //! workspaces, the clipboard, the cursor.
-//! [`crate::state::Ede`] holds exactly one, the person's ([`Ede::desk`]).
-//! What acts on a desk takes its [`DeskId`] (focus, the `drive_*` paths,
-//! the clipboard, placement, the hold, the protected and lock checks) and
-//! finds the desk with [`Ede::desk`]; today every id is [`DeskId::PERSON`].
+//! [`crate::state::Ede`] holds the person's as a field ([`Ede::desk`]) and
+//! the agent spaces' beside it ([`crate::spaces`]). What acts on a desk
+//! takes its [`DeskId`] (focus, the `drive_*` paths, the clipboard,
+//! placement, the hold, the protected and lock checks) and finds the desk
+//! with [`Ede::desk`].
 //!
 //! [`Ede::desk`]: crate::state::Ede::desk
 
@@ -13,16 +14,53 @@ use std::time::Instant;
 use smithay::{
     desktop::{Space, Window},
     input::{pointer::CursorImageStatus, Seat},
+    reexports::wayland_server::Client,
 };
 
-use crate::state::Ede;
+use crate::state::{ClientState, Ede};
 
-/// Which desk: the person's, the only one so far (#EDE-90).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Which desk: the person's (the default), or another one's number (#EDE-90).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeskId(u32);
 
 impl DeskId {
     pub const PERSON: DeskId = DeskId(0);
+
+    /// The id of desk `n` beside the person's; 0 is the person's.
+    pub(crate) const fn numbered(n: u32) -> DeskId {
+        DeskId(n)
+    }
+}
+
+/// The desk something belongs to, kept where a lookup would come too late
+/// or find nothing: in the client data of Xwayland (#EDE-125).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeskTag(pub DeskId);
+
+/// The desk a Wayland client belongs to: the one its socket gave it
+/// ([`ClientState::desk`]), or the tag its Xwayland was started with. A
+/// client with neither is nobody's: it is on no desk, the person's included.
+pub fn desk_of_client(client: &Client) -> Option<DeskId> {
+    if let Some(state) = client.get_data::<ClientState>() {
+        return Some(state.desk);
+    }
+    #[cfg(feature = "xwayland")]
+    if let Some(x) = client.get_data::<smithay::xwayland::XWaylandClientData>() {
+        return x.user_data().get::<DeskTag>().map(|tag| tag.0);
+    }
+    None
+}
+
+/// The filter of every global that is the person's alone: their seat and
+/// outputs, the layer shell, the session lock, input methods, the virtual
+/// keyboard, decorations, and GPU buffers.
+pub fn on_person(client: &Client) -> bool {
+    desk_of_client(client) == Some(DeskId::PERSON)
+}
+
+/// The filter of a global that belongs to desk `id` alone.
+pub fn on_desk(id: DeskId) -> impl Fn(&Client) -> bool + Send + Sync + 'static {
+    move |client| desk_of_client(client) == Some(id)
 }
 
 pub struct Desk {
@@ -68,19 +106,22 @@ pub struct Desk {
 
 impl Ede {
     /// The desk `id` names.
+    ///
+    /// A space's id is good only while the space lives: this is called
+    /// with [`DeskId::PERSON`], or with an id found in the same call
+    /// (nothing in between can close a space). What keeps an id across a
+    /// turn of the loop asks [`Ede::try_desk`] and returns on `None`.
     pub fn desk(&self, id: DeskId) -> &Desk {
-        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
-        &self.desk
+        self.try_desk(id).expect("the person's desk or a live space")
     }
 
     pub fn desk_mut(&mut self, id: DeskId) -> &mut Desk {
-        debug_assert_eq!(id, self.desk.id, "one desk: the person's");
-        &mut self.desk
+        self.try_desk_mut(id).expect("the person's desk or a live space")
     }
 
-    /// The desk a window lives on: the person's, the only one.
-    pub fn desk_of_window(&self, _window: &smithay::desktop::Window) -> DeskId {
-        self.desk.id
+    /// The desk a window was made on: its tag, the person's without one.
+    pub fn desk_of_window(&self, window: &smithay::desktop::Window) -> DeskId {
+        window.user_data().get::<DeskTag>().map_or(DeskId::PERSON, |tag| tag.0)
     }
 
     /// The desk an ede-protocol connection drives: the person's, the only one.

@@ -389,6 +389,15 @@ abstract class SessionDao(private val db: RoomDatabase) {
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: String): SessionEntity?
 
+    // #EDE-114 (chat-store.json `catchUp`): the chats the catch-up walks, every
+    // session on a device, without its title or digest.
+    @Query("SELECT id, root_id, device_id, updated_at, busy FROM sessions WHERE device_id != ''")
+    abstract suspend fun catchUpRows(): List<CatchUpRow>
+
+    // #EDE-114: changes whenever one of those rows does (a pass runs then).
+    @Query("SELECT COUNT(*) || '|' || IFNULL(MAX(updated_at), '') || '|' || IFNULL(GROUP_CONCAT(device_id), '') FROM sessions WHERE device_id != ''")
+    abstract fun observeCatchUpStamp(): Flow<String?>
+
     // EXP-1459: the caller's conversation root with an agent / app (raw).
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id = :agentId AND user_id = :userId ORDER BY created_at DESC LIMIT 1")
     abstract suspend fun agentConversation(agentId: String, userId: String): SessionEntity?
@@ -678,6 +687,23 @@ abstract class MessageDao {
     abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>
     fun observeTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveTailMessages(sessionId, limit).openedMessages()
+
+    // #EDE-114 (chat-store.json): the chat store's message feed, RAW (the
+    // store opens them itself): the rows of a session created at or after
+    // [mark], oldest first, one page at a time.
+    @Query(
+        "SELECT * FROM messages WHERE session_id IS NOT NULL AND session_id != '' AND created_at >= :mark " +
+            "ORDER BY created_at, id LIMIT :limit OFFSET :offset",
+    )
+    abstract suspend fun rawSince(mark: String, limit: Int, offset: Int): List<MessageEntity>
+
+    // #EDE-114: the given rows RAW (a still-sealed one opened again).
+    @Query("SELECT * FROM messages WHERE id IN (:ids)")
+    abstract suspend fun rawByIds(ids: List<String>): List<MessageEntity>
+
+    // #EDE-114: changes with every write to `messages` (the store's debounce).
+    @Query("SELECT COUNT(*) || '|' || IFNULL(MAX(updated_at), '') FROM messages")
+    abstract fun observeStamp(): Flow<String?>
 
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")

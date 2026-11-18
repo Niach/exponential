@@ -319,7 +319,7 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "api"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "api",
@@ -1543,6 +1543,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chat-store-ffi"
+version = "0.1.0"
+dependencies = [
+ "chat-store",
+ "serde",
+ "serde_json",
+ "uniffi",
+]
+
+[[package]]
 name = "chat-store-wasm"
 version = "0.1.0"
 dependencies = [
@@ -1752,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "codemode"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "domain",
  "emcp",
@@ -1772,7 +1782,7 @@ dependencies = [
 
 [[package]]
 name = "coding"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "api",
@@ -2178,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "crash-handler",
  "futures-executor",
@@ -2729,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "chrono",
  "eengine",
@@ -2925,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "crash-monitor",
  "reqwest",
@@ -2939,7 +2949,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "ecore",
  "serde",
@@ -2948,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -2963,7 +2973,7 @@ dependencies = [
 
 [[package]]
 name = "ede-shell"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "api",
@@ -3012,7 +3022,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -3020,7 +3030,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "eui-core",
  "libc",
@@ -3139,7 +3149,7 @@ checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "elocal"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "api",
  "domain",
@@ -3260,7 +3270,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -3660,7 +3670,7 @@ dependencies = [
 
 [[package]]
 name = "eui-shot"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "eui-core",
  "eui-gpui",
@@ -3695,7 +3705,7 @@ dependencies = [
 
 [[package]]
 name = "exp-cli"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "api",
@@ -3732,7 +3742,7 @@ dependencies = [
 
 [[package]]
 name = "exp-http"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "reqwest",
  "rustls",
@@ -3749,6 +3759,7 @@ dependencies = [
 name = "exponential-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "chat-store-ffi",
  "eengine-ffi",
  "exponential-net-ffi",
  "exponential-ui-ffi",
@@ -5669,6 +5680,7 @@ dependencies = [
  "gpui-pre-http-client",
  "gpui-pre-util",
  "gpui-pre-wgpu",
+ "image",
  "libc",
  "log",
  "notify-rust",
@@ -9272,7 +9284,7 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "crash-monitor",
  "exp-http",
@@ -12222,7 +12234,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steer"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "api",
  "chat-store",
@@ -12426,7 +12438,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "api",
  "domain",
@@ -12651,7 +12663,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "eagent",
@@ -12678,7 +12690,7 @@ dependencies = [
 
 [[package]]
 name = "theme"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -13841,7 +13853,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "api",
@@ -13906,7 +13918,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-data"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "ede-protocol",
  "libc",
@@ -13918,7 +13930,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-docs"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "eui-core",
  "serde_json",
@@ -13927,7 +13939,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-gpui"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "ede-ui",
  "eui-core",
@@ -13946,7 +13958,7 @@ dependencies = [
 
 [[package]]
 name = "uicore-model"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "serde",
  "serde_json",
@@ -14199,7 +14211,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.14.168"
+version = "0.14.169"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

@@ -2024,7 +2024,17 @@
           "default": "off"
         },
         "highlight": {
-          "$ref": "#/$defs/highlight",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/highlight"
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
           "description": "Marks a search term's matches."
         },
         "style": {
@@ -2127,7 +2137,17 @@
           "description": "Truncates the rendered body to this many lines with an ellipsis."
         },
         "highlight": {
-          "$ref": "#/$defs/highlight",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/highlight"
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
           "description": "Marks a search term's matches."
         },
         "style": {
@@ -9658,7 +9678,17 @@
           "default": false
         },
         "highlight": {
-          "$ref": "#/$defs/highlight",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/highlight"
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
           "description": "Marks a search term in title and subtitle."
         },
         "children": {
@@ -9834,7 +9864,17 @@
           "description": "URL a press opens; implies `pressable`."
         },
         "highlight": {
-          "$ref": "#/$defs/highlight",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/highlight"
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
           "description": "Marks a search term's matches."
         },
         "slots": {

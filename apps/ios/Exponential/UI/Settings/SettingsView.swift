@@ -39,6 +39,8 @@ struct TeamTabView: View {
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
     @State private var previousActiveAccountId: String?
+    /// #EDE-114 THE STORAGE SETTING (this device): `Keep tool steps`.
+    @State private var keepToolSteps = KeepToolSteps.windowDays()
 
     private var activeAccountId: String { deps.auth.activeAccountId ?? "" }
 
@@ -344,11 +346,13 @@ struct TeamTabView: View {
     }
 
     /// The app's own rows outside settings-nav (Getting started, the
-    /// staging Sync diagnostics); gone when it has none.
+    /// device's Keep tool steps, the staging Sync diagnostics); gone when it
+    /// has none.
     @ViewBuilder
     private var generalSection: some View {
         let showGettingStarted = !gettingStarted.loading && !gettingStarted.complete && !gettingStarted.entries.isEmpty
-        if showGettingStarted || AppConstants.isStaging {
+        let showStorage = ChatStoreHub.shared.isAvailable
+        if showGettingStarted || showStorage || AppConstants.isStaging {
             sectionStack(title: "General") {
                 VStack(spacing: 0) {
                     // EXP-1270: the block's entry, gone once every step is done.
@@ -369,10 +373,37 @@ struct TeamTabView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    if showStorage {
+                        keepToolStepsRow
+                    }
                 }
                 .glassSection()
             }
         }
+    }
+
+    /// #EDE-114 (chat-store.json THE STORAGE SETTING): how long this device
+    /// keeps tool steps in its chat store; a shorter window applies at once.
+    private var keepToolStepsRow: some View {
+        let options = KeepToolSteps.options
+        return GlassPicker(
+            items: options.indices.map { PickerItem(value: $0, label: KeepToolSteps.optionLabel(options[$0])) },
+            mode: .single,
+            value: options.firstIndex(of: keepToolSteps).map { [$0] } ?? [],
+            onChange: { picked in
+                guard let index = picked.first, options.indices.contains(index) else { return }
+                keepToolSteps = options[index]
+                ChatStoreHub.shared.setWindowDays(options[index])
+            },
+            title: KeepToolSteps.label
+        ) {
+            // THE picker row (label, value, chevron; Android `PickerValueRow`).
+            GlassPickerRowLabel(KeepToolSteps.label, value: KeepToolSteps.optionLabel(keepToolSteps))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("settings-keep-tool-steps")
     }
 
     /// The filled group band (`GlassSectionBand`) over each section — the

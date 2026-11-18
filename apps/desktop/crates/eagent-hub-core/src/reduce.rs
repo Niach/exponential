@@ -382,6 +382,24 @@ fn bus_relay_turn(ctx: &mut Ctx, child: &HubSession, body: &str, sealed: bool, c
     if text_.is_empty() {
         return;
     }
+    // EXP-1961: a call session is spoken, never relayed; after its hang-up its next reply is the summary.
+    if let Some(call) = child.voice_call.clone() {
+        if !call.summary_pending {
+            return;
+        }
+        ctx.row_mut(&child.id).voice_call = Some(VoiceCall { summary_pending: false, ..call.clone() });
+        let times = CallTimes { started_at: call.started_at, ended_at: call.ended_at, duration_ms: call.duration_ms };
+        let card = |summary: String| Card::Report { session_id: child.id.clone(), summary, is_final: false, call: Some(times.clone()) };
+        let lead = text(&["privateReportLead"]);
+        let summary = if sealed { String::new() } else { text_.to_string() };
+        let mut message = Deliver::new(AuthorKind::Agent, text_.to_string(), Some(card(summary)), true);
+        message.hidden = Some(Line::new(copy::private_text(&child.id, lead), Some(card(lead.to_string()))));
+        if sealed {
+            message.sealed = Some(Sealed { in_tree: None, copies });
+        }
+        deliver(ctx, child, message);
+        return;
+    }
     // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
     // #FEED-194: unless it is the agent that started the root session.
     let skip = |_: &HubState, listener: &HubSession| {
@@ -424,12 +442,12 @@ fn report_summary(ctx: &Ctx, child: &HubSession, summary: Option<&str>, summary_
 
 fn bus_report(ctx: &mut Ctx, child: &HubSession, summary: Option<&str>, summary_sealed: bool) {
     let text_ = report_summary(ctx, child, summary, summary_sealed);
-    let card = Card::Report { session_id: child.id.clone(), summary: text_.clone(), is_final: true };
+    let card = Card::Report { session_id: child.id.clone(), summary: text_.clone(), is_final: true, call: None };
     let lead = text(&["privateReportLead"]);
     let mut message = Deliver::new(AuthorKind::Agent, text_, Some(card), true);
     message.hidden = Some(Line::new(
         copy::private_text(&child.id, lead),
-        Some(Card::Report { session_id: child.id.clone(), summary: lead.to_string(), is_final: true }),
+        Some(Card::Report { session_id: child.id.clone(), summary: lead.to_string(), is_final: true, call: None }),
     ));
     message.lead = true;
     deliver(ctx, child, message);
@@ -635,6 +653,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         watches: vec![],
         seal_epoch: None,
         scope_team_ids: None,
+        voice_call: None,
         created_at: ctx.now,
         started_at: None,
         ended_at: None,

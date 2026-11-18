@@ -140,6 +140,8 @@ struct AgentMarkdownText: View {
     @Environment(AppDependencies.self) private var deps: AppDependencies?
     /// EXP-1493: a host that opens a picture its own way (the plan lightbox).
     @Environment(\.markdownImageTapHandler) private var onImageTap
+    /// #EDE-130: find in chat's marks (genUI's `highlight`), nil = none.
+    @Environment(\.findMark) private var findMark
     @State private var picture: PictureViewerSet?
 
     init(
@@ -170,7 +172,8 @@ struct AgentMarkdownText: View {
                 hugsWidth: hugsWidth,
                 // #PERF-5: the host's chips load off main; a landed answer
                 // re-parses the text.
-                revision: "\(host.revision)|\(StoreMemoLoads.shared.tick)"
+                revision: "\(host.revision)|\(StoreMemoLoads.shared.tick)",
+                highlight: findMark.map { TextHighlightSpec(query: $0.query, current: $0.current) }
             )
             .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
             .onAppear { register(host, source) }

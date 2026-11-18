@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use etalk::call::CallVoice;
 use etalk::meeting::{AudioApp, DesktopAudioCapability};
 use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use etalk_gpui::{
@@ -60,17 +61,20 @@ fn clip_file(dir: &Path, clip_id: &str) -> Option<PathBuf> {
 }
 
 impl ClipCache {
-    /// The clip's cached file, or None while it is not here (the first ask
-    /// starts its fetch).
-    fn path(&self, clip_id: &str, cx: &App) -> Option<PathBuf> {
-        let file = clip_file(&self.dir, clip_id)?;
+    /// The clip's cached file, or (FEED-276) why it is not here: `Fetching`
+    /// (the first ask starts its fetch) or `Failed` (an unusable id, no
+    /// transport, a fetch that failed).
+    fn path(&self, clip_id: &str, cx: &App) -> Result<PathBuf, CallVoice> {
+        let file = clip_file(&self.dir, clip_id).ok_or(CallVoice::Failed)?;
         if file.is_file() {
-            return Some(file);
+            return Ok(file);
         }
-        if self.state.borrow().contains_key(clip_id) {
-            return None;
+        match self.state.borrow().get(clip_id) {
+            Some(ClipState::Fetching) => return Err(CallVoice::Fetching),
+            Some(ClipState::Failed) => return Err(CallVoice::Failed),
+            None => {}
         }
-        let Some(transport) = crate::queries::http_attachment_transport(cx) else { return None };
+        let Some(transport) = crate::queries::http_attachment_transport(cx) else { return Err(CallVoice::Failed) };
         self.state.borrow_mut().insert(clip_id.to_string(), ClipState::Fetching);
         let (id, dir, landed) = (clip_id.to_string(), self.dir.clone(), self.landed.clone());
         let _ = std::thread::Builder::new().name("voice-clip".into()).spawn(move || {
@@ -92,7 +96,7 @@ impl ClipCache {
                 }
             }
         });
-        None
+        Err(CallVoice::Fetching)
     }
 
     /// A fetch ended (`!id` = it failed).
@@ -111,19 +115,23 @@ impl ClipCache {
 /// #EXP-1847: what the worker is prepared with for a resolved agent voice:
 /// its language; a clip = its local file (an attachment once `cached` has
 /// it, the built-in voice until then) with its transcript; else the
-/// built-in voice.
-pub(crate) fn voice_inputs(resolved: &domain::agent_settings::ResolvedAgentVoice, cached: impl Fn(&str) -> Option<PathBuf>) -> AgentVoice {
+/// built-in voice. FEED-276: `clip` says where the clip is (a call's
+/// `ready` waits while it is `Fetching`).
+pub(crate) fn voice_inputs(resolved: &domain::agent_settings::ResolvedAgentVoice, cached: impl Fn(&str) -> Result<PathBuf, CallVoice>) -> AgentVoice {
     use domain::agent_settings::AgentVoiceClip;
-    let file = match &resolved.clip {
-        Some(AgentVoiceClip::Attachment(id)) => cached(id).map(|path| path.to_string_lossy().into_owned()),
-        Some(AgentVoiceClip::Path(path)) => Some(path.clone()),
-        None => None,
+    let (file, clip) = match &resolved.clip {
+        Some(AgentVoiceClip::Attachment(id)) => match cached(id) {
+            Ok(path) => (Some(path.to_string_lossy().into_owned()), CallVoice::Installed),
+            Err(status) => (None, status),
+        },
+        Some(AgentVoiceClip::Path(path)) => (Some(path.clone()), CallVoice::Installed),
+        None => (None, CallVoice::None),
     };
     let (file, transcript) = match file {
         Some(file) => (file, resolved.transcript.clone()),
         None => (String::new(), String::new()),
     };
-    AgentVoice { voice: etalk::VoiceChoice { language: resolved.language.clone(), file, transcript }, wake_phrase: resolved.wake_phrase.clone() }
+    AgentVoice { voice: etalk::VoiceChoice { language: resolved.language.clone(), file, transcript }, wake_phrase: resolved.wake_phrase.clone(), clip }
 }
 
 /// Install eTalk with Exponential as its host: ONCE, after `Store::open`, the
@@ -459,6 +467,30 @@ impl TalkHost for ExponentialHost {
         }))
     }
 
+    fn call_session(&self, agent_id: &str, call_id: Option<&str>, cx: &App) -> Option<etalk_gpui::CallSessionJob> {
+        let trpc = crate::queries::trpc_client(cx)?;
+        let (agent_id, call_id) = (agent_id.to_string(), call_id.unwrap_or_default().to_string());
+        Some(Box::new(move || match api::voice::voice_call_session(&trpc, &agent_id, &call_id) {
+            Ok(session) => session.map(|session| session.session_id),
+            Err(err) => {
+                log::info!("[voice] no call session ({err}): the chat takes the call");
+                None
+            }
+        }))
+    }
+
+    fn call_ended(&self, session_id: &str, cx: &App) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        let session_id = session_id.to_string();
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) = api::voice::voice_call_ended(&trpc, &session_id) {
+                    log::warn!("[voice] the call's end did not reach the server: {err}");
+                }
+            })
+            .detach();
+    }
+
     fn write(&self, write: VoiceWrite, done: Box<dyn FnOnce(&mut App)>, cx: &mut App) -> bool {
         let Some(trpc) = crate::queries::trpc_client(cx) else { return false };
         let (verb, noun) = match write {
@@ -611,17 +643,23 @@ mod tests {
         let member = MemberVoice { language: "de", voice_file: "/home/me/me.wav", voice_transcript: "Hallo.", wake_phrase: "Hey Jarvis" };
         let own = Stored { language: Some("en".into()), clip_id: Some("c-1".into()), clip_name: Some("sloppy.wav".into()), transcript: Some("Hi.".into()), wake_phrase: Some("Hey Sloppy".into()) };
         let resolved = agent_voice_of(Some("agent"), "Sloppy", &own, &member);
-        let here = voice_inputs(&resolved, |id| (id == "c-1").then(|| PathBuf::from("/data/voice-clips/c-1.wav")));
+        let here = voice_inputs(&resolved, |id| if id == "c-1" { Ok(PathBuf::from("/data/voice-clips/c-1.wav")) } else { Err(CallVoice::Failed) });
         assert_eq!(here.voice, etalk::VoiceChoice { language: "en".into(), file: "/data/voice-clips/c-1.wav".into(), transcript: "Hi.".into() });
         assert_eq!(here.wake_phrase, "Hey Sloppy");
-        let fetching = voice_inputs(&resolved, |_| None);
+        assert_eq!(here.clip, CallVoice::Installed);
+        let fetching = voice_inputs(&resolved, |_| Err(CallVoice::Fetching));
         assert_eq!(fetching.voice, etalk::VoiceChoice { language: "en".into(), file: String::new(), transcript: String::new() });
+        assert_eq!(fetching.clip, CallVoice::Fetching, "FEED-276: a call waits for it");
+        assert_eq!(voice_inputs(&resolved, |_| Err(CallVoice::Failed)).clip, CallVoice::Failed);
         let assistant = agent_voice_of(Some("assistant"), "Bro", &Stored::default(), &member);
-        let path = voice_inputs(&assistant, |_| None);
+        let path = voice_inputs(&assistant, |_| Err(CallVoice::Fetching));
         assert_eq!(path.voice, etalk::VoiceChoice { language: "de".into(), file: "/home/me/me.wav".into(), transcript: "Hallo.".into() });
         assert_eq!(path.wake_phrase, "Hey Jarvis");
+        assert_eq!(path.clip, CallVoice::Installed, "a member path is on disk");
         let team = agent_voice_of(Some("agent"), "Sloppy", &Stored::default(), &member);
-        assert_eq!(voice_inputs(&team, |_| None).voice, etalk::VoiceChoice { language: "de".into(), ..Default::default() });
+        let team = voice_inputs(&team, |_| Err(CallVoice::Fetching));
+        assert_eq!(team.voice, etalk::VoiceChoice { language: "de".into(), ..Default::default() });
+        assert_eq!(team.clip, CallVoice::None, "no clip: the built-in voice is its own");
         assert_eq!(clip_file(Path::new("/d"), "c-1"), Some(PathBuf::from("/d/c-1.wav")));
         assert_eq!(clip_file(Path::new("/d"), "../x"), None);
     }

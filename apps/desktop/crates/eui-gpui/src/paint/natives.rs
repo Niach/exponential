@@ -989,6 +989,43 @@ pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedStri
     }
 }
 
+/// #EXP-1947 (`fixtures/image-actions.json` `imageSource`): a refused
+/// picture's stand-in in its box: THE link look (the Link recipe's ink,
+/// underlined; `open` = the press through the URL policy and the host's
+/// opener) or the alt as plain text; nothing for an empty text. Never
+/// fetched, never the viewer, no image menu.
+pub fn image_stand_in(cx: &LeafCx, text: &str, open: Option<Rc<dyn Fn(&mut App)>>) -> AnyElement {
+    if text.is_empty() {
+        return div().into_any_element();
+    }
+    let label = SharedString::from(text.to_string());
+    let content = cx.content().flex().items_center().when(cx.rtl, |d| d.justify_end()).overflow_hidden();
+    match open {
+        Some(open) => {
+            let ink = cx.part("Link", "root", &[]).color.unwrap_or(cx.ink);
+            content
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{}.link", cx.node.id)))
+                        .text_color(ink)
+                        .underline()
+                        .text_decoration_color(ink)
+                        .cursor_pointer()
+                        .role(gpui::Role::Link)
+                        .aria_label(label.clone())
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            open(cx)
+                        })
+                        .child(label),
+                )
+                .into_any_element()
+        }
+        None => content.child(label).into_any_element(),
+    }
+}
+
 /// `m:ss` / `h:mm:ss`.
 pub fn fmt_duration(ms: f64) -> String {
     let total = (ms / 1000.0).max(0.0).round() as u64;

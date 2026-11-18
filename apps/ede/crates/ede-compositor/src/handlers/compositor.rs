@@ -32,10 +32,14 @@ impl CompositorHandler for Ede {
 
     fn new_surface(&mut self, surface: &WlSurface) {
         super::dmabuf::install_blockers(surface);
+        crate::spaces::tag_surface(self, surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        if let Some(id) = crate::spaces::space_of_surface(surface) {
+            return self.space_commit(id, surface);
+        }
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {

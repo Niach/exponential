@@ -1,6 +1,8 @@
 package com.exponential.app.data.steer
 
 import android.util.Log
+import com.exponential.app.data.chatstore.CatchUpChunks
+import com.exponential.app.data.chatstore.isCatchUpPageFrame
 import com.exponential.app.data.enet.PeerNode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -158,6 +160,10 @@ internal class EnetSteerSocket(
                 if (envelope.sessionId != sessionId) return@collect
                 lastFrameAtMs = nowMs()
                 for (frame in envelope.frames) {
+                    // #EDE-114: the chat store's catch-up frames are never a
+                    // viewer's: an answer to a pending ask goes to the walk,
+                    // a device-naming page to the store's holder.
+                    if (CatchUpChunks.take(frame) || isCatchUpPageFrame(frame)) continue
                     inbox.trySend(frame.toString() to frame)
                     when (frameTag(frame)) {
                         "bye" -> end("bye")

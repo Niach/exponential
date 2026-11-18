@@ -26,6 +26,7 @@ final class TreeKeyHolderTests: XCTestCase {
         func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey] {
             remote.value.filter { rootIds.contains($0.rootId) }
         }
+        func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult { RequestKeyResult(state: "noHost") }
     }
 
     private func crypto() throws -> SealedCrypto {

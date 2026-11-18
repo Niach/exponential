@@ -83,7 +83,14 @@ export async function handOff(args: {
   if (!takeHandoffSlot(args.app.id)) return { code: `rateLimited`, error: `${args.app.name} handed off too often this minute` }
   const text = agentBrief({ prompt: args.run.prompt, input: args.input, app: { name: args.app.name, slug: args.app.slug }, source: args.source, ref: args.ref ?? null })
   try {
-    const sent = await sendSession({ userId: args.userId, input: { agentId: agent.id, teamId: args.app.teamId, text }, viaAppId: args.app.id })
+    // #EXP-1957: the brief is server-composed (the package's prompt + the
+    // input it holds in clear): a server line in a keyed conversation.
+    const sent = await sendSession({
+      userId: args.userId,
+      input: { agentId: agent.id, teamId: args.app.teamId, text },
+      viaAppId: args.app.id,
+      extras: { serverComposed: true },
+    })
     return { sessionId: sent.sessionId }
   } catch (err) {
     const words = err instanceof TRPCError || err instanceof Error ? err.message : `the hand-off failed`

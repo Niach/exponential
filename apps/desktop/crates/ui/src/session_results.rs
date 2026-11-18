@@ -172,13 +172,15 @@ pub(crate) fn tile(
         .map(|(w, h)| w / h)
         .unwrap_or(4. / 3.);
     let slot = images.update(cx, |cache, cx| cache.slot(&url, cx));
+    let ready = crate::image_actions::slot_ready(&slot);
+    let menu_url = url.clone();
     let label = caption;
     let muted = cx.theme().muted_foreground;
     v_flex()
         .flex_shrink_0()
         .w(px(width))
         .gap_1()
-        .child(
+        .child(crate::image_actions::attachment_menu_when(
             div()
                 .id(id)
                 .role(gpui::Role::Button)
@@ -246,7 +248,11 @@ pub(crate) fn tile(
                         );
                     }
                 }),
-        )
+            // #EXP-1947: a rendered result picture answers THE image menu.
+            ready,
+            &menu_url,
+            Some(images),
+        ))
         .child(
             div()
                 .w_full()

@@ -65,7 +65,8 @@ pub fn local_doctor(settings: &coding::Settings, data_dir: &Path, deep: bool) ->
     // #FEED-192: the key holder lives in the daemon's process, so read its
     // state; with no daemon running there is no holder to report on.
     if super::daemon::daemon_pid(data_dir).is_some() {
-        device_doctor::add_key_holder(&mut doctor, !device_doctor::key_holder_marker(data_dir).exists());
+        let missing = device_doctor::read_key_holder(data_dir);
+        device_doctor::add_key_holder(&mut doctor, missing.is_none(), missing.flatten().as_deref());
     }
     doctor
 }

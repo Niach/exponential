@@ -325,6 +325,8 @@ struct Shell {
     chat_agent: Option<String>,
     /// The composer's text as it last reported it (the `/` menu reads it).
     chat_draft: String,
+    /// #EDE-129: find in chat while its bar is open.
+    chat_find: Option<ChatFind>,
     /// #EDE-65 lane L: the composer's staged attachments (`/chatFiles`).
     chat_files: chat_files::ChatFiles,
     /// A send is uploading its attachments (a second one waits).
@@ -1014,6 +1016,39 @@ impl HostPlugin for Host {
                                 shell.borrow_mut().chat_files.remove(key);
                                 chat_files_changed(&shell, cx);
                             }
+                        }
+                        // #EDE-129 (find-in-chat.json): the header's Search in chat, the bar.
+                        Some("findOpen") => {
+                            if shell.borrow().chat_find.is_none() {
+                                shell.borrow_mut().chat_find = Some(ChatFind::default());
+                                shell.borrow_mut().feed.set("/chatFind", json!({"query": ""}));
+                            }
+                            chatting_changed(&shell, cx);
+                            shell.borrow().surfaces.focus_component("chat", "chat_find_input", cx);
+                        }
+                        Some("findClose") => {
+                            shell.borrow_mut().chat_find = None;
+                            chatting_changed(&shell, cx);
+                        }
+                        Some("find") => {
+                            if let Some(find) = shell.borrow_mut().chat_find.as_mut() {
+                                let query = domain::find_in_chat::query(&arg("query"));
+                                if find.query != query {
+                                    *find = ChatFind { query, land: true, ..Default::default() };
+                                }
+                            }
+                            chatting_changed(&shell, cx);
+                        }
+                        Some("findStep") => {
+                            let step = domain::find_in_chat::FindStep::parse(&arg("step")).unwrap_or(domain::find_in_chat::FindStep::Previous);
+                            if let Some(find) = shell.borrow_mut().chat_find.as_mut() {
+                                let index = find.current.as_ref().and_then(|was| find.stops.iter().position(|stop| stop == was));
+                                if let Some(next) = domain::find_in_chat::step(index, find.stops.len(), step) {
+                                    find.current = find.stops.get(next).cloned();
+                                    find.land = true;
+                                }
+                            }
+                            chatting_changed(&shell, cx);
                         }
                         Some("draft") => match chat::commit_emoji(&arg("text")) {
                             // EXP-551: a closed exact `:shortcode:` becomes its emoji at once.
@@ -2114,13 +2149,77 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
     // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
     input.slash_commands = true;
+    // #EDE-129: find in chat over the synced bubbles.
+    let (find_value, land) = chat_find_apply(shell, &mut input.rows);
     let view = uicore_model::chat::chat_view(&input);
     let mut value = chat::chatting(&view);
+    value["find"] = find_value;
     value["noCli"] = json!(no_cli);
     value["setup"] = shell.borrow().chat_setup.to_value();
     shell.borrow_mut().feed.set("/chatting", value);
     chat_composer(shell, &view.composer, cx);
     refresh(shell, cx);
+    if let Some(index) = land {
+        shell.borrow().surfaces.scroll_to_index("chat", uicore_gpui::CHAT_SCROLL, index as u32, "center", cx);
+    }
+}
+
+/// #EDE-129: find in chat's state (find-in-chat.json): the query, the stops
+/// of the last frame, the current one, a landing asked for.
+#[derive(Default)]
+struct ChatFind {
+    query: String,
+    stops: Vec<domain::find_in_chat::FindStop>,
+    current: Option<domain::find_in_chat::FindStop>,
+    land: bool,
+}
+
+/// #EDE-129: eDE's rows are the SYNCED bubbles (no transcript): counts
+/// each bubble's genUI highlight, keeps the current stop (a new query
+/// starts at the newest), sets every bubble's `highlight`; returns
+/// `/chatting/find` and the row index to centre (a landing).
+fn chat_find_apply(shell: &SharedShell, rows: &mut [uicore_model::chat::ChatRowInput]) -> (Value, Option<usize>) {
+    use domain::find_in_chat as find;
+    use uicore_model::chat::ChatRowInput;
+    let mut s = shell.borrow_mut();
+    let Some(state) = s.chat_find.as_mut() else { return (json!({"open": false, "counter": "", "status": ""}), None) };
+    if state.query.is_empty() {
+        state.stops.clear();
+        state.current = None;
+        return (json!({"open": true, "counter": "", "status": ""}), None);
+    }
+    let query = state.query.clone();
+    let find_rows: Vec<(usize, find::FindRow)> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, row)| match row {
+            ChatRowInput::Message { id, body, .. } => Some((ix, find::FindRow { key: find::message_key(id), count: eui_gpui::paint::highlight::markdown_highlight_count(body, &query), group: None, output_hit: false })),
+            _ => None,
+        })
+        .collect();
+    let stops = find::stops(&find_rows.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>(), &[]);
+    let index = state
+        .current
+        .as_ref()
+        .and_then(|was| stops.iter().position(|stop| stop.key == was.key && stop.local == was.local))
+        .or_else(|| find::step(None, stops.len(), find::FindStep::Start));
+    state.current = index.and_then(|index| stops.get(index).cloned());
+    state.stops = stops;
+    let current = state.current.clone();
+    for row in rows.iter_mut() {
+        if let ChatRowInput::Message { id, highlight, .. } = row {
+            let local = current.as_ref().filter(|stop| stop.key == find::message_key(id)).map(|stop| stop.local);
+            *highlight = Some(match local {
+                Some(local) => json!({"query": query, "current": local}),
+                None => json!({"query": query}),
+            });
+        }
+    }
+    let land = std::mem::take(&mut state.land)
+        .then(|| current.as_ref().and_then(|stop| find_rows.iter().find(|(_, row)| row.key == stop.key).map(|(ix, _)| *ix)))
+        .flatten();
+    let counter = find::counter(index, state.stops.len(), true, false);
+    (json!({"open": true, "counter": counter, "status": ""}), land)
 }
 
 /// The conversation composer's placeholder and busy (and the "+" Menu's
@@ -2246,11 +2345,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
     let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
     let jobs = shell.borrow().chat_files.jobs();
     let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else { return };
-    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
-        if let Some(sealed) = team_chat::seal(root, &text) {
-            input.text = Some(sealed);
-        }
-    }
+    let tree = team_chat::send_tree(&rows.account, &input);
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let transport = shell.borrow().workspaces.attachments(&account);
@@ -2264,6 +2359,14 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
         let sent = cx
             .background_executor()
             .spawn(async move {
+                // #EDE-131: sealed (or refused) before anything uploads.
+                if let Some(text) = input.text.take() {
+                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
+                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                        UploadSendError::Send(Vec::new(), no_key())
+                    })?;
+                    input.text = Some(wire);
+                }
                 let resolved = api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| transport.upload_team_session_file(&team_id, filename, content_type, bytes))
                     .map_err(|(landed, e)| UploadSendError::Upload(landed, e))?;
                 input.attachment_ids = Some(chat_files::attachment_ids(&resolved)).filter(|ids| !ids.is_empty());
@@ -2363,10 +2466,19 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
         chatting_changed(shell, cx);
         return;
     }
-    let Some(account_id) = shell.borrow().chat_team.as_ref().map(|c| c.account_id.clone()) else { return };
-    let Some(account) = shell.borrow().workspaces.account(&account_id) else { return };
+    let Some((chat, rows)) = team_chat(shell) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let input = api::sessions::AnswerInput { message_id: message_id.to_string(), answer: Some(label.to_string()), answers: Some(json!([label])), ..Default::default() };
+    // #EDE-131: a sealed card's answer re-sealed; a card this shell cannot
+    // seal for is refused here, never sent in clear.
+    let input = match team_chat::answer_wire(&rows, &input) {
+        Ok(input) => input,
+        Err(why) => {
+            failed_action(shell, "answer", "the question", &why, cx);
+            return;
+        }
+    };
     let shell = shell.clone();
     cx.spawn(async move |cx| {
         let answered = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
@@ -2392,21 +2504,36 @@ fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value,
     let Some((chat, rows)) = team_chat(shell) else { return };
     let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
     let mut input = team_chat::reply_input(&chat, &reply);
-    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
-        if let Some(sealed) = team_chat::seal(root, &text) {
-            input.text = Some(sealed);
-        }
-    }
+    let tree = team_chat::send_tree(&rows.account, &input);
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let shell = shell.clone();
     cx.spawn(async move |cx| {
-        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        let sent = cx
+            .background_executor()
+            .spawn(async move {
+                // #EDE-131: sealed, plaintext only into a clear tree.
+                if let Some(text) = input.text.take() {
+                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
+                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                        no_key()
+                    })?;
+                    input.text = Some(wire);
+                }
+                api::sessions::send(&trpc, &input)
+            })
+            .await;
         if let Err(e) = sent {
             cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx));
         }
     })
     .detach();
+}
+
+/// #EDE-97: a send that could not be sealed (`noKeyRefusal`, the toast's
+/// description).
+fn no_key() -> api::ApiError {
+    api::ApiError::Http { status: 400, message: team_chat::NO_KEY_REFUSAL.to_string() }
 }
 
 /// A failed action the person just took (feedback-states.json `errors`):
@@ -3448,6 +3575,8 @@ fn main() {
             local_sessions: None,
             chat_agent: None,
             chat_draft: String::new(),
+            // #EDE-129: `EDE_SHELL_DEMO_FIND` opens the bar on a query (the goldens, the pictures).
+            chat_find: std::env::var("EDE_SHELL_DEMO_FIND").ok().filter(|q| demo && !q.is_empty()).map(|query| ChatFind { query: domain::find_in_chat::query(&query), land: true, ..Default::default() }),
             // The goldens: `EDE_SHELL_DEMO_ATTACH` stages a screenshot.
             chat_files: if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo() } else { chat_files::ChatFiles::default() },
             chat_uploading: false,

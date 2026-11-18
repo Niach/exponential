@@ -327,9 +327,11 @@ pub fn session_screen(
     let counted = &SESSION_SCREEN.counted;
     // #EXP-1834: a counted tab with nothing in it is disabled, never opened.
     let empty = |id: &str| counted.iter().any(|c| c == id) && counts.of(id) == 0;
+    // #FEED-271: a kind with ONE tab (an agent, the Assistant) shows no strip.
     let tabs: Vec<SessionScreenTabEntry> = spec
         .tabs
         .iter()
+        .filter(|_| spec.tabs.len() > 1)
         // #FEED-239: an app's chat is the pinned left pane on wide.
         .filter(|id| !(wide && !spec.wide_chat_tab && id.as_str() == "chat"))
         .filter_map(|id| {

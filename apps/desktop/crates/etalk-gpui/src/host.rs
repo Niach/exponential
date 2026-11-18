@@ -74,6 +74,9 @@ pub struct AgentVoice {
     pub voice: etalk::VoiceChoice,
     /// The wake phrase (empty = `Hey {agent}`).
     pub wake_phrase: String,
+    /// FEED-276: where the agent's own clip is (`Fetching` = `voice` is
+    /// the built-in one until it lands; a call's `ready` waits for it).
+    pub clip: etalk::call::CallVoice,
 }
 
 impl AgentVoice {
@@ -86,6 +89,7 @@ impl AgentVoice {
                 transcript: settings.voice_transcript.clone(),
             },
             wake_phrase: settings.wake_phrase.clone(),
+            clip: etalk::call::CallVoice::None,
         }
     }
 }
@@ -131,6 +135,9 @@ impl std::fmt::Display for SendError {
 
 /// A prepared send, run on a background thread.
 pub type SendJob = Box<dyn FnOnce() -> Result<Sent, SendError> + Send>;
+
+/// #EXP-1961: a prepared `voice.callSession` (its session id, None = none).
+pub type CallSessionJob = Box<dyn FnOnce() -> Option<String> + Send>;
 
 /// A change to the member's voice settings the host stores; the stored
 /// settings come back through [`crate::set_settings`].
@@ -283,8 +290,9 @@ pub trait TalkHost: 'static {
     /// #EXP-1847: the voice `agent_id` speaks with here, resolved against
     /// the member's `settings` (None = the member's own: a host without
     /// per-agent voices, or an unknown agent). A clip still on its way is
-    /// the built-in voice; the host calls [`crate::agents_changed`] once it
-    /// landed.
+    /// the built-in voice (FEED-276: `clip` = `Fetching`, a call waits for
+    /// it); the host calls [`crate::agents_changed`] once it landed or
+    /// failed.
     fn agent_voice(&self, agent_id: &str, settings: &VoiceSettings, cx: &App) -> Option<AgentVoice> {
         let _ = (agent_id, settings, cx);
         None
@@ -313,6 +321,18 @@ pub trait TalkHost: 'static {
     }
     /// Prepare a send (None = signed out).
     fn send(&self, outgoing: Outgoing, cx: &App) -> Option<SendJob>;
+    /// #EXP-1961 (voice-call.json `callSession`): ask for the call's own
+    /// session while it rings (`voice.callSession`); the job answers its id
+    /// (None = no call session: the call goes to the chat). None = a host
+    /// without call sessions.
+    fn call_session(&self, agent_id: &str, call_id: Option<&str>, cx: &App) -> Option<CallSessionJob> {
+        let _ = (agent_id, call_id, cx);
+        None
+    }
+    /// #EXP-1961: the hang-up of a call with its own session (`voice.callEnded`).
+    fn call_ended(&self, session_id: &str, cx: &App) {
+        let _ = (session_id, cx);
+    }
     /// Store a settings change; the host hands the stored settings to
     /// [`crate::set_settings`] (or says the write failed), then runs `done`.
     /// False = not signed in (nothing happens, `done` never runs).
@@ -407,6 +427,18 @@ pub(crate) fn wake_phrase_of(agent_id: Option<&str>, stored: &str, cx: &App) -> 
 pub(crate) fn language_of(agent_id: &str, member_language: &str, cx: &App) -> String {
     let member = VoiceSettings { language: member_language.to_string(), ..Default::default() };
     agent_voice(Some(agent_id), &member, cx).voice.language
+}
+
+/// #EXP-1961: see [`TalkHost::call_session`].
+pub(crate) fn call_session(agent_id: &str, call_id: Option<&str>, cx: &App) -> Option<CallSessionJob> {
+    host(cx)?.call_session(agent_id, call_id, cx)
+}
+
+/// #EXP-1961: see [`TalkHost::call_ended`].
+pub(crate) fn call_ended(session_id: &str, cx: &App) {
+    if let Some(host) = host(cx) {
+        host.call_ended(session_id, cx);
+    }
 }
 
 pub(crate) fn conversation(agent_id: &str, cx: &App) -> Option<String> {

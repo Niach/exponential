@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use eui_gpui::controls::{ZoomableImage, ZoomableImageOptions};
 use gpui::{
-    div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Pixels, Render,
+    div, img, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render,
     ScrollHandle, SharedString, Size, Styled, StyledImage as _, Subscription, Window,
 };
 use gpui_component::v_flex;
@@ -367,7 +367,14 @@ impl LightboxPicture {
                 let natural = natural.map(|(width, height)| (f64::from(width), f64::from(height)));
                 self.zoom
                     .update(cx, |zoom, cx| zoom.set_source(url.to_string(), Some(image.into()), natural, cx));
-                fill().child(div().size_full().child(self.zoom.clone())).into_any_element()
+                // #EXP-1947: the picture on screen answers THE image menu.
+                fill()
+                    .child(crate::image_actions::with_attachment_menu(
+                        div().id(SharedString::from(format!("{id}-picture"))).size_full().child(self.zoom.clone()),
+                        url,
+                        None,
+                    ))
+                    .into_any_element()
             }
             // Over the texture cap (`crate::tall_image`): the zoom view paints
             // one texture, so a strip-decoded TALL picture keeps the EXP-1128
@@ -383,10 +390,15 @@ impl LightboxPicture {
                     .child(crate::scroll_pane::v_scroll_pane(
                         SharedString::from(format!("{id}-scroll")),
                         &self.strips,
-                        v_flex()
-                            .w_full()
-                            .pr(px(TALL_SCROLLBAR_GUTTER))
-                            .child(crate::tall_image::render_tall(&tall, inner_w)),
+                        crate::image_actions::with_attachment_menu(
+                            v_flex()
+                                .id(SharedString::from(format!("{id}-picture")))
+                                .w_full()
+                                .pr(px(TALL_SCROLLBAR_GUTTER))
+                                .child(crate::tall_image::render_tall(&tall, inner_w)),
+                            url,
+                            None,
+                        ),
                     ))
                     .into_any_element()
             }
@@ -394,13 +406,16 @@ impl LightboxPicture {
             ImageSlot::ReadyTall(tall) => {
                 let width = (box_w - pad * 2.).min(tall.width as f32).max(1.);
                 fill()
-                    .child(
+                    .child(crate::image_actions::with_attachment_menu(
                         div()
+                            .id(SharedString::from(format!("{id}-picture")))
                             .max_w_full()
                             .max_h_full()
                             .overflow_hidden()
                             .child(crate::tall_image::render_tall(&tall, width)),
-                    )
+                        url,
+                        None,
+                    ))
                     .into_any_element()
             }
             ImageSlot::Loading => fill()

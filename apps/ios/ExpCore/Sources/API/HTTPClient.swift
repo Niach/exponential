@@ -4,9 +4,11 @@ public final class HTTPClient: Sendable {
     private let auth: AuthRepository
     public let session: URLSession
 
-    public init(auth: AuthRepository) {
+    /// `protocolClasses` = tests' stand-in server (a `URLProtocol`).
+    public init(auth: AuthRepository, protocolClasses: [AnyClass] = []) {
         self.auth = auth
         let config = URLSessionConfiguration.default
+        if !protocolClasses.isEmpty { config.protocolClasses = protocolClasses }
         config.httpAdditionalHeaders = [
             "Accept": "application/json",
             // Client-version gate (EXP-104): every request through this client

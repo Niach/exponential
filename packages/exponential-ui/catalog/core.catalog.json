@@ -2165,6 +2165,7 @@
         "highlight": {
           "type": "object",
           "shape": "highlight",
+          "bindable": true,
           "description": "Marks a search term's matches."
         },
         "style": {
@@ -2240,6 +2241,7 @@
         "highlight": {
           "type": "object",
           "shape": "highlight",
+          "bindable": true,
           "description": "Marks a search term's matches."
         },
         "style": {
@@ -6295,6 +6297,7 @@
         "highlight": {
           "type": "object",
           "shape": "highlight",
+          "bindable": true,
           "description": "Marks a search term in title and subtitle."
         }
       },
@@ -6436,6 +6439,7 @@
         "highlight": {
           "type": "object",
           "shape": "highlight",
+          "bindable": true,
           "description": "Marks a search term's matches."
         }
       },

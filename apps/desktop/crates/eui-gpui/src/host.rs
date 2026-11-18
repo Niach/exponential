@@ -130,6 +130,53 @@ impl<F: Fn(&str) -> Option<Vec<u8>> + Send + Sync + 'static> AppFiles for F {
     }
 }
 
+/// #EXP-1947 (Exponential's `fixtures/image-actions.json` `imageSource`, the
+/// web renderers' `ImageSourceVerdict`, Compose's `ImageSource`): what a
+/// content picture's src renders as, the host's answer to
+/// [`HostPlugin::image_source`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageSourceVerdict {
+    /// Through the media policy as before.
+    Load,
+    /// An ordinary link in the picture's place (the link look, the URL
+    /// policy and [`HostPlugin::open_url`]); never fetched.
+    Link { href: String, text: String },
+    /// The text (the alt) as plain text; nothing when empty. Never fetched.
+    Text(String),
+}
+
+/// #EXP-1947: a RENDERED content picture the host's image menu acts on
+/// ([`HostPlugin::image_menu`]): its RAW `src` and `alt`, a stable element
+/// `id` for the menu, and [`Self::bytes`] = the ORIGINAL picture's bytes
+/// through the host's media policy (the thumbnail `w` dropped).
+#[derive(Clone)]
+pub struct ImageTarget {
+    pub id: gpui::SharedString,
+    pub src: String,
+    pub alt: String,
+    original: Option<crate::media::MediaKey>,
+}
+
+impl ImageTarget {
+    /// The target for `src` under `host`'s media policy.
+    pub fn new(host: &dyn HostPlugin, id: impl Into<gpui::SharedString>, src: &str, alt: &str) -> Self {
+        let original = crate::media::image_key(host, &crate::media::original_src(src));
+        Self { id: id.into(), src: src.to_string(), alt: alt.to_string(), original }
+    }
+
+    /// The original bytes, fetched under the media limits. BLOCKING: call it
+    /// off the main thread (`cx.background_executor()`).
+    pub fn bytes(&self) -> Result<Vec<u8>, String> {
+        crate::media::fetch(self.original.as_ref().ok_or_else(|| format!("{}: not loadable", self.src))?)
+    }
+}
+
+impl std::fmt::Debug for ImageTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageTarget").field("id", &self.id).field("src", &self.src).field("alt", &self.alt).finish()
+    }
+}
+
 /// The embedding app's side of the painter.
 pub trait HostPlugin: 'static {
     /// Round 9 §5.2, §6.8: a layout left issues or reactive failures on the
@@ -266,6 +313,33 @@ pub trait HostPlugin: 'static {
     /// #VAPP-258: a Markdown block image was pressed (the RAW src): a
     /// lightbox. Only asked when [`Self::image_pressable`].
     fn on_image_press(&self, _src: &str, _window: &mut gpui::Window, _cx: &mut gpui::App) {}
+
+    /// #EXP-1947 (`fixtures/image-actions.json` `imageSource`): which content
+    /// pictures load at all (`Image` + the Carousel / Mosaic slides,
+    /// `ZoomableImage`, Markdown block images), asked with the RAW src and
+    /// alt BEFORE the media policy: [`ImageSourceVerdict::Link`] paints a
+    /// link in the picture's place, [`ImageSourceVerdict::Text`] its text;
+    /// neither is ever fetched. `None` (the default) = the media policy alone
+    /// decides. Avatars and video posters are never asked. Answer purely.
+    fn image_source(&self, _src: &str, _alt: &str) -> Option<ImageSourceVerdict> {
+        None
+    }
+
+    /// #EXP-1947: this host answers a right-click on a RENDERED content
+    /// picture with its own image menu ([`Self::image_menu`]). Default `false`.
+    fn has_image_menu(&self, _cx: &gpui::App) -> bool {
+        false
+    }
+
+    /// #EXP-1947 (`pressMenu`): `picture` (a content picture whose bytes
+    /// rendered) wrapped in the host's image menu: a right-click on it opens
+    /// the host's menu (Copy image), never merged with a menu around it (the
+    /// wrapper claims the press). Only asked when [`Self::has_image_menu`];
+    /// a picture still loading, failed or refused is never asked (the press
+    /// falls through). Default: the picture unchanged.
+    fn image_menu(&self, _target: ImageTarget, picture: gpui::AnyElement, _window: &mut gpui::Window, _cx: &mut gpui::App) -> gpui::AnyElement {
+        picture
+    }
 
     /// #VAPP-258: a top-level Markdown paragraph that is exactly ONE link
     /// (asked with its RAW destination, before the text links) becomes a
