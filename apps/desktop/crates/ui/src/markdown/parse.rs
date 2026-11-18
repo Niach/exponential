@@ -747,6 +747,16 @@ mod tests {
         }
     }
 
+    /// #EXP-1888: a chat bubble shows its whole text, so a long unbroken
+    /// token (a base64 payload after a soft break) survives into the block.
+    #[test]
+    fn a_long_unbroken_token_after_a_soft_break_survives() {
+        let token = "H4sIAAAA+1d63LbOJbuz1bNO".repeat(40);
+        let blocks = markdown_to_blocks(&format!("The trace, for Perfetto:\n{token}"));
+        assert_eq!(blocks.len(), 1);
+        assert!(text_block(&blocks, 0).text.contains(&token));
+    }
+
     /// EXP-925 — the read-only renderer (comments, the transcript, the issue
     /// hover preview) draws a `\` hard break as a LINE BREAK, and a line that
     /// holds nothing but `\` — what web TipTap writes for each extra

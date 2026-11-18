@@ -131,6 +131,11 @@ public final class SurfaceModel {
     /// node index; the painter applies each serial once).
     public internal(set) var zoomCommands: [Int: ZoomCommand] = [:]
 
+    /// #EXP-1926 (image-actions.json `pressMenu`): when a long press on a
+    /// rendered picture under a host image menu last began; an enclosing
+    /// context Menu's long press stands down while it is recent.
+    @ObservationIgnored var imagePressClaimedAt: Date?
+
     /// The host's width (the view's geometry), visible height and card bound.
     @ObservationIgnored public internal(set) var width: CGFloat = 0
     @ObservationIgnored public internal(set) var viewportHeight: CGFloat = 0

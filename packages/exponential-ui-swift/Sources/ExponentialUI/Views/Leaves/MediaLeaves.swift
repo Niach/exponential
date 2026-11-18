@@ -136,6 +136,60 @@ struct ImagePlaceholder: View {
     }
 }
 
+/// #EXP-1926 (image-actions.json `imageSource`): a picture the host's source
+/// rule does not load: a `.link` = THE Markdown link look (the
+/// `Markdown/link` colour, underlined) in the picture's place, a press opens
+/// it through the URL policy and the host; a `.text` = its text in the muted
+/// ink (nothing when empty). Never fetched, no image menu.
+struct ImageSourceText: View {
+    let cx: LeafContext
+    let source: ImageSource
+
+    var body: some View {
+        let model = cx.model
+        Group {
+            switch source {
+            case .load:
+                EmptyView()
+            case let .link(href, text):
+                let color = cx.part("Markdown", "link").color ?? cx.themeColor("primary") ?? cx.ink
+                TextLabel(text, cx.textStyle, color: color, lines: 2, underline: true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.openLink(href) }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(text)
+                    .accessibilityAddTraits(.isLink)
+            case let .text(text):
+                if !text.isEmpty {
+                    TextLabel(text, cx.textStyle, color: cx.themeColor("mutedForeground") ?? cx.ink, lines: 2)
+                }
+            }
+        }
+        .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
+        .clipped()
+    }
+}
+
+extension View {
+    /// #EXP-1926: a RENDERED content picture under the host's image menu
+    /// (`HostPlugin.imageMenu`): `onTap` = the picture's own tap (nil = the
+    /// taps around it keep theirs). A long press on it claims the gesture,
+    /// so an enclosing context Menu stands down (`pressMenu`: never merged).
+    @ViewBuilder
+    func hostImageMenu(_ model: SurfaceModel, src: String, alt: String, onTap: (() -> Void)? = nil) -> some View {
+        if model.host.hasImageMenu, !src.isEmpty {
+            // The claim rides OUTSIDE the host's menu: on the picture itself it
+            // would win over the menu's own long press.
+            model.host.imageMenu(model.imageTarget(src, alt: alt), onTap: onTap, content: AnyView(self))
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.2).onEnded { _ in model.claimImagePress() })
+        } else if let onTap {
+            contentShape(Rectangle()).onTapGesture { onTap() }.accessibilityAddTraits(.isButton)
+        } else {
+            self
+        }
+    }
+}
+
 /// `Image`: the host-loaded picture fitted by `fit`; `focalX` / `focalY`
 /// (0...1, 0.5 default) keep that point when the fit crops or letterboxes
 /// (CSS `object-position`, gpui `focal_bounds`); the fallback placeholder
@@ -146,6 +200,18 @@ struct ImageLeaf: View {
 
     var body: some View {
         let src = cx.props.str("src")
+        let alt = cx.props.str("alt")
+        // #EXP-1926: a source the host does not load = a link or its text.
+        let source = src.isEmpty ? ImageSource.load : cx.model.imageSource(src, alt: alt)
+        if source != .load {
+            ImageSourceText(cx: cx, source: source)
+        } else {
+            picture(src: src, alt: alt)
+        }
+    }
+
+    @ViewBuilder
+    private func picture(src: String, alt: String) -> some View {
         let part = cx.part("Image", "fallback")
         let ink = part.color ?? cx.themeColor("mutedForeground") ?? cx.ink
         let fill = ImagePlaceholder.backdropPainted(cx) ? Color.clear : (part.style.background ?? cx.themeColor("muted") ?? cx.ink.opacity(0.08))
@@ -164,6 +230,8 @@ struct ImageLeaf: View {
                         .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
                         .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
                         .frame(width: w, height: h, alignment: .topLeading)
+                        // #EXP-1926: a rendered picture carries the host's image menu.
+                        .hostImageMenu(cx.model, src: src, alt: alt)
                 } placeholder: {
                     ImagePlaceholder(fill: fill, ink: ink, size: glyph, icon: fallback, covered: covered, model: cx.model)
                 }

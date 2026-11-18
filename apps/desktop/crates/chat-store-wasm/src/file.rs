@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use chat_store::catchup::{self, Answer, Ask};
+use chat_store::catchup::{self, Ask};
 use chat_store::{open, MemoryStore, StoredEvent, StoredMessage};
 use serde_json::{json, Value};
 
@@ -238,48 +238,7 @@ impl ChatFile {
     }
 }
 
-/// ONE `history_chunk`, cut from its end to fit `max_bytes` (an event too
-/// large alone is skipped: the walk moves past it).
-pub fn chunk_frame(request_id: &str, device_id: &str, events: &[(u64, &Value)], answer: &Answer, error: Option<&str>, max_bytes: usize) -> String {
-    let budget = max_bytes.saturating_sub(512);
-    let mut kept: Vec<(u64, &Value)> = Vec::new();
-    let mut size = 0usize;
-    let mut answer = answer.clone();
-    for (seq, event) in events {
-        let len = event.to_string().len() + 24;
-        if size + len > budget {
-            answer.through_seq = if kept.is_empty() { Some(*seq) } else { kept.last().map(|(seq, _)| *seq) };
-            answer.done = answer.last_seq.is_none_or(|last| answer.through_seq.is_some_and(|through| through >= last));
-            break;
-        }
-        size += len;
-        kept.push((*seq, event));
-    }
-    let mut frame = json!({
-        "t": "history_chunk",
-        "requestId": request_id,
-        "deviceId": device_id,
-        "seqs": kept.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
-        "events": kept.iter().map(|(_, event)| *event).collect::<Vec<_>>(),
-        "done": answer.done,
-        "throughSeq": answer.through_seq,
-        "lastSeq": answer.last_seq,
-        "fullTo": answer.full_to,
-    });
-    if let Some(code) = error {
-        frame["error"] = json!(code);
-    }
-    frame.to_string()
-}
-
-/// A refusal: the same chunk empty, with `error`.
-pub fn refusal_frame(page: &Value, code: &str) -> Option<String> {
-    let request_id = page.get("requestId")?.as_str()?;
-    let device_id = page.get("deviceId")?.as_str()?;
-    let ask: Ask = serde_json::from_value(page.clone()).ok()?;
-    let empty = catchup::finish(Vec::new(), ask.limit(), None, None, &ask);
-    Some(chunk_frame(request_id, device_id, &[], &empty, Some(code), usize::MAX))
-}
+pub use chat_store::catchup::{chunk_frame, refusal_frame};
 
 #[cfg(test)]
 mod tests {

@@ -135,8 +135,9 @@ object SessionScreen {
 
     val KINDS: Map<Kind, KindSpec> = linkedMapOf(
         Kind.Session to KindSpec(listOf(Tab.Chat, Tab.Issues, Tab.Sessions, Tab.Results), settings = false, wideChatTab = true, wideDefault = Tab.Chat),
-        Kind.Agent to KindSpec(listOf(Tab.Chat, Tab.Issues, Tab.Sessions, Tab.Results), settings = true, wideChatTab = true, wideDefault = Tab.Chat),
-        Kind.Assistant to KindSpec(listOf(Tab.Chat, Tab.Issues, Tab.Sessions, Tab.Results), settings = true, wideChatTab = true, wideDefault = Tab.Chat),
+        // #FEED-271: an agent's and the Assistant's chat is the only view.
+        Kind.Agent to KindSpec(listOf(Tab.Chat), settings = true, wideChatTab = true, wideDefault = Tab.Chat),
+        Kind.Assistant to KindSpec(listOf(Tab.Chat), settings = true, wideChatTab = true, wideDefault = Tab.Chat),
         // #FEED-239: an app has no Sessions or Results tab; on wide its chat
         // is the pinned left pane, so the strip has no Chat segment.
         Kind.App to KindSpec(
@@ -216,7 +217,8 @@ object SessionScreen {
             Tab.Results -> counts.results
             else -> 0
         } <= 0
-        val shown = if (wide && !spec.wideChatTab) spec.tabs.filter { it != Tab.Chat } else spec.tabs
+        // #FEED-271: a kind with ONE tab (an agent, the Assistant) shows no strip.
+        val shown = if (spec.tabs.size <= 1) emptyList() else if (wide && !spec.wideChatTab) spec.tabs.filter { it != Tab.Chat } else spec.tabs
         val tabs = shown.map { tab ->
             val value = when (tab) {
                 Tab.Issues -> counts.issues

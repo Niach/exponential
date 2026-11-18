@@ -673,9 +673,7 @@ struct ChatTranscriptSpecimens: View {
                     onPress: layout?.sender?.link.map { _ -> () -> Void in {} },
                     tail: layout?.tail == true
                 ) {
-                    MessageFold(text: text) {
-                        AgentMarkdownText(text: text, context: context, hugsWidth: true)
-                    }
+                    AgentMarkdownText(text: text, context: context, hugsWidth: true)
                 }
             }
         } else if let marker = row.marker {
@@ -829,7 +827,8 @@ struct ChatMenuSpecimens: View {
                 GlassMenuItemLabel(
                     ChatMenuSheet.label(entry),
                     icon: ChatMenuSheet.icon(entry),
-                    destructive: ChatMenuSheet.destructive(entry)
+                    destructive: ChatMenuSheet.destructive(entry),
+                    chevron: ChatMenuSheet.opensSheet(entry)
                 )
             }
         }
@@ -983,7 +982,7 @@ struct ResultsTabSpecimens: View {
                     results: Self.results,
                     onOpenPicture: { result, index in opened = resultPictureSet(result, start: index) },
                     lead: { EmptyView() },
-                    thumbnail: { ResultThumbnailImage(picture: $0) },
+                    thumbnail: { ResultThumbnailImage(picture: $0, onOpen: $1) },
                     surface: { _ in EmptyView() }
                 )
                 .padding(16)

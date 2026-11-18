@@ -30,6 +30,25 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
         self.db = db
     }
 
+    /// #EDE-114: the node's incoming steer envelopes (the chat store's
+    /// catch-up taps them ahead of the viewer links).
+    public var steerInbox: SteerEnetInbox { service.steerInbox }
+
+    /// This install's eNet endpoint (nil = no node).
+    public func endpointId() async -> String? { await service.endpointId }
+
+    /// One chat message to `peer` over the node (admitted first: it answers
+    /// on its own stream).
+    public func sendChat(peer: String, body: Data) async throws {
+        await service.admit(peer: peer)
+        try await service.sendChat(peer: peer, body: body)
+    }
+
+    /// The registry's installs of `accountId`'s teams, per team.
+    public func registry(accountId: String) async -> [String: [InstallEntry]] {
+        await service.registry(accountId: accountId)
+    }
+
     /// This install's registry id on an account (nil until registered).
     public func installId(accountId: String) async -> String? {
         await service.installId(accountId: accountId)

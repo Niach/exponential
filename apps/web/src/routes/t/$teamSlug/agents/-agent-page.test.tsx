@@ -200,15 +200,9 @@ describe(`the agent chat = THE session screen`, () => {
 })
 
 describe(`the agent chat with no conversation yet`, () => {
-  it(`md+: the frame's tabs + the menu (no gear), the opening composer inside the Dock, no floating capsule`, () => {
+  it(`md+: no tabs (#FEED-271) + the menu (no gear), the opening composer inside the Dock, no floating capsule`, () => {
     render(<Page />)
-    const tabs = screen.getByTestId(`session-tabs`)
-    expect([...tabs.querySelectorAll(`[data-tab]`)].map((node) => node.getAttribute(`data-tab`))).toEqual([
-      `chat`,
-      `issues`,
-      `sessions`,
-      `results`,
-    ])
+    expect(screen.queryByTestId(`session-tabs`)).toBeNull()
     expect(screen.queryByTestId(`session-gear`)).toBeNull()
     expect(screen.getByTestId(`session-menu-settings`)).toBeTruthy()
     // The Chat tab alone = the chat full width (no beside split).
@@ -220,7 +214,7 @@ describe(`the agent chat with no conversation yet`, () => {
     expect(screen.queryByTestId(`floating-composer`)).toBeNull()
   })
 
-  it(`#EXP-1834: an empty tab is disabled, a requested one falls back to the chat`, () => {
+  it(`#FEED-271: a requested tab falls back to the chat`, () => {
     mocks.search.current = { tab: `sessions` }
     render(<Page />)
     expect(screen.queryByTestId(`session-beside`)).toBeNull()

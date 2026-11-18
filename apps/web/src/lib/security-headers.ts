@@ -45,8 +45,12 @@ export function buildSecurityHeaders(
       // allows compiling wasm, not JS eval.
       `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`,
       `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-      // Avatars come from wherever the IdP hosts them (Google, an OIDC
-      // provider, Gravatar), so any https image is allowed.
+      // Avatars come from wherever the IdP hosts them (Google, GitHub, any
+      // self-hosted OIDC provider) and MCP client icons from their OAuth
+      // client registration (`oauth_clients.icon`, any host), so any https image stays
+      // allowed here. Content pictures are narrowed in code instead
+      // (#EXP-1945, image-actions.json `imageSource`): another website's
+      // Markdown / card / result picture is never fetched, it is a link.
       `img-src 'self' data: blob: https:`,
       `font-src 'self' data: https://fonts.gstatic.com`,
       connectSrc,

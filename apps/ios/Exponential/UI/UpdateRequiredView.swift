@@ -129,6 +129,8 @@ struct UpdateRequiredView: View {
             if let token = account.token {
                 await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
             }
+            // #EDE-120: a deliberate sign-out deletes the account's chat store.
+            deps.signOutChatStore(accountId: account.id)
             await deps.syncManager.signOut(accountId: account.id)
             deps.auth.removeAccount(id: account.id)
             deps.db.closePool(forAccountId: account.id)

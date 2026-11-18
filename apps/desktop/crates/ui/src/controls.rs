@@ -32,7 +32,7 @@ use gpui::{
     ParentElement as _, Pixels, SharedString, Stateful, StatefulInteractiveElement as _, Styled,
     Window,
 };
-use gpui_component::{menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, IconNamed as _};
+use gpui_component::{menu::{PopupMenu, PopupMenuItem}, v_flex, ActiveTheme as _, Icon, IconNamed as _};
 use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every control has an IDE caller today
@@ -531,6 +531,34 @@ pub(crate) fn menu_row(
         disabled,
     )
     .when(disabled, |row| row.text_color(muted))
+}
+
+/// #FEED-271: THE submenu row of a pointer menu: [`menu_row`]'s anatomy
+/// (glyph, label, the muted value and `›` of [`menu_row_value`]) drawn as
+/// the row's whole body, so it shares one icon edge and one label edge with
+/// the [`pointer_menu_item`] rows around it. The crate's own
+/// `submenu_with_icon` puts its glyph in the crate's icon slot, which then
+/// opens an empty slot in front of every element row (the indented rows of
+/// the session screen `…`); a menu of `pointer_menu_item` rows takes its
+/// submenus from here.
+pub(crate) fn pointer_submenu(
+    menu: PopupMenu,
+    icon: Option<crate::icons::ExpIcon>,
+    label: impl Into<SharedString>,
+    value: Option<SharedString>,
+    window: &mut Window,
+    cx: &mut gpui::Context<PopupMenu>,
+    f: impl Fn(PopupMenu, &mut Window, &mut gpui::Context<PopupMenu>) -> PopupMenu + 'static,
+) -> PopupMenu {
+    let label: SharedString = label.into();
+    let row_label = label.clone();
+    menu.submenu_element(
+        label,
+        move |_, cx| menu_row(icon.clone(), row_label.clone(), Some(menu_row_value(value.clone(), true, cx)), false, cx),
+        window,
+        cx,
+        f,
+    )
 }
 
 /// #EXP-1587: a menu row's trailing value never takes more than this.

@@ -916,7 +916,11 @@ fn agent_voice(deps: &Deps, agent: &api::agents::Agent) -> etalk::VoiceChoice {
 }
 
 /// The clip's local copy, fetched on first use (None = it failed: the
-/// built-in voice speaks).
+/// built-in voice speaks). FEED-276 (voice-call.json `hostVoice`): the
+/// fetch runs before the call is joined and the worker is prepared with the
+/// clip before its `Call`, so the call's `ready` includes the agent's own
+/// voice; it is bounded by `hostVoice.waitMs` (under the relay's
+/// `ringTimeoutMs`), after which the built-in voice speaks, logged.
 fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
     let safe = clip_id.len() <= 64 && clip_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     if !safe {
@@ -929,7 +933,7 @@ fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
     }
     let fetched = deps
         .trpc
-        .get_bytes(&format!("/api/attachments/{clip_id}"))
+        .get_bytes_within(&format!("/api/attachments/{clip_id}"), Duration::from_millis(VOICE_CALL.host_voice.wait_ms))
         .map_err(|err| err.to_string())
         .and_then(|(bytes, _)| {
             std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;

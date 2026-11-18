@@ -51,7 +51,10 @@ impl Ede {
         // The rest of the environment passes through (GPU drivers found via
         // LD_LIBRARY_PATH and the like).
         let path = crate::doctor::xwayland_search_path(std::env::var_os("PATH").as_deref(), std::path::Path::new(crate::doctor::BUNDLED_XWAYLAND_DIR));
-        let spawned = XWayland::spawn_with_inherited_env(&self.display_handle, None, [("PATH", path)], std::iter::empty::<&str>(), true, Stdio::null(), Stdio::inherit(), |_| ());
+        let spawned = XWayland::spawn_with_inherited_env(&self.display_handle, None, [("PATH", path)], std::iter::empty::<&str>(), true, Stdio::null(), Stdio::inherit(), |data| {
+            // #EDE-125: the person's Xwayland; without the tag it would be nobody's.
+            data.insert_if_missing(|| crate::desk::DeskTag(DeskId::PERSON));
+        });
         let (xwayland, client) = match spawned {
             Ok(x) => x,
             Err(e) => {

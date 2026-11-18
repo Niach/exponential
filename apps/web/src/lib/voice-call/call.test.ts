@@ -4,6 +4,8 @@ import { callView, type CallEvent, type CallPlatform } from "@exp/etalk/voice-ca
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { VoiceCall, type CallSocket } from "./call"
+import type { CallKeySource, CallKeyTarget } from "./seal"
+import { CallHandshake, callHelloOfFrame, callHelloText, type CallSeal } from "@exp/domain-contract/call-seal"
 import { audioFrame, KIND_DOWN, KIND_UP, parseAudioFrame, seqAfter } from "./wire"
 
 // NEW-70: the web caller drives voice-call.json's flow off the wire: the
@@ -68,8 +70,10 @@ function fakeAudio() {
 
 async function dialed(
   options: {
-    startCall?: () => Promise<{ url: string; device?: string; fallback?: boolean }>
+    startCall?: () => Promise<{ url: string; device?: string; fallback?: boolean; seal?: boolean; callId?: string; deviceId?: string }>
     openAudio?: () => Promise<CallAudio>
+    keys?: CallKeySource
+    agentId?: string
     device?: string
     language?: string
     fallback?: boolean
@@ -84,13 +88,14 @@ async function dialed(
     startCall,
     openSocket: () => socket,
     openAudio: options.openAudio ?? (async () => audio),
+    keys: options.keys,
     ring: (ms) => {
       rings.started.push(ms)
       return () => (rings.stopped += 1)
     },
   })
   call.onToast = (message) => toasts.push(message)
-  await call.start(`agent-1`, options.device ?? `mint`, options.language, options.fallback)
+  await call.start(options.agentId ?? `agent-1`, options.device ?? `mint`, options.language, options.fallback)
   return { call, socket, audio, toasts, startCall, rings }
 }
 
@@ -124,13 +129,17 @@ describe(`a web call replays voice-call.json flowCases off the wire`, () => {
   it.each(webCases.map((c) => [c.name, c] as const))(`%s`, async (_name, c) => {
     const [start, ...events] = c.events as CallEvent[]
     if (start?.t !== `start`) throw new Error(`a flow case starts with start`)
+    // #EXP-1941: a failure about this browser's own device is the browser's
+    // to find (the microphone, WebCodecs), never the wire's to say.
+    const own = events.find((event) => event.t === `failed` && fixture.seal.ownDeviceCodes.includes(event.code))
     const { call, socket, toasts } = await dialed({
       device: start.device,
       language: start.language,
       fallback: start.fallback,
+      ...(own?.t === `failed` ? { openAudio: () => Promise.reject(new CallAudioError(own.code as CallAudioError[`code`])) } : {}),
     })
     socket.text({ t: `call_ready` })
-    for (const event of events) deliver(call, socket, event)
+    for (const event of events) if (event !== own) deliver(call, socket, event)
     expect(view(call, c.platform as CallPlatform)).toEqual(c.view)
     expect(toasts).toEqual(`toast` in c ? [c.toast] : [])
   })
@@ -139,7 +148,8 @@ describe(`a web call replays voice-call.json flowCases off the wire`, () => {
 describe(`the web caller's wire`, () => {
   it(`dials the url voice.startCall answers, as web`, async () => {
     const { startCall, socket } = await dialed()
-    expect(startCall).toHaveBeenCalledWith(`agent-1`)
+    // No key holder in these deps: a caller that cannot seal makes no claim.
+    expect(startCall).toHaveBeenCalledWith(`agent-1`, false)
     expect(socket.binaryType).toBe(`arraybuffer`)
   })
 
@@ -483,5 +493,299 @@ describe(`the web caller's wire`, () => {
     expect(seqAfter(0, 0xffff)).toBe(true)
     expect(seqAfter(0xffff, 0)).toBe(false)
     expect(seqAfter(5, 5)).toBe(false)
+  })
+})
+
+// #EXP-1941: a sealed call, against a scripted host built on the TS reference.
+describe(`#EXP-1941 a sealed web call`, () => {
+  const seal = fixture.seal
+  const i = seal.inputs
+  const AGENT = i.agentId
+  const secret = Uint8Array.from(Buffer.from(i.secret, `hex`))
+  const ROOT: CallKeyTarget = { rootId: i.rootId, epoch: i.epoch }
+  const dropped = fixture.copy.failed.dropped
+  const settle = async () => {
+    for (let n = 0; n < 6; n++) await Promise.resolve()
+  }
+
+  /** A key holder that holds the chat's secret, and what was asked of it. */
+  function keySource(patch: Partial<CallKeySource> & { targets?: CallKeyTarget[] } = {}) {
+    const targets = [...(patch.targets ?? [ROOT])]
+    const asked = { targets: 0, secrets: 0 }
+    const keys: CallKeySource = {
+      ready: async () => true,
+      target: async () => {
+        asked.targets += 1
+        return targets.length > 1 ? targets.shift()! : targets[0]!
+      },
+      secret: async () => {
+        asked.secrets += 1
+        return secret
+      },
+      highestEpoch: () => null,
+      ...patch,
+    }
+    return { keys, asked }
+  }
+
+  /** Dials a call the server marked sealed; `host()` answers the caller's hello as the real host would. */
+  async function sealedCall(options: { keys?: CallKeySource; hostRoot?: string; hostEpoch?: number; hostSecret?: Uint8Array } = {}) {
+    const source = options.keys ? { keys: options.keys, asked: { targets: 0, secrets: 0 } } : keySource()
+    const line = await dialed({
+      agentId: AGENT,
+      keys: source.keys,
+      startCall: async () => ({ url: `wss://relay/ws?t=caller`, seal: true, callId: i.callId, deviceId: i.deviceId }),
+    })
+    const binary = () => line.socket.sent.filter((frame): frame is Uint8Array => typeof frame !== `string`)
+    let hostSeal: CallSeal | null = null
+    return {
+      ...line,
+      asked: source.asked,
+      binary,
+      /** Everything binary but the hello frames (type 1). */
+      audioFrames: () => binary().filter((frame) => frame[1] === 0),
+      hostSeal: () => hostSeal!,
+      /** The host's hello for the caller's, sent down as the `hello` event; answers its bytes. */
+      host(tamper: (hello: Uint8Array) => Uint8Array = (hello) => hello) {
+        const callerHello = callHelloOfFrame(binary()[0]!)!
+        const hosted = CallHandshake.create(`host`, options.hostRoot ?? i.rootId, options.hostEpoch ?? i.epoch).finish({
+          secret: options.hostSecret ?? secret,
+          callId: i.callId,
+          agentId: AGENT,
+          deviceId: i.deviceId,
+          peerHello: callerHello,
+          pad: seal,
+        })
+        hostSeal = hosted.seal
+        line.socket.text({ t: `call_event`, event: { t: `hello`, data: callHelloText(tamper(hosted.hostHello)) } })
+        return hosted.hostHello
+      },
+      sealedEvent(event: Record<string, unknown>) {
+        line.socket.text({ t: `call_event`, event: { t: `sealed`, data: hostSeal!.sealControl(JSON.stringify({ t: `call_event`, event })) } })
+      },
+    }
+  }
+
+  it(`claims seal with a key holder; the hello after call_ready, again every helloEveryMs, until the host's is taken`, async () => {
+    vi.useFakeTimers()
+    try {
+      const line = await sealedCall()
+      expect(line.startCall).toHaveBeenCalledWith(AGENT, true)
+      // Before call_ready nothing leaves, though the microphone runs.
+      line.audio.onPacket?.(new Uint8Array([1, 2, 3]))
+      expect(line.socket.sent).toEqual([])
+      line.socket.text({ t: `call_ready` })
+      expect(line.binary()).toHaveLength(1)
+      expect([line.binary()[0]![0], line.binary()[0]![1], line.binary()[0]!.length]).toEqual([KIND_UP, 1, 56])
+      vi.advanceTimersByTime(seal.helloEveryMs * 2)
+      expect(line.binary()).toHaveLength(3)
+      expect(line.binary()[2]).toEqual(line.binary()[0])
+      // Still no microphone: the pair is up, the host has proven nothing.
+      line.audio.onPacket?.(new Uint8Array([1, 2, 3]))
+      expect(line.audioFrames()).toEqual([])
+      line.socket.text({ t: `call_ready` })
+      expect(line.binary()).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`the whole call: the microphone sealed in one frame size with mute inside, events and audio opened, no call_mute`, async () => {
+    const line = await sealedCall()
+    line.socket.text({ t: `call_ready` })
+    line.host()
+    await settle()
+    expect(line.asked).toEqual({ targets: 1, secrets: 1 })
+
+    line.audio.onPacket?.(new Uint8Array([0xf8, 1, 2]))
+    line.call.toggleMute()
+    line.audio.onPacket?.(new Uint8Array([0xf8, 3]))
+    // A packet above the step leaves as an empty frame with its seq: never a second size.
+    line.audio.onPacket?.(new Uint8Array(seal.audioPadStep.up + 1))
+    const frames = line.audioFrames()
+    expect(frames.map((frame) => frame.length)).toEqual(Array(3).fill(27 + seal.audioPadStep.up))
+    const heard = frames.map((frame) => line.hostSeal().openAudio(frame))
+    expect(heard.map((frame) => [frame.seq, frame.flags, [...frame.packet], frame.missing])).toEqual([
+      [0, 0, [0xf8, 1, 2], 0],
+      [1, 1, [0xf8, 3], 0],
+      [2, 1, [], 1],
+    ])
+    expect(line.socket.controls()).toEqual([])
+
+    for (const event of [{ t: `rang` }, { t: `ready` }, { t: `speechStarted` }, { t: `said`, text: `hello there` }]) line.sealedEvent(event)
+    expect(view(line.call)?.caption).toBe(`“hello there”`)
+    line.socket.binary(line.hostSeal().sealAudio(0, 0, new Uint8Array([9, 9])))
+    line.socket.binary(line.hostSeal().sealAudio(1, 0, new Uint8Array(0)))
+    expect(line.audio.played).toEqual([[9, 9]])
+    // A host's failed inside a sealed event keeps its toast; one about this browser reads dropped.
+    line.sealedEvent({ t: `failed`, code: `not_granted` })
+    expect(line.toasts).toEqual([dropped])
+  })
+
+  it(`a host hello whose tag does not open: no frame leaves, the call drops`, async () => {
+    const line = await sealedCall()
+    line.socket.text({ t: `call_ready` })
+    line.host((hello) => Uint8Array.of(...hello.slice(0, 69), hello[69]! ^ 1))
+    await settle()
+    line.audio.onPacket?.(new Uint8Array([1, 2, 3]))
+    expect(line.audioFrames()).toEqual([])
+    expect(line.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.seal }])
+    expect(line.toasts).toEqual([dropped])
+    expect(line.call.active).toBe(false)
+  })
+
+  it(`a host hello that names another root this keyring holds: no frame leaves, the call drops`, async () => {
+    const other = `44444444-4444-4444-8444-444444444444`
+    const source = keySource()
+    const line = await sealedCall({ keys: source.keys, hostRoot: other })
+    line.socket.text({ t: `call_ready` })
+    line.host()
+    await settle()
+    line.audio.onPacket?.(new Uint8Array([1, 2, 3]))
+    expect(line.audioFrames()).toEqual([])
+    // Asked the server again, once; never the keyring for the hello's root.
+    expect(source.asked).toEqual({ targets: 2, secrets: 0 })
+    expect(line.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.noKey }])
+    expect(line.toasts).toEqual([dropped])
+  })
+
+  it(`a first call: the hello carries zeros; the answer asked again names the root the host created`, async () => {
+    const source = keySource({ targets: [{ rootId: null, epoch: null }, ROOT] })
+    const line = await sealedCall({ keys: source.keys })
+    line.socket.text({ t: `call_ready` })
+    expect([...callHelloOfFrame(line.binary()[0]!)!.slice(2, 22)]).toEqual(Array(20).fill(0))
+    line.host()
+    await settle()
+    expect(source.asked.targets).toBe(2)
+    line.audio.onPacket?.(new Uint8Array([7]))
+    expect(line.hostSeal().openAudio(line.audioFrames()[0]!).packet).toEqual(new Uint8Array([7]))
+  })
+
+  it(`rotationDue: asked again once; still due fails the call, cleared goes on`, async () => {
+    const due = { ...ROOT, rotationDue: true }
+    const failing = await sealedCall({ keys: keySource({ targets: [due, due] }).keys })
+    failing.socket.text({ t: `call_ready` })
+    failing.host()
+    await settle()
+    expect(failing.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.noKey }])
+    expect(failing.toasts).toEqual([dropped])
+
+    const fine = await sealedCall({ keys: keySource({ targets: [due, ROOT] }).keys })
+    fine.socket.text({ t: `call_ready` })
+    fine.host()
+    await settle()
+    fine.audio.onPacket?.(new Uint8Array([7]))
+    expect(fine.audioFrames()).toHaveLength(1)
+    expect(fine.toasts).toEqual([])
+  })
+
+  it(`an epoch below the highest this install holds is refused`, async () => {
+    const line = await sealedCall({ keys: keySource({ highestEpoch: () => i.epoch + 1 }).keys })
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    line.socket.text({ t: `call_ready` })
+    line.host()
+    await settle()
+    expect(warn.mock.calls[0]![0]).toBe(`[call] epoch_below_held root=${i.rootId} named=${i.epoch} held=${i.epoch + 1}`)
+    warn.mockRestore()
+    expect(line.toasts).toEqual([dropped])
+    expect(line.audioFrames()).toEqual([])
+  })
+
+  it(`the secret arrives on a later pull, every pullEveryMs`, async () => {
+    vi.useFakeTimers()
+    try {
+        let pulls = 0
+      const line = await sealedCall({ keys: keySource({ secret: async () => (++pulls < 3 ? null : secret) }).keys })
+        line.socket.text({ t: `call_ready` })
+      line.host()
+      await vi.advanceTimersByTimeAsync(seal.pullEveryMs * 2 + 10)
+      expect(pulls).toBe(3)
+      line.audio.onPacket?.(new Uint8Array([7]))
+      expect(line.audioFrames()).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`no hello it can finish within handshakeMs of call_ready: no_key and dropped, though the relay still beats`, async () => {
+    vi.useFakeTimers()
+    try {
+      const line = await sealedCall()
+      line.socket.text({ t: `call_ready` })
+      for (let at = 0; at < seal.handshakeMs; at += fixture.constants.aliveMs) {
+        expect(line.call.active).toBe(true)
+        line.socket.text({ t: `call_alive` })
+        vi.advanceTimersByTime(fixture.constants.aliveMs)
+      }
+      expect(line.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.noKey }])
+      expect(line.toasts).toEqual([dropped])
+      expect(line.audioFrames()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`clear content, a sealed event or a binary frame before it is sealed ends the call; clear content after it too`, async () => {
+    const early: ((line: Awaited<ReturnType<typeof sealedCall>>) => void)[] = [
+      (line) => line.socket.text({ t: `call_event`, event: { t: `said`, text: `forged` } }),
+      (line) => line.socket.text({ t: `call_event`, event: { t: `sealed`, data: `AAAA` } }),
+      (line) => line.socket.binary(audioFrame(KIND_DOWN, 0, new Uint8Array([1, 2, 3]))),
+    ]
+    for (const inject of early) {
+      const line = await sealedCall()
+      line.socket.text({ t: `call_ready` })
+      inject(line)
+      expect(line.call.active).toBe(false)
+      expect(line.audio.played).toEqual([])
+      expect(line.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.seal }])
+      expect(line.toasts).toEqual([dropped])
+    }
+    const line = await sealedCall()
+    line.socket.text({ t: `call_ready` })
+    line.host()
+    await settle()
+    // A clear frame of today's wire does not open: dropped, never played.
+    line.socket.binary(audioFrame(KIND_DOWN, 0, new Uint8Array([1, 2, 3])))
+    expect(line.audio.played).toEqual([])
+    expect(line.call.active).toBe(true)
+    line.socket.text({ t: `call_event`, event: { t: `replyStarted`, text: `forged` } })
+    expect(line.socket.controls()).toEqual([{ t: `call_end`, reason: seal.endReasons.seal }])
+    expect(line.toasts).toEqual([dropped])
+  })
+
+  it(`a clear failed still ends a sealed call with its toast, before any key`, async () => {
+    const line = await sealedCall()
+    line.socket.text({ t: `call_ready` })
+    line.socket.text({ t: `call_event`, event: { t: `failed`, code: `busy` } })
+    expect(line.toasts).toEqual([fixture.copy.failed.busy.replace(`{device}`, `mint`)])
+  })
+
+  it(`a key holder that is not there in time: no claim, today's wire; told sealed without the claim: no call`, async () => {
+    const none = await dialed({ keys: keySource({ ready: async () => false }).keys })
+    expect(none.startCall).toHaveBeenCalledWith(`agent-1`, false)
+    none.socket.text({ t: `call_ready` })
+    none.audio.onPacket?.(new Uint8Array([1, 2, 3]))
+    expect(parseAudioFrame(none.socket.sent[0] as Uint8Array)).toMatchObject({ kind: KIND_UP, seq: 0 })
+    // The server did not mark the call sealed (no cap, or sealing is off): today's wire, though it claimed.
+    const off = await dialed({ keys: keySource().keys })
+    expect(off.startCall).toHaveBeenCalledWith(`agent-1`, true)
+    off.socket.text({ t: `call_ready` })
+    off.call.toggleMute()
+    expect(off.socket.controls()).toEqual([{ t: `call_mute`, muted: true }])
+    const forced = await dialed({
+      keys: keySource({ ready: async () => false }).keys,
+      startCall: async () => ({ url: `wss://relay/ws?t=caller`, seal: true, callId: i.callId, deviceId: i.deviceId }),
+    })
+    expect(forced.call.active).toBe(false)
+    expect(forced.toasts).toEqual([dropped])
+  })
+
+  it(`a wire code about this browser's own device reads dropped, in any call`, async () => {
+    for (const frame of [{ t: `error`, code: `not_granted` }, { t: `bye`, outcome: `unsupported` }, { t: `call_event`, event: { t: `failed`, code: `no_microphone` } }]) {
+      const { socket, toasts } = await dialed()
+      socket.text({ t: `call_ready` })
+      socket.text(frame)
+      expect(toasts).toEqual([dropped])
+    }
   })
 })

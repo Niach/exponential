@@ -1,11 +1,10 @@
 import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
-import { tailRules } from "@exponential_app/eui/web"
+import { imageMenuOwns, imageMenuProps, tailRules } from "@exponential_app/eui/web"
 import type { DeliveryState } from "@exp/domain-contract/message-delivery"
 import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
 import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
-import { TRANSCRIPT_COPY, TRANSCRIPT_FOLD, TRANSCRIPT_LAYOUT, messageFolds } from "@exp/domain-contract/transcript-grouping"
+import { TRANSCRIPT_COPY, TRANSCRIPT_LAYOUT } from "@exp/domain-contract/transcript-grouping"
 import { AttachmentFileLink } from "./attachment-thumb"
-import { Button } from "./button"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { Menu, type MenuEntry } from "./menu"
@@ -62,38 +61,6 @@ const LONG_PRESS_MS = 500
  *  literal classes). */
 const BUBBLE_WIDTH = { out: `max-w-full`, in: `max-w-full md:max-w-[62%]` }
 
-/** #FEED-238 THE FOLD ×4 (transcript-grouping.json `fold`): a message whose
- *  text `messageFolds` shows its first `fold.lines` lines, then THE text
- *  button Show more / Show less under them. `text` = what is measured
- *  (the prose, without its attachment lines). */
-export function MessageFold({ text, children }: { text: string; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false)
-  if (!messageFolds(text)) return <>{children}</>
-  return (
-    <>
-      {/* A height clamp, not `line-clamp`: line clamping needs a plain text
-          flow, and a markdown body is a stack of blocks. */}
-      <div
-        data-slot="message-fold"
-        data-expanded={expanded}
-        className={cn(!expanded && `overflow-hidden`)}
-        style={expanded ? undefined : { maxHeight: `${TRANSCRIPT_FOLD.lines}lh` }}
-      >
-        {children}
-      </div>
-      <Button
-        variant="text"
-        size="inline"
-        className="mt-1 font-medium"
-        data-slot="message-fold-toggle"
-        onClick={() => setExpanded((value) => !value)}
-      >
-        {expanded ? TRANSCRIPT_COPY.showLess : TRANSCRIPT_COPY.showMore}
-      </Button>
-    </>
-  )
-}
-
 /** #EXP-1876: THE tail's classes and their one stylesheet (the genUI web
  *  renderers' `tailRules`, the bubble's 1 px border). */
 const BUBBLE_TAIL_CLASS = { start: `exp-bubble-tail-start`, end: `exp-bubble-tail-end`, down: `exp-bubble-tail-down` } as const
@@ -119,7 +86,6 @@ export function MessageBubble({
   relay = null,
   status = null,
   menu,
-  foldText,
   variant = `chat`,
   tail = false,
   className,
@@ -157,9 +123,6 @@ export function MessageBubble({
   /** #FEED-237: the bubble's menu (right-click, the hover `…`, a touch
    *  long-press; a `failed` mark opens it too). Empty/absent = none. */
   menu?: readonly MenuEntry[]
-  /** #FEED-238: `children` fold behind Show more when this text
-   *  `messageFolds` (a `text` bubble measures its own text). */
-  foldText?: string
   /** @deprecated #EXP-1736: one bubble everywhere; kept for old call sites. */
   variant?: `transcript` | `chat`
   /** #EXP-1876 (transcript-grouping.json `tail`): the group's first bubble
@@ -182,12 +145,15 @@ export function MessageBubble({
   }
   const menuGestures = hasMenu
     ? {
+        // #EXP-1945 (image-actions.json `pressMenu`): a press on a ready
+        // picture inside is the picture's (THE image menu), never the bubble's.
         onContextMenu: (event: MouseEvent) => {
+          if (imageMenuOwns(event.target)) return
           event.preventDefault()
           setMenuOpen(true)
         },
         onPointerDown: (event: PointerEvent) => {
-          if (event.pointerType !== `touch`) return
+          if (event.pointerType !== `touch` || imageMenuOwns(event.target)) return
           clearPress()
           pressTimer.current = window.setTimeout(() => setMenuOpen(true), LONG_PRESS_MS)
         },
@@ -205,15 +171,9 @@ export function MessageBubble({
         </div>
       ) : null}
       {children !== undefined && children !== null ? (
-        foldText !== undefined ? (
-          <MessageFold text={foldText}>{children}</MessageFold>
-        ) : (
-          children
-        )
+        children
       ) : text !== undefined ? (
-        <MessageFold text={text}>
-          {renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>}
-        </MessageFold>
+        renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>
       ) : null}
       {imageSrc ? (
         <img
@@ -221,6 +181,7 @@ export function MessageBubble({
           alt=""
           loading="lazy"
           data-slot="user-message-thumb"
+          {...imageMenuProps(imageSrc)}
           className="mt-2 h-20 w-auto rounded-md border border-glass-stroke-card object-cover"
         />
       ) : null}

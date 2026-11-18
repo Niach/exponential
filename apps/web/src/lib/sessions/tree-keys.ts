@@ -2,7 +2,7 @@
 // the tRPC `sessionKeys` router and `sessions.send {seal}` (a new root's key
 // in its own transaction). Router-free: lib/sessions never imports a router
 // (suites mock @/lib/trpc whole).
-import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL } from "@exp/domain-contract/sealed-content"
+import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
@@ -168,6 +168,12 @@ export async function loadRoot(database: Reader, rootId: string): Promise<Sessio
   return root
 }
 
+/** Serializes one tree's key writes (create vs create, rotation vs
+ *  rotation) and whoever must read a root's key before deciding to write. */
+export async function lockTreeKeys(tx: Tx, rootId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${rootId}`}))`)
+}
+
 /** The input of a tree key write (`create`, and EXP-1458's inline
  *  `sessions.send {seal}` for a root without a key). */
 export interface TreeKeyInput {
@@ -197,8 +203,7 @@ export async function createTreeKeyInTx(
   if (!targets.includes(input.installId)) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Include a wrap for your own install` })
   }
-  // Serializes one tree's key writes (create vs create, rotation vs rotation).
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${input.rootId}`}))`)
+  await lockTreeKeys(tx, input.rootId)
   const root = await loadRoot(tx, input.rootId)
   // #EDE-97: an outside MCP client's tree stays in clear for life.
   if (root.clearTree) throw new TRPCError({ code: `BAD_REQUEST`, message: CLEAR_TREE_REFUSAL })
@@ -225,7 +230,7 @@ export async function createTreeKeyInTx(
   }
   for (const target of targets) {
     if (!readers.has(target)) {
-      throw new TRPCError({ code: `BAD_REQUEST`, message: `A wrap names an install that is not a reader` })
+      throw new TRPCError({ code: `BAD_REQUEST`, message: WRAP_REFUSAL })
     }
   }
   for (const wrap of input.wraps) {

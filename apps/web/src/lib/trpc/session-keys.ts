@@ -16,10 +16,10 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { deviceCommands, devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
-import { sessionDeviceOwner } from "@/lib/sessions/host"
+import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
   createTreeKeyInTx,
@@ -160,6 +160,79 @@ export async function nudgeMissingWraps(
   return nudged
 }
 
+/** #EXP-1960: the device command that keys a keyless tree (`clearTree.requestKeyCases`). */
+export const TREE_KEY_COMMAND = `tree_key`
+
+export type RequestKeyResult =
+  | { state: `keyed`; epoch: number; publicKey: string }
+  | { state: `clear` }
+  | { state: `requested` }
+  | { state: `noHost` }
+
+/** #EXP-1960 (sealed-content.json `clearTree.requestKeyCases`): a writer that
+ *  may not key `rootId` asks the tree's DEVICES to (an idle chat's device
+ *  claims nothing): one `tree_key {rootId}` command per host devices row
+ *  (a pending one reused) + a nudge. NOT_FOUND unless the caller may see the
+ *  root (a member and `shared` or its starter) or hosts a device in it. */
+export async function requestTreeKey(
+  database: typeof import("@/db/connection").db,
+  userId: string,
+  rootId: string
+): Promise<RequestKeyResult & { queued: number }> {
+  const root = await loadRoot(database, rootId)
+  const member = (
+    await database
+      .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, root.teamId), eq(teamMembers.userId, userId)))
+  ).some((row) => row.teamId === root.teamId && row.userId === userId)
+  const tree = (
+    await database
+      .select({ id: sessions.id, rootId: sessions.rootId, deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
+      .from(sessions)
+      .where(eq(sessions.rootId, root.id))
+  ).filter((row) => row.rootId === root.id)
+  if (!tree.some((row) => row.id === root.id)) tree.unshift({ ...root, rootId: root.id })
+  // The root's own session first, then its children's (machine, starter) pairs.
+  const keys = new Map<string, (typeof tree)[number]>()
+  for (const row of [...tree].sort((a, b) => (a.id === root.id ? -1 : b.id === root.id ? 1 : 0))) {
+    keys.set(`${row.deviceId}\n${row.userId}`, row)
+  }
+  const hostRows: Array<{ id: string; userId: string; deviceId: string }> = []
+  for (const key of keys.values()) {
+    const host = await resolveSessionHost(key, database)
+    if (!host) continue
+    const rows = (await database.select().from(devices).where(and(eq(devices.deviceId, key.deviceId), eq(devices.userId, host)))).filter(
+      (row) => row.deviceId === key.deviceId && row.userId === host
+    )
+    for (const row of rows) if (!hostRows.some((known) => known.id === row.id)) hostRows.push(row)
+  }
+  const visible = member && sessionVisibleTo(root, userId)
+  if (!visible && !hostRows.some((row) => row.userId === userId)) throw notFoundError()
+  if (root.clearTree) return { state: `clear`, queued: 0 }
+  if (root.sealEpoch !== null && root.sealPublicKey) {
+    return { state: `keyed`, epoch: root.sealEpoch, publicKey: root.sealPublicKey, queued: 0 }
+  }
+  if (hostRows.length === 0) return { state: `noHost`, queued: 0 }
+  let queued = 0
+  for (const row of hostRows) {
+    const pending = (
+      await database
+        .select({ id: deviceCommands.id, deviceRowId: deviceCommands.deviceRowId, kind: deviceCommands.kind, status: deviceCommands.status, payload: deviceCommands.payload })
+        .from(deviceCommands)
+        .where(and(eq(deviceCommands.deviceRowId, row.id), eq(deviceCommands.kind, TREE_KEY_COMMAND), eq(deviceCommands.status, `pending`)))
+    ).some((cmd) => cmd.deviceRowId === row.id && cmd.kind === TREE_KEY_COMMAND && cmd.status === `pending` && cmd.payload?.rootId === root.id)
+    if (!pending) {
+      await database.insert(deviceCommands).values({ deviceRowId: row.id, userId: row.userId, kind: TREE_KEY_COMMAND, payload: { rootId: root.id } })
+      queued++
+    }
+    nudgeDevice(row.userId, row.deviceId)
+  }
+  return { state: `requested`, queued }
+}
+
+const notFoundError = () => new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+
 export const sessionKeysRouter = router({
   /** A tree's first key (epoch 1) or a rotation (`seal_epoch + 1`, by the
    *  starter or the executing device), with wraps for readers. */
@@ -193,17 +266,21 @@ export const sessionKeysRouter = router({
     }),
 
   /** Readers still missing the current epoch's wrap, on trees whose current
-   *  epoch this install holds. */
+   *  epoch this install holds. #EXP-1941 `rootIds`: only these trees: one
+   *  pass over every tree answers at most the limit, sorted by root id, so
+   *  the pair a call waits for (a new install on ONE root) may not be in it. */
   pending: authedProcedure
     .input(
       z.object({
         installId: uuid,
+        rootIds: z.array(uuid).max(BATCH_MAX).optional(),
         limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX),
       })
     )
     .query(async ({ ctx, input }) => {
       await ownInstall(ctx.db, ctx.session.user.id, input.installId)
-      const held = await heldEpochs(ctx.db, input.installId)
+      if (input.rootIds?.length === 0) return []
+      const held = await heldEpochs(ctx.db, input.installId, input.rootIds)
       const rootIds = [...new Set(held.map((row) => row.rootId))].sort()
       if (rootIds.length === 0) return []
       // #PERF-6: only the trees whose CURRENT epoch this install holds, their
@@ -313,6 +390,14 @@ export const sessionKeysRouter = router({
         }
       }
       return { written, skipped }
+    }),
+
+  /** #EXP-1960: a keyless tree this install may not key: its devices key it. */
+  requestKey: authedProcedure
+    .input(z.object({ rootId: uuid }))
+    .mutation(async ({ ctx, input }): Promise<RequestKeyResult> => {
+      const { queued: _queued, ...result } = await requestTreeKey(ctx.db, ctx.session.user.id, input.rootId)
+      return result
     }),
 
   /** The current key of each keyed root the caller may read or send to

@@ -75,6 +75,7 @@ class AppViewModel @Inject constructor(
     private val authApi: AuthApi,
     private val steerConnectionStore: SteerConnectionStore,
     private val syncHealthTracker: SyncHealthTracker,
+    private val chatStores: com.exponential.app.data.chatstore.ChatStoreManager,
 ) : ViewModel() {
 
     init {
@@ -355,8 +356,9 @@ class AppViewModel @Inject constructor(
             revokeSession(active)
             syncManager.signOut()
             steerConnectionStore.closeAll()
-            // #PERF-9: signing out deletes the account's stored steer tails.
-            accountId?.let { steerConnectionStore.forgetTails(it) }
+            // #EDE-114 (chat-store.json SIGN-OUT): a deliberate sign-out deletes
+            // the account's chat store (and its old steer tails).
+            accountId?.let { chatStores.signOut(it) }
             auth.clearInstanceUrl()
         }
     }
@@ -374,8 +376,9 @@ class AppViewModel @Inject constructor(
                 revokeSession(active)
                 syncManager.signOut()
                 steerConnectionStore.closeAll()
-                // #PERF-9: signing out deletes the account's stored steer tails.
-                accountId?.let { steerConnectionStore.forgetTails(it) }
+                // #EDE-114 (chat-store.json SIGN-OUT): a deliberate sign-out deletes
+                // the account's chat store (and its old steer tails).
+                accountId?.let { chatStores.signOut(it) }
                 auth.clearToken()
             }
         }
@@ -448,7 +451,7 @@ class AppViewModel @Inject constructor(
         enetNodeManager.signOut(id, revoke = true)
         revokeSession(account)
         steerConnectionStore.closeAll()
-        steerConnectionStore.forgetTails(id)
+        chatStores.signOut(id)
         auth.removeAccount(id)
         databaseHolder.deleteFiles(id)
     }

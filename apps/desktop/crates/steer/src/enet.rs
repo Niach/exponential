@@ -531,7 +531,7 @@ impl InstallNode {
     /// next sign-in of the account reuses it).
     pub fn stop(&self) {
         self.inner.stopped.store(true, Ordering::SeqCst);
-        coding::sealing::expect_service(false);
+        coding::sealing::holder_off(coding::sealing::HolderOff::Stopped);
         if let Some(holder) = lock(&self.inner.holder).take() {
             holder.stop();
         }
@@ -634,6 +634,7 @@ async fn run_node(inner: &Arc<Inner>) {
             Some(Ok(identity)) => identity,
             Some(Err(err)) => {
                 log::warn!("enet: identity file {} unreadable, eNet off: {err}", path.display());
+                coding::sealing::holder_off(coding::sealing::HolderOff::IdentityUnreadable);
                 return;
             }
             None => return,
@@ -655,6 +656,7 @@ async fn run_node(inner: &Arc<Inner>) {
             Ok(node) => break (Arc::new(node), identity, registered),
             Err(err) => {
                 log::warn!("enet: node failed to start, eNet off: {err}");
+                coding::sealing::holder_off(coding::sealing::HolderOff::NodeFailed);
                 return;
             }
         }
@@ -672,7 +674,7 @@ async fn run_node(inner: &Arc<Inner>) {
         }
         if matches!(registered, Registered::Never) {
             // Refused for good: no key holder ever comes in this process.
-            coding::sealing::expect_service(false);
+            coding::sealing::holder_off(coding::sealing::HolderOff::RegistrationRefused);
         }
         if matches!(registered, Registered::Yes) {
             start_holder(&inner, &identity);
@@ -682,7 +684,7 @@ async fn run_node(inner: &Arc<Inner>) {
                     holder.set_device_readers(device_readers(&inner));
                 }
                 // No key API on this registry: no holder will come.
-                None => coding::sealing::expect_service(false),
+                None => coding::sealing::holder_off(coding::sealing::HolderOff::NoKeyApi),
             }
         }
         let allowed = refresh_allowlist(&inner, &node, relay.as_ref()).await;

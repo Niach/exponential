@@ -25,6 +25,17 @@ struct ZoomableImageLeaf: View {
     var body: some View {
         let src = cx.props.str("src")
         let alt = cx.props.str("alt")
+        // #EXP-1926: a source the host does not load = a link or its text, never fetched.
+        let source = src.isEmpty ? ImageSource.load : cx.model.imageSource(src, alt: alt)
+        if source != .load {
+            ImageSourceText(cx: cx, source: source)
+        } else {
+            zoomable(src: src, alt: alt)
+        }
+    }
+
+    @ViewBuilder
+    private func zoomable(src: String, alt: String) -> some View {
         let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         let key = request.map(MediaLoader.key)
         let image = (key != nil && loadedKey == key) ? loaded : request.flatMap { MediaLoader.shared.cached($0) }
@@ -61,6 +72,9 @@ struct ZoomableImageLeaf: View {
                         AnyView(ConceptIcon(name: g.rawValue, size: size, color: color, model: cx.model))
                     }
                 }
+                // #EXP-1926: the rendered picture carries the host's image menu
+                // (its taps, pinches and drags stay the zoom's).
+                .hostImageMenu(cx.model, src: src, alt: alt)
             } else {
                 ZoomPlaceholder(ink: muted, label: alt, family: cx.textStyle.fontFamily, model: cx.model)
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))

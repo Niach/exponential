@@ -80,7 +80,7 @@ private fun OwnTailBubble(
                 testTag = "chat-own-pending",
                 tail = tail,
             ) {
-                if (bubble.text.isNotBlank()) MessageFold(bubble.text) { MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true) }
+                if (bubble.text.isNotBlank()) MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true)
             }
             // The menu anchors at the bubble's bottom-right corner.
             Box(Modifier.align(Alignment.BottomEnd)) {

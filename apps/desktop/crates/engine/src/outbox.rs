@@ -29,7 +29,12 @@
 //! they post — once, ahead of the retries. #EDE-97: plaintext only into a
 //! clear tree; a seal that fails (no key holder, no key yet, no root known)
 //! is retried on the same ladder as a failed post (nothing behind it
-//! overtakes it) and then dropped, logged: never posted in clear. The open-card map reads the
+//! overtakes it), never posted in clear. #EXP-1959: and never dropped
+//! silently: it stays queued, retried at the ladder's last wait for as long
+//! as the run lives (a key holder may still come up), and when this
+//! process's eNet gave up for good (`sealing::holder_off_reason`) the
+//! server posts ONE line saying so in the session (`sessions.noKeyHolder`,
+//! its own words in clear, once per session and process). The open-card map reads the
 //! unsealed card. A sealed question card carries its `askText` (what a
 //! listener's agent reads, sealed to the own tree), and a sealed line its
 //! `listenerCopies`: the text re-sealed for every listening tree outside
@@ -86,6 +91,11 @@ pub trait ConversationApi: Send + Sync + 'static {
         Ok(Vec::new())
     }
     fn consume(&self, session_id: &str, message_ids: &[String]) -> Result<(), ApiError>;
+    /// #EXP-1959: `sessions.noKeyHolder`, the session's one line that this
+    /// device holds no key holder (`reason` = a `sealing::HolderOff` code).
+    fn no_key_holder(&self, _session_id: &str, _reason: &str) -> Result<(), ApiError> {
+        Ok(())
+    }
     /// #EXP-1731: `sessions.subagent`, one CLI subagent edge under
     /// `session_id` (a fake that does not care records nothing).
     fn subagent(&self, _session_id: &str, _row: &SubagentRow) -> Result<(), ApiError> {
@@ -114,6 +124,10 @@ impl ConversationApi for api::TrpcClient {
 
     fn subagent(&self, session_id: &str, row: &SubagentRow) -> Result<(), ApiError> {
         api::session_device::subagent(self, session_id, row).map(|_| ())
+    }
+
+    fn no_key_holder(&self, session_id: &str, reason: &str) -> Result<(), ApiError> {
+        api::session_device::no_key_holder(self, session_id, reason)
     }
 }
 
@@ -157,26 +171,59 @@ fn sealed_reply(session_id: &str, reply: &Reply) -> Result<SealedReply, sealing:
 }
 
 /// #EDE-97: [`sealed_reply`] on the retry ladder (a key holder still
-/// registering, a key its device's claim is about to create); `None` = it
-/// could not be sealed: the reply is dropped (logged), never sent in clear.
-fn sealed_reply_retrying(closing: &AtomicBool, session_id: &str, reply: &Reply) -> Option<SealedReply> {
+/// registering, a key its device's claim is about to create), never sent
+/// in clear. #EXP-1959: past the ladder it keeps retrying at its last wait
+/// until the run ends (a holder may still come up), and once this process
+/// has no key holder for good the session hears it ONCE
+/// ([`say_no_key_holder`]). `None` = the run ended (or the reply is
+/// invalid) before it could be sealed: dropped, logged.
+fn sealed_reply_retrying(
+    api: &dyn ConversationApi,
+    closing: &AtomicBool,
+    session_id: &str,
+    reply: &Reply,
+) -> Option<SealedReply> {
     let mut waits = RETRY_BACKOFF.iter();
+    let last = RETRY_BACKOFF[RETRY_BACKOFF.len() - 1];
     loop {
         match sealed_reply(session_id, reply) {
             Ok(sealed) => return Some(sealed),
             Err(err) => {
-                let wait = match waits.next() {
-                    Some(wait) if !matches!(err, sealing::SealError::Invalid(_)) && !closing.load(Ordering::SeqCst) => wait,
-                    _ => {
-                        log::warn!("engine: a reply of {session_id} was not posted: it could not be encrypted ({err})");
-                        return None;
-                    }
-                };
+                if matches!(err, sealing::SealError::Invalid(_)) || closing.load(Ordering::SeqCst) {
+                    log::warn!("engine: a reply of {session_id} was not posted: it could not be encrypted ({err})");
+                    return None;
+                }
+                if let Some(off) = sealing::holder_off_reason() {
+                    say_no_key_holder(api, closing, session_id, off);
+                }
+                let wait = waits.next().unwrap_or(&last);
                 log::debug!("engine: a reply of {session_id} could not be sealed yet, retrying in {wait:?}: {err}");
                 sleep_unless_closing(*wait, closing);
             }
         }
     }
+}
+
+/// #EXP-1959: the sessions this process already told it holds no key
+/// holder: ONE line per session, however many replies or runs wait.
+static SAID_NO_KEY_HOLDER: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// #EXP-1959: tells `session_id` (once per process) that its agent's
+/// replies cannot be sealed here: `sessions.noKeyHolder`, whose line the
+/// server writes in clear (a keyed tree takes no plaintext from a device).
+fn say_no_key_holder(api: &dyn ConversationApi, closing: &AtomicBool, session_id: &str, off: sealing::HolderOff) {
+    let first = SAID_NO_KEY_HOLDER
+        .lock()
+        .map(|mut said| said.get_or_insert_with(HashSet::new).insert(session_id.to_string()))
+        .unwrap_or(false);
+    if !first {
+        return;
+    }
+    log::warn!(
+        "engine: replies of {session_id} wait: this device holds no encryption key (P2P is off: {})",
+        off.detail()
+    );
+    let _ = with_retry(closing, "sessions.noKeyHolder", false, || api.no_key_holder(session_id, off.code()));
 }
 
 /// EXP-1458: a sealed reply's extras: a question/plan card's ask text
@@ -381,7 +428,7 @@ impl Outbox {
                             continue;
                         }
                     };
-                    let Some((body, card, plain_card)) = sealed_reply_retrying(&shared.closing, &session_id, &reply) else {
+                    let Some((body, card, plain_card)) = sealed_reply_retrying(api.as_ref(), &shared.closing, &session_id, &reply) else {
                         continue;
                     };
                     let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
@@ -718,6 +765,8 @@ mod tests {
         extras: Mutex<Vec<ReplyExtras>>,
         trees: Mutex<Vec<ListenerTree>>,
         listener_calls: Mutex<usize>,
+        /// #EXP-1959: `sessions.noKeyHolder` calls, `(session, reason)`.
+        no_key_holder: Mutex<Vec<(String, String)>>,
     }
 
     impl ConversationApi for Fake {
@@ -751,6 +800,11 @@ mod tests {
                 return Err(ApiError::Http { status: 400, message: "unknown message".into() });
             }
             self.calls.lock().unwrap().push(Call::Consume(ids.to_vec()));
+            Ok(())
+        }
+
+        fn no_key_holder(&self, session: &str, reason: &str) -> Result<(), ApiError> {
+            self.no_key_holder.lock().unwrap().push((session.to_string(), reason.to_string()));
             Ok(())
         }
 
@@ -1034,5 +1088,71 @@ mod tests {
         let [Call::Reply(body, None)] = calls.as_slice() else { panic!("{calls:?}") };
         assert!(body.starts_with(sealing::SEALED_BODY_PREFIX), "{body}");
         assert!(!calls.iter().any(|call| matches!(call, Call::Reply(body, _) if body.contains("clear"))));
+    }
+
+    /// #EXP-1959: a KEYED existing tree (its root and child as the synced
+    /// `sessions` shape sends them) in a process whose eNet node failed to
+    /// start: the replies are neither dropped nor posted in clear. They stay
+    /// queued, the session hears ONE `sessions.noKeyHolder` line naming why,
+    /// and they post sealed, in order, once a key holder comes up after all.
+    #[test]
+    fn without_a_key_holder_replies_wait_and_the_session_hears_it_once() {
+        let _serial = fake_seal::serial();
+        sealing::uninstall();
+        let tree = sealing::generate_tree_key();
+        let public = sealing::b64url_encode(&tree.public);
+        let rows: Vec<domain::rows::SessionRow> = serde_json::from_value(serde_json::json!([
+            {"id": "nkh-root", "root_id": "nkh-root", "seal_public_key": public, "seal_epoch": 1, "clear_tree": false},
+            {"id": "nkh-child", "parent_id": "nkh-root", "root_id": "nkh-root"},
+        ]))
+        .unwrap();
+        sealing::note_sessions(&rows);
+        assert!(sealing::tree_keyed("nkh-root"));
+        // What `steer::enet` does when `Node::start` fails.
+        sealing::holder_off(sealing::HolderOff::NodeFailed);
+        assert_eq!(sealing::holder_off_reason(), Some(sealing::HolderOff::NodeFailed));
+
+        let api = Arc::new(Fake::default());
+        let outbox = Outbox::spawn(api.clone(), "nkh-child");
+        outbox.post(vec![
+            Reply { body: "the first answer".into(), card: None },
+            Reply { body: "the second answer".into(), card: None },
+        ]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while api.no_key_holder.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // Past the first rungs of the ladder: still held, said once.
+        std::thread::sleep(Duration::from_millis(3500));
+        assert!(api.calls.lock().unwrap().is_empty(), "nothing in clear");
+        assert_eq!(
+            api.no_key_holder.lock().unwrap().clone(),
+            vec![("nkh-child".to_string(), "node_failed".to_string())]
+        );
+
+        // Signed in again: a holder that reads the tree comes up.
+        sealing::expect_service(true);
+        assert_eq!(sealing::holder_off_reason(), None);
+        let fake = fake_seal::install();
+        fake.keyring.note_sessions(&rows);
+        fake.keyring.insert_secret("nkh-root", 1, tree.secret);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while api.calls.lock().unwrap().len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        outbox.close(Duration::from_secs(5));
+        let calls = api.calls.lock().unwrap().clone();
+        let opened: Vec<String> = calls
+            .iter()
+            .map(|call| {
+                let Call::Reply(body, None) = call else { panic!("{calls:?}") };
+                assert!(body.starts_with(sealing::SEALED_BODY_PREFIX), "{body}");
+                sealing::open_body_text("nkh-root", body).unwrap()
+            })
+            .collect();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        assert_eq!(opened, ["the first answer", "the second answer"]);
+        assert_eq!(api.no_key_holder.lock().unwrap().len(), 1, "one line per session");
     }
 }

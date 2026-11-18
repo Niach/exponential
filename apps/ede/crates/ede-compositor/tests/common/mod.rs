@@ -3,6 +3,8 @@
 
 #![allow(dead_code)]
 
+pub mod space;
+
 use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
@@ -26,16 +28,24 @@ pub struct Client {
     pub wm_base: Option<xdg_wm_base::XdgWmBase>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
     pub outputs: Vec<wl_output::WlOutput>,
+    /// The name and the current mode each bound wl_output announced.
+    pub output_names: Vec<String>,
+    pub output_modes: Vec<(i32, i32)>,
     pub toplevels: Vec<ToplevelState>,
     pub layers: Vec<LayerState>,
     pub lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     pub idle_inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
     pub seat: Option<wl_seat::WlSeat>,
+    /// The name each bound wl_seat announced.
+    pub seat_names: Vec<String>,
     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     /// The decoration mode the compositor configured per toplevel index.
     pub decoration_modes: std::collections::HashMap<usize, u32>,
     /// Every global the compositor advertised.
     pub globals: Vec<String>,
+    /// Their registry names, and the names it took back (`global_remove`).
+    pub global_names: Vec<u32>,
+    pub removed: Vec<u32>,
     /// `locked` / `finished` on our lock object.
     pub locked: bool,
     pub finished: bool,
@@ -379,8 +389,12 @@ impl Session {
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Client {
     fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
+        if let wl_registry::Event::GlobalRemove { name } = event {
+            state.removed.push(name);
+        }
         if let wl_registry::Event::Global { name, interface, version } = event {
             state.globals.push(interface.clone());
+            state.global_names.push(name);
             match interface.as_str() {
                 "ext_session_lock_manager_v1" => state.lock_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_idle_inhibit_manager_v1" => state.idle_inhibit_manager = Some(registry.bind(name, 1, qh, ())),
@@ -488,6 +502,24 @@ impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, usize> for C
             let l = &mut state.lock_surfaces[*index];
             l.pending_serial = Some(serial);
             l.size = (width, height);
+        }
+    }
+}
+
+impl Dispatch<wl_seat::WlSeat, ()> for Client {
+    fn event(state: &mut Self, _: &wl_seat::WlSeat, event: wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_seat::Event::Name { name } = event {
+            state.seat_names.push(name);
+        }
+    }
+}
+
+impl Dispatch<wl_output::WlOutput, ()> for Client {
+    fn event(state: &mut Self, _: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_output::Event::Name { name } => state.output_names.push(name),
+            wl_output::Event::Mode { flags: WEnum::Value(flags), width, height, .. } if flags.contains(wl_output::Mode::Current) => state.output_modes.push((width, height)),
+            _ => {}
         }
     }
 }
@@ -608,7 +640,6 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
-delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
@@ -620,7 +651,6 @@ delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
 delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
-delegate_noop!(Client: ignore wl_output::WlOutput);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(Client: xdg_positioner::XdgPositioner);
 delegate_noop!(Client: ignore xdg_popup::XdgPopup);

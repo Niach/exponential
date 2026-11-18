@@ -7,7 +7,7 @@ import {
   useRouter,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
-import { Toaster, TooltipProvider } from "@exp/ui"
+import { ImageMenuHost, Toaster, TooltipProvider } from "@exp/ui"
 import { LinkToast } from "@/lib/link-toast"
 import { SessionProvider, useSession } from "@/hooks/use-session"
 import {
@@ -152,6 +152,8 @@ function RootComponent() {
             Gated by src/root-toaster-order.test.tsx. */}
         <Toaster />
         <LinkToast />
+        {/* #EXP-1945: THE image menu (Copy image) for every content picture. */}
+        <ImageMenuHost />
         <Outlet />
         {showRouterDevtools && <TanStackRouterDevtools />}
       </TooltipProvider>

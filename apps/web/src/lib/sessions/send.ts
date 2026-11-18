@@ -542,8 +542,10 @@ async function postSendMessage(
   // #EXP-1584/#EXP-1686: a bare forward still wakes the agent, in a sealed
   // tree too: a server line, legal plaintext there (the identifiers ride in
   // the clear `issue_brief` anyway).
-  const serverLine = !!issueBrief && isBlankText(text) && !input.attachmentIds?.length
-  if (serverLine) text = issueBrief.line ?? ``
+  const forwardLine = !!issueBrief && isBlankText(text) && !input.attachmentIds?.length
+  if (forwardLine) text = issueBrief.line ?? ``
+  // #EXP-1957: text the server composed itself is a server line too.
+  const serverLine = forwardLine || (sendServerComposed.getStore() === true && !isSealedBody(text))
   // #FEED-254: a blank text (a lone U+200B) is no message.
   if (isBlankText(text) && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
@@ -818,6 +820,13 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
  *  "via <app>" (via-app.json). */
 const sendViaApp = new AsyncLocalStorage<string | undefined>()
 
+/** #EXP-1957 (sealed-content.json `serverComposedCases`): this send's text
+ *  is one the SERVER composed from data it already holds in clear (an
+ *  unsealed card's reply or suggestion, an app's hand-off brief, the
+ *  `Link #A #B` wake line): a server line, legal plaintext in a keyed tree.
+ *  Set only from `SendExtras.serverComposed`, never from any wire input. */
+const sendServerComposed = new AsyncLocalStorage<boolean>()
+
 async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Promise<Session> {
   const viaAppId = sendViaApp.getStore()
   const [row] = await tx.insert(sessions).values(viaAppId ? { ...values, viaAppId } : values).returning()
@@ -876,6 +885,10 @@ export interface SendExtras {
   /** A new child's stored title (a suggestion's title). */
   title?: string | null
   within?: SendWithin
+  /** #EXP-1957: the text is server-composed (`sendServerComposed`): only
+   *  server code sets it (suggestions.ts, agent-handoff.ts, the link wake
+   *  line); tRPC and MCP inputs never reach it. */
+  serverComposed?: boolean
 }
 
 interface SendOutcome extends SessionsSendResult {
@@ -909,7 +922,9 @@ export async function sendSession(args: {
    *  never input): the sessions it starts read "via <app>". */
   viaAppId?: string
 }): Promise<SessionsSendResult & { txid: number }> {
-  return sendViaApp.run(args.viaAppId, () => sendSessionInner(args))
+  return sendViaApp.run(args.viaAppId, () =>
+    sendServerComposed.run(args.extras?.serverComposed === true, () => sendSessionInner(args))
+  )
 }
 
 async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promise<SessionsSendResult & { txid: number }> {

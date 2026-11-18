@@ -41,6 +41,14 @@ public struct TreeSealKey: Equatable, Sendable {
     }
 }
 
+/// #EXP-1960: one `sessionKeys.create` for a keyless root.
+public enum TreeKeyCreate: Equatable, Sendable {
+    case keyed(TreeSealKey)
+    case failed(CreateFailure)
+    /// No eNet, no install or no own wrap: nothing was asked.
+    case unavailable
+}
+
 public enum TreeKeyError: Error, Equatable {
     /// This install is not registered (yet) or the build has no eNet.
     case noInstall
@@ -251,20 +259,60 @@ public actor TreeKeyHolder {
         if lookup, let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first {
             return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
         }
+        var outcome = await createKey(accountId: accountId, rootId: rootId, teamId: teamId, deviceIds: deviceIds, shared: shared)
+        if case .failed(.wrapRefused) = outcome {
+            outcome = await createKey(accountId: accountId, rootId: rootId, teamId: teamId, deviceIds: deviceIds, shared: shared, ownOnly: true)
+        }
+        if case let .keyed(key) = outcome { return key }
+        // Another writer keyed the root meanwhile: seal to theirs.
+        _ = await fetch(accountId: accountId, installId: install, rootIds: [rootId])
+        return await serverKey(accountId: accountId, rootId: rootId)
+    }
+
+    /// #EXP-1960: one `sessionKeys.create` (epoch 1) for a keyless root, its
+    /// failure read for the writer's `keylessStep`; `ownOnly` = wrapped for
+    /// this account's own installs only (`retryOwn`).
+    public func createKey(
+        accountId: String,
+        rootId: String,
+        teamId: String?,
+        deviceIds: [String],
+        shared: Bool,
+        ownOnly: Bool = false
+    ) async -> TreeKeyCreate {
+        guard crypto.isAvailable, let install = await installId(accountId) else { return .unavailable }
         let key = crypto.generateTreeKey()
+        let wraps: [TreeKeyWrap]
         do {
-            let wraps = try await readerWraps(accountId: accountId, installId: install, teamId: teamId, deviceIds: deviceIds, shared: shared, secret: key.secret)
-            try await createKey(accountId: accountId, rootId: rootId, installId: install, key: key, wraps: wraps)
-            ring.add([(rootId, 1, key.secret)])
-            return TreeSealKey(publicKey: key.publicKey, epoch: 1)
+            wraps = try await readerWraps(
+                accountId: accountId, installId: install, teamId: ownOnly ? nil : teamId,
+                deviceIds: ownOnly ? [] : deviceIds, shared: ownOnly ? false : shared, secret: key.secret
+            )
         } catch {
-            // Another writer keyed the root meanwhile: seal to theirs.
+            return .unavailable
+        }
+        do {
+            try await keys.create(accountId: accountId, input: CreateTreeKeyInput(rootId: rootId, installId: install, epoch: 1, publicKey: key.publicKey, wraps: wraps))
+        } catch {
             logger.error("sessionKeys.create failed: \(error.localizedDescription)")
-            _ = await fetch(accountId: accountId, installId: install, rootIds: [rootId])
-            if let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first {
-                return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
-            }
-            return nil
+            let body: TrpcErrorBody? = if case let .httpError(_, raw) = error as? TrpcError { TrpcErrorBody.parse(raw) } else { nil }
+            return .failed(createFailure(code: body?.code, message: body?.message))
+        }
+        ring.add([(rootId, 1, key.secret)])
+        return .keyed(TreeSealKey(publicKey: key.publicKey, epoch: 1))
+    }
+
+    /// #EXP-1960: asks the devices of a keyless tree this install may not key
+    /// to key it (`sessionKeys.requestKey`); `key` = the tree's when `keyed`.
+    public func requestKey(accountId: String, rootId: String) async -> (answer: RequestKeyAnswer, key: TreeSealKey?) {
+        do {
+            let result = try await keys.requestKey(accountId: accountId, rootId: rootId)
+            guard let answer = RequestKeyAnswer(rawValue: result.state), answer != .notFound, answer != .error else { return (.error, nil) }
+            let key = result.epoch.flatMap { epoch in result.publicKey.map { TreeSealKey(publicKey: $0, epoch: epoch) } }
+            return (answer, key)
+        } catch {
+            logger.error("sessionKeys.requestKey failed: \(error.localizedDescription)")
+            return (error.trpcErrorCode == "NOT_FOUND" ? .notFound : .error, nil)
         }
     }
 
@@ -283,17 +331,6 @@ public actor TreeKeyHolder {
     public func serverKey(accountId: String, rootId: String) async -> TreeSealKey? {
         guard let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first else { return nil }
         return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
-    }
-
-    private func createKey(accountId: String, rootId: String, installId: String, key: GeneratedTreeKey, wraps: [TreeKeyWrap]) async throws {
-        do {
-            try await keys.create(accountId: accountId, input: CreateTreeKeyInput(rootId: rootId, installId: installId, epoch: 1, publicKey: key.publicKey, wraps: wraps))
-        } catch TrpcError.httpError(400, _) where wraps.count > 1 {
-            // A resolved reader the server does not count: our own wrap only,
-            // holders fill the rest.
-            let own = wraps.filter { $0.installId == installId }
-            try await keys.create(accountId: accountId, input: CreateTreeKeyInput(rootId: rootId, installId: installId, epoch: 1, publicKey: key.publicKey, wraps: own))
-        }
     }
 
     private func readerWraps(

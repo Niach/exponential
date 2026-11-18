@@ -16,7 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -641,6 +644,8 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             onLink = { model.openHref(it) },
             linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
             imagePolicy = remember(model, model.host) { { src: String -> model.mediaRequest(src) != null } },
+            // #EXP-1926: the host's source rule (another website = a link, never fetched).
+            imageSource = remember(model, model.host) { { src: String, alt: String -> model.imageSource(src, alt) } },
             // #VAPP-258: the host hooks, the measurer's (`SurfaceModel.markdownHooks`).
             linkSegments = { piece -> model.markdownTextLinks(piece) },
             attachments = remember(model, model.host) { { href: String -> model.markdownAttachment(href) } },
@@ -672,11 +677,39 @@ internal fun MarkdownLeaf(cx: LeafContext) {
                         alignment = markdownImageAlignment(cx.rtl),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
+                    // #EXP-1926: a rendered block image's long press = the host's image menu.
+                    MarkdownImageMenu(model, src, alt, model.host.onImagePress)
                 } else {
                     MarkdownImageAlt(alt, cx.composeTextStyle(color = muted))
                 }
             },
         )
+    }
+}
+
+/**
+ * #EXP-1926: a Markdown block image's image menu (a long press; a tap keeps
+ * [onPress]) under a host with one. The menu is per picture, so it keeps
+ * its own open state.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun MarkdownImageMenu(model: SurfaceModel, src: String, alt: String, onPress: ((String) -> Unit)?) {
+    val host = model.host
+    if (!host.hasImageMenu) return
+    var open by remember(src) { mutableStateOf(false) }
+    val target = remember(src, alt, model) { at.exponential.ui.host.ImageTarget(src, alt) { model.originalImageBytes(src) } }
+    Box(
+        Modifier.fillMaxSize().combinedClickable(
+            interactionSource = null,
+            indication = null,
+            role = androidx.compose.ui.semantics.Role.Image,
+            onClick = { onPress?.invoke(src) },
+            onLongClick = { open = true },
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        host.ImageMenu(target, expanded = open, onDismiss = { open = false })
     }
 }
 

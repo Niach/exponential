@@ -98,6 +98,16 @@ describe(`the header`, () => {
     expect(screen.getByTestId(`session-tabs`).querySelector(`[aria-selected="true"]`)).toBeNull()
   })
 
+  it(`#FEED-271: an agent and the Assistant show no strip; a chat keeps it`, () => {
+    for (const kind of [`agent`, `assistant`]) {
+      renderFrame({ kind })
+      expect(screen.queryByTestId(`session-tabs`)).toBeNull()
+      cleanup()
+    }
+    renderFrame({ kind: `session` })
+    expect(screen.getByTestId(`session-tabs`)).toBeTruthy()
+  })
+
   it(`no gear on any kind`, () => {
     for (const kind of [`session`, `agent`, `assistant`, `app`]) {
       renderFrame({ kind })

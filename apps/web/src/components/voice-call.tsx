@@ -15,6 +15,7 @@ import {
   callView,
   VOICE_CALL_COPY,
   VOICE_CALL_ICONS,
+  VOICE_CALL_SEAL,
   VOICE_CALL_TEST_IDS,
   type CallAvailability,
   type CallTarget,
@@ -25,14 +26,41 @@ import { useSession } from "@/hooks/use-session"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deviceCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { SEAL_HOLDER_WAIT_MS } from "@exp/domain-contract/sealed-content"
+import { awaitKeyHolder, currentKeyHolder } from "@/lib/enet/current-key-holder"
 import { openCallAudio, playRingTone } from "@/lib/voice-call/audio"
+import type { CallKeySource } from "@/lib/voice-call/seal"
 import { webCallTarget, type CallSettingsLike } from "@/lib/voice-call/availability"
 import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
 
 const CallIcon = conceptIcon(VOICE_CALL_ICONS.call as Parameters<typeof conceptIcon>[0])
 
+/** #EXP-1941: the chat's key of a sealed call, from this tab's key holder. */
+const WEB_CALL_KEYS: CallKeySource = {
+  // A holder that is still starting (the tab is finding its install) is
+  // waited for, as the chat's writers do; none in time = no claim. The wait
+  // is spent only when a call CAN be sealed: one of the synced desktops or
+  // servers advertises the cap. Until a host does, a tab without a holder
+  // dials at once, as it always did.
+  ready: async () => {
+    if (currentKeyHolder()) return true
+    const sealable = [...deviceCollection.values()].some((row) => (row.caps ?? []).includes(VOICE_CALL_SEAL.cap))
+    return sealable ? (await awaitKeyHolder(SEAL_HOLDER_WAIT_MS)) !== undefined : false
+  },
+  target: (agentId) => trpc.sessions.sendTarget.query({ agentId }, SKIP_ERROR_TOAST),
+  secret: async (rootId, epoch) => {
+    const holder = currentKeyHolder()
+    if (!holder) return null
+    // Not throttled: a call waits on this pull, and it nudges the devices that hold the key.
+    if (!holder.keysFor(rootId).has(epoch)) await holder.refresh([rootId])
+    return holder.keysFor(rootId).get(epoch) ?? null
+  },
+  highestEpoch: (rootId) => currentKeyHolder()?.current(rootId)?.epoch ?? null,
+}
+
 const WEB_CALL_DEPS: CallDeps = {
-  startCall: (agentId) => trpc.voice.startCall.mutate({ agentId, platform: `web` }, SKIP_ERROR_TOAST),
+  startCall: (agentId, seal) => trpc.voice.startCall.mutate({ agentId, platform: `web`, seal }, SKIP_ERROR_TOAST),
+  keys: WEB_CALL_KEYS,
   openSocket: (url) => new WebSocket(url),
   openAudio: openCallAudio,
   ring: playRingTone,

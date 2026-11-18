@@ -63,6 +63,11 @@ pub enum PopupMenuItem {
         /// Exponential patch (#EXP-1620): the current value, muted and
         /// truncating at the trailing edge before the chevron.
         value: Option<SharedString>,
+        /// Exponential patch (#FEED-271): the row's whole body drawn by the
+        /// host (its own leading glyph, label and chevron), like an
+        /// [`PopupMenuItem::ElementItem`]'s, so a submenu row shares the
+        /// element rows' geometry instead of the crate's icon slot.
+        render: Option<Rc<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>>,
         disabled: bool,
         menu: Entity<PopupMenu>,
     },
@@ -108,6 +113,7 @@ impl PopupMenuItem {
             icon: None,
             label: label.into(),
             value: None,
+            render: None,
             disabled: false,
             menu,
         }
@@ -756,6 +762,32 @@ impl PopupMenu {
         self
     }
 
+    /// Exponential patch (#FEED-271): a Submenu item whose row body the host
+    /// draws (`render`: glyph, label, chevron), with no crate icon slot; the
+    /// `label` still names it (type-ahead, accessibility).
+    pub fn submenu_element<E: IntoElement>(
+        mut self,
+        label: impl Into<SharedString>,
+        render: impl Fn(&mut Window, &mut App) -> E + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> Self {
+        let submenu = PopupMenu::build(window, cx, f);
+        let parent_menu = cx.entity().downgrade();
+        let parent_priority = self.priority;
+        submenu.update(cx, |view, _| {
+            view.parent_menu = Some(parent_menu);
+            view.priority = parent_priority + 1;
+        });
+        let mut item = PopupMenuItem::submenu(label, submenu);
+        if let PopupMenuItem::Submenu { render: slot, .. } = &mut item {
+            *slot = Some(Rc::new(move |window, cx| render(window, cx).into_any_element()));
+        }
+        self.menu_items.push(item);
+        self
+    }
+
     /// Add menu item.
     pub fn item(mut self, item: impl Into<PopupMenuItem>) -> Self {
         let item: PopupMenuItem = item.into();
@@ -1317,7 +1349,6 @@ impl PopupMenu {
         };
 
         let selected = self.selected_index == Some(ix);
-        const EDGE_PADDING: Pixels = px(4.);
         const INNER_PADDING: Pixels = px(8.);
 
         let is_submenu = matches!(item, PopupMenuItem::Submenu { .. });
@@ -1462,11 +1493,37 @@ impl PopupMenu {
                 )
             }
             PopupMenuItem::Submenu {
+                render: Some(render),
+                menu,
+                disabled,
+                ..
+            } => this
+                .when(!disabled, |this| {
+                    this.on_click(cx.listener(move |this, event, window, cx| {
+                        this.on_click(ix, event, window, cx)
+                    }))
+                })
+                .selected(selected)
+                .disabled(*disabled)
+                // The ElementItem row's anatomy: the crate slot only when
+                // another row of the menu fills it.
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_h(item_height)
+                        .items_center()
+                        .gap_x_1()
+                        .children(Self::render_icon(has_left_icon, false, None, window, cx))
+                        .child((render)(window, cx)),
+                )
+                .when(selected, |this| this.child(self.render_submenu(menu))),
+            PopupMenuItem::Submenu {
                 icon,
                 label,
                 value,
                 menu,
                 disabled,
+                ..
             } => this
                 .when(!disabled, |this| {
                     this.on_click(cx.listener(move |this, event, window, cx| {
@@ -1521,30 +1578,31 @@ impl PopupMenu {
                                 ),
                         ),
                 )
-                .when(selected, |this| {
-                    this.child({
-                        let (anchor, left) = self.submenu_anchor;
-                        let is_bottom_pos =
-                            matches!(anchor, Anchor::BottomLeft | Anchor::BottomRight);
-                        deferred(
-                            anchored()
-                                .anchor(anchor)
-                                .child(
-                                    div()
-                                        .id("submenu")
-                                        .test_support()
-                                        .occlude()
-                                        .when(is_bottom_pos, |this| this.bottom_0())
-                                        .when(!is_bottom_pos, |this| this.top_neg_1())
-                                        .left(left)
-                                        .child(menu.clone()),
-                                )
-                                .snap_to_window_with_margin(Edges::all(EDGE_PADDING)),
-                        )
-                        .with_priority(self.priority + 1)
-                    })
-                }),
+                .when(selected, |this| this.child(self.render_submenu(menu))),
         }
+    }
+
+    /// A selected Submenu row's open submenu, anchored beside the row.
+    fn render_submenu(&self, menu: &Entity<PopupMenu>) -> impl IntoElement {
+        const EDGE_PADDING: Pixels = px(4.);
+        let (anchor, left) = self.submenu_anchor;
+        let is_bottom_pos = matches!(anchor, Anchor::BottomLeft | Anchor::BottomRight);
+        deferred(
+            anchored()
+                .anchor(anchor)
+                .child(
+                    div()
+                        .id("submenu")
+                        .test_support()
+                        .occlude()
+                        .when(is_bottom_pos, |this| this.bottom_0())
+                        .when(!is_bottom_pos, |this| this.top_neg_1())
+                        .left(left)
+                        .child(menu.clone()),
+                )
+                .snap_to_window_with_margin(Edges::all(EDGE_PADDING)),
+        )
+        .with_priority(self.priority + 1)
     }
 }
 

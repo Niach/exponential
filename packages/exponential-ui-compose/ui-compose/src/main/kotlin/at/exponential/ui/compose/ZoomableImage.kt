@@ -293,6 +293,12 @@ internal fun ZoomableImageLeaf(cx: LeafContext) {
     val props = cx.props
     val src = props.str("src")
     val alt = props.str("alt")
+    // #EXP-1926: a source the host does not load = a link or its text, never fetched.
+    val source = remember(src, alt, model.host) { model.imageSource(src, alt) }
+    if (source != at.exponential.ui.primitives.ImageSource.Load) {
+        ImageSourceText(cx, source)
+        return
+    }
     val picture = rememberLeafImage(cx, src)
     val nw = props.num("naturalWidth")?.toFloat()?.takeIf { it > 0f } ?: picture?.width?.toFloat()
     val nh = props.num("naturalHeight")?.toFloat()?.takeIf { it > 0f } ?: picture?.height?.toFloat()
@@ -347,44 +353,48 @@ internal fun ZoomableImageLeaf(cx: LeafContext) {
         applied = true
     }
     val index = cx.index
-    ZoomableImageView(
-        naturalSize = natural,
-        state = state,
-        modifier = Modifier.fillMaxSize(),
-        initial = initial,
-        maxScale = maxScale,
-        // style.json zoomableImage: while the picture has not loaded (pending
-        // or failed) there is nothing to zoom, so the pill is not drawn.
-        controls = if (picture == null) ZoomControls.None else controls,
-        contentKey = src,
-        contentDescription = alt.ifEmpty { null },
-        onZoom = { s, rest ->
-            model.fire(index, "zoom", JsonValue.Obj(linkedMapOf("scale" to JsonValue.Num(s.toDouble()), "atFit" to JsonValue.Bool(rest))))
-        },
-        onTap = { model.fire(index, "tap") },
-        appearance = appearance,
-        motion = motion,
-        pictureRadius = radius.dp,
-        overlay = if (picture != null) null else ({
-            Column(
-                Modifier.fillMaxSize().clearAndSetSemantics {},
-                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                GlyphView(Glyph.Image, 20f, muted.copy(alpha = muted.alpha * 0.6f))
-                if (alt.isNotEmpty()) BasicText(
-                    alt,
-                    style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = muted.copy(alpha = muted.alpha * 0.6f)),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+        ZoomableImageView(
+            naturalSize = natural,
+            state = state,
+            modifier = Modifier.fillMaxSize(),
+            initial = initial,
+            maxScale = maxScale,
+            // style.json zoomableImage: while the picture has not loaded (pending
+            // or failed) there is nothing to zoom, so the pill is not drawn.
+            controls = if (picture == null) ZoomControls.None else controls,
+            contentKey = src,
+            contentDescription = alt.ifEmpty { null },
+            onZoom = { s, rest ->
+                model.fire(index, "zoom", JsonValue.Obj(linkedMapOf("scale" to JsonValue.Num(s.toDouble()), "atFit" to JsonValue.Bool(rest))))
+            },
+            onTap = { model.fire(index, "tap") },
+            appearance = appearance,
+            motion = motion,
+            pictureRadius = radius.dp,
+            overlay = if (picture != null) null else ({
+                Column(
+                    Modifier.fillMaxSize().clearAndSetSemantics {},
+                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    GlyphView(Glyph.Image, 20f, muted.copy(alpha = muted.alpha * 0.6f))
+                    if (alt.isNotEmpty()) BasicText(
+                        alt,
+                        style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = muted.copy(alpha = muted.alpha * 0.6f)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }),
+        ) {
+            if (picture != null) {
+                Image(picture, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            } else {
+                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(muted.copy(alpha = muted.alpha * 0.08f)))
             }
-        }),
-    ) {
-        if (picture != null) {
-            Image(picture, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-        } else {
-            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(muted.copy(alpha = muted.alpha * 0.08f)))
         }
+        // #EXP-1926: the host's image menu (a long press on the rendered picture, NodeView).
+        if (picture != null) ImageMenuAnchor(model, cx.node.id, src, alt)
     }
 }

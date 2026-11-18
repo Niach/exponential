@@ -186,6 +186,57 @@ pub struct VoiceCallSpec {
     pub wire: CallWire,
     pub hang_up_rules: HangUpRules,
     pub pill: CallPill,
+    pub host_voice: HostVoice,
+}
+
+/// FEED-276: how long a host's `ready` waits for the agent's own voice.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostVoice {
+    pub wait_ms: u64,
+}
+
+/// FEED-276 (`hostVoice`): the agent's own voice on the call's host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CallVoice {
+    /// The agent has no clip: the built-in voice IS its voice.
+    #[default]
+    None,
+    /// Its clip is on disk and the worker was prepared with it.
+    Installed,
+    /// Its clip landed during the ring; that Prepare is not confirmed yet.
+    Installing,
+    /// Its clip still downloads.
+    Fetching,
+    /// Its clip could not be fetched.
+    Failed,
+}
+
+/// FEED-276: what [`call_voice_ready`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallVoiceReady {
+    /// The agent's own voice speaks: `ready` may go.
+    Ready,
+    /// Keep ringing.
+    Wait,
+    /// `ready` goes with the built-in voice (the host logs it).
+    BuiltIn,
+}
+
+/// FEED-276 (`hostVoice.cases`): whether a host's `ready` may go
+/// `waited_ms` after the ring started, given the agent's voice: none or
+/// installed = ready; failed = the built-in voice at once; fetching waits
+/// until `hostVoice.waitMs`, then the built-in voice; installing waits
+/// until then, then ready (the greeting queues behind its Prepare).
+pub fn call_voice_ready(voice: CallVoice, waited_ms: u64) -> CallVoiceReady {
+    let bound = waited_ms >= VOICE_CALL.host_voice.wait_ms;
+    match voice {
+        CallVoice::None | CallVoice::Installed => CallVoiceReady::Ready,
+        CallVoice::Failed => CallVoiceReady::BuiltIn,
+        CallVoice::Fetching if bound => CallVoiceReady::BuiltIn,
+        CallVoice::Installing if bound => CallVoiceReady::Ready,
+        CallVoice::Fetching | CallVoice::Installing => CallVoiceReady::Wait,
+    }
 }
 
 pub static VOICE_CALL: LazyLock<VoiceCallSpec> =
@@ -732,6 +783,23 @@ mod tests {
         }
         for case in fixture["ringToneCases"].as_array().unwrap() {
             assert_eq!(call_ring_tone_on(case["ms"].as_i64().unwrap()), case["on"].as_bool().unwrap(), "{case}");
+        }
+        for case in fixture["hostVoice"]["cases"].as_array().unwrap() {
+            let voice = match case["clip"].as_str().unwrap() {
+                "none" => CallVoice::None,
+                "installed" => CallVoice::Installed,
+                "installing" => CallVoice::Installing,
+                "fetching" => CallVoice::Fetching,
+                "failed" => CallVoice::Failed,
+                other => panic!("unknown clip {other}"),
+            };
+            let expected = match case["ready"].as_str().unwrap() {
+                "ready" => CallVoiceReady::Ready,
+                "wait" => CallVoiceReady::Wait,
+                "builtIn" => CallVoiceReady::BuiltIn,
+                other => panic!("unknown answer {other}"),
+            };
+            assert_eq!(call_voice_ready(voice, case["waitedMs"].as_u64().unwrap()), expected, "{case}");
         }
         for case in fixture["livenessCases"].as_array().unwrap() {
             let input = &case["input"];

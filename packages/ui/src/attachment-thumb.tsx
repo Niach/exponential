@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { cn } from "./cn"
+import { imageMenuProps } from "@exponential_app/eui/web"
 import { conceptIcon } from "./icons.generated"
 
 // EXP-904 — the ONE attachment thumbnail.
@@ -102,6 +103,9 @@ export function AttachmentThumb({
       <img
         src={src}
         alt={alt}
+        // #EXP-1945: a posted image answers THE image menu; the composer's
+        // pending tile does not (image-actions.json `views.out`).
+        {...(size === `inline` ? imageMenuProps(src, alt) : {})}
         loading={size === `inline` ? `lazy` : undefined}
         width={intrinsic?.width}
         height={intrinsic?.height}

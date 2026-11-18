@@ -1,7 +1,8 @@
 // Steer relay wire protocol (masterplan §3.2; steering v2 = EXP-249).
 //
-// VAPP-43: the relay carries NO session content. It is presence, control and
-// eTalk calls:
+// VAPP-43: the relay carries NO session content, EXCEPT a voice call's events
+// and audio, which the relay can read until #EXP-1941 (below). It is presence,
+// control and eTalk calls:
 //   - a CONTROL socket announces its device (`online`), receives `check_in`,
 //     `kill {sessionId}`, `interrupt {sessionId}` and `compact_request` from
 //     the web server's admin routes, and answers the last with
@@ -30,7 +31,12 @@
 // binary frame included). The call's JSON control frames (`call_mute`,
 // `call_event`, `call_end`) ride beside them.
 //
-// The relay never decodes audio and never persists anything.
+// The relay never decodes audio and never persists anything. But a call is
+// NOT sealed yet: `call_event` carries what the member said and each sentence
+// of the reply as text this file parses, and the Opus is plain, so whoever
+// runs or reads this process can read and hear a call. #EXP-1941 seals both
+// end to end (fixtures/voice-call.json `seal`: the contract and its vectors;
+// no caller and no host seals at this commit).
 
 import { contract } from "@exp/domain-contract"
 import steerEnet from "@exp/domain-contract/fixtures/steer-enet.json" with { type: "json" }

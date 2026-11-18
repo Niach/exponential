@@ -111,7 +111,7 @@ struct ChatMenuSheet: View {
                         if entry == .checks, let checksSummary {
                             PrChecksMenuEntryLabel(summary: checksSummary)
                         } else {
-                            GlassMenuItemLabel(Self.label(entry), icon: Self.icon(entry), destructive: Self.destructive(entry))
+                            GlassMenuItemLabel(Self.label(entry), icon: Self.icon(entry), destructive: Self.destructive(entry), chevron: Self.opensSheet(entry))
                         }
                     }
                     .buttonStyle(.plain)
@@ -124,6 +124,13 @@ struct ChatMenuSheet: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("chat-menu-sheet")
         }
+    }
+
+    /// #FEED-271: Link or file an issue opens THE link menu as the next
+    /// sheet, so it wears the submenu row's `›` (web-mobile's, Android's).
+    static func opensSheet(_ entry: Entry) -> Bool {
+        if case .screen(.linkIssue, _) = entry { return true }
+        return false
     }
 
     /// The agent menu's sends sit apart from Agent settings (the

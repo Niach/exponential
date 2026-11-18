@@ -26,6 +26,15 @@ data class RowStamp(
     val stamp: String,
 )
 
+/** #EDE-114: one session the chat store's catch-up walks (chat-store.json `catchUp`). */
+data class CatchUpRow(
+    val id: String,
+    @ColumnInfo(name = "root_id") val rootId: String,
+    @ColumnInfo(name = "device_id") val deviceId: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String,
+    val busy: Boolean,
+)
+
 /** #ERR-19: one session's title-eligible rows, summarized (count + newest stamp). */
 data class TitleStamp(
     @ColumnInfo(name = "session_id") val sessionId: String,

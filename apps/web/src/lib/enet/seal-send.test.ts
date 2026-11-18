@@ -339,3 +339,143 @@ describe(`sealSendInput (fixture staleTree)`, () => {
     expect(calls).toBe(1)
   })
 })
+
+describe(`#EXP-1960 keyless trees (fixture clearTree.keylessCases), real shapes`, () => {
+  // Real-shaped ids: uuids for sessions, teams and installs; `sessions.device_id`
+  // and `installs.list`'s `deviceId` = the MACHINE id, `devices.id` = a row uuid.
+  const TEAM = `5b0c1f7e-2d4a-4b8e-9c61-0f3a7d2e9b14`
+  const ROOT = `8e2f6a90-1c3b-4d5e-8f70-a1b2c3d4e5f6`
+  const MACHINE = `0e85e497-b91c-48de-a99a-9e9f29c3ba85`
+  const DEVICE_ROW = `c41d8a2e-7b6f-4e3a-9d10-5f2e8c7b6a49`
+  const TEAMMATE = `ptobS12jrytMAoSNc7Jzi33t3aS8ucan`
+  const trpcError = (code: string, message: string) => Object.assign(new Error(message), { data: { code, httpStatus: 0 } })
+  /** A pre-#EDE-97 chat: never keyed, not clear, idle on its device. */
+  const preEde97: SealSessionRow = {
+    id: ROOT,
+    rootId: ROOT,
+    parentId: null,
+    teamId: TEAM,
+    userId: ME,
+    deviceId: MACHINE,
+    shared: false,
+    sealPublicKey: null,
+    sealEpoch: null,
+    clearTree: false,
+  }
+  const realDeps = (holder: KeyHolder, extra: Partial<SealDeps> = {}): SealDeps & { slept: number[] } => {
+    const slept: number[] = []
+    const base = deps(holder, [preEde97])
+    return {
+      ...base,
+      deviceRowIds: (machine) => (machine === MACHINE ? [DEVICE_ROW] : []),
+      teamInstalls: async () => [
+        { installId: INSTALL, x25519Public: fixture.install.x25519Public, userId: ME, deviceId: null },
+        // The teammate's daemon hosting my chat on its shared box (`installs.list` shape).
+        { installId: DEVICE_INSTALL, x25519Public: pub(deviceSecret), userId: TEAMMATE, deviceId: MACHINE },
+        { installId: OTHER_INSTALL, x25519Public: pub(hex(`55`.repeat(32))), userId: TEAMMATE, deviceId: `another-machine` },
+      ],
+      waits: { holderMs: 10, keyMs: 20_000, pollMs: 1000 },
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+      slept,
+      ...extra,
+    }
+  }
+  const tree = new Map([[1, hex(fixture.tree.secret)]])
+
+  it(`a teammate's shared host gets the key: its install is matched by the machine id`, async () => {
+    const { holder, api } = holderWith()
+    await sealSendInput({ sessionId: ROOT, text: `hi` }, realDeps(holder))
+    const made = (api.create as ReturnType<typeof vi.fn>).mock.calls[0]![0]
+    expect(made.wraps.map((w: { installId: string }) => w.installId).sort()).toEqual([INSTALL, PHONE, DEVICE_INSTALL].sort())
+    expect(unwrapTreeKey(deviceSecret, made.wraps.find((w: { installId: string }) => w.installId === DEVICE_INSTALL).wrapped)).toBeTruthy()
+  })
+
+  it(`not a reader + an idle device: the device is asked to key it, the send is sealed once it did`, async () => {
+    const create = vi.fn(async () => Promise.reject(trpcError(`NOT_FOUND`, `Session not found`)))
+    const { holder } = holderWith({ create })
+    let polls = 0
+    const requestKey = vi.fn(async () => ({ state: `requested` as const }))
+    const d = realDeps(holder, {
+      requestKey,
+      publicKey: async () => (++polls >= 2 ? { epoch: 1, publicKey: fixture.tree.publicKey } : undefined),
+    })
+    const sealed = await sealSendInput({ sessionId: ROOT, text: `still there?` }, d)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(requestKey).toHaveBeenCalledWith(ROOT)
+    expect(openBody(sealed.input.text!, tree)).toMatchObject({ status: `opened`, text: `still there?` })
+  })
+
+  it(`not a reader and no device hosts the tree: fails at once, no silent wait`, async () => {
+    const { holder } = holderWith({ create: vi.fn(async () => Promise.reject(trpcError(`NOT_FOUND`, `Session not found`))) })
+    const publicKey = vi.fn(async () => undefined)
+    const d = realDeps(holder, { requestKey: async () => ({ state: `noHost` as const }), publicKey })
+    await expect(sealSendInput({ sessionId: ROOT, text: `hi` }, d)).rejects.toThrow(fixture.clearTree.noKeyRefusal)
+    expect(publicKey).not.toHaveBeenCalled()
+    expect(d.slept).toEqual([])
+  })
+
+  it(`a real NOT_FOUND from requestKey keeps the bare wait (then the refusal)`, async () => {
+    const { holder } = holderWith({ create: vi.fn(async () => Promise.reject(trpcError(`NOT_FOUND`, `Session not found`))) })
+    const publicKey = vi.fn(async () => undefined)
+    const d = realDeps(holder, {
+      requestKey: async () => Promise.reject(trpcError(`NOT_FOUND`, `Session not found`)),
+      publicKey,
+      waits: { holderMs: 1, keyMs: 0, pollMs: 1 },
+    })
+    await expect(sealSendInput({ sessionId: ROOT, text: `hi` }, d)).rejects.toThrow(fixture.clearTree.noKeyRefusal)
+    expect(publicKey).toHaveBeenCalled()
+  })
+
+  it(`the device answers with the key at once: sealed without a wait`, async () => {
+    const { holder } = holderWith({ create: vi.fn(async () => Promise.reject(trpcError(`NOT_FOUND`, `Session not found`))) })
+    const d = realDeps(holder, { requestKey: async () => ({ state: `keyed` as const, epoch: 1, publicKey: fixture.tree.publicKey }) })
+    const sealed = await sealSendInput({ sessionId: ROOT, text: `hi` }, d)
+    expect(openBody(sealed.input.text!, tree).text).toBe(`hi`)
+    expect(d.slept).toEqual([])
+  })
+
+  it(`a 5xx on create is retried, then keyed by this install`, async () => {
+    let calls = 0
+    const create = vi.fn(async () => (++calls === 1 ? Promise.reject(trpcError(`INTERNAL_SERVER_ERROR`, `boom`)) : {}))
+    const { holder } = holderWith({ create })
+    const requestKey = vi.fn()
+    const d = realDeps(holder, { requestKey })
+    const sealed = await sealSendInput({ sessionId: ROOT, text: `hi` }, d)
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(d.slept).toEqual([fixture.clearTree.createRetryMs])
+    expect(requestKey).not.toHaveBeenCalled()
+    expect(openBody(sealed.input.text!, holder.keysFor(ROOT)).text).toBe(`hi`)
+  })
+
+  it(`no answer on every attempt: fails after createAttempts, never waits for a key`, async () => {
+    const create = vi.fn(async () => Promise.reject(new TypeError(`Failed to fetch`)))
+    const { holder } = holderWith({ create })
+    const publicKey = vi.fn(async () => undefined)
+    const d = realDeps(holder, { publicKey })
+    await expect(sealSendInput({ sessionId: ROOT, text: `hi` }, d)).rejects.toThrow(fixture.clearTree.noKeyRefusal)
+    expect(create).toHaveBeenCalledTimes(fixture.clearTree.createAttempts)
+    expect(publicKey).not.toHaveBeenCalled()
+  })
+
+  it(`a refused wrap: once more wrapped for my own installs only`, async () => {
+    let calls = 0
+    const create = vi.fn(async () =>
+      ++calls === 1 ? Promise.reject(trpcError(`BAD_REQUEST`, fixture.clearTree.wrapRefusal)) : {}
+    )
+    const { holder } = holderWith({ create })
+    await sealSendInput({ sessionId: ROOT, text: `hi` }, realDeps(holder))
+    expect(create).toHaveBeenCalledTimes(2)
+    const retried = (create.mock.calls as unknown as Array<[{ wraps: Array<{ installId: string }> }]>)[1]![0]
+    expect(retried.wraps.map((w) => w.installId).sort()).toEqual([INSTALL, PHONE].sort())
+  })
+
+  it(`a clear tree the store did not know as one: plaintext`, async () => {
+    const { holder } = holderWith({
+      create: vi.fn(async () => Promise.reject(trpcError(`BAD_REQUEST`, fixture.clearTree.clearRefusal))),
+    })
+    const sent = await sealSendInput({ sessionId: ROOT, text: `hi` }, realDeps(holder))
+    expect(sent.input.text).toBe(`hi`)
+  })
+})
