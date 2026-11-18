@@ -3,6 +3,8 @@
 
 #![allow(dead_code)]
 
+pub mod space;
+
 use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
@@ -26,6 +28,9 @@ pub struct Client {
     pub wm_base: Option<xdg_wm_base::XdgWmBase>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
     pub outputs: Vec<wl_output::WlOutput>,
+    /// The name and the current mode each bound wl_output announced.
+    pub output_names: Vec<String>,
+    pub output_modes: Vec<(i32, i32)>,
     pub toplevels: Vec<ToplevelState>,
     pub layers: Vec<LayerState>,
     pub lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
@@ -502,6 +507,16 @@ impl Dispatch<wl_seat::WlSeat, ()> for Client {
     }
 }
 
+impl Dispatch<wl_output::WlOutput, ()> for Client {
+    fn event(state: &mut Self, _: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_output::Event::Name { name } => state.output_names.push(name),
+            wl_output::Event::Mode { flags: WEnum::Value(flags), width, height, .. } if flags.contains(wl_output::Mode::Current) => state.output_modes.push((width, height)),
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
@@ -629,7 +644,6 @@ delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
 delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
-delegate_noop!(Client: ignore wl_output::WlOutput);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(Client: xdg_positioner::XdgPositioner);
 delegate_noop!(Client: ignore xdg_popup::XdgPopup);

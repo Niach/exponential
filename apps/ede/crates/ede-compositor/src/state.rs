@@ -55,6 +55,9 @@ pub struct Ede {
     pub data_device_state: DataDeviceState,
     /// The person's desk: seat, windows, clipboard, cursor ([`crate::desk`]).
     pub desk: crate::desk::Desk,
+    /// The agent spaces: each a desk of its own beside the person's
+    /// ([`crate::spaces`]). The person's desk is in no collection.
+    pub spaces: crate::spaces::Spaces,
 
     /// Set by a backend that owns a seat session: switch to VT n.
     pub vt_switch: Option<Box<dyn FnMut(i32)>>,
@@ -223,6 +226,7 @@ impl Ede {
                 workspaces: crate::workspaces::Workspaces::default(),
                 title_click: None,
             },
+            spaces: Default::default(),
             vt_switch: None,
             autostart: Vec::new(),
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
