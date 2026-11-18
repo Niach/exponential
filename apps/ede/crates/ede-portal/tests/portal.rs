@@ -225,9 +225,18 @@ fn global_shortcuts_bind_and_activate() {
     let mut rec: HashMap<&str, Value> = HashMap::new();
     rec.insert("description", Value::from("Start recording"));
     rec.insert("preferred_trigger", Value::from("CTRL+ALT+r"));
-    let (r, results): (u32, Vardict) = w.call(SHORTCUTS, "BindShortcuts", &(path("/r/2"), path(session), vec![("rec", rec)], "", none())).unwrap();
+    // #EXP-1938: a trigger the compositor refuses (no Ctrl, Alt or Super and
+    // no F-key) is not bound, and the reply lists only what was bound: the
+    // client reads its missing row as declined (etalk-gpui hotkey.rs
+    // `a_portal_reply_without_our_shortcut_is_declined`).
+    let mut typing: HashMap<&str, Value> = HashMap::new();
+    typing.insert("description", Value::from("Push to talk"));
+    typing.insert("preferred_trigger", Value::from("SHIFT+space"));
+    let (r, results): (u32, Vardict) =
+        w.call(SHORTCUTS, "BindShortcuts", &(path("/r/2"), path(session), vec![("rec", rec), ("typing", typing)], "", none())).unwrap();
     assert_eq!(r, 0);
     let rows = <Vec<(String, Vardict)>>::try_from(results["shortcuts"].try_clone().unwrap()).unwrap();
+    assert_eq!(rows.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["rec"], "the refused trigger is no row");
     assert_eq!(<&str>::try_from(&rows[0].1["trigger_description"]).unwrap(), "CTRL+ALT+r");
 
     let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(SHORTCUTS).unwrap().member("Activated").unwrap().build();
