@@ -1,3 +1,8 @@
+- Long-press a picture to Copy image or Share it
+- A picture or video from another website shows as a link and is never loaded
+- New chats are encrypted by default; a chat's mark shows when it is shared or not encrypted
+- A call whose connection died says so instead of hanging
+- Computer use follows the device's switch in the + menu
 - Large accounts stay responsive: screens that read a whole list share one read
 - A chat whose device is offline shows the messages synced so far and ends with the offline line
 - A session that hit a wall says so instead of "needs input"
@@ -52,10 +57,3 @@
 - Owners set the team's time zone; apps read dates in it
 - Undo app record changes for 10 seconds; every record keeps a history you can restore from
 - Apps can compute fields and link records to each other
-- App edits made offline are sent once you are back online
-- Apps can have several screens, and import a spreadsheet as records
-- A floating pill keeps your call within reach while you use the app
-- Apps open full screen from the sidebar; the editor is behind the gear
-- Pasted images show as thumbnails in chats
-- Start coding to an agent now reaches it; agent chats stay a plain conversation
-- Teams can have their own image
