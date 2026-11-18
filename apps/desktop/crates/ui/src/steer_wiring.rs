@@ -109,6 +109,10 @@ struct ControlChannels {
     /// [`refresh_device_advertisement`] compares against it so a doctor
     /// refresh only re-registers (or re-dials) when the sets actually changed.
     advertised: HashMap<String, coding::AgentAdvertisement>,
+    /// #EXP-1941: the caps the account's last register carried. Caps reach
+    /// the server only inside `devices.register`, so a changed list (the key
+    /// holder came or went: `call-seal`) is a register trigger too.
+    registered_caps: HashMap<String, Vec<String>>,
 }
 struct ControlChannelsGlobal(Entity<ControlChannels>);
 impl Global for ControlChannelsGlobal {}
@@ -276,6 +280,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let channels = ControlChannels::global(cx);
             channels.update(cx, |channels, _| {
                 channels.advertised.insert(account_id.clone(), advertisement);
+                channels.registered_caps.insert(account_id.clone(), caps);
                 if let Some(previous) = channels.by_account.insert(account_id, handle) {
                     previous.stop(); // never accumulate two sockets for one account
                 }
@@ -330,7 +335,10 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     let desired = report.agent_advertisement(&settings);
     let current = ControlChannels::global_ref(cx)
         .and_then(|channels| channels.read(cx).advertised.get(&account.id).cloned());
-    if current.as_ref() == Some(&desired) {
+    let caps = device_caps(&desired);
+    let registered_caps = ControlChannels::global_ref(cx)
+        .and_then(|channels| channels.read(cx).registered_caps.get(&account.id).cloned());
+    if !refresh_due(current.as_ref(), &desired, registered_caps.as_deref(), &caps) {
         return;
     }
     // The dial/hang-up decision flipped → the full path (`start_control_channel`
@@ -349,7 +357,6 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     };
     let provider = auth.auth.token_provider(&account.id);
     let trpc = Arc::new(api::TrpcClient::new(&account.instance_url, provider));
-    let caps = device_caps(&desired);
     register_device(
         trpc,
         account.id.clone(),
@@ -366,6 +373,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
     if let Some(channels) = ControlChannels::global_ref(cx) {
         channels.update(cx, |channels, _| {
             channels.advertised.insert(account.id.clone(), desired);
+            channels.registered_caps.insert(account.id.clone(), caps);
         });
     }
 }
@@ -375,7 +383,26 @@ pub fn refresh_device_advertisement(cx: &mut App) {
 /// shared with the CLI daemon. They used to be hand-synced copies, and a
 /// one-sided edit silently made one host un-targetable for the new feature.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
+    device_caps_with(advertisement, coding::sealing::service().is_some())
+}
+
+/// #EXP-1941: [`refresh_device_advertisement`] has something to do: the
+/// advertisement changed, or the caps this device would register now are not
+/// the ones its last register carried (none recorded = the control channel's
+/// start registers them).
+fn refresh_due(current: Option<&coding::AgentAdvertisement>, desired: &coding::AgentAdvertisement, registered_caps: Option<&[String]>, caps: &[String]) -> bool {
+    current != Some(desired) || registered_caps.is_some_and(|registered| registered != caps)
+}
+
+/// [`device_caps`] by whether this process has a key holder NOW. #EXP-1941:
+/// `call-seal` is advertised only while it has one (the node of another
+/// account stops, a first sign-in's holder starts beside the control
+/// channel): a host without one would end every sealing call `no_key`.
+fn device_caps_with(advertisement: &coding::AgentAdvertisement, key_holder: bool) -> Vec<String> {
     let mut caps = coding::device_caps(advertisement);
+    if key_holder {
+        caps.push(etalk::call::VOICE_CALL.seal.cap.clone());
+    }
     // #FEED-244: it paints app screens (`app_screenshot`), like the daemon.
     if updater::app_shot::capable() {
         caps.push(updater::app_shot::CAP.to_string());
@@ -587,5 +614,28 @@ pub(crate) fn register_kill_feed(session_id: &str, cx: &mut App) -> engine::Kill
         unwatch: Some(Box::new(move || {
             let _ = unwatch_tx.send(());
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EXP-1941: `call-seal` follows the key holder, and the caps are part
+    /// of what a refresh compares: the holder starts beside the control
+    /// channel (a race a first sign-in loses) and a register that carries
+    /// the cap follows; the holder goes, and the cap leaves the row.
+    #[test]
+    fn the_call_seal_cap_follows_the_key_holder_and_registers() {
+        let advertisement = coding::AgentAdvertisement::default();
+        let (without, with) = (device_caps_with(&advertisement, false), device_caps_with(&advertisement, true));
+        assert!(with.contains(&"call-seal".to_string()) && !without.contains(&"call-seal".to_string()));
+        assert_eq!(with.len(), without.len() + 1);
+        let same = Some(&advertisement);
+        assert!(!refresh_due(same, &advertisement, Some(&without), &without), "nothing changed");
+        assert!(refresh_due(same, &advertisement, Some(&without), &with), "the holder came: register again");
+        assert!(refresh_due(same, &advertisement, Some(&with), &without), "the holder went: the cap leaves the row");
+        assert!(!refresh_due(same, &advertisement, None, &with), "no register yet: the channel's start carries them");
+        assert!(refresh_due(None, &advertisement, Some(&with), &with), "a changed advertisement, as before");
     }
 }

@@ -42,6 +42,8 @@ struct State {
     notices: Vec<Notice>,
     /// The streamed call the next `connect_call` answers with.
     call: Option<CallConnection>,
+    /// What `connect_call` was asked: (call id, agent id, refuse only).
+    connects: Vec<(String, String, bool)>,
     /// #EXP-1938: computer use holds the person's input.
     input_held: bool,
     /// FEED-276: the agent's own voice (None = the member's).
@@ -127,8 +129,10 @@ impl TalkHost for TestHost {
     fn write(&self, _: VoiceWrite, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
         false
     }
-    fn connect_call(&self, _: &str, _: &mut App) -> Option<Task<Result<CallConnection, String>>> {
-        self.state.borrow_mut().call.take().map(|call| Task::ready(Ok(call)))
+    fn connect_call(&self, call_id: &str, agent_id: &str, refuse_only: bool, _: &mut App) -> Option<Task<Result<CallConnection, String>>> {
+        let mut state = self.state.borrow_mut();
+        state.connects.push((call_id.into(), agent_id.into(), refuse_only));
+        state.call.take().map(|call| Task::ready(Ok(call)))
     }
     fn device(&self, _: &str, _: &App) -> Option<TalkDevice> {
         None
@@ -245,6 +249,11 @@ impl Rig {
         self.state.borrow_mut().voice = Some(voice);
         cx.update(crate::agents_changed);
         cx.run_until_parked();
+    }
+
+    /// What `connect_call` was asked since the last look.
+    pub(crate) fn connects(&self) -> Vec<(String, String, bool)> {
+        std::mem::take(&mut self.state.borrow_mut().connects)
     }
 
     /// #EXP-1938: computer use takes (or lets go of) the person's input.

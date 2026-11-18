@@ -19,6 +19,8 @@ struct EnetInstalls {
     /// The synced team ids, shared with the node's allowlist loop.
     team_ids: Arc<Mutex<Vec<String>>>,
     _teams: Option<Subscription>,
+    /// #EXP-1941: the key holder watcher runs ([`watch_key_holder`]).
+    watching: bool,
 }
 impl Global for EnetInstalls {}
 
@@ -56,6 +58,7 @@ fn installs(cx: &mut App) -> &mut EnetInstalls {
             by_account: HashMap::new(),
             team_ids,
             _teams: Some(subscription),
+            watching: false,
         });
     }
     cx.global_mut::<EnetInstalls>()
@@ -112,6 +115,30 @@ pub fn start(account: &api::Account, cx: &mut App) {
         chat_store: Some(crate::chat_store::serving_slot()),
     });
     state.by_account.insert(account.id.clone(), node);
+    watch_key_holder(cx);
+}
+
+/// #EXP-1941: the device caps follow the key holder (`call-seal`), and caps
+/// reach the server only inside a register. The holder starts on the steer
+/// runtime once the install registered, beside the control channel's own
+/// register (which a first sign-in loses), and goes when the node stops:
+/// each change runs the advertisement's refresh. One watcher per process.
+fn watch_key_holder(cx: &mut App) {
+    if std::mem::replace(&mut installs(cx).watching, true) {
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let mut had = false;
+        loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            let has = coding::sealing::service().is_some();
+            if has != had {
+                had = has;
+                cx.update(crate::steer_wiring::refresh_device_advertisement);
+            }
+        }
+    })
+    .detach();
 }
 
 /// A synced `sessions` row → its stored-replay audience, read off the
