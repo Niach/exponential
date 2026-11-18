@@ -6,6 +6,7 @@ import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
+import { gatedComputerUse } from "@/lib/sessions/computer-use"
 import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
@@ -46,6 +47,10 @@ export async function configureSession(
   const skillIds = input.skillIds === undefined ? undefined : await assertSkillsInTeam(db, target.teamId, input.skillIds)
 
   const picks = runnerPicks(input)
+  // #EXP-1899: a person's pick (tRPC only), clamped for a build without the gate.
+  if (picks.computerUse) {
+    picks.computerUse = await gatedComputerUse(db, true, target.deviceId, await sessionDeviceOwner(target))
+  }
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // EXP-1376: a model pick on a walled session lifts a model wall at once

@@ -148,6 +148,11 @@ public enum Chats {
                 }
             }
         }
+        /// #EDE-98 (`copy.marks`): a chat mark's accessible label.
+        public enum Marks {
+            public static let team = "Shared with the team"
+            public static let unencrypted = "Not encrypted"
+        }
     }
 
     /// EXP-1686 (fixture `agentChat`): the line under an agent's name on a
@@ -206,6 +211,9 @@ public enum Chats {
         public static let selectionBar = "bulk-action-bar"
         /// #EXP-1733: an app row of the Chats list.
         public static let appRow = "chat-app-row"
+        /// #EDE-98: the chat marks after a chat's title.
+        public static let chatMarkTeam = "chat-mark-team"
+        public static let chatMarkUnencrypted = "chat-mark-unencrypted"
     }
 
     /// Fixture `shell`.
@@ -323,6 +331,42 @@ public enum Chats {
         /// S-3: a chat row's lead glyph (concept; needs-you = this glyph +
         /// the amber badge). The brand mark is the Assistant's alone.
         public static let chatLead = "action-chat"
+        /// #EDE-98: a chat mark's glyph size and the gap after the title
+        /// and between marks.
+        public static let markGlyph: Double = 12
+        public static let markGap: Double = 4
+    }
+
+    /// #EDE-98 CHAT MARKS: the glyphs right after a chat's title (header and
+    /// list row); the raw value is the concept icon id.
+    public enum ChatMark: String, Equatable, Sendable, CaseIterable {
+        case team = "ui-team"
+        case unencrypted = "ui-unencrypted"
+
+        /// `copy.marks.<team|unencrypted>`.
+        public var label: String {
+            switch self {
+            case .team: Copy.Marks.team
+            case .unencrypted: Copy.Marks.unencrypted
+            }
+        }
+
+        public var testId: String {
+            switch self {
+            case .team: TestIds.chatMarkTeam
+            case .unencrypted: TestIds.chatMarkUnencrypted
+            }
+        }
+    }
+
+    /// `marksCases` (TS `chatMarks`): `ui-team` when the root is shared, then
+    /// `ui-unencrypted` when the tree has no key (`sealEpoch` nil). A private
+    /// encrypted chat draws nothing.
+    public static func chatMarks(shared: Bool, sealEpoch: Int?) -> [ChatMark] {
+        var marks: [ChatMark] = []
+        if shared { marks.append(.team) }
+        if sealEpoch == nil { marks.append(.unencrypted) }
+        return marks
     }
 
     /// Fixture `surfaceCard` (the ENTER animation; motion tokens by name).

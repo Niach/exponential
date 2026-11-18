@@ -3,8 +3,9 @@
 //! Input is XTest on the core pointer and keyboard: exactly what the
 //! person's own mouse and keyboard do, so every toolkit takes it (the
 //! synthetic-event paths GTK, Qt and Chromium ignore are not used). Keys go
-//! through the server's keyboard mapping; a character the layout has no key
-//! for borrows a spare keycode for the keystroke, the way xdotool does.
+//! through the server's keyboard map (XKB: the layout group in effect, its
+//! Shift and AltGr levels); a character no key makes borrows a spare
+//! keycode for the call, the way xdotool does.
 //! Windows come from the window manager's EWMH properties and are
 //! activated with `_NET_ACTIVE_WINDOW`.
 //!
@@ -28,6 +29,7 @@ use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xinput::{self, ConnectionExt as _};
+use x11rb::protocol::xkb::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{self, ConnectionExt as _};
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::protocol::Event;
@@ -68,14 +70,20 @@ pub(crate) fn unsupported() -> Option<String> {
 }
 
 pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
-    Ok(Box::new(X11::connect()?))
+    Ok(Box::new(X11::connect(None)?))
+}
+
+/// [`crate::before_exit`]: the person's restored clipboard goes to the
+/// desktop's clipboard manager.
+pub(crate) fn before_exit() {
+    clipboard::hand_over();
 }
 
 /// The screen as the window manager lays it out, in physical pixels: the
 /// root (every monitor side by side), the primary monitor (RandR) and the
 /// work area the panels leave (`_NET_WORKAREA`, the first desktop's).
 pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
-    let x11 = X11::connect().ok()?;
+    let x11 = X11::connect(None).ok()?;
     let root = reply("root geometry", x11.conn.get_geometry(x11.root)).ok()?;
     let displays = x11.displays().ok()?;
     let primary = displays.iter().find(|display| display.primary).or_else(|| displays.first())?;
@@ -93,12 +101,39 @@ pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
     })
 }
 
-/// Keycode → keysyms, as the server reports it.
+/// One key of the keyboard map: `width` keysyms for each of its layout
+/// groups, and the key type (the index into [`KeyMap::types`]) that says
+/// which modifiers pick which of a group's levels.
+#[derive(Default, Clone)]
+struct KeySyms {
+    groups: u8,
+    /// A group past the key's last one is the last (else it wraps around).
+    clamp: bool,
+    types: [u8; 4],
+    width: u8,
+    syms: Vec<u32>,
+}
+
+/// A key type: of the modifiers in `mask`, which set picks which level
+/// (any other set, none included, is level 0).
+struct Levels {
+    mask: u8,
+    map: Vec<(u8, u8)>,
+}
+
+const SHIFT: u8 = 1 << 0;
+/// What `ISO_Level3_Shift` (AltGr) sets: Mod5 on every xkeyboard-config layout.
+const LEVEL3: u8 = 1 << 7;
+const ISO_LEVEL3_SHIFT: u32 = 0xfe03;
+
+/// The server's keyboard map, every layout group of it (XKB).
 struct KeyMap {
     min: u8,
     max: u8,
+    /// Keysyms per keycode of the core mapping, which `remap` writes.
     per: u8,
-    syms: Vec<u32>,
+    keys: Vec<KeySyms>,
+    types: Vec<Levels>,
 }
 
 impl KeyMap {
@@ -106,36 +141,94 @@ impl KeyMap {
         let setup = conn.setup();
         let (min, max) = (setup.min_keycode, setup.max_keycode);
         let mapping = reply("keyboard mapping", conn.get_keyboard_mapping(min, max - min + 1))?;
-        Ok(KeyMap { min, max, per: mapping.keysyms_per_keycode, syms: mapping.keysyms })
-    }
-
-    fn syms_of(&self, keycode: u8) -> &[u32] {
-        let per = usize::from(self.per);
-        let start = usize::from(keycode - self.min) * per;
-        self.syms.get(start..start + per).unwrap_or(&[])
-    }
-
-    /// The keycode producing `keysym`, and whether Shift is needed for it
-    /// (column 1 of the mapping, the shifted level).
-    fn find(&self, keysym: u32) -> Option<(u8, bool)> {
-        let mut shifted = None;
-        for keycode in self.min..=self.max {
-            let syms = self.syms_of(keycode);
-            if syms.first() == Some(&keysym) {
-                return Some((keycode, false));
-            }
-            if shifted.is_none() && syms.get(1) == Some(&keysym) {
-                shifted = Some((keycode, true));
-            }
+        let mut keymap = KeyMap::core(min, max, mapping.keysyms_per_keycode, &mapping.keysyms);
+        if let Err(reason) = keymap.fetch_groups(conn) {
+            log::debug!("[computer] no XKB map ({reason}); the core mapping's first layout is the keyboard");
         }
-        shifted
+        Ok(keymap)
     }
 
-    /// A keycode with no keysym bound, from the top (a scratch key).
-    fn spare(&self) -> Option<u8> {
-        (self.min..=self.max).rev().find(|&keycode| self.syms_of(keycode).iter().all(|&sym| sym == 0))
+    /// The core mapping's first two columns: one layout, plain and shifted.
+    fn core(min: u8, max: u8, per: u8, syms: &[u32]) -> KeyMap {
+        let keys = syms
+            .chunks(usize::from(per).max(1))
+            .map(|syms| KeySyms { groups: 1, width: per.min(2), syms: syms.iter().take(2).copied().collect(), ..KeySyms::default() })
+            .collect();
+        KeyMap { min, max, per, keys, types: vec![Levels { mask: SHIFT, map: vec![(SHIFT, 1)] }] }
+    }
+
+    /// #EXP-1907: every group and level of every key, with the key types.
+    fn fetch_groups(&mut self, conn: &RustConnection) -> Result<(), String> {
+        reply("XKB", conn.xkb_use_extension(1, 0))?;
+        let parts = xkb::MapPart::KEY_TYPES | xkb::MapPart::KEY_SYMS;
+        let none = xkb::MapPart::from(0u16);
+        let cookie = conn.xkb_get_map(CORE_KEYBOARD, parts, none, 0, 0, 0, 0, 0, 0, 0, 0, 0u16.into(), 0, 0, 0, 0, 0, 0);
+        let map = reply("XKB map", cookie)?;
+        let (Some(types), Some(syms)) = (map.map.types_rtrn, map.map.syms_rtrn) else {
+            return Err("the map came back without its types or keysyms".to_string());
+        };
+        let mods = |mask: xproto::ModMask| u16::from(mask) as u8;
+        self.types = types
+            .iter()
+            .map(|kind| Levels {
+                mask: mods(kind.mods_mask),
+                map: kind.map.iter().filter(|entry| entry.active).map(|entry| (mods(entry.mods_mask), entry.level)).collect(),
+            })
+            .collect();
+        self.keys = vec![KeySyms::default(); usize::from(self.max - self.min) + 1];
+        for (keycode, key) in (map.first_key_sym..=u8::MAX).zip(syms) {
+            let Some(slot) = keycode.checked_sub(self.min).and_then(|at| self.keys.get_mut(usize::from(at))) else { continue };
+            *slot = KeySyms {
+                groups: key.group_info & 0x0f,
+                clamp: key.group_info & 0xc0 == 0x40,
+                types: key.kt_index,
+                width: key.width,
+                syms: key.syms,
+            };
+        }
+        Ok(())
+    }
+
+    /// What `keycode` makes in layout group `group` with `mods` in effect.
+    fn sym_at(&self, keycode: u8, group: u8, mods: u8) -> Option<u32> {
+        let key = self.keys.get(usize::from(keycode.checked_sub(self.min)?))?;
+        let group = match key.groups {
+            0 => return None,
+            groups if group < groups => group,
+            groups if key.clamp => groups - 1,
+            groups => group % groups,
+        };
+        let levels = self.types.get(usize::from(*key.types.get(usize::from(group))?))?;
+        let level = levels.map.iter().find(|(set, _)| *set == mods & levels.mask).map_or(0, |(_, level)| *level);
+        let at = usize::from(group) * usize::from(key.width) + usize::from(level);
+        key.syms.get(at).copied().filter(|&sym| sym != 0)
+    }
+
+    /// The keycode making `keysym` in layout group `group` while the
+    /// `locked` modifiers (Caps Lock) are on, and what to hold for it
+    /// ([`SHIFT`], [`LEVEL3`]); the plainest wins.
+    fn find(&self, keysym: u32, group: u8, locked: u8) -> Option<(u8, u8)> {
+        let level3 = self.key_of(ISO_LEVEL3_SHIFT).map_or(0, |_| LEVEL3);
+        [0, SHIFT, LEVEL3, SHIFT | LEVEL3].into_iter().filter(|held| held & LEVEL3 & !level3 == 0).find_map(|held| {
+            (self.min..=self.max).find(|&keycode| self.sym_at(keycode, group, locked | held) == Some(keysym)).map(|keycode| (keycode, held))
+        })
+    }
+
+    /// The first keycode with `keysym` anywhere on it (a modifier's key).
+    fn key_of(&self, keysym: u32) -> Option<u8> {
+        (self.min..=self.max).zip(&self.keys).find(|(_, key)| key.syms.contains(&keysym)).map(|(keycode, _)| keycode)
+    }
+
+    /// A keycode with no keysym bound and not in `taken`, from the top (a
+    /// scratch key).
+    fn spare(&self, taken: &[u8]) -> Option<u8> {
+        let free = |key: &KeySyms| key.syms.iter().all(|&sym| sym == 0);
+        (self.min..=self.max).zip(&self.keys).rev().find(|(keycode, key)| free(key) && !taken.contains(keycode)).map(|(keycode, _)| keycode)
     }
 }
+
+/// XKB's name for the core keyboard (`XkbUseCoreKbd`).
+const CORE_KEYBOARD: xkb::DeviceSpec = 0x100;
 
 /// The X keysym for a character: Latin-1 is itself, the rest is the
 /// Unicode keysym range.
@@ -146,6 +239,17 @@ pub(super) fn char_keysym(ch: char) -> u32 {
     } else {
         0x0100_0000 | cp
     }
+}
+
+/// The keysyms a layout may name `ch` by: its own and the legacy one (`€`
+/// is `EuroSign` 0x20ac on a key, Cyrillic and Greek letters likewise).
+fn char_keysyms(ch: char) -> Vec<u32> {
+    let mut keysyms = vec![char_keysym(ch)];
+    let legacy = xkeysym::Keysym::from_char(ch).raw();
+    if legacy != 0 && !keysyms.contains(&legacy) {
+        keysyms.push(legacy);
+    }
+    keysyms
 }
 
 pub(super) fn keysym_of(key: Key) -> u32 {
@@ -163,6 +267,16 @@ pub(crate) struct X11 {
     root: xproto::Window,
     atoms: Atoms,
     keymap: KeyMap,
+    /// The layout group in effect and the locked modifiers (Caps Lock), as
+    /// the call found them: the person's input is held while it runs.
+    group: u8,
+    locked: u8,
+    /// Keysyms no key makes, on the spare keycodes they borrowed for this
+    /// call (unbound on drop).
+    borrowed: std::cell::RefCell<Vec<(u32, u8)>>,
+    /// The display this connection is on (`None`: `DISPLAY`); the clipboard
+    /// keeper serves the same one.
+    display: Option<String>,
     /// The XTEST slave devices our input rides on (XI1 ids), for the
     /// release read-back; `None` when the server does not name them.
     xtest_keyboard: Option<u8>,
@@ -182,13 +296,20 @@ fn reply<R: x11rb::x11_utils::TryParse>(
 }
 
 impl X11 {
-    fn connect() -> Result<X11, String> {
-        let (conn, screen) = x("X connection", x11rb::connect(None))?;
+    /// `display` = the X display (`None`: `DISPLAY`).
+    fn connect(display: Option<&str>) -> Result<X11, String> {
+        let (conn, screen) = x("X connection", x11rb::connect(display))?;
         let root = conn.setup().roots[screen].root;
         let atoms = x("atoms", x("atoms", Atoms::new(&conn))?.reply())?;
         let keymap = KeyMap::fetch(&conn)?;
+        let (group, locked) = match reply("XKB state", conn.xkb_get_state(CORE_KEYBOARD)) {
+            Ok(state) => (u8::from(state.group), u16::from(state.locked_mods) as u8),
+            Err(_) => (0, 0),
+        };
         let (xtest_keyboard, xtest_pointer) = xtest_devices(&conn);
-        Ok(X11 { conn, screen, root, atoms, keymap, xtest_keyboard, xtest_pointer })
+        let borrowed = std::cell::RefCell::new(Vec::new());
+        let display = display.map(str::to_string);
+        Ok(X11 { conn, screen, root, atoms, keymap, group, locked, borrowed, display, xtest_keyboard, xtest_pointer })
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -277,47 +398,76 @@ impl X11 {
         self.property32(self.root, self.atoms._NET_ACTIVE_WINDOW, xproto::AtomEnum::WINDOW.into()).first().copied()
     }
 
-    /// Press (or release) `keysym` through its keycode, borrowing a spare
-    /// keycode when the layout has none; `shift` says whether the layout's
-    /// Shift level is needed.
-    fn keysym_action(&self, keysym: u32, down: bool) -> Result<(), String> {
-        if let Some((keycode, shift)) = self.keymap.find(keysym) {
-            if shift && down {
-                self.fake_key(self.shift_keycode()?, true)?;
+    /// Press (or release) the first of `keysyms` the active layout has a
+    /// key for, holding the Shift and AltGr its level needs on top of the
+    /// `locked` modifiers; a keysym no key makes borrows a spare keycode.
+    fn keysym_action(&self, keysyms: &[u32], locked: u8, down: bool) -> Result<(), String> {
+        let Some((keycode, held)) = keysyms.iter().find_map(|&keysym| self.keymap.find(keysym, self.group, locked)) else {
+            let keycode = self.borrow(keysyms[0])?;
+            return self.fake_key(keycode, down);
+        };
+        let mut holds = Vec::new();
+        for (bit, keysym, name) in [(SHIFT, Named::Shift.keysym(), "Shift"), (LEVEL3, ISO_LEVEL3_SHIFT, "AltGr")] {
+            if held & bit != 0 {
+                holds.push(self.keymap.key_of(keysym).ok_or_else(|| format!("No {name} key in the layout."))?);
             }
-            self.fake_key(keycode, down)?;
-            if shift && !down {
-                self.fake_key(self.shift_keycode()?, false)?;
-            }
-            return Ok(());
         }
-        // A keystroke the layout cannot make: bind the keysym to a spare
-        // keycode for the length of the stroke.
-        let keycode = self.keymap.spare().ok_or("No spare keycode for a character outside the keyboard layout.")?;
-        self.remap(keycode, keysym)?;
+        if down {
+            for &hold in &holds {
+                self.fake_key(hold, true)?;
+            }
+        }
         self.fake_key(keycode, down)?;
         if !down {
-            self.remap(keycode, 0)?;
+            for &hold in holds.iter().rev() {
+                self.fake_key(hold, false)?;
+            }
         }
         Ok(())
     }
 
-    fn remap(&self, keycode: u8, keysym: u32) -> Result<(), String> {
-        let per = usize::from(self.keymap.per);
-        let mut syms = vec![0u32; per];
-        if let Some(first) = syms.first_mut() {
-            *first = keysym;
+    /// The spare keycode `keysym` is bound to for this call: bound once,
+    /// when first needed, and unbound when the call ends ([`Drop`]), so a
+    /// stroke never races the remap of its own key (#EXP-1907).
+    fn borrow(&self, keysym: u32) -> Result<u8, String> {
+        let mut borrowed = self.borrowed.borrow_mut();
+        if let Some((_, keycode)) = borrowed.iter().find(|(bound, _)| *bound == keysym) {
+            return Ok(*keycode);
         }
-        x("keyboard mapping", self.conn.change_keyboard_mapping(1, keycode, self.keymap.per, &syms))?;
+        let taken: Vec<u8> = borrowed.iter().map(|(_, keycode)| *keycode).collect();
+        // Out of spare keycodes: the oldest binding (its stroke is over).
+        let keycode = match self.keymap.spare(&taken) {
+            Some(keycode) => keycode,
+            None if !borrowed.is_empty() => borrowed.remove(0).1,
+            None => return Err("No spare keycode for a character outside the keyboard layout.".to_string()),
+        };
+        self.remap(keycode, keysym)?;
         // Clients learn of the change through MappingNotify; let the server
         // hand it out before the keystroke rides on it.
         x("sync", self.conn.sync())?;
         std::thread::sleep(Duration::from_millis(8));
-        Ok(())
+        borrowed.push((keysym, keycode));
+        Ok(keycode)
     }
 
-    fn shift_keycode(&self) -> Result<u8, String> {
-        self.keymap.find(Named::Shift.keysym()).map(|(keycode, _)| keycode).ok_or_else(|| "No Shift key in the layout.".to_string())
+    /// `keysym` on every level of `keycode` (0 unbinds it), so whatever
+    /// group and Caps Lock are in effect the key makes it.
+    fn remap(&self, keycode: u8, keysym: u32) -> Result<(), String> {
+        let syms = vec![keysym; usize::from(self.keymap.per)];
+        x("keyboard mapping", self.conn.change_keyboard_mapping(1, keycode, self.keymap.per, &syms))?;
+        Ok(())
+    }
+}
+
+impl Drop for X11 {
+    fn drop(&mut self) {
+        let borrowed = std::mem::take(self.borrowed.get_mut());
+        for (_, keycode) in &borrowed {
+            let _ = self.remap(*keycode, 0);
+        }
+        if !borrowed.is_empty() {
+            let _ = self.conn.sync();
+        }
     }
 }
 
@@ -333,6 +483,7 @@ impl X11 {
             height: u32::from(geometry.height),
             primary: true,
             name: "screen".into(),
+            connector: None,
         })
     }
 
@@ -391,6 +542,7 @@ impl Backend for X11 {
                     height: u32::from(monitor.height),
                     primary: monitor.primary,
                     name,
+                    connector: None,
                 }
             })
             .collect();
@@ -579,18 +731,20 @@ impl Backend for X11 {
     }
 
     fn key(&self, key: Key, down: bool) -> Result<(), String> {
-        self.keysym_action(keysym_of(key), down)
+        // A key press is the key itself, as the person's own: Caps Lock is
+        // not countered (Shift would turn ctrl+z into ctrl+shift+z).
+        self.keysym_action(&[keysym_of(key)], 0, down)
     }
 
     fn type_char(&self, ch: char) -> Result<(), String> {
-        let keysym = char_keysym(ch);
-        self.keysym_action(keysym, true)?;
+        let keysyms = char_keysyms(ch);
+        self.keysym_action(&keysyms, self.locked, true)?;
         std::thread::sleep(Duration::from_millis(6));
-        self.keysym_action(keysym, false)
+        self.keysym_action(&keysyms, self.locked, false)
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
-        Ok(Box::new(Lock::take(on_esc)?))
+        Ok(Box::new(Lock::take(None, on_esc)?))
     }
 
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
@@ -654,22 +808,23 @@ fn lockable(info: &xinput::XIDeviceInfo) -> bool {
 }
 
 /// The grab, alive on its own thread with its own connection until dropped
-/// (or until Esc, after which the thread ends on its own and the drop only
-/// collects it).
+/// (or until Esc or the loss of its connection, after which the thread ends
+/// on its own and the drop only collects it).
 struct Lock {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Lock {
-    fn take(on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
+    /// `display` = the X display the grab is taken on (`None`: `DISPLAY`).
+    fn take(display: Option<String>, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let thread = std::thread::Builder::new()
             .name("computer-use-lock".into())
             .spawn({
                 let stop = stop.clone();
-                move || match Grabs::take() {
+                move || match Grabs::take(display.as_deref()) {
                     Ok(grabs) => {
                         let _ = ready_tx.send(Ok(()));
                         grabs.hold(&stop, &*on_esc);
@@ -708,6 +863,16 @@ impl Drop for Lock {
 /// the stand-in when a keymap names no Escape keysym at all.
 const EVDEV_ESCAPE_KEYCODE: u8 = 9;
 
+/// #EXP-1906: the ids of `devices` a hierarchy event says the server removed
+/// are no longer grabbed ones. X.Org hands a removed device's id to the next
+/// one, the same keyboard back from a KVM switch or a Bluetooth sleep: left
+/// in the list, it would never be grabbed again. A device that was only
+/// disabled keeps its id and its grab.
+fn forget_gone(devices: &mut Vec<xinput::DeviceId>, infos: &[xinput::HierarchyInfo]) {
+    let removed = u32::from(xinput::HierarchyMask::SLAVE_REMOVED);
+    devices.retain(|device| !infos.iter().any(|info| info.deviceid == *device && u32::from(info.flags) & removed != 0));
+}
+
 struct Grabs {
     conn: RustConnection,
     root: xproto::Window,
@@ -726,12 +891,12 @@ fn grab_mask() -> u32 {
 }
 
 impl Grabs {
-    fn take() -> Result<Grabs, String> {
-        let (conn, screen) = x("X connection", x11rb::connect(None))?;
+    fn take(display: Option<&str>) -> Result<Grabs, String> {
+        let (conn, screen) = x("X connection", x11rb::connect(display))?;
         let root = conn.setup().roots[screen].root;
         reply("XInput 2", conn.xinput_xi_query_version(2, 0))?;
         let keymap = KeyMap::fetch(&conn)?;
-        let escape = keymap.find(Named::Escape.keysym()).map(|(keycode, _)| keycode).or_else(|| {
+        let escape = keymap.find(Named::Escape.keysym(), 0, 0).map(|(keycode, _)| keycode).or_else(|| {
             // A layout without an Escape keysym would leave the hotkey dead.
             log::warn!("[computer] the keymap has no Escape keysym; falling back to keycode {EVDEV_ESCAPE_KEYCODE}");
             Some(EVDEV_ESCAPE_KEYCODE)
@@ -776,8 +941,8 @@ impl Grabs {
         x("flush", self.conn.flush())
     }
 
-    /// Watch the grabbed devices until `stop`, or until Esc (then `on_esc`
-    /// runs on this thread and the grabs go).
+    /// Watch the grabbed devices until `stop`, or until Esc or the loss of
+    /// the connection (then `on_esc` runs on this thread and the grabs go).
     fn hold(mut self, stop: &AtomicBool, on_esc: &(dyn Fn() + Send + Sync)) {
         while !stop.load(Ordering::Acquire) {
             match self.conn.poll_for_event() {
@@ -793,15 +958,26 @@ impl Grabs {
                 Ok(Some(Event::XinputButtonPress(button))) => {
                     log::debug!("[computer] lock saw button {} from device {}", button.detail, button.sourceid);
                 }
-                Ok(Some(Event::XinputHierarchy(_))) => {
+                Ok(Some(Event::XinputHierarchy(event))) => {
+                    forget_gone(&mut self.devices, &event.infos);
                     if let Err(reason) = self.grab_new() {
                         log::warn!("[computer] a new input device escaped the lock: {reason}");
                     }
                 }
                 Ok(Some(_)) => {}
                 Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                // An event x11rb cannot read: the connection is fine.
+                Err(x11rb::errors::ConnectionError::ParseError(err)) => {
+                    log::debug!("[computer] the lock skipped an event: {err}");
+                }
+                // The connection went and the server freed every grab with
+                // it: the host must not believe the input is still held, so
+                // it hears an abort (#EXP-1906), unless the stop was ours.
                 Err(err) => {
-                    log::warn!("[computer] the lock's connection broke: {err}");
+                    if !stop.load(Ordering::Acquire) {
+                        log::error!("[computer] the lock's connection broke: {err}");
+                        on_esc();
+                    }
                     return;
                 }
             }
@@ -836,6 +1012,217 @@ mod tests {
         assert!(!lockable(&device(xinput::DeviceType::SLAVE_POINTER, true, "CUA v1.123 uinput pointer")));
     }
 
+    fn hierarchy(deviceid: xinput::DeviceId, flags: xinput::HierarchyMask) -> xinput::HierarchyInfo {
+        xinput::HierarchyInfo { deviceid, attachment: 3, type_: xinput::DeviceType::SLAVE_KEYBOARD, enabled: true, flags }
+    }
+
+    /// #EXP-1906: X.Org hands a removed device's id to the next one, the
+    /// same keyboard back from a KVM switch: an id the server took away is
+    /// no longer a grabbed one, so `grab_new` takes whatever carries it next.
+    #[test]
+    fn a_removed_device_leaves_the_grabbed_list() {
+        let mut devices = vec![9, 10, 11, 12];
+        forget_gone(
+            &mut devices,
+            &[
+                hierarchy(9, xinput::HierarchyMask::SLAVE_REMOVED),
+                hierarchy(10, xinput::HierarchyMask::DEVICE_DISABLED),
+                hierarchy(11, xinput::HierarchyMask::SLAVE_DETACHED),
+                hierarchy(13, xinput::HierarchyMask::SLAVE_REMOVED),
+            ],
+        );
+        // 10 keeps its grab while disabled, 11 only floated (what our own
+        // grab does to it), 12 is not named.
+        assert_eq!(devices, [10, 11, 12]);
+    }
+
+    /// A private Xvfb for the tests that need a server. It picks a free
+    /// display number itself (`-displayfd`), so it is never the person's,
+    /// and it dies with this value.
+    pub(in crate::backend::linux) struct Xvfb {
+        server: std::process::Child,
+        pub(in crate::backend::linux) display: String,
+    }
+
+    impl Xvfb {
+        /// `None` (the test is skipped) where no Xvfb is installed.
+        pub(in crate::backend::linux) fn start() -> Option<Xvfb> {
+            use std::io::BufRead as _;
+            use std::process::Stdio;
+            let server = std::process::Command::new("Xvfb")
+                .args(["-displayfd", "1", "-nolisten", "tcp", "-screen", "0", "640x480x24"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn();
+            let Ok(server) = server else {
+                eprintln!("skipped: no Xvfb on this machine");
+                return None;
+            };
+            let mut xvfb = Xvfb { server, display: String::new() };
+            let mut number = String::new();
+            std::io::BufReader::new(xvfb.server.stdout.take().unwrap()).read_line(&mut number).unwrap();
+            xvfb.display = format!(":{}", number.trim());
+            Some(xvfb)
+        }
+
+        fn stop(&mut self) {
+            let _ = self.server.kill();
+            let _ = self.server.wait();
+        }
+
+        /// A second client, with the id of the server's own keyboard slave.
+        fn client(&self) -> (RustConnection, xproto::Window, xinput::DeviceId) {
+            let (conn, screen) = x11rb::connect(Some(&self.display)).unwrap();
+            let root = conn.setup().roots[screen].root;
+            conn.xinput_xi_query_version(2, 0).unwrap().reply().unwrap();
+            let infos = conn.xinput_xi_query_device(xinput::Device::ALL).unwrap().reply().unwrap().infos;
+            let keyboard = infos.iter().find(|info| info.name == b"Xvfb keyboard").expect("Xvfb's keyboard").deviceid;
+            (conn, root, keyboard)
+        }
+    }
+
+    impl Drop for Xvfb {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
+
+    /// Whether somebody else holds `device`: our own grab of it is refused.
+    fn grabbed_elsewhere(conn: &RustConnection, root: xproto::Window, device: xinput::DeviceId) -> bool {
+        let (mode, owner) = (xproto::GrabMode::ASYNC, xinput::GrabOwner::NO_OWNER);
+        let status = conn
+            .xinput_xi_grab_device(root, x11rb::CURRENT_TIME, x11rb::NONE, device, mode, mode, owner, &[grab_mask()])
+            .unwrap()
+            .reply()
+            .unwrap()
+            .status;
+        if status == xproto::GrabStatus::SUCCESS {
+            conn.xinput_xi_ungrab_device(x11rb::CURRENT_TIME, device).unwrap();
+            conn.sync().unwrap();
+        }
+        status == xproto::GrabStatus::ALREADY_GRABBED
+    }
+
+    /// Disable or enable a device (a server without hotplug removes none).
+    fn set_enabled(conn: &RustConnection, device: xinput::DeviceId, on: bool) {
+        let property = conn.intern_atom(false, b"Device Enabled").unwrap().reply().unwrap().atom;
+        let value = xinput::XIChangePropertyAux::Data8(vec![u8::from(on)]);
+        conn.xinput_xi_change_property(device, xproto::PropMode::REPLACE, property, xproto::AtomEnum::INTEGER.into(), 1, &value)
+            .unwrap()
+            .check()
+            .unwrap();
+    }
+
+    /// The keyboard-mapping changes a client sees until the server is idle.
+    fn mapping_changes(conn: &RustConnection) -> usize {
+        conn.sync().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        let mut seen = 0;
+        while let Some(event) = conn.poll_for_event().unwrap() {
+            if let Event::MappingNotify(notify) = event {
+                seen += usize::from(notify.request == xproto::Mapping::KEYBOARD);
+            }
+        }
+        seen
+    }
+
+    /// #EXP-1907: a real server's map and state. Its Y and Z keys get a
+    /// second layout group the German way round, which is then locked, with
+    /// Caps Lock: a keysym is found in the group in effect.
+    #[test]
+    fn the_servers_map_is_read_by_layout_group() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (conn, _, _) = xvfb.client();
+        let x11 = X11::connect(Some(&xvfb.display)).unwrap();
+        // evdev keycodes on a US board: 52 = Z, 29 = Y, 11 = 2.
+        assert_eq!((x11.group, x11.locked), (0, 0));
+        assert_eq!(x11.keymap.find(0x7a, 0, 0), Some((52, 0)));
+        assert_eq!(x11.keymap.find(0x40, 0, 0), Some((11, SHIFT)));
+        assert_eq!(x11.keymap.find(0x7a, 0, 0x02), Some((52, SHIFT)), "Shift under Caps Lock makes z");
+        assert_eq!(x11.keymap.find(0x5a, 0, 0x02), Some((52, 0)), "Caps Lock makes Z");
+        conn.change_keyboard_mapping(1, 29, 4, &[0x79, 0x59, 0x7a, 0x5a]).unwrap().check().unwrap();
+        conn.change_keyboard_mapping(1, 52, 4, &[0x7a, 0x5a, 0x79, 0x59]).unwrap().check().unwrap();
+        conn.xkb_use_extension(1, 0).unwrap().reply().unwrap();
+        let (caps, none) = (xproto::ModMask::LOCK, xproto::ModMask::from(0u16));
+        conn.xkb_latch_lock_state(CORE_KEYBOARD, caps, caps, true, xkb::Group::M2, none, false, 0).unwrap().check().unwrap();
+        let x11 = X11::connect(Some(&xvfb.display)).unwrap();
+        assert_eq!((x11.group, x11.locked), (1, 0x02));
+        assert_eq!(x11.keymap.find(0x7a, x11.group, 0), Some((29, 0)));
+        assert_eq!(x11.keymap.find(0x79, x11.group, 0), Some((52, 0)));
+        assert_eq!(x11.keymap.find(0x7a, x11.group, x11.locked), Some((29, SHIFT)));
+        // A key with one group is the same key in the second.
+        assert_eq!(x11.keymap.find(0x40, x11.group, 0), Some((11, SHIFT)));
+    }
+
+    /// #EXP-1907: a character no key makes is bound to its spare keycode
+    /// once a call and unbound at the call's end, not around every stroke
+    /// (three rewrites of the server's map a character before).
+    #[test]
+    fn a_character_outside_the_layout_borrows_its_keycode_once_a_call() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (conn, _, _) = xvfb.client();
+        // The server's first change of its map tells twice: not counted.
+        X11::connect(Some(&xvfb.display)).unwrap().type_char('\u{2603}').unwrap();
+        let x11 = X11::connect(Some(&xvfb.display)).unwrap();
+        mapping_changes(&conn);
+        for ch in "\u{2603}\u{2603}\u{2603}".chars() {
+            x11.type_char(ch).unwrap();
+        }
+        assert_eq!(mapping_changes(&conn), 1, "one binding for the three strokes");
+        drop(x11);
+        assert_eq!(mapping_changes(&conn), 1, "unbound at the call's end");
+    }
+
+    fn escapes() -> (Box<dyn Fn() + Send + Sync>, std::sync::mpsc::Receiver<()>) {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = std::sync::Mutex::new(tx);
+        let on_esc = move || {
+            let _ = tx.lock().unwrap().send(());
+        };
+        (Box::new(on_esc), rx)
+    }
+
+    /// A device disabled and enabled under the lock (no removal: the id
+    /// stays its own) is still held after the hierarchy events.
+    #[test]
+    fn a_device_disabled_and_enabled_under_the_lock_stays_grabbed() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (on_esc, _escaped) = escapes();
+        let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
+        let (conn, root, keyboard) = xvfb.client();
+        assert!(grabbed_elsewhere(&conn, root, keyboard), "the lock holds the keyboard");
+        set_enabled(&conn, keyboard, false);
+        set_enabled(&conn, keyboard, true);
+        // Past the lock's own poll, so it has handled both events.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(grabbed_elsewhere(&conn, root, keyboard), "the keyboard came back outside the lock");
+        drop(lock);
+        assert!(!grabbed_elsewhere(&conn, root, keyboard), "the released lock holds nothing");
+    }
+
+    /// #EXP-1906 (DESKTOP-2I/2J/2K): the lock's X connection broke, so the
+    /// server freed every grab: the host hears an abort, as on Esc.
+    #[test]
+    fn a_lock_whose_connection_broke_is_an_abort() {
+        let Some(mut xvfb) = Xvfb::start() else { return };
+        let (on_esc, escaped) = escapes();
+        let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
+        assert!(escaped.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        xvfb.stop();
+        escaped.recv_timeout(Duration::from_secs(5)).expect("the broken lock reaches on_esc");
+        drop(lock);
+    }
+
+    /// Dropping the guard is the host's own release, never an abort.
+    #[test]
+    fn dropping_the_lock_is_not_an_abort() {
+        let Some(xvfb) = Xvfb::start() else { return };
+        let (on_esc, escaped) = escapes();
+        drop(Lock::take(Some(xvfb.display.clone()), on_esc).unwrap());
+        assert!(escaped.recv_timeout(Duration::from_millis(300)).is_err(), "on_esc fired on the guard's own drop");
+    }
+
     #[test]
     fn a_dropped_release_is_read_back_from_the_core_state() {
         let mut keys = [0u8; 32];
@@ -862,11 +1249,81 @@ mod tests {
     #[test]
     fn the_keymap_finds_plain_and_shifted_keys_and_a_spare_keycode() {
         // Keycodes 8..=11, two keysyms each: 8 = a/A, 9 = 1/!, 10 = empty, 11 = Shift.
-        let keymap = KeyMap { min: 8, max: 11, per: 2, syms: vec![0x61, 0x41, 0x31, 0x21, 0, 0, 0xffe1, 0] };
-        assert_eq!(keymap.find(0x61), Some((8, false)));
-        assert_eq!(keymap.find(0x41), Some((8, true)));
-        assert_eq!(keymap.find(0x21), Some((9, true)));
-        assert_eq!(keymap.find(0xff0d), None);
-        assert_eq!(keymap.spare(), Some(10));
+        let keymap = KeyMap::core(8, 11, 2, &[0x61, 0x41, 0x31, 0x21, 0, 0, 0xffe1, 0]);
+        assert_eq!(keymap.find(0x61, 0, 0), Some((8, 0)));
+        assert_eq!(keymap.find(0x41, 0, 0), Some((8, SHIFT)));
+        assert_eq!(keymap.find(0x21, 0, 0), Some((9, SHIFT)));
+        assert_eq!(keymap.find(0xff0d, 0, 0), None);
+        assert_eq!(keymap.spare(&[]), Some(10));
+        assert_eq!(keymap.spare(&[10]), None);
+    }
+
+    /// #EXP-1907: a US and a German layout (groups 0 and 1) on keycodes 8..
+    fn two_layouts() -> KeyMap {
+        const LOCK: u8 = 1 << 1;
+        let key = |groups: u8, types: [u8; 2], width: u8, syms: &[u32]| KeySyms {
+            groups,
+            clamp: false,
+            types: [types[0], types[1], 0, 0],
+            width,
+            syms: syms.to_vec(),
+        };
+        let types = vec![
+            Levels { mask: 0, map: vec![] },
+            Levels { mask: SHIFT | LOCK, map: vec![(SHIFT, 1), (LOCK, 1)] },
+            Levels { mask: SHIFT | LEVEL3, map: vec![(SHIFT, 1), (LEVEL3, 2), (SHIFT | LEVEL3, 3)] },
+        ];
+        let keys = vec![
+            key(2, [1, 1], 2, &[0x79, 0x59, 0x7a, 0x5a]),                 // 8: y Y | z Z
+            key(2, [1, 1], 2, &[0x7a, 0x5a, 0x79, 0x59]),                 // 9: z Z | y Y
+            key(2, [1, 2], 4, &[0x71, 0x51, 0, 0, 0x71, 0x51, 0x40, 0x7d9]), // 10: q Q | q Q @ Ω
+            key(1, [0, 0], 1, &[0xffe1]),                                 // 11: Shift
+            key(1, [0, 0], 1, &[ISO_LEVEL3_SHIFT]),                       // 12: AltGr
+            key(0, [0, 0], 0, &[]),                                       // 13: spare
+        ];
+        KeyMap { min: 8, max: 13, per: 4, keys, types }
+    }
+
+    #[test]
+    fn a_keysym_is_found_in_the_layout_group_in_effect() {
+        let keymap = two_layouts();
+        assert_eq!(keymap.find(0x7a, 0, 0), Some((9, 0)));
+        // With the German layout active the US `z` key makes `y`: ctrl+z
+        // must not become ctrl+y.
+        assert_eq!(keymap.find(0x7a, 1, 0), Some((8, 0)));
+        assert_eq!(keymap.find(0x5a, 1, 0), Some((8, SHIFT)));
+        // A key with one group is the same key in every group.
+        assert_eq!(keymap.find(0xffe1, 1, 0), Some((11, 0)));
+        assert_eq!(keymap.spare(&[]), Some(13));
+    }
+
+    #[test]
+    fn altgr_levels_are_keys_of_the_layout() {
+        let keymap = two_layouts();
+        assert_eq!(keymap.find(0x40, 1, 0), Some((10, LEVEL3)));
+        assert_eq!(keymap.find(0x7d9, 1, 0), Some((10, SHIFT | LEVEL3)));
+        // The US group has no `@` here: a spare keycode's work.
+        assert_eq!(keymap.find(0x40, 0, 0), None);
+        // No AltGr key in the layout, no AltGr level.
+        let mut keymap = keymap;
+        keymap.keys[4] = KeySyms::default();
+        assert_eq!(keymap.find(0x40, 1, 0), None);
+    }
+
+    #[test]
+    fn caps_lock_is_countered_for_a_typed_character() {
+        let keymap = two_layouts();
+        let caps = 1 << 1;
+        assert_eq!(keymap.find(0x7a, 0, caps), Some((9, SHIFT)));
+        assert_eq!(keymap.find(0x5a, 0, caps), Some((9, 0)));
+        assert_eq!(keymap.find(0x40, 1, caps), Some((10, LEVEL3)));
+    }
+
+    #[test]
+    fn a_character_is_also_looked_up_by_its_legacy_keysym() {
+        assert_eq!(char_keysyms('a'), [0x61]);
+        assert_eq!(char_keysyms('\u{20ac}'), [0x0100_20ac, 0x20ac]);
+        assert_eq!(char_keysyms('\u{444}'), [0x0100_0444, 0x6c6]);
+        assert_eq!(char_keysyms('\u{2603}'), [0x0100_2603]);
     }
 }

@@ -46,9 +46,15 @@ impl Ede {
         matches!(self.lock, LockState::Locked(_) | LockState::Sealed(_))
     }
 
-    /// The lock was confirmed to the client (every output showed it).
+    /// The lock was confirmed to the client (every output showed it); the
+    /// sealed lock has no client to tell, so: every output showed a locked
+    /// frame.
     pub fn lock_confirmed(&self) -> bool {
-        matches!(&self.lock, LockState::Locked(l) if l.pending.is_none())
+        match &self.lock {
+            LockState::Locked(l) => l.pending.is_none(),
+            LockState::Sealed(s) => self.desk.space.outputs().all(|o| s.shown_on.contains(o)),
+            LockState::Unlocked => false,
+        }
     }
 
     /// The surface the lock shows on `output`: the ext-session-lock
@@ -87,6 +93,12 @@ impl Ede {
     /// A frame of `output` went out: lock surfaces draw on, and once every
     /// output showed a locked frame the client hears `locked`.
     pub fn lock_frame_done(&mut self, output: &Output, now: std::time::Duration) {
+        if let LockState::Sealed(s) = &mut self.lock {
+            if !s.shown_on.contains(output) {
+                s.shown_on.push(output.clone());
+            }
+            return;
+        }
         let LockState::Locked(l) = &mut self.lock else { return };
         for (o, s) in &l.surfaces {
             if o == output {
@@ -102,7 +114,7 @@ impl Ede {
     }
 
     fn confirm_lock_if_shown(&mut self) {
-        let outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        let outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
         let LockState::Locked(l) = &mut self.lock else { return };
         if l.pending.is_some() && outputs.iter().all(|o| l.shown_on.contains(o)) {
             l.pending.take().unwrap().lock();
@@ -117,6 +129,7 @@ impl Ede {
             l.surfaces.retain(|(o, _)| o != output);
             l.shown_on.retain(|o| o != output);
         }
+        self.sealed_output_removed(output);
         self.confirm_lock_if_shown();
     }
 
@@ -127,14 +140,14 @@ impl Ede {
             self.focus_sealed_lock();
             return;
         }
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let output = self.output_at(pointer.current_location());
         let surface = {
             let LockState::Locked(l) = &self.lock else { return };
             let alive = || l.surfaces.iter().filter(|(_, s)| s.alive());
             alive().find(|(o, _)| Some(o) == output.as_ref()).or_else(|| alive().next()).map(|(_, s)| s.wl_surface().clone())
         };
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if keyboard.current_focus() != surface {
             keyboard.set_focus(self, surface, SERIAL_COUNTER.next_serial());
         }
@@ -147,24 +160,24 @@ impl Ede {
 
     pub(crate) fn enter_lock(&mut self) {
         let serial = SERIAL_COUNTER.next_serial();
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         // A drag in progress ends; nothing behind the lock keeps input.
         if pointer.is_grabbed() {
             pointer.unset_grab(self, serial, smithay::backend::input::InputTime::from_millis(0));
         }
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if keyboard.is_grabbed() {
             // The input method's grab too: it must not read the password.
             keyboard.unset_grab(self);
         }
         #[cfg(feature = "xwayland")]
         {
-            self.pending_x11_focus = None;
+            self.desk.pending_x11_focus = None;
         }
         keyboard.set_focus(self, None, serial);
         let pos = pointer.current_location();
         self.pointer_motion_to(pos, 0);
-        if self.space.outputs().next().is_none() {
+        if self.desk.space.outputs().next().is_none() {
             self.confirm_lock_if_shown();
         }
     }
@@ -208,9 +221,8 @@ impl SessionLockHandler for Ede {
         self.idle.activity();
         tracing::info!("session unlocked");
         self.emit(ede_protocol::events::SESSION_UNLOCKED, serde_json::Value::Null);
-        let top = self.space.elements().last().cloned();
-        self.focus(top);
-        let pos = self.seat.get_pointer().unwrap().current_location();
+        self.focus_after_unlock(None);
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
     }
 

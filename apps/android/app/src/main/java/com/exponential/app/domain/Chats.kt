@@ -136,6 +136,10 @@ object Chats {
         const val LOAD_EARLIER = "Load earlier"
         const val WORKING = "Working…"
 
+        /** #EDE-98 `copy.marks`: a chat mark's accessible label. */
+        const val MARK_TEAM = "Shared with the team"
+        const val MARK_UNENCRYPTED = "Not encrypted"
+
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
@@ -267,6 +271,10 @@ object Chats {
         /** S-3 `shell.chatLead`: a chat row's lead glyph CONCEPT (never the
          *  brand mark). */
         const val CHAT_LEAD = "action-chat"
+        /** #EDE-98 `shell.markGlyph` / `shell.markGap`: a chat mark's glyph,
+         *  its gap after the title and between marks (dp). */
+        const val MARK_GLYPH = 12
+        const val MARK_GAP = 4
     }
 
     object TestIds {
@@ -287,7 +295,29 @@ object Chats {
         const val SELECTION_BAR = "bulk-action-bar"
         /** #EXP-1733: an app row of the Chats list. */
         const val APP_ROW = "chat-app-row"
+        /** #EDE-98: the chat marks (header + list rows). */
+        const val CHAT_MARK_TEAM = "chat-mark-team"
+        const val CHAT_MARK_UNENCRYPTED = "chat-mark-unencrypted"
     }
+
+    /** #EDE-98 the chat marks' glyph CONCEPTS. */
+    const val MARK_TEAM = "ui-team"
+    const val MARK_UNENCRYPTED = "ui-unencrypted"
+
+    /** #EDE-98 chats.json `marksCases` (TS `chatMarks`): the glyphs right
+     *  after a chat's title, in order: [MARK_TEAM] when the root is shared,
+     *  then [MARK_UNENCRYPTED] when the tree has no key (`sealEpoch` null).
+     *  A private encrypted chat = none. */
+    fun chatMarks(shared: Boolean, sealEpoch: Int?): List<String> = buildList {
+        if (shared) add(MARK_TEAM)
+        if (sealEpoch == null) add(MARK_UNENCRYPTED)
+    }
+
+    /** #EDE-98: a mark's `copy.marks` label. */
+    fun chatMarkLabel(mark: String): String = if (mark == MARK_TEAM) Copy.MARK_TEAM else Copy.MARK_UNENCRYPTED
+
+    /** #EDE-98: a mark's test id. */
+    fun chatMarkTestId(mark: String): String = if (mark == MARK_TEAM) TestIds.CHAT_MARK_TEAM else TestIds.CHAT_MARK_UNENCRYPTED
 
     /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
      *  earlier` widens by [WINDOW_STEP]; the tail is followed within
@@ -455,6 +485,10 @@ object Chats {
         /** #NEW-49: the root's [SessionTree.sessionWaiting] (the `waiting`
          *  word's labels, [SessionTree.chatRowWordText]); null = none. */
         val waiting: String? = null,
+        /** #FEED-263: the row's wall kind and its device's name (the `wall`
+         *  word, [SessionTree.chatRowWordText]); null = none. */
+        val wallKind: String? = null,
+        val wallDevice: String? = null,
         /** S-3: the chat is DONE (every PR of the root merged and nothing
          *  works or needs you): it stays, dimmed ([Shell.DIM_OPACITY]). */
         val dim: Boolean = false,
@@ -549,6 +583,37 @@ object Chats {
     fun parseDigest(text: String?): JsonObject? {
         if (text.isNullOrBlank()) return null
         return runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+    }
+
+    /**
+     * #ERR-28: [digestMessages] per session, re-parsed only when a row's
+     * digest TEXT changed: a synced write touches one or two of a large
+     * account's thousands of rows, but every sessions read handed back every
+     * digest, and re-parsing them all (JSON trees, cards, timestamps) was
+     * most of the churn that ran a phone's heap out. Unchanged rows keep
+     * their message instances. Not thread-safe: one flow's sequential map.
+     */
+    class DigestMessagesCache {
+        private var last: Map<String, Pair<String?, List<SessionTree.Message>>> = emptyMap()
+
+        /** Rows parsed since the cache was made (the memory-budget test reads it). */
+        var parsed: Int = 0
+            private set
+
+        fun read(rows: List<Pair<String, String?>>): Map<String, List<SessionTree.Message>> {
+            val next = HashMap<String, Pair<String?, List<SessionTree.Message>>>(rows.size * 2)
+            for ((id, digest) in rows) {
+                val previous = last[id]
+                next[id] = if (previous != null && previous.first == digest) {
+                    previous
+                } else {
+                    parsed++
+                    digest to digestMessages(id, parseDigest(digest))
+                }
+            }
+            last = next
+            return next.mapValues { it.value.second }
+        }
     }
 
     /** A digest back as the tree messages the list reads: its first /
@@ -814,6 +879,8 @@ object Chats {
         words: Map<String, SessionTree.ChatRowWord?> = emptyMap(),
         /** #NEW-49: the root's sessionWaiting by session id (absent = none). */
         waiting: Map<String, String> = emptyMap(),
+        /** #FEED-263: the row's wall (kind, device name) by session id (absent = none). */
+        walls: Map<String, Pair<String, String?>> = emptyMap(),
         /** #EXP-1388: the chats, or the Archived page. */
         view: ChatListView = ChatListView.List,
         now: String,
@@ -855,6 +922,8 @@ object Chats {
                     busy = row.busy,
                     word = words[row.sessionId],
                     waiting = waiting[row.sessionId],
+                    wallKind = walls[row.sessionId]?.first,
+                    wallDevice = walls[row.sessionId]?.second,
                     dim = mark == SessionTree.SessionState.Idle &&
                         states.isNotEmpty() && states.all { it == DomainContract.prStateMerged },
                 )

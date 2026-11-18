@@ -10,7 +10,7 @@ use std::{
     collections::HashMap,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -36,6 +36,9 @@ use pw::{
 
 use crate::Connect;
 
+/// The core error PipeWire's connection reports when the daemon is gone.
+const EPIPE: i32 = 32;
+
 struct Frame {
     width: u32,
     height: u32,
@@ -52,6 +55,8 @@ enum Cmd {
 /// The PipeWire thread.
 pub struct Pw {
     tx: pw::channel::Sender<Cmd>,
+    /// PipeWire went away (#EDE-101): the thread ended its streams and quit.
+    dead: Arc<AtomicBool>,
 }
 
 struct Entry {
@@ -66,13 +71,18 @@ struct Data {
     fps: u32,
     reply: Option<mpsc::Sender<Result<u32, String>>>,
     streaming: Arc<AtomicBool>,
+    /// The capture thread's period in microseconds ([`period`]).
+    period: Arc<AtomicU64>,
 }
 
 impl Pw {
     /// Connects to PipeWire on a new thread. `on_end` runs (on that thread)
-    /// when a stream's source went away (its window closed).
+    /// when a stream's source went away (its window closed), or PipeWire
+    /// did: then every stream ends and this Pw is dead.
     pub fn start(connect: Connect, on_end: Arc<dyn Fn(u64) + Send + Sync>) -> Result<Pw, String> {
         let (tx, rx) = pw::channel::channel::<Cmd>();
+        let dead = Arc::new(AtomicBool::new(false));
+        let thread_dead = dead.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
         let own_tx = tx.clone();
         std::thread::Builder::new()
@@ -93,6 +103,28 @@ impl Pw {
                     }
                 };
                 let streams: Rc<RefCell<HashMap<u64, Entry>>> = Rc::default();
+                // PipeWire restarted or crashed: the connection is gone for
+                // good. The shares end (their apps hear Closed) and the next
+                // one starts a new Pw.
+                let (ended, quit, gone) = (streams.clone(), mainloop.clone(), on_end.clone());
+                let _core_listener = core
+                    .add_listener_local()
+                    .error(move |id, _seq, res, message| {
+                        if id != pw::core::PW_ID_CORE || res != -EPIPE {
+                            return;
+                        }
+                        tracing::warn!("PipeWire went away: {message}");
+                        thread_dead.store(true, Ordering::Relaxed);
+                        let keys: Vec<u64> = ended.borrow_mut().drain().map(|(key, e)| {
+                            e.stop.store(true, Ordering::Relaxed);
+                            key
+                        }).collect();
+                        for key in keys {
+                            gone(key);
+                        }
+                        quit.quit();
+                    })
+                    .register();
                 let _attached = rx.attach(mainloop.loop_(), move |cmd| match cmd {
                     Cmd::Create { key, target, size, fps, reply } => {
                         match create(&core, key, target, size, fps, reply.clone(), connect.clone(), own_tx.clone()) {
@@ -128,7 +160,7 @@ impl Pw {
             })
             .map_err(|e| e.to_string())?;
         ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "PipeWire did not start".to_string())??;
-        Ok(Pw { tx })
+        Ok(Pw { tx, dead })
     }
 
     /// A new source node for `target`; returns its node id.
@@ -140,6 +172,20 @@ impl Pw {
 
     pub fn destroy(&self, key: u64) {
         let _ = self.tx.send(Cmd::Destroy(key));
+    }
+}
+
+impl crate::Pipe for Pw {
+    fn create(&self, key: u64, target: CaptureTarget, size: (u32, u32), fps: u32) -> Result<u32, String> {
+        Pw::create(self, key, target, size, fps)
+    }
+
+    fn destroy(&self, key: u64) {
+        Pw::destroy(self, key)
+    }
+
+    fn alive(&self) -> bool {
+        !self.dead.load(Ordering::Relaxed)
     }
 }
 
@@ -169,7 +215,8 @@ fn create(
     .map_err(|e| e.to_string())?;
     let latest = Arc::new(Mutex::new(None));
     let streaming = Arc::new(AtomicBool::new(false));
-    let data = Data { latest: latest.clone(), size, fps, reply: Some(reply), streaming: streaming.clone() };
+    let pace = Arc::new(AtomicU64::new(period(fps, Fraction { num: 0, denom: 1 }).as_micros() as u64));
+    let data = Data { latest: latest.clone(), size, fps, reply: Some(reply), streaming: streaming.clone(), period: pace.clone() };
     let listener = stream
         .add_local_listener_with_user_data(data)
         .state_changed(|stream, data, old, new| {
@@ -199,6 +246,8 @@ fn create(
                 return;
             }
             data.size = (info.size().width, info.size().height);
+            // #EXP-1908: the consumer's negotiated cap paces the captures.
+            data.period.store(period(data.fps, info.max_framerate()).as_micros() as u64, Ordering::Relaxed);
             let buffers = buffers_pod(data.size.0 * 4, data.size.0 * 4 * data.size.1);
             let _ = stream.update_params(&mut [Pod::from_bytes(&buffers).unwrap()]);
         })
@@ -240,7 +289,7 @@ fn create(
     let thread_stop = stop.clone();
     std::thread::Builder::new()
         .name("ede-portal-capture".into())
-        .spawn(move || capture_loop(connect, target, fps, key, latest, streaming, thread_stop, tx))
+        .spawn(move || capture_loop(connect, target, pace, key, latest, streaming, thread_stop, tx))
         .map_err(|e| e.to_string())?;
     Ok(Entry { stream, _listener: listener, stop })
 }
@@ -249,14 +298,13 @@ fn create(
 fn capture_loop(
     connect: Connect,
     target: CaptureTarget,
-    fps: u32,
+    pace: Arc<AtomicU64>,
     key: u64,
     latest: Arc<Mutex<Option<Frame>>>,
     streaming: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     tx: pw::channel::Sender<Cmd>,
 ) {
-    let period = Duration::from_secs(1) / fps;
     let mut client = None;
     // The serial of the last frame: the compositor re-renders only when
     // something was presented since (#EDE-15).
@@ -290,8 +338,21 @@ fn capture_loop(
                 }
             }
         }
+        let period = Duration::from_micros(pace.load(Ordering::Relaxed));
         std::thread::sleep(period.saturating_sub(started.elapsed()));
     }
+}
+
+/// How long the capture thread waits between two captures: the configured
+/// `fps`, slowed to the max framerate the consumer negotiated (`0/1` = it
+/// asked for none). #EXP-1908: screen memory asks for one frame a second;
+/// capturing 30 for it rendered the screen 29 times for nothing.
+fn period(fps: u32, max: Fraction) -> Duration {
+    let configured = Duration::from_secs(1) / fps.max(1);
+    if max.num == 0 || max.denom == 0 {
+        return configured;
+    }
+    configured.max(Duration::from_secs(1) * max.denom / max.num)
 }
 
 fn serialize(object: Object) -> Vec<u8> {
@@ -341,4 +402,22 @@ fn buffers_pod(stride: u32, size: u32) -> Vec<u8> {
             },
         ],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EXP-1908: a consumer that negotiated one frame a second is captured
+    /// for once a second, not at the configured 30; a consumer that asked
+    /// for no cap, or for more than the configured rate, gets that rate.
+    #[test]
+    fn the_negotiated_max_framerate_paces_the_captures() {
+        let configured = Duration::from_secs(1) / 30;
+        assert_eq!(period(30, Fraction { num: 1, denom: 1 }), Duration::from_secs(1));
+        assert_eq!(period(30, Fraction { num: 5, denom: 2 }), Duration::from_millis(400));
+        assert_eq!(period(30, Fraction { num: 0, denom: 1 }), configured, "no cap asked");
+        assert_eq!(period(30, Fraction { num: 30, denom: 0 }), configured, "not a rate");
+        assert_eq!(period(30, Fraction { num: 60, denom: 1 }), configured, "never faster than configured");
+    }
 }

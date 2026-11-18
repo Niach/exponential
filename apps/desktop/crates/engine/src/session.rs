@@ -164,6 +164,7 @@ impl EngineSession {
                 args: Vec::new(),
                 cwd: Some(cwd.clone()),
                 env: Vec::new(),
+                env_remove: Vec::new(),
             },
             options: coding::LaunchOptions {
                 agent,
@@ -458,6 +459,10 @@ fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
 impl coding::pickup::LiveEngine for EngineSession {
     fn deliver(&self, message_id: String, text: String) {
         self.0.deliver(message_id, text);
+    }
+
+    fn deliver_wake(&self, message_id: String, text: String) {
+        self.0.deliver_wake(message_id, text);
     }
 
     fn unqueue(&self, message_id: &str) {

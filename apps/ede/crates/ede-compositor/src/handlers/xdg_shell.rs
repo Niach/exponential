@@ -35,29 +35,30 @@ impl XdgShellHandler for Ede {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        self.unmapped.push(Window::new_wayland_window(surface));
+        self.desk.unmapped.push(Window::new_wayland_window(surface));
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let wl = surface.wl_surface().clone();
-        self.unmapped.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != &wl));
-        if let Some(parked) = self.workspaces.parked.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
+        self.desk.unmapped.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != &wl));
+        if let Some(parked) = self.desk.workspaces.parked.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
             self.forget_parked(&parked);
         }
-        if let Some(minimized) = self.minimized.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
+        if let Some(minimized) = self.desk.minimized.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &minimized);
             self.forget_minimized(&minimized);
         }
-        let gone = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
+        let gone = self.desk.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
-            let had_focus = self.focused_window().as_ref() == Some(&window);
+            let desk = self.desk_of_window(&window);
+            let had_focus = self.focused_window(desk).as_ref() == Some(&window);
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &window);
-            self.space.unmap_elem(&window);
+            self.desk.space.unmap_elem(&window);
             if had_focus {
                 // Focus falls to the window now on top, as on Cinnamon.
-                let next = self.space.elements().last().cloned();
-                self.focus(next);
+                let next = self.desk.space.elements().last().cloned();
+                self.focus(desk, next);
             }
         }
     }
@@ -82,7 +83,7 @@ impl XdgShellHandler for Ede {
         let Some(seat) = Seat::from_resource(&seat) else { return };
         let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else { return };
         let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
-        let Some(loc) = self.space.element_location(&window) else { return };
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
         let pointer = seat.get_pointer().unwrap();
         pointer.set_grab(self, MoveSurfaceGrab::new(start_data, window, loc), serial, Focus::Clear);
     }
@@ -91,7 +92,7 @@ impl XdgShellHandler for Ede {
         let Some(seat) = Seat::from_resource(&seat) else { return };
         let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else { return };
         let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
-        let Some(loc) = self.space.element_location(&window) else { return };
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
         // Resizing a tiled window makes it float at its new size.
         let mut st = window_state(&window);
         if st.tile.take().is_some() {
@@ -111,7 +112,7 @@ impl XdgShellHandler for Ede {
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
         match self.window_for_surface(surface.wl_surface()) {
-            Some(window) if self.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
+            Some(window) if self.desk.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
             // Not mapped yet: it opens maximized once its first buffer arrives.
             _ => {
                 surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Maximized));
@@ -137,7 +138,7 @@ impl XdgShellHandler for Ede {
 
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<wl_output::WlOutput>) {
         match self.window_for_surface(surface.wl_surface()) {
-            Some(window) if self.space.element_location(&window).is_some() => self.set_fullscreen(&window, true),
+            Some(window) if self.desk.space.element_location(&window).is_some() => self.set_fullscreen(&window, true),
             // Not mapped yet: it opens fullscreen once its first buffer arrives.
             _ => {
                 surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Fullscreen));
@@ -164,17 +165,20 @@ impl XdgShellHandler for Ede {
         self.mapped_window_changed(surface.wl_surface());
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        // Popup grabs (menus that close on an outside click) come with the shell.
+    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        // A popup that grabs asks for the keyboard (#EDE-86: the shell's
+        // start menu hangs off the taskbar, a layer that never takes it
+        // itself); it gets it as it maps (`handle_commit`). An outside
+        // click reaches the shell as `popups.dismiss`.
+        with_states(surface.wl_surface(), |states| states.data_map.insert_if_missing(|| PopupGrab));
     }
 
     fn popup_destroyed(&mut self, surface: PopupSurface) {
         // The shell's menu closed while it held the keyboard: the top window
-        // gets it back.
-        let keyboard = self.seat.get_keyboard().unwrap();
+        // gets it back, then an Exclusive prompt that is still up (#EDE-86).
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         if keyboard.current_focus().as_ref() == Some(surface.wl_surface()) {
-            let top = self.space.elements().last().cloned();
-            self.focus(top);
+            self.focus_after_unlock(None);
         }
     }
 }
@@ -182,9 +186,12 @@ impl XdgShellHandler for Ede {
 /// Marks a shell popup that already took the keyboard once.
 struct PopupFocused;
 
+/// Marks a popup that asked for the grab (`xdg_popup.grab`).
+struct PopupGrab;
+
 impl Ede {
     pub fn mapped_window_changed(&mut self, surface: &WlSurface) {
-        let mapped = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned();
+        let mapped = self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned();
         if let Some(w) = mapped {
             self.window_event(ede_protocol::events::WINDOW_CHANGED, &w);
         }
@@ -207,14 +214,14 @@ fn check_grab(seat: &Seat<Ede>, surface: &WlSurface, serial: Serial) -> Option<P
 
 /// Called on every `wl_surface.commit`.
 pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
-    if let Some(window) = state.unmapped.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface)).cloned() {
+    if let Some(window) = state.desk.unmapped.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface)).cloned() {
         let toplevel = window.toplevel().unwrap().clone();
         let initial_configure_sent =
             with_states(surface, |states| states.data_map.get::<XdgToplevelSurfaceData>().unwrap().lock().unwrap().initial_configure_sent);
         if !initial_configure_sent {
             // Bounds = the work area of the pointer's output, so the client
             // never opens bigger than the screen.
-            let pointer = state.seat.get_pointer().unwrap().current_location();
+            let pointer = state.desk.seat.get_pointer().unwrap().current_location();
             let bounds = state.output_at(pointer).and_then(|o| state.work_area(&o)).map(|a| a.size);
             toplevel.with_pending_state(|s| s.bounds = bounds);
             toplevel.send_configure();
@@ -224,7 +231,7 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 s.states.unset(xdg_toplevel::State::Fullscreen);
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
-            state.place_new_window(window.clone());
+            state.place_new_window(state.desk_of_window(&window), window.clone());
             if wants_max {
                 state.tile(&window, Tile::Maximized);
             }
@@ -241,11 +248,12 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
             xdg.send_configure().expect("initial configure failed");
         } else if with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false) {
             // A popup of a layer surface that takes the keyboard (the shell's
-            // menu with its search box, #EDE-12) gets it when it maps; a
-            // window's popup keeps its window's focus.
-            let first = with_states(surface, |states| states.data_map.insert_if_missing(|| PopupFocused));
-            if first && state.layer_root_takes_keyboard(&PopupKind::Xdg(xdg.clone())) {
-                let keyboard = state.seat.get_keyboard().unwrap();
+            // menu with its search box, #EDE-12), or one that grabs under
+            // any layer surface (#EDE-86), gets it when it maps; a window's
+            // popup keeps its window's focus.
+            let (first, grabs) = with_states(surface, |states| (states.data_map.insert_if_missing(|| PopupFocused), states.data_map.get::<PopupGrab>().is_some()));
+            if first && state.layer_root_takes_keyboard(&PopupKind::Xdg(xdg.clone()), grabs) {
+                let keyboard = state.desk.seat.get_keyboard().unwrap();
                 keyboard.set_focus(state, Some(surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
             }
         }
@@ -254,21 +262,21 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
 
 impl Ede {
     /// Is `popup` under a layer surface whose keyboard interactivity is not
-    /// `none`?
-    pub fn layer_root_takes_keyboard(&self, popup: &PopupKind) -> bool {
+    /// `none`, or under any layer surface when it `grabs`?
+    pub fn layer_root_takes_keyboard(&self, popup: &PopupKind, grabs: bool) -> bool {
         let Ok(root) = find_popup_root_surface(popup) else { return false };
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
-            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| l.can_receive_keyboard_focus())
+            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| grabs || l.can_receive_keyboard_focus())
         })
     }
 
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
         let Some(window) = self.window_for_surface(&root) else { return };
-        let Some(window_geo) = self.space.element_geometry(&window) else { return };
+        let Some(window_geo) = self.desk.space.element_geometry(&window) else { return };
         let Some(output) = self.output_at(window_geo.loc.to_f64()) else { return };
-        let Some(output_geo) = self.space.output_geometry(&output) else { return };
+        let Some(output_geo) = self.desk.space.output_geometry(&output) else { return };
 
         // The positioner's target is relative to the parent's geometry.
         let mut target = output_geo;

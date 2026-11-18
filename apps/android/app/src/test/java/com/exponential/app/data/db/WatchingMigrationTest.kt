@@ -56,3 +56,45 @@ class WatchingMigrationTest {
         assertEquals(emptyList<SessionTree.Watching>(), SessionTree.session(decode("""{"id":"s1"}""")).watching)
     }
 }
+
+/** #EDE-97: v131 adds `sessions.clear_tree` (NOT NULL, default false) and refetches ONLY the sessions shape. */
+class ClearTreeMigrationTest {
+    private fun recording(statements: MutableList<String>): SupportSQLiteDatabase =
+        Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            if (method.name == "execSQL") {
+                statements += args!![0] as String
+                null
+            } else {
+                error("unexpected ${method.name}")
+            }
+        } as SupportSQLiteDatabase
+
+    @Test
+    fun `v131 adds clear_tree and refetches only sessions`() {
+        assertEquals(130, MIGRATION_130_131.startVersion)
+        assertEquals(131, MIGRATION_130_131.endVersion)
+        val statements = mutableListOf<String>()
+        MIGRATION_130_131.migrate(recording(statements))
+        assertEquals(
+            listOf(
+                "ALTER TABLE `sessions` ADD COLUMN `clear_tree` INTEGER NOT NULL DEFAULT 0",
+                "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                    "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+            ),
+            statements,
+        )
+    }
+
+    @Test
+    fun `the row decodes clear_tree, absent = false`() {
+        val json = Json { ignoreUnknownKeys = true }
+        fun decode(raw: String) = json.decodeFromString(SessionEntity.serializer(), raw)
+        assertEquals(true, decode("""{"id":"s1","clear_tree":true}""").clearTree)
+        assertEquals(true, decode("""{"id":"s1","clear_tree":"t"}""").clearTree)
+        assertEquals(false, decode("""{"id":"s1","clear_tree":false}""").clearTree)
+        assertEquals(false, decode("""{"id":"s1"}""").clearTree)
+    }
+}

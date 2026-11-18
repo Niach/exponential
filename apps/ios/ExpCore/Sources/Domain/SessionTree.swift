@@ -1148,7 +1148,8 @@ public struct ChatComposer: Equatable, Sendable {
 public struct SessionChatView: Equatable, Sendable {
     public let rootId: String
     public let title: String
-    /// A lock glyph beside the title (`!root.shared`).
+    /// `!root.shared` (#EDE-98: no glyph of its own; the title's glyphs
+    /// are `Chats.chatMarks`).
     public let isPrivate: Bool
     /// The focused session (nil = the chat itself).
     public let focusId: String?
@@ -1220,9 +1221,9 @@ public struct ChatsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1323: bold title (the tree's newest agent message is newer than
     /// the viewer's read of the root).
     public let unread: Bool
-    /// #EXP-1703: `SessionTree.treeOffline` of a needs-you tree (the word
-    /// reads `device offline`); false otherwise.
-    public let offline: Bool
+    /// #FEED-263: `SessionTree.treeWall` (set only when nothing asks and a
+    /// wall holds; the `wall` word names it); nil = none.
+    public let wall: TreeWall?
 
     public var id: String { sessionId }
 
@@ -1238,10 +1239,10 @@ public struct ChatsListRow: Equatable, Sendable, Identifiable {
         unread: Bool = false,
         activityAt: String,
         deviceId: String? = nil,
-        offline: Bool = false
+        wall: TreeWall? = nil
     ) {
         self.deviceId = deviceId
-        self.offline = offline
+        self.wall = wall
         self.depth = depth
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
@@ -1252,6 +1253,20 @@ public struct ChatsListRow: Equatable, Sendable, Identifiable {
         self.busy = busy
         self.needsYou = needsYou
         self.activityAt = activityAt
+    }
+}
+
+/// #FEED-263 (web `TreeWall`): the wall a chat row names: its kind and the
+/// walled session's device (the word's `{device}`).
+public struct TreeWall: Equatable, Sendable {
+    public let sessionId: String
+    public let kind: String
+    public let deviceId: String?
+
+    public init(sessionId: String, kind: String, deviceId: String?) {
+        self.sessionId = sessionId
+        self.kind = kind
+        self.deviceId = deviceId
     }
 }
 
@@ -1290,9 +1305,9 @@ public enum ChatRowWord: String, Equatable, Sendable, CaseIterable {
     case stack
     case readyToMerge
     case merged
-    /// #EXP-1703: on a person only because its device stayed away.
-    case offline
     case question
+    /// #FEED-263: the row's wall (`SessionTree.chatRowWordText` names it).
+    case wall
     /// An agent row waiting on a person.
     case needsInput
     /// #NEW-49: an idle root that waits on something (its `sessionWaiting`).
@@ -1306,7 +1321,7 @@ public enum ChatRowWord: String, Equatable, Sendable, CaseIterable {
         case .readyToMerge: "ready to merge"
         case .stack: "stack"
         case .merged: nil
-        case .offline: "device offline"
+        case .wall: nil
         case .question: "question"
         case .needsInput: "needs input"
         case .waiting: "waiting on {labels}"
@@ -1737,6 +1752,48 @@ public enum SessionTree {
             && (session.blocked?.resumeSince ?? "").isEmpty
     }
 
+    /// #FEED-263 (chat-list.json `copy.walls`): the walls a row names by
+    /// `blocked.kind` (`{device}` = the walled session's device name, else
+    /// `wallDevice`).
+    public static let walls: [String: String] = [
+        "device_offline": "{device} offline",
+        "unclaimed": "not picked up",
+        "start_failed": "couldn't start",
+        "rate_limit": "usage limit",
+        "stuck": "stuck",
+    ]
+    public static let wallDevice = "device"
+
+    /// #FEED-263 (web `sessionWall`): the WALL a live session sits behind
+    /// that no answer in the chat can lift: `needsInput` set and its
+    /// `blocked.kind` a key of `walls` (`device_offline` only while its
+    /// device stays away). nil otherwise.
+    public static func sessionWall(_ session: TreeSession) -> String? {
+        wall(status: session.status, needsInput: session.needsInput,
+             kind: session.blocked?.kind, resumed: !(session.blocked?.resumeSince ?? "").isEmpty)
+    }
+
+    /// `sessionWall` over plain fields (the chat header's status inputs).
+    public static func wall(status: String, needsInput: Bool, kind: String?, resumed: Bool) -> String? {
+        guard status != "ended", needsInput, let kind, !kind.isEmpty, walls[kind] != nil else { return nil }
+        if kind == "device_offline", resumed { return nil }
+        return kind
+    }
+
+    /// #FEED-263 (web `sessionAsks`): a live session ASKS a person (needs
+    /// input ×4): `needsInput` set and no wall (`sessionWall`).
+    public static func sessionAsks(_ session: TreeSession) -> Bool {
+        session.status != "ended" && session.needsInput && sessionWall(session) == nil
+    }
+
+    /// #FEED-263 (web `chatWallText`, `wordTextCases`): a wall's words; nil
+    /// = no wall of that kind.
+    public static func chatWallText(_ kind: String, device: String? = nil) -> String? {
+        guard let text = walls[kind] else { return nil }
+        let name = device?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.replacingOccurrences(of: "{device}", with: name.isEmpty ? wallDevice : name)
+    }
+
     /// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
     /// queued one waiting for its device (a dock.json `banner` source;
     /// session-card.json `bannerCases`), nil otherwise. S-3: an interruption
@@ -2060,7 +2117,8 @@ public enum SessionTree {
             live: !live.isEmpty,
             liveSessionId: root.status == "ended" ? nil : root.id,
             busy: live.contains { $0.busy },
-            needsYou: live.contains { $0.needsInput },
+            // #FEED-263: a wall is not needs input.
+            needsYou: live.contains(where: sessionAsks),
             mainSessionId: single ? root.id : nil,
             origin: origin
         )
@@ -2209,7 +2267,8 @@ public enum SessionTree {
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
-            let needsYou = live.contains { $0.needsInput }
+            // #FEED-263: needs you = something ASKS; a wall is named instead.
+            let needsYou = live.contains(where: sessionAsks)
             let running = live.contains { $0.status == "queued" || $0.busy }
             var activity = root.updatedAt
             var activityMs = ms(root.updatedAt) ?? 0
@@ -2230,7 +2289,7 @@ public enum SessionTree {
                 unread: unread(newestAgentInTree[root.id], root.id),
                 activityAt: activity,
                 deviceId: root.deviceId,
-                offline: needsYou && treeOffline(tree)
+                wall: treeWall(tree)
             )
             // #EXP-1461 (owner 2026-10-30: 'only the root ones'): a row is a
             // ROOT, never a child; the tree's state rolls up into it.
@@ -2278,7 +2337,7 @@ public enum SessionTree {
         now: String?
     ) -> TreeState {
         let live = tree.filter { $0.status != "ended" }
-        if live.contains(where: { $0.needsInput }) { return .needsYou }
+        if live.contains(where: sessionAsks) { return .needsYou }
         if live.contains(where: { $0.status == "queued" || $0.busy }) { return .working }
         if live.isEmpty { return .done }
         if !pullRequests.isEmpty, pullRequests.allSatisfy({ $0.state == "merged" }) { return .done }
@@ -2400,9 +2459,8 @@ public enum SessionTree {
     /// EXP-1309/1318: ONE quiet trailing word for a Chats row ×4 (the lock
     /// rides beside it): an open PR in a stack → `stack`; an open PR while
     /// nothing works → `readyToMerge` (working = no word); no open PR but a
-    /// merged one → `merged`; else waiting on a person → `offline`
-    /// (#EXP-1703: only because its device stayed away, `treeOffline`) or
-    /// `question`; else (#NEW-49) an idle root that waits on something →
+    /// merged one → `merged`; else waiting on a person → `question`; else
+    /// (#FEED-263) a wall → `wall`; else (#NEW-49) an idle root that waits on something →
     /// `waiting` (`waiting` = the root's `sessionWaiting` while it is idle);
     /// else none. Fixture `wordCases`.
     public static func chatRowWord(
@@ -2410,7 +2468,7 @@ public enum SessionTree {
         busy: Bool,
         needsYou: Bool,
         inStack: Bool,
-        offline: Bool = false,
+        wall: Bool = false,
         waiting: String? = nil
     ) -> ChatRowWord? {
         if prStates.contains(DomainContract.prStateOpen) {
@@ -2418,16 +2476,25 @@ public enum SessionTree {
             return busy ? nil : .readyToMerge
         }
         if prStates.contains(DomainContract.prStateMerged) { return .merged }
-        if needsYou { return offline ? .offline : .question }
+        if needsYou { return .question }
+        if wall { return .wall }
         if let waiting, !waiting.isEmpty { return .waiting }
         return nil
     }
 
     /// #NEW-49 (chat-list.json `wordTextCases`): a row word's text; `waiting`
-    /// names what it waits on. nil = no word, or a word without text
-    /// (`merged`, `waiting` without labels).
-    public static func chatRowWordText(_ word: ChatRowWord?, waiting: String? = nil) -> String? {
-        guard let word, let text = word.text else { return nil }
+    /// names what it waits on; #FEED-263 `wall` = `chatWallText` of
+    /// `wallKind` on `wallDevice` (no wall = no text). nil = no word, or a
+    /// word without text (`merged`, `waiting` without labels).
+    public static func chatRowWordText(
+        _ word: ChatRowWord?,
+        waiting: String? = nil,
+        wallKind: String? = nil,
+        wallDevice: String? = nil
+    ) -> String? {
+        guard let word else { return nil }
+        if word == .wall { return wallKind.flatMap { chatWallText($0, device: wallDevice) } }
+        guard let text = word.text else { return nil }
         if word == .waiting {
             guard let waiting, !waiting.isEmpty else { return nil }
             return text.replacingOccurrences(of: "{labels}", with: waiting)
@@ -2442,7 +2509,7 @@ public enum SessionTree {
         needsYou: Bool,
         prs: [PullRequestEntity],
         teamPrs: [PullRequestEntity],
-        offline: Bool = false,
+        wall: Bool = false,
         waiting: String? = nil
     ) -> ChatRowWord? {
         chatRowWord(
@@ -2450,22 +2517,36 @@ public enum SessionTree {
             busy: busy,
             needsYou: needsYou,
             inStack: chatInStack(prs.map(StackPr.init), teamPrs: teamPrs.map(StackPr.init)),
-            offline: offline,
+            wall: wall,
             waiting: waiting
         )
     }
 
-    /// #EXP-1703: a tree on a person ONLY because its device stayed away:
-    /// some live session needs you and every one that does is
-    /// `sessionOffline`. Fixture `offlineCases`.
-    public static func treeOffline(_ tree: [TreeSession]) -> Bool {
-        let waiting = tree.filter { $0.status != "ended" && $0.needsInput }
-        return !waiting.isEmpty && waiting.allSatisfy(sessionOffline)
+    /// #FEED-263 (web `treeWall`, fixture `wallCases`): the wall a tree's
+    /// row names: nil while any session ASKS (`sessionAsks`), else the first
+    /// walled session (`sessionWall`) in tree order (the root first, then
+    /// creation order, ties by id).
+    public static func treeWall(_ tree: [TreeSession]) -> TreeWall? {
+        if tree.contains(where: sessionAsks) { return nil }
+        let ordered = tree.sorted { a, b in
+            let ra = a.parentId == nil ? 0 : 1, rb = b.parentId == nil ? 0 : 1
+            if ra != rb { return ra < rb }
+            let ma = ms(a.createdAt) ?? 0, mb = ms(b.createdAt) ?? 0
+            if ma != mb { return ma < mb }
+            return a.id < b.id
+        }
+        for session in ordered {
+            if let kind = sessionWall(session) {
+                return TreeWall(sessionId: session.id, kind: kind, deviceId: session.deviceId)
+            }
+        }
+        return nil
     }
 
     /// The rail's Active band (`ListCopy.rail`): every Needs you row, every
     /// Running row, then the Recent rows whose word still asks for a merge
-    /// (`readyToMerge` or `stack`), in group order. Fixture `railCases`.
+    /// (`readyToMerge` or `stack`) or (#FEED-263) names a wall, in group
+    /// order. Fixture `railCases`.
     public static func railChats(
         _ groups: [ChatsListGroup],
         wordOf: (ChatsListRow) -> ChatRowWord?
@@ -2474,7 +2555,7 @@ public enum SessionTree {
             guard group.key == .recent else { return group.rows }
             return group.rows.filter { row in
                 let word = wordOf(row)
-                return word == .readyToMerge || word == .stack
+                return word == .readyToMerge || word == .stack || word == .wall
             }
         }
     }

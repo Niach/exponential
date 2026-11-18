@@ -1,0 +1,2701 @@
+{
+  "$comment": "EDE-105 (approved on EDE-94): THE CHAT STORE, one Rust crate for every client (apps/desktop/crates/chat-store: a pure core + a SQLite adapter, no async runtime in the core) that keeps every chat on every device, offline, opened from disk, plus a local search index. This TS reference (src/chat-store.ts) and the crate (its in-memory core AND its SQLite adapter) replay every case below. WHAT IT HOLDS, per account (desktop: `{data_dir}/accounts/<account>/chat-store.sqlite`, beside the sync store, kept across a session expiry and an account switch, deleted by a deliberate sign-out (SIGN-OUT below), gone with the account's data): (1) the synced `messages` rows of every chat the member can see (the `messages` shape's own visibility rule), OPENED with the chat key (EXP-1459, `sealed-content.json`); a row whose key is not held yet is stored with `body: null`, never indexed, and replaced (latest wins, by id) once the key arrives and it opens; (2) the TRANSCRIPT EVENTS of every session of those chats (the wire `activity` events with their seq, exactly as on the wire: already scrubbed by the emitter, never more than a viewer sees), with `rootId`, `sessionId`, `deviceId` (the device that ran it), `seq` and `storedAt` (ms the store took it). TRANSCRIPTS NEVER TOUCH THE SERVER: events reach a store only from the device running the session or another reader device, over eNet (steer-enet.json); the server keeps carrying the messages only. DECRYPTED ONLY WHERE THE PLATFORM STORE IS PROTECTED: desktop = the per-account data dir, user-only (0600 file, like the journal and the keyring); iOS = Data Protection (complete until first unlock) in the app container; Android = app-private storage; web = OPFS (origin-private). A platform without a protected store keeps the bodies sealed as synced and indexes nothing sealed. DEDUP: an event is keyed by (sessionId, deviceId, seq): the first write wins, a repeat (a history page overlapping the live feed, a second reader answering the same page) is dropped; a session moved in place (session-device-move.json) restarts its seqs on its new device, so each device's events are their own sequence; events read back per session and device in seq order (`ingest.cases`). INDEX SCOPE (`docs`): user inputs (`user_message`), narration, tool titles (`name` + ` ` + `detail`, or `name`), tool output as on the wire (`tool_update` `output`, else its `diff`; the hit lands on the tool's row: the lowest seq of a `tool` with that id in the session on that device, else the update's own seq) and synced message bodies (`message`); NEVER thoughts, never slots (usage, config, diff snapshots) or card payloads. A doc's time = the event's `at`, else `storedAt` (a message: `createdAt`). QUERY SEMANTICS = steer-enet.json SEARCH (find in chat, EDE-96): a case- and diacritics-insensitive LITERAL: the query and the text collapse every run of ASCII whitespace to one space (trimmed), fold per code point (NFD, marks dropped, lowercased), the query keeps its first `queryMaxChars` code points, an empty query searches nothing; one hit per doc (its first match; an event's hit names its `deviceId` and `seq`, a message's its `messageId`), `snippet` = the collapsed text from `snippetLeadChars` before the match, `snippetChars` wide (more only for a longer match), `…` where cut, `matchStart`/`matchLen` in code points of the snippet. DEDUP OF HITS: a `message` hit whose collapsed body equals a `user_message`/`narration` hit's text in the same session is dropped (the final reply and the person's input exist twice; the transcript row is the one a reader lands on). ORDER: newest first by time, then session id ascending, then device id ascending, then seq descending (a message, without a seq, after the events of the same instant), then message id. FIND IN CHAT (`search.chatCases`): one chat (`rootId`, every session of its tree), at most `limit` hits (clamped to [1, hitsMax]), `total` = every hit. GLOBAL (`search.allCases`, S5): one row per chat {rootId, count, hit = its newest hit}, newest chat first, at most `limit` rows, `total` = chats matched. OPEN: a chat opens from the store before any live feed attaches: per session, the stored events of the device it is on now through the same REPLAY TAIL rule a join replays by (steer-enet.json), older ones paged from the store; the live feed's `activity_reset` replay then replaces the seed and everything it carries is stored as it arrives. RETENTION (`retention`): per form factor (`constants.retentionDays`): desktop keeps everything (null); phones and web keep prose (inputs, narration) and every synced message forever and every other event (tool steps, their output, slots) for the last `retentionDays` days by its time (the cutoff instant kept); a storage setting changes the window; an older tool step is fetched over eNet when its chat is opened (S2). PHASES: S1 = this spec + the crate + desktop (the store fed from the device's own journals, the synced messages and every feed the desktop views; a chat opens from it). S2 = background catch-up over eNet (`catchUp`, #EDE-108): a reader asks the running device or ANY reader device holding the events (its store answers a device-naming `history_page` like a journal does; the EDE-96 `search` frame follows) for every seq it lacks, deduped by seq. S3 = phones through `exponential-mobile-ffi` (the same crate; iOS + Android retention 30 days). S4 = web through wasm with the store in OPFS (#EDE-115: crate chat-store-wasm, loaded lazily in a worker, never the main bundle): ONE APPEND-ONLY LOG per chat (`chat-store/<user>/<rootId>.log`, a generation line first) opened through a sync access handle under a Web Lock per file, so every tab's worker shares it; a write appends only what changed (events deduped as above, messages latest wins except that a body that did not open in this browser never replaces one that did: a tab without the key yet); RETENTION (`retentionDays.web`) applies when a worker first opens a chat and rewrites the file under a new generation; fed from every steer feed a view receives and the synced messages a chat loads (web messages are on demand); the catch-up asks and answers (`catchUp`, `minAt` = its cutoff) only in the tab holding the eNet node's Web Lock; OPEN paints the stored tail before the dial (its live slots `turn`, `queue`, `rate_limit`, `background_tasks` left out: a stored one may be a finished run's), and older pages come from the store while no feed is open; signing out stops it in every tab and deletes the account's files (SIGN-OUT). SIGN-OUT (`signOut`, #EDE-120, decided on #EDE-94: the store holds chats DECRYPTED): leaving an account (`reason`) DELETES its store files only on a DELIBERATE sign-out (`sign_out`: the person's Sign out on desktop or web, or the CLI's `logout`, which shares the desktop's data dir), after STOPPING the store (desktop: the writer thread, the catch-up loop and the store this device serves pages from, the files going once every holder let go; web: the worker in EVERY tab, told over the `exp-chat-store` BroadcastChannel, which also leaves the catch-up without a store); a session expiry or a lost token (`expired`) and an account switch (`switch`) delete nothing, the files stay for the next sign-in. The files are picked from a listing (paths relative to the data dir or the OPFS root): desktop `accounts/<account>/chat-store.sqlite` and its `-wal`, `-shm`, `-journal` siblings; web every file directly in `chat-store/<account>/` (its logs; the store keeps no subdirectories, and the emptied dir goes too); never anything else of the account (its sync store stays, like a sign-out leaves it) and never another account's (segment-exact: `u1` never matches `u10`); an account id that is not one safe path segment (1 to 255 of `[A-Za-z0-9._-]`, never all dots: `.` and `..` are not segments, never a separator) deletes nothing. REAL ACCOUNT NAMES (#EDE-120 follow-up): the desktop's account dirs are `<host>--<userId>` with the host's dots kept and every other character (a port's `:`) turned into `-` (api `account_id_for`: `app.exponential.at--8Jk3…`, `localhost-3000--u1`); the cases use those shapes, not only bare ids. A delete that fails (a file still held) is tried again a few times and otherwise left: the sign-out itself never waits on it. S5 = the Chats section in global search (EDE-99) reading `searchAll`.",
+  "constants": {
+    "queryMaxChars": 200,
+    "hitsMax": 50,
+    "snippetChars": 120,
+    "snippetLeadChars": 40,
+    "retentionDays": {
+      "desktop": null,
+      "phone": 30,
+      "web": 30
+    }
+  },
+  "docs": {
+    "cases": [
+      {
+        "name": "an input is a user_message doc",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 3,
+          "storedAt": 900,
+          "event": {
+            "kind": "user_message",
+            "text": "Fix the café menu",
+            "at": 500
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 3,
+            "at": 500,
+            "kind": "user_message",
+            "text": "Fix the café menu"
+          }
+        ]
+      },
+      {
+        "name": "narration is a narration doc; storedAt stands in for a missing at",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 4,
+          "storedAt": 900,
+          "event": {
+            "kind": "narration",
+            "text": "Looking at it",
+            "messageId": "m1"
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 4,
+            "at": 900,
+            "kind": "narration",
+            "text": "Looking at it"
+          }
+        ]
+      },
+      {
+        "name": "a thought is never indexed",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 5,
+          "storedAt": 900,
+          "event": {
+            "kind": "thought",
+            "state": "ended",
+            "durationMs": 1200,
+            "at": 501
+          }
+        },
+        "expect": []
+      },
+      {
+        "name": "a tool is its title: name + detail",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 6,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool",
+            "name": "Bash",
+            "detail": "cargo test -p sync",
+            "id": "t1",
+            "at": 502
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 6,
+            "at": 502,
+            "kind": "tool",
+            "text": "Bash cargo test -p sync"
+          }
+        ]
+      },
+      {
+        "name": "a tool without detail is its name",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 7,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool",
+            "name": "Read",
+            "at": 503
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 7,
+            "at": 503,
+            "kind": "tool",
+            "text": "Read"
+          }
+        ]
+      },
+      {
+        "name": "tool output as on the wire, keyed by its tool id",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 8,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "status": "completed",
+            "output": "test result: ok. 12 passed",
+            "at": 504
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 8,
+            "at": 504,
+            "kind": "tool_output",
+            "text": "test result: ok. 12 passed",
+            "toolId": "t1"
+          }
+        ]
+      },
+      {
+        "name": "a diff stands in for missing output",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 9,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t2",
+            "diff": "+fn main() {}",
+            "at": 505
+          }
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "deviceId": "d1",
+            "seq": 9,
+            "at": 505,
+            "kind": "tool_output",
+            "text": "+fn main() {}",
+            "toolId": "t2"
+          }
+        ]
+      },
+      {
+        "name": "a status-only update has nothing to index",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 10,
+          "storedAt": 900,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "status": "completed",
+            "at": 506
+          }
+        },
+        "expect": []
+      },
+      {
+        "name": "slots and cards are not indexed (the synced message carries a card)",
+        "event": {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 11,
+          "storedAt": 900,
+          "event": {
+            "kind": "usage",
+            "used": 10,
+            "size": 100
+          }
+        },
+        "expect": []
+      }
+    ],
+    "messageCases": [
+      {
+        "name": "an opened body is a message doc",
+        "message": {
+          "id": "msg1",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": "Shipped the fix.",
+          "createdAt": 700
+        },
+        "expect": [
+          {
+            "rootId": "r1",
+            "sessionId": "s1",
+            "kind": "message",
+            "text": "Shipped the fix.",
+            "at": 700,
+            "messageId": "msg1"
+          }
+        ]
+      },
+      {
+        "name": "a body still sealed (no chat key yet) is not indexed",
+        "message": {
+          "id": "msg2",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": null,
+          "createdAt": 701
+        },
+        "expect": []
+      },
+      {
+        "name": "an empty body is not indexed",
+        "message": {
+          "id": "msg3",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "user",
+          "body": "",
+          "createdAt": 702
+        },
+        "expect": []
+      }
+    ]
+  },
+  "ingest": {
+    "cases": [
+      {
+        "name": "the live feed and a history page overlap: each (session, seq) once, first write wins, seq order",
+        "batches": [
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 5,
+                "storedAt": 10,
+                "event": {
+                  "kind": "narration",
+                  "text": "live five"
+                }
+              },
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 6,
+                "storedAt": 10,
+                "event": {
+                  "kind": "narration",
+                  "text": "live six"
+                }
+              }
+            ]
+          },
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 4,
+                "storedAt": 20,
+                "event": {
+                  "kind": "user_message",
+                  "text": "page four"
+                }
+              },
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 5,
+                "storedAt": 20,
+                "event": {
+                  "kind": "narration",
+                  "text": "page five"
+                }
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 4,
+              "text": "page four"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 5,
+              "text": "live five"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 6,
+              "text": "live six"
+            }
+          ],
+          "messages": []
+        }
+      },
+      {
+        "name": "a session moved in place restarts its seqs on the new device: both devices' events are kept",
+        "batches": [
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d1",
+                "seq": 0,
+                "storedAt": 10,
+                "event": {
+                  "kind": "user_message",
+                  "text": "on the laptop"
+                }
+              }
+            ]
+          },
+          {
+            "events": [
+              {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "deviceId": "d2",
+                "seq": 0,
+                "storedAt": 20,
+                "event": {
+                  "kind": "user_message",
+                  "text": "on the server"
+                }
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [
+            {
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "seq": 0,
+              "text": "on the laptop"
+            },
+            {
+              "sessionId": "s1",
+              "deviceId": "d2",
+              "seq": 0,
+              "text": "on the server"
+            }
+          ],
+          "messages": []
+        }
+      },
+      {
+        "name": "a message re-synced (its body opened once the key arrived) replaces the stored one",
+        "batches": [
+          {
+            "messages": [
+              {
+                "id": "m1",
+                "rootId": "r1",
+                "sessionId": "s1",
+                "authorKind": "agent",
+                "body": null,
+                "createdAt": 100
+              }
+            ]
+          },
+          {
+            "messages": [
+              {
+                "id": "m1",
+                "rootId": "r1",
+                "sessionId": "s1",
+                "authorKind": "agent",
+                "body": "Opened now",
+                "createdAt": 100
+              }
+            ]
+          }
+        ],
+        "expect": {
+          "events": [],
+          "messages": [
+            {
+              "id": "m1",
+              "body": "Opened now"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "search": {
+    "state": {
+      "events": [
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "user_message",
+            "text": "Fix the CAFÉ menu please",
+            "at": 1000
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 2,
+          "storedAt": 9000,
+          "event": {
+            "kind": "thought",
+            "state": "started",
+            "at": 1001
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 3,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool",
+            "name": "Grep",
+            "detail": "cafe in src/",
+            "id": "t1",
+            "at": 1002
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 4,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool_update",
+            "id": "t1",
+            "output": "src/menu.rs:12: // the café   list\nsrc/menu.rs:40: let cafe = Menu::new();",
+            "at": 1003
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s1",
+          "deviceId": "d1",
+          "seq": 5,
+          "storedAt": 9000,
+          "event": {
+            "kind": "narration",
+            "text": "Done: the café menu is fixed.",
+            "at": 1004
+          }
+        },
+        {
+          "rootId": "r1",
+          "sessionId": "s2",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "tool_update",
+            "id": "t9",
+            "output": "Cafe opened at 9",
+            "at": 1005
+          }
+        },
+        {
+          "rootId": "r2",
+          "sessionId": "s3",
+          "deviceId": "d1",
+          "seq": 1,
+          "storedAt": 9000,
+          "event": {
+            "kind": "narration",
+            "text": "Nothing about coffee shops here, only a long preamble that goes on and on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both ends of the text",
+            "at": 2000
+          }
+        }
+      ],
+      "messages": [
+        {
+          "id": "m1",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "user",
+          "body": "Fix the  CAFÉ menu please",
+          "createdAt": 999
+        },
+        {
+          "id": "m2",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "agent",
+          "body": "Done: the café menu is fixed.",
+          "createdAt": 1004
+        },
+        {
+          "id": "m3",
+          "rootId": "r1",
+          "sessionId": "s1",
+          "authorKind": "system",
+          "body": "PR #12 checks: café build green",
+          "createdAt": 1006
+        },
+        {
+          "id": "m4",
+          "rootId": "r3",
+          "sessionId": "s4",
+          "authorKind": "agent",
+          "body": null,
+          "createdAt": 3000
+        }
+      ]
+    },
+    "chatCases": [
+      {
+        "name": "find in chat: case + diacritics-insensitive literal, newest first, messages that repeat an event dropped",
+        "rootId": "r1",
+        "query": "cafe",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "kind": "message",
+              "at": 1006,
+              "messageId": "m3",
+              "snippet": "PR #12 checks: café build green",
+              "matchStart": 15,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s2",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1005,
+              "seq": 1,
+              "snippet": "Cafe opened at 9",
+              "matchStart": 0,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "narration",
+              "at": 1004,
+              "seq": 5,
+              "snippet": "Done: the café menu is fixed.",
+              "matchStart": 10,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "src/menu.rs:12: // the café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 23,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool",
+              "at": 1002,
+              "seq": 3,
+              "snippet": "Grep cafe in src/",
+              "matchStart": 5,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "user_message",
+              "at": 1000,
+              "seq": 1,
+              "snippet": "Fix the CAFÉ menu please",
+              "matchStart": 8,
+              "matchLen": 4
+            }
+          ],
+          "total": 6
+        }
+      },
+      {
+        "name": "the limit cuts the hits, total counts them all",
+        "rootId": "r1",
+        "query": "Café",
+        "limit": 2,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "kind": "message",
+              "at": 1006,
+              "messageId": "m3",
+              "snippet": "PR #12 checks: café build green",
+              "matchStart": 15,
+              "matchLen": 4
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s2",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1005,
+              "seq": 1,
+              "snippet": "Cafe opened at 9",
+              "matchStart": 0,
+              "matchLen": 4
+            }
+          ],
+          "total": 6
+        }
+      },
+      {
+        "name": "whitespace in the query collapses like the text's",
+        "rootId": "r1",
+        "query": "  the   café  ",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "narration",
+              "at": 1004,
+              "seq": 5,
+              "snippet": "Done: the café menu is fixed.",
+              "matchStart": 6,
+              "matchLen": 8
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "src/menu.rs:12: // the café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 19,
+              "matchLen": 8
+            },
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "user_message",
+              "at": 1000,
+              "seq": 1,
+              "snippet": "Fix the CAFÉ menu please",
+              "matchStart": 4,
+              "matchLen": 8
+            }
+          ],
+          "total": 3
+        }
+      },
+      {
+        "name": "a tool's output lands on its tool row",
+        "rootId": "r1",
+        "query": "menu::new",
+        "limit": 50,
+        "expect": {
+          "hits": [
+            {
+              "rootId": "r1",
+              "sessionId": "s1",
+              "deviceId": "d1",
+              "kind": "tool_output",
+              "at": 1003,
+              "seq": 3,
+              "snippet": "…he café list src/menu.rs:40: let cafe = Menu::new();",
+              "matchStart": 41,
+              "matchLen": 9
+            }
+          ],
+          "total": 1
+        }
+      },
+      {
+        "name": "a literal, never a pattern",
+        "rootId": "r1",
+        "query": "c.fe",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      },
+      {
+        "name": "an empty query searches nothing",
+        "rootId": "r1",
+        "query": "   ",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      },
+      {
+        "name": "another chat's text never leaks into find in chat",
+        "rootId": "r2",
+        "query": "menu",
+        "limit": 50,
+        "expect": {
+          "hits": [],
+          "total": 0
+        }
+      }
+    ],
+    "allCases": [
+      {
+        "name": "global: one row per chat, its newest hit and its count, newest chat first; a sealed body is not found",
+        "query": "café",
+        "limit": 50,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…nd on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both en…",
+                "matchStart": 41,
+                "matchLen": 4
+              }
+            },
+            {
+              "rootId": "r1",
+              "count": 6,
+              "hit": {
+                "rootId": "r1",
+                "sessionId": "s1",
+                "kind": "message",
+                "at": 1006,
+                "messageId": "m3",
+                "snippet": "PR #12 checks: café build green",
+                "matchStart": 15,
+                "matchLen": 4
+              }
+            }
+          ],
+          "total": 2
+        }
+      },
+      {
+        "name": "global: the limit cuts chats, total counts them",
+        "query": "cafe",
+        "limit": 1,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…nd on before the word we want, which is Café, and then it keeps going for a while after so the snippet is cut on both en…",
+                "matchStart": 41,
+                "matchLen": 4
+              }
+            }
+          ],
+          "total": 2
+        }
+      },
+      {
+        "name": "global: a snippet cut on both ends",
+        "query": "the word we want",
+        "limit": 50,
+        "expect": {
+          "chats": [
+            {
+              "rootId": "r2",
+              "count": 1,
+              "hit": {
+                "rootId": "r2",
+                "sessionId": "s3",
+                "deviceId": "d1",
+                "kind": "narration",
+                "at": 2000,
+                "seq": 1,
+                "snippet": "…ong preamble that goes on and on before the word we want, which is Café, and then it keeps going for a while after so th…",
+                "matchStart": 41,
+                "matchLen": 16
+              }
+            }
+          ],
+          "total": 1
+        }
+      }
+    ]
+  },
+  "retention": {
+    "events": [
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 1,
+        "storedAt": 1,
+        "event": {
+          "kind": "user_message",
+          "text": "old input",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 2,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool",
+          "name": "Bash",
+          "id": "t1",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 3,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool_update",
+          "id": "t1",
+          "output": "old output",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 4,
+        "storedAt": 1,
+        "event": {
+          "kind": "narration",
+          "text": "old prose",
+          "at": 0
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 5,
+        "storedAt": 2592000000,
+        "event": {
+          "kind": "tool",
+          "name": "Read",
+          "id": "t2"
+        }
+      },
+      {
+        "rootId": "r1",
+        "sessionId": "s1",
+        "deviceId": "d1",
+        "seq": 6,
+        "storedAt": 1,
+        "event": {
+          "kind": "tool_update",
+          "id": "t2",
+          "output": "fresh",
+          "at": 2592000001
+        }
+      }
+    ],
+    "cases": [
+      {
+        "name": "desktop keeps everything",
+        "now": 5184000000,
+        "windowDays": null,
+        "expect": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "name": "a phone keeps prose always and tool steps of the last 30 days (at, else storedAt; the cutoff itself is kept)",
+        "now": 5184000000,
+        "windowDays": 30,
+        "expect": [
+          1,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "name": "a larger storage setting keeps more",
+        "now": 5184000000,
+        "windowDays": 90,
+        "expect": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    ]
+  },
+  "catchUp": {
+    "$comment": "#EDE-108 S2 BACKGROUND CATCH-UP (desktop + CLI first; phones S3 and the web S4 speak the same frames). Transcripts travel DEVICE TO DEVICE over eNet only (never the server, never the sealed relay tunnel: a catch-up page arriving on a tunnel is ignored). WHAT: for every chat the account can read (every synced `sessions` row with a `deviceId` that is not this device: this device's own runs are fed by its journals, S1), a reader keeps per (sessionId, deviceId = the device the session is on now) a `completeTo` watermark (the seq through which it holds every event that exists; absent = none), in the store's own bookkeeping, so a walk RESUMES after a restart where it stopped. THE WIRE (steer-enet.json's envelope, unchanged): the ask is a `history_page` that names a device: `{t:\"history_page\", requestId, deviceId, afterSeq?, limit, have, minAt?}` (absent `afterSeq` = from the first seq; `have` = the RUNS of seqs the asker already holds above `afterSeq`, `haveRuns`, at most `haveRunsMax`, the lowest first; `minAt` = the asker's RETENTION cutoff, phones and web only). It needs no `join` and is answered to the asker only with ONE `history_chunk {requestId, deviceId, events, seqs, done, throughSeq, lastSeq, fullTo}`, or the same chunk empty with `error` (`unauthorized`, `no_such_session`): never the feed's `error` frame (it would end a viewer's feed of the same session). A `history_page` without `deviceId` is a viewer's page as before. A build that does not know the form ignores it (the asker's `askTimeoutMs` moves on). THE HOLDER (any device, under the SAME access rule as a join: the session's synced row on the holder, the asker's user from the session team's registry list, `viewer_allowed`; no row = `no_such_session`): the device the session is on answers off its JOURNAL (every event of the file, `read_journal_seq`, slots included: the store keeps the wire) with `fullTo` = its last seq (the journal is the whole record); any other device (or a runner without the file) answers off its CHAT STORE with `fullTo` = its own `completeTo` for that (session, device) (a store fed by live feeds and pages holds holes); a device holding neither answers an empty chunk. ANSWER (`answerCases`: `events` are {seq, kind, at}, `eventRange` [first, last] = narration at 0 for every seq between; `limit` clamped to [1, `pageMax`]): scanning its events above `afterSeq` in seq order, skipping every seq inside a `have` run and (with `minAt`) every non-prose event whose time (`at`, else `storedAt`) is before it, it takes the first `limit`; `throughSeq` = the last taken when the page is full, else the larger of `afterSeq` and its `lastSeq` (absent when both are); `done` = it holds nothing above `throughSeq`. A page over one envelope (steer-enet.json `chatMaxBytes`, less a margin) is cut from its end (`throughSeq` = the last kept, `done` false); an event too large alone is skipped (`throughSeq` = its seq). THE ASKER: PROGRESS (`progressCases`): `reach` = min(`throughSeq`, `fullTo`) (none when either is absent); when the asker was complete through the page's `afterSeq` (none counts as below every seq) and `reach` is above its `completeTo`, `completeTo` = `reach`; the next ask's `afterSeq` = `throughSeq` until `done`. Every event received is stored (DEDUP by (session, device, seq), `ingest`) with the asker's `rootId` and the ask's `deviceId`, whether or not it advanced the watermark. HOLDERS (`holderCases`): the installs of the session's device (the runner: `deviceId` equal) newest `lastSeenAt` first, then the asker's OWN other installs newest first (phones too); never itself, never a teammate's device (they serve, under the rule, but only the asker's own devices spend their bandwidth for it); an endpoint that timed out or refused is skipped for `endpointBackoffMs`. WALK (`walkCases`): per holder in order, pages from `completeTo` until `done`; the session is CAUGHT UP once a RUNNER's walk ends complete through its `lastSeq` (then no later holder is asked); readers only fill in, so a session served by readers alone is retried (`retryCases`: `passIntervalMs` × 2^attempts, at most `retryMaxMs`). A caught-up session is skipped until its synced row changes (`updatedAt`); a `busy` one is walked every pass. BOUNDS: at most `concurrency` sessions walk at once, newest chat first (the row's `updatedAt`); pages pass a TOKEN BUCKET (`bucketCases`: `bytesPerSecond`, capacity `burstBytes`, starting full; an answer's bytes are spent when it arrives, the next ask waits until the balance is back to zero: wait = ceil(debt × 1000 / rate) ms; refill = floor(elapsed × rate / 1000)); POWER (`gateCases`): on battery (when the platform tells) a pass runs only once the person has been idle `idleAfterMs` (desktop: no app window active), on mains or unknown always. A pass runs every `passIntervalMs` and at once when the account's sessions change.",
+    "constants": {
+      "pageMax": 200,
+      "haveRunsMax": 64,
+      "concurrency": 2,
+      "bytesPerSecond": 1048576,
+      "burstBytes": 4194304,
+      "askTimeoutMs": 15000,
+      "passIntervalMs": 300000,
+      "retryMaxMs": 21600000,
+      "endpointBackoffMs": 300000,
+      "idleAfterMs": 300000
+    },
+    "haveRunsCases": [
+      {
+        "name": "consecutive seqs collapse to runs",
+        "seqs": [
+          0,
+          1,
+          2,
+          4,
+          5,
+          9
+        ],
+        "afterSeq": null,
+        "max": 64,
+        "expect": [
+          [
+            0,
+            2
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            9,
+            9
+          ]
+        ]
+      },
+      {
+        "name": "only above the cursor",
+        "seqs": [
+          0,
+          1,
+          2,
+          4,
+          5,
+          9
+        ],
+        "afterSeq": 1,
+        "max": 64,
+        "expect": [
+          [
+            2,
+            2
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            9,
+            9
+          ]
+        ]
+      },
+      {
+        "name": "at most `max` runs, the lowest first",
+        "seqs": [
+          0,
+          2,
+          4,
+          6,
+          8
+        ],
+        "afterSeq": null,
+        "max": 3,
+        "expect": [
+          [
+            0,
+            0
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            4,
+            4
+          ]
+        ]
+      },
+      {
+        "name": "nothing held",
+        "seqs": [],
+        "afterSeq": null,
+        "max": 64,
+        "expect": []
+      }
+    ],
+    "answerCases": [
+      {
+        "name": "from the start: the oldest `limit` events, oldest first; more above",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 4,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 5,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 6,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 7,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 8,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 9,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 9,
+        "ask": {
+          "afterSeq": null,
+          "limit": 4,
+          "have": []
+        },
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "throughSeq": 3,
+          "done": false,
+          "lastSeq": 9,
+          "fullTo": 9
+        }
+      },
+      {
+        "name": "above the asker's cursor",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 4,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 5,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 6,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 7,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 8,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 9,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 9,
+        "ask": {
+          "afterSeq": 5,
+          "limit": 10,
+          "have": []
+        },
+        "expect": {
+          "seqs": [
+            6,
+            7,
+            8,
+            9
+          ],
+          "throughSeq": 9,
+          "done": true,
+          "lastSeq": 9,
+          "fullTo": 9
+        }
+      },
+      {
+        "name": "the runs the asker holds are skipped (sparse seqs stay sparse)",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 5,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 6,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 7,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 9,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 10,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 10,
+        "ask": {
+          "afterSeq": null,
+          "limit": 10,
+          "have": [
+            [
+              0,
+              2
+            ],
+            [
+              6,
+              7
+            ]
+          ]
+        },
+        "expect": {
+          "seqs": [
+            3,
+            5,
+            9,
+            10
+          ],
+          "throughSeq": 10,
+          "done": true,
+          "lastSeq": 10,
+          "fullTo": 10
+        }
+      },
+      {
+        "name": "everything held: an empty page that still covers through the holder's last seq",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 4,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 5,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 5,
+        "ask": {
+          "afterSeq": null,
+          "limit": 10,
+          "have": [
+            [
+              0,
+              5
+            ]
+          ]
+        },
+        "expect": {
+          "seqs": [],
+          "throughSeq": 5,
+          "done": true,
+          "lastSeq": 5,
+          "fullTo": 5
+        }
+      },
+      {
+        "name": "a full page ends at its last event, even when held runs follow",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 4,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 5,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 6,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 7,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 7,
+        "ask": {
+          "afterSeq": null,
+          "limit": 2,
+          "have": [
+            [
+              2,
+              7
+            ]
+          ]
+        },
+        "expect": {
+          "seqs": [
+            0,
+            1
+          ],
+          "throughSeq": 1,
+          "done": false,
+          "lastSeq": 7,
+          "fullTo": 7
+        }
+      },
+      {
+        "name": "a full page that reaches the holder's last seq is done",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 2,
+        "ask": {
+          "afterSeq": null,
+          "limit": 3,
+          "have": []
+        },
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2
+          ],
+          "throughSeq": 2,
+          "done": true,
+          "lastSeq": 2,
+          "fullTo": 2
+        }
+      },
+      {
+        "name": "a holder that holds nothing",
+        "events": [],
+        "fullTo": null,
+        "ask": {
+          "afterSeq": null,
+          "limit": 10,
+          "have": []
+        },
+        "expect": {
+          "seqs": [],
+          "throughSeq": null,
+          "done": true,
+          "lastSeq": null,
+          "fullTo": null
+        }
+      },
+      {
+        "name": "nothing above the cursor",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 3,
+        "ask": {
+          "afterSeq": 7,
+          "limit": 10,
+          "have": []
+        },
+        "expect": {
+          "seqs": [],
+          "throughSeq": 7,
+          "done": true,
+          "lastSeq": 3,
+          "fullTo": 3
+        }
+      },
+      {
+        "name": "the limit is clamped to pageMax",
+        "fullTo": 299,
+        "ask": {
+          "afterSeq": null,
+          "limit": 1000,
+          "have": []
+        },
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73,
+            74,
+            75,
+            76,
+            77,
+            78,
+            79,
+            80,
+            81,
+            82,
+            83,
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115,
+            116,
+            117,
+            118,
+            119,
+            120,
+            121,
+            122,
+            123,
+            124,
+            125,
+            126,
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            134,
+            135,
+            136,
+            137,
+            138,
+            139,
+            140,
+            141,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            154,
+            155,
+            156,
+            157,
+            158,
+            159,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            183,
+            184,
+            185,
+            186,
+            187,
+            188,
+            189,
+            190,
+            191,
+            192,
+            193,
+            194,
+            195,
+            196,
+            197,
+            198,
+            199
+          ],
+          "throughSeq": 199,
+          "done": false,
+          "lastSeq": 299,
+          "fullTo": 299
+        },
+        "eventRange": [
+          0,
+          299
+        ]
+      },
+      {
+        "name": "a store holder reports how far it is complete (fullTo below its last)",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 40,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 41,
+            "kind": "narration",
+            "at": 0
+          }
+        ],
+        "fullTo": 2,
+        "ask": {
+          "afterSeq": null,
+          "limit": 10,
+          "have": []
+        },
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            40,
+            41
+          ],
+          "throughSeq": 41,
+          "done": true,
+          "lastSeq": 41,
+          "fullTo": 2
+        }
+      },
+      {
+        "name": "minAt (RETENTION on the asker): older non-prose events are skipped, prose always comes",
+        "events": [
+          {
+            "seq": 0,
+            "kind": "user_message",
+            "at": 0
+          },
+          {
+            "seq": 1,
+            "kind": "tool",
+            "at": 0
+          },
+          {
+            "seq": 2,
+            "kind": "tool_update",
+            "at": 0
+          },
+          {
+            "seq": 3,
+            "kind": "narration",
+            "at": 0
+          },
+          {
+            "seq": 4,
+            "kind": "tool",
+            "at": 100
+          },
+          {
+            "seq": 5,
+            "kind": "usage",
+            "at": 50
+          }
+        ],
+        "fullTo": 5,
+        "ask": {
+          "afterSeq": null,
+          "limit": 10,
+          "have": [],
+          "minAt": 100
+        },
+        "expect": {
+          "seqs": [
+            0,
+            3,
+            4
+          ],
+          "throughSeq": 5,
+          "done": true,
+          "lastSeq": 5,
+          "fullTo": 5
+        }
+      }
+    ],
+    "progressCases": [
+      {
+        "name": "an authoritative page from nothing: complete through its end, walk on",
+        "completeTo": null,
+        "afterSeq": null,
+        "answer": {
+          "throughSeq": 3,
+          "done": false,
+          "fullTo": 9
+        },
+        "expect": {
+          "completeTo": 3,
+          "nextAfter": 3
+        }
+      },
+      {
+        "name": "the last page of an authoritative holder: complete, the walk ends",
+        "completeTo": 3,
+        "afterSeq": 3,
+        "answer": {
+          "throughSeq": 9,
+          "done": true,
+          "fullTo": 9
+        },
+        "expect": {
+          "completeTo": 9,
+          "nextAfter": null
+        }
+      },
+      {
+        "name": "a store holder complete only to its fullTo",
+        "completeTo": null,
+        "afterSeq": null,
+        "answer": {
+          "throughSeq": 41,
+          "done": true,
+          "fullTo": 2
+        },
+        "expect": {
+          "completeTo": 2,
+          "nextAfter": null
+        }
+      },
+      {
+        "name": "a holder complete below the asker: nothing gained, nothing lost",
+        "completeTo": 100,
+        "afterSeq": 100,
+        "answer": {
+          "throughSeq": 150,
+          "done": true,
+          "fullTo": 50
+        },
+        "expect": {
+          "completeTo": 100,
+          "nextAfter": null
+        }
+      },
+      {
+        "name": "a page past a gap the asker is not complete across never advances it",
+        "completeTo": 2,
+        "afterSeq": 41,
+        "answer": {
+          "throughSeq": 60,
+          "done": true,
+          "fullTo": 60
+        },
+        "expect": {
+          "completeTo": 2,
+          "nextAfter": null
+        }
+      },
+      {
+        "name": "an empty holder",
+        "completeTo": 5,
+        "afterSeq": 5,
+        "answer": {
+          "throughSeq": 5,
+          "done": true,
+          "fullTo": null
+        },
+        "expect": {
+          "completeTo": 5,
+          "nextAfter": null
+        }
+      }
+    ],
+    "walkCases": [
+      {
+        "name": "the runner online: everything, complete, caught up",
+        "asker": {
+          "seqs": [
+            0,
+            1,
+            2,
+            7
+          ],
+          "completeTo": null
+        },
+        "holders": [
+          {
+            "name": "runner",
+            "runner": true,
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "fullTo": 9
+          }
+        ],
+        "limit": 3,
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "completeTo": 9,
+          "asks": {
+            "runner": 2
+          },
+          "caughtUp": true
+        }
+      },
+      {
+        "name": "three devices, the runner offline: reader B serves what it holds; not caught up (retried)",
+        "asker": {
+          "seqs": [],
+          "completeTo": null
+        },
+        "holders": [
+          {
+            "name": "runner",
+            "runner": true,
+            "reachable": false,
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11
+            ],
+            "fullTo": 11
+          },
+          {
+            "name": "b",
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "fullTo": 9
+          }
+        ],
+        "limit": 4,
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "completeTo": 9,
+          "asks": {
+            "b": 3
+          },
+          "caughtUp": false
+        }
+      },
+      {
+        "name": "a partial reader then the runner: the runner fills only the rest",
+        "asker": {
+          "seqs": [],
+          "completeTo": null
+        },
+        "holders": [
+          {
+            "name": "b",
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              8,
+              9
+            ],
+            "fullTo": 3
+          },
+          {
+            "name": "runner",
+            "runner": true,
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "fullTo": 9
+          }
+        ],
+        "limit": 200,
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "completeTo": 9,
+          "asks": {
+            "b": 1,
+            "runner": 1
+          },
+          "caughtUp": true
+        }
+      },
+      {
+        "name": "resume after a restart: the walk starts at completeTo",
+        "asker": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "completeTo": 5
+        },
+        "holders": [
+          {
+            "name": "runner",
+            "runner": true,
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ],
+            "fullTo": 7
+          }
+        ],
+        "limit": 200,
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "completeTo": 7,
+          "asks": {
+            "runner": 1
+          },
+          "caughtUp": true
+        }
+      },
+      {
+        "name": "the runner holds nothing new: one ask",
+        "asker": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "completeTo": 4
+        },
+        "holders": [
+          {
+            "name": "runner",
+            "runner": true,
+            "seqs": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "fullTo": 4
+          }
+        ],
+        "limit": 200,
+        "expect": {
+          "seqs": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "completeTo": 4,
+          "asks": {
+            "runner": 1
+          },
+          "caughtUp": true
+        }
+      }
+    ],
+    "holderCases": [
+      {
+        "name": "the runner's installs first (newest seen first), then the asker's own other installs; never itself, never a teammate's device",
+        "installs": [
+          {
+            "endpointId": "e-self",
+            "userId": "u1",
+            "deviceId": "d-self",
+            "lastSeenAt": "2026-11-17T10:00:00.000Z"
+          },
+          {
+            "endpointId": "e-run-old",
+            "userId": "u2",
+            "deviceId": "d-run",
+            "lastSeenAt": "2026-11-16T10:00:00.000Z"
+          },
+          {
+            "endpointId": "e-run-new",
+            "userId": "u2",
+            "deviceId": "d-run",
+            "lastSeenAt": "2026-11-17T09:00:00.000Z"
+          },
+          {
+            "endpointId": "e-phone",
+            "userId": "u1",
+            "deviceId": null,
+            "lastSeenAt": "2026-11-17T08:00:00.000Z"
+          },
+          {
+            "endpointId": "e-laptop",
+            "userId": "u1",
+            "deviceId": "d-laptop",
+            "lastSeenAt": "2026-11-17T09:30:00.000Z"
+          },
+          {
+            "endpointId": "e-mate",
+            "userId": "u3",
+            "deviceId": "d-mate",
+            "lastSeenAt": "2026-11-17T09:59:00.000Z"
+          }
+        ],
+        "deviceId": "d-run",
+        "selfEndpoint": "e-self",
+        "userId": "u1",
+        "skip": [],
+        "expect": [
+          {
+            "endpointId": "e-run-new",
+            "runner": true
+          },
+          {
+            "endpointId": "e-run-old",
+            "runner": true
+          },
+          {
+            "endpointId": "e-laptop",
+            "runner": false
+          },
+          {
+            "endpointId": "e-phone",
+            "runner": false
+          }
+        ]
+      },
+      {
+        "name": "an endpoint in its backoff is not asked",
+        "installs": [
+          {
+            "endpointId": "e-self",
+            "userId": "u1",
+            "deviceId": "d-self",
+            "lastSeenAt": "2026-11-17T10:00:00.000Z"
+          },
+          {
+            "endpointId": "e-run-old",
+            "userId": "u2",
+            "deviceId": "d-run",
+            "lastSeenAt": "2026-11-16T10:00:00.000Z"
+          },
+          {
+            "endpointId": "e-run-new",
+            "userId": "u2",
+            "deviceId": "d-run",
+            "lastSeenAt": "2026-11-17T09:00:00.000Z"
+          },
+          {
+            "endpointId": "e-phone",
+            "userId": "u1",
+            "deviceId": null,
+            "lastSeenAt": "2026-11-17T08:00:00.000Z"
+          },
+          {
+            "endpointId": "e-laptop",
+            "userId": "u1",
+            "deviceId": "d-laptop",
+            "lastSeenAt": "2026-11-17T09:30:00.000Z"
+          },
+          {
+            "endpointId": "e-mate",
+            "userId": "u3",
+            "deviceId": "d-mate",
+            "lastSeenAt": "2026-11-17T09:59:00.000Z"
+          }
+        ],
+        "deviceId": "d-run",
+        "selfEndpoint": "e-self",
+        "userId": "u1",
+        "skip": [
+          "e-run-new"
+        ],
+        "expect": [
+          {
+            "endpointId": "e-run-old",
+            "runner": true
+          },
+          {
+            "endpointId": "e-laptop",
+            "runner": false
+          },
+          {
+            "endpointId": "e-phone",
+            "runner": false
+          }
+        ]
+      }
+    ],
+    "gateCases": [
+      {
+        "name": "on mains",
+        "power": "ac",
+        "idleMs": 0,
+        "run": true
+      },
+      {
+        "name": "power unknown = mains",
+        "power": "unknown",
+        "idleMs": 0,
+        "run": true
+      },
+      {
+        "name": "on battery while the person works",
+        "power": "battery",
+        "idleMs": 299999,
+        "run": false
+      },
+      {
+        "name": "on battery once idle",
+        "power": "battery",
+        "idleMs": 300000,
+        "run": true
+      }
+    ],
+    "retryCases": [
+      {
+        "attempts": 0,
+        "ms": 300000
+      },
+      {
+        "attempts": 1,
+        "ms": 600000
+      },
+      {
+        "attempts": 2,
+        "ms": 1200000
+      },
+      {
+        "attempts": 6,
+        "ms": 19200000
+      },
+      {
+        "attempts": 10,
+        "ms": 21600000
+      }
+    ],
+    "bucketCases": [
+      {
+        "name": "a full burst passes at once, then waits for its debt to refill",
+        "ops": [
+          {
+            "at": 0,
+            "spend": 4194304
+          },
+          {
+            "at": 0,
+            "wait": true
+          },
+          {
+            "at": 0,
+            "spend": 1048576
+          },
+          {
+            "at": 0,
+            "wait": true
+          }
+        ],
+        "waits": [
+          0,
+          1000
+        ]
+      },
+      {
+        "name": "the refill is capped at the burst",
+        "ops": [
+          {
+            "at": 0,
+            "spend": 4194304
+          },
+          {
+            "at": 60000,
+            "wait": true
+          },
+          {
+            "at": 60000,
+            "spend": 8388608
+          },
+          {
+            "at": 60000,
+            "wait": true
+          }
+        ],
+        "waits": [
+          0,
+          4000
+        ]
+      },
+      {
+        "name": "a partial refill shortens the wait",
+        "ops": [
+          {
+            "at": 0,
+            "spend": 5242880
+          },
+          {
+            "at": 500,
+            "wait": true
+          }
+        ],
+        "waits": [
+          500
+        ]
+      }
+    ]
+  },
+  "signOut": {
+    "cases": [
+      {
+        "name": "a deliberate sign-out on desktop deletes the account's store and its WAL/SHM, nothing else",
+        "reason": "sign_out",
+        "account": "u1",
+        "files": [
+          "accounts/u1/chat-store.sqlite",
+          "accounts/u1/chat-store.sqlite-wal",
+          "accounts/u1/chat-store.sqlite-shm",
+          "accounts/u1/sync.sqlite",
+          "accounts/u1/token",
+          "accounts/u10/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite-wal",
+          "journal/s1.jsonl"
+        ],
+        "expect": {
+          "delete": [
+            "accounts/u1/chat-store.sqlite",
+            "accounts/u1/chat-store.sqlite-wal",
+            "accounts/u1/chat-store.sqlite-shm"
+          ]
+        }
+      },
+      {
+        "name": "a session expiry or a lost token stops the store and keeps every file",
+        "reason": "expired",
+        "account": "u1",
+        "files": [
+          "accounts/u1/chat-store.sqlite",
+          "accounts/u1/chat-store.sqlite-wal",
+          "accounts/u1/chat-store.sqlite-shm",
+          "accounts/u1/sync.sqlite",
+          "accounts/u1/token",
+          "accounts/u10/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite-wal",
+          "journal/s1.jsonl"
+        ],
+        "expect": {
+          "delete": []
+        }
+      },
+      {
+        "name": "an account switch stops the store and keeps every file",
+        "reason": "switch",
+        "account": "u1",
+        "files": [
+          "accounts/u1/chat-store.sqlite",
+          "accounts/u1/chat-store.sqlite-wal",
+          "accounts/u1/chat-store.sqlite-shm",
+          "accounts/u1/sync.sqlite",
+          "accounts/u1/token",
+          "accounts/u10/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite-wal",
+          "journal/s1.jsonl"
+        ],
+        "expect": {
+          "delete": []
+        }
+      },
+      {
+        "name": "a deliberate sign-out on the web deletes every file under the account's OPFS dir, never another account's",
+        "reason": "sign_out",
+        "account": "u1",
+        "files": [
+          "chat-store/u1/r1.log",
+          "chat-store/u1/r2.log",
+          "chat-store/u10/r1.log",
+          "chat-store/u2/r1.log"
+        ],
+        "expect": {
+          "delete": [
+            "chat-store/u1/r1.log",
+            "chat-store/u1/r2.log"
+          ]
+        }
+      },
+      {
+        "name": "another account's sign-out never touches this one",
+        "reason": "sign_out",
+        "account": "u2",
+        "files": [
+          "accounts/u1/chat-store.sqlite",
+          "accounts/u1/chat-store.sqlite-wal",
+          "accounts/u1/chat-store.sqlite-shm",
+          "accounts/u1/sync.sqlite",
+          "accounts/u1/token",
+          "accounts/u10/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite-wal",
+          "journal/s1.jsonl",
+          "chat-store/u1/r1.log",
+          "chat-store/u1/r2.log",
+          "chat-store/u10/r1.log",
+          "chat-store/u2/r1.log"
+        ],
+        "expect": {
+          "delete": [
+            "accounts/u2/chat-store.sqlite",
+            "accounts/u2/chat-store.sqlite-wal",
+            "chat-store/u2/r1.log"
+          ]
+        }
+      },
+      {
+        "name": "only the store's own names: a rollback journal goes, a lookalike or a nested file stays",
+        "reason": "sign_out",
+        "account": "u1",
+        "files": [
+          "accounts/u1/chat-store.sqlite-journal",
+          "accounts/u1/chat-store.sqlite.bak",
+          "accounts/u1/old/chat-store.sqlite",
+          "chat-store/u1/sub/r1.log",
+          "chat-store/u1.log"
+        ],
+        "expect": {
+          "delete": [
+            "accounts/u1/chat-store.sqlite-journal"
+          ]
+        }
+      },
+      {
+        "name": "an account id that is not one safe path segment deletes nothing",
+        "reason": "sign_out",
+        "account": "../u2",
+        "files": [
+          "accounts/u1/chat-store.sqlite",
+          "accounts/u1/chat-store.sqlite-wal",
+          "accounts/u1/chat-store.sqlite-shm",
+          "accounts/u1/sync.sqlite",
+          "accounts/u1/token",
+          "accounts/u10/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite",
+          "accounts/u2/chat-store.sqlite-wal",
+          "journal/s1.jsonl",
+          "chat-store/u1/r1.log",
+          "chat-store/u1/r2.log",
+          "chat-store/u10/r1.log",
+          "chat-store/u2/r1.log"
+        ],
+        "expect": {
+          "delete": []
+        }
+      },
+      {
+        "name": "a real desktop account (`<host>--<userId>`, dots in the host) deletes its store on sign-out, never the same user on another instance",
+        "reason": "sign_out",
+        "account": "app.exponential.at--8Jk3xQ2Lm9",
+        "files": [
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/sync.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/token",
+          "accounts/app.exponential.at--8Jk3xQ2Lm90/chat-store.sqlite",
+          "accounts/next.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/localhost-3000--u1/chat-store.sqlite"
+        ],
+        "expect": {
+          "delete": [
+            "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+            "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+            "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm"
+          ]
+        }
+      },
+      {
+        "name": "a local stack account with a port (`localhost-3000--u1`) deletes its store",
+        "reason": "sign_out",
+        "account": "localhost-3000--u1",
+        "files": [
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/sync.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/token",
+          "accounts/app.exponential.at--8Jk3xQ2Lm90/chat-store.sqlite",
+          "accounts/next.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/localhost-3000--u1/chat-store.sqlite"
+        ],
+        "expect": {
+          "delete": [
+            "accounts/localhost-3000--u1/chat-store.sqlite"
+          ]
+        }
+      },
+      {
+        "name": "`..` is not an account: deletes nothing",
+        "reason": "sign_out",
+        "account": "..",
+        "files": [
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/sync.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/token",
+          "accounts/app.exponential.at--8Jk3xQ2Lm90/chat-store.sqlite",
+          "accounts/next.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/localhost-3000--u1/chat-store.sqlite",
+          "accounts/../chat-store.sqlite"
+        ],
+        "expect": {
+          "delete": []
+        }
+      },
+      {
+        "name": "`.` is not an account: deletes nothing",
+        "reason": "sign_out",
+        "account": ".",
+        "files": [
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/sync.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/token",
+          "accounts/app.exponential.at--8Jk3xQ2Lm90/chat-store.sqlite",
+          "accounts/next.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/localhost-3000--u1/chat-store.sqlite",
+          "accounts/./chat-store.sqlite"
+        ],
+        "expect": {
+          "delete": []
+        }
+      },
+      {
+        "name": "an account with a separator deletes nothing",
+        "reason": "sign_out",
+        "account": "app.exponential.at/x",
+        "files": [
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-wal",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite-shm",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/sync.sqlite",
+          "accounts/app.exponential.at--8Jk3xQ2Lm9/token",
+          "accounts/app.exponential.at--8Jk3xQ2Lm90/chat-store.sqlite",
+          "accounts/next.exponential.at--8Jk3xQ2Lm9/chat-store.sqlite",
+          "accounts/localhost-3000--u1/chat-store.sqlite"
+        ],
+        "expect": {
+          "delete": []
+        }
+      }
+    ]
+  }
+}

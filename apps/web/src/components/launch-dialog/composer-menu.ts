@@ -57,6 +57,25 @@ export const COMPOSER_MENU_TEST_IDS = fixture.testIds
 export const COMPOSER_PLUS_LABEL = fixture.plusLabel
 /** The capability a device advertises once it reads the per-run flag. */
 export const COMPUTER_USE_RUN_CAP = fixture.computerUse.cap
+
+/** #EXP-1899 (`conditions.computerUse`, replayed off `computerUse.offered`):
+ *  the toggle shows only where the device takes the pick AND computer use
+ *  runs there: its doctor's computer_use row is `ok`/`action` (switch on, it
+ *  can drive), else, with no doctor, its launch_defaults.computerUse. */
+export function computerUseOffered(
+  device:
+    | {
+        caps?: readonly string[] | null
+        doctor?: { items: readonly { key: string; state: string }[] } | null
+        launchDefaults?: { computerUse?: boolean | null } | null
+      }
+    | undefined
+): boolean {
+  if (!device?.caps?.includes(COMPUTER_USE_RUN_CAP)) return false
+  const row = device.doctor?.items.find((item) => item.key === `computer_use`)
+  if (device.doctor) return row?.state === `ok` || row?.state === `action`
+  return device.launchDefaults?.computerUse === true
+}
 /** SLOP-28: the Implement issue submenu = the search list at
  *  ONE row height, at most this many rows visible before it scrolls. */
 export const COMPOSER_SUBMENU_ROW_HEIGHT = fixture.submenuRowHeight

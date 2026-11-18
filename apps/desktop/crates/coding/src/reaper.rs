@@ -262,6 +262,19 @@ pub fn select_recorded(
     procs: &[Proc],
     self_pid: i32,
 ) -> Vec<(String, i32)> {
+    select_recorded_with(records, procs, self_pid, &|_, _| false)
+}
+
+/// [`select_recorded`] with the host's word on a child's cgroup:
+/// `in_session_scope(session id, pid)` = the process sits in a scope of that
+/// session ([`in_session_scope`]). #EXP-1910: such a child is ours whatever
+/// its parent (a recycled pid cannot be in the session's scope).
+pub fn select_recorded_with(
+    records: &[crate::run_registry::RunRecord],
+    procs: &[Proc],
+    self_pid: i32,
+    in_session_scope: &dyn Fn(&str, i32) -> bool,
+) -> Vec<(String, i32)> {
     records
         .iter()
         .filter_map(|record| {
@@ -275,8 +288,9 @@ pub fn select_recorded(
                 return None;
             }
             let proc = procs.iter().find(|proc| proc.pid == child)?;
-            (orphaned_or_ours(proc, self_pid) && looks_like_agent(&proc.command, record))
-                .then(|| (record.session_id.clone(), child))
+            let unparented =
+                orphaned_or_ours(proc, procs, self_pid) || in_session_scope(&record.session_id, child);
+            (unparented && looks_like_agent(&proc.command, record)).then(|| (record.session_id.clone(), child))
         })
         .collect()
 }
@@ -286,8 +300,37 @@ pub fn select_recorded(
 /// process is somebody's — a shell's `claude`, a sibling's agent — and never
 /// an orphan our dead host left behind. An ACP child of a host that is gone
 /// is always `ppid == 1` (the kernel reparents it) or ours.
-fn orphaned_or_ours(proc: &Proc, self_pid: i32) -> bool {
-    proc.ppid <= 1 || proc.ppid == self_pid
+///
+/// #EXP-1910: or, under a systemd user manager, a child of `systemd --user`:
+/// it is a child subreaper, so the kernel hands it every orphan of the
+/// user's services (the Linux daemon is one) instead of pid 1. Like init it
+/// is never a shell or a terminal.
+fn orphaned_or_ours(proc: &Proc, procs: &[Proc], self_pid: i32) -> bool {
+    proc.ppid <= 1
+        || proc.ppid == self_pid
+        || procs.iter().any(|parent| parent.pid == proc.ppid && is_user_manager(&parent.command))
+}
+
+/// `systemd --user` (`/usr/lib/systemd/systemd --user`, `/lib/systemd/...`).
+fn is_user_manager(command: &str) -> bool {
+    let mut words = command.split_whitespace();
+    words.next().is_some_and(|program| basename(program) == "systemd") && words.any(|arg| arg == "--user")
+}
+
+/// #EXP-1910: does `pid`'s cgroup name a scope of `session_id`
+/// (`run-exp-<session>-<n>.scope`, `eagent::run_scope`)? Linux only: no
+/// `/proc` = no.
+fn in_session_scope(session_id: &str, pid: i32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
+        .is_ok_and(|cgroup| cgroup_names_session(&cgroup, session_id))
+}
+
+/// The pure half of [`in_session_scope`] over a `/proc/<pid>/cgroup` text.
+fn cgroup_names_session(cgroup: &str, session_id: &str) -> bool {
+    cgroup
+        .lines()
+        .flat_map(|line| line.split('/'))
+        .any(|unit| eagent::run_scope::scope_session(unit) == Some(session_id))
 }
 
 /// Does `command` still belong to the agent this run recorded? The pid may
@@ -344,7 +387,7 @@ pub fn reap_recorded(data_dir: &Path) -> usize {
         return 0;
     };
     let self_pid = std::process::id() as i32;
-    let targets = select_recorded(&records, &procs, self_pid);
+    let targets = select_recorded_with(&records, &procs, self_pid, &in_session_scope);
     let mut killed = 0;
     for (session_id, pid) in &targets {
         log::info!("reaping the orphaned ACP child of session {session_id} (pid {pid})");
@@ -702,4 +745,45 @@ mod tests {
         assert_eq!(got[0].command, "/usr/bin/claude daemon run --origin transient");
         assert_eq!(got[1].pid, 1);
     }
+    /// #EXP-1910: under a systemd user manager an orphan's parent is
+    /// `systemd --user` (a child subreaper), never pid 1: the dead daemon's
+    /// agent must still be found. A `claude` under a live shell stays a
+    /// stranger.
+    #[test]
+    fn an_orphan_under_the_systemd_user_manager_is_reaped() {
+        let procs = vec![
+            Proc { pid: 1, ppid: 0, command: "/sbin/init splash".into() },
+            Proc { pid: 2566, ppid: 1, command: "/usr/lib/systemd/systemd --user".into() },
+            Proc { pid: 4001, ppid: 2566, command: "/home/u/.local/bin/claude -p --verbose".into() },
+            Proc { pid: 5000, ppid: 2566, command: "/bin/bash".into() },
+            Proc { pid: 5001, ppid: 5000, command: "claude".into() },
+        ];
+        let records = vec![
+            acp_record("s-orphan", CodingAgent::Claude, 4001, 777),
+            acp_record("s-shell", CodingAgent::Claude, 5001, 778),
+        ];
+        assert_eq!(select_recorded(&records, &procs, 9999), vec![("s-orphan".to_string(), 4001)]);
+    }
+
+    /// #EXP-1910: a recorded child in a scope of ITS session is ours
+    /// whatever its parent; any other scope, slice or session is not.
+    #[test]
+    fn a_child_in_its_sessions_scope_is_ours_whatever_its_parent() {
+        let session = "00000000-0000-4000-8000-00000000e910";
+        let cgroup = format!("0::/user.slice/user-1000.slice/user@1000.service/expbg.slice/run-exp-{session}-41x0.scope\n");
+        assert!(cgroup_names_session(&cgroup, session));
+        assert!(!cgroup_names_session(&cgroup, "00000000-0000-4000-8000-00000000e911"));
+        assert!(!cgroup_names_session("0::/user.slice/user-1000.slice/session-2.scope\n", session));
+        let procs = vec![
+            Proc { pid: 3000, ppid: 1, command: "/usr/bin/some-supervisor".into() },
+            Proc { pid: 4001, ppid: 3000, command: "claude -p".into() },
+        ];
+        let records = vec![acp_record(session, CodingAgent::Claude, 4001, 777)];
+        assert!(select_recorded(&records, &procs, 9999).is_empty(), "a live parent, no scope: somebody's");
+        assert_eq!(
+            select_recorded_with(&records, &procs, 9999, &|id, pid| id == session && pid == 4001),
+            vec![(session.to_string(), 4001)]
+        );
+    }
+
 }

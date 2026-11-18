@@ -147,6 +147,8 @@ fun ChatRow(
     modifier: Modifier = Modifier,
     divider: Boolean = true,
     selected: Boolean? = null,
+    /** #EDE-98: the root's marks ([Chats.chatMarks]) right after the title. */
+    marks: List<String> = emptyList(),
 ) {
     val unread = row.unreadCount > 0
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -177,15 +179,19 @@ fun ChatRow(
         Column(modifier = Modifier.weight(1f)) {
             Column(modifier = Modifier.padding(end = ChatRowEdge, top = 14.dp, bottom = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        row.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (unread || row.needsYou) FontWeight.SemiBold else FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).testTag(if (unread) "chat-row-unread" else "chat-row-title"),
-                    )
+                    // #EDE-98: the marks hug the title; the time stays at the end.
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            row.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (unread || row.needsYou) FontWeight.SemiBold else FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false).testTag(if (unread) "chat-row-unread" else "chat-row-title"),
+                        )
+                        com.exponential.app.ui.chat.ChatMarks(marks)
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(
                         row.time,
@@ -198,8 +204,9 @@ fun ChatRow(
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ChatPreviewText(row.preview, Modifier.weight(1f))
-                    // #NEW-49: `waiting` names what the root waits on.
-                    SessionTree.chatRowWordText(row.word, row.waiting)?.let { text ->
+                    // #NEW-49: `waiting` names what the root waits on;
+                    // #FEED-263: `wall` names the wall ('MacBook offline').
+                    SessionTree.chatRowWordText(row.word, row.waiting, row.wallKind, row.wallDevice)?.let { text ->
                         Spacer(Modifier.width(8.dp))
                         ChatRowWord(row.word!!, text, Modifier.weight(1f, fill = false))
                     }

@@ -18,6 +18,10 @@ import {
   steerOfflineRedial,
   steerNoFeedState,
   steerNoFeedInputs,
+  steerSyncedTail,
+  steerOfflineLine,
+  type SteerTailFeedRow,
+  type SteerSyncedMessage,
   steerRowWakes,
   type SteerWakeRow,
   type SteerNoFeedInputRow,
@@ -25,6 +29,8 @@ import {
   type SteerRedialPhase,
   type SteerRedialTrigger,
   steerViewerAllowed,
+  steerSearch,
+  type SteerSearchEvent,
 } from "./steer-enet"
 
 describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
@@ -67,6 +73,23 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
   for (const c of fixture.noFeedInputCases) {
     test(`noFeedInputs: ${c.name}`, () => {
       expect(steerNoFeedInputs(c.messages as SteerNoFeedInputRow[], c.max).map((m) => m.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.syncedTailCases) {
+    test(`syncedTail: ${c.name}`, () => {
+      const picked = steerSyncedTail({
+        live: c.live,
+        feed: c.feed as SteerTailFeedRow[],
+        messages: c.messages as SteerSyncedMessage[],
+        max: c.max,
+        unreachable: (c as { unreachable?: boolean }).unreachable,
+      })
+      expect(picked.map((m) => m.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.offlineLineCases) {
+    test(`offlineLine: ${c.name}`, () => {
+      expect(steerOfflineLine(c)).toBe(c.line)
     })
   }
   for (const c of fixture.rowWakeCases) {
@@ -114,6 +137,14 @@ describe(`sealed relay fallback + connection analytics (fixtures/steer-enet.json
         p95FirstFrameMs,
         fallbackRate,
       })
+    })
+  }
+  for (const c of fixture.search.cases) {
+    test(`search: ${c.name}`, () => {
+      const beforeSeq = `beforeSeq` in c ? (c.beforeSeq as number) : undefined
+      const scanMaxBytes = `scanMaxBytes` in c ? (c.scanMaxBytes as number) : undefined
+      const events = c.events as { seq: number; event: SteerSearchEvent }[]
+      expect(steerSearch({ events, query: c.query, beforeSeq, limit: c.limit, scanMaxBytes })).toEqual(c.expect as never)
     })
   }
 })

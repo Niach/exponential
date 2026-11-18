@@ -505,8 +505,50 @@ pub struct SessionScreenStatusInput {
     /// #FEED-257: its `blocked.kind` (a wall or a watchdog flag; None = none).
     #[serde(default)]
     pub blocked: Option<String>,
+    /// #FEED-263: its `blocked.resumeSince` is set (its device came back).
+    #[serde(default)]
+    pub resumed: bool,
+    /// #FEED-263: its device's name (a wall's `{device}`; None = none).
+    #[serde(default)]
+    pub device: Option<String>,
     /// The tree's root.
     pub root: bool,
+}
+
+/// #FEED-263 (TS `sessionWall` over a status input): the wall it sits
+/// behind (chat-list.json `copy.walls`), None otherwise.
+fn input_wall(session: &SessionScreenStatusInput) -> Option<&str> {
+    if session.status == "ended" || !session.needs_input {
+        return None;
+    }
+    let kind = session.blocked.as_deref().filter(|kind| !kind.is_empty())?;
+    if !crate::session_tree::CHATS_LIST.copy.walls.contains_key(kind) {
+        return None;
+    }
+    if kind == "device_offline" && session.resumed {
+        return None;
+    }
+    Some(kind)
+}
+
+/// #FEED-263 (`sessionScreenWall`, `wallStatusCases`): the first walled
+/// session (a child first, then the root) and its words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionScreenWall {
+    pub id: String,
+    pub kind: String,
+    pub text: String,
+}
+
+pub fn session_screen_wall(sessions: &[SessionScreenStatusInput]) -> Option<SessionScreenWall> {
+    let walled: Vec<&SessionScreenStatusInput> = sessions.iter().filter(|session| input_wall(session).is_some()).collect();
+    let session = walled.iter().find(|session| !session.root).or_else(|| walled.iter().find(|session| session.root))?;
+    let kind = input_wall(session)?;
+    Some(SessionScreenWall {
+        id: session.id.clone(),
+        kind: kind.to_string(),
+        text: crate::session_tree::chat_wall_text(kind, session.device.as_deref()).unwrap_or_else(|| kind.to_string()),
+    })
 }
 
 /// #FEED-257: one waiting card of the chat (`chatPendingAsks`, Conversation order).
@@ -559,7 +601,10 @@ pub fn session_screen_waiting(
     }
     let flagged: Vec<&SessionScreenStatusInput> = sessions
         .iter()
-        .filter(|session| session.status != "ended" && session.needs_input && session.blocked.is_some())
+        // #FEED-263: a wall never waits (no answer in the chat lifts it).
+        .filter(|session| {
+            session.status != "ended" && session.needs_input && session.blocked.is_some() && input_wall(session).is_none()
+        })
         .collect();
     if let Some(child) = flagged.iter().find(|session| !session.root) {
         return Some(SessionScreenWaiting { open: SessionScreenWaitingOpen::Session, id: child.id.clone() });
@@ -572,7 +617,8 @@ pub fn session_screen_waiting(
 
 /// THE tree's status word (`sessionScreenStatus`, `statusCases`): needs
 /// input (#FEED-257: only while something waits, [`session_screen_waiting`])
-/// > working > queued (the root) > done (the root ended) > idle.
+/// > working > the wall's words (#FEED-263 [`session_screen_wall`]) >
+/// queued (the root) > done (the root ended) > idle.
 pub fn session_screen_status(sessions: &[SessionScreenStatusInput], asks: &[SessionScreenAsk]) -> String {
     session_screen_status_waiting(sessions, asks, None)
 }
@@ -593,6 +639,9 @@ pub fn session_screen_status_waiting(
     }
     if live.iter().any(|session| session.busy) {
         return words.working.clone();
+    }
+    if let Some(wall) = session_screen_wall(sessions) {
+        return wall.text;
     }
     match root.map(|root| root.status.as_str()) {
         Some("queued") => words.queued.clone(),
@@ -735,6 +784,17 @@ mod tests {
             let sessions: Vec<SessionScreenStatusInput> = serde_json::from_value(case["sessions"].clone()).unwrap();
             let asks: Vec<SessionScreenAsk> = serde_json::from_value(case["asks"].clone()).unwrap();
             let actual = session_screen_waiting(&sessions, &asks);
+            assert_eq!(serde_json::to_value(&actual).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn wall_status_cases_match_the_fixture() {
+        let cases = fixture()["wallStatusCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let sessions: Vec<SessionScreenStatusInput> = serde_json::from_value(case["sessions"].clone()).unwrap();
+            let actual = session_screen_wall(&sessions);
             assert_eq!(serde_json::to_value(&actual).unwrap(), case["expected"], "{}", case["name"]);
         }
     }

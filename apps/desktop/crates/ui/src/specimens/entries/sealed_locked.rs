@@ -94,7 +94,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .rounded_xl()
                 .bg(cx.theme().background)
                 .child(label("Chats list", cx))
-                .child(v_flex().w_full().children(list_rows().iter().map(|row| chat_row(row, chat_lead_disc(row.lead, None, false, cx), cx).into_any_element()))),
+                .child(v_flex().w_full().children(list_rows().iter().map(|row| chat_row(row, chat_lead_disc(row.lead, None, false, cx), &[], cx).into_any_element()))),
         )
 }
 

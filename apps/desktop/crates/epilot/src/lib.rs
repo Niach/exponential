@@ -148,7 +148,7 @@ pub fn screen_layout() -> Option<ScreenLayout> {
 
 struct Live {
     server: emcp::Server,
-    host: Arc<host::Host>,
+    host: Arc<host::Hosts>,
 }
 
 /// The process-wide endpoint, started on the first grant. An `Err` (no free
@@ -157,7 +157,7 @@ static LIVE: OnceLock<Result<Live, String>> = OnceLock::new();
 
 fn live() -> Result<&'static Live, String> {
     LIVE.get_or_init(|| {
-        let host = host::Host::new();
+        let host = Arc::new(host::Hosts::default());
         let server = server::serve(host.clone())?;
         log::info!("[computer] serving computer use on {}", server.url());
         if let Some(presence) = PRESENCE.get() {
@@ -202,7 +202,32 @@ pub struct ScreenState {
 /// the picked [`Display::id`]; `None` = Auto). The hub resolves it to the
 /// display carrying that id on every call (#FEED-161).
 pub fn set_work_display(id: Option<String>) {
-    work_screen::set_picked(id);
+    work_screen::set_picked(backend::Target::Person, id);
+}
+
+/// The Work screen setting as the hub reads it now ([`set_work_display`]).
+pub fn work_display() -> Option<String> {
+    work_screen::picked(backend::Target::Person)
+}
+
+/// #EXP-1919 SAME MONITOR (`work-screen.json` `pickCases`): the display a
+/// stored Work screen pick names now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PickedDisplay {
+    /// The id it carries now: the pick to store.
+    pub id: String,
+    /// Its `base@connector` form, to hand back as `seen` next time; `None`
+    /// = no connector tells it from a twin.
+    pub seen: Option<String>,
+}
+
+/// #EXP-1919 SAME MONITOR: the connected display the stored pick names,
+/// `seen` = the [`PickedDisplay::seen`] kept from the last call for this
+/// pick. A display's id changes form when its twin connects or goes; this
+/// follows the monitor (its connector), never the order. `None` = not
+/// connected (or no display to read).
+pub fn picked_display(stored: &str, seen: Option<&str>) -> Option<PickedDisplay> {
+    work_screen::pick_now(stored, seen)
 }
 
 /// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): the id
@@ -220,9 +245,9 @@ pub fn displays() -> Vec<Display> {
 }
 
 /// NEW-59: `display`'s size in physical pixels (the doctor's `displays`
-/// and the Work screen labels): macOS reports [`Display`] in points, so a
-/// Retina panel reads its native pixels here; elsewhere the rect already is
-/// pixels.
+/// and the Work screen labels): macOS reports [`Display`] in points and eDE
+/// in logical units, so a Retina panel or a scaled output reads its native
+/// pixels here; elsewhere the rect already is pixels.
 pub fn pixel_size(display: &Display) -> (u32, u32) {
     backend::pixel_size(display.x, display.y, display.width, display.height)
 }
@@ -268,14 +293,10 @@ pub struct ScreenView {
 
 /// NEW-58: the screen as screen memory reads it now; `None` without a
 /// display or a window list (Wayland, a refused list). One window-list read
-/// (a few ms, the display set cached): polled every `capture.focusPollMs`.
+/// (a few ms; [`visible::screen_look`]'s, the ONE display cache, dropped
+/// when the monitor set changes).
 pub fn screen_view() -> Option<ScreenView> {
-    work_screen::screen_view()
-}
-
-/// NEW-58: the focused window now ([`screen_view`]'s).
-pub fn focused_window() -> Option<FocusedWindow> {
-    screen_view()?.focused
+    visible::screen_look().map(|look| look.view)
 }
 
 /// NEW-59: the displays, their fullscreen windows and the work displays now;
@@ -288,7 +309,14 @@ pub fn screen_state() -> Option<ScreenState> {
 /// NEW-59: the display the computer-use banner floats on: the engaged run's
 /// current display (the work screen), else `None` (the primary).
 pub fn banner_display() -> Option<Display> {
-    work_screen::banner_display()
+    work_screen::banner_display(backend::Target::Person)
+}
+
+/// #EXP-1916: that display's 0-based index, or `None`; a plain read (no OS
+/// call), so the banner's owner can watch it for the run moving to another
+/// display while the hold lasts.
+pub fn banner_index() -> Option<usize> {
+    work_screen::banner_index(backend::Target::Person)
 }
 
 /// Admit the run `session_id`; a grant it held before stops working.
@@ -300,10 +328,12 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     }
     let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
+    live.host.admit(id.as_str(), backend::Target::Person);
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
-/// The run ended: its token is dead, its abort state gone, the lock
+/// The run ended: its token is dead, its call in flight stopped (this waits
+/// for it to return, [`host::Host::end`]), its abort state gone, the lock
 /// released when it was the last user.
 pub fn revoke(session_id: &str) {
     // An id that breaks the id rule was never granted.
@@ -386,7 +416,7 @@ pub fn readiness() -> Readiness {
 pub fn prepare() -> Readiness {
     let readiness = readiness_of(&backend::request_permissions());
     if readiness == Readiness::Ready {
-        match backend::open() {
+        match backend::open(backend::Target::Person, None) {
             Ok(backend) => match backend.displays() {
                 Ok(displays) => log::info!("[computer] computer use is ready on {} ({} display(s))", backend::name(), displays.len()),
                 Err(reason) => log::warn!("[computer] the screen does not answer: {reason}"),
@@ -415,13 +445,26 @@ pub fn prepare_in_background() {
     });
 }
 
-/// The switch turned off: every run's grant ends and the person's input is
-/// theirs again. Grants after this work again.
+/// #EXP-1920: the host process is about to exit (the IDE quits or restarts
+/// for an update, the daemon stops). On X11 a selection lives in its
+/// owner's process: a clipboard `paste_text` or `copy_selection` put back
+/// for the person would go with us, so it is handed to the desktop's
+/// clipboard manager first (the ICCCM `SAVE_TARGETS` request every toolkit
+/// sends on exit); waits for the manager, about a second at most. Without
+/// a clipboard manager nothing can keep it: it goes with the process, as
+/// any app's does. A no-op elsewhere and when nothing was restored.
+pub fn before_exit() {
+    backend::before_exit();
+}
+
+/// The switch turned off: every run's grant ends, a call in flight stops
+/// and the person's input is theirs again. Grants after this work again.
 pub fn shutdown() {
     if let Some(Ok(live)) = LIVE.get() {
         live.server.revoke_all();
         live.host.shutdown();
     }
+    backend::revoke_grant();
 }
 
 /// Whether an agent drives the screen right now (the person's input is

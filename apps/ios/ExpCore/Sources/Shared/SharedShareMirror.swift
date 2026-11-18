@@ -13,20 +13,25 @@ public struct MirroredSealRoot: Codable, Sendable, Equatable {
     public let shared: Bool
     public let publicKey: String?
     public let epoch: UInt32?
+    /// #EDE-97: an outside MCP client's tree (in clear for life); absent in
+    /// an older mirror = sealed.
+    public let clearTree: Bool?
 
-    public init(id: String, teamId: String, deviceId: String, shared: Bool, publicKey: String?, epoch: UInt32?) {
+    public init(id: String, teamId: String, deviceId: String, shared: Bool, publicKey: String?, epoch: UInt32?, clearTree: Bool = false) {
         self.id = id
         self.teamId = teamId
         self.deviceId = deviceId
         self.shared = shared
         self.publicKey = publicKey
         self.epoch = epoch
+        self.clearTree = clearTree
     }
 
     var sealRoot: SealRoot {
         SealRoot(
             id: id, teamId: teamId, deviceId: deviceId, shared: shared,
-            key: publicKey.flatMap { key in epoch.map { TreeSealKey(publicKey: key, epoch: $0) } }
+            key: publicKey.flatMap { key in epoch.map { TreeSealKey(publicKey: key, epoch: $0) } },
+            clearTree: clearTree ?? false
         )
     }
 }

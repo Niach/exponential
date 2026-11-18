@@ -425,6 +425,45 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  // #EDE-96 (steer-enet.json SEARCH): the store asks the device and resolves
+  // the ask with ITS answer only; a newer ask supersedes the older one.
+  it(`a search goes to the device and resolves with its answer`, async () => {
+    const { store, sockets } = makeStore()
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = sockets[0]
+    socket.open()
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced`, firstSeq: 0, lastSeq: 0 })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.sent.length = 0
+    const first = store.search(`old`)
+    const second = store.search(`login`, 40)
+    expect(await first).toBeNull()
+    expect(socket.sent.map((raw) => JSON.parse(raw))).toEqual([
+      { t: `search`, requestId: `s1`, query: `old`, limit: 50 },
+      { t: `search`, requestId: `s2`, query: `login`, beforeSeq: 40, limit: 50 },
+    ])
+    socket.frame({ t: `search_result`, requestId: `s1`, hits: [], done: true, scannedToSeq: 0 })
+    socket.frame({
+      t: `search_result`,
+      requestId: `s2`,
+      hits: [
+        { seq: 12, kind: `narration`, snippet: `the Login form`, matchStart: 4, matchLen: 5 },
+        { seq: 9, kind: `from_the_future`, snippet: `login`, matchStart: 0, matchLen: 5 },
+      ],
+      done: false,
+      scannedToSeq: 9,
+    })
+    expect(await second).toEqual({
+      hits: [{ seq: 12, kind: `narration`, snippet: `the Login form`, matchStart: 4, matchLen: 5 }],
+      done: false,
+      scannedToSeq: 9,
+    })
+    store.dispose()
+    expect(await store.search(`x`)).toBeNull()
+  })
+
   // VAPP-43: an idle row (its run went away between turns): the device
   // serves the journal and keeps the viewer joined for the publisher's
   // takeover, which lands on the same feed as a fresh replay.

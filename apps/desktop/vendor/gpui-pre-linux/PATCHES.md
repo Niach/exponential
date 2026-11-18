@@ -39,13 +39,61 @@ Each is marked `Exponential patch (#ERR-4)` in the source.
   tests only.
 - **`src/linux.rs`:** declares `mod uri_list` (x11 or wayland builds).
 
+## Input shape on X11 (#EXP-1912)
+
+Each is marked `Exponential patch (#EXP-1912)` in the source.
+
+- **`src/linux/x11/input_shape.rs` (new):** `rectangles` (a logical region
+  as device-pixel rectangles) and `set` (the X Shape extension's Input shape
+  of a window: `None` = the whole window, an empty list = no input).
+- **`src/linux/x11/window.rs`:** `PlatformWindow::set_input_region` sets
+  that shape. Upstream implements it on Wayland only, so on X11 a window
+  could not be made click-through: the computer-use banner (override-redirect,
+  above everything) took the clicks meant for the app under it.
+- **`src/linux/x11.rs`:** declares `mod input_shape`.
+- **`Cargo.toml`:** x11rb's `shape` feature.
+
 Dropped plain text is NOT delivered to the app. gpui has no text-drop input
 event (`FileDropEvent` carries paths only), and delivering dropped text would
 need a new gpui API, which this patch does not add.
+
+## Popup grab before any press (#EDE-86)
+
+Marked `Exponential patch (#EDE-86)` in the source.
+
+- **`src/linux/wayland/client.rs`:** an `AnchoredPopup` opened with
+  `grab: true` sends `xdg_popup.grab` even when the client has seen no key
+  or pointer press yet, with serial 0. Before, it sent no grab then. eDE's
+  shell opens its start menu from a compositor hotkey (Super), and the
+  grab is how the popup asks eDE's compositor for the keyboard. Nothing
+  else opens a popup with `grab: true`.
+
+## A pointer leave moves the pointer out (#EDE-89)
+
+Marked `Exponential patch (#EDE-89)` in the source.
+
+- **`src/linux/wayland/client.rs`:** on `wl_pointer.leave` the window gets a
+  `MouseMove` to `POINTER_OUTSIDE` (far outside any window) before the
+  `MouseExited` (`pointer_left`). gpui's window keeps the last position it
+  saw and hit-tests every later frame there; `MouseExited` does not move it.
+  So a hover listener whose element repainted after the leave turned
+  hovered again: eDE's taskbar button kept its hover preview open after the
+  pointer left, and a dismissed preview opened again at once.
+- **`src/linux/wayland/window.rs`:** `PlatformWindow::mouse_position` is the
+  pointer's location only for the window the pointer is over
+  (`WaylandClientState::mouse_location_in`), `POINTER_OUTSIDE` for every
+  other one. Upstream returned the client's one location, which is in the
+  coordinates of whichever surface has the pointer (or (0, 0)). gpui reads it
+  on a window's first bounds: the taskbar's hover preview, a popup mapping
+  above the button, started with the pointer inside its card at the
+  button's coordinates, so its hover was on and held the preview open.
+- **Test:** `pointer_left_tests::a_leave_moves_the_pointer_out_of_the_window_first`
+  (`client.rs`), in the gate's vendored patch test step (`test.yml`).
 
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib uri_list` from
-`apps/desktop`.
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left`
+from `apps/desktop` (the input shape test starts a private Xvfb and is
+skipped without one).

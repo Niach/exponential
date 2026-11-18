@@ -76,6 +76,11 @@ object DeepLinkRoutes {
  * opaque URL-safe value (issue/session uuid, invite token), so both forms are
  * byte-equal; an argument that could carry / or % would have to be encoded
  * here first.
+ *
+ * #ERR-27: this is the IN-APP open (an inbox row, a tapped link): it pushes
+ * over the screen it came from. A notification tap or a push link takes
+ * [launchOnAgentRoot] instead, or chat after chat opened from the shade
+ * stacked one entry (and one live ChatViewModel) each.
  */
 fun NavHostController.navigateDeepLink(route: String) {
     val top = currentBackStackEntry
@@ -129,13 +134,13 @@ fun NavHostController.launchOnAgentRoot(route: String, marker: TabSwitchMarker?)
 )
 
 /** [launchOnAgentRoot] for an issue (its optional `comment` compared by argument). */
-fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?): Unit = launchOnAgentRoot(
+fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?, commentId: String? = null): Unit = launchOnAgentRoot(
     marker,
     isTarget = { top ->
         top.destination.route == ISSUE_ROUTE && top.arguments?.getString("issueId") == issueId &&
-            top.arguments?.getString("comment") == null
+            top.arguments?.getString("comment") == commentId
     },
-    push = { navigate(issueRoute(issueId)) },
+    push = { navigate(issueRoute(issueId, commentId)) },
 )
 
 /** The issue screen's route pattern — (EXP-1241) `comment` is an OPTIONAL

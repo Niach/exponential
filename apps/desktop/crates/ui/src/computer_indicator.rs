@@ -8,13 +8,19 @@
 //!
 //! The banner: while a session drives the screen the person's keyboard and
 //! pointer are held (`computer::set_presence_observer` says when); a small
-//! top-most window floating over the bottom of the primary display shows
+//! top-most window floating over the bottom of the run's current display
+//! (the work screen, EXP-1916: it follows the run to another one; the
+//! primary without one) shows
 //! the bar ([`banner_bar`], the bulk bar's capsule) for exactly that long.
 //! The window is exactly the bar's size (EXP-1372: a fixed 560 x 64 cut a
 //! long label off on both sides and showed a strip above the bar): the
 //! words are shaped before the window opens ([`banner_size`]).
 //! It takes no focus and no click: Esc is the way out, and the hold ends
-//! on the key itself.
+//! on the key itself. EXP-1912: on Wayland it is a layer-shell surface
+//! (overlay layer, no keyboard) with an empty input region, so the window
+//! the agent drives keeps the keyboard and gets the click under the bar;
+//! the same region is click-through on X11 and Windows, and macOS ignores
+//! the banner's mouse events (EXP-1923).
 
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -38,6 +44,9 @@ const TICK: Duration = Duration::from_millis(400);
 /// (the bulk bar's place over a list), and never wider than the display
 /// less that air on both sides.
 const BANNER_BOTTOM: f32 = 16.;
+
+/// EXP-1912: the banner's layer-shell namespace on Wayland.
+const BANNER_NAMESPACE: &str = "exponential-overlay:computer-use-banner";
 
 /// The bar's boxes (`etalk_gpui::bar`, THE bar's parts the voice overlay
 /// shares): the item's height, gaps, the key chip's sides and the glyph.
@@ -172,6 +181,15 @@ impl Render for Banner {
 /// Where the lock's thread leaves what it saw; the foreground loop drains it.
 static PRESENCE: OnceLock<Mutex<std::sync::mpsc::Receiver<Option<String>>>> = OnceLock::new();
 
+/// #EXP-1938: computer use holds the person's keyboard and pointer right
+/// now (the presence observer's last word).
+static INPUT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a key that arrives now can only be an agent's.
+pub(crate) fn input_held() -> bool {
+    INPUT_HELD.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// NEW-59: the toolkit display the epilot crate's `target` is (`None` =
 /// no counterpart, e.g. X11's one whole-screen display).
 fn toolkit_display(target: &coding::computer::Display, cx: &App) -> Option<std::rc::Rc<dyn gpui::PlatformDisplay>> {
@@ -200,7 +218,21 @@ fn on_work_screen(layout: coding::computer::ScreenLayout, target: Option<&coding
     }
 }
 
-fn banner_options(label: Option<&str>, cx: &App) -> WindowOptions {
+/// EXP-1912: the banner's window kind: on Wayland a layer surface that never
+/// takes the keyboard, [`BANNER_BOTTOM`] above the bottom centre of what the
+/// panel leaves free (where [`banner_options`] puts the PopUp elsewhere).
+fn banner_kind(wayland: bool) -> WindowKind {
+    etalk_gpui::push_to_talk::overlay::overlay_kind(wayland, BANNER_NAMESPACE, BANNER_BOTTOM)
+}
+
+/// EXP-1916: whether the open banner (its label, the display it opened
+/// for) is still the one to show: another label is another size, and a run
+/// that went on to another display takes its banner along.
+fn banner_is_current(shown: (&Option<SharedString>, Option<usize>), label: &Option<SharedString>, display: Option<usize>) -> bool {
+    shown.0 == label && shown.1 == display
+}
+
+fn banner_options(kind: WindowKind, label: Option<&str>, cx: &App) -> WindowOptions {
     // NEW-59: the banner floats on the run's work screen (its current
     // display), else the primary as before.
     let target = coding::computer::banner_display();
@@ -247,8 +279,9 @@ fn banner_options(label: Option<&str>, cx: &App) -> WindowOptions {
         focus: false,
         show: true,
         // Above every other window, never activated: a notification, not a
-        // dialog (X11: override-redirect; macOS: a floating panel).
-        kind: WindowKind::PopUp,
+        // dialog (X11: override-redirect; macOS: a floating panel; Wayland:
+        // a layer surface at the bottom centre, EXP-1912).
+        kind,
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
@@ -272,6 +305,9 @@ pub(crate) fn init(cx: &mut App) {
     let dev_banner = std::env::var("EXP_DEV_COMPUTER_BANNER").ok().map(|label| (tx.clone(), label));
     let tx = Mutex::new(tx);
     coding::computer::set_presence_observer(move |label| {
+        // #EXP-1938: told on the hold's own thread before its first
+        // synthetic key, so a chord that follows is known as the agent's.
+        INPUT_HELD.store(label.is_some(), std::sync::atomic::Ordering::SeqCst);
         if let Ok(tx) = tx.lock() {
             let _ = tx.send(label);
         }
@@ -282,6 +318,10 @@ pub(crate) fn init(cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut switch_on = false;
         let mut banner: Option<gpui::WindowHandle<Banner>> = None;
+        // EXP-1916: the hold's last word and the display the banner opened
+        // for (`banner_index`).
+        let mut engaged: Option<String> = None;
+        let mut shown_on: Option<usize> = None;
         loop {
             cx.background_executor().timer(TICK).await;
             let on = cx.update(|cx| {
@@ -305,24 +345,53 @@ pub(crate) fn init(cx: &mut App) {
                     }
                 }
             }
-            let Some(presence) = latest else { continue };
+            // EXP-1916: the hold goes on and the run works on another
+            // display now: the banner opens again there.
+            let display = coding::computer::banner_index();
+            let moved = banner.is_some() && display.is_some() && display != shown_on;
+            let Some(presence) = latest.or_else(|| moved.then(|| engaged.clone())) else { continue };
+            engaged = presence.clone();
             let _ = cx.update(|cx| match presence {
                 Some(label) => {
+                    // #EXP-1938: a push-to-talk key held into the hold
+                    // never gets its release.
+                    etalk_gpui::push_to_talk::input_taken(cx);
                     let label = (!label.is_empty()).then(|| SharedString::from(label));
                     // The window is the bar's size, so another label is
                     // another window (no move in the toolkit).
                     let same = banner.as_ref().is_some_and(|handle| {
-                        handle.read_with(cx, |view, _| view.label == label).unwrap_or(false)
+                        handle.read_with(cx, |view, _| banner_is_current((&view.label, shown_on), &label, display)).unwrap_or(false)
                     });
                     if same {
                         return;
                     }
+                    shown_on = display;
                     if let Some(handle) = banner.take() {
                         let _ = handle.update(cx, |_, window, _| window.remove_window());
                     }
-                    let options = banner_options(label.as_deref(), cx);
-                    match cx.open_window(options, |_, cx| cx.new(|_| Banner { label })) {
-                        Ok(handle) => banner = Some(handle),
+                    let kind = banner_kind(etalk_gpui::push_to_talk::overlay::on_wayland(cx));
+                    let opened = etalk_gpui::push_to_talk::overlay::open_overlay(
+                        kind,
+                        cx,
+                        |kind, cx| banner_options(kind, label.as_deref(), cx),
+                        |_, _, cx| cx.new(|_| Banner { label: label.clone() }),
+                    );
+                    match opened {
+                        Ok(handle) => {
+                            // EXP-1912: no click is the banner's; what is
+                            // under it gets them.
+                            let _ = handle.update(cx, |_, window, _| {
+                                window.set_input_region(Some(&[]));
+                                // EXP-1923: gpui's input region is Linux and
+                                // Windows only.
+                                #[cfg(target_os = "macos")]
+                                match crate::macos_window::ignore_mouse(window) {
+                                    true => log::debug!("[computer] the banner ignores mouse events"),
+                                    false => log::warn!("[computer] the banner could not be made click-through"),
+                                }
+                            });
+                            banner = Some(handle);
+                        }
                         Err(err) => log::warn!("[computer] the banner window did not open: {err}"),
                     }
                 }
@@ -373,6 +442,35 @@ mod tests {
         assert_eq!(x, 2560. + 1280. - 200.);
         let (x, _) = on_work_screen(layout, None).banner_origin(5120., 400., 40., 24.).unwrap();
         assert_eq!(x, 1280. - 200.);
+    }
+
+    /// EXP-1912: on Wayland the banner is a layer surface that never takes
+    /// the keyboard (an ordinary toplevel takes it from the window the
+    /// agent drives), 16 px above the bottom centre; elsewhere the PopUp.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_wayland_banner_is_a_layer_surface_without_the_keyboard() {
+        use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer};
+        let WindowKind::LayerShell(layer) = banner_kind(true) else {
+            panic!("an ordinary window on Wayland takes the keyboard");
+        };
+        assert_eq!(layer.keyboard_interactivity, KeyboardInteractivity::None);
+        assert_eq!((layer.layer, layer.anchor), (Layer::Overlay, Anchor::BOTTOM));
+        assert_eq!(layer.margin, Some((px(0.), px(0.), px(BANNER_BOTTOM), px(0.))));
+        assert_eq!(layer.namespace, "exponential-overlay:computer-use-banner");
+        assert_eq!(banner_kind(false), WindowKind::PopUp);
+    }
+
+    /// EXP-1916: the banner opens again when the run goes on to another
+    /// display under the same label (it stayed on the first one), and for
+    /// another label; never while both stand.
+    #[test]
+    fn the_banner_follows_the_run_to_another_display() {
+        let label = Some(SharedString::from("EXP-1916"));
+        assert!(banner_is_current((&label, Some(0)), &label, Some(0)));
+        assert!(!banner_is_current((&label, Some(0)), &label, Some(1)), "the banner stayed on the display the run left");
+        assert!(!banner_is_current((&label, Some(0)), &Some(SharedString::from("EXP-1")), Some(0)));
+        assert!(!banner_is_current((&label, None), &label, Some(0)));
     }
 
     /// The banner's view with a probe on the bar: the drawn bar's size.

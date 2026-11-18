@@ -154,8 +154,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 230
-        versionName = "0.14.147"
+        versionCode = 233
+        versionName = "0.14.150"
 
         // #LOGS-2: release CI mints one per build and uploads the R8 mapping
         // under it (build-android.yml); empty = no mapping to name.
@@ -372,6 +372,9 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.jna.aar)
+    // #ERR-27: the back-stack budget test drives the real NavController.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.navigation.testing)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.espresso.core)

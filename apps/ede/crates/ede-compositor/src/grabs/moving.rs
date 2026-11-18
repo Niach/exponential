@@ -48,7 +48,7 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
             if delta.x.hypot(delta.y) < UNTILE_PX {
                 return;
             }
-            let Some(tiled) = data.space.element_geometry(&self.window) else { return };
+            let Some(tiled) = data.desk.space.element_geometry(&self.window) else { return };
             let restore = data.restore_size(&self.window).unwrap_or(tiled.size);
             // From where the press was: a client-side title bar asks for
             // the move only past its own drag threshold, so the pointer is
@@ -61,13 +61,13 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
 
         let new_location = (self.initial_window_location.to_f64() + delta).to_i32_round();
         let threshold = data.config.windows.snap_threshold;
-        let snapped = match (data.space.element_geometry(&self.window), data.output_at(event.location).and_then(|o| data.work_area(&o))) {
+        let snapped = match (data.desk.space.element_geometry(&self.window), data.output_at(event.location).and_then(|o| data.work_area(&o))) {
             (Some(geo), Some(area)) if threshold > 0 => {
                 let others: Vec<_> = data
-                    .space
+                    .desk.space
                     .elements()
                     .filter(|w| *w != &self.window)
-                    .filter_map(|w| data.space.element_geometry(w))
+                    .filter_map(|w| data.desk.space.element_geometry(w))
                     .collect();
                 let rect = smithay::utils::Rectangle::new(new_location, geo.size);
                 layout::magnetic(rect, area, &others, threshold)

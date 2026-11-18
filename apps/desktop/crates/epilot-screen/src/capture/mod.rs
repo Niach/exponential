@@ -84,7 +84,8 @@ impl Frame {
 }
 
 /// One display a grab asks for. STALE: a frame the OS delivered before
-/// `since` is not taken (a capturer that reads live ignores it).
+/// `since` is not taken (a capturer that reads live cannot tell: the engine
+/// does not ask it before `since`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Want {
     pub display: u32,

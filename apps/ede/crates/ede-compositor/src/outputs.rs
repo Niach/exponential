@@ -25,7 +25,7 @@ pub struct OutputChange {
 
 impl Ede {
     pub fn output_named(&self, name: &str) -> Option<Output> {
-        self.space.outputs().find(|o| o.name() == name).cloned()
+        self.desk.space.outputs().find(|o| o.name() == name).cloned()
     }
 
     /// The mode of `output` matching `(w, h, refresh mHz)`; refresh 0 = the
@@ -57,11 +57,11 @@ impl Ede {
             }
             output.change_current_state(None, None, Some(Scale::Fractional(scale)), None);
         }
-        let at = change.position.map(Into::into).or_else(|| self.space.output_geometry(&output).map(|g| g.loc)).unwrap_or_default();
-        self.space.map_output(&output, at);
+        let at = change.position.map(Into::into).or_else(|| self.desk.space.output_geometry(&output).map(|g| g.loc)).unwrap_or_default();
+        self.desk.space.map_output(&output, at);
         layer_map_for_output(&output).arrange();
         // Windows learn the new scale; tiled ones follow the work area.
-        for w in self.space.elements().cloned().collect::<Vec<_>>() {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
             self.send_preferred_scale(&w);
             if let Some(tile) = crate::state::window_state(&w).tile {
                 self.tile(&w, tile);
@@ -70,7 +70,7 @@ impl Ede {
         for l in layer_map_for_output(&output).layers() {
             set_surface_scale(l.wl_surface(), output.current_scale().fractional_scale());
         }
-        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": name }));
+        self.output_changed(name.to_string());
         Ok(())
     }
 
@@ -79,32 +79,32 @@ impl Ede {
     /// close ranks left to right, every output's layers re-arrange, tiled
     /// windows follow the work area, and windows left on no output come back.
     pub fn output_resized(&mut self, output: &Output) {
-        let mut outputs: Vec<Output> = self.space.outputs().cloned().collect();
-        outputs.sort_by_key(|o| self.space.output_geometry(o).map(|g| g.loc.x).unwrap_or(0));
+        let mut outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
+        outputs.sort_by_key(|o| self.desk.space.output_geometry(o).map(|g| g.loc.x).unwrap_or(0));
         let mut x = 0;
         for o in &outputs {
             let at = match self.config.output(&o.name()).and_then(|s| s.position) {
                 Some([px, py]) => (px, py),
                 None => (x, 0),
             };
-            self.space.map_output(o, at);
+            self.desk.space.map_output(o, at);
             layer_map_for_output(o).arrange();
-            if let Some(g) = self.space.output_geometry(o) {
+            if let Some(g) = self.desk.space.output_geometry(o) {
                 x = x.max(g.loc.x + g.size.w);
             }
         }
-        for w in self.space.elements().cloned().collect::<Vec<_>>() {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
             if let Some(tile) = crate::state::window_state(&w).tile {
                 self.tile(&w, tile);
             }
         }
         self.rehome_lost_windows(&[]);
-        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
+        self.output_changed(output.name());
     }
 
     /// Re-applies every `[[outputs]]` entry (a config reload).
     pub fn apply_output_settings(&mut self) {
-        let names: Vec<String> = self.space.outputs().map(|o| o.name()).collect();
+        let names: Vec<String> = self.desk.space.outputs().map(|o| o.name()).collect();
         for name in names {
             let Some(settings) = self.config.output(&name).cloned() else { continue };
             let change = OutputChange { mode: settings.parsed_mode(), scale: settings.scale, position: settings.position.map(|[x, y]| (x, y)) };
@@ -129,9 +129,9 @@ impl FractionalScaleHandler for Ede {
         // The output under the window, else the first one.
         let scale = self
             .window_for_surface(&surface)
-            .and_then(|w| self.space.element_geometry(&w))
+            .and_then(|w| self.desk.space.element_geometry(&w))
             .and_then(|g| self.output_at(g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0)))
-            .or_else(|| self.space.outputs().next().cloned())
+            .or_else(|| self.desk.space.outputs().next().cloned())
             .map(|o| o.current_scale().fractional_scale())
             .unwrap_or(1.0);
         set_surface_scale(&surface, scale);

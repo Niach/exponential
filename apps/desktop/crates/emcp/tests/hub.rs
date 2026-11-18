@@ -19,6 +19,7 @@ struct FixtureServer {
     tools: Vec<Value>,
     mode: Mutex<String>,
     seen: Mutex<Vec<(String, String, Value)>>,
+    ended: Mutex<Vec<String>>,
 }
 
 impl FixtureServer {
@@ -35,7 +36,7 @@ impl FixtureServer {
                 tool
             })
             .collect();
-        Arc::new(Self { tools, mode: Mutex::new("ok".into()), seen: Mutex::default() })
+        Arc::new(Self { tools, mode: Mutex::new("ok".into()), seen: Mutex::default(), ended: Mutex::default() })
     }
 }
 
@@ -55,6 +56,10 @@ impl ToolProvider for FixtureServer {
             return Err(Refusal::UnknownTool);
         }
         Ok(self.call(caller, name, arguments))
+    }
+
+    fn ended(&self, session_id: &SessionId) {
+        self.ended.lock().unwrap().push(session_id.to_string());
     }
 }
 
@@ -140,8 +145,10 @@ fn the_call_cases_through_tools_call_with_their_audit_rows() {
         // The hub lists (and caches) every server before the call.
         client.list_tools(T).unwrap();
         if case["upstream"] == "unreachable" {
-            // The upstream goes away after it was listed.
-            remote.as_ref().unwrap().0.revoke_all();
+            // The upstream goes away after it was listed: its token is
+            // replaced, so the hub's is unknown there (a 401; a REVOKED one
+            // would read why as a result, #EXP-1918).
+            remote.as_ref().unwrap().0.grant(&id("hub"), "hub");
         }
         let before = audit.rows().len();
         let args = if case["call"]["arguments"].is_null() { json!({}) } else { case["call"]["arguments"].clone() };
@@ -199,7 +206,29 @@ fn a_provider_sees_the_run_and_a_revoked_run_is_refused() {
     client.call("files__read_file", json!({ "path": "/a" }), T).unwrap();
     assert_eq!(files.seen.lock().unwrap()[0], ("run-7".to_string(), "read_file".to_string(), json!({ "path": "/a" })));
     hub.revoke(&id("run-7"));
-    assert!(matches!(client.call("files__read_file", json!({}), T), Err(ClientError::Http(401) | ClientError::Transport(_))));
+    // The run's next call reads why its tools stopped, and never runs.
+    let refused = client.call("files__read_file", json!({}), T).unwrap();
+    assert_eq!(refused["isError"], json!(true));
+    assert!(refused["content"][0]["text"].as_str().unwrap().contains("ended this session's access"), "{refused}");
+    assert_eq!(files.seen.lock().unwrap().len(), 1);
+}
+
+/// A mounted provider cleans up in `ended` (epilot gives the input back):
+/// the hub passes a run's end on, one run or all of them.
+#[test]
+fn a_mounted_provider_hears_that_a_run_ended() {
+    let hub = Hub::serve(info("hub"), Arc::new(MemoryAudit::default())).unwrap();
+    let files = FixtureServer::new("files");
+    hub.mount("files", Mount::Provider(files.clone())).unwrap();
+    for run in ["run-1", "run-2", "run-3"] {
+        hub.grant(&id(run), "EXP-7", grant(&json!({ "servers": { "files": "read" }, "teamId": null, "userId": null })));
+    }
+    hub.revoke(&id("run-2"));
+    assert_eq!(files.ended.lock().unwrap().as_slice(), ["run-2"]);
+    hub.revoke_all();
+    let mut ended = files.ended.lock().unwrap().clone();
+    ended.sort();
+    assert_eq!(ended, ["run-1", "run-2", "run-3"]);
 }
 
 #[test]

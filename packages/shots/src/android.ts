@@ -209,3 +209,35 @@ export function appOnScreen(appId: string, probe: OnScreenProbe): { ok: true } |
   }
   return { ok: true }
 }
+
+/* ------------------------------------------------- downgrade (EXP-1886) */
+
+/**
+ * The capture lanes install with `adb install -r` (screengrab's
+ * `reinstall_app(false)` keeps the signed-in session between runs), which
+ * Android refuses for a LOWER versionCode: an emulator that last ran a newer
+ * master build failed every shot with INSTALL_FAILED_VERSION_DOWNGRADE. The
+ * lane uninstalls first in exactly that case, and only then.
+ */
+
+/** `versionCode = 230` from the app's `build.gradle.kts`. */
+export function gradleVersionCode(text: string): number | undefined {
+  const match = /^\s*versionCode\s*=\s*(\d+)/m.exec(text)
+  return match ? Number(match[1]) : undefined
+}
+
+/** The installed versionCode from `adb shell dumpsys package <id>`; undefined = not installed. */
+export function installedVersionCode(dumpsys: string): number | undefined {
+  const match = /\bversionCode=(\d+)/.exec(dumpsys)
+  return match ? Number(match[1]) : undefined
+}
+
+/** Must the installed app go before this build can be installed over it? */
+export function mustUninstallFirst(installed: number | undefined, building: number | undefined): boolean {
+  return installed !== undefined && building !== undefined && installed > building
+}
+
+/** An `adb install -r` failure that only an uninstall clears (a downgrade, another signing key). */
+export function installRefusedOverExisting(output: string): boolean {
+  return /INSTALL_FAILED_VERSION_DOWNGRADE|INSTALL_FAILED_UPDATE_INCOMPATIBLE/.test(output)
+}

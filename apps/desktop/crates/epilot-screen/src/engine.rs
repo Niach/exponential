@@ -10,8 +10,9 @@
 //! next tick retries the change, re-grabbing those displays' latest frame
 //! (SKIP IF BUSY). STALE: a display coming back into capture (the pause
 //! ends, its top window leaves the denylist, it turns a work display again)
-//! takes only frames delivered one interval after that, and once that
-//! interval is over a still display is captured FRESH once (the OS stream
+//! takes only frames delivered one interval after that (within it the
+//! capturer is not asked at all: one that reads live cannot tell), and once
+//! that interval is over a still display is captured FRESH once (the OS stream
 //! delivers only changes). LABEL and MASK read the window list nearest the
 //! frame's capture time (a short ring of readings), so a frame the OS
 //! captured before a focus change is labelled (and masked) as it was then.
@@ -51,6 +52,9 @@ pub(crate) type EpochSource = Box<dyn Fn() -> u64 + Send>;
 const READINGS_KEPT_MS: i64 = 3_000;
 /// Hears Active / Paused changes.
 pub(crate) type StatusSink = Arc<dyn Fn(Status) + Send + Sync>;
+/// The Unix-ms clock the loop stamps readings, frames and the sweep by
+/// ([`now_ms`]; a stepped one in tests, #EXP-1927).
+pub(crate) type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Timing {
@@ -153,6 +157,21 @@ impl Memory {
         hotkey: Arc<AtomicBool>,
         status: StatusSink,
     ) -> Result<Memory, String> {
+        Memory::start_clocked(data_dir, capturer, view, epoch, timing, hotkey, status, Arc::new(now_ms))
+    }
+
+    /// [`Memory::start`] on `clock`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn start_clocked(
+        data_dir: &Path,
+        capturer: Box<dyn Capturer>,
+        view: ViewSource,
+        epoch: EpochSource,
+        timing: Timing,
+        hotkey: Arc<AtomicBool>,
+        status: StatusSink,
+        clock: Clock,
+    ) -> Result<Memory, String> {
         let store = Store::open(data_dir)?;
         store.sweep(now_ms())?;
         store.remove_orphans()?;
@@ -184,6 +203,7 @@ impl Memory {
             since: HashMap::new(),
             owed: Vec::new(),
             readings: VecDeque::new(),
+            clock,
         };
         let thread = std::thread::Builder::new()
             .name("screen-memory".into())
@@ -249,6 +269,7 @@ struct Loop {
     /// The window-list readings of the last [`READINGS_KEPT_MS`] (Unix ms,
     /// oldest first; `None` = no window list then).
     readings: VecDeque<(i64, Option<Arc<ScreenLook>>)>,
+    clock: Clock,
 }
 
 impl Loop {
@@ -257,7 +278,7 @@ impl Loop {
         let mut next_sweep = Instant::now();
         loop {
             let look = (self.view)().map(Arc::new);
-            self.remember(now_ms(), look.clone());
+            self.remember((self.clock)(), look.clone());
             let view = look.as_ref().map(|look| &look.view);
             let focus = view.and_then(|view| view.focused.clone());
             let paused = self.hotkey.load(Ordering::Acquire) || paused_by(focus.as_ref());
@@ -280,7 +301,7 @@ impl Loop {
                 let key = focus.as_ref().map(|window| (window.app.clone(), window.title.clone()));
                 if key.is_some() && key != self.last_focus {
                     let display = focus.as_ref().expect("a focused window").display;
-                    if capturing.contains(&display) {
+                    if capturing.contains(&display) && !self.held_back(display) {
                         let grabbed = self.capturer.grab(self.want(display));
                         let epoch = (self.epoch)();
                         match grabbed {
@@ -296,7 +317,7 @@ impl Loop {
             }
             // RETENTION on its own clock: a long pause still ages frames out.
             if now >= next_sweep {
-                if let Err(reason) = self.store.lock().unwrap().sweep(now_ms()) {
+                if let Err(reason) = self.store.lock().unwrap().sweep((self.clock)()) {
                     log::warn!("[screen] {reason}");
                 }
                 next_sweep = now + self.timing.interval;
@@ -350,18 +371,27 @@ impl Loop {
         Want { display, since: self.since.get(&display).copied() }
     }
 
+    /// STALE: `display` is still within its interval after a resume. It is
+    /// not asked for a frame at all then (#EXP-1908): a stream has none that
+    /// new, and a capturer that reads live (the X11 root, Windows' live
+    /// read) would hand out the screen as it is NOW, which may still show
+    /// the window that paused it.
+    fn held_back(&self, display: u32) -> bool {
+        self.since.get(&display).is_some_and(|since| Instant::now() < *since)
+    }
+
     fn tick(&mut self, capturing: &[u32]) {
         // No work display (a picked one gone, every one fullscreen): no grab.
         if capturing.is_empty() {
             self.retry.clear();
             return;
         }
-        let wanted: Vec<Want> = capturing.iter().map(|display| self.want(*display)).collect();
+        let wanted: Vec<Want> = capturing.iter().filter(|display| !self.held_back(**display)).map(|display| self.want(*display)).collect();
         let grabbed = self.capturer.grab_all(&wanted);
         match grabbed {
             Ok(mut frames) => {
                 for display in std::mem::take(&mut self.retry) {
-                    if capturing.contains(&display) && !frames.iter().any(|frame| frame.display == display) {
+                    if capturing.contains(&display) && !self.held_back(display) && !frames.iter().any(|frame| frame.display == display) {
                         if let Ok(Some(frame)) = self.capturer.grab(self.want(display)) {
                             frames.push(frame);
                         }
@@ -403,14 +433,14 @@ impl Loop {
         if frames.is_empty() {
             return;
         }
-        let grabbed = now_ms();
+        let grabbed = (self.clock)();
         // RACE: the window list once more, now that the pixels are fixed: a
         // denylisted window that opened since the poll's read is in it. One
         // read per grab with frames (a still screen grabs none), against
         // one every focus poll. None, or the display set moved on since the
         // grab: nothing is placed safely, the next tick grabs again.
         let latest = (self.view)().map(Arc::new);
-        self.remember(now_ms(), latest.clone());
+        self.remember((self.clock)(), latest.clone());
         if !latest.as_ref().is_some_and(|look| look.epoch == epoch) {
             self.skip(frames.iter().map(|frame| frame.display));
             return;

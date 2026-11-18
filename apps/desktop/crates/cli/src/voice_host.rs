@@ -152,8 +152,9 @@ pub trait Net: Send {
     fn answer(&self, call_id: String, agent_id: String);
     /// Send `text` to the agent (`root` = its conversation, None = new).
     fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, text: String);
-    /// The rows of `root` (opened), for the reply watch.
-    fn messages(&self, root: &str) -> Vec<domain::rows::MessageRow>;
+    /// The rows of `root` (opened), for the reply watch: EXP-1930 only those
+    /// created at or after `since` (None = all, once at the answer).
+    fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow>;
 }
 
 /// The voice's state as the doctor reads it.
@@ -162,6 +163,8 @@ enum Download {
     #[default]
     Idle,
     Running,
+    /// EXP-1930: not up YET (a slow warm-up): probed again, never NoGpu.
+    Slow,
     Failed,
     /// Crashed [`MAX_CRASHES`] times in a row: given up until a restart.
     Unavailable,
@@ -174,8 +177,10 @@ fn speech_row(hosting: bool, download: &Download, voices: Option<&[String]>) -> 
     }
     match download {
         Download::Unavailable => return Some(SpeechState::Failed),
-        Download::Running => return Some(SpeechState::Downloading),
-        Download::Failed if voices.is_none() => return Some(SpeechState::Failed),
+        Download::Running | Download::Slow => return Some(SpeechState::Downloading),
+        // EXP-1930: nothing stays loaded on a server: a voice that failed to
+        // load is failed whatever answered before, until a probe answers.
+        Download::Failed => return Some(SpeechState::Failed),
         _ => {}
     }
     Some(if voices?.is_empty() { SpeechState::NoGpu } else { SpeechState::Ready })
@@ -272,8 +277,10 @@ impl Host {
         self.retry_at = Some(now + delay);
     }
 
-    fn probe(&mut self) {
+    fn probe(&mut self, now: Instant) {
         self.up = true;
+        // EXP-1930: a probe is use: the idle exit never kills it.
+        self.last_used = now;
         self.speech.prepare(etalk::VoiceChoice { language: self.settings.language().to_string(), ..Default::default() });
     }
 
@@ -331,7 +338,7 @@ impl Host {
             if self.download == Download::Unavailable {
                 self.download = Download::Idle;
             }
-            self.probe();
+            self.probe(now);
         }
     }
 
@@ -366,7 +373,7 @@ impl Host {
         let mut seen = HashSet::new();
         let mut armed_at: Option<(i64, String)> = None;
         if let Some(root) = answered.root.as_deref() {
-            for row in self.net.messages(root) {
+            for row in self.net.messages(root, None) {
                 if let Some(at) = row.created_at.as_deref().and_then(|at| etalk::voice::parse_instant(at).map(|ms| (ms, at.to_string()))) {
                     if armed_at.as_ref().is_none_or(|(mark, _)| at.0 > *mark) {
                         armed_at = Some(at);
@@ -471,11 +478,30 @@ impl Host {
         let call_owns = |id: &str| current.as_deref() == Some(id);
         match event {
             etalk::Event::Downloading { .. } => self.download = Download::Running,
-            // Still not spoken for: `Voices` settles it (no flap to no row).
-            etalk::Event::ModelReady => {}
+            // Before the first `Voices` it is not spoken for yet (no flap to
+            // no row); after it, it is the recognizer's download ending.
+            etalk::Event::ModelReady => {
+                if self.voices.is_some() && self.download == Download::Running {
+                    self.download = Download::Idle;
+                }
+            }
+            // EXP-1930: a slow warm-up (or backing off after one): the empty
+            // `Voices` that follows is "not yet", never "no usable GPU".
+            etalk::Event::VoiceRetry { .. } => {
+                if self.download != Download::Failed {
+                    self.download = Download::Slow;
+                }
+            }
             etalk::Event::Voices { voices } => {
-                // A failed download settles as no voices: it is not "no GPU".
-                let failed = self.download == Download::Failed && voices.is_empty();
+                // A failed download (or a slow warm-up) settles as no voices:
+                // it is not "no GPU".
+                let failed = matches!(self.download, Download::Failed | Download::Slow) && voices.is_empty();
+                // EXP-1930: a call whose voice did not come up is unavailable,
+                // never a mute call.
+                if voices.is_empty() && self.call.is_some() {
+                    log::warn!("[voice] the voice did not load for the call");
+                    self.fail("unavailable", now);
+                }
                 if !failed {
                     self.download = Download::Idle;
                     if voices.is_empty() && self.voices.as_ref().is_none_or(|known| !known.is_empty()) {
@@ -491,6 +517,7 @@ impl Host {
                 let speaks = self.voices.as_ref().is_some_and(|voices| !voices.is_empty());
                 if self.call.is_none() && self.up {
                     if speaks && !self.ears {
+                        self.last_used = now;
                         self.speech.call(PROBE_CALL, self.settings.language());
                     } else {
                         self.speech.shutdown();
@@ -557,6 +584,10 @@ impl Host {
             }
             etalk::Event::Failed { id, error } => {
                 log::warn!("[voice] not spoken: {error}");
+                // EXP-1930: a greeting that cannot be spoken: nothing will be.
+                if self.call.as_ref().is_some_and(|call| call.greeting_id == id) {
+                    return self.fail("unavailable", now);
+                }
                 self.reply_done(&id);
             }
             etalk::Event::ListenFailed { reason: etalk::ListenFailure::Downloading, .. } => {}
@@ -631,7 +662,7 @@ impl Host {
         if self.call.is_none() && !self.up && self.hosting() && self.download != Download::Unavailable && self.retry_at.is_some_and(|at| now >= at) {
             self.retry_at = None;
             self.download = Download::Idle;
-            self.probe();
+            self.probe(now);
         }
         if self.call.is_none() {
             if self.up && self.voices.is_some() && self.download != Download::Running && now.duration_since(self.last_used) >= self.idle_after {
@@ -677,7 +708,8 @@ impl Host {
         let Some(call) = self.call.as_mut() else { return };
         call.polled = now;
         let Some(root) = call.root.clone() else { return };
-        let rows = self.net.messages(&root);
+        // EXP-1930: only the call's own rows, never the whole conversation.
+        let rows = self.net.messages(&root, Some(&call.armed_at));
         let fresh: Vec<domain::rows::MessageRow> = rows.into_iter().filter(|row| call.seen.insert(row.id.clone())).collect();
         if fresh.is_empty() {
             return;
@@ -739,8 +771,9 @@ pub struct Deps {
     pub device_id: String,
     /// The synced teams (the agents of each are read).
     pub teams: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
-    /// The synced message rows of a session (opened).
-    pub messages: Arc<dyn Fn(&str) -> Vec<domain::rows::MessageRow> + Send + Sync>,
+    /// The synced message rows of a session (opened), created at or after
+    /// the instant when one is given.
+    pub messages: Arc<dyn Fn(&str, Option<&str>) -> Vec<domain::rows::MessageRow> + Send + Sync>,
     /// Raised when the `speech` row changed (the next beat carries it).
     pub beat_soon: Arc<AtomicBool>,
 }
@@ -776,15 +809,31 @@ impl VoiceHost {
 struct DaemonNet {
     deps: Arc<Deps>,
     tx: flume::Sender<Input>,
-    /// The conversation's key per root (sealing a send).
-    keys: Arc<Mutex<std::collections::HashMap<String, (u32, [u8; 32])>>>,
+}
+
+/// EXP-1930: an utterance's body. Into a known conversation it is sealed at
+/// SEND time with the tree's current key (`seal`, created when the tree has
+/// none and this install may), so a tree keyed after the call's first send
+/// gets the next one sealed; a first send (no conversation yet) and a tree
+/// that cannot be sealed for go out plain (the server takes plaintext only
+/// where it is legal).
+fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> Result<String, coding::sealing::SealError>) -> String {
+    let Some(root) = root else { return text.to_string() };
+    match seal(root, text) {
+        Ok(body) => body,
+        Err(coding::sealing::SealError::NoService) => text.to_string(),
+        Err(err) => {
+            log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
+            text.to_string()
+        }
+    }
 }
 
 impl Net for DaemonNet {
     fn answer(&self, call_id: String, agent_id: String) {
-        let (deps, tx, keys) = (Arc::clone(&self.deps), self.tx.clone(), Arc::clone(&self.keys));
+        let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-answer".into()).spawn(move || {
-            match answer(&deps, &tx, &keys, &call_id, &agent_id) {
+            match answer(&deps, &tx, &call_id, &agent_id) {
                 Ok(answered) => {
                     let _ = tx.send(Input::Answered(answered));
                 }
@@ -797,16 +846,9 @@ impl Net for DaemonNet {
     }
 
     fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, text: String) {
-        let (deps, tx, keys) = (Arc::clone(&self.deps), self.tx.clone(), Arc::clone(&self.keys));
+        let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-send".into()).spawn(move || {
-            let key = root.as_ref().and_then(|root| keys.lock().ok()?.get(root).copied());
-            let body = match key {
-                Some((epoch, public)) => enet_core::sealed::seal_body(&public, epoch, &text).unwrap_or_else(|err| {
-                    log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
-                    text.clone()
-                }),
-                None => text.clone(),
-            };
+            let body = utterance_body(root.as_deref(), &text, &coding::sealing::seal_body_for_tree);
             let input = match root.as_deref() {
                 Some(root) => api::sessions::SendInput::message(root, &body, Vec::new()),
                 None => api::sessions::SendInput {
@@ -826,17 +868,16 @@ impl Net for DaemonNet {
         });
     }
 
-    fn messages(&self, root: &str) -> Vec<domain::rows::MessageRow> {
-        (self.deps.messages)(root)
+    fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {
+        (self.deps.messages)(root, since)
     }
 }
 
 /// The ring's network half: the agent (it must run HERE), its voice and
-/// clip, its conversation and key, the host ticket and the socket.
+/// clip, its conversation, the host ticket and the socket.
 fn answer(
     deps: &Arc<Deps>,
     tx: &flume::Sender<Input>,
-    keys: &Mutex<std::collections::HashMap<String, (u32, [u8; 32])>>,
     call_id: &str,
     agent_id: &str,
 ) -> Result<Answered, String> {
@@ -846,11 +887,6 @@ fn answer(
     }
     let voice = agent_voice(deps, &agent);
     let target = api::sessions::send_target(&deps.trpc, Some(agent_id), None).map_err(|err| format!("the conversation could not be read: {err}"))?;
-    if let (Some(root), Some(epoch), Some(public)) = (target.root_id.as_ref(), target.epoch, target.public_key.as_deref()) {
-        if let (Ok(public), Ok(mut keys)) = (enet_core::sealed::public_key_from_b64(public), keys.lock()) {
-            keys.insert(root.clone(), (epoch, public));
-        }
-    }
     let ticket = api::voice::voice_call_host_ticket(&deps.trpc, call_id, Some(&deps.device_id)).map_err(|err| format!("the call host ticket was refused: {err}"))?;
     let events = tx.clone();
     let id = call_id.to_string();
@@ -940,7 +976,7 @@ pub fn spawn(deps: Deps) -> Option<VoiceHost> {
     let client = etalk::SpeechClient::new(exe, deps.data_dir.clone(), move |event| {
         let _ = events.send(Input::Worker(event));
     });
-    let net = DaemonNet { deps: Arc::clone(&deps), tx: tx.clone(), keys: Arc::default() };
+    let net = DaemonNet { deps: Arc::clone(&deps), tx: tx.clone() };
     let speech = Arc::new(Mutex::new(None));
     let handle = VoiceHost { tx: tx.clone(), speech: Arc::clone(&speech) };
     let agents_tx = tx.clone();
@@ -1054,6 +1090,8 @@ mod tests {
 
     struct FakeNet {
         log: Log,
+        /// The store reads (`messages`).
+        reads: Log,
         rows: Arc<Mutex<Vec<domain::rows::MessageRow>>>,
     }
 
@@ -1064,8 +1102,10 @@ mod tests {
         fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, text: String) {
             self.log.push(format!("send {call_id} {} {text}", root.unwrap_or_default()));
         }
-        fn messages(&self, _root: &str) -> Vec<domain::rows::MessageRow> {
-            self.rows.lock().unwrap().clone()
+        fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {
+            self.reads.push(format!("messages {root} {}", since.unwrap_or("all")));
+            let rows = self.rows.lock().unwrap().clone();
+            rows.into_iter().filter(|row| since.is_none_or(|since| row.created_at.as_deref().is_some_and(|at| at >= since))).collect()
         }
     }
 
@@ -1086,6 +1126,7 @@ mod tests {
         net: Log,
         link: Log,
         rows: Arc<Mutex<Vec<domain::rows::MessageRow>>>,
+        reads: Log,
         now: Instant,
     }
 
@@ -1094,8 +1135,9 @@ mod tests {
             let (speech, net, link) = (Log::default(), Log::default(), Log::default());
             let rows = Arc::new(Mutex::new(Vec::new()));
             let now = Instant::now();
-            let host = Host::new(Box::new(FakeSpeech(speech.clone())), Box::new(FakeNet { log: net.clone(), rows: Arc::clone(&rows) }), now);
-            Rig { host, speech, net, link, rows, now }
+            let reads = Log::default();
+            let host = Host::new(Box::new(FakeSpeech(speech.clone())), Box::new(FakeNet { log: net.clone(), reads: reads.clone(), rows: Arc::clone(&rows) }), now);
+            Rig { host, speech, net, link, rows, reads, now }
         }
 
         fn handle(&mut self, input: Input) {
@@ -1287,5 +1329,156 @@ mod tests {
         rig.advance(Duration::from_millis(VOICE_CALL.constants.max_ring_ms));
         let events = rig.link.take();
         assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+    }
+
+    /// EXP-1930 (voice-hosts-3): a voice that fails to load inside the ring
+    /// fails the call `unavailable` (never a mute call), and the row says
+    /// failed, so the next ring falls back instead of ringing a mute server.
+    #[test]
+    fn a_voice_that_fails_to_load_in_the_ring_fails_the_call() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::DownloadFailed { error: "out of memory".into() }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert!(rig.host.call.is_none());
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Failed), "nothing stays loaded on a server");
+        rig.net.take();
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        assert!(rig.net.take().is_empty(), "the next caller falls back");
+    }
+
+    /// EXP-1930 (voice-hosts-3): a greeting that cannot be spoken fails the
+    /// call `unavailable`.
+    #[test]
+    fn a_greeting_that_fails_fails_the_call() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
+        assert!(rig.speech.take().contains(&"speak call-1-greeting Hallo?".to_string()));
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::Failed { id: "call-1-greeting".into(), error: "the voice is unavailable for now".into() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert!(rig.host.call.is_none());
+    }
+
+    /// EXP-1930 (voice-engine-speak-2, voice-hosts-4): a slow warm-up at the
+    /// probe is not "no usable GPU": the row says preparing, rings are still
+    /// answered, and the probe runs again until the voice answers.
+    #[test]
+    fn a_slow_warm_up_is_probed_again_not_no_gpu() {
+        let mut rig = Rig::new();
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.handle(Input::Worker(etalk::Event::VoiceRetry { in_ms: 60_000 }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Downloading), "not up yet, never NoGpu");
+        assert_eq!(rig.speech.take(), ["prepare en", "shutdown"]);
+        rig.advance(Duration::from_secs(30));
+        assert_eq!(rig.speech.take(), ["prepare en"], "probed again");
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Ready));
+        assert_eq!(rig.speech.take(), ["call probe en"]);
+    }
+
+    /// EXP-1930 (voice-hosts-3 variant): a slow warm-up inside a ring fails
+    /// that call `unavailable` and leaves no "no usable GPU" behind.
+    #[test]
+    fn a_slow_warm_up_in_the_ring_fails_the_call_and_tries_again() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.link.take();
+        rig.handle(Input::Worker(etalk::Event::VoiceRetry { in_ms: 60_000 }));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: Vec::new() }));
+        let events = rig.link.take();
+        assert!(events.contains(&r#"event {"t":"failed","code":"unavailable"}"#.to_string()), "{events:?}");
+        assert_ne!(rig.host.speech_state(), Some(SpeechState::NoGpu));
+        assert!(rig.host.retry_at.is_some(), "probed again later");
+    }
+
+    /// EXP-1930 (voice-hosts-5): a probe that starts long after the daemon
+    /// (or the last call) is never killed by the idle exit.
+    #[test]
+    fn a_late_probe_survives_the_idle_exit() {
+        let mut rig = Rig::new();
+        rig.advance(Duration::from_secs(11 * 60));
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.advance(TICK);
+        assert_eq!(rig.speech.take(), ["prepare en"], "the probe runs");
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        rig.advance(TICK);
+        assert_eq!(rig.speech.take(), ["call probe en"], "the recognizer loads, the worker stays");
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "probe".into() }));
+        assert_eq!(rig.speech.take(), ["hangup probe", "shutdown"]);
+    }
+
+    /// EXP-1930 (voice-hosts-6): the recognizer's download after a known
+    /// voice ends with `ModelReady`: the row is Ready again and the idle
+    /// exit works.
+    #[test]
+    fn model_ready_ends_the_recognizers_download() {
+        let mut rig = Rig::new();
+        rig.handle(Input::Agents(vec![agent()]));
+        rig.handle(Input::Worker(etalk::Event::Voices { voices: vec!["en".into()] }));
+        rig.handle(Input::Worker(etalk::Event::Downloading { received: 1, total: 10 }));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Downloading));
+        rig.handle(Input::Worker(etalk::Event::ModelReady));
+        assert_eq!(rig.host.speech_state(), Some(SpeechState::Ready));
+        rig.speech.take();
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.server_idle_ms));
+        assert_eq!(rig.speech.take(), ["shutdown"], "idle: the worker exits");
+    }
+
+    /// EXP-1930 (voice-hosts-1): the first utterance creates (or wakes) the
+    /// conversation in clear; the daemon then keys the tree; the second one
+    /// is sealed with that key, never refused as plaintext in a keyed tree.
+    #[test]
+    fn an_utterance_is_sealed_with_the_trees_key_at_send_time() {
+        use coding::sealing::SealError;
+        let keyed = std::sync::atomic::AtomicBool::new(false);
+        let seal = |root: &str, text: &str| -> Result<String, SealError> {
+            if keyed.load(Ordering::SeqCst) {
+                Ok(format!("sealed({root}):{text}"))
+            } else {
+                Err(SealError::NotReader)
+            }
+        };
+        assert_eq!(utterance_body(None, "hello", &seal), "hello", "a new conversation: the send makes it");
+        assert_eq!(utterance_body(Some("root-1"), "hello", &seal), "hello", "a keyless tree nobody may key: plain");
+        keyed.store(true, Ordering::SeqCst);
+        assert_eq!(utterance_body(Some("root-1"), "and now?", &seal), "sealed(root-1):and now?");
+        assert_eq!(utterance_body(Some("root-1"), "x", &|_: &str, _: &str| Err(SealError::NoService)), "x", "no key holder: plain");
+    }
+
+    /// EXP-1930 (voice-hosts-8): the reply watch reads only the rows since
+    /// the call was answered, never the whole conversation every poll.
+    #[test]
+    fn the_reply_watch_reads_only_the_calls_rows() {
+        let mut rig = Rig::ready();
+        rig.rows.lock().unwrap().push(row("old", "agent", "Earlier reply.", "2020-01-01T00:00:00Z"));
+        rig.answered();
+        assert_eq!(rig.reads.take(), ["messages root-1 all"], "the history, once");
+        rig.advance(REPLY_POLL);
+        assert_eq!(rig.reads.take(), ["messages root-1 2020-01-01T00:00:00Z"]);
+    }
+
+    /// EXP-1930 (voice-hosts-2, voice-hosts-10): a call whose socket went
+    /// silent (`call_host`'s liveness deadline: `Dropped`) fails `dropped`
+    /// and the server answers the next ring, never busy until a restart.
+    #[test]
+    fn a_silent_link_ends_the_call_and_frees_the_server() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.net.take();
+        rig.link.take();
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Dropped("the call went silent".into()) });
+        let events = rig.link.take();
+        assert_eq!(events.first().map(String::as_str), Some(r#"event {"t":"failed","code":"dropped"}"#), "{events:?}");
+        assert!(rig.host.call.is_none());
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        assert_eq!(rig.net.take(), ["answer c2 agent-1"]);
     }
 }

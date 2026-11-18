@@ -7,7 +7,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -15,7 +15,7 @@ use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1
 use wayland_protocols::{
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
-    xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+    xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base},
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
@@ -60,6 +60,11 @@ pub struct Client {
     pub source_data: Vec<(String, Vec<u8>)>,
     pub held: Vec<std::os::fd::OwnedFd>,
     pub source_cancelled: bool,
+    /// Frame callbacks received through [`Session::count_frames`].
+    pub frames: u32,
+    /// The callback [`Session::count_frames`] waits on (another surface's
+    /// earlier one is not counted).
+    pub frame_pending: Option<wl_callback::WlCallback>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -89,6 +94,12 @@ pub struct Layer {
     pub index: usize,
     pub surface: wl_surface::WlSurface,
     pub layer: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+}
+
+pub struct Popup {
+    pub surface: wl_surface::WlSurface,
+    pub xdg_surface: xdg_surface::XdgSurface,
+    pub popup: xdg_popup::XdgPopup,
 }
 
 pub struct LockSurface {
@@ -184,6 +195,94 @@ impl Session {
         surface.commit();
         self.roundtrip();
         Layer { index, surface, layer }
+    }
+
+    /// A layer surface on `on` with no anchors (the compositor centres it)
+    /// and the keyboard interactivity a prompt or a shell surface asks for.
+    pub fn keyboard_layer(&mut self, namespace: &str, on: zwlr_layer_shell_v1::Layer, size: (u32, u32), keyboard: zwlr_layer_surface_v1::KeyboardInteractivity) -> Layer {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.layers.len();
+        self.state.layers.push(LayerState::default());
+        let layer = self.state.layer_shell.as_ref().expect("layer shell advertised").get_layer_surface(&surface, None, on, namespace.into(), &self.qh, index);
+        layer.set_size(size.0, size.1);
+        layer.set_keyboard_interactivity(keyboard);
+        surface.commit();
+        self.roundtrip();
+        Layer { index, surface, layer }
+    }
+
+    /// A drawn `w`×`h` `xdg_popup` under the layer surface `l` (the shell's
+    /// start menu under its taskbar); `grab` = it asks for the grab, that
+    /// is for the keyboard (#EDE-86).
+    pub fn layer_popup(&mut self, l: &Layer, (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.toplevels.len();
+        self.state.toplevels.push(ToplevelState::default());
+        let wm_base = self.state.wm_base.clone().unwrap();
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
+        let positioner = wm_base.create_positioner(&self.qh, ());
+        positioner.set_size(w, h);
+        positioner.set_anchor_rect(0, 0, 1, 1);
+        let popup = xdg_surface.get_popup(None, &positioner, &self.qh, ());
+        l.layer.get_popup(&popup);
+        positioner.destroy();
+        if grab {
+            // No press to name: a hotkey opened it.
+            popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
+        }
+        surface.commit();
+        self.roundtrip();
+        if let Some(serial) = self.state.toplevels[index].pending_serial.take() {
+            xdg_surface.ack_configure(serial);
+        }
+        let buffer = self.buffer(w, h, argb);
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, w, h);
+        surface.commit();
+        self.roundtrip();
+        Popup { surface, xdg_surface, popup }
+    }
+
+    pub fn close_popup(&mut self, p: Popup) {
+        p.popup.destroy();
+        p.xdg_surface.destroy();
+        p.surface.destroy();
+        self.roundtrip();
+    }
+
+    /// Frame callbacks `surface` gets during `period`, asked for again after
+    /// each one like a client that animates (#EDE-100).
+    pub fn count_frames(&mut self, surface: &wl_surface::WlSurface, period: std::time::Duration) -> u32 {
+        let (start, until) = (self.state.frames, std::time::Instant::now() + period);
+        self.state.frame_pending = None;
+        while std::time::Instant::now() < until {
+            if self.state.frame_pending.is_none() {
+                self.state.frame_pending = Some(surface.frame(&self.qh, ()));
+                surface.commit();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            self.roundtrip();
+        }
+        self.state.frames - start
+    }
+
+    /// An empty input region: no pointer event reaches `surface`, what is
+    /// under it gets them (#EXP-1912: the computer-use banner).
+    pub fn no_input(&mut self, surface: &wl_surface::WlSurface) {
+        self.input_region(surface, None);
+    }
+
+    /// The input region of `surface` is `rect` (x, y, w, h) alone (#EXP-1912:
+    /// the call pill inside its layer surface); `None` = empty.
+    pub fn input_region(&mut self, surface: &wl_surface::WlSurface, rect: Option<(i32, i32, i32, i32)>) {
+        let region = self.state.compositor.as_ref().unwrap().create_region(&self.qh, ());
+        if let Some((x, y, w, h)) = rect {
+            region.add(x, y, w, h);
+        }
+        surface.set_input_region(Some(&region));
+        region.destroy();
+        surface.commit();
+        self.roundtrip();
     }
 
     pub fn draw_layer(&mut self, l: &Layer, argb: u32) {
@@ -499,6 +598,15 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
     }
 }
 
+impl Dispatch<wl_callback::WlCallback, ()> for Client {
+    fn event(state: &mut Self, callback: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if matches!(event, wl_callback::Event::Done { .. }) && state.frame_pending.as_ref() == Some(callback) {
+            state.frames += 1;
+            state.frame_pending = None;
+        }
+    }
+}
+
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
 delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
@@ -508,9 +616,12 @@ delegate_noop!(Client: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManager
 delegate_noop!(Client: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
 delegate_noop!(Client: ignore wl_compositor::WlCompositor);
 delegate_noop!(Client: ignore wl_surface::WlSurface);
+delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
 delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
 delegate_noop!(Client: ignore wl_output::WlOutput);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Client: xdg_positioner::XdgPositioner);
+delegate_noop!(Client: ignore xdg_popup::XdgPopup);
 

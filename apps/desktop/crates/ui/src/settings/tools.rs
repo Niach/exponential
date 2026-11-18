@@ -457,6 +457,8 @@ mod tests {
             danger_hover: "#b91c1cff".into(),
         };
         let tree = document(&ink, &super::super::readiness::tests::test_paint(), &chrome);
+        // #EXP-1887: no node id twice (a twin doubled its accessibility node).
+        assert_eq!(super::super::doc::duplicate_ids(&tree), Vec::<String>::new());
         let bound = super::super::doc::bound_values(&tree);
         let mut surface = eui_core::surface::Surface::new("settings-tools", Default::default());
         let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));

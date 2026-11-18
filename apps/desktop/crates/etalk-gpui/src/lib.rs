@@ -14,6 +14,8 @@ mod host;
 pub mod meeting;
 pub mod push_to_talk;
 pub mod speak_replies;
+#[cfg(test)]
+mod test_support;
 pub mod voice_call;
 pub mod voice_overlay;
 pub mod voice_tray;

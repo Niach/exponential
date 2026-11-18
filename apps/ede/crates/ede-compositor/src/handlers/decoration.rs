@@ -19,7 +19,7 @@ impl Ede {
             let mut st = window_state(&window);
             st.decorated = server_side;
             set_window_state(&window, st);
-            if self.space.element_location(&window).is_some() {
+            if self.desk.space.element_location(&window).is_some() {
                 if let Some(tile) = st.tile {
                     self.tile(&window, tile);
                 }

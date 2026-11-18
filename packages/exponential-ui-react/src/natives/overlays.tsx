@@ -16,7 +16,7 @@ import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMen
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { findAnchor, isFieldAnchorElement, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath, isPickerPopover, propColor, popoverPanelWidth } from "@exponential_app/eui/web"
+import { absolutePath, imageMenuOwns, isPickerPopover, propColor, popoverPanelWidth } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
@@ -741,6 +741,11 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
           ref={triggerRef}
           {...(rootProps as Record<string, unknown>)}
           data-state={open ? `open` : `closed`}
+          // #EXP-1945: a long-press on a ready picture is the host's image
+          // menu (a prevented pointerdown = Radix starts no long-press).
+          onPointerDown={(e) => {
+            if (e.pointerType !== `mouse` && imageMenuOwns(e.target)) e.preventDefault()
+          }}
           onKeyDown={(e) => {
             if ((e.key === `F10` && e.shiftKey) || e.key === `ContextMenu`) {
               e.preventDefault()

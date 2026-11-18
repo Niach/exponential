@@ -9,7 +9,8 @@ import type { NativeProps } from "../node-view"
 import type { HostPlugin } from "../host"
 import { NodeView, mergeStyle, withClass } from "../node-view"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
-import { mediaClock } from "@exponential_app/eui/web"
+import type { UiNode } from "@exponential_app/eui"
+import { imageSourceOf, mediaClock, type ImageSourceVerdict } from "@exponential_app/eui/web"
 import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 
 /** The media box's intrinsic width (catalog/layout.json
@@ -47,9 +48,12 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
   const objectFit = fit === `scaleDown` ? `scale-down` : fit
   const fx = Math.max(0, Math.min(1, num(props.focalX, 0.5)))
   const fy = Math.max(0, Math.min(1, num(props.focalY, 0.5)))
+  // #EXP-1945 (`host.imageSource`): a refused picture never loads.
+  const verdict = imageSourceOf(ctx.host, src, alt)
   // The host's media request (VAPP-91: headers → a blob url once fetched);
   // a failed fetch is the Image's error state (fallback + alt).
-  const media = useMediaSource(ctx.host, src)
+  const media = useMediaSource(ctx.host, verdict.kind === `load` ? src : ``)
+  if (verdict.kind !== `load`) return <ImageStandIn id={node.id} verdict={verdict} />
   const url = media.url
   const shown = media.error ? `error` : state
   const failed = !src || shown === `error`
@@ -75,6 +79,15 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
       ) : null}
     </div>
   )
+}
+
+/** #EXP-1945: a refused picture's stand-in in its place: THE Link (the URL
+ *  policy and the host's opener) or the alt as a Text; nothing for an empty
+ *  text. Shared by Image and ZoomableImage. */
+export function ImageStandIn({ id, verdict }: { id: string; verdict: Exclude<ImageSourceVerdict, { kind: `load` }> }) {
+  if (!verdict.text) return null
+  const node: UiNode = verdict.kind === `link` ? { id: `${id}.link`, component: `Link`, props: { label: verdict.text, href: verdict.href, external: true }, children: [] } : { id: `${id}.text`, component: `Text`, props: { text: verdict.text }, children: [] }
+  return <NodeView node={node} />
 }
 
 type PartOf = (name: string) => Record<string, unknown>

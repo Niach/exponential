@@ -1,7 +1,7 @@
 //! End to end: a fake capturer into a running [`engine::Memory`], read back
 //! through the `screen` endpoint's `get_screenshots`.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -97,6 +97,8 @@ struct Rig {
     hotkey: Arc<AtomicBool>,
     statuses: Shared<Vec<Status>>,
     grabs: Shared<Vec<&'static str>>,
+    /// How many window-list reads the loop began.
+    looks: Arc<AtomicUsize>,
 }
 
 impl Rig {
@@ -109,6 +111,44 @@ impl Rig {
     fn rows(&self) -> Vec<store::Row> {
         self.memory.store.lock().unwrap().frames(i64::MIN, i64::MAX).unwrap()
     }
+
+    /// Wait for two window-list reads begun from now on: the loop holds a
+    /// reading taken (and stamped) after whatever the test changed before.
+    fn settle(&self) {
+        let from = self.looks.load(Ordering::Acquire);
+        wait_until(|| self.looks.load(Ordering::Acquire) >= from + 2);
+    }
+}
+
+/// The loop's Unix-ms clock (#EXP-1927): real time, or a stepped one that
+/// stands at `base` + the offset last set, so the stamps of lagging frames
+/// and of the readings around them never depend on the scheduler.
+struct TestClock {
+    base: i64,
+    offset: Option<AtomicI64>,
+}
+
+impl TestClock {
+    fn real() -> Arc<TestClock> {
+        Arc::new(TestClock { base: 0, offset: None })
+    }
+
+    fn stepped() -> Arc<TestClock> {
+        Arc::new(TestClock { base: engine::now_ms(), offset: Some(AtomicI64::new(0)) })
+    }
+
+    fn now(&self) -> i64 {
+        self.offset.as_ref().map_or_else(engine::now_ms, |offset| self.base + offset.load(Ordering::Acquire))
+    }
+
+    /// The stepped clock stands at `base + offset` from now on.
+    fn step(&self, offset: i64) {
+        self.offset.as_ref().expect("a stepped clock").store(offset, Ordering::Release);
+    }
+
+    fn at(&self, offset: i64) -> i64 {
+        self.base + offset
+    }
 }
 
 fn timing(interval_ms: u64) -> Timing {
@@ -117,6 +157,12 @@ fn timing(interval_ms: u64) -> Timing {
 
 fn start(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, interval_ms: u64) -> Rig {
     start_listing(dir, capturer, first, Vec::new(), interval_ms)
+}
+
+/// [`start`] on `clock`.
+fn start_clocked(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, clock: Arc<TestClock>, interval_ms: u64) -> Rig {
+    let epoch = Arc::new(AtomicU64::new(0));
+    start_epochs(dir, capturer, first, Default::default(), (epoch.clone(), epoch), clock, interval_ms)
 }
 
 /// [`start`] with `listed` as every window of the window list from the
@@ -128,7 +174,7 @@ fn start_listing(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<Scree
 /// [`start_listing`] over a window list and a display epoch the capturer
 /// may share.
 fn start_rig(dir: &TempDir, capturer: Box<dyn Capturer>, first: Option<ScreenView>, windows: Shared<Vec<VisibleWindow>>, epoch: Arc<AtomicU64>, interval_ms: u64) -> Rig {
-    start_epochs(dir, capturer, first, windows, (epoch.clone(), epoch), interval_ms)
+    start_epochs(dir, capturer, first, windows, (epoch.clone(), epoch), TestClock::real(), interval_ms)
 }
 
 /// [`start_rig`] whose window list reads one epoch and whose grabs another
@@ -139,6 +185,7 @@ fn start_epochs(
     first: Option<ScreenView>,
     windows: Shared<Vec<VisibleWindow>>,
     (read_epoch, now_epoch): (Arc<AtomicU64>, Arc<AtomicU64>),
+    clock: Arc<TestClock>,
     interval_ms: u64,
 ) -> Rig {
     let view = Arc::new(Mutex::new(first));
@@ -147,10 +194,13 @@ fn start_epochs(
     let source = view.clone();
     let listed = windows.clone();
     let heard = statuses.clone();
-    let memory = Memory::start(
+    let looks = Arc::new(AtomicUsize::new(0));
+    let looked = looks.clone();
+    let memory = Memory::start_clocked(
         &dir.0,
         capturer,
         Box::new(move || {
+            looked.fetch_add(1, Ordering::AcqRel);
             let epoch = read_epoch.load(Ordering::Acquire);
             source.lock().unwrap().clone().map(|view| ScreenLook { view, windows: listed.lock().unwrap().clone(), epoch })
         }),
@@ -158,9 +208,10 @@ fn start_epochs(
         timing(interval_ms),
         hotkey.clone(),
         Arc::new(move |status| heard.lock().unwrap().push(status)),
+        Arc::new(move || clock.now()),
     )
     .unwrap();
-    Rig { memory, view, windows, hotkey, statuses, grabs: Default::default() }
+    Rig { memory, view, windows, hotkey, statuses, grabs: Default::default(), looks }
 }
 
 fn rig(dir: &TempDir, interval_ms: u64) -> Rig {
@@ -326,13 +377,14 @@ fn a_change_skipped_while_the_worker_rests_is_stored_once_it_is_ready() {
     wait_until(|| count(memory) == 2);
     wait_until(|| !memory.encoding());
     // The worker rests; the screen changes once and then holds still.
-    memory.rest(Duration::from_millis(300));
+    memory.rest(Duration::from_secs(60));
     version.store(1, Ordering::Release);
-    std::thread::sleep(Duration::from_millis(150));
+    // The tick that grabbed the change skipped it: the next one re-grabs it.
+    wait_until(|| grabs.lock().unwrap().contains(&"one"));
     assert_eq!(count(memory), 2, "skipped while resting");
-    // The next ticks re-grab the skipped displays: the change lands.
+    memory.rest(Duration::ZERO);
+    // Ready again: the change lands.
     wait_until(|| count(memory) == 4);
-    assert!(grabs.lock().unwrap().contains(&"one"));
     rig.memory.stop(true);
 }
 
@@ -445,6 +497,32 @@ fn a_frame_delivered_while_paused_is_never_stored_after_the_resume() {
     rig.memory.stop(true);
 }
 
+/// STALE for a capturer that reads live (the X11 root reader, Windows' live
+/// read): it cannot tell the screen of before the resume, which may still
+/// show the vault that just closed, so it is not asked at all until the
+/// interval after the resume is over; neither by the tick nor by a
+/// focus-change grab (#EXP-1908).
+#[test]
+fn a_live_capturer_is_not_asked_within_the_interval_after_a_resume() {
+    const INTERVAL_MS: u64 = 300;
+    let dir = TempDir::new();
+    let rig = rig(&dir, INTERVAL_MS);
+    wait_until(|| count(&rig.memory) > 0);
+    rig.focus(Some(window("1Password", "Vault")));
+    wait_until(|| rig.statuses.lock().unwrap().len() >= 2);
+    wait_until(|| !rig.memory.encoding());
+    let paused_at = count(&rig.memory);
+    let resumed = engine::now_ms();
+    rig.focus(Some(window("Zed", "main.rs")));
+    wait_until(|| rig.statuses.lock().unwrap().len() >= 3);
+    // A title change within the interval: no focus-change grab either.
+    rig.focus(Some(window("Zed", "lib.rs")));
+    wait_until(|| count(&rig.memory) > paused_at);
+    let early: Vec<i64> = rig.rows().iter().map(|row| row.at - resumed).filter(|after| (0..INTERVAL_MS as i64).contains(after)).collect();
+    assert!(early.is_empty(), "read live {early:?} ms after the resume");
+    rig.memory.stop(true);
+}
+
 /// PAUSE fails closed: no window list (`None`) or no focused window holds
 /// capture paused; RETENTION still sweeps while paused.
 #[test]
@@ -491,7 +569,7 @@ fn only_work_displays_are_captured_each_with_its_own_label() {
     let skip = count(&rig.memory) - 2;
     assert!(only_two(&rig.rows(), skip));
     *rig.view.lock().unwrap() = view(Some(window("Zed", "main.rs")), &[]);
-    std::thread::sleep(Duration::from_millis(60));
+    rig.settle();
     wait_until(|| !rig.memory.encoding());
     let none_at = count(&rig.memory);
     std::thread::sleep(Duration::from_millis(200));
@@ -505,7 +583,7 @@ fn only_work_displays_are_captured_each_with_its_own_label() {
     // A vault on top of display 2: display 1 goes on, display 2 stops.
     let vault = TopWindow { display: 2, app: "Bitwarden".into(), app_id: None, title: "Vault".into() };
     *rig.view.lock().unwrap() = Some(ScreenView { focused: Some(window_on(1, "Zed", "main.rs")), work: vec![1, 2], tops: vec![vault] });
-    std::thread::sleep(Duration::from_millis(60));
+    rig.settle();
     wait_until(|| !rig.memory.encoding());
     let twos = rig.rows().iter().filter(|row| row.display == 2).count();
     let ones = rig.rows().iter().filter(|row| row.display == 1).count();
@@ -766,29 +844,43 @@ fn a_denylisted_window_behind_the_focus_is_masked_or_its_display_skipped() {
     rig.memory.stop(true);
 }
 
-/// Every grab a new frame the OS captured `lag_ms` before it; the stamps
-/// it handed out.
+/// Every grab a new frame the OS captured `lag_ms` before it on `clock`;
+/// the (display, stamp) of each frame it handed out.
 struct LaggingCapturer {
     inner: FakeCapturer,
     lag_ms: i64,
-    stamps: Shared<Vec<i64>>,
+    stamps: Shared<Vec<(u32, i64)>>,
+    clock: Arc<TestClock>,
 }
 
 impl LaggingCapturer {
-    fn frame(&mut self, display: u32) -> Frame {
-        let at = engine::now_ms() - self.lag_ms;
-        self.stamps.lock().unwrap().push(at);
+    fn new(seed: u64, clock: &Arc<TestClock>) -> (LaggingCapturer, Shared<Vec<(u32, i64)>>) {
+        let stamps: Shared<Vec<(u32, i64)>> = Default::default();
+        let inner = FakeCapturer { seed, grabs: Default::default() };
+        (LaggingCapturer { inner, lag_ms: 400, stamps: stamps.clone(), clock: clock.clone() }, stamps)
+    }
+
+    /// A frame of a grab at `now` (one clock read per grab).
+    fn frame(&mut self, display: u32, now: i64) -> Frame {
+        let at = now - self.lag_ms;
+        self.stamps.lock().unwrap().push((display, at));
         self.inner.frame(display).stamped(at)
+    }
+
+    fn grab_all_at(&mut self, wanted: &[Want], now: i64) -> Vec<Frame> {
+        wanted.iter().map(|want| self.frame(want.display, now)).collect()
     }
 }
 
 impl Capturer for LaggingCapturer {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
-        Ok(wanted.iter().map(|want| self.frame(want.display)).collect())
+        let now = self.clock.now();
+        Ok(self.grab_all_at(wanted, now))
     }
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
-        Ok(Some(self.frame(wanted.display)))
+        let now = self.clock.now();
+        Ok(Some(self.frame(wanted.display, now)))
     }
 }
 
@@ -798,27 +890,31 @@ impl Capturer for LaggingCapturer {
 #[test]
 fn a_frame_is_labelled_by_the_reading_nearest_its_capture_time() {
     let dir = TempDir::new();
-    let stamps: Shared<Vec<i64>> = Default::default();
-    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 9, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
-    let rig = start(&dir, Box::new(capturer), view(Some(window("Zed", "before.rs")), &[1]), 40);
-    // Long enough for the readings to cover the lag.
-    std::thread::sleep(Duration::from_millis(600));
-    let switched = engine::now_ms();
+    let clock = TestClock::stepped();
+    let (capturer, stamps) = LaggingCapturer::new(9, &clock);
+    let rig = start_clocked(&dir, Box::new(capturer), view(Some(window("Zed", "before.rs")), &[1]), clock.clone(), 40);
+    clock.step(1_000);
+    rig.settle();
+    // The change at 1100: a frame stamped 700 is nearer the readings at 1000.
+    clock.step(1_100);
     rig.focus(Some(window("Zed", "after.rs")));
-    wait_until(|| rig.rows().iter().filter(|row| row.at > switched + 100).count() >= 2);
+    rig.settle();
+    // Stamped 710: grabbed after the change was read (one row per stamp).
+    clock.step(1_110);
+    wait_until(|| rig.rows().iter().any(|row| row.at == clock.at(710)));
+    clock.step(2_000);
+    wait_until(|| rig.rows().iter().any(|row| row.at == clock.at(1_600)));
     let rows = rig.rows();
     rig.memory.stop(true);
-    let late_before: Vec<&store::Row> = rows.iter().filter(|row| row.at < switched - 30 && row.at > switched - 400).collect();
-    assert!(!late_before.is_empty(), "frames captured just before the change");
     for row in &rows {
-        if row.at < switched - 30 {
-            assert_eq!(row.title, "before.rs", "captured at {} before the change at {switched}", row.at);
-        } else if row.at > switched + 30 {
+        if row.at <= clock.at(710) {
+            assert_eq!(row.title, "before.rs", "captured at {} before the change", row.at - clock.at(0));
+        } else {
             assert_eq!(row.title, "after.rs");
         }
     }
     let stamps = stamps.lock().unwrap();
-    assert!(rows.iter().all(|row| stamps.contains(&row.at)), "every row carries its capture stamp");
+    assert!(rows.iter().all(|row| stamps.contains(&(row.display, row.at))), "every row carries its capture stamp");
 }
 
 /// PAUSE by the bundle id in the production path: a localized Passwords
@@ -936,7 +1032,9 @@ fn a_stop_cancels_a_start_still_waiting_on_its_capturer() {
     std::thread::sleep(Duration::from_millis(50));
     let asked = Instant::now();
     crate::forget(&dir.0);
-    assert!(asked.elapsed() < Duration::from_millis(500), "the stop waited for the start");
+    // The start stays blocked until the answer below: a stop that waited
+    // for it would never return, so any bound proves it (#EXP-1927: wide).
+    assert!(asked.elapsed() < Duration::from_secs(5), "the stop waited for the start");
     answer.send(()).unwrap();
     assert_eq!(starting.join().unwrap(), Err(crate::CANCELLED.to_string()));
     assert!(dropped.load(Ordering::Acquire), "the late capturer is closed");
@@ -944,19 +1042,20 @@ fn a_stop_cancels_a_start_still_waiting_on_its_capturer() {
     assert!(crate::grant("cancelled").is_err(), "screen memory stays off");
 }
 
-/// The same frame on every grab, captured `lag_ms` before it.
+/// The same frame on every grab, captured `lag_ms` before it on `clock`.
 struct LaggingStill {
     bits: u64,
     lag_ms: i64,
+    clock: Arc<TestClock>,
 }
 
 impl Capturer for LaggingStill {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
-        Ok(wanted.iter().map(|want| blocks(want.display, self.bits).stamped(engine::now_ms() - self.lag_ms)).collect())
+        Ok(wanted.iter().map(|want| blocks(want.display, self.bits).stamped(self.clock.now() - self.lag_ms)).collect())
     }
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
-        Ok(Some(blocks(wanted.display, self.bits).stamped(engine::now_ms() - self.lag_ms)))
+        Ok(Some(blocks(wanted.display, self.bits).stamped(self.clock.now() - self.lag_ms)))
     }
 }
 
@@ -975,18 +1074,24 @@ const QUADRANT: epilot::ScreenRect = epilot::ScreenRect { x: 0, y: 0, width: 160
 #[test]
 fn a_denylisted_window_only_in_the_newest_reading_is_masked() {
     let dir = TempDir::new();
+    let clock = TestClock::stepped();
     let editor = vec![listed(1, "Zed", "main.rs", SIDE, window("Zed", "main.rs").rect)];
-    let rig = start_listing(&dir, Box::new(LaggingStill { bits: u64::MAX, lag_ms: 400 }), view(Some(window("Zed", "main.rs")), &[1]), editor, 40);
+    let capturer = LaggingStill { bits: u64::MAX, lag_ms: 400, clock: clock.clone() };
+    let windows = Arc::new(Mutex::new(editor));
+    let epoch = Arc::new(AtomicU64::new(0));
+    let rig = start_epochs(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), windows, (epoch.clone(), epoch), clock.clone(), 40);
     wait_until(|| count(&rig.memory) == 1);
-    // Long enough for the readings to cover the lag.
-    std::thread::sleep(Duration::from_millis(600));
-    let opened = engine::now_ms();
+    clock.step(1_000);
+    rig.settle();
+    // The vault opens at 1100: a frame stamped 700 is nearer the readings at
+    // 1000, which lack it.
+    clock.step(1_100);
     rig.windows.lock().unwrap().push(listed(1, "Bitwarden", "Vault", SIDE, QUADRANT));
     wait_until(|| count(&rig.memory) == 2);
     let rows = rig.rows();
     rig.memory.stop(true);
     assert_eq!(rows[0].hash, hash_of(&blocks(1, u64::MAX)), "before the vault: unmasked");
-    assert!(rows[1].at < opened, "captured before the vault opened ({} vs {opened})", rows[1].at);
+    assert_eq!(rows[1].at, clock.at(700), "captured before the vault opened");
     assert_eq!(rows[1].hash, masked_quadrant(u64::MAX), "masked by the newest reading");
 }
 
@@ -995,18 +1100,23 @@ fn a_denylisted_window_only_in_the_newest_reading_is_masked() {
 #[test]
 fn a_frame_captured_while_a_vault_was_focused_is_dropped() {
     let dir = TempDir::new();
-    let stamps: Shared<Vec<i64>> = Default::default();
-    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 4, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
-    let rig = start(&dir, Box::new(capturer), view(Some(window("1Password", "Vault")), &[1]), 40);
-    std::thread::sleep(Duration::from_millis(600));
+    let clock = TestClock::stepped();
+    let (capturer, stamps) = LaggingCapturer::new(4, &clock);
+    let rig = start_clocked(&dir, Box::new(capturer), view(Some(window("1Password", "Vault")), &[1]), clock.clone(), 40);
+    rig.settle();
     assert_eq!(count(&rig.memory), 0, "paused");
-    let left = engine::now_ms();
+    // The focus leaves at 300: a frame stamped -100 is nearer the readings
+    // at 0, the vault's.
+    clock.step(300);
     rig.focus(Some(window("Zed", "main.rs")));
-    wait_until(|| rig.rows().iter().filter(|row| row.at > left + 100).count() >= 2);
+    wait_until(|| stamps.lock().unwrap().len() >= 2);
+    wait_until(|| !rig.memory.encoding());
+    clock.step(1_000);
+    wait_until(|| rig.rows().iter().any(|row| row.at == clock.at(600)));
     let rows = rig.rows();
     rig.memory.stop(true);
-    assert!(stamps.lock().unwrap().iter().any(|at| *at < left - 50), "frames captured while the vault was focused");
-    assert!(rows.iter().all(|row| row.at >= left - 30), "none of them stored: {:?}", rows.iter().map(|row| row.at - left).collect::<Vec<_>>());
+    assert!(stamps.lock().unwrap().iter().any(|(_, at)| *at == clock.at(-100)), "frames captured while the vault was focused");
+    assert!(rows.iter().all(|row| row.at == clock.at(600)), "none of them stored: {:?}", rows.iter().map(|row| row.at - clock.at(0)).collect::<Vec<_>>());
 }
 
 /// #FEED-164 work display per frame: a frame of a display that was not a
@@ -1014,17 +1124,24 @@ fn a_frame_captured_while_a_vault_was_focused_is_dropped() {
 #[test]
 fn a_frame_captured_before_its_display_turned_work_is_dropped() {
     let dir = TempDir::new();
-    let stamps: Shared<Vec<i64>> = Default::default();
-    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 6, grabs: Default::default() }, lag_ms: 400, stamps };
-    let rig = start(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), 40);
-    std::thread::sleep(Duration::from_millis(600));
-    let widened = engine::now_ms();
+    let clock = TestClock::stepped();
+    let (capturer, stamps) = LaggingCapturer::new(6, &clock);
+    let rig = start_clocked(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), clock.clone(), 40);
+    wait_until(|| count(&rig.memory) >= 1);
+    clock.step(1_000);
+    rig.settle();
+    // Display 2 turns work at 1100: its frames stamped 700 are nearer the
+    // readings at 1000, display 1 only.
+    clock.step(1_100);
     *rig.view.lock().unwrap() = view(Some(window("Zed", "main.rs")), &[1, 2]);
-    wait_until(|| rig.rows().iter().filter(|row| row.display == 2 && row.at > widened + 100).count() >= 2);
+    wait_until(|| stamps.lock().unwrap().iter().filter(|stamp| **stamp == (2, clock.at(700))).count() >= 2);
+    wait_until(|| !rig.memory.encoding());
+    clock.step(2_000);
+    wait_until(|| rig.rows().iter().any(|row| row.display == 2 && row.at == clock.at(1_600)));
     let rows = rig.rows();
     rig.memory.stop(true);
-    assert!(rows.iter().any(|row| row.display == 1 && row.at < widened), "display 1 went on");
-    assert!(rows.iter().filter(|row| row.display == 2).all(|row| row.at >= widened - 30), "display 2 only from when it is a work display");
+    assert!(rows.iter().any(|row| row.display == 1 && row.at < clock.at(1_100)), "display 1 went on");
+    assert!(rows.iter().filter(|row| row.display == 2).all(|row| row.at == clock.at(1_600)), "display 2 only from when it is a work display");
 }
 
 /// A still white screen; once `open` is set, its next grab opens a vault in
@@ -1073,24 +1190,36 @@ fn a_vault_opening_between_the_read_and_the_grab_is_masked() {
     assert_eq!(rows[1].hash, masked_quadrant(bits));
 }
 
-/// [`LaggingCapturer`] that bumps the display epoch on its first grab once
-/// `bump` is set (it saw the monitor set change).
+/// [`LaggingCapturer`] that bumps `epoch` on its first grab once its clock
+/// reaches `plug_at` (it saw the monitor set change).
 struct HotPlugCapturer {
     inner: LaggingCapturer,
-    bump: Arc<AtomicBool>,
+    plug_at: i64,
+    plugged: bool,
     epoch: Arc<AtomicU64>,
+}
+
+impl HotPlugCapturer {
+    /// The clock of this grab; the epoch bumped first once it is due.
+    fn plug(&mut self) -> i64 {
+        let now = self.inner.clock.now();
+        if !self.plugged && now >= self.plug_at {
+            self.plugged = true;
+            self.epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        now
+    }
 }
 
 impl Capturer for HotPlugCapturer {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
-        if self.bump.swap(false, Ordering::AcqRel) {
-            self.epoch.fetch_add(1, Ordering::AcqRel);
-        }
-        self.inner.grab_all(wanted)
+        let now = self.plug();
+        Ok(self.inner.grab_all_at(wanted, now))
     }
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
-        self.inner.grab(wanted)
+        let now = self.plug();
+        Ok(Some(self.inner.frame(wanted.display, now)))
     }
 }
 
@@ -1100,24 +1229,26 @@ impl Capturer for HotPlugCapturer {
 #[test]
 fn a_frame_read_against_the_display_set_before_a_hot_plug_is_dropped() {
     let dir = TempDir::new();
-    let stamps: Shared<Vec<i64>> = Default::default();
-    let (bump, epoch) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
-    let capturer = HotPlugCapturer {
-        inner: LaggingCapturer { inner: FakeCapturer { seed: 8, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() },
-        bump: bump.clone(),
-        epoch: epoch.clone(),
-    };
-    let rig = start_rig(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), epoch, 40);
-    std::thread::sleep(Duration::from_millis(600));
-    let plugged = engine::now_ms();
-    bump.store(true, Ordering::Release);
-    wait_until(|| rig.rows().iter().filter(|row| row.at > plugged + 100).count() >= 2);
+    let clock = TestClock::stepped();
+    let (inner, stamps) = LaggingCapturer::new(8, &clock);
+    let epoch = Arc::new(AtomicU64::new(0));
+    let capturer = HotPlugCapturer { inner, plug_at: clock.at(1_100), plugged: false, epoch: epoch.clone() };
+    let rig = start_epochs(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), (epoch.clone(), epoch), clock.clone(), 40);
+    wait_until(|| count(&rig.memory) >= 1);
+    clock.step(1_000);
+    rig.settle();
+    wait_until(|| !rig.memory.encoding());
+    // The hot-plug at 1100: frames stamped 700 are nearer the readings at
+    // 1000, of the display set before it.
+    clock.step(1_100);
+    wait_until(|| stamps.lock().unwrap().iter().filter(|(_, at)| *at == clock.at(700)).count() >= 5);
+    wait_until(|| !rig.memory.encoding());
+    clock.step(2_000);
+    wait_until(|| rig.rows().iter().any(|row| row.at == clock.at(1_600)));
     let rows = rig.rows();
     rig.memory.stop(true);
-    let stale = |at: i64| at > plugged - 350 && at < plugged - 50;
-    assert!(rows.iter().any(|row| row.at < plugged - 450), "frames before the hot-plug were stored");
-    assert!(stamps.lock().unwrap().iter().any(|at| stale(*at)), "frames captured before it were handed out after it");
-    assert!(!rows.iter().any(|row| stale(row.at)), "none of them stored");
+    assert!(rows.iter().any(|row| row.at < clock.at(700)), "frames before the hot-plug were stored");
+    assert!(!rows.iter().any(|row| row.at == clock.at(700)), "none captured before it and handed out after it stored");
 }
 
 /// #FEED-164 DISPLAY SET: a re-read after the grab that numbers the displays
@@ -1126,19 +1257,23 @@ fn a_frame_read_against_the_display_set_before_a_hot_plug_is_dropped() {
 #[test]
 fn a_frame_is_dropped_when_the_re_read_after_its_grab_is_of_another_display_set() {
     let dir = TempDir::new();
-    let stamps: Shared<Vec<i64>> = Default::default();
+    let clock = TestClock::stepped();
+    let (inner, stamps) = LaggingCapturer::new(10, &clock);
     let (listed, grabbed) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-    let capturer = LaggingCapturer { inner: FakeCapturer { seed: 10, grabs: Default::default() }, lag_ms: 400, stamps: stamps.clone() };
-    let rig = start_epochs(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), (listed.clone(), grabbed), 40);
-    std::thread::sleep(Duration::from_millis(600));
-    let plugged = engine::now_ms();
-    listed.store(1, Ordering::Release);
-    std::thread::sleep(Duration::from_millis(600));
+    // The window list numbers the displays anew from the first grab at 1050
+    // on (the re-read after it); the grabs stay at epoch 0.
+    let capturer = HotPlugCapturer { inner, plug_at: clock.at(1_050), plugged: false, epoch: listed.clone() };
+    let rig = start_epochs(&dir, Box::new(capturer), view(Some(window("Zed", "main.rs")), &[1]), Default::default(), (listed, grabbed), clock.clone(), 40);
+    wait_until(|| count(&rig.memory) >= 1);
+    clock.step(1_000);
+    rig.settle();
+    wait_until(|| !rig.memory.encoding());
+    // Frames stamped 650: their own reading (at 1000) is of epoch 0.
+    clock.step(1_050);
+    wait_until(|| stamps.lock().unwrap().iter().filter(|(_, at)| *at == clock.at(650)).count() >= 5);
+    wait_until(|| !rig.memory.encoding());
     let rows = rig.rows();
     rig.memory.stop(true);
-    // Captured before the change (their reading = epoch 0), handed out after.
-    let late = |at: i64| at > plugged - 350;
-    assert!(rows.iter().any(|row| row.at < plugged - 450), "frames before the change were stored");
-    assert!(stamps.lock().unwrap().iter().any(|at| late(*at) && *at < plugged - 50), "frames captured before it were handed out after it");
-    assert!(!rows.iter().any(|row| late(row.at)), "none stored after the change");
+    assert!(rows.iter().any(|row| row.at < clock.at(650)), "frames before the change were stored");
+    assert!(!rows.iter().any(|row| row.at >= clock.at(650)), "none stored after the change");
 }

@@ -14,12 +14,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <!-- #ERR-23: largeHeap is a TEMPORARY stopgap (256 → ~512 MB on a Pixel 7)
-         until the fix for the whole-table reads that fill the heap ships;
-         remove it once that release has shown no OutOfMemoryError. -->
     <application
         android:name=".ExponentialApp"
-        android:largeHeap="true"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"

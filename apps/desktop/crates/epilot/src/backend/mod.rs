@@ -40,6 +40,10 @@ pub(crate) struct DisplayInfo {
     pub height: u32,
     pub primary: bool,
     pub name: String,
+    /// #EXP-1919: what tells this display from a twin (set by
+    /// [`finish_ids`]: its connector, whether a twin is connected or not);
+    /// `None` = the OS named none, or its twins are told apart by order.
+    pub connector: Option<String>,
 }
 
 impl DisplayInfo {
@@ -76,7 +80,8 @@ pub(crate) fn finish_ids(displays: &mut [DisplayInfo], connectors: &[Option<Stri
         let by_connector = twins.len() > 1
             && twins.iter().all(|twin| connector(*twin).is_some())
             && twins.iter().all(|twin| twins.iter().filter(|other| connector(**other) == connector(*twin)).count() == 1);
-        let mut id = if by_connector { suffixed(base, &format!("@{}", connector(index).unwrap_or_default())) } else { base.clone() };
+        let mut id = if by_connector { twin_id(base, &connector(index).unwrap_or_default()) } else { base.clone() };
+        display.connector = connector(index).filter(|_| by_connector || twins.len() == 1);
         // OS order: the fallback, and the last guard against a collision.
         let mut n = 1;
         while seen.contains(&id) {
@@ -86,6 +91,14 @@ pub(crate) fn finish_ids(displays: &mut [DisplayInfo], connectors: &[Option<Stri
         seen.push(id.clone());
         display.id = id;
     }
+}
+
+/// #EXP-1919: the id a display `base` carries beside a twin: `@` + its
+/// connector, cut so the whole fits [`ID_MAX`].
+pub(crate) fn twin_id(base: &str, connector: &str) -> String {
+    let suffix = format!("@{connector}");
+    let room = ID_MAX.saturating_sub(suffix.chars().count());
+    format!("{}{suffix}", base.chars().take(room).collect::<String>())
 }
 
 /// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
@@ -122,6 +135,81 @@ pub(crate) enum Button {
     Right,
 }
 
+/// #EXP-1921: the keys and buttons the person held when a lock engaged,
+/// by the backend's own index (Windows a VK, macOS a keycode or a button).
+/// A lock swallows all of the person's input except each one's release,
+/// once: a button swallowed on its way up would stay down, and the agent's
+/// next move would drag what the person was dragging.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) struct HeldAtEngage<const N: usize>(pub [bool; N]);
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+impl<const N: usize> HeldAtEngage<N> {
+    pub(crate) const NONE: Self = Self([false; N]);
+
+    /// Whether the person's press (`down`) or release of `index` passes
+    /// the lock: only the first release of one held at engage.
+    pub(crate) fn passes(&mut self, index: usize, down: bool) -> bool {
+        match self.0.get_mut(index) {
+            Some(slot) if *slot && !down => {
+                *slot = false;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// #EXP-1921: the start of a lock on its own thread, both ends. `take`
+/// waits a while for the thread's answer; a thread that gets there after
+/// `take` gave up must tear its lock down at once, since no guard will
+/// ever release it.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn lock_start<T>() -> (LockReady<T>, LockStart<T>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let abandoned = std::sync::Arc::new(std::sync::Mutex::new(false));
+    (LockReady { tx, abandoned: abandoned.clone() }, LockStart { rx, abandoned })
+}
+
+/// The lock thread's end of [`lock_start`].
+pub(crate) struct LockReady<T> {
+    tx: std::sync::mpsc::Sender<T>,
+    abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+impl<T> LockReady<T> {
+    /// Hand `value` to `take`. `false` = `take` gave up: tear the lock down.
+    pub(crate) fn send(self, value: T) -> bool {
+        let abandoned = self.abandoned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        !*abandoned && self.tx.send(value).is_ok()
+    }
+}
+
+/// `take`'s end of [`lock_start`].
+pub(crate) struct LockStart<T> {
+    rx: std::sync::mpsc::Receiver<T>,
+    abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+impl<T> LockStart<T> {
+    /// The thread's answer within `timeout`. On a timeout the thread hears
+    /// it was abandoned; an answer sent before it heard is handed to `late`,
+    /// which tears that lock down.
+    pub(crate) fn wait(self, timeout: std::time::Duration, late: impl FnOnce(T)) -> Result<T, std::sync::mpsc::RecvTimeoutError> {
+        let answer = self.rx.recv_timeout(timeout);
+        if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = answer {
+            *self.abandoned.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
+            if let Ok(value) = self.rx.try_recv() {
+                late(value);
+            }
+        }
+        answer
+    }
+}
+
 /// Released on drop. Dropping from the lock's own thread (inside `on_esc`)
 /// must not join that thread.
 pub(crate) trait LockGuard: Send {}
@@ -135,6 +223,11 @@ pub(crate) trait LockGuard: Send {}
 #[derive(Default)]
 pub(crate) struct SavedClipboard {
     pub formats: Vec<(String, Vec<u8>)>,
+    /// The clipboard held more than `formats` (#EXP-1900): a format too
+    /// large or one that could not be read was left out, so restoring this
+    /// would lose it. The tool layer (`tools.rs`) then refuses before it
+    /// touches the clipboard; a backend only reports.
+    pub partial: bool,
 }
 
 /// Whether the focused window took the text a paste offered.
@@ -158,7 +251,8 @@ pub(crate) trait Clipboard {
     /// owner-change count, eDE the compositor's selection serial).
     fn change_count(&self) -> Result<u64, String>;
     /// Everything the clipboard holds now, to [`Clipboard::restore`] later;
-    /// formats that cannot be read (too large, an OS handle) are skipped.
+    /// a format that cannot be read (too large, an OS handle) is left out
+    /// and the save says so ([`SavedClipboard::partial`]).
     fn save(&self) -> Result<SavedClipboard, String>;
     /// Put `text` on the clipboard. `sensitive` = a secret: marked so
     /// clipboard managers and the OS history skip it (X11: served only to
@@ -176,7 +270,22 @@ pub(crate) trait Clipboard {
     fn text(&self) -> Result<Option<String>, String>;
 }
 
+/// Whose screen and input a run drives (#EXP-1924). Only the person's seat
+/// today; every lock, Esc set, call queue, Work screen pick and banner is
+/// one target's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum Target {
+    /// The person's own seat: their screen, pointer and keyboard.
+    #[default]
+    Person,
+}
+
 pub(crate) trait Backend: Send {
+    /// The target this backend drives ([`open`]'s). A backend for another
+    /// target than the person's must override it.
+    fn target(&self) -> Target {
+        Target::Person
+    }
     /// Every display, the primary marked; never empty.
     fn displays(&self) -> Result<Vec<DisplayInfo>, String>;
     /// `display`'s pixels now; any resolution, the frame fits it.
@@ -254,15 +363,42 @@ pub(crate) fn app_id(pid: u32) -> Option<String> {
 }
 
 /// NEW-59: the native pixel size of the display at this rect (screen
-/// units); the rect's own size where the OS already counts pixels.
+/// units: macOS points, eDE logical units); the rect's own size where the
+/// OS already counts pixels.
 pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) {
     #[cfg(target_os = "macos")]
     return macos::pixel_size(x, y, width, height);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return ede::pixel_size(x, y, width, height).unwrap_or((width, height));
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (x, y);
         (width, height)
     }
+}
+
+/// [`crate::before_exit`].
+pub(crate) fn before_exit() {
+    #[cfg(target_os = "linux")]
+    if ede::session().is_none() {
+        linux::before_exit();
+    }
+}
+
+/// #EXP-1925: `run` ended: what was granted at the desktop for it ends
+/// (eDE).
+pub(crate) fn end_run(target: Target, run: &str) {
+    let Target::Person = target;
+    #[cfg(target_os = "linux")]
+    ede::end_run(run);
+    #[cfg(not(target_os = "linux"))]
+    let _ = run;
+}
+
+/// The switch turned off: a grant minted at the desktop ends (eDE).
+pub(crate) fn revoke_grant() {
+    #[cfg(target_os = "linux")]
+    ede::revoke_grant();
 }
 
 /// [`crate::screen_layout`]: X11 only, where the toolkit's display is the
@@ -287,16 +423,20 @@ pub(crate) fn name() -> &'static str {
     "none"
 }
 
-/// Open the backend for one call.
-pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
+/// Open the backend driving `target` for one call of `run` (`None` = no
+/// run's: the doctor, the screen state, the banner).
+pub(crate) fn open(target: Target, run: Option<&str>) -> Result<Box<dyn Backend>, String> {
+    let Target::Person = target;
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
     #[cfg(target_os = "linux")]
     return match ede::session() {
-        Some(session) => ede::open(&session?),
+        Some(session) => ede::open_as(&session?, run),
         None => linux::open(),
     };
+    #[cfg(not(target_os = "linux"))]
+    let _ = run;
     #[cfg(target_os = "macos")]
     return macos::open();
     #[cfg(target_os = "windows")]
@@ -310,7 +450,7 @@ mod tests {
     use super::*;
 
     fn display(id: &str) -> DisplayInfo {
-        DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new() }
+        DisplayInfo { id: id.into(), x: 0, y: 0, width: 100, height: 100, primary: false, name: String::new(), connector: None }
     }
 
     /// #FEED-161: without connectors twins get `#2`, `#3` in the OS's
@@ -351,6 +491,39 @@ mod tests {
         let mut after = [display("uuid"), display("uuid")];
         finish_ids(&mut after, &[Some("2".into()), Some("1".into())]);
         assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
+    }
+
+    #[test]
+    fn what_was_held_at_engage_passes_its_release_once() {
+        let mut held = HeldAtEngage::<4>::NONE;
+        held.0[1] = true;
+        assert!(!held.passes(1, true), "a press never passes");
+        assert!(held.passes(1, false));
+        assert!(!held.passes(1, false), "only once");
+        assert!(!held.passes(2, false), "not held at engage");
+        assert!(!held.passes(9, false), "out of range");
+    }
+
+    /// #EXP-1921: a lock thread that answers after `take` gave up hears so
+    /// and tears its lock down; one that answers in time is taken.
+    #[test]
+    fn a_lock_that_started_after_take_gave_up_is_torn_down() {
+        let (ready, start) = lock_start::<u32>();
+        let (sent_tx, sent_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            sent_tx.send(ready.send(7)).unwrap();
+        });
+        let mut late = None;
+        let answer = start.wait(std::time::Duration::from_millis(20), |value| late = Some(value));
+        assert_eq!(answer, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        assert!(!sent_rx.recv().unwrap(), "the late thread must tear down");
+        assert_eq!(late, None);
+        thread.join().unwrap();
+
+        let (ready, start) = lock_start::<u32>();
+        assert!(ready.send(7));
+        assert_eq!(start.wait(std::time::Duration::from_secs(5), |_| panic!("not late")), Ok(7));
     }
 
     #[test]

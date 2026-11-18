@@ -847,6 +847,9 @@ mod tests {
         crate::doctor::managed_codex_check(state)
     }
 
+    /// The reason epilot gives on a Wayland session (backend/linux.rs).
+    const WAYLAND: &str = "This is a Wayland session; computer use needs an X11 session for now (sign in with the \"on Xorg\" session).";
+
     fn settings(computer_use: bool) -> Settings {
         Settings {
             computer_use,
@@ -879,7 +882,7 @@ mod tests {
         use crate::worktree_lifecycle::{KeptReason, KeptRow};
         match index {
             11 | 12 => Some((214_300_000_000, Vec::new())),
-            13 => Some((
+            14 => Some((
                 6_240_000_000,
                 vec![
                     KeptRow { label: "exp-session-9497089a".into(), reason: KeptReason::Uncommitted },
@@ -957,7 +960,12 @@ mod tests {
             // NEW-78: the first case's machine, plus its microphone row.
             6..=10 => case_input(0),
             // EXP-1375: the first case's machine, plus its storage group.
-            11..=13 => case_input(0),
+            11 | 12 | 14 => case_input(0),
+            // #EXP-1899: the first case's machine, switched on in a Wayland session.
+            13 => {
+                let (report, _, _) = case_input(0);
+                (report, settings(true), ComputerState::Unsupported(Some(WAYLAND.into())))
+            }
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -966,7 +974,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 14, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 15, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -981,7 +989,7 @@ mod tests {
                 add_storage(&mut doctor, Some(free), &kept);
             }
             // #EXP-1865: the low-disk case's machine also swept its build cache.
-            if index == 13 {
+            if index == 14 {
                 add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02");
             }
             add_key_holder(&mut doctor, index != 12);

@@ -4,8 +4,10 @@
 //! Input is `input` on the person's seat (`input:person`): pointer motion,
 //! evdev buttons, wheel notches, and keys as keysyms the compositor looks up
 //! on its own layout (Shift/AltGr included). The screen is `capture` of an
-//! output (protected windows black), windows are `list_windows` and
-//! `focus_window`. The compositor refuses input on protected surfaces and
+//! output (protected windows black), windows are `list_windows` (the active
+//! workspace's only) and `focus_window`. Displays and windows are in the
+//! compositor's logical units, the ones the pointer speaks; a display's
+//! pixels are its output's mode ([`pixel_size`]). The compositor refuses input on protected surfaces and
 //! while the session is locked; those refusals are the tool's error.
 //!
 //! The lock is `hold_input` on a connection of its own: the person's keys,
@@ -25,14 +27,19 @@
 //! eDE = `XDG_CURRENT_DESKTOP` names `Exponential` and its socket
 //! (`$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock`) is there.
 //! Grants by default (#EDE-22): the root token file only mints, once per
-//! process and compositor, a grant for `epilot` holding `capture` and
-//! `input:person`; every connection here uses that grant. `EDE_TOKEN`
-//! (a grant handed to this process) is used as it is when it cannot mint.
+//! process and compositor, a grant for `epilot` holding `capture`,
+//! `input:person` and `ui` (`focus_window`), for what no run asks (the
+//! doctor, the screen state, the banner); turning computer use off revokes
+//! it. A run's calls use a grant of the run's own (#EXP-1925: session id =
+//! the run's, an expiry renewed while the run calls), revoked at the run's
+//! end. `EDE_TOKEN` (a grant handed to this process) is used as it is when
+//! it cannot mint.
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, InputEvent, Request, SessionId, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
 
@@ -88,8 +95,74 @@ pub(crate) fn unsupported(session: &Result<Session, String>) -> Option<String> {
 /// process, not one per tool call (the hub opens a backend per call).
 static GRANT: Mutex<Option<(PathBuf, Token)>> = Mutex::new(None);
 
-/// What a tool call needs: the screen and the person's seat.
-const CAPABILITIES: [Capability; 2] = [Capability::Capture, Capability::InputPerson];
+/// #EXP-1925: how long a run's grant lives; a call with less than
+/// [`RUN_GRANT_RENEW`] of it left mints the next one. The ones before
+/// expire on their own (a call in flight keeps its connection).
+const RUN_GRANT_TTL: Duration = Duration::from_secs(15 * 60);
+const RUN_GRANT_RENEW: Duration = Duration::from_secs(5 * 60);
+
+/// One grant minted for a run.
+#[derive(Clone)]
+struct RunGrant {
+    socket: PathBuf,
+    token: Token,
+    /// Unix milliseconds.
+    expires_at: i64,
+}
+
+/// Per run: the grants minted for it and not yet expired, newest last.
+static RUN_GRANTS: LazyLock<Mutex<HashMap<String, Vec<RunGrant>>>> = LazyLock::new(Default::default);
+
+fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// What a tool call needs: the screen, the person's seat, and `ui` for
+/// `focus_window` (`activate_window`, #EXP-1897).
+const CAPABILITIES: [Capability; 3] = [Capability::Capture, Capability::InputPerson, Capability::Ui];
+
+/// Each display's rect (logical units) with its size in pixels, as the last
+/// [`Backend::displays`] read them (#EXP-1897).
+static PIXELS: Mutex<Vec<((i32, i32, u32, u32), (u32, u32))>> = Mutex::new(Vec::new());
+
+/// The pixel size of the display at this rect; `None` = not an eDE display.
+pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> Option<(u32, u32)> {
+    PIXELS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(rect, _)| *rect == (x, y, width, height)).map(|(_, pixels)| *pixels)
+}
+
+/// An output's pixels: its current mode (what a capture carries), else its
+/// logical size times its scale.
+fn pixels_of(output: &ede_protocol::OutputInfo) -> (u32, u32) {
+    if let Some(mode) = output.modes.iter().find(|mode| mode.current) {
+        return (mode.width.max(1) as u32, mode.height.max(1) as u32);
+    }
+    let scale = if output.scale.is_finite() && output.scale > 0.0 { output.scale } else { 1.0 };
+    let scaled = |units: i32| (f64::from(units.max(1)) * scale).round() as u32;
+    (scaled(output.width), scaled(output.height))
+}
+
+/// The switch turned off: the grants this process minted end (#EXP-1897),
+/// every run's too (#EXP-1925).
+pub(crate) fn revoke_grant() {
+    if let Some(Ok(session)) = session() {
+        session.revoke();
+        let runs: Vec<String> = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect();
+        for run in runs {
+            session.end_run(&run);
+        }
+    }
+}
+
+/// #EXP-1925: `run` ended: the grants minted for it end. Touches nothing
+/// when none was.
+pub(crate) fn end_run(run: &str) {
+    if !RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).contains_key(run) {
+        return;
+    }
+    if let Some(Ok(session)) = session() {
+        session.end_run(run);
+    }
+}
 
 impl Session {
     fn root_token(&self) -> Result<Token, String> {
@@ -102,6 +175,71 @@ impl Session {
 
     fn connect_token(&self, token: Token) -> Result<Client, String> {
         Client::connect(&self.socket, token).map_err(|err| format!("eDE ({}): {err}", self.socket.display()))
+    }
+
+    /// A connection under `run`'s own grant (#EXP-1925), minted on its
+    /// first call and again once less than [`RUN_GRANT_RENEW`] is left (or
+    /// the compositor no longer knows it); `None`, or a root that cannot
+    /// mint, = [`Session::connect`].
+    fn connect_as(&self, run: Option<&str>) -> Result<Client, String> {
+        let Some(run) = run else { return self.connect() };
+        let fresh = now_ms() + RUN_GRANT_RENEW.as_millis() as i64;
+        let cached = RUN_GRANTS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(run)
+            .and_then(|grants| grants.last())
+            .filter(|grant| grant.socket == self.socket && grant.expires_at > fresh)
+            .map(|grant| grant.token.clone());
+        if let Some(token) = cached {
+            match self.connect_token(token) {
+                Ok(client) => return Ok(client),
+                Err(err) if !err.contains("unknown or expired token") => return Err(err),
+                Err(_) => {}
+            }
+        }
+        let mut root = self.connect_token(self.root_token()?)?;
+        if !root.hello.capabilities.contains(&Capability::System) {
+            drop(root);
+            return self.connect();
+        }
+        let now = now_ms();
+        let expires_at = now + RUN_GRANT_TTL.as_millis() as i64;
+        let session = SessionId::new(run).map_err(|err| err.to_string())?;
+        let token = root.mint(session, CAPABILITIES.to_vec(), Some(expires_at)).map_err(e("eDE grant"))?.token;
+        drop(root);
+        {
+            let mut runs = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner());
+            let grants = runs.entry(run.to_string()).or_default();
+            grants.retain(|grant| grant.expires_at > now);
+            grants.push(RunGrant { socket: self.socket.clone(), token: token.clone(), expires_at });
+        }
+        self.connect_token(token)
+    }
+
+    /// `run`'s grants on this compositor end; the compositor forgets them.
+    fn end_run(&self, run: &str) {
+        let grants = {
+            let mut runs = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner());
+            let Some(grants) = runs.get_mut(run) else { return };
+            let ours: Vec<RunGrant> = grants.iter().filter(|grant| grant.socket == self.socket).cloned().collect();
+            grants.retain(|grant| grant.socket != self.socket);
+            if grants.is_empty() {
+                runs.remove(run);
+            }
+            ours
+        };
+        let now = now_ms();
+        let live: Vec<Token> = grants.into_iter().filter(|grant| grant.expires_at > now).map(|grant| grant.token).collect();
+        if live.is_empty() {
+            return;
+        }
+        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
+            live.into_iter().try_for_each(|token| root.call(Request::RevokeGrant { token }).map(|_| ()).map_err(e("eDE grant")))
+        });
+        if let Err(err) = revoked {
+            log::warn!("computer use: a run's eDE grant was not revoked: {err}");
+        }
     }
 
     /// A connection under this process's own grant, minted on first use
@@ -126,15 +264,42 @@ impl Session {
         *GRANT.lock().unwrap_or_else(|p| p.into_inner()) = Some((self.socket.clone(), token.clone()));
         self.connect_token(token)
     }
+
+    /// Forget the cached grant and have the compositor forget it too; the
+    /// next connection mints a new one. A token handed to this process
+    /// (`EDE_TOKEN` without `system`) is not ours to revoke.
+    fn revoke(&self) {
+        let cached = GRANT.lock().unwrap_or_else(|p| p.into_inner()).take_if(|(socket, _)| *socket == self.socket);
+        let Some((_, token)) = cached else { return };
+        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
+            if *root.token() == token {
+                return Ok(());
+            }
+            root.call(Request::RevokeGrant { token }).map(|_| ()).map_err(e("eDE grant"))
+        });
+        if let Err(err) = revoked {
+            log::warn!("computer use: the eDE grant was not revoked: {err}");
+        }
+    }
 }
 
+/// The backend under this process's own grant.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn open(session: &Session) -> Result<Box<dyn Backend>, String> {
-    Ok(Box::new(Ede { client: Mutex::new(session.connect()?), session: session.clone() }))
+    open_as(session, None)
+}
+
+/// The backend for `run`'s call, under its own grant ([`Session::connect_as`]).
+pub(crate) fn open_as(session: &Session, run: Option<&str>) -> Result<Box<dyn Backend>, String> {
+    let run = run.map(str::to_string);
+    Ok(Box::new(Ede { client: Mutex::new(session.connect_as(run.as_deref())?), session: session.clone(), run }))
 }
 
 pub(crate) struct Ede {
     client: Mutex<Client>,
     session: Session,
+    /// The run whose grant this is; `None` = the process's.
+    run: Option<String>,
 }
 
 fn e(what: &str) -> impl Fn(ede_protocol::Error) -> String + '_ {
@@ -186,11 +351,14 @@ impl Ede {
 
 impl Backend for Ede {
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
-        let outputs = self.client.lock().unwrap().outputs().map_err(e("eDE outputs"))?;
+        // #EDE-91: the person's desk only.
+        let outputs = ede_protocol::persons(self.client.lock().unwrap().outputs().map_err(e("eDE outputs"))?);
         if outputs.is_empty() {
             return Err("eDE has no output.".to_string());
         }
         let connectors: Vec<Option<String>> = outputs.iter().map(|output| Some(output.name.clone())).collect();
+        *PIXELS.lock().unwrap_or_else(|p| p.into_inner()) =
+            outputs.iter().map(|output| ((output.x, output.y, output.width.max(1) as u32, output.height.max(1) as u32), pixels_of(output))).collect();
         let mut displays: Vec<DisplayInfo> = outputs
             .into_iter()
             .enumerate()
@@ -203,6 +371,7 @@ impl Backend for Ede {
                 // eDE lays outputs out left to right from the first.
                 primary: index == 0,
                 name: output.name,
+                connector: None,
             })
             .collect();
         finish_ids(&mut displays, &connectors);
@@ -220,12 +389,20 @@ impl Backend for Ede {
     }
 
     fn list_windows(&self) -> Result<Vec<WindowInfo>, String> {
-        let windows = self.client.lock().unwrap().windows().map_err(e("eDE windows"))?;
-        // The compositor lists bottom to top, then parked and minimized ones.
+        let (windows, active) = {
+            let mut client = self.client.lock().unwrap();
+            let windows = client.windows().map_err(e("eDE windows"))?;
+            // An eDE without workspaces parks nothing.
+            let active = client.workspaces().ok().and_then(|all| all.into_iter().find(|workspace| workspace.active)).map(|workspace| workspace.index);
+            (windows, active)
+        };
+        // The compositor lists bottom to top, then parked and minimized
+        // ones: neither is on screen (#EXP-1897); an agent space's is not
+        // the person's (#EDE-91).
         Ok(windows
             .into_iter()
             .rev()
-            .filter(|window| !window.minimized)
+            .filter(|window| window.is_persons() && !window.minimized && active.is_none_or(|active| window.workspace == active))
             .filter_map(|window| {
                 Some(WindowInfo {
                     id: window_number(&window.id)?,
@@ -272,7 +449,7 @@ impl Backend for Ede {
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
-        Ok(Box::new(Hold::take(self.session.connect()?, on_esc)?))
+        Ok(Box::new(Hold::take(self.session.connect_as(self.run.as_deref())?, on_esc)?))
     }
 
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
@@ -325,7 +502,9 @@ impl Clipboard for EdeClipboard<'_> {
 
     fn save(&self) -> Result<SavedClipboard, String> {
         let snapshot = self.client().clipboard_snapshot().map_err(clipboard_error("clipboard"))?;
-        Ok(SavedClipboard { formats: snapshot.items.into_iter().map(|item| (item.mime, item.data)).collect() })
+        // An eDE from before `unread` dropped types without saying so: partial.
+        let partial = !snapshot.is_whole();
+        Ok(SavedClipboard { formats: snapshot.items.into_iter().map(|item| (item.mime, item.data)).collect(), partial })
     }
 
     fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
@@ -366,12 +545,16 @@ impl Clipboard for EdeClipboard<'_> {
 /// The hold, on a connection of its own; a thread waits for the person's Esc.
 struct Hold {
     stream: UnixStream,
+    /// Set by the guard's drop: the close the thread then reads is ours.
+    dropped: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Hold {
     fn take(mut client: Client, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Hold, String> {
         client.hold_input().map_err(e("eDE hold"))?;
         let stream = client.try_clone_stream().map_err(|err| format!("eDE hold: {err}"))?;
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ours = dropped.clone();
         std::thread::Builder::new()
             .name("computer-use-lock".into())
             .spawn(move || loop {
@@ -381,12 +564,20 @@ impl Hold {
                         return;
                     }
                     Ok(_) => {}
-                    // Closed: the guard dropped (or the compositor went away).
-                    Err(_) => return,
+                    // Closed. By the guard's drop: done. Otherwise the
+                    // compositor went away and the hold with it: the host
+                    // must not believe the input is still held, so it
+                    // hears an abort (#EXP-1893).
+                    Err(_) => {
+                        if !ours.load(std::sync::atomic::Ordering::SeqCst) {
+                            on_esc();
+                        }
+                        return;
+                    }
                 }
             })
             .map_err(|err| format!("lock thread: {err}"))?;
-        Ok(Hold { stream })
+        Ok(Hold { stream, dropped })
     }
 }
 
@@ -396,6 +587,7 @@ impl Drop for Hold {
     /// Closing the connection ends the hold; never joins (this may run on
     /// the lock's own thread, inside `on_esc`).
     fn drop(&mut self) {
+        self.dropped.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 }
@@ -483,6 +675,57 @@ mod tests {
         assert!(closed);
     }
 
+    /// A fake compositor that answers hello and the hold, then does `then`
+    /// with its end of the connection.
+    fn held(then: impl FnOnce(UnixStream) + Send + 'static) -> (Client, std::thread::JoinHandle<()>) {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut theirs = theirs;
+            for _ in 0..2 {
+                let call: Call = serde_json::from_slice(&read_frame(&mut theirs).unwrap()).unwrap();
+                let result = match &call.request {
+                    Request::Hello { .. } => serde_json::json!({"version": 1, "capabilities": ["input:person"], "session_id": "epilot"}),
+                    _ => serde_json::Value::Null,
+                };
+                write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: call.id, result }).unwrap()).unwrap();
+            }
+            then(theirs);
+        });
+        (Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap(), server)
+    }
+
+    /// #EXP-1893: the compositor went away under the hold (a crash, a
+    /// restart): the input is no longer held, so the host hears an abort.
+    #[test]
+    fn a_dead_hold_connection_is_an_abort() {
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let (client, server) = held(move |theirs| {
+            let _ = released.recv();
+            drop(theirs);
+        });
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = Mutex::new(tx);
+        let guard = Hold::take(client, Box::new(move || { let _ = tx.lock().unwrap().send(()); })).unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        release.send(()).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("the dead hold reaches on_esc");
+        drop(guard);
+        server.join().unwrap();
+    }
+
+    /// Dropping the guard closes the same connection: that is the host's
+    /// own release, never an abort.
+    #[test]
+    fn dropping_the_hold_is_not_an_abort() {
+        let (client, server) = held(|mut theirs| assert!(read_frame(&mut theirs).is_err()));
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = Mutex::new(tx);
+        let guard = Hold::take(client, Box::new(move || { let _ = tx.lock().unwrap().send(()); })).unwrap();
+        drop(guard);
+        server.join().unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(500)).is_err(), "on_esc fired on the guard's own drop");
+    }
+
     /// A fake compositor answering the clipboard ops from a script; the
     /// ops it saw come back.
     fn fake_compositor(replies: Vec<Result<serde_json::Value, &'static str>>) -> (Ede, std::thread::JoinHandle<Vec<serde_json::Value>>) {
@@ -509,7 +752,75 @@ mod tests {
         });
         let client = Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap();
         let session = Session { socket: PathBuf::from("/nonexistent"), token_file: PathBuf::from("/nonexistent"), token: None };
-        (Ede { client: Mutex::new(client), session }, server)
+        (Ede { client: Mutex::new(client), session, run: None }, server)
+    }
+
+    /// #EXP-1925: a fake compositor on a socket of its own: the root token
+    /// mints, every mint and revoke is logged (`mint <session> <expiry?>`,
+    /// `revoke <token>`).
+    fn fake_socket() -> (Session, std::sync::Arc<Mutex<Vec<String>>>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("epilot-grants-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (socket, token_file) = (dir.join("ede.sock"), dir.join("token"));
+        let root = "f".repeat(64);
+        std::fs::write(&token_file, &root).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let log = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let minted = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let seen = log.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let (log, minted, root) = (seen.clone(), minted.clone(), root.clone());
+                std::thread::spawn(move || loop {
+                    let Ok(frame) = read_frame(&mut stream) else { return };
+                    let call: Call = serde_json::from_slice(&frame).unwrap();
+                    let result = match call.request {
+                        Request::Hello { token, .. } => {
+                            let mut capabilities = vec!["capture", "input:person", "ui"];
+                            if token.as_str() == root {
+                                capabilities.push("system");
+                            }
+                            serde_json::json!({"version": 1, "capabilities": capabilities, "session_id": "s"})
+                        }
+                        Request::MintGrant { session_id, expires_at, capabilities, .. } => {
+                            log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
+                            let token = format!("{:064x}", minted.fetch_add(1, Ordering::SeqCst) + 1);
+                            let token = Token::new(token).unwrap();
+                            serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap()
+                        }
+                        Request::RevokeGrant { token } => {
+                            log.lock().unwrap().push(format!("revoke {}", token.as_str()));
+                            serde_json::Value::Null
+                        }
+                        other => panic!("unexpected {other:?}"),
+                    };
+                    let message = Message::Reply { id: call.id, result };
+                    write_frame(&mut stream, &serde_json::to_vec(&message).unwrap()).unwrap();
+                });
+            }
+        });
+        (Session { socket, token_file, token: None }, log, dir)
+    }
+
+    /// #EXP-1925: two runs mint two grants (each its own, with an expiry;
+    /// a run's next call reuses its grant), and a run's end revokes
+    /// exactly its own.
+    #[test]
+    fn each_run_mints_its_own_grant_and_its_end_revokes_only_that() {
+        let (session, log, dir) = fake_socket();
+        let (a, b) = ("epilot-test-run-a", "epilot-test-run-b");
+        let token_a = session.connect_as(Some(a)).unwrap().token().clone();
+        let token_b = session.connect_as(Some(b)).unwrap().token().clone();
+        assert_ne!(token_a, token_b);
+        assert_eq!(session.connect_as(Some(a)).unwrap().token(), &token_a, "a run's next call mints anew");
+        assert_eq!(log.lock().unwrap().clone(), [format!("mint {a} true"), format!("mint {b} true")]);
+        session.end_run(a);
+        assert_eq!(log.lock().unwrap()[2..], [format!("revoke {}", token_a.as_str())]);
+        assert!(RUN_GRANTS.lock().unwrap().contains_key(b) && !RUN_GRANTS.lock().unwrap().contains_key(a));
+        session.end_run(b);
+        assert_eq!(log.lock().unwrap()[3..], [format!("revoke {}", token_b.as_str())]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// paste_text's round on eDE: save = snapshot, set = every text type
@@ -521,7 +832,7 @@ mod tests {
         use serde_json::json;
         let (ede, server) = fake_compositor(vec![
             Ok(json!({"serial": 4})),
-            Ok(json!({"serial": 4, "items": [{"mime": "image/png", "data": "AAE="}, {"mime": CLIPBOARD_SECRET_HINT, "data": "c2VjcmV0"}]})),
+            Ok(json!({"serial": 4, "items": [{"mime": "image/png", "data": "AAE="}, {"mime": CLIPBOARD_SECRET_HINT, "data": "c2VjcmV0"}], "unread": []})),
             Ok(json!({"serial": 5})),
             Ok(json!({"serial": 5, "taken": false})),
             Ok(json!({"serial": 5, "taken": true})),
@@ -534,6 +845,7 @@ mod tests {
         assert_eq!(clipboard.change_count().unwrap(), 4);
         let saved = clipboard.save().unwrap();
         assert_eq!(saved.formats, vec![("image/png".to_string(), vec![0, 1]), (CLIPBOARD_SECRET_HINT.to_string(), b"secret".to_vec())]);
+        assert!(!saved.partial);
         clipboard.set_text("pw", true).unwrap();
         assert_eq!(clipboard.wait_pasted(Duration::from_secs(2)), Pasted::Taken);
         clipboard.restore(saved).unwrap();
@@ -564,6 +876,27 @@ mod tests {
         assert_eq!(err, "This eDE is too old for the clipboard; update eDE.");
     }
 
+    /// #EXP-1900: a snapshot that names a type it left out is a partial
+    /// save, and so is one from an eDE that cannot say (no `unread`).
+    #[test]
+    fn a_snapshot_with_unread_types_or_from_an_old_ede_is_a_partial_save() {
+        use serde_json::json;
+        let (ede, server) = fake_compositor(vec![
+            Ok(json!({"serial": 4, "items": [{"mime": "text/plain", "data": "YQ=="}], "unread": ["image/png"]})),
+            Ok(json!({"serial": 4, "items": [{"mime": "text/plain", "data": "YQ=="}]})),
+            Ok(json!({"serial": 4, "items": [], "unread": []})),
+        ]);
+        let clipboard = ede.clipboard().unwrap();
+        let named = clipboard.save().unwrap();
+        assert!(named.partial);
+        assert_eq!(named.formats.len(), 1);
+        assert!(clipboard.save().unwrap().partial, "an old eDE cannot say it read everything");
+        assert!(!clipboard.save().unwrap().partial, "an empty clipboard is whole");
+        drop(clipboard);
+        drop(ede);
+        server.join().unwrap();
+    }
+
     #[test]
     fn an_empty_save_restores_as_a_clear() {
         let (ede, server) = fake_compositor(vec![Ok(serde_json::json!({"serial": 2}))]);
@@ -573,11 +906,78 @@ mod tests {
         assert_eq!(seen, [serde_json::json!({"op": "clipboard_set", "items": []})]);
     }
 
+    /// #EXP-1897: `activate_window` is `focus_window`, which the compositor
+    /// admits only with `ui`: the grant ePilot mints has to hold it.
+    #[test]
+    fn the_grant_admits_focus_window() {
+        let needs = Request::FocusWindow { window: WindowId::new("w1").unwrap() }.capability().unwrap();
+        assert!(CAPABILITIES.contains(&needs), "the grant lacks {}", needs.as_str());
+    }
+
+    /// #EXP-1897: a window parked on another workspace is not on screen: a
+    /// fullscreen one there must not make its display a gaming display.
+    #[test]
+    fn parked_windows_are_not_on_screen() {
+        use serde_json::json;
+        let window = |id: &str, workspace: usize, focused: bool, fullscreen: bool, minimized: bool| {
+            json!({"id": id, "title": id, "app_id": "app", "x": 0, "y": 0, "width": 640, "height": 480, "focused": focused, "fullscreen": fullscreen, "protected": false, "x11": false, "workspace": workspace, "minimized": minimized})
+        };
+        let (ede, _server) = fake_compositor(vec![
+            Ok(json!([window("w1", 0, false, false, false), window("w2", 0, true, false, false), window("w3", 1, false, true, false), window("w4", 0, false, false, true)])),
+            Ok(json!([{"index": 0, "active": true, "windows": ["w1", "w2", "w4"]}, {"index": 1, "active": false, "windows": ["w3"]}])),
+        ]);
+        let listed: Vec<(u64, bool, bool)> = ede.list_windows().unwrap().into_iter().map(|window| (window.id, window.active, window.fullscreen)).collect();
+        assert_eq!(listed, [(2, true, false), (1, false, false)], "top first, the active workspace only");
+    }
+
+    /// #EDE-91: the person's run (and screen memory, which reads through
+    /// this backend) sees the person's desk only: no window or output of
+    /// an agent space.
+    #[test]
+    fn a_space_is_not_the_persons_desk() {
+        use serde_json::json;
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let window = |id: &str, space: Option<&str>| {
+            let mut window = json!({"id": id, "title": id, "app_id": "app", "x": 0, "y": 0, "width": 640, "height": 480, "focused": false, "fullscreen": false, "protected": false, "x11": false, "workspace": 0, "minimized": false});
+            if let Some(space) = space {
+                window["space"] = json!(space);
+            }
+            window
+        };
+        let (ede, _server) = fake_compositor(vec![
+            Ok(json!([window("w1", None), window("w2", Some("sp1"))])),
+            Ok(json!([{"index": 0, "active": true, "windows": ["w1", "w2"]}])),
+            Ok(json!([{"name": "SPACE-1", "x": 0, "y": 0, "width": 1024, "height": 768, "scale": 1.0, "space": "sp1"}, {"name": "DP-1", "x": 0, "y": 0, "width": 1280, "height": 800, "scale": 1.0}])),
+        ]);
+        assert_eq!(ede.list_windows().unwrap().into_iter().map(|window| window.id).collect::<Vec<_>>(), [1]);
+        let displays = ede.displays().unwrap();
+        assert_eq!(displays.iter().map(|display| (display.name.as_str(), display.primary)).collect::<Vec<_>>(), [("DP-1", true)]);
+    }
+
+    /// The displays cache [`pixel_size`] reads is one per process.
+    static OUTPUTS: Mutex<()> = Mutex::new(());
+
+    /// #EXP-1897: eDE speaks logical units (like macOS points); the pixel
+    /// size is the output's mode, which is what a capture carries.
+    #[test]
+    fn a_scaled_output_reports_physical_pixels() {
+        use serde_json::json;
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let (ede, _server) = fake_compositor(vec![Ok(json!([
+            {"name": "DP-1", "x": 0, "y": 0, "width": 1707, "height": 960, "scale": 1.5, "modes": [{"width": 1920, "height": 1080, "refresh": 60000, "preferred": false, "current": false}, {"width": 2560, "height": 1440, "refresh": 60000, "preferred": true, "current": true}]},
+            {"name": "DP-2", "x": 1707, "y": 0, "width": 1280, "height": 800, "scale": 1.25},
+        ]))]);
+        let displays = ede.displays().unwrap();
+        let pixels: Vec<(u32, u32)> = displays.iter().map(|display| crate::backend::pixel_size(display.x, display.y, display.width, display.height)).collect();
+        assert_eq!((displays[0].width, displays[0].height), (1707, 960), "the pointer's units stay logical");
+        assert_eq!(pixels, [(2560, 1440), (1600, 1000)], "the current mode, else the scaled size");
+    }
+
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
     /// epilot headless_ede`. Skipped without it (the desktop CI builds no
-    /// eDE). Checks the grant too: the connection holds `capture` and
-    /// `input:person` only, never the root's `system`.
+    /// eDE). Checks the grant too: the connection holds `capture`,
+    /// `input:person` and `ui` only, never the root's `system`.
     #[test]
     fn headless_ede_drives_and_captures() {
         let Some(binary) = std::env::var_os("EDE_COMPOSITOR") else {
@@ -630,6 +1030,9 @@ mod tests {
         let ede = open(&session).unwrap();
         let held = session.connect().unwrap().hello.capabilities;
         assert_eq!(held, CAPABILITIES.to_vec(), "a grant of its own, not the root token");
+        // #EXP-1897: focusing is admitted (there is no such window here).
+        let refused = ede.activate_window(999).unwrap_err();
+        assert!(refused.contains("no such window"), "{refused}");
 
         let displays = ede.displays().unwrap();
         assert_eq!(displays.len(), 1);
@@ -669,5 +1072,27 @@ mod tests {
         assert_eq!(clipboard.wait_pasted(Duration::from_millis(100)), Pasted::Missed);
         clipboard.restore(saved).unwrap();
         assert_eq!(clipboard.text().unwrap(), None);
+        drop(clipboard);
+
+        // #EXP-1897: at scale 1.5 the display is logical (what the pointer
+        // speaks) and its pixel size is the frame's.
+        let _one = OUTPUTS.lock().unwrap_or_else(|p| p.into_inner());
+        let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
+        root.set_output("HEADLESS-1", None, Some(1.5), None).unwrap();
+        let displays = ede.displays().unwrap();
+        let screen = &displays[0];
+        assert_eq!((screen.width, screen.height), (427, 320));
+        let pixels = crate::backend::pixel_size(screen.x, screen.y, screen.width, screen.height);
+        let shot = ede.screenshot(screen).unwrap();
+        assert_eq!((pixels, (shot.width, shot.height)), ((640, 480), (640, 480)));
+
+        // #EXP-1897: turning computer use off ends the grant; the next call
+        // mints a new one.
+        let (_, token) = GRANT.lock().unwrap().clone().unwrap();
+        session.connect_token(token.clone()).expect("the grant lives until it is revoked");
+        session.revoke();
+        let gone = session.connect_token(token).err().expect("a revoked grant connects no more");
+        assert!(gone.contains("unknown or expired token"), "{gone}");
+        assert_eq!(session.connect().unwrap().hello.capabilities, CAPABILITIES.to_vec());
     }
 }

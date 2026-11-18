@@ -4,8 +4,57 @@
 //! switcher is open. gpui cannot show a foreign Wayland buffer, so v1 is
 //! pictures; dmabuf comes later (the plan's live-thumbnail note).
 
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+
 use base64::Engine;
 use ede_protocol::Capture;
+
+/// Whether the capture thread runs: the shell starts and stops it as the
+/// documents that show thumbnails open and close. One generation counter,
+/// odd while a loop runs: every start is its own generation, so a loop that
+/// slept through a stop and the next start ends when it wakes (#EDE-75: one
+/// flag let it go on beside the new loop).
+#[derive(Clone, Default)]
+pub struct Captures(Arc<AtomicU64>);
+
+/// One capture loop's leave to go on: its generation.
+pub struct Run {
+    generation: Arc<AtomicU64>,
+    mine: u64,
+}
+
+impl Captures {
+    /// A new loop's run; `None` while one already runs. Only the shell's
+    /// thread starts and stops.
+    pub fn start(&self) -> Option<Run> {
+        if self.0.load(Ordering::SeqCst) % 2 == 1 {
+            return None;
+        }
+        Some(Run { generation: self.0.clone(), mine: self.0.fetch_add(1, Ordering::SeqCst) + 1 })
+    }
+
+    pub fn stop(&self) {
+        let now = self.0.load(Ordering::SeqCst);
+        if now % 2 == 1 {
+            let _ = self.0.compare_exchange(now, now + 1, Ordering::SeqCst, Ordering::SeqCst);
+        }
+    }
+}
+
+impl Run {
+    /// The loop goes on.
+    pub fn live(&self) -> bool {
+        self.generation.load(Ordering::SeqCst) == self.mine
+    }
+
+    /// The loop could not start (no compositor): the next start tries again.
+    pub fn fail(&self) {
+        let _ = self.generation.compare_exchange(self.mine, self.mine + 1, Ordering::SeqCst, Ordering::SeqCst);
+    }
+}
 
 /// The thumbnail box; the picture keeps its aspect ratio inside it.
 pub const THUMB: (u32, u32) = (184, 110);
@@ -89,5 +138,30 @@ mod tests {
         assert_eq!(&rgba[..4], &[0x00, 0x80, 0xff, 0xff]);
         let url = data_url(&capture).unwrap();
         assert!(url.starts_with("data:image/png;base64,iVBOR"));
+    }
+
+    /// #EDE-75: a stop and a start inside one 200 ms sleep of the loop: the
+    /// old loop ends when it wakes, only the new one captures.
+    #[test]
+    fn a_restart_ends_the_loop_before_it() {
+        let captures = Captures::default();
+        let first = captures.start().expect("the first loop");
+        assert!(captures.start().is_none(), "one loop at a time");
+        captures.stop();
+        assert!(!first.live(), "no capture after the stop");
+        let second = captures.start().expect("the loop after the stop");
+        assert!(second.live());
+        assert!(!first.live(), "the loop before the restart ended");
+        captures.stop();
+        assert!(!second.live());
+    }
+
+    /// A loop that could not connect leaves the next start free.
+    #[test]
+    fn a_failed_loop_frees_the_next_start() {
+        let captures = Captures::default();
+        captures.start().expect("the first loop").fail();
+        let next = captures.start().expect("the next start");
+        assert!(next.live());
     }
 }

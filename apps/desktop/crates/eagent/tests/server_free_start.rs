@@ -43,7 +43,7 @@ use eagent::agent::CodingAgent;
 use eagent::engine::local::{EnginePhase, LocalFeedEvent};
 use eagent::engine::{
     start_with, ChildExitLink, EngineExit, EngineHost, EngineSession, EventSink, NoBackend,
-    RecordingSink, ResumeHandle, SessionSpec,
+    RecordingSink, ResumeHandle, RunBackend, SessionCtx, SessionSpec,
 };
 use eagent::wire::RemoteAnswer;
 
@@ -86,6 +86,9 @@ struct FakeState {
     terminal_exit: Mutex<Option<i32>>,
     /// FEED-153: how many `fail-*` prompts the fake has refused so far.
     failures: AtomicUsize,
+    /// EXP-1910: the fake never answers `initialize` (a wedged CLI, a long
+    /// `session/load`).
+    mute_handshake: AtomicBool,
 }
 
 struct FakeAgent {
@@ -143,6 +146,7 @@ impl ConnectTo<Client> for FakeAgent {
             } = self;
             let (quit_tx, quit_rx) = quit;
             let (cancel_tx, cancel_rx) = cancel;
+            let init_state = state.clone();
             let prompt_state = state.clone();
             let cancel_state = state.clone();
             let config_state = state.clone();
@@ -153,6 +157,9 @@ impl ConnectTo<Client> for FakeAgent {
                 .name("fake-agent")
                 .on_receive_request(
                     async move |_request: InitializeRequest, responder, _cx| {
+                        if init_state.mute_handshake.load(Ordering::SeqCst) {
+                            std::future::pending::<()>().await;
+                        }
                         responder.respond(InitializeResponse::new(ProtocolVersion::V1))
                     },
                     on_receive_request!(),
@@ -689,6 +696,27 @@ struct Harness {
 }
 
 fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
+    start_fake_with(name, resume, |host| Arc::new(NoBackend::with_host(host)))
+}
+
+fn start_fake_with(
+    name: &str,
+    resume: Option<ResumeHandle>,
+    backend: impl FnOnce(Arc<TestHost>) -> Arc<dyn RunBackend>,
+) -> Harness {
+    start_adapter(name, resume, None, Arc::new(FakeState::default()), FakeAgent::new, backend)
+}
+
+/// [`start_fake_with`] over any adapter, with a seed prompt and the fake's
+/// state set up front.
+fn start_adapter<A: ConnectTo<Client> + 'static>(
+    name: &str,
+    resume: Option<ResumeHandle>,
+    prompt: Option<String>,
+    state: Arc<FakeState>,
+    adapter: impl FnOnce(Arc<FakeState>, ChildExitLink) -> A,
+    backend: impl FnOnce(Arc<TestHost>) -> Arc<dyn RunBackend>,
+) -> Harness {
     let worktree = std::env::temp_dir().join(format!(
         "exp1426-core-{name}-{}-{}",
         std::process::id(),
@@ -702,10 +730,9 @@ fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
         .build()
         .expect("a tokio runtime");
     let sink = RecordingSink::new();
-    let state = Arc::new(FakeState::default());
     let host = Arc::new(TestHost::default());
     let child_exit = ChildExitLink::new();
-    let adapter = FakeAgent::new(state.clone(), child_exit.clone());
+    let adapter = adapter(state.clone(), child_exit.clone());
     let session = SessionSpec {
         session_id: format!("sess-{name}"),
         run: eagent::engine::RunFacts {
@@ -724,15 +751,14 @@ fn start_fake(name: &str, resume: Option<ResumeHandle>) -> Harness {
         mcp_secrets: Vec::new(),
         replay: false,
         resume,
-        prompt: None,
+        prompt,
         aside: false,
         child_exit,
         attachments: None,
         host_tools: Arc::new(eagent::engine::NoHostTools),
         sink: Some(sink.clone() as Arc<dyn EventSink>),
     };
-    let session = start_with(session, adapter, Arc::new(NoBackend::with_host(host.clone())))
-        .expect("the engine starts");
+    let session = start_with(session, adapter, backend(host.clone())).expect("the engine starts");
     Harness {
         session,
         sink,
@@ -830,4 +856,105 @@ fn a_server_free_resume_reloads_the_session() {
     until("the tool event", || !events_of(&harness.sink, "tool").is_empty());
     harness.session.kill("killed");
     assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
+
+/// EXP-1896: [`NoBackend`] that counts the Esc answers
+/// ([`RunBackend::turn_started`]: Exponential's clears the run's computer-use
+/// abort there).
+struct EscAnswers {
+    inner: NoBackend,
+    answers: Arc<AtomicUsize>,
+}
+
+impl RunBackend for EscAnswers {
+    fn end(&self, ctx: &SessionCtx, outcome: &str, child: Option<eagent::spawn::ChildExit>, error: Option<String>) {
+        self.inner.end(ctx, outcome, child, error);
+    }
+
+    fn turn_started(&self, _session_id: &str) {
+        self.answers.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// EXP-1896: a turn opened by a row no person wrote (a child's report, a CI
+/// wake, another session's message) does not answer an Esc that aborted the
+/// run's computer use; the person's next message does.
+#[test]
+fn only_the_persons_message_answers_an_esc() {
+    let answers = Arc::new(AtomicUsize::new(0));
+    let counted = answers.clone();
+    let harness = start_fake_with("esc-answer", None, move |host| {
+        Arc::new(EscAnswers { inner: NoBackend::with_host(host), answers: counted })
+    });
+    let turns = |count: usize| {
+        until("the turn's prompt", || harness.state.prompts.lock().unwrap().len() == count);
+        until("the turn's end", || harness.session.turn_signal().is_idle());
+    };
+
+    // The person presses Esc (the abort lives in the backend), then says
+    // nothing: a child's report arrives and runs a turn.
+    harness.session.deliver_wake("r-1".to_string(), "stream".to_string());
+    turns(1);
+    assert_eq!(answers.load(Ordering::SeqCst), 0, "a report answers no Esc");
+
+    // The person's own message is the answer.
+    harness.session.deliver("m-1".to_string(), "stream".to_string());
+    turns(2);
+    assert_eq!(answers.load(Ordering::SeqCst), 1, "the person spoke");
+
+    // And the next report leaves it alone again.
+    harness.session.deliver_wake("r-2".to_string(), "stream".to_string());
+    turns(3);
+    assert_eq!(answers.load(Ordering::SeqCst), 1);
+
+    harness.session.kill("killed");
+    assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
+
+/// EXP-1910: a kill sent while the handshake is still open (a wedged CLI, a
+/// long `session/load`) ends the run at once, and the seed prompt never goes
+/// out. It used to sit unread until the handshake's own deadline (3 or 10
+/// minutes).
+#[test]
+fn a_kill_during_the_handshake_ends_the_run_at_once() {
+    let state = Arc::new(FakeState::default());
+    state.mute_handshake.store(true, Ordering::SeqCst);
+    let harness = start_adapter("mute-handshake", None, Some("stream".to_string()), state, FakeAgent::new, |host| {
+        Arc::new(NoBackend::with_host(host))
+    });
+    until("the connecting phase", || harness.session.phase() == Some(EnginePhase::Connecting));
+    harness.session.kill("killed");
+    let exit = harness.session.wait_timeout(BUDGET).expect("the kill is read during the handshake");
+    assert_eq!(exit.outcome, "killed");
+    assert!(harness.state.prompts.lock().unwrap().is_empty(), "the seed never went out");
+}
+
+/// EXP-1910: an adapter that blows up on the engine thread.
+struct PanickingAgent;
+
+impl ConnectTo<Client> for PanickingAgent {
+    fn connect_to(
+        self,
+        _client: impl ConnectTo<Agent>,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send {
+        async move { panic!("the adapter blew up") }
+    }
+}
+
+/// EXP-1910: a panic on the engine thread still runs the backend's end
+/// sequence, once (grants, the publisher, the tickers and the row all hang
+/// off it); it used to flip the exit slot and nothing else.
+#[test]
+fn an_engine_panic_still_runs_the_end_sequence() {
+    let harness = start_adapter(
+        "panic",
+        None,
+        None,
+        Arc::new(FakeState::default()),
+        |_, _| PanickingAgent,
+        |host| Arc::new(NoBackend::with_host(host)),
+    );
+    let exit = harness.session.wait_timeout(BUDGET).expect("the run ends");
+    assert_eq!(exit.error.as_deref(), Some("the engine thread panicked"));
+    until("the host heard", || harness.host.count.load(Ordering::SeqCst) == 1);
 }

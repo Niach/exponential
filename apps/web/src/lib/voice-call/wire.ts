@@ -3,9 +3,12 @@
 // host's `call_host.rs`). Binary frames carry the audio: byte 0 = kind
 // (`up` caller → host, `down` host → caller), bytes 1-2 = a u16 big-endian
 // sequence that wraps, then ONE Opus packet of `frameMs`. JSON text frames
-// carry the control.
+// carry the control. That is TODAY'S wire, which the relay can read: it is
+// spoken whenever `voice.startCall` does not answer `seal: true`, which is
+// every call until the hosts are released and the server turns sealing on
+// (#EXP-1941). A sealed call's wire is seal.ts (`seal` in the fixture).
 
-import { VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/etalk/voice-call"
+import { callSealWireCode, VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/etalk/voice-call"
 
 export const KIND_UP = VOICE_CALL_WIRE.kinds.up
 export const KIND_DOWN = VOICE_CALL_WIRE.kinds.down
@@ -66,9 +69,20 @@ export function hostCallEvent(raw: unknown): CallEvent | null {
   }
 }
 
+/** #EXP-1941: a failure code off the wire (`error`, `bye`, a host's
+ *  `failed`). A code about the caller's OWN device ("No microphone",
+ *  "Microphone not allowed", "This browser can't make calls") is never taken
+ *  from there: it would send a person to change permissions or the browser
+ *  on the relay's word. It reads `dropped`. */
+export function wireCode(code: string): string {
+  return callSealWireCode(code)
+}
+
 /** The relay's control frames a caller reads. */
 export type CallerInbound =
   | { t: `call_ready` }
+  // EXP-1929: the relay's beat once paired.
+  | { t: `call_alive` }
   | { t: `call_event`; event: unknown }
   | { t: `call_end`; reason?: string }
   | { t: `error`; code: string }

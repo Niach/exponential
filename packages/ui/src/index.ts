@@ -87,6 +87,7 @@ export * from "./icon-picker"
 export * from "./icon-swatch-grid"
 export * from "./icon-tooltip"
 export * from "./icons.generated"
+export * from "./image-actions"
 export * from "./image-preview-dialog"
 // EXP-1586: THE lightbox picture, the Exponential UI zoom view.
 export * from "./zoomable-image"
@@ -136,6 +137,7 @@ export * from "./session-chat-view"
 export * from "./chats-list"
 // Chat 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
 export * from "./chat-list"
+export * from "./chat-marks"
 export * from "./composer-agent-row"
 // #EXP-1388: THE bulk action bar capsule (issue list + Chats selection).
 export * from "./bulk-bar"

@@ -361,6 +361,7 @@ impl gpui::Render for ChatRowsShot {
             busy,
             word: None,
             waiting: None,
+            wall: None,
             dim: false,
         };
         let rows = [
@@ -375,7 +376,7 @@ impl gpui::Render for ChatRowsShot {
             .bg(cx.theme().background)
             .flex()
             .flex_col()
-            .children(rows.iter().map(|row| crate::chat_list::chat_row(row, crate::chat_list::chat_lead_disc(row.lead, None, false, cx), cx)))
+            .children(rows.iter().map(|row| crate::chat_list::chat_row(row, crate::chat_list::chat_lead_disc(row.lead, None, false, cx), &[], cx)))
     }
 }
 

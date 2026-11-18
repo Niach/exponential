@@ -15,8 +15,14 @@
 //! offer carries `x-kde-passwordManagerHint: secret` (Klipper, GPaste,
 //! KeePassXC's convention). Every other requestor (Diodon, any clipboard
 //! manager or history) sees the targets but gets a refused conversion, so
-//! nothing records it; `SAVE_TARGETS` (the CLIPBOARD_MANAGER handover) is
-//! never sent. Nothing here logs clipboard bytes.
+//! nothing records it; a sensitive offer is never handed to the clipboard
+//! manager. Nothing here logs clipboard bytes.
+//!
+//! HANDOVER (#EXP-1920): the person's RESTORED clipboard would die with
+//! this process, so before the host exits ([`hand_over`]) the keeper asks
+//! the desktop's clipboard manager to take it: the ICCCM `SAVE_TARGETS`
+//! conversion on `CLIPBOARD_MANAGER`, served until the manager answers.
+//! Without a manager it goes with the process, as any app's clipboard does.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -42,6 +48,8 @@ const TARGETS_MAX: usize = 64;
 /// One `ConvertSelection` round trip (a hung owner answers nothing).
 const CONVERT_TIMEOUT: Duration = Duration::from_millis(600);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long the host's exit waits for the clipboard manager to fetch.
+const HANDOVER_TIMEOUT: Duration = Duration::from_millis(1500);
 /// The KDE convention's mime (KeePassXC, Klipper, GPaste).
 const HINT: &str = "x-kde-passwordManagerHint";
 
@@ -67,11 +75,16 @@ struct Offer {
     taken: bool,
     /// Another program took the selection.
     lost: bool,
+    /// The person's own clipboard, put back after a paste or a copy: what
+    /// [`hand_over`] gives the clipboard manager.
+    restored: bool,
 }
 
 enum Command {
     Own(Offer, mpsc::Sender<Result<(), String>>),
     Disown(mpsc::Sender<Result<(), String>>),
+    /// [`hand_over`]: answers whether the manager saved it.
+    HandOver(mpsc::Sender<Result<bool, String>>),
 }
 
 #[derive(Default)]
@@ -86,6 +99,8 @@ struct Keeper {
     wake: Atom,
     shared: Arc<Shared>,
     alive: Arc<AtomicBool>,
+    /// The display it serves (`None`: `DISPLAY`).
+    display: Option<String>,
 }
 
 static KEEPER: Mutex<Option<Arc<Keeper>>> = Mutex::new(None);
@@ -101,6 +116,8 @@ struct Names {
     plain: Atom,
     hint: Atom,
     scratch: Atom,
+    manager: Atom,
+    save_targets: Atom,
 }
 
 fn intern(conn: &RustConnection, name: &str) -> Result<Atom, String> {
@@ -119,27 +136,30 @@ impl Names {
             plain: intern(conn, "text/plain")?,
             hint: intern(conn, HINT)?,
             scratch: intern(conn, "_EXP_EPILOT_CLIPBOARD")?,
+            manager: intern(conn, "CLIPBOARD_MANAGER")?,
+            save_targets: intern(conn, "SAVE_TARGETS")?,
         })
     }
 }
 
-/// The process's keeper, started on first use (and again when its X
-/// connection died).
-fn keeper() -> Result<Arc<Keeper>, String> {
+/// The process's keeper on `display`, started on first use (and again when
+/// its X connection died).
+fn keeper(display: Option<&str>) -> Result<Arc<Keeper>, String> {
     let mut slot = KEEPER.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(keeper) = slot.as_ref().filter(|keeper| keeper.alive.load(Ordering::SeqCst)) {
+    if let Some(keeper) = slot.as_ref().filter(|keeper| keeper.alive.load(Ordering::SeqCst) && keeper.display.as_deref() == display) {
         return Ok(keeper.clone());
     }
+    let display = display.map(str::to_string);
     let (ready, started) = mpsc::channel();
     let shared = Arc::new(Shared::default());
     let alive = Arc::new(AtomicBool::new(true));
     {
-        let (shared, alive) = (shared.clone(), alive.clone());
+        let (shared, alive, display) = (shared.clone(), alive.clone(), display.clone());
         std::thread::Builder::new()
             .name("computer-use-clipboard".into())
             .spawn(move || {
                 let setup = (|| -> Result<_, String> {
-                    let (conn, screen) = x("X connection", x11rb::connect(None))?;
+                    let (conn, screen) = x("X connection", x11rb::connect(display.as_deref()))?;
                     let root = conn.setup().roots[screen].root;
                     let names = Names::get(&conn)?;
                     let wake = intern(&conn, "_EXP_EPILOT_WAKE")?;
@@ -172,7 +192,7 @@ fn keeper() -> Result<Arc<Keeper>, String> {
             .map_err(|err| format!("clipboard thread: {err}"))?;
     }
     let (window, wake) = started.recv_timeout(COMMAND_TIMEOUT).map_err(|_| "The clipboard thread did not start.".to_string())??;
-    let keeper = Arc::new(Keeper { window, wake, shared, alive });
+    let keeper = Arc::new(Keeper { window, wake, shared, alive, display });
     *slot = Some(keeper.clone());
     Ok(keeper)
 }
@@ -181,6 +201,8 @@ fn keeper() -> Result<Arc<Keeper>, String> {
 fn serve(conn: &RustConnection, window: Window, names: Names, wake: Atom, shared: &Shared) {
     let mask = conn.setup().resource_id_mask;
     let max_bytes = conn.maximum_request_bytes().saturating_sub(64);
+    // The exit that waits for the clipboard manager's answer.
+    let mut handing: Option<mpsc::Sender<Result<bool, String>>> = None;
     loop {
         let event = match conn.wait_for_event() {
             Ok(event) => event,
@@ -221,7 +243,40 @@ fn serve(conn: &RustConnection, window: Window, names: Names, wake: Atom, shared
                             *shared.offer.lock().unwrap_or_else(|p| p.into_inner()) = None;
                             let _ = done.send(result);
                         }
+                        Command::HandOver(done) => {
+                            let asked = (|| {
+                                let offer = shared.offer.lock().unwrap_or_else(|p| p.into_inner());
+                                let Some(offer) = offer.as_ref().filter(|offer| offer.restored && !offer.sensitive && !offer.lost) else {
+                                    return Ok(false);
+                                };
+                                if reply("owner", conn.get_selection_owner(names.clipboard))?.owner != window {
+                                    return Ok(false);
+                                }
+                                if reply("clipboard manager", conn.get_selection_owner(names.manager))?.owner == NONE {
+                                    log::info!("[computer] no clipboard manager on this desktop: the clipboard put back after a paste goes with this process");
+                                    return Ok(false);
+                                }
+                                let targets: Vec<Atom> = offer.formats.iter().map(|format| format.target).collect();
+                                x("targets", conn.change_property32(xproto::PropMode::REPLACE, window, names.scratch, xproto::AtomEnum::ATOM, &targets))?;
+                                x("save", conn.convert_selection(window, names.manager, names.save_targets, names.scratch, x11rb::CURRENT_TIME))?;
+                                x("flush", conn.flush())?;
+                                Ok(true)
+                            })();
+                            match asked {
+                                // Answered by the manager's SelectionNotify,
+                                // after it fetched what we serve below.
+                                Ok(true) => handing = Some(done),
+                                other => {
+                                    let _ = done.send(other);
+                                }
+                            }
+                        }
                     }
+                }
+            }
+            Event::SelectionNotify(notify) if notify.selection == names.manager => {
+                if let Some(done) = handing.take() {
+                    let _ = done.send(Ok(notify.property != NONE));
                 }
             }
             Event::SelectionClear(clear) if clear.selection == names.clipboard => {
@@ -283,6 +338,37 @@ fn serve(conn: &RustConnection, window: Window, names: Names, wake: Atom, shared
     }
 }
 
+/// #EXP-1920 HANDOVER: the host exits. When the keeper still owns the
+/// clipboard it put back for the person, the desktop's clipboard manager is
+/// asked to take it, and this waits ([`HANDOVER_TIMEOUT`] at most) while
+/// the keeper serves it. Returns whether the manager saved it; without a
+/// manager (or when it refuses) the clipboard goes with this process.
+pub(super) fn hand_over() -> bool {
+    let keeper = KEEPER.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let Some(keeper) = keeper.filter(|keeper| keeper.alive.load(Ordering::SeqCst)) else {
+        return false;
+    };
+    let ours = keeper.shared.offer.lock().unwrap_or_else(|p| p.into_inner()).as_ref().is_some_and(|offer| offer.restored && !offer.lost);
+    if !ours {
+        return false;
+    }
+    let saved = (|| -> Result<bool, String> {
+        let (conn, _) = x("X connection", x11rb::connect(keeper.display.as_deref()))?;
+        let (done, answer) = mpsc::channel();
+        keeper.shared.commands.lock().unwrap_or_else(|p| p.into_inner()).push(Command::HandOver(done));
+        let wake = xproto::ClientMessageEvent::new(32, keeper.window, keeper.wake, [0u32; 5]);
+        x("wake", conn.send_event(false, keeper.window, xproto::EventMask::NO_EVENT, wake))?;
+        x("flush", conn.flush())?;
+        answer.recv_timeout(HANDOVER_TIMEOUT).map_err(|_| "the clipboard manager did not answer in time".to_string())?
+    })();
+    match &saved {
+        Ok(true) => log::info!("[computer] the clipboard put back after a paste is the clipboard manager's now"),
+        Ok(false) => {}
+        Err(reason) => log::warn!("[computer] the clipboard put back after a paste goes with this process ({reason})"),
+    }
+    saved.unwrap_or(false)
+}
+
 /// The X11 clipboard, on one call's connection.
 pub(super) struct X11Clipboard<'a> {
     x11: &'a X11,
@@ -294,7 +380,7 @@ pub(super) struct X11Clipboard<'a> {
 
 impl<'a> X11Clipboard<'a> {
     pub(super) fn open(x11: &'a X11) -> Result<X11Clipboard<'a>, String> {
-        let keeper = keeper()?;
+        let keeper = keeper(x11.display.as_deref())?;
         let names = Names::get(&x11.conn)?;
         let window = x("window", x11.conn.generate_id())?;
         x(
@@ -376,7 +462,14 @@ impl Clipboard for X11Clipboard<'_> {
         if self.owner()? == NONE {
             return Ok(saved);
         }
-        let Some((_, 32, targets)) = self.convert(self.names.targets)? else { return Ok(saved) };
+        // Whatever is left out below makes the save partial (#EXP-1900): an
+        // owner that does not list its targets, a target past the count, one
+        // it does not hand over, one too large.
+        let Some((_, 32, targets)) = self.convert(self.names.targets)? else {
+            saved.partial = true;
+            return Ok(saved);
+        };
+        saved.partial = targets.len() / 4 > TARGETS_MAX;
         let mut total = 0;
         for chunk in targets.chunks_exact(4).take(TARGETS_MAX) {
             let target = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
@@ -384,8 +477,12 @@ impl Clipboard for X11Clipboard<'_> {
             if META.contains(&name.as_str()) || saved.formats.iter().any(|(saved, _)| saved.split('\t').next() == Some(name.as_str())) {
                 continue;
             }
-            let Some((kind, format, data)) = self.convert(target)? else { continue };
+            let Some((kind, format, data)) = self.convert(target)? else {
+                saved.partial = true;
+                continue;
+            };
             if data.len() > FORMAT_MAX || total + data.len() > SAVED_MAX {
+                saved.partial = true;
                 continue;
             }
             total += data.len();
@@ -413,7 +510,7 @@ impl Clipboard for X11Clipboard<'_> {
         if sensitive && client.is_none() {
             return Err("No focused window to paste into.".to_string());
         }
-        let offer = Offer { formats, sensitive, client, taken: false, lost: false };
+        let offer = Offer { formats, sensitive, client, taken: false, lost: false, restored: false };
         self.command(|done| Command::Own(offer, done))
     }
 
@@ -449,7 +546,7 @@ impl Clipboard for X11Clipboard<'_> {
             formats.push(Format { target, kind, format, data, hint: target == self.names.hint });
         }
         // The person's own clipboard: served to anyone, as before.
-        let offer = Offer { formats, sensitive: false, client: None, taken: false, lost: false };
+        let offer = Offer { formats, sensitive: false, client: None, taken: false, lost: false, restored: true };
         self.command(|done| Command::Own(offer, done))
     }
 
@@ -467,6 +564,95 @@ impl Clipboard for X11Clipboard<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tiny clipboard manager on `display`: it owns `CLIPBOARD_MANAGER`
+    /// and, asked to `SAVE_TARGETS`, fetches the clipboard's text, takes
+    /// the clipboard and serves that text from then on. Ends with the server.
+    fn fake_manager(display: &str) {
+        let (conn, screen) = x11rb::connect(Some(display)).unwrap();
+        let root = conn.setup().roots[screen].root;
+        let names = Names::get(&conn).unwrap();
+        let window = conn.generate_id().unwrap();
+        conn.create_window(0, window, root, 0, 0, 1, 1, 0, xproto::WindowClass::INPUT_ONLY, 0, &xproto::CreateWindowAux::new()).unwrap();
+        conn.set_selection_owner(window, names.manager, x11rb::CURRENT_TIME).unwrap();
+        conn.sync().unwrap();
+        std::thread::spawn(move || {
+            let notify = |request: &xproto::SelectionRequestEvent, answered: bool| {
+                let property = if request.property == NONE { request.target } else { request.property };
+                let notify = xproto::SelectionNotifyEvent {
+                    response_type: xproto::SELECTION_NOTIFY_EVENT,
+                    sequence: 0,
+                    time: request.time,
+                    requestor: request.requestor,
+                    selection: request.selection,
+                    target: request.target,
+                    property: if answered { property } else { NONE },
+                };
+                let _ = conn.send_event(false, request.requestor, xproto::EventMask::NO_EVENT, notify);
+                let _ = conn.flush();
+            };
+            let mut saving: Option<xproto::SelectionRequestEvent> = None;
+            let mut text: Vec<u8> = Vec::new();
+            while let Ok(event) = conn.wait_for_event() {
+                match event {
+                    Event::SelectionRequest(request) if request.selection == names.manager && request.target == names.save_targets => {
+                        let _ = conn.convert_selection(window, names.clipboard, names.utf8, names.scratch, x11rb::CURRENT_TIME);
+                        let _ = conn.flush();
+                        saving = Some(request);
+                    }
+                    Event::SelectionNotify(fetched) if fetched.selection == names.clipboard => {
+                        let Some(request) = saving.take() else { continue };
+                        let saved = fetched.property != NONE;
+                        if saved {
+                            text = conn.get_property(true, window, fetched.property, xproto::AtomEnum::ANY, 0, 1 << 16).unwrap().reply().unwrap().value;
+                            let _ = conn.set_selection_owner(window, names.clipboard, x11rb::CURRENT_TIME);
+                        }
+                        notify(&request, saved);
+                    }
+                    Event::SelectionRequest(request) if request.selection == names.clipboard => {
+                        let property = if request.property == NONE { request.target } else { request.property };
+                        let answered = request.target == names.utf8 && conn.change_property8(xproto::PropMode::REPLACE, request.requestor, property, names.utf8, &text).is_ok();
+                        notify(&request, answered);
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    /// #EXP-1920: the clipboard put back for the person lives in this
+    /// process's keeper; before the host exits the desktop's clipboard
+    /// manager takes it. Without a manager it stays where it is (and goes
+    /// with the process); the run's own paste text is never handed over.
+    #[test]
+    fn the_restored_clipboard_is_handed_to_the_clipboard_manager_before_the_host_exits() {
+        use super::super::tests::Xvfb;
+        let Some(xvfb) = Xvfb::start() else { return };
+        let x11 = X11::connect(Some(&xvfb.display)).unwrap();
+        let clipboard = X11Clipboard::open(&x11).unwrap();
+        let ours = clipboard.keeper.window;
+        let persons = || SavedClipboard { formats: vec![("UTF8_STRING\tUTF8_STRING\t8".to_string(), b"the person's paragraph".to_vec())], partial: false };
+        // Nothing restored: nothing to hand over.
+        assert!(!hand_over());
+        // No clipboard manager on this desktop: it stays in this process.
+        clipboard.restore(persons()).unwrap();
+        assert!(!hand_over());
+        assert_eq!(clipboard.owner().unwrap(), ours);
+        assert_eq!(clipboard.text().unwrap().as_deref(), Some("the person's paragraph"));
+        // With one, the run's own paste text still stays ours.
+        fake_manager(&xvfb.display);
+        clipboard.set_text("the run's text", false).unwrap();
+        assert!(!hand_over());
+        assert_eq!(clipboard.owner().unwrap(), ours);
+        // The person's clipboard, put back: the manager owns and serves it.
+        clipboard.restore(persons()).unwrap();
+        assert!(hand_over());
+        let owner = clipboard.owner().unwrap();
+        assert!(owner != NONE && owner != ours, "the clipboard is still this process's");
+        assert_eq!(clipboard.text().unwrap().as_deref(), Some("the person's paragraph"));
+        // Handed over once: nothing of ours is left to give.
+        assert!(!hand_over());
+    }
 
     #[test]
     fn string_is_latin1_or_absent() {

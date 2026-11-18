@@ -39,7 +39,6 @@
  *
  * Runs until Ctrl-C. Keep it running for the whole fastlane capture.
  */
-import { rmSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { and, eq, ne } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
@@ -61,7 +60,7 @@ import {
 import { reclockDemoRows } from "./lib/demo-reclock"
 import { demoStoredJournals } from "./lib/demo-stored-journals"
 import { startEnetFeedStub } from "./lib/enet-feed-stub"
-import { worktreeTmpPath } from "./lib/worktree-tmp"
+import { processAlive, readStubRecord, releaseStubRecord, stubRecordPath, writeStubRecord } from "./lib/stub-record"
 import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_AGENT_COMMENT_ID,
@@ -746,6 +745,9 @@ function hold(opts: {
   }
 }
 
+/** This checkout's stub record (lib/stub-record.ts). */
+const pidFile = stubRecordPath(resolve(import.meta.dir, `../../..`))
+
 async function main() {
   // EXP-913: this stub WRITES — it upserts the demo device row on every beat
   // and re-clocks the seeded rows — so it refuses a database that is not
@@ -754,6 +756,25 @@ async function main() {
     `screenshots:desktop upserts the demo device + MCP readiness rows and SHIFTS the seeded timestamps.`
   )
   const config = required(getSteerRelayConfig())
+  // EXP-1558: `bun run shots` reuses a stub this checkout already runs
+  // (packages/shots capture-all `runningStub`) instead of starting a second
+  // one: two stubs on one relay register the same demo machine twice and the
+  // newer eNet node revokes the older one mid-capture. #EXP-1886: the record
+  // goes down NOW (`online: false`), so a lane starting while this one still
+  // compiles its eNet node waits for it instead of starting a second stub.
+  const record = {
+    pid: process.pid,
+    relayUrl: config.url,
+    databaseUrl: process.env.DATABASE_URL ?? ``,
+  }
+  const running = readStubRecord(pidFile)
+  if (running && running.pid !== process.pid && processAlive(running.pid)) {
+    throw new Error(
+      `another screenshots:desktop stub (pid ${running.pid}) already runs from this checkout; reuse it or stop it first`
+    )
+  }
+  writeStubRecord(pidFile, { ...record, online: false })
+  process.on(`exit`, () => releaseStubRecord(pidFile, process.pid))
   const { userId, sessionId } = await resolveTarget()
   const agentComment = await resolveAgentComment()
 
@@ -813,6 +834,9 @@ async function main() {
         // every composer shot says "Not ready on Alex's MacBook Pro".
         acpAgents: AGENTS,
         caps: CAPS,
+        // #EXP-1899: its Computer use switch is on, so the composer "+" menu
+        // offers the Computer use row (composer-menu.json `computerUse.offered`).
+        launchDefaults: { computerUse: true },
         agentAccounts: report.agentAccounts,
         agentUsage: report.agentUsage,
         agentUsageAt: now,
@@ -829,6 +853,7 @@ async function main() {
           agents: AGENTS,
           acpAgents: AGENTS,
           caps: CAPS,
+          launchDefaults: { computerUse: true },
           agentAccounts: report.agentAccounts,
           agentUsage: report.agentUsage,
           agentUsageAt: now,
@@ -893,15 +918,7 @@ Screenshot desktop online:
 
 Leave this running for the whole fastlane capture. Ctrl-C to stop.
 `)
-  // EXP-1558: `bun run shots` reuses a stub this checkout already runs
-  // (packages/shots capture-all `runningStub`) instead of starting a second
-  // one: two stubs on one relay register the same demo machine twice and the
-  // newer eNet node revokes the older one mid-capture.
-  const pidFile = worktreeTmpPath(resolve(import.meta.dir, `../../..`), `exp-screenshot-stub`, `.json`)
-  writeFileSync(
-    pidFile,
-    JSON.stringify({ pid: process.pid, relayUrl: config.url, databaseUrl: process.env.DATABASE_URL ?? `` })
-  )
+  writeStubRecord(pidFile, { ...record, online: true })
 
   const heartbeat = setInterval(() => {
     void touchDevice()
@@ -916,7 +933,7 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
     clearInterval(heartbeat)
     stopControl()
     feedStub.stop()
-    rmSync(pidFile, { force: true })
+    releaseStubRecord(pidFile, process.pid)
     process.exit(0)
   }
   process.on(`SIGINT`, shutdown)

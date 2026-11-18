@@ -319,6 +319,16 @@ impl Attached {
         //    we read our own end as a remote kill (EXP-283). Dropping the
         //    feed calls `unwatch`.
         drop(self.kill.take());
+        // #EXP-1910: power goes FIRST, the reports after. All three revokes
+        // are local; behind the outbox flush and the row write (up to 35 s
+        // on a bad network) a code-mode script and the input hold outlived
+        // the dead agent.
+        // EXP-1196: the run's computer-use token dies with it.
+        coding::computer::revoke(&ctx.session_id);
+        // EXP-1236: so does its code-mode grant (a script still running ends).
+        coding::codemode::revoke(&ctx.session_id);
+        // NEW-58: and its screen-memory grant (the voice conversation's).
+        coding::screen::revoke(&ctx.session_id);
         // 2. `bye {outcome}` and stop reconnecting.
         if let Some(publisher) = &self.publisher {
             publisher.shutdown(Some(outcome.to_string()));
@@ -408,16 +418,11 @@ impl Attached {
             error,
             end,
         };
-        // EXP-1196: the run's computer-use token dies with it.
-        coding::computer::revoke(&ctx.session_id);
-        // EXP-1236: so does its code-mode grant (a script still running ends).
-        coding::codemode::revoke(&ctx.session_id);
-        // NEW-58: and its screen-memory grant (the voice conversation's).
-        coding::screen::revoke(&ctx.session_id);
         // #EXP-1868: a session that ENDED takes what it started with it
         // (its scopes: vite, gradle/kotlin daemons, emulators; the compose
         // stacks of its worktree). An idle, suspended or released run keeps
-        // everything (`ends_row`), as does a replay.
+        // everything (`ends_row`), as does a replay, and (#EXP-1909) every
+        // end the server did not decide.
         if tears_down(ctx.replay, ctx.persistent, outcome) {
             coding::session_teardown::end_session_processes_soon(
                 ctx.data_dir.clone(),
@@ -456,20 +461,19 @@ pub fn keeps_workspace(outcome: &str) -> bool {
 /// whose process went away unasked, or a host stopping under a live turn,
 /// says so (`lost`) — never a silent end or idle.
 /// EXP-905 / EXP-1458: the agent's conversation name as a report: SEALED
-/// to the session's tree (`sealedTitle`, no plaintext `title`) when it can
-/// be, else the plaintext title as ever. BLOCKING (a first seal may create
-/// the tree key): the ticker thread calls it.
-pub(crate) fn title_report(session_id: &str, title: &str) -> api::session_device::SessionReport {
-    let sealed = coding::sealing::root_of(session_id)
-        .ok_or(coding::sealing::SealError::UnknownRoot)
-        .and_then(|root| coding::sealing::seal_body(&root, title));
-    match sealed {
-        Ok(sealed) => api::session_device::SessionReport { sealed_title: Some(sealed), ..Default::default() },
+/// to the session's tree (`sealedTitle`, no plaintext `title`); #EDE-97:
+/// the plaintext `title` only for a clear tree, and `None` (no report, the
+/// neutral title stays) when it cannot be sealed. BLOCKING (a first seal
+/// may create the tree key): the ticker thread calls it.
+pub(crate) fn title_report(session_id: &str, title: &str) -> Option<api::session_device::SessionReport> {
+    match coding::sealing::seal_body_for_session(session_id, title) {
+        Ok(sealed) if sealed.starts_with(coding::sealing::SEALED_BODY_PREFIX) => {
+            Some(api::session_device::SessionReport { sealed_title: Some(sealed), ..Default::default() })
+        }
+        Ok(plain) => Some(api::session_device::SessionReport { title: Some(plain), ..Default::default() }),
         Err(err) => {
-            if err != coding::sealing::SealError::NoService {
-                log::debug!("engine: title of {session_id} goes out plaintext: {err}");
-            }
-            api::session_device::SessionReport { title: Some(title.to_string()), ..Default::default() }
+            log::warn!("engine: title of {session_id} not reported: it could not be encrypted ({err})");
+            None
         }
     }
 }
@@ -531,9 +535,14 @@ pub(crate) fn failed_start_reason(error: Option<&str>, outcome: &str) -> String 
 fn report_failed_start(ctx: &SessionCtx, trpc: &api::TrpcClient, reason: &str) -> Result<(), api::ApiError> {
     log::warn!("engine: session {} failed to start: {reason}", ctx.session_id);
     let text = coding::pickup::start_failure(reason);
-    let body = coding::sealing::seal_body_or_plain(&ctx.session_id, &text);
-    if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
-        log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
+    // #EDE-97: never in clear: an unsealable reason stays in the log.
+    match coding::sealing::seal_body_for_session(&ctx.session_id, &text) {
+        Ok(body) => {
+            if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
+                log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
+            }
+        }
+        Err(err) => log::warn!("engine: failed start of {} not replied: it could not be encrypted ({err})", ctx.session_id),
     }
     let report = coding::pickup::start_failed_report(None, &coding::agent_accounts::now_iso());
     api::session_device::report(trpc, &ctx.session_id, &report)
@@ -604,8 +613,15 @@ fn ends_row(persistent: bool, outcome: &str) -> bool {
 /// #EXP-1868: does this exit tear the session's processes down? Only an END:
 /// never an agent root's idle, a suspend, a release to another device or a
 /// transcript replay.
+/// #EXP-1909: and only an end the SERVER decided (`killed`: the row read
+/// ended before the kill reached this run). An end this device reports (the
+/// CLI went away, a failed start, the stall watchdog) is the server's to
+/// answer: it keeps a lost run, a failed start and a root chat idle
+/// (`watchdog.json`: "a lost process never ends the session"). Whatever
+/// then does end is the sweep's (`coding::session_teardown::sweep_ended`),
+/// which reads the row.
 fn tears_down(replay: bool, persistent: bool, outcome: &str) -> bool {
-    !replay && ends_row(persistent, outcome) && outcome != RELEASED_OUTCOME
+    !replay && ends_row(persistent, outcome) && outcome == coding::pickup::KILL_OUTCOME
 }
 
 /// EXP-1292: an agent root (or a suspended session) whose process is gone —
@@ -1040,7 +1056,8 @@ fn spawn_tickers(
             let title_hook: Option<steer::AgentTitleHook> = {
                 let report = report.clone();
                 let session_id = ctx.session_id.clone();
-                Some(Arc::new(move |title: &str| report(title_report(&session_id, title))))
+                // #EDE-97: an unsealable title is not reported (false).
+                Some(Arc::new(move |title: &str| title_report(&session_id, title).is_some_and(|title| report(title))))
             };
             let status_hook: Option<steer::StatusHook> = {
                 let report = report.clone();
@@ -1294,7 +1311,7 @@ fn tick_api_retry(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
                 ctx.session_id,
                 crate::api_retry::BACKOFF.len()
             );
-            let _ = commands.send(EngineCommand::Steer(crate::api_retry::retry_message(attempt)));
+            let _ = commands.send(EngineCommand::HostSteer(crate::api_retry::retry_message(attempt)));
         }
         crate::api_retry::RetryAction::GiveUp => {
             log::warn!(
@@ -1311,16 +1328,19 @@ mod tests {
     use super::*;
 
     /// EXP-1458: with the root known and a key holder, the title rides
-    /// `sealedTitle` only; without a holder it stays plaintext.
+    /// `sealedTitle` only; #EDE-97: without a holder there is no report
+    /// (never a plaintext title), a clear tree's title goes plaintext.
     #[test]
     fn the_title_report_seals_when_it_can() {
         let _serial = crate::outbox::fake_seal::serial();
         coding::sealing::uninstall();
-        let plain = serde_json::to_value(title_report("titled-child", "Fix the login")).unwrap();
+        assert!(title_report("titled-child", "Fix the login").is_none());
+        coding::sealing::note_clear_tree("titled-clear-root");
+        let plain = serde_json::to_value(title_report("titled-clear-root", "Fix the login").unwrap()).unwrap();
         assert_eq!(plain, serde_json::json!({"title": "Fix the login"}));
         let fake = crate::outbox::fake_seal::install();
         fake.keyring.note_root("titled-child", "titled-root");
-        let report = title_report("titled-child", "Fix the login");
+        let report = title_report("titled-child", "Fix the login").unwrap();
         let opened = report.sealed_title.as_deref().and_then(|t| coding::sealing::open_body_text("titled-root", t));
         coding::sealing::uninstall();
         assert_eq!(report.title, None);
@@ -1544,12 +1564,24 @@ mod tests {
     /// idle (agent root), a suspend, a release and a replay keep them.
     #[test]
     fn only_an_end_tears_the_sessions_processes_down() {
-        assert!(tears_down(false, false, "ended"));
         assert!(tears_down(false, false, "killed"));
         assert!(!tears_down(false, false, SUSPEND_OUTCOME));
         assert!(!tears_down(false, false, RELEASED_OUTCOME));
         assert!(!tears_down(false, true, "ended"));
         assert!(!tears_down(true, false, "ended"));
+    }
+
+    /// #EXP-1909: only a row the SERVER ended tears down here. A lost run
+    /// (OOM), a failed start, a stall or the CLI's own exit report an end the
+    /// server may answer with idle (`watchdog.json`: "a lost process never
+    /// ends the session"): their leftovers are the sweep's, which reads the
+    /// row.
+    #[test]
+    fn a_run_the_server_may_keep_alive_keeps_its_processes() {
+        assert!(!tears_down(false, false, "exit:-1"), "the CLI was OOM-killed");
+        assert!(!tears_down(false, false, "exit:0"));
+        assert!(!tears_down(false, false, "ended"), "the stall watchdog, a failed handshake");
+        assert!(tears_down(false, false, "killed"));
     }
 
     #[test]

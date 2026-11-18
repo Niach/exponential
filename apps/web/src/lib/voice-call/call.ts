@@ -12,6 +12,17 @@
 // browser without WebCodecs Opus toasts `unsupported` before the microphone
 // opens and never dials (Opus only: the host decodes nothing else).
 //
+// #EXP-1941: A SEALED CALL. A caller that holds a key holder claims `seal`;
+// when `voice.startCall` answers `seal: true` (both ends can seal and the
+// server turned it on) the call speaks the sealed wire of `seal` instead:
+// the caller's hello after `call_ready`, the host's hello with its tag, then
+// every microphone packet as ONE sealed frame of one size with mute inside
+// (no `call_mute`), and the host's events and audio opened before anything
+// else reads them (seal.ts). Nothing of the microphone leaves before the
+// host proved the chat's key; a seal failure reads `dropped`. A code about
+// this browser's OWN device (`no_microphone`, `not_granted`, `unsupported`)
+// is never taken from the wire: there it reads `dropped`.
+//
 // S-3: a call RINGS first. The caller plays its own ring tone (EXP-1423: the
 // shared cadence, looped until the ring ends, at most `maxRingMs`; the voice
 // device rings nothing for a remote call) while the host warms up; the host's `call_event`s `rang` + `ready` answer it (`call_ready` only
@@ -20,6 +31,7 @@
 
 import {
   CALL_IDLE,
+  callPathDead,
   callStep,
   VOICE_CALL_CONSTANTS,
   VOICE_CALL_COPY,
@@ -28,7 +40,8 @@ import {
 } from "@exp/etalk/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
-import { audioFrame, hostCallEvent, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter } from "./wire"
+import { CallSealLine, type CallKeySource, type CallKeyTarget } from "./seal"
+import { audioFrame, hostCallEvent, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter, wireCode } from "./wire"
 
 /** The slice of a WebSocket a call uses (the tests hand in a fake). */
 export interface CallSocket {
@@ -43,7 +56,17 @@ export interface CallSocket {
 }
 
 export interface CallDeps {
-  startCall(agentId: string): Promise<{ url: string }>
+  /** EXP-1857: the server picks the target itself; `device` + `fallback`
+   *  name the desktop that speaks (an older server answers neither).
+   *  #EXP-1941: `seal` = this caller can seal the call; the answer's `seal`
+   *  is the mode the server decided, for both ends, with the ids the keys
+   *  bind (`callId`, `deviceId` = the host's). */
+  startCall(
+    agentId: string,
+    seal: boolean
+  ): Promise<{ url: string; device?: string; fallback?: boolean; seal?: boolean; callId?: string; deviceId?: string }>
+  /** #EXP-1941: this browser's key holder; none = a caller that cannot seal. */
+  keys?: CallKeySource
   openSocket(url: string): CallSocket
   openAudio(): Promise<CallAudio>
   /** S-3: play the ring tone, at most `ms`; answers a stop (none = silent). */
@@ -84,6 +107,13 @@ export class VoiceCall {
   private lastDown: number | null = null
   private generation = 0
   private stopRing: (() => void) | null = null
+  /** EXP-1929: the relay beats (`call_alive`), when it last sent anything,
+   *  and the check that ends a path gone silent. */
+  private alive = false
+  /** #EXP-1941: the sealed line of a call the server marked sealed, else null (today's wire). */
+  private line: CallSealLine | null = null
+  private heardAt = 0
+  private liveness: ReturnType<typeof setInterval> | null = null
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
@@ -153,13 +183,41 @@ export class VoiceCall {
       if (generation === this.generation) this.fail(`dropped`)
     }
     audio.onPacket = (packet) => {
-      if (!this.ready || this.socket?.readyState !== OPEN) return
-      this.socket.send(audioFrame(KIND_UP, this.seq, packet))
+      if (this.socket?.readyState !== OPEN) return
+      // A sealed call's ONE gate: a frame leaves only through the sealer,
+      // which exists only after the host's proof opened.
+      const frame = this.line ? this.line.sealPacket(this.seq, this.snapshot.state.muted, packet) : this.ready ? audioFrame(KIND_UP, this.seq, packet) : null
+      if (!frame) return
+      this.socket?.send(frame)
       this.seq = (this.seq + 1) & 0xffff
     }
     let url: string
+    let sealed: { callId: string; deviceId: string; target: CallKeyTarget } | null = null
     try {
-      url = (await this.deps.startCall(agentId)).url
+      // A key holder that is still starting is waited for, then the caller
+      // claims; one that cannot hold keys dials without the claim.
+      const keys = this.deps.keys
+      const claim = keys ? await keys.ready().catch(() => false) : false
+      if (generation !== this.generation) return
+      const none: CallKeyTarget = { rootId: null, epoch: null }
+      const [answer, target] = await Promise.all([
+        this.deps.startCall(agentId, claim),
+        claim ? keys!.target(agentId).catch(() => none) : none,
+      ])
+      url = answer.url
+      if (answer.seal === true) {
+        // Told sealed without the claim or the ids: no clear call instead.
+        if (!claim || !answer.callId || !answer.deviceId) throw new Error(`a sealed call this caller cannot seal`)
+        sealed = { callId: answer.callId, deviceId: answer.deviceId, target }
+      }
+      // #EXP-1935: the answer names the device that speaks, as on the phones.
+      if (generation === this.generation && (answer.device !== undefined || answer.fallback !== undefined)) {
+        const state = this.snapshot.state
+        this.snapshot = {
+          state: { ...state, device: answer.device ?? state.device, fallback: answer.fallback ?? state.fallback },
+        }
+        for (const listener of this.listeners) listener()
+      }
     } catch (error) {
       if (generation !== this.generation) return
       this.teardown()
@@ -173,15 +231,38 @@ export class VoiceCall {
     }
     if (generation !== this.generation) return
     this.dial(url, generation)
+    if (sealed && this.deps.keys) {
+      this.line = new CallSealLine({
+        ...sealed,
+        agentId,
+        keys: this.deps.keys,
+        sendBinary: (frame) => {
+          if (this.socket?.readyState === OPEN) this.socket.send(frame)
+        },
+        end: (reason) => this.sendControl({ t: `call_end`, reason }),
+        fail: (code) => this.fail(code),
+      })
+    }
   }
 
   private dial(url: string, generation: number) {
     const socket = this.deps.openSocket(url)
     socket.binaryType = `arraybuffer`
     this.socket = socket
+    this.heardAt = Date.now()
+    this.liveness = setInterval(() => {
+      if (generation === this.generation && callPathDead(this.alive, Date.now() - this.heardAt)) this.fail(`dropped`)
+    }, 1_000)
     socket.onmessage = (message) => {
       if (generation !== this.generation) return
+      this.heardAt = Date.now()
       if (typeof message.data === `string`) return this.control(message.data)
+      if (this.line) {
+        // Opened here, in arrival order; a frame with no packet reaches no decoder.
+        const opened = this.line.frame(new Uint8Array(message.data as ArrayBuffer))
+        if (opened && opened.packet.length > 0) this.audio?.play(opened.packet)
+        return
+      }
       const frame = parseAudioFrame(message.data as ArrayBuffer)
       if (!frame || frame.kind !== KIND_DOWN) return
       // A late frame is worthless in a realtime call.
@@ -201,26 +282,44 @@ export class VoiceCall {
     if (!frame) return
     switch (frame.t) {
       case `call_ready`:
+        if (this.line) return this.line.ready()
         this.ready = true
         if (this.snapshot.state.muted) this.sendControl({ t: `call_mute`, muted: true })
         return
       case `call_event`: {
-        const event = hostCallEvent(frame.event)
-        if (!event) return
-        // The host failed the call (its `call_end` follows): its toast.
-        if (event.t === `failed`) return this.fail(event.code)
-        // Barge-in: the reply still queued must not keep talking over it.
-        if (event.t === `speechStarted`) this.audio?.flush()
-        return this.step(event)
+        const raw = frame.event as { t?: unknown; data?: unknown } | null
+        if (this.line && raw && typeof raw === `object` && raw.t !== `failed`) {
+          // A sealed call: the host's hello, or ONE control frame of today
+          // sealed. Clear content ends it (the line says so).
+          const inner = this.line.event(raw)
+          const opened = inner === null ? null : parseControl(inner)
+          if (opened?.t !== `call_event`) return
+          return this.hostEvent(opened.event)
+        }
+        return this.hostEvent(frame.event)
       }
       case `call_end`:
         this.teardown()
         return this.step({ t: `hungUp`, reason: frame.reason ?? null })
       case `error`:
-        return this.fail(frame.code)
+        return this.fail(wireCode(frame.code))
       case `bye`:
-        return this.fail(frame.outcome ?? `dropped`)
+        return this.fail(wireCode(frame.outcome ?? `dropped`))
+      case `call_alive`:
+        this.alive = true
+        return
     }
+  }
+
+  /** One flow event of the host (clear in today's call, opened in a sealed one). */
+  private hostEvent(raw: unknown) {
+    const event = hostCallEvent(raw)
+    if (!event) return
+    // The host failed the call (its `call_end` follows): its toast.
+    if (event.t === `failed`) return this.fail(wireCode(event.code))
+    // Barge-in: the reply still queued must not keep talking over it.
+    if (event.t === `speechStarted`) this.audio?.flush()
+    return this.step(event)
   }
 
   private sendControl(frame: Record<string, unknown>) {
@@ -237,7 +336,8 @@ export class VoiceCall {
     if (!this.active) return
     const muted = !this.snapshot.state.muted
     this.audio?.setMuted(muted)
-    if (this.ready) this.sendControl({ t: `call_mute`, muted })
+    // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
+    if (this.ready && !this.line) this.sendControl({ t: `call_mute`, muted })
     this.step({ t: muted ? `mute` : `unmute` })
   }
 
@@ -251,6 +351,8 @@ export class VoiceCall {
 
   private teardown() {
     this.generation += 1
+    this.line?.close()
+    this.line = null
     const socket = this.socket
     this.socket = null
     if (socket) {
@@ -267,5 +369,8 @@ export class VoiceCall {
     this.ready = false
     this.seq = 0
     this.lastDown = null
+    if (this.liveness) clearInterval(this.liveness)
+    this.liveness = null
+    this.alive = false
   }
 }

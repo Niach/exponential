@@ -1,6 +1,6 @@
 import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
 import { waitingTarget } from "@exp/domain-contract/waiting-cards"
-import type { ChatLead } from "@exp/domain-contract/chats"
+import { chatMarks, type ChatLead } from "@exp/domain-contract/chats"
 import {
   SESSION_SCREEN_COPY,
   sessionScreen,
@@ -20,7 +20,7 @@ import {
   CardHighlightContext,
   ChatLeadDisc,
   ChatWaitingChips,
-  conceptIcon,
+  ChatMarks,
   Menu,
   MenuGestureHost,
   SkeletonRows,
@@ -101,8 +101,6 @@ import { PLAN_PAGE_COPY, planTabTarget } from "@exp/domain-contract/plan-page"
 const DEEP_LINK_SYNC_GRACE_MS = 4_000
 
 export { validateChatSearch, type ChatSearch } from "@/lib/session-screen-search"
-
-const PrivateIcon = conceptIcon(`ui-private`)
 
 /** #EXP-1834: THE link menu's rows for the `…`'s `linkIssue` submenu. */
 export interface ChatScreenLinkMenu {
@@ -588,6 +586,9 @@ export function ChatScreen({
     busy: row.busy,
     needsInput: row.needsInput,
     blocked: row.blocked?.kind ?? null,
+    // #FEED-263: a wall names its device; a device back is no wall.
+    resumed: Boolean(row.blocked?.resumeSince),
+    device: deviceGlyph(row.deviceId)?.name ?? null,
     root: row.id === root.id,
   }))
   const waiting = sessionScreenWaiting(statusSessions, waitingAsks)
@@ -646,16 +647,7 @@ export function ChatScreen({
             testId="chat-page"
             avatar={avatar}
             title={agent?.name ?? view.title}
-            titleTrailing={
-              view.private && !agent ? (
-                <PrivateIcon
-                  role="img"
-                  aria-label="Private"
-                  data-testid="chat-private"
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                />
-              ) : undefined
-            }
+            titleTrailing={<ChatMarks marks={chatMarks(root)} />}
             subtitle={subtitle}
             subtitleClass={CHAT_HEADER_TONE_CLASS[sessionScreenTone(status)]}
             onSubtitlePress={waiting ? openWaiting : null}

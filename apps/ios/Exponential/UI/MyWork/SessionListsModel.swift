@@ -33,6 +33,9 @@ final class SessionListsModel {
     /// A session's agent CLI (the row's run mark), by session id (EXP-1323:
     /// nested child rows too).
     private(set) var clis: [String: String] = [:]
+    /// #EDE-98: each root's chat marks (`Chats.chatMarks`: shared, no key),
+    /// by root id: the glyphs after a Chats row's title.
+    private(set) var marks: [String: [Chats.ChatMark]] = [:]
     /// EXP-1309: a Chats row's quiet word off its pull requests, by root id
     /// (`SessionTree.chatRowWord`).
     private(set) var words: [String: ChatRowWord] = [:]
@@ -40,6 +43,9 @@ final class SessionListsModel {
     /// its live children's titles, then its watches), by root id; the
     /// `waiting` word's labels (`SessionTree.chatRowWordText`).
     private(set) var waiting: [String: String] = [:]
+    /// #FEED-263: each listed row's wall (kind, its device's name) by root
+    /// id (the `wall` word, `SessionTree.chatRowWordText`).
+    private(set) var walls: [String: ChatRowWall] = [:]
     /// NEW-41: each root's pull-request states (the Chats tab's lead glyph).
     private(set) var prStates: [String: [String]] = [:]
     /// EXP-1316: a chat row's device glyph (the ROOT's `device_id` against
@@ -165,22 +171,21 @@ final class SessionListsModel {
         guard boundAccountId != accountId || task == nil else { return }
         stop()
         boundAccountId = accountId
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        // EXP-1358: `derive` runs inside the observation's `map` — on GRDB's
-        // reader, never the main actor (this model is `@MainActor`, so the
-        // loop below is) — and an emission equal to the last one is dropped
-        // before it can re-render the Chats tab, the tab bar and Home.
-        let observation = ValueObservation.tracking { db in
-            try Self.read(db)
-        }.map { rows in
-            Self.derive(rows, userId: userId)
-        }.removeDuplicates()
+        guard let reads = try? db.sharedReads(forAccountId: accountId) else { return }
+        // EXP-1358: `derive` runs off the main actor (this model is
+        // `@MainActor`, so the loop below is), and an emission equal to the
+        // last one is dropped (by the shared read) before it can re-render
+        // the Chats tab, the tab bar and Home. #ERR-26: the account's ONE
+        // shared read (every navigator's model shares it), re-read at most
+        // once a second while the sync writes; the raw rows (every session's
+        // digest) live only for the derive.
+        let read = reads.shared("sessionLists:\(userId ?? "")", tables: Self.tables) { writer in
+            Self.derive(try await writer.read { try Self.read($0) }, userId: userId)
+        }
         task = Task { [weak self] in
-            do {
-                for try await derived in observation.values(in: pool) {
-                    self?.apply(derived)
-                }
-            } catch {}
+            for await derived in read.values() {
+                self?.apply(derived)
+            }
         }
     }
 
@@ -195,8 +200,10 @@ final class SessionListsModel {
         running = []
         identifiers = [:]
         clis = [:]
+        marks = [:]
         words = [:]
         waiting = [:]
+        walls = [:]
         prStates = [:]
         devices = [:]
         chatMessages = []
@@ -219,6 +226,7 @@ final class SessionListsModel {
         var messages: [TreeMessage]
         var reads: [TreeSessionRead]
         var clis: [String: String]
+        var marks: [String: [Chats.ChatMark]]
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
@@ -237,8 +245,10 @@ final class SessionListsModel {
         var running: [ChatsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
+        var marks: [String: [Chats.ChatMark]]
         var words: [String: ChatRowWord]
         var waiting: [String: String]
+        var walls: [String: ChatRowWall]
         var prStates: [String: [String]]
         var devices: [String: ChatRowDevice]
         var chatMessages: [TreeMessage]
@@ -260,8 +270,10 @@ final class SessionListsModel {
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
+        marks = derived.marks
         words = derived.words
         waiting = derived.waiting
+        walls = derived.walls
         prStates = derived.prStates
         devices = derived.devices
         chatMessages = derived.chatMessages
@@ -274,6 +286,12 @@ final class SessionListsModel {
         viewerId = derived.viewerId
         loaded = true
     }
+
+    /// What `read` reads (a change to any re-reads).
+    nonisolated private static let tables = [
+        "sessions", "session_issues", "issues", "session_reads", "pull_requests", "devices",
+        "agents", "apps", "teams", "team_members",
+    ]
 
     /// The whole session table (the shape already scopes it to what I may
     /// read), the root links, their issues, and every conversation's digest
@@ -303,6 +321,12 @@ final class SessionListsModel {
             reads: try SessionReadEntity.fetchAll(db).map { TreeSessionRead(sessionReadRow: $0) },
             clis: Dictionary(
                 sessions.map { ($0.id, $0.cli ?? "") },
+                uniquingKeysWith: { a, _ in a }
+            ),
+            marks: Dictionary(
+                sessions.filter { $0.parentId == nil }.map {
+                    ($0.id, Chats.chatMarks(shared: $0.shared, sealEpoch: $0.sealEpoch))
+                },
                 uniquingKeysWith: { a, _ in a }
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
@@ -355,7 +379,11 @@ final class SessionListsModel {
         }
         var words: [String: ChatRowWord] = [:]
         var waiting: [String: String] = [:]
+        var walls: [String: ChatRowWall] = [:]
         var prStates: [String: [String]] = [:]
+        let deviceNames = Dictionary(
+            rows.deviceRows.filter { !$0.label.isEmpty }.map { ($0.deviceId, $0.label) }, uniquingKeysWith: { a, _ in a }
+        )
         let sessionsById = Dictionary(rows.sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let liveChildren = Dictionary(
             grouping: rows.sessions.filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded },
@@ -380,10 +408,13 @@ final class SessionListsModel {
                 needsYou: row.needsYou,
                 prs: prs,
                 teamPrs: prsByTeam[row.teamId] ?? [],
-                // #EXP-1703: on a person only because its device stayed away.
-                offline: row.offline,
+                // #FEED-263: the row names its wall.
+                wall: row.wall != nil,
                 waiting: rootWaiting
             )
+            if let wall = row.wall {
+                walls[row.sessionId] = ChatRowWall(kind: wall.kind, device: wall.deviceId.flatMap { deviceNames[$0] })
+            }
             // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
             prStates[row.sessionId] = prs.map(\.state)
         }
@@ -425,8 +456,10 @@ final class SessionListsModel {
             running: running,
             identifiers: identifiers,
             clis: rows.clis,
+            marks: rows.marks,
             words: words,
             waiting: waiting,
+            walls: walls,
             prStates: prStates,
             devices: devices,
             chatMessages: rows.messages,
@@ -547,4 +580,11 @@ struct NeedsYouInput: Equatable, Sendable {
 struct ChatRowDevice: Equatable, Sendable {
     let icon: String
     let name: String
+}
+
+/// #FEED-263: a chat row's wall: its kind and its device's name (the
+/// `wall` word's `{device}`; nil = none).
+struct ChatRowWall: Equatable, Sendable {
+    let kind: String
+    let device: String?
 }

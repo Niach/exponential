@@ -91,6 +91,7 @@ pub mod sealing;
 pub mod scm;
 pub mod wip_save;
 pub mod session_retention;
+pub mod session_env;
 pub mod session_manifest;
 pub mod session_teardown;
 pub mod settings;
@@ -188,7 +189,7 @@ pub use launch_defaults_sync::{
     defaults_fingerprint, read_marker, reconcile, write_marker, ReconcileAction, SyncMarker,
 };
 pub use remote_admin::{
-    apply_defaults_patch, defaults_wire, display_push_pending, mark_display_pushed,
+    apply_defaults_patch, defaults_wire, ComputerSwitchMove, ComputerSwitchWatch, display_push_pending, mark_display_pushed,
     overlay_launch_defaults, upgrade_display_pick, AgentDefaultsPatch, DefaultsPatch, DisplayPick,
 };
 pub use prompt::{reclaimed_workspace_note, ACCOUNT_SWITCH_CONTINUE_PROMPT};

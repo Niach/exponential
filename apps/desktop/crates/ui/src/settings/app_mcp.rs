@@ -340,7 +340,8 @@ pub(super) fn accounts_group(ink: &Ink, tints: &Tints) -> Value {
         ]});
     let add = button(ink, tints, "account_add", Paint::Outline, None, json!(APP_MCP_COPY.add_server), json!(false), json!({"name": "addServer", "context": {"key": path("key")}}));
     let add = visible(add, path("add"));
-    let mut text = text_line(ink, "account_text", path("text"), SM, &ink.muted, false);
+    // #EXP-1887: `two_lines(.., "account", ..)` already owns `account_text`.
+    let mut text = text_line(ink, "account_status", path("text"), SM, &ink.muted, false);
     text["visible"] = path("hasText");
     text["style"]["flexShrink"] = json!(0);
     let connect = button(ink, tints, "account_connect", Paint::Outline, None, path("connectLabel"), path("connectDisabled"), json!({"name": "connect", "context": {"key": path("key")}}));

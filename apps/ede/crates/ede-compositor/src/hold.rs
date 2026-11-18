@@ -6,8 +6,10 @@
 //! holder that disconnects lets go, so a crashed agent never leaves the
 //! person locked out. The session lock screen always gets their input.
 //!
-//! Releases of keys and buttons the person pressed before the hold still
-//! go through, so nothing stays stuck down.
+//! A hold starts on a clean seat: what the person has down is released
+//! first. Releases of keys and buttons they pressed under the lock still
+//! go through, so nothing stays stuck down. It ends on a clean seat too
+//! (#EDE-80): the last hold's end releases what every agent has down.
 
 use ede_protocol::{events, Envelope, Message, EVENT_SOURCE};
 use smithay::{
@@ -16,7 +18,7 @@ use smithay::{
     utils::{Logical, Point},
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// xkb's keycode for Esc (evdev `KEY_ESC` 1 + 8).
 pub const ESC: u32 = 9;
@@ -32,23 +34,51 @@ pub struct Hold {
 impl Ede {
     /// The person's input reaches no window right now.
     pub fn person_input_held(&self) -> bool {
-        !self.ipc.hold.holders.is_empty() && !self.is_locked()
+        !self.desk.hold.holders.is_empty() && !self.is_locked()
     }
 
-    pub(crate) fn hold_input(&mut self, conn: u64) {
-        if !self.ipc.hold.holders.contains(&conn) {
-            self.ipc.hold.holders.push(conn);
+    pub(crate) fn hold_input(&mut self, desk: DeskId, conn: u64) {
+        if self.desk(desk).hold.holders.contains(&conn) {
+            return;
+        }
+        self.desk_mut(desk).hold.holders.push(conn);
+        if self.desk(desk).hold.holders.len() == 1 && !self.desk_locked(desk) {
+            self.release_person_input();
         }
     }
 
-    pub(crate) fn release_input(&mut self, conn: u64) {
-        self.ipc.hold.holders.retain(|c| *c != conn);
+    /// A hold starts on a clean seat (#EDE-73): the keys and buttons the
+    /// person has down are released (a drag ends), so they never merge with
+    /// the agent's input. The release is not their act (#EDE-80): no
+    /// binding or hotkey runs, an open switcher is cancelled; only a global
+    /// shortcut they hold is told its key went up.
+    fn release_person_input(&mut self) {
+        let time = crate::ipc::now_ms() as u32;
+        let mut keys: Vec<Keycode> = self.desk.seat.get_keyboard().unwrap().pressed_keys().into_iter().filter(|k| !self.desk.driven.has_key(*k)).collect();
+        keys.sort_by_key(|k| k.raw());
+        for key in keys {
+            let shortcut = self.ipc.shortcuts.active.iter().any(|(k, ..)| *k == key.raw());
+            self.key(key, KeyState::Released, time, shortcut);
+        }
+        self.hotkeys_let_go();
+        for button in std::mem::take(&mut self.desk.hold.buttons) {
+            self.pointer_button(button, ButtonState::Released, time);
+        }
+    }
+
+    pub(crate) fn release_input(&mut self, desk: DeskId, conn: u64) {
+        let held = !self.desk(desk).hold.holders.is_empty();
+        self.desk_mut(desk).hold.holders.retain(|c| *c != conn);
+        if held && self.desk(desk).hold.holders.is_empty() {
+            self.release_driven_of(desk, None);
+        }
     }
 
     /// The person's Esc during a hold: every hold ends, every holder hears it.
     fn person_escape(&mut self) {
-        let holders = std::mem::take(&mut self.ipc.hold.holders);
+        let holders = std::mem::take(&mut self.desk.hold.holders);
         tracing::info!("Esc: the person took their input back from {} holder(s)", holders.len());
+        self.release_driven_of(DeskId::PERSON, None);
         let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event_id()), events::INPUT_ESCAPE, crate::ipc::now_ms(), EVENT_SOURCE, None, serde_json::Value::Null);
         let message = Message::Event { event: envelope };
         for conn in holders {
@@ -67,17 +97,18 @@ impl Ede {
             }
             return false;
         }
-        self.seat.get_keyboard().unwrap().pressed_keys().contains(&keycode)
+        // Their release of a key the agent has down is not the agent's.
+        !self.desk.driven.has_key(keycode) && self.desk.seat.get_keyboard().unwrap().pressed_keys().contains(&keycode)
     }
 
     /// A pointer button from the person's mouse.
     pub fn person_pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        let was_down = self.ipc.hold.buttons.contains(&button);
+        let was_down = self.desk.hold.buttons.contains(&button);
         match state {
-            ButtonState::Pressed if !self.person_input_held() => self.ipc.hold.buttons.push(button),
+            ButtonState::Pressed if !self.person_input_held() => self.desk.hold.buttons.push(button),
             ButtonState::Pressed => return,
             ButtonState::Released if !was_down && self.person_input_held() => return,
-            ButtonState::Released => self.ipc.hold.buttons.retain(|b| *b != button),
+            ButtonState::Released => self.desk.hold.buttons.retain(|b| *b != button),
         }
         self.pointer_button(button, state, time);
     }

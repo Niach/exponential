@@ -27,7 +27,7 @@ use std::{
 #[cfg(unix)]
 use std::{collections::VecDeque, os::unix::net::UnixStream};
 
-pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, Token, WindowId};
+pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -176,7 +176,8 @@ pub enum Request {
     /// Every type the selection offers, read into memory now:
     /// [`ClipboardSnapshot`]. A type past [`CLIPBOARD_ITEM_MAX`] is skipped,
     /// reading stops past [`CLIPBOARD_TOTAL_MAX`], a source that does not
-    /// answer within [`CLIPBOARD_READ_MS`] loses that type.
+    /// answer within [`CLIPBOARD_READ_MS`] loses that type. Every type left
+    /// out is named in [`ClipboardSnapshot::unread`].
     ClipboardSnapshot,
     /// The compositor owns the selection itself and serves `items` to the
     /// focused client (and Xwayland's): [`ClipboardSerial`] of the new
@@ -193,6 +194,20 @@ pub enum Request {
     /// The selection's UTF-8 text ([`CLIPBOARD_TEXT_MIMES`], the first one
     /// offered): [`ClipboardText`].
     ClipboardText,
+    /// A one-shot token for a launch the person made (the shell's menu,
+    /// taskbar and hotkeys; #EDE-76): [`LaunchToken`]. The shell's root
+    /// grant only. In the launched process's `XDG_ACTIVATION_TOKEN` and
+    /// `DESKTOP_STARTUP_ID` it lets that app's window take the keyboard,
+    /// for [`LAUNCH_TOKEN_SECS`]; any other new window opens without it.
+    LaunchToken,
+}
+
+/// How long a [`Request::LaunchToken`] waits for its window.
+pub const LAUNCH_TOKEN_SECS: u64 = 120;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchToken {
+    pub token: String,
 }
 
 /// The mime that marks a selection as a secret (KDE's, the one clipboard
@@ -231,6 +246,20 @@ pub struct ClipboardSerial {
 pub struct ClipboardSnapshot {
     pub serial: u64,
     pub items: Vec<ClipboardItem>,
+    /// The types the selection offers that are NOT in `items` (#EXP-1900):
+    /// too large, past the total, or their read failed or timed out.
+    /// `Some(empty)` = `items` is the whole selection; `None` = a
+    /// compositor from before the field, which dropped types without
+    /// saying so: the snapshot may be partial.
+    #[serde(default)]
+    pub unread: Option<Vec<String>>,
+}
+
+impl ClipboardSnapshot {
+    /// `items` is everything the selection held.
+    pub fn is_whole(&self) -> bool {
+        self.unread.as_ref().is_some_and(Vec::is_empty)
+    }
 }
 
 /// `serial` = the selection's serial now: another one than asked = someone
@@ -342,7 +371,7 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
                 Some(Capability::InputPerson)
             }
-            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
         }
     }
 }
@@ -418,6 +447,17 @@ pub struct WindowInfo {
     /// geometry kept for the restore.
     #[serde(default)]
     pub minimized: bool,
+    /// The agent space it lives in; `None` = the person's desk (#EDE-91).
+    /// Absent on the wire when `None`: a reply reads as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+impl WindowInfo {
+    /// On the person's desk, not in an agent space.
+    pub fn is_persons(&self) -> bool {
+        self.space.is_none()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -456,6 +496,64 @@ pub struct OutputInfo {
     /// Physical size in mm, `[0, 0]` when unknown.
     #[serde(default)]
     pub physical_mm: [i32; 2],
+    /// The agent space it shows; `None` = the person's desk (#EDE-91).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+impl OutputInfo {
+    /// One of the person's outputs, not an agent space's.
+    pub fn is_persons(&self) -> bool {
+        self.space.is_none()
+    }
+}
+
+/// `data` of the `window.*` events.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowEvent {
+    pub window: WindowId,
+    pub app_id: Option<String>,
+    /// As [`WindowInfo::space`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+/// `data` of [`events::OUTPUT_CHANGED`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OutputEvent {
+    pub output: String,
+    /// As [`OutputInfo::space`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<SpaceId>,
+}
+
+/// The person's windows or outputs of a list (#EDE-91).
+pub fn persons<T: OnDesk>(list: Vec<T>) -> Vec<T> {
+    list.into_iter().filter(OnDesk::is_persons).collect()
+}
+
+/// An event about the person's desk: its `data` names no `space` (every
+/// event without one, the hotkeys and the session's too).
+pub fn is_persons_event(event: &Envelope) -> bool {
+    event.data.get("space").is_none_or(serde_json::Value::is_null)
+}
+
+/// What [`persons`] filters.
+pub trait OnDesk {
+    fn is_persons(&self) -> bool;
+}
+
+impl OnDesk for WindowInfo {
+    fn is_persons(&self) -> bool {
+        WindowInfo::is_persons(self)
+    }
+}
+
+impl OnDesk for OutputInfo {
+    fn is_persons(&self) -> bool {
+        OutputInfo::is_persons(self)
+    }
 }
 
 /// A capture reply; the pixels follow as the next frame unless `unchanged`.
@@ -563,7 +661,13 @@ pub struct Client {
     events: VecDeque<Envelope>,
     token: Token,
     pub hello: Hello,
+    call_timeout: std::time::Duration,
 }
+
+/// How long a call waits for the compositor to take it and to answer
+/// (#EDE-74); a deferred clipboard read answers within 3 s.
+#[cfg(unix)]
+pub const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(unix)]
 impl Client {
@@ -574,7 +678,12 @@ impl Client {
 
     /// Hello over an already connected stream.
     pub fn over(stream: UnixStream, token: Token) -> Result<Self, Error> {
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() } };
+        Self::over_within(stream, token, CALL_TIMEOUT)
+    }
+
+    fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
+        stream.set_write_timeout(Some(call_timeout))?;
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() }, call_timeout };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -629,18 +738,39 @@ impl Client {
         let id = self.next_id;
         self.next_id += 1;
         let bytes = serde_json::to_vec(&Call { id, request }).map_err(|e| Error::Protocol(e.to_string()))?;
-        write_frame(&mut self.stream, &bytes)?;
-        loop {
-            match self.read_message()? {
-                Message::Event { event } => self.events.push_back(event),
-                Message::Reply { id: rid, result } if rid == id => return Ok(result),
-                Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
-                // A call the compositor could not parse (an op it does not
-                // know: an older compositor) comes back without its id.
-                Message::Error { id: 0, error } => return Err(Error::Failed(error)),
-                other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
+        self.within(|client, deadline| {
+            write_frame(&mut client.stream, &bytes)?;
+            loop {
+                match client.read_message()? {
+                    Message::Event { event } => client.events.push_back(event),
+                    Message::Reply { id: rid, result } if rid == id => return Ok(result),
+                    Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
+                    // A call the compositor could not parse (an op it does not
+                    // know: an older compositor) comes back without its id.
+                    Message::Error { id: 0, error } => return Err(Error::Failed(error)),
+                    other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Err(Error::Io(std::io::ErrorKind::TimedOut.into()));
+                }
             }
+        })
+    }
+
+    /// One exchange under the call timeout (#EDE-74): a compositor that
+    /// does not answer fails the call instead of blocking it for good. The
+    /// stream is out of step then, so it is closed (the compositor lets go
+    /// of what this connection held). Waiting for events keeps its own
+    /// timeout ([`Client::set_read_timeout`]).
+    fn within<T>(&mut self, exchange: impl FnOnce(&mut Self, std::time::Instant) -> Result<T, Error>) -> Result<T, Error> {
+        let events = self.stream.read_timeout().ok().flatten();
+        let _ = self.stream.set_read_timeout(Some(self.call_timeout));
+        let out = exchange(self, std::time::Instant::now() + self.call_timeout);
+        let _ = self.stream.set_read_timeout(events);
+        if matches!(out, Err(Error::Io(_))) {
+            let _ = self.stream.shutdown(std::net::Shutdown::Both);
         }
+        out
     }
 
     fn call_as<T: serde::de::DeserializeOwned>(&mut self, request: Request) -> Result<T, Error> {
@@ -670,7 +800,7 @@ impl Client {
         if info.unchanged {
             return Ok(None);
         }
-        let pixels = read_frame(&mut self.stream)?;
+        let pixels = self.within(|client, _| Ok(read_frame(&mut client.stream)?))?;
         if pixels.len() != (info.stride * info.height) as usize {
             return Err(Error::Protocol("capture size mismatch".into()));
         }
@@ -779,6 +909,11 @@ impl Client {
         self.call_as(Request::ClipboardText)
     }
 
+    /// [`Request::LaunchToken`]: for the environment of a launch the person made.
+    pub fn launch_token(&mut self) -> Result<String, Error> {
+        self.call_as::<LaunchToken>(Request::LaunchToken).map(|t| t.token)
+    }
+
     pub fn set_output(&mut self, name: &str, mode: Option<&str>, scale: Option<f64>, position: Option<(i32, i32)>) -> Result<(), Error> {
         self.call(Request::SetOutput { name: name.into(), mode: mode.map(String::from), scale, position }).map(|_| ())
     }
@@ -824,6 +959,8 @@ mod tests {
         assert_eq!(Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] }.capability(), Some(Capability::Ui));
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
+        assert_eq!(Request::LaunchToken.capability(), Some(Capability::System));
+        assert_eq!(serde_json::to_value(Call { id: 6, request: Request::LaunchToken }).unwrap(), serde_json::json!({"id": 6, "op": "launch_token"}));
         assert_eq!(Request::ListWindows.capability(), None);
         assert_eq!(Request::PointerPosition.capability(), None);
         assert_eq!(Request::HoldInput.capability(), Some(Capability::InputPerson));
@@ -858,8 +995,16 @@ mod tests {
             assert_eq!(json["op"], op);
             assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         }
-        let snapshot = ClipboardSnapshot { serial: 3, items };
+        let snapshot = ClipboardSnapshot { serial: 3, items, unread: Some(vec!["image/png".into()]) };
         assert_eq!(serde_json::from_value::<ClipboardSnapshot>(serde_json::to_value(&snapshot).unwrap()).unwrap(), snapshot);
+        assert!(!snapshot.is_whole());
+        // #EXP-1900: only a compositor that names nothing unread read it all;
+        // one from before the field dropped types silently.
+        let whole: ClipboardSnapshot = serde_json::from_str(r#"{"serial":4,"items":[],"unread":[]}"#).unwrap();
+        assert!(whole.is_whole());
+        let old: ClipboardSnapshot = serde_json::from_str(r#"{"serial":4,"items":[]}"#).unwrap();
+        assert_eq!(old.unread, None);
+        assert!(!old.is_whole());
         let text: ClipboardText = serde_json::from_str(r#"{"serial":4,"text":null}"#).unwrap();
         assert_eq!(text.text, None);
         assert!(!format!("{:?}", ClipboardItem { mime: "a".into(), data: b"secret".to_vec() }).contains("secret"));
@@ -883,6 +1028,168 @@ mod tests {
         assert!(!w.minimized && w.workspace == 0);
         let call = Call { id: 1, request: Request::MinimizeWindow { window: w.id } };
         assert_eq!(serde_json::to_value(&call).unwrap(), serde_json::json!({"id": 1, "op": "minimize_window", "window": "w1"}));
+    }
+
+    /// #EDE-91: `WindowInfo` and `OutputInfo` as they were before `space`,
+    /// field for field: what an old client parses a reply into.
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct OldWindowInfo {
+        id: WindowId,
+        title: Option<String>,
+        app_id: Option<String>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        focused: bool,
+        fullscreen: bool,
+        protected: bool,
+        x11: bool,
+        #[serde(default)]
+        workspace: usize,
+        #[serde(default)]
+        minimized: bool,
+    }
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct OldOutputInfo {
+        name: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        scale: f64,
+        #[serde(default)]
+        modes: Vec<ModeInfo>,
+        #[serde(default)]
+        make: String,
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        physical_mm: [i32; 2],
+    }
+
+    fn window(space: Option<&str>) -> WindowInfo {
+        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
+    }
+
+    fn output(space: Option<&str>) -> OutputInfo {
+        OutputInfo { name: "DP-1".into(), x: 0, y: 0, width: 800, height: 600, scale: 1.0, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0], space: space.map(|s| SpaceId::new(s).unwrap()) }
+    }
+
+    /// #EDE-91: the person's entries go out byte for byte as before `space`.
+    #[test]
+    fn a_person_entry_is_written_as_before_space() {
+        assert_eq!(
+            serde_json::to_string(&window(None)).unwrap(),
+            r#"{"id":"w1","title":"a","app_id":null,"x":0,"y":0,"width":1,"height":1,"focused":true,"fullscreen":false,"protected":false,"x11":false,"workspace":0,"minimized":false}"#
+        );
+        assert_eq!(serde_json::to_string(&output(None)).unwrap(), r#"{"name":"DP-1","x":0,"y":0,"width":800,"height":600,"scale":1.0,"modes":[],"make":"","model":"","physical_mm":[0,0]}"#);
+        let opened = WindowEvent { window: WindowId::new("w1").unwrap(), app_id: None, space: None };
+        assert_eq!(serde_json::to_value(&opened).unwrap(), serde_json::json!({ "window": "w1", "appId": null }));
+        let changed = OutputEvent { output: "DP-1".into(), space: None };
+        assert_eq!(serde_json::to_value(&changed).unwrap(), serde_json::json!({ "output": "DP-1" }));
+    }
+
+    /// #EDE-91: `space` round trips; an old reply (none) reads as the person's.
+    #[test]
+    fn space_round_trips_and_an_old_reply_is_the_persons() {
+        for w in [window(None), window(Some("sp1"))] {
+            assert_eq!(serde_json::from_value::<WindowInfo>(serde_json::to_value(&w).unwrap()).unwrap(), w);
+        }
+        for o in [output(None), output(Some("sp1"))] {
+            assert_eq!(serde_json::from_value::<OutputInfo>(serde_json::to_value(&o).unwrap()).unwrap(), o);
+        }
+        assert_eq!(serde_json::to_value(window(Some("sp1"))).unwrap()["space"], "sp1");
+        let old = r#"{"id":"w1","title":"a","app_id":null,"x":0,"y":0,"width":1,"height":1,"focused":true,"fullscreen":false,"protected":false,"x11":false}"#;
+        let w: WindowInfo = serde_json::from_str(old).unwrap();
+        assert!(w.space.is_none() && w.is_persons());
+        let o: OutputInfo = serde_json::from_str(r#"{"name":"DP-1","x":0,"y":0,"width":800,"height":600,"scale":1.0}"#).unwrap();
+        assert!(o.space.is_none() && o.is_persons());
+        assert!(!window(Some("sp1")).is_persons() && !output(Some("sp1")).is_persons());
+    }
+
+    /// #EDE-91: an old client parses a reply and an event that name a space.
+    #[test]
+    fn an_old_client_parses_entries_with_a_space() {
+        let windows = serde_json::to_string(&vec![window(None), window(Some("sp1"))]).unwrap();
+        let old: Vec<OldWindowInfo> = serde_json::from_str(&windows).unwrap();
+        assert_eq!(old.len(), 2);
+        let outputs = serde_json::to_string(&vec![output(Some("sp1"))]).unwrap();
+        let old: Vec<OldOutputInfo> = serde_json::from_str(&outputs).unwrap();
+        assert_eq!(old[0].name, "DP-1");
+        let event = Envelope::new("ev-1", events::WINDOW_OPENED, 1, EVENT_SOURCE, None, serde_json::to_value(WindowEvent { window: WindowId::new("w1").unwrap(), app_id: Some("a".into()), space: Some(SpaceId::new("sp1").unwrap()) }).unwrap());
+        let wire = serde_json::to_string(&Message::Event { event }).unwrap();
+        let Message::Event { event } = serde_json::from_str(&wire).unwrap() else { panic!("an event") };
+        assert_eq!(event.data["window"], "w1", "what an old shell reads of it");
+    }
+
+    /// #EDE-91: an event's space; one without (every event today) is the person's.
+    #[test]
+    fn an_event_without_a_space_is_the_persons() {
+        let event = |data: serde_json::Value| Envelope::new("ev-1", events::OUTPUT_CHANGED, 1, EVENT_SOURCE, None, data);
+        assert!(is_persons_event(&event(serde_json::json!({ "output": "DP-1" }))));
+        assert!(is_persons_event(&event(serde_json::json!({ "name": "switcher.next" }))));
+        assert!(is_persons_event(&event(serde_json::Value::Null)));
+        assert!(!is_persons_event(&event(serde_json::to_value(OutputEvent { output: "DP-1".into(), space: Some(SpaceId::new("sp1").unwrap()) }).unwrap())));
+        let both = vec![window(None), window(Some("sp1"))];
+        assert_eq!(persons(both), vec![window(None)]);
+    }
+
+    /// A peer that answers hello and then nothing, and never reads again.
+    #[cfg(unix)]
+    fn silent_after_hello() -> (UnixStream, UnixStream, Token) {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let token = Token::new("0".repeat(64)).unwrap();
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap() };
+        let reply = Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() };
+        write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
+        (ours, theirs, token)
+    }
+
+    #[cfg(unix)]
+    const SHORT: std::time::Duration = std::time::Duration::from_millis(200);
+
+    #[cfg(unix)]
+    fn finishes<R: Send + 'static>(what: &str, call: impl FnOnce() -> R + Send + 'static) -> R {
+        let handle = std::thread::spawn(call);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !handle.is_finished() {
+            assert!(std::time::Instant::now() < deadline, "{what} blocked");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        handle.join().unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_nobody_answers_fails_instead_of_blocking() {
+        // No hello back at all (a compositor that hangs before it accepts).
+        let (ours, _theirs) = UnixStream::pair().unwrap();
+        let token = Token::new("0".repeat(64)).unwrap();
+        assert!(finishes("hello", move || Client::over_within(ours, token, SHORT).is_err()));
+        // Hello answered, the next call never.
+        let (ours, _theirs, token) = silent_after_hello();
+        let failed = finishes("a call", move || {
+            let mut client = Client::over_within(ours, token, SHORT).unwrap();
+            let first = client.windows().is_err();
+            // The stream is out of step after a timeout: it stays failed.
+            first && client.windows().is_err()
+        });
+        assert!(failed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_nobody_reads_fails_instead_of_blocking() {
+        let (ours, _theirs, token) = silent_after_hello();
+        let failed = finishes("a write", move || {
+            let mut client = Client::over_within(ours, token, SHORT).unwrap();
+            client.clipboard_set(vec![ClipboardItem { mime: "a".into(), data: vec![0; 4 << 20] }], false).is_err()
+        });
+        assert!(failed);
     }
 
     #[test]

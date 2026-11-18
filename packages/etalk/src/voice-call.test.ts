@@ -4,10 +4,16 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
 import {
   CALL_IDLE,
+  CALL_SEAL_IDLE,
+  callSealStep,
+  callSealWireCode,
+  type CallSealEvent,
+  type CallSealRole,
   callAnswerMs,
   callAvailability,
   callSpeechOf,
   callRingMs,
+  callPathDead,
   callRingToneOn,
   callStep,
   callTap,
@@ -86,4 +92,47 @@ describe(`EXP-1423: the ring`, () => {
       expect(callRingToneOn(entry.ms)).toBe(entry.on)
     })
   }
+})
+
+describe(`livenessCases`, () => {
+  for (const entry of fixture.livenessCases) {
+    test(entry.name, () => {
+      expect(callPathDead(entry.input.alive, entry.input.silentMs)).toBe(entry.expected.dead)
+    })
+  }
+})
+
+describe(`EXP-1941: callSealStep (seal.modeCases)`, () => {
+  for (const entry of fixture.seal.modeCases) {
+    test(entry.name, () => {
+      let state = CALL_SEAL_IDLE
+      const actions = (entry.events as CallSealEvent[]).map((event) => {
+        const stepped = callSealStep(entry.role as CallSealRole, state, event)
+        state = stepped.state
+        return stepped.actions
+      })
+      expect(actions).toEqual(entry.actions)
+      expect(state.phase).toBe(entry.phase as typeof state.phase)
+    })
+  }
+
+  test(`maxOpenFailures frames in a row that do not open end a sealed call, on both ends`, () => {
+    const { maxOpenFailures } = fixture.seal
+    for (const role of [`caller`, `host`] as const) {
+      let state = { phase: `sealed` as const, failures: 0 }
+      for (let n = 1; n < maxOpenFailures; n++) state = callSealStep(role, state, { t: `frame`, opens: false }).state as typeof state
+      expect(state).toEqual({ phase: `sealed`, failures: maxOpenFailures - 1 })
+      const last = callSealStep(role, state, { t: `frame`, opens: false })
+      expect(last.state.phase).toBe(`over`)
+      expect(last.actions).toEqual(role === `caller` ? [`end:seal`, `fail:dropped`, `abandon`] : [`end:seal`, `abandon`])
+    }
+  })
+
+  test(`every own-device code has copy today and reads dropped from the wire`, () => {
+    for (const code of fixture.seal.ownDeviceCodes) {
+      expect(Object.keys(fixture.copy.failed)).toContain(code)
+      expect(callSealWireCode(code)).toBe(`dropped`)
+    }
+    expect(callSealWireCode(`busy`)).toBe(`busy`)
+  })
 })

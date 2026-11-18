@@ -38,10 +38,13 @@ describe(`plan card helpers`, () => {
     expect(paintedCard(v10)).toBe(v10)
   })
 
-  it(`surface media = own attachments or https`, () => {
-    expect(cardMediaAllowed(`/api/attachments/1`)).toBe(true)
-    expect(cardMediaAllowed(`https://example.com/a.png`)).toBe(true)
-    expect(cardMediaAllowed(`http://example.com/a.png`)).toBe(false)
-    expect(cardMediaAllowed(`/api/teams`)).toBe(false)
+  it(`surface media = imageSource (own attachments, data, local)`, () => {
+    const origin = `https://app.exponential.at`
+    expect(cardMediaAllowed(`/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90`, origin)).toBe(true)
+    expect(cardMediaAllowed(`data:image/png;base64,iVBORw0KGgo=`, origin)).toBe(true)
+    // #EXP-1945: another website's picture never loads (it is a link).
+    expect(cardMediaAllowed(`https://example.com/a.png`, origin)).toBe(false)
+    expect(cardMediaAllowed(`http://example.com/a.png`, origin)).toBe(false)
+    expect(cardMediaAllowed(`/api/teams`, origin)).toBe(false)
   })
 })

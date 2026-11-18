@@ -137,6 +137,11 @@ fn mode_label(m: &ede_protocol::ModeInfo) -> String {
     format!("{}x{}@{}", m.width, m.height, (m.refresh as f64 / 1000.0).round() as i64)
 }
 
+/// The Displays page's outputs: the person's (#EDE-91).
+pub fn outputs_json(outputs: &[ede_protocol::OutputInfo]) -> Vec<Value> {
+    outputs.iter().filter(|o| o.is_persons()).map(output_json).collect()
+}
+
 /// An output as the Displays page binds it.
 pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
     let current = o.modes.iter().find(|m| m.current).map(mode_label).unwrap_or_default();
@@ -254,6 +259,14 @@ pub fn demo_outputs() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-91: the Displays page lists the person's outputs, never an agent space's.
+    #[test]
+    fn the_displays_page_leaves_a_space_out() {
+        let output = |name: &str, space: Option<&str>| ede_protocol::OutputInfo { name: name.into(), x: 0, y: 0, width: 800, height: 600, scale: 1.0, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0], space: space.map(|s| ede_protocol::SpaceId::new(s).unwrap()) };
+        let page = outputs_json(&[output("DP-1", None), output("SPACE-1", Some("sp1"))]);
+        assert_eq!(page.iter().map(|o| o["name"].clone()).collect::<Vec<_>>(), [json!("DP-1")]);
+    }
 
     #[test]
     fn config_edits_keep_other_keys() {

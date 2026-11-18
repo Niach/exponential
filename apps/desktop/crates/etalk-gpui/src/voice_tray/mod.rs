@@ -660,6 +660,9 @@ impl VoiceTray {
             self.screen.on = false;
             self.screen.account = None;
             self.screen.running = false;
+            // #EXP-1908: off means deleted, as when the item goes off: the
+            // frames an earlier run left on disk go too.
+            let _ = self.screen_ops.send(ScreenOp::Forget);
             self.save();
             host::notify(Notice::Failed { verb: "start", noun: "screen memory", reason: Some(reason) }, cx);
             self.sync(cx);
@@ -1319,6 +1322,44 @@ mod tests {
         assert!(load_state(&dir).screen_memory);
         assert!(ops.try_iter().all(|op| op != ScreenOp::Forget));
         tray.update(cx, |tray, cx| tray.set_screen_memory(false, cx));
+        assert_eq!(ops.try_iter().collect::<Vec<_>>(), [ScreenOp::Forget]);
+        assert!(!load_state(&dir).screen_memory);
+        tray.update(cx, |tray, _| assert!(!tray.screen.on && !tray.screen.running));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// #EXP-1908: a start that failed (the portal dialog declined, Screen
+    /// Recording revoked) turns the switch off AND queues the Forget: the
+    /// frames an earlier run left on disk go, as when the item goes off. A
+    /// cancelled or stale start's answer queues nothing.
+    #[gpui::test]
+    async fn a_failed_start_queues_the_forget(cx: &mut gpui::TestAppContext) {
+        let dir = std::env::temp_dir().join(format!("voice-tray-failed-start-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (screen_ops, ops) = flume::unbounded();
+        let (tx, _rx) = flume::unbounded();
+        let mut screen = ScreenMemory::new(true, Some("acct".into()), true);
+        (screen.running, screen.generation) = (true, 1);
+        let tray = cx.update(|cx| {
+            cx.new(|_| VoiceTray {
+                muted: false,
+                screen,
+                screen_ops,
+                data_dir: dir.clone(),
+                pending: None,
+                generation: 0,
+                device_id: "this-device".into(),
+                menu: None,
+                icon: None,
+                hosted: None,
+                rail: None,
+                backend: backend::Backend::new(tx),
+            })
+        });
+        tray.update(cx, |tray, cx| tray.screen_started(0, Err("stale".into()), cx));
+        tray.update(cx, |tray, cx| tray.screen_started(1, Err(epilot_screen::CANCELLED.into()), cx));
+        assert_eq!(ops.try_iter().collect::<Vec<_>>(), [], "stale or cancelled: nothing");
+        tray.update(cx, |tray, cx| tray.screen_started(1, Err("Screen sharing was declined.".into()), cx));
         assert_eq!(ops.try_iter().collect::<Vec<_>>(), [ScreenOp::Forget]);
         assert!(!load_state(&dir).screen_memory);
         tray.update(cx, |tray, _| assert!(!tray.screen.on && !tray.screen.running));

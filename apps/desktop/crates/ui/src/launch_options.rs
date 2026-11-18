@@ -649,9 +649,10 @@ pub(crate) struct RemoteDefaults {
     /// preview draws its bars off it (the active login's numbers ride here
     /// when its profile row carries none).
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
-    /// composer-menu.json `conditions.computerUse`: the machine advertises
-    /// `computer-use-run`; without it the "+" menu has no Computer use row.
-    pub(crate) computer_use_run: bool,
+    /// composer-menu.json `conditions.computerUse` ([`computer_use_offered`]):
+    /// the machine takes the per-run pick, its switch is on and it can drive;
+    /// otherwise the "+" menu has no Computer use row.
+    pub(crate) computer_use_offered: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -695,8 +696,8 @@ pub(crate) struct LaunchOptionsSection {
     /// (EXP-1158).
     account: Option<String>,
     /// EXP-1249: the run's own Computer use pick (the "+" menu toggle);
-    /// `None` = the target machine's switch decides. Cleared on a device
-    /// switch: another machine has another switch.
+    /// `None` = untouched, the run follows the target machine's switch
+    /// (#EXP-1899: only an opt-out rides out). Cleared on a device switch.
     computer_use: Option<bool>,
 }
 
@@ -1012,18 +1013,22 @@ impl LaunchOptionsSection {
             // and the account against its profile dirs.
             mcp_server_ids: self.mcp_selected.clone(),
             account: self.account.clone(),
-            // EXP-1249: the per-run pick; none = the machine's switch decides.
-            computer_use: self.computer_use,
+            // #EXP-1899: only an opt-out rides out; none = the run follows
+            // the machine's switch.
+            computer_use: (self.computer_use_offered(cx) && self.computer_use == Some(false))
+                .then_some(false),
         }
     }
 
-    /// EXP-1249: the target machine's own Computer use switch — what a run
-    /// with no pick of its own gets.
-    pub(crate) fn computer_use_default(&self, cx: &App) -> bool {
+    /// #EXP-1899: the "+" menu offers Computer use for the target machine
+    /// (this IDE: its own doctor and switch; this build takes the pick).
+    pub(crate) fn computer_use_offered(&self, cx: &App) -> bool {
         match &self.remote {
-            Some(remote) => remote.settings.computer_use,
-            None => crate::coding_flow::CodingHub::global_ref(cx)
-                .is_some_and(|hub| hub.read(cx).settings.computer_use),
+            Some(remote) => remote.computer_use_offered,
+            None => crate::coding_flow::CodingHub::global_ref(cx).is_some_and(|hub| {
+                let hub = hub.read(cx);
+                computer_use_offered(true, hub.doctor.device.as_ref(), hub.settings.computer_use)
+            }),
         }
     }
 
@@ -1093,10 +1098,8 @@ impl LaunchOptionsSection {
             skills_count: self.skills.len(),
             skills_picked: self.skills_selected.len(),
             computer_use: self
-                .remote
-                .as_ref()
-                .is_none_or(|remote| remote.computer_use_run)
-                .then(|| computer_use_shown(self.computer_use, self.computer_use_default(cx))),
+                .computer_use_offered(cx)
+                .then(|| computer_use_shown(self.computer_use)),
         }
     }
 
@@ -1248,10 +1251,29 @@ impl EditorRunner {
     }
 }
 
-/// EXP-1249: the toggle's state — the run's pick, else the machine's
-/// switch.
-pub(crate) fn computer_use_shown(explicit: Option<bool>, device_default: bool) -> bool {
-    explicit.unwrap_or(device_default)
+/// #EXP-1899: the toggle's state — on (the run follows the machine's
+/// switch) until the person opts out.
+pub(crate) fn computer_use_shown(explicit: Option<bool>) -> bool {
+    explicit.unwrap_or(true)
+}
+
+/// #EXP-1899 (composer-menu.json `conditions.computerUse`, replayed off
+/// `computerUse.offered`): the machine takes the per-run pick (`cap`) AND
+/// computer use runs there: its doctor's computer_use row is `ok`/`action`
+/// (switch on, it can drive); with no doctor, its switch.
+pub(crate) fn computer_use_offered(
+    cap: bool,
+    doctor: Option<&coding::device_doctor::DeviceDoctor>,
+    switch: bool,
+) -> bool {
+    use coding::device_doctor::{DoctorState, KEY_COMPUTER_USE};
+    cap && match doctor {
+        Some(doctor) => doctor.items.iter().any(|item| {
+            item.key == KEY_COMPUTER_USE
+                && matches!(item.state, DoctorState::Ok | DoctorState::Action)
+        }),
+        None => switch,
+    }
 }
 
 /// Write `value` into a model/effort select.
@@ -1279,13 +1301,41 @@ mod tests {
     /// as the second line but is NEVER disabled (it still toggles; the
     /// launch merely starts without it), and the glyph inputs travel.
     #[test]
-    fn the_computer_use_toggle_follows_the_device_until_picked() {
-        // No pick: the row mirrors the machine's switch.
-        assert!(computer_use_shown(None, true));
-        assert!(!computer_use_shown(None, false));
-        // A pick wins, both ways.
-        assert!(!computer_use_shown(Some(false), true));
-        assert!(computer_use_shown(Some(true), false));
+    fn the_computer_use_toggle_starts_on_and_only_opts_out() {
+        assert!(computer_use_shown(None));
+        assert!(!computer_use_shown(Some(false)));
+        assert!(computer_use_shown(Some(true)));
+    }
+
+    /// #EXP-1899: composer-menu.json `computerUse.offered`, the same table
+    /// web, iOS and Android replay.
+    #[test]
+    fn computer_use_is_offered_per_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/composer-menu.json"
+        ))
+        .unwrap();
+        for case in fixture["computerUse"]["offered"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let cap = case["caps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|cap| cap == coding::doctor::COMPUTER_USE_RUN_CAP);
+            let doctor = case["doctorState"].as_str().map(|state| {
+                crate::device_readiness::parse(Some(&serde_json::json!({
+                    "checkedAt": "2026-11-17T09:00:00.000Z",
+                    "items": [{ "key": "computer_use", "group": "computer_use", "state": state }],
+                })))
+                .unwrap()
+            });
+            let switch = case["launchDefault"].as_bool().unwrap();
+            assert_eq!(
+                computer_use_offered(cap, doctor.as_ref(), switch),
+                case["offered"].as_bool().unwrap(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

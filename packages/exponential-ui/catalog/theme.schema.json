@@ -164,6 +164,12 @@
                 },
                 "sheenTo": {
                   "$ref": "#/$defs/hex"
+                },
+                "match": {
+                  "$ref": "#/$defs/hex"
+                },
+                "matchCurrent": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -325,6 +331,12 @@
                   "$ref": "#/$defs/hex"
                 },
                 "sheenTo": {
+                  "$ref": "#/$defs/hex"
+                },
+                "match": {
+                  "$ref": "#/$defs/hex"
+                },
+                "matchCurrent": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -495,6 +507,12 @@
                 },
                 "sheenTo": {
                   "$ref": "#/$defs/hex"
+                },
+                "match": {
+                  "$ref": "#/$defs/hex"
+                },
+                "matchCurrent": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -656,6 +674,12 @@
                   "$ref": "#/$defs/hex"
                 },
                 "sheenTo": {
+                  "$ref": "#/$defs/hex"
+                },
+                "match": {
+                  "$ref": "#/$defs/hex"
+                },
+                "matchCurrent": {
                   "$ref": "#/$defs/hex"
                 }
               }

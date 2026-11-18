@@ -95,10 +95,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
-    },
+    sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -288,10 +285,13 @@ struct Shell {
     /// The windows the capture thread photographs.
     capture_ids: Arc<Mutex<Vec<String>>>,
     /// The thumbnail thread runs while this is set.
-    capturing: Arc<AtomicBool>,
+    capturing: thumbs::Captures,
     thumbs_tx: mpsc::Sender<(String, String)>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// #EDE-89: when each popup document last opened (epoch ms, the clock of
+    /// the compositor's event stamps).
+    popups_opened: HashMap<String, i64>,
     /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
     switcher_generation: u64,
     notifications: Notifications,
@@ -373,6 +373,7 @@ type SharedShell = Rc<RefCell<Shell>>;
 /// popup document; the `ede_*` host functions go to the compositor, the
 /// system and the shell model, each only from a document whose header
 /// allows it; the hosted popups of the document reach the main loop.
+#[derive(Clone)]
 struct Host {
     shell: SharedShell,
     document: String,
@@ -414,6 +415,15 @@ fn window_arg(args: &Value) -> Option<ede_protocol::WindowId> {
 
 /// Mint's click on the focused window's button: the compositor's minimize
 /// (#EDE-48); a `focus` restores it.
+/// A launch the person made (the menu, the taskbar, a hotkey; #EDE-76):
+/// the compositor's one-shot launch token goes into the app's environment,
+/// so its window takes the keyboard. Anything else the shell starts (an
+/// Engine app's `launch`, its own tools) opens without it.
+fn person_launch(shell: &SharedShell, command: &str) {
+    let token = with_ede(shell, |ede| ede.launch_token());
+    system::launch_with(command, token.as_deref());
+}
+
 fn minimize(ede: &mut ede_protocol::Client, id: ede_protocol::WindowId) -> Result<(), ede_protocol::Error> {
     ede.minimize(id)
 }
@@ -504,6 +514,12 @@ impl HostPlugin for Host {
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
+        // #EDE-75: fired by a view the shell updates while it is borrowed: after that borrow.
+        if self.shell.try_borrow_mut().is_err() {
+            let (host, event) = (self.clone(), event.clone());
+            cx.defer(move |cx| host.on_action(&event, cx));
+            return;
+        }
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
@@ -545,6 +561,15 @@ impl HostPlugin for Host {
             });
             return;
         }
+        // #EDE-75: the hover previews' change is an event: its {open} reaches
+        // a context, never a function's args, and a close ends the thumbnails.
+        if event.name == "ede_previews" && allowed(&self.shell.borrow(), &event.surface_id, "ede_previews") {
+            let shell = self.shell.clone();
+            let app = event.context["app"].as_str().map(String::from);
+            let open = event.context["open"].as_bool().unwrap_or(app.is_some());
+            cx.defer(move |cx| previews_changed(&shell, app, open, cx));
+            return;
+        }
         let popups = popups_of(&self.shell.borrow(), &event.surface_id, &event.component_id);
         if !popups.is_empty() {
             let shell = self.shell.clone();
@@ -557,6 +582,12 @@ impl HostPlugin for Host {
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
+        // #EDE-75: as `on_action`.
+        if self.shell.try_borrow_mut().is_err() {
+            let (host, event) = (self.clone(), event.clone());
+            cx.defer(move |cx| host.on_function_call(&event, cx));
+            return;
+        }
         let (name, args) = (event.name.as_str(), &event.args);
         if !allowed(&self.shell.borrow(), &event.surface_id, name) {
             tracing::warn!(document = %event.surface_id, function = name, "refused: not in the document's surface.functions");
@@ -567,9 +598,9 @@ impl HostPlugin for Host {
         match name {
             "ede_launch" => {
                 if args.get("new").and_then(Value::as_str) == Some("issue") {
-                    new_issue(&self.shell.borrow());
+                    new_issue(&self.shell);
                 } else if let Some(command) = args.get("command").and_then(Value::as_str) {
-                    system::launch(command);
+                    person_launch(&self.shell, command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
                     let engine_app = self.shell.borrow().engine.as_ref().is_some_and(|e| e.borrow().has(app));
                     if engine_app {
@@ -807,17 +838,11 @@ impl HostPlugin for Host {
                 }
             }
             "ede_previews" => {
-                // A hover Popover's change: open with the app, closed = that app's previews go.
+                // A hover Popover's change as a function (a document from before
+                // #EDE-75, whose `open` never arrives): the event in `on_action` is the factory's.
                 let app = args.get("app").and_then(Value::as_str).map(String::from);
                 let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
-                cx.defer(move |cx| {
-                    let current = shell.borrow().model.taskbar.previews.clone();
-                    if open {
-                        previews_set(&shell, app, cx);
-                    } else if current == app || app.is_none() {
-                        previews_set(&shell, None, cx);
-                    }
-                });
+                cx.defer(move |cx| previews_changed(&shell, app, open, cx));
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
             "ede_settings" => match settings_pages::handle(args) {
@@ -840,7 +865,8 @@ impl HostPlugin for Host {
                         let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
                         if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
                             // #EDE-65: the menu goes with the pick (it stayed open, the pick looked like nothing).
-                            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+                            let hosted = shell.borrow().surfaces.hosted_layers();
+                            uicore_gpui::dismiss_hosted(hosted, cx);
                             switcher_picked(&shell, entry_kind, id, cx);
                         }
                     }
@@ -1342,7 +1368,7 @@ fn ide_open(shell: &SharedShell, link: Option<&str>) {
     // single-instance boot feeds command-line `exponential://` args in).
     let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
     match command {
-        Some(command) => system::launch(&command),
+        Some(command) => person_launch(shell, &command),
         None => tracing::warn!("no at.exponential desktop entry to launch"),
     }
 }
@@ -1380,7 +1406,7 @@ fn launch_app(shell: &SharedShell, app: &str) {
         return;
     };
     if shell.borrow_mut().launches.admit(wanted, Instant::now()) {
-        system::launch(&exec);
+        person_launch(shell, &exec);
     } else {
         tracing::info!(app, "already starting");
     }
@@ -1639,6 +1665,7 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
     }
     let Some(doc) = document(&shell.borrow(), name) else { return };
     let feed = shell.borrow().feed.clone();
+    shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
 }
 
@@ -1661,15 +1688,28 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
                     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
                     tracing::info!(document = %name, "redrawn");
                 }
-                // An on-demand surface (the switcher, the OSD) waits for its hotkey.
                 (false, SurfaceHeader::Layer { on_demand: false, .. }) => open_layer(shell, &doc, cx),
-                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {}
+                // An on-demand surface (the switcher, the OSD) waits for its hotkey, a popup for its anchor.
+                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {
+                    if let Some(line) = loaded_frame(false, &doc) {
+                        println!("{line}");
+                    }
+                }
             }
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
         Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
     }
+}
+
+/// The frame line a change owes the supervisor without drawing (#EDE-110):
+/// a closed popup or on-demand layer is loaded, not drawn, and loading it
+/// proves the edit (one that breaks once opened crashes the shell, and
+/// three crashes revert it). An open or opening surface reports its frame.
+fn loaded_frame(open: bool, doc: &Document) -> Option<String> {
+    let closed = !open && matches!(doc.surface, SurfaceHeader::Layer { on_demand: true, .. } | SurfaceHeader::Popup { .. });
+    closed.then(|| FrameLine::line_for_digest(&doc.name, &doc.digest))
 }
 
 /// Pushes the feed into every open view.
@@ -1788,6 +1828,26 @@ fn previews_set(shell: &SharedShell, app: Option<String>, cx: &mut App) {
     refresh(shell, cx);
 }
 
+/// A previews Popover opened or closed: open shows its app's, closed hides
+/// them unless another app's already show.
+fn previews_changed(shell: &SharedShell, app: Option<String>, open: bool, cx: &mut App) {
+    let current = shell.borrow().model.taskbar.previews.clone();
+    if let Some(next) = previews_after(&current, app, open) {
+        previews_set(shell, next, cx);
+    }
+}
+
+/// The previews after a Popover's change, `None` = as they are.
+fn previews_after(current: &Option<String>, app: Option<String>, open: bool) -> Option<Option<String>> {
+    if open {
+        Some(app)
+    } else if *current == app || app.is_none() {
+        Some(None)
+    } else {
+        None
+    }
+}
+
 fn previews_refresh(shell: &SharedShell) {
     let mut s = shell.borrow_mut();
     let value = match s.model.taskbar.previews.clone() {
@@ -1890,7 +1950,7 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
     let local = on_local(shell);
     let team_has_session = if local || demo() { None } else { team_chat(shell).map(|(_, rows)| rows.account.sessions.iter().any(|s| s.id == id)) };
     if !demo() && rail_chat_route(local, team_has_session) == RailChat::HandOff {
-        hand_off(&shell.borrow(), &accounts::session_deep_link(id));
+        hand_off(shell, &accounts::session_deep_link(id));
         return;
     }
     if !demo() {
@@ -1903,15 +1963,15 @@ fn rail_chat_open(shell: &SharedShell, id: &str, cx: &mut App) {
 
 /// #EDE-65: the new-issue button: the Exponential app's new issue (on the
 /// current team), until issues come into eDE.
-fn new_issue(shell: &Shell) {
+fn new_issue(shell: &SharedShell) {
     // #EDE-65 J3: a Local desktop's team id IS its desktop id, so the app opens the new issue there.
-    let current = &shell.model.switcher.current;
-    hand_off(shell, &accounts::new_issue_deep_link(Some(current.id.as_str()).filter(|id| !id.is_empty())));
+    let link = accounts::new_issue_deep_link(Some(shell.borrow().model.switcher.current.id.as_str()).filter(|id| !id.is_empty()));
+    hand_off(shell, &link);
 }
 
 /// A deep link to the Exponential app: the running one, else a new one
 /// started with it (its single-instance guard reads the link off argv).
-fn hand_off(shell: &Shell, url: &str) {
+fn hand_off(shell: &SharedShell, url: &str) {
     if demo() {
         tracing::info!(url, "hand-off (demo: not sent)");
         return;
@@ -1920,8 +1980,9 @@ fn hand_off(shell: &Shell, url: &str) {
         tracing::info!(url, "handed to the Exponential app");
         return;
     }
-    match EXPONENTIAL_APPS.iter().find_map(|id| app_entry(shell, id)) {
-        Some(app) => system::launch(&format!("{} '{url}'", app.exec)),
+    let command = EXPONENTIAL_APPS.iter().find_map(|id| app_entry(&shell.borrow(), id).map(|app| format!("{} '{url}'", app.exec)));
+    match command {
+        Some(command) => person_launch(shell, &command),
         None => tracing::warn!(url, "no Exponential app to hand off to"),
     }
 }
@@ -2605,8 +2666,17 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
     }
 }
 
-/// A key the compositor kept for the shell (#EDE-12).
-fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
+/// The popup documents a press outside them closes (`popups.dismiss`):
+/// those open when it was pressed (`pressed_at`, the event's stamp). One the
+/// press itself opened (the start menu from its button) stays: its press
+/// reaches the shell before the event does, or after (#EDE-89).
+fn popups_to_dismiss(open: &[(String, Option<i64>)], pressed_at: i64) -> Vec<String> {
+    open.iter().filter(|(_, opened)| opened.is_none_or(|at| at < pressed_at)).map(|(name, _)| name.clone()).collect()
+}
+
+/// A key the compositor kept for the shell (#EDE-12), at the compositor's
+/// stamp `at` (epoch ms).
+fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
     tracing::info!(name, "hotkey");
     match name {
         "switcher.next" => switcher_step(shell, ShellEvent::AltTabNext, cx),
@@ -2625,26 +2695,33 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
         "brightness.up" | "brightness.down" => osd_show(shell, system::brightness_step(name == "brightness.up"), cx),
         "media.play" | "media.next" | "media.prev" => system::media(name),
         "terminal" => match system::terminal_command() {
-            Some(t) => system::launch(t),
+            Some(t) => person_launch(shell, t),
             None => tracing::warn!("no terminal emulator installed"),
         },
         "screenshot" => screenshot(shell),
         "popups.dismiss" => {
-            let names: Vec<String> = {
+            let (names, menu_stays) = {
                 let s = shell.borrow();
                 let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
-                s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(String::from).collect()
+                let open: Vec<(String, Option<i64>)> = s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(|n| (n.to_string(), s.popups_opened.get(n).copied())).collect();
+                let names = popups_to_dismiss(&open, at);
+                let menu_stays = open.iter().any(|(n, _)| (n == "start-menu" || n == "menu") && !names.contains(n));
+                (names, menu_stays)
             };
             for n in &names {
                 close(shell, n, cx);
             }
-            shell.borrow_mut().surfaces.dismiss_hosted(cx);
+            // #EDE-75: a closing Popover's change reads the shell: the borrow ends first.
+            let hosted = shell.borrow().surfaces.hosted_layers();
+            uicore_gpui::dismiss_hosted(hosted, cx);
             let (previews, menu_open) = {
                 let s = shell.borrow();
                 (s.model.taskbar.previews.is_some(), s.model.start_menu.open)
             };
             if !names.is_empty() || previews || menu_open {
-                dispatch(shell, ShellEvent::StartMenuClose, cx);
+                if !menu_stays {
+                    dispatch(shell, ShellEvent::StartMenuClose, cx);
+                }
                 previews_set(shell, None, cx);
             }
         }
@@ -2778,29 +2855,27 @@ fn thumbnails_retarget(shell: &SharedShell) {
             Vec::new()
         }
     };
-    let (flag, targets, tx) = {
+    let (captures, targets, tx) = {
         let s = shell.borrow();
         (s.capturing.clone(), s.capture_ids.clone(), s.thumbs_tx.clone())
     };
     *targets.lock().unwrap_or_else(|p| p.into_inner()) = ids.clone();
     if ids.is_empty() {
-        flag.store(false, Ordering::SeqCst);
+        captures.stop();
         return;
     }
-    if flag.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    let Some(run) = captures.start() else { return };
     // Thumbnails at about 5 fps on a thread with its own ede-protocol connection.
     let _ = std::thread::Builder::new().name("ede-shell-thumbs".into()).spawn(move || {
         let Ok(mut ede) = ede_protocol::Client::connect_env() else {
-            flag.store(false, Ordering::SeqCst);
+            run.fail();
             return;
         };
-        while flag.load(Ordering::SeqCst) {
+        while run.live() {
             let started = Instant::now();
             let ids = targets.lock().unwrap_or_else(|p| p.into_inner()).clone();
             for id in &ids {
-                if !flag.load(Ordering::SeqCst) {
+                if !run.live() {
                     return;
                 }
                 let Ok(window) = ede_protocol::WindowId::new(id) else { continue };
@@ -2891,7 +2966,7 @@ fn screenshot(shell: &SharedShell) {
     let path = system::screenshot_path();
     let saved = with_ede(shell, |ede| {
         let outputs = ede.outputs()?;
-        let Some(first) = outputs.first() else { return Ok(false) };
+        let Some(first) = outputs.iter().find(|o| o.is_persons()) else { return Ok(false) };
         let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
         Ok(thumbs::write_png(&path, &capture).is_ok())
     });
@@ -2998,7 +3073,7 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 /// The outputs as the Displays page binds them (#EDE-14).
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
-    shell.borrow_mut().feed.set("/outputs", Value::Array(outputs.iter().map(settings::output_json).collect()));
+    shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
 /// Reads the tray items again (a short blocking round on the bus).
@@ -3046,16 +3121,17 @@ fn pins_persist(shell: &SharedShell) {
     settings::persist_shell(json!({"pinned": pinned}));
 }
 
-/// The compositor's window and workspace lists (one round trip each).
+/// The compositor's window and workspace lists (one round trip each); the
+/// person's windows only (#EDE-91).
 fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)> {
-    let windows = calls.windows().ok()?;
+    let windows = ede_protocol::persons(calls.windows().ok()?);
     let workspaces = calls.workspaces().unwrap_or_default();
     Some((windows, workspaces))
 }
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false };
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
@@ -3085,7 +3161,7 @@ fn main() {
 
     // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
-    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<String>();
+    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
@@ -3104,9 +3180,13 @@ fn main() {
                 return;
             }
             while let Ok(event) = events.next_event() {
+                // #EDE-91: an agent space's windows and outputs are not the person's.
+                if !ede_protocol::is_persons_event(&event) {
+                    continue;
+                }
                 if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
-                        if hotkeys_tx.send(name.to_string()).is_err() {
+                        if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                             return;
                         }
                     }
@@ -3332,9 +3412,10 @@ fn main() {
             windows: Vec::new(),
             thumbnails: HashMap::new(),
             capture_ids: Arc::new(Mutex::new(Vec::new())),
-            capturing: Arc::new(AtomicBool::new(false)),
+            capturing: thumbs::Captures::default(),
             thumbs_tx,
             osd_until: None,
+            popups_opened: HashMap::new(),
             switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
@@ -3455,8 +3536,8 @@ fn main() {
                 while let Ok((windows, workspaces)) = windows_rx.try_recv() {
                     cx.update(|cx| windows_changed(&s, windows, workspaces, cx));
                 }
-                while let Ok(name) = hotkeys_rx.try_recv() {
-                    cx.update(|cx| hotkey(&s, &name, cx));
+                while let Ok((name, at)) = hotkeys_rx.try_recv() {
+                    cx.update(|cx| hotkey(&s, &name, at, cx));
                 }
                 while let Ok((id, url)) = thumbs_rx.try_recv() {
                     thumbnail_arrived(&s, id, url);
@@ -3886,6 +3967,66 @@ mod layer_sizes {
             walk.extend(node["children"].as_array().into_iter().flatten());
         }
         assert_eq!((composers, rows), (2, 2));
+    }
+}
+
+#[cfg(test)]
+mod previews {
+    use super::{popups_to_dismiss, previews_after};
+
+    /// #EDE-89: a press on Start while a preview is open: the compositor's
+    /// `popups.dismiss` for that press reaches the shell after the press
+    /// opened the start menu (the main loop drains it up to 100 ms later).
+    /// The menu opened after the press and stays; a popup open before it goes.
+    #[test]
+    fn a_press_that_opens_the_start_menu_does_not_dismiss_it() {
+        let pressed_at = 1_000;
+        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("tray-menu".to_string(), Some(pressed_at - 4_000))];
+        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["tray-menu".to_string()]);
+        // Escape in the open menu (or a press outside it) still closes it.
+        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "tray-menu".to_string()]);
+        // A popup the shell has no stamp for goes, as before.
+        assert_eq!(popups_to_dismiss(&[("menu".to_string(), None)], pressed_at), vec!["menu".to_string()]);
+    }
+
+    /// #EDE-75: leaving a taskbar button closes its previews (the capture
+    /// thread stops with them); the next button's stay when its open came first.
+    #[test]
+    fn a_close_hides_only_its_own_apps_previews() {
+        let (firefox, nemo) = (Some("firefox".to_string()), Some("nemo".to_string()));
+        assert_eq!(previews_after(&None, firefox.clone(), true), Some(firefox.clone()));
+        assert_eq!(previews_after(&firefox, firefox.clone(), false), Some(None));
+        assert_eq!(previews_after(&nemo, firefox.clone(), false), None);
+        assert_eq!(previews_after(&firefox, None, false), Some(None));
+    }
+
+    /// The factory taskbar tells the shell with an event (its context gets `open`).
+    #[test]
+    fn the_factory_previews_change_is_an_event() {
+        let doc = uicore_docs::doc("taskbar").unwrap().source;
+        assert!(doc.contains(r#""name": "ede_previews""#), "the event");
+        assert!(!doc.contains(r#""@call": "ede_previews""#), "no function call: its args never get `open`");
+    }
+}
+
+#[cfg(test)]
+mod loaded_frame {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    /// #EDE-110: an edit to a closed popup or on-demand layer is proven by
+    /// loading it; the supervisor rolled it back after 2 s for want of a frame.
+    #[test]
+    fn a_closed_popup_or_on_demand_layer_reports_the_document_loaded() {
+        for name in ["start-menu", "switcher", "settings"] {
+            let doc = factory(name);
+            assert_eq!(loaded_frame(false, &doc), Some(FrameLine::line_for_digest(name, &doc.digest)), "{name}");
+            assert_eq!(loaded_frame(true, &doc), None, "{name}: an open surface reports its drawn frame");
+        }
+        assert_eq!(loaded_frame(false, &factory("taskbar")), None, "a layer that opens reports its drawn frame");
     }
 }
 

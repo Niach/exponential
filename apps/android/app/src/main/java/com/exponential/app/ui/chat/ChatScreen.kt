@@ -150,7 +150,7 @@ fun ChatScreen(
     val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
-    val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
+    val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle(emptyList())
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
     val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
     val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
@@ -323,7 +323,8 @@ fun ChatScreen(
     val tabNames = remember(view?.tabs) {
         view?.tabs.orEmpty().filterIsInstance<SessionTree.ChatTab.SessionTab>().associate { it.sessionId to it.name }
     }
-    val stateWord = chatStateWord(viewModel.rootId, tree, view?.rows) { tabNames[it] }
+    val deviceLabels by viewModel.deviceLabels.collectAsStateWithLifecycle()
+    val stateWord = chatStateWord(viewModel.rootId, tree, view?.rows, nameOf = { tabNames[it] }, deviceName = { deviceLabels[it] })
     val headerSubtitle = SessionScreen.subtitle(stateWord, deviceLabel, trigger)
     val headerSubtitleColor = chatStateTone(stateWord)
     // #EXP-1611: the Guide PR's CI checks (the `…`'s Checks submenu, the
@@ -623,6 +624,8 @@ fun ChatScreen(
                 view = view,
                 rootLoaded = rootRow != null,
                 rootTitle = rootRow?.title?.trim()?.takeIf { it.isNotEmpty() },
+                // #EDE-98: the root's marks after the header's title.
+                marks = rootRow?.let { com.exponential.app.domain.Chats.chatMarks(it.shared, it.sealEpoch) }.orEmpty(),
                 agent = agent,
                 screen = screen,
                 items = items,
@@ -807,15 +810,23 @@ internal fun chatLeadOf(
 
 /** session-screen.json `statusCases`' sessions: the tree's rows with their
  *  id and `blocked.kind` (#FEED-257; a wall without a kind = `rate_limit`). */
-private fun chatStatusInputs(rootId: String, tree: List<com.exponential.app.data.db.SessionEntity>): List<SessionScreen.StatusInput> =
+private fun chatStatusInputs(
+    rootId: String,
+    tree: List<com.exponential.app.data.db.SessionEntity>,
+    deviceName: (String) -> String? = { null },
+): List<SessionScreen.StatusInput> =
     tree.map {
+        val blocked = com.exponential.app.domain.AgentUsagePresentation.parseBlocked(it.blocked)
         SessionScreen.StatusInput(
             status = it.status,
             busy = it.busy,
             needsInput = it.needsInput,
             root = it.id == rootId,
             id = it.id,
-            blocked = com.exponential.app.domain.AgentUsagePresentation.parseBlocked(it.blocked)?.let { b -> b.kind ?: "rate_limit" },
+            blocked = blocked?.let { b -> b.kind ?: "rate_limit" },
+            // #FEED-263: a device back is no wall; a wall names its device.
+            resumed = !blocked?.resumeSince.isNullOrEmpty(),
+            device = it.deviceId?.let(deviceName),
         )
     }
 
@@ -844,12 +855,14 @@ internal fun chatStateWord(
     tree: List<com.exponential.app.data.db.SessionEntity>,
     rows: List<SessionTree.SessionChatRow>? = null,
     nameOf: (String) -> String? = { null },
+    /** #FEED-263: a device's name by its logical id (a wall's `{device}`). */
+    deviceName: (String) -> String? = { null },
 ): String {
     val sessions = tree.map(SessionTree::session)
     val waiting = sessions.firstOrNull { it.id == rootId }?.let { root ->
         SessionTree.sessionWaitingIn(root, sessions) { child -> nameOf(child.id) ?: child.title.orEmpty() }
     }
-    return SessionScreen.status(chatStatusInputs(rootId, tree), chatAsks(rows), waiting)
+    return SessionScreen.status(chatStatusInputs(rootId, tree, deviceName), chatAsks(rows), waiting)
 }
 
 /** session-screen.json TONE ×4: needs input = amber, working or queued =
@@ -890,6 +903,8 @@ fun ChatContent(
      *  [view]'s title is when it is set): the header's title until [view]
      *  lands. Null = unnamed (the title derives, so it waits for [view]). */
     rootTitle: String? = null,
+    /** #EDE-98: the root's chat marks ([Chats.chatMarks]) after the title. */
+    marks: List<String> = emptyList(),
     agent: ChatAgent?,
     /** session-screen.json `sessionScreen` (narrow). */
     screen: SessionScreen.Screen,
@@ -1097,6 +1112,7 @@ fun ChatContent(
                 subtitle = headerSubtitle,
                 subtitleColor = headerSubtitleColor,
                 onSubtitleClick = openHeaderWaiting,
+                marks = marks,
                 lead = headerLead,
                 onBack = onBack,
                 menu = menu,

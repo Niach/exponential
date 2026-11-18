@@ -17,7 +17,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_sections, AgentChatRow, AppChatRow, ChatList, CHATS};
 
-use crate::chat_list::{agent_chat_row, app_chat_row, chat_lead_disc, chat_row, chat_section_header};
+use crate::chat_list::{agent_chat_row, app_chat_row, chat_lead_disc, chat_row, chat_section_header, specimen_marks};
 use crate::icons::registry;
 
 pub(crate) const ID: &str = "chat-list";
@@ -126,7 +126,9 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                         .w_full()
                         .child(chat_section_header(section.key.title(), cx))
                         .children(section.rows.iter().map(|row| {
-                            chat_row(row, chat_lead_disc(row.lead, None, false, cx), cx).into_any_element()
+                            // #EDE-98: row i of listCases[0] wears marksCases[i % length].
+                            let index = list.rows.iter().position(|r| r.session_id == row.session_id).unwrap_or(0);
+                            chat_row(row, chat_lead_disc(row.lead, None, false, cx), &specimen_marks(index), cx).into_any_element()
                         }))
                 })),
         )

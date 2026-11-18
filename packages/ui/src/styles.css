@@ -461,7 +461,15 @@ html {
   }
   /* An element that opens a context menu on a long-press (`menuProps`,
      the `Menu` gesture host): no iOS callout over the menu. */
-  [data-menu-id] {
+  [data-menu-id],
+  /* #EXP-1945: a content picture's long-press opens THE image menu (the
+     list = `CONTENT_IMAGE_SELECTOR`, @exponential_app/eui/web image-actions.ts). */
+  img[data-image-menu],
+  [data-xui-c="Image"] > img,
+  [data-xui-part="Markdown/image"] > img,
+  img[data-xui-part="ZoomableImage/image"],
+  img[data-slot="zoomable-image-image"],
+  [data-slot="mosaic-tile"] > img {
     -webkit-touch-callout: none;
   }
   body {

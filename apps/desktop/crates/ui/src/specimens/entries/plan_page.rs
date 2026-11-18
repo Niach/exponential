@@ -64,7 +64,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .px_10()
         .pt_6()
         .gap_4()
-        .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
+        .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, &[], cx))
         .child(tabs)
         .child(div().w_full().h(px(1.)).bg(cx.theme().border))
         .child(collapse);

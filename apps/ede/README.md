@@ -311,13 +311,16 @@ layer surface of that executable as protected (black in captures, never
 driven, no input method), and trusts the lock client by the pid it spawned:
 
 - **Lock** (`exponential-sealed lock`): with no `[lock] command` the compositor
-  starts it on Super+L, idle and suspend; while locked only that process's
+  starts it on Super+L, idle, suspend, `loginctl lock-session` and the
+  `lock` op (Lock in the start menu); while locked only that process's
   surfaces show (black until one arrives), only they get input, bindings
   are off except VT switching. The password goes to PAM inside the binary
   (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/exponential-desktop`
   exists, else `login`), and the session opens only through the `unlock`
-  op with the grant the compositor minted for that process (`EDE_TOKEN`).
-  A lock client that dies keeps the session locked and is started again.
+  op with the grant the compositor minted for that process, handed over
+  its stdin (`EDE_TOKEN_FD`), never its environment. A lock client that
+  dies or shows nothing keeps the session locked and is started again;
+  when its display goes away the prompt moves to the next one.
   `swaylock` still works through `[lock] command` (ext-session-lock).
 - **polkit** (`exponential-sealed polkit`, `exponential-polkit-agent.service`): the
   session's authentication agent; polkitd's request opens the prompt, the
@@ -616,12 +619,13 @@ first; each op needs the Core capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`; #EDE-91: a window, an output and their events may name a `space`, absent = the person's desk, which is all the shell, ePilot and screen memory read; nothing sets it yet) | any grant |
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+| `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
 `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; `mint_grant`
@@ -778,7 +782,7 @@ edge_tiling = true
 panel_margin = 10     # the IDE look (#EDE-48): the work area (maximize, tiling, Super+Up/Left/Right, new windows) is the output minus the panel's zone, inset by this many px on every side; 0 = flush
 
 [lock]
-command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty = no locking
+command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty (the default) = the sealed lock, `exponential-sealed lock`
 on_suspend = true     # lock before suspend and on `loginctl lock-session` (udev)
 
 [idle]
@@ -826,14 +830,16 @@ before the desktop starts), and every envelope is POSTed to the server's tunnel
 ## Lock, idle, input methods, protected surfaces
 
 The lock screen is a client of `ext-session-lock` (the genUI shell's, later;
-`swaylock` today). From the lock request on, every output draws only that
+`swaylock` today), or with no `[lock] command` the sealed lock
+(`exponential-sealed lock`, above). From the lock request on, every output draws only that
 client's lock surface (black until it draws), only it gets keys and clicks,
 and bindings are off except Ctrl+Alt+F1…F12. If the lock client crashes the
 session stays locked (black) until a new lock client takes over; a second
 client can neither lock over it nor unlock it. Super+L, `[idle] lock_after`
-(held off by idle inhibitors such as a playing video), `loginctl
-lock-session` and suspend run `[lock] command`; before suspend a logind delay
-inhibitor waits up to 2 s for the lock to show. `ext-idle-notify` is there for
+(held off by idle inhibitors such as a playing video), the `lock` op,
+`loginctl lock-session` and suspend run `[lock] command`, or the sealed lock
+when it is empty; before suspend a logind delay inhibitor waits up to 2 s for
+the lock to show. `ext-idle-notify` is there for
 the shell's screen blanking.
 
 Protected surfaces are never captured, lent or driven: the lock screen,

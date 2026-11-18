@@ -62,9 +62,11 @@ import kotlinx.serialization.json.put
  * ([VoiceCallAudio]). A failure ends the call with the state's toast; a
  * refused `startCall` ends it with the server's message.
  *
- * [VoiceCallService] holds the microphone foreground service from
- * `call_ready` on, so a call keeps running with the screen locked or another
- * app in front; everything is released on every end. Signing out or
+ * [VoiceCallService] holds the microphone foreground service from the tap
+ * on (#EXP-1942: the app is in front then, so Android allows it), so a call
+ * keeps running, and answers, with the screen locked or another app in
+ * front (a service Android refuses fails the call `dropped`); everything is
+ * released on every end. Signing out or
  * switching accounts ends the call.
  */
 @Singleton
@@ -108,6 +110,10 @@ class VoiceCallController @Inject constructor(
         var audio: VoiceCallAudio? = null
         /** call_end / error arrived, or End call was pressed: a close is no drop. */
         @Volatile var settled = false
+        /** EXP-1929: the relay beats (`call_alive`), and when it last sent anything. */
+        @Volatile var alive = false
+        @Volatile var heardAt = SystemClock.elapsedRealtime()
+        var liveJob: Job? = null
     }
 
     @Volatile private var current: Run? = null
@@ -180,8 +186,19 @@ class VoiceCallController @Inject constructor(
         run.audio = audio
         audio.speaker = _ui.value.state.speaker
         if (!audio.prepare()) return fail(run, "dropped")
-        audio.ring()
-        run.job = scope.launch { connect(run) }
+        // #EXP-1942: the microphone service is held from the tap, the one
+        // moment the app is surely in front, so the host may answer while
+        // another app is. A start Android refuses fails the call (#EXP-1940).
+        val begun = beginCall(
+            hold = {
+                VoiceCallService.start(context, VoiceCall.Copy.call(agentName)) {
+                    scope.launch { if (current === run) fail(run, "dropped") }
+                }
+            },
+            ring = audio::ring,
+            dial = { run.job = scope.launch { connect(run) } },
+        )
+        if (!begun) return fail(run, "dropped")
         scope.launch { pumpLevel(run) }
         run.ringJob = scope.launch { ringTimeout(run) }
     }
@@ -250,21 +267,21 @@ class VoiceCallController @Inject constructor(
                 }
             }
         }
+        if (current !== run) return
         val session = try {
-            client.webSocketSession(urlString = dialUrl(ticket.url))
+            dialCall({ client.webSocketSession(urlString = dialUrl(ticket.url)) }, { current === run }) { it.close() }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             Log.w(TAG, "call dial failed: ${t.javaClass.simpleName}")
             return fail(run, "dropped")
-        }
-        if (current !== run) {
-            runCatching { session.close() }
-            return
-        }
+        } ?: return
         run.session = session
+        run.heardAt = SystemClock.elapsedRealtime()
+        run.liveJob = scope.launch { watchLiveness(run) }
         try {
             for (frame in session.incoming) {
                 if (current !== run) break
+                run.heardAt = SystemClock.elapsedRealtime()
                 when (frame) {
                     is Frame.Text -> if (!onText(run, frame.readText())) break
                     is Frame.Binary -> {
@@ -283,6 +300,17 @@ class VoiceCallController @Inject constructor(
         if (current === run && !run.settled) fail(run, "dropped") else if (current === run) finish(run)
     }
 
+    /** EXP-1929: once the relay beat, a path that carries nothing for `idleTimeoutMs` is dead: dropped. */
+    private suspend fun watchLiveness(run: Run) {
+        while (current === run) {
+            delay(LIVENESS_TICK_MS)
+            if (current === run && VoiceCall.callPathDead(run.alive, SystemClock.elapsedRealtime() - run.heardAt)) {
+                Log.i(TAG, "call path went silent")
+                return fail(run, "dropped")
+            }
+        }
+    }
+
     /** One control frame; false = the call is over (stop reading). */
     private fun onText(run: Run, text: String): Boolean {
         val msg = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return true
@@ -290,10 +318,9 @@ class VoiceCallController @Inject constructor(
             "call_ready" -> {
                 // S-3: the pair is up; the flow keeps ringing until the
                 // host's `rang` + `ready` answer it. The microphone opens
-                // now (the host's mic check reads its level during the ring).
-                // The microphone service starts with the microphone (never
-                // for a call refused before it rang).
-                VoiceCallService.start(context, VoiceCall.Copy.call(_ui.value.agent))
+                // now (the host's mic check reads its level during the ring),
+                // under the microphone service held since the tap
+                // (#EXP-1942), whichever app is in front.
                 startAudio(run)
             }
             "call_event" -> {
@@ -323,6 +350,7 @@ class VoiceCallController @Inject constructor(
                 fail(run, msg.str("code") ?: "dropped")
                 return false
             }
+            "call_alive" -> run.alive = true
             // The room closed without a `call_end` first.
             "bye" -> {
                 fail(run, msg.str("outcome") ?: "dropped")
@@ -376,7 +404,8 @@ class VoiceCallController @Inject constructor(
             run.job?.cancel()
         }
         run.ringJob?.cancel()
-        VoiceCallService.stop(context)
+        run.liveJob?.cancel()
+        VoiceCallService.stop()
     }
 
     /** The wave's level at ~30 fps while [run] lasts. */
@@ -402,6 +431,7 @@ class VoiceCallController @Inject constructor(
     private companion object {
         const val TAG = "VoiceCall"
         const val LEVEL_TICK_MS = 33L
+        const val LIVENESS_TICK_MS = 1_000L
         fun controlFrame(t: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}): String =
             buildJsonObject {
                 put("t", t)
@@ -410,4 +440,34 @@ class VoiceCallController @Inject constructor(
 
         fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
     }
+}
+
+/**
+ * #EXP-1940: the dial of a call. Ktor finishes a WebSocket handshake on the
+ * client's own coroutine, so a cancelled caller would leave a connected
+ * socket nobody holds (the relay rings the desktop for it). The wait
+ * therefore outlives a cancel, and a socket that connects once the call is
+ * no longer [wanted] is [close]d here; null = that happened.
+ */
+internal suspend fun <S : Any> dialCall(dial: suspend () -> S, wanted: () -> Boolean, close: suspend (S) -> Unit): S? =
+    withContext(NonCancellable) {
+        val session = dial()
+        if (wanted()) {
+            session
+        } else {
+            runCatching { close(session) }
+            null
+        }
+    }
+
+/**
+ * #EXP-1942: a call's start, in order: the microphone service is held
+ * BEFORE the call rings and dials; false = Android refused it, nothing rang
+ * and nothing was dialled (the caller fails the call `dropped`).
+ */
+internal fun beginCall(hold: () -> Boolean, ring: () -> Unit, dial: () -> Unit): Boolean {
+    if (!hold()) return false
+    ring()
+    dial()
+    return true
 }

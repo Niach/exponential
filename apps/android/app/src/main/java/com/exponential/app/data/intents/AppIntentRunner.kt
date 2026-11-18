@@ -63,7 +63,7 @@ class AppIntentRunner @Inject constructor(
         val created = issuesApi.create(accountId, CreateIssueInput(boardId = boardId, title = title))
         runCatching { db.issueDao().upsert(created) }
         toast(AppIntents.created(created.identifier))
-        deepLinks.openIssue(created.id)
+        deepLinks.openIssue(created.id, rooted = true)
     }
 
     fun askAgent(spokenAgent: String?, text: String?) = run("send", "the message") {
@@ -93,7 +93,7 @@ class AppIntentRunner @Inject constructor(
             ?: return@run toast(AppIntents.noAgent(spoken.trim()))
         val result = sessionsApi.send(accountId, SessionsSendInput.toAgent(agentId, message))
         toast(AppIntents.sent(agents.first { it.id == agentId }.name))
-        deepLinks.openSession(result.sessionId)
+        deepLinks.openSession(result.sessionId, rooted = true)
     }
 
     /** The active account when it holds a session, else null (signed out). */

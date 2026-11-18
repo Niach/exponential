@@ -59,7 +59,11 @@ import {
 import type { SessionStatus } from "@exp/db-schema/domain"
 import { currentSteerCarrier } from "@/lib/enet/steer-bridge"
 import {
+  STEER_ENET_SEND_TIMEOUT_MS,
   STEER_ENET_STALE_MS,
+  STEER_SEARCH_HITS_MAX,
+  type SteerSearchHit,
+  type SteerSearchResult,
   steerOfflineRedial,
   steerShowConnectionLost,
   steerRowWakes,
@@ -74,6 +78,7 @@ import { openSteerFeed, type FeedStats, type SteerFeedClose } from "@/lib/enet/s
 import type { TunnelDeps, TunnelSocket, TunnelTicket } from "@/lib/enet/steer-tunnel"
 import { sessionCollection } from "@/lib/collections"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
+import { openStoredTail, recordFeed, storedPage } from "@/lib/chat-store/client"
 
 // EXP-621: the viewer connection to the session's feed, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -123,6 +128,8 @@ const LIVE_STALE_MS = 45_000
  *  buffer. Android `SteerTimings.replayQuietMs`/`replayMaxMs`, iOS
  *  `replayQuietSeconds`/`replayMaxSeconds` — move all three in lockstep. */
 export const REPLAY_QUIET_MS = 400
+/** #EDE-115: the live state slots a chat-store seed leaves out. */
+const STORE_SEED_SKIPS = new Set([`turn`, `queue`, `rate_limit`, `background_tasks`])
 export const REPLAY_MAX_MS = 3_000
 
 /** Equal jitter (half fixed, half random) — desynchronizes viewers that
@@ -420,12 +427,25 @@ type ServerFrame =
       seqs: number[]
       done: boolean
     }
+  // #EDE-96 (steer-enet.json SEARCH): the device's answer to this viewer's
+  // `search`, to the asker only.
+  | {
+      t: `search_result`
+      requestId: string
+      hits: SteerSearchHit[]
+      total?: number
+      done: boolean
+      scannedToSeq: number
+    }
   // EXP-648: the device's liveness beat to joined viewers. Carries nothing;
   // its only effect is the `lastFrameAt` stamp taken above the switch.
   | { t: `keepalive` }
   | { t: `bye`; outcome?: string }
   | { t: `error`; code: string; message?: string }
   | { t: string }
+
+/** #EDE-96: the hit kinds this build draws (steer-enet.json SEARCH). */
+const SEARCH_HIT_KINDS = new Set<string>([`user_message`, `narration`, `tool`, `tool_output`])
 
 function parseServerFrame(raw: string): ServerFrame | null {
   try {
@@ -710,6 +730,15 @@ interface SteerStoreDeps {
   openFeed: (codingSessionId: string, stats?: FeedStats) => Promise<WebSocket | null>
   /** EXP-1527: one connection-analytics view per store (none in tests). */
   viewStats?: () => SteerViewStats
+  /** #EDE-115 (chat-store.json S4): the web's chat store. A chat OPENS from
+   *  it before the live feed attaches (the join's replay then replaces the
+   *  seed), every event the feed carries is stored, and a feed that is not
+   *  open pages older transcript from it. None in tests. */
+  stored?: {
+    record: (sessionId: string, events: { seq: number; event: unknown }[]) => void
+    openTail: (sessionId: string) => Promise<{ events: { seq: number; event: unknown }[]; truncated: boolean } | null>
+    page: (sessionId: string, before: number, limit: number) => Promise<{ events: unknown[]; seqs: number[] } | null>
+  }
 }
 
 const quiet = { context: { skipErrorToast: true } }
@@ -748,6 +777,7 @@ const defaultDeps: SteerStoreDeps = {
     const buffer = connStatsBuffer()
     return new SteerViewStats((event) => buffer.record(event))
   },
+  stored: { record: recordFeed, openTail: openStoredTail, page: storedPage },
 }
 
 export interface SteerSessionStore {
@@ -771,6 +801,12 @@ export interface SteerSessionStore {
    *  Called when the reader reaches the top of the rendered window. `false`
    *  when there is nothing to ask for (or an ask is already in flight). */
   loadEarlier(): boolean
+  /** #EDE-96 (steer-enet.json SEARCH): ask the device that holds the
+   *  journal to search the transcript, newest first below `beforeSeq`
+   *  (absent = from the newest event). ONE search in flight: a newer ask
+   *  settles the older one with null. Null = the socket is down, the ask
+   *  was superseded or no answer came within the send timeout. */
+  search(query: string, beforeSeq?: number): Promise<SteerSearchResult | null>
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  device's own signals plus the dock reaper. EXP-1293: the `sessions`
@@ -974,9 +1010,20 @@ export function createSteerSessionStore(
   let historyTruncated = false
   /** A page came back with nothing new — stop asking. */
   let historyExhausted = false
+  /** #EDE-115: the feed on screen was opened from the chat store and no
+   *  live replay has replaced it yet: older pages come from the store. */
+  let fromStore = false
   /** Numbers the request ids, so a late chunk from a superseded ask is
    *  dropped rather than prepended twice. */
   let historyRequests = 0
+  /** #EDE-96: the `search` in flight, if any — a result for any other id is
+   *  not ours. */
+  let searchRequest: {
+    id: string
+    resolve: (result: SteerSearchResult | null) => void
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
+  let searchRequests = 0
   /** Commit deadlines: REPLAY_QUIET_MS since the last staged frame, and
    *  REPLAY_MAX_MS since the reset. */
   let stageQuietTimer: ReturnType<typeof setTimeout> | null = null
@@ -1048,7 +1095,7 @@ export function createSteerSessionStore(
       connected,
       // EXP-796: a page can only be asked for over an OPEN feed — once the
       // device dropped this viewer, the button goes.
-      canLoadEarlier: historyTruncated && !historyExhausted && connected,
+      canLoadEarlier: historyTruncated && !historyExhausted && (connected || fromStore),
       deviceOffline,
       replayed,
     }
@@ -1892,7 +1939,7 @@ export function createSteerSessionStore(
       return false
     }
     const requestId = `p${++historyRequests}`
-    if (ws?.readyState !== WebSocket.OPEN) return false
+    if (ws?.readyState !== WebSocket.OPEN) return requestStoredPage(requestId, before)
     ws.send(
       JSON.stringify({
         t: `history_page`,
@@ -1904,6 +1951,82 @@ export function createSteerSessionStore(
     historyRequest = requestId
     return true
   }
+
+  /** #EDE-115: an older page off the chat store, while the feed on screen
+   *  is the store's (no open feed to ask the device on). */
+  const requestStoredPage = (requestId: string, before: number): boolean => {
+    const stored = deps.stored
+    if (!fromStore || !stored) return false
+    historyRequest = requestId
+    void stored
+      .page(sessionId, before, HISTORY_PAGE_LIMIT)
+      .catch(() => null)
+      .then((page) => {
+        if (disposed || historyRequest !== requestId) return
+        historyRequest = null
+        if (!page || page.events.length === 0) {
+          historyExhausted = true
+          commit()
+          return
+        }
+        activityQueue.enqueue({ t: `page`, events: page.events as ActivityEvent[], seqs: page.seqs })
+      })
+    return true
+  }
+
+  /** #EDE-115 (chat-store.json OPEN): the chat store's REPLAY TAIL of this
+   *  session, folded like a join replay, while nothing else is on screen.
+   *  The live state slots stay out (a stored `turn` may be a finished run's):
+   *  the join's replay restates them and replaces the seed. */
+  const seedFromStore = (tail: { events: { seq: number; event: unknown }[]; truncated: boolean }) => {
+    if (disposed || feed.length > 0 || staged !== null || queuedResets > 0 || replayed) return
+    beginStaging()
+    for (const { seq, event } of tail.events) {
+      const kind = (event as { kind?: unknown }).kind
+      if (typeof kind !== `string` || STORE_SEED_SKIPS.has(kind)) continue
+      staged!.push({ event: event as ActivityEvent, seq })
+    }
+    commitStaging(`store`)
+    replayed = false
+    historyTruncated = tail.truncated
+    historyExhausted = false
+    fromStore = true
+    reconcileResolvedAnswers()
+    commit()
+  }
+
+  /** #EDE-96: settle the search in flight (null = no answer). */
+  const settleSearch = (result: SteerSearchResult | null) => {
+    if (searchRequest === null) return
+    const { resolve, timer } = searchRequest
+    clearTimeout(timer)
+    searchRequest = null
+    resolve(result)
+  }
+
+  /** #EDE-96 — one `search` ask, a newer one supersedes it. */
+  const requestSearch = (query: string, beforeSeq?: number): Promise<SteerSearchResult | null> =>
+    new Promise((resolve) => {
+      settleSearch(null)
+      if (disposed || ws?.readyState !== WebSocket.OPEN) {
+        resolve(null)
+        return
+      }
+      const id = `s${++searchRequests}`
+      ws.send(
+        JSON.stringify({
+          t: `search`,
+          requestId: id,
+          query,
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          limit: STEER_SEARCH_HITS_MAX,
+        })
+      )
+      const timer = setTimeout(() => {
+        if (searchRequest?.id === id) settleSearch(null)
+      }, STEER_ENET_SEND_TIMEOUT_MS)
+      searchRequest = { id, resolve, timer }
+    })
 
   /** Drop a staged replay and KEEP the visible feed: the socket went away
    *  mid-burst, so the buffer is a partial history of a room this client is
@@ -2143,6 +2266,7 @@ export function createSteerSessionStore(
         case `activity`: {
           const f = frame as Extract<ServerFrame, { t: `activity` }>
           activityQueue.enqueue({ t: `event`, event: f.event, seq: f.seq })
+          deps.stored?.record(sessionId, [{ seq: f.seq, event: f.event }])
           if (markLive()) commit()
           return
         }
@@ -2170,6 +2294,7 @@ export function createSteerSessionStore(
           // client had already scrolled back to load.
           const f = frame as Extract<ServerFrame, { t: `activity_synced` }>
           historyTruncated = f.truncated === true
+          fromStore = false
           activityQueue.enqueue({ t: `synced`, firstSeq: f.firstSeq })
           if (markLive()) commit()
           return
@@ -2182,6 +2307,23 @@ export function createSteerSessionStore(
           if (f.requestId !== historyRequest) return
           if (f.done) historyRequest = null
           activityQueue.enqueue({ t: `page`, events: f.events, seqs: f.seqs })
+          deps.stored?.record(
+            sessionId,
+            f.seqs.map((seq, ix) => ({ seq, event: f.events[ix] }))
+          )
+          return
+        }
+        // #EDE-96: the answer to this viewer's `search`; a hit kind this
+        // build does not know is skipped.
+        case `search_result`: {
+          const f = frame as Extract<ServerFrame, { t: `search_result` }>
+          if (f.requestId !== searchRequest?.id) return
+          settleSearch({
+            hits: f.hits.filter((hit) => SEARCH_HIT_KINDS.has(hit.kind)),
+            ...(f.total === undefined ? {} : { total: f.total }),
+            done: f.done,
+            scannedToSeq: f.scannedToSeq,
+          })
           return
         }
         case `bye`: {
@@ -2382,6 +2524,15 @@ export function createSteerSessionStore(
     connect() {
       if (disposed) return
       if (phase.kind !== `idle` && phase.kind !== `closed`) return
+      // #EDE-115: the chat store paints first; the dial runs beside it.
+      if (phase.kind === `idle` && feed.length === 0 && deps.stored) {
+        void deps.stored
+          .openTail(sessionId)
+          .catch(() => null)
+          .then((tail) => {
+            if (tail) seedFromStore(tail)
+          })
+      }
       void dial(false)
     },
     reconnect() {
@@ -2401,6 +2552,9 @@ export function createSteerSessionStore(
     loadEarlier() {
       if (disposed) return false
       return requestOlderPage()
+    },
+    search(query, beforeSeq) {
+      return requestSearch(query, beforeSeq)
     },
     kick(reason) {
       if (disposed) return
@@ -2663,6 +2817,7 @@ export function createSteerSessionStore(
     dispose() {
       if (disposed) return
       disposed = true
+      settleSearch(null)
       // #EXP-1538: what the Dock showed outlives the store, unless the run
       // is over (an ended session shows none of it).
       const showing =

@@ -753,13 +753,14 @@ pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx:
     status.map(|status| crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0())
 }
 
-/// The page title (draft 3): the title at the header rung, a lock while the
-/// chat is private.
-pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
+/// The page title (draft 3): the title at the header rung, then its marks
+/// (#EDE-98 chats.json `chatMarks`: the team icon when shared, the open
+/// lock when the tree has no key; a private chat draws none).
+pub(crate) fn title_row(title: &str, marks: &[domain::chats::ChatMark], cx: &App) -> gpui::Div {
     let theme = cx.theme();
     h_flex()
         .min_w_0()
-        .gap_2()
+        .gap(px(domain::chats::CHATS.shell.mark_gap))
         .items_center()
         .child(
             div()
@@ -770,14 +771,7 @@ pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
                 .text_color(theme.foreground)
                 .child(SharedString::from(title.to_string())),
         )
-        .when(private, |row| {
-            row.child(
-                Icon::new(registry::UI_PRIVATE)
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(theme.muted_foreground),
-            )
-        })
+        .children(crate::chat_list::chat_mark_glyphs("header", marks, cx))
 }
 
 /// Web `permissions.isMember` for the chat's team (route `sessions/$sessionId`):
@@ -2822,7 +2816,9 @@ pub(crate) fn tree_status_word(
             crate::session_data::session_title_of(&child.id, cx).unwrap_or_default()
         })
     });
-    domain::session_screen::session_screen_status_waiting(&tree_status_input(root, tree), asks, waiting.as_deref())
+    // #FEED-263: a wall names its session's device ('MacBook offline').
+    let device = |id: &str| crate::entity_preview::find_device(id, cx).and_then(|device| device.label);
+    domain::session_screen::session_screen_status_waiting(&tree_status_input(root, tree, device), asks, waiting.as_deref())
 }
 
 /// #FEED-257 (`session_screen_waiting`): THE waiting item the needs-input
@@ -2832,10 +2828,14 @@ pub(crate) fn tree_waiting(
     tree: &[SessionRow],
     asks: &[domain::session_screen::SessionScreenAsk],
 ) -> Option<domain::session_screen::SessionScreenWaiting> {
-    domain::session_screen::session_screen_waiting(&tree_status_input(root, tree), asks)
+    domain::session_screen::session_screen_waiting(&tree_status_input(root, tree, |_| None), asks)
 }
 
-fn tree_status_input(root: Option<&SessionRow>, tree: &[SessionRow]) -> Vec<domain::session_screen::SessionScreenStatusInput> {
+fn tree_status_input(
+    root: Option<&SessionRow>,
+    tree: &[SessionRow],
+    device: impl Fn(&str) -> Option<String>,
+) -> Vec<domain::session_screen::SessionScreenStatusInput> {
     use domain::session_screen::SessionScreenStatusInput;
     let input = |row: &SessionRow, is_root: bool| SessionScreenStatusInput {
         id: row.id.clone(),
@@ -2848,6 +2848,9 @@ fn tree_status_input(root: Option<&SessionRow>, tree: &[SessionRow]) -> Vec<doma
             .and_then(|blocked| blocked.get("kind"))
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
+        // #FEED-263: a device back is no wall; a wall names its device.
+        resumed: domain::session_tree::blocked_resume_since(row).is_some(),
+        device: row.device_id.as_deref().and_then(&device),
         root: is_root,
     };
     let root_id = root.map(|root| root.id.as_str());
@@ -3980,12 +3983,14 @@ impl SessionChatScreenView {
                 let link = chat_member(model, cx).then(|| self.menu_target(None));
                 let menu = crate::agent_screen::agent_header_menu(agent_id, on_settings, link, cx);
                 let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
-                let title = title_row(&name, false, cx).id("chat-title").into_any_element();
+                let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
+                let title = title_row(&name, &marks, cx).id("chat-title").into_any_element();
                 (avatar, title, merge.into_iter().chain(call).collect::<Vec<_>>(), menu, agent)
             }
             // EXP-1316: a chat's title is derived, plain text (no rename).
             None => {
-                let title = title_row(&model.view.title, model.view.private, cx).id("chat-title").into_any_element();
+                let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
+                let title = title_row(&model.view.title, &marks, cx).id("chat-title").into_any_element();
                 (chat_header_lead(model, waiting_item.is_some(), cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
             }
         };

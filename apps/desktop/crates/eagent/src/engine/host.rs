@@ -399,7 +399,13 @@ pub enum EngineCommand {
     ///
     /// EXP-1280: `fresh` = take it in a FRESH context (a plan approved "in
     /// a fresh context", [`FRESH_CONTEXT_META_KEY`]).
-    Deliver { message_id: String, text: String, fresh: bool },
+    ///
+    /// EXP-1896: `author` = who wrote the row. The pickup hands a child's
+    /// report, a CI wake and another session's message through here too.
+    Deliver { message_id: String, text: String, fresh: bool, author: PromptAuthor },
+    /// EXP-1896: a line the HOST steers by itself (the API-error retry): a
+    /// [`Self::Steer`] nobody typed.
+    HostSteer(String),
     /// EXP-1292: a question/plan card answered IN the Conversation, mapped
     /// onto the open ask ([`Mapper::card_answer`]).
     AnswerCard {
@@ -456,6 +462,17 @@ pub enum EngineCommand {
     },
 }
 
+/// EXP-1896: who a turn's prompt speaks for. Only the PERSON's own message
+/// answers an Esc that aborted the run's computer use
+/// ([`RunBackend::turn_started`]); a child's report, a CI wake, another
+/// session's message and the host's own lines start turns too, and are
+/// `Other`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptAuthor {
+    Person,
+    Other,
+}
+
 /// EXP-861/EXP-873: one user message the agent has not read yet. `announce`
 /// is the text every client's bar shows (and the future `user_message`
 /// row); `held` is what [`start_turn`] gets while the host still holds the
@@ -465,6 +482,7 @@ pub(crate) struct QueuedPrompt {
     pub(crate) id: String,
     pub(crate) announce: String,
     pub(crate) held: Option<TurnPrompt>,
+    pub(crate) author: PromptAuthor,
 }
 
 impl QueuedPrompt {
@@ -1394,6 +1412,7 @@ impl SessionCtx {
         announce: String,
         prompt: TurnPrompt,
         message_id: Option<String>,
+        author: PromptAuthor,
     ) -> bool {
         let accepted = self
             .prompt_queue
@@ -1406,6 +1425,7 @@ impl SessionCtx {
                     id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                     announce,
                     held: Some(prompt),
+                    author,
                 });
                 true
             })
@@ -1441,6 +1461,7 @@ impl SessionCtx {
                 id: id.clone(),
                 announce,
                 held: None,
+                author: PromptAuthor::Other,
             });
             Some(id)
         });
@@ -2145,7 +2166,31 @@ where
                 Ok::<_, Error>(opened)
             };
             let deadline = handshake_deadline(ctx.resume.is_some());
-            let (session_id, modes, options, meta) = match tokio::time::timeout(deadline, handshake).await {
+            // EXP-1910: the inbox is read DURING the handshake. A kill, a
+            // suspend or a release sent while it is open (a long
+            // `session/load`, a wedged CLI) ends the run at once: it used to
+            // wait out the deadline, and the seed prompt went out first.
+            // Everything else is kept, in order, for the loop below.
+            let mut early = std::collections::VecDeque::new();
+            let opened = {
+                let timed = tokio::time::timeout(deadline, handshake);
+                tokio::pin!(timed);
+                let mut inbox_open = true;
+                loop {
+                    tokio::select! {
+                        opened = &mut timed => break opened,
+                        command = commands.recv_async(), if inbox_open => match command {
+                            Ok(EngineCommand::Shutdown { outcome }) => {
+                                ctx.set_outcome(outcome);
+                                return Ok(());
+                            }
+                            Ok(command) => early.push_back(command),
+                            Err(_) => inbox_open = false,
+                        },
+                    }
+                }
+            };
+            let (session_id, modes, options, meta) = match opened {
                 Ok(opened) => opened?,
                 Err(_) => {
                     log::warn!(
@@ -2232,6 +2277,8 @@ where
                     TurnPrompt::Ready(localized),
                     &turns,
                     None,
+                    // The seed opens a run: no abort is older than it.
+                    PromptAuthor::Person,
                 );
                 // EXP-1292: a resume's seed IS the waking message row.
                 if let Some(message_id) = ctx.seed_message_id.clone() {
@@ -2241,7 +2288,7 @@ where
             }
             loop {
                 tokio::select! {
-                    command = commands.recv_async() => {
+                    command = next_command(&mut early, &commands) => {
                         let Ok(command) = command else { break };
                         if !handle_command(&cx, &ctx, &session_id, &turns, command) {
                             break;
@@ -2319,6 +2366,19 @@ fn mirror_mode(mapper: &mut Mapper, mode_id: &str, out: &mut MapOut) {
 }
 
 /// Returns `false` when the loop must stop.
+/// EXP-1910: the loop's next command: what arrived during the handshake
+/// first, in order, then the inbox. A kept command is handed out on the
+/// first poll, so a `select!` that drops this future loses nothing.
+async fn next_command(
+    early: &mut std::collections::VecDeque<EngineCommand>,
+    commands: &flume::Receiver<EngineCommand>,
+) -> Result<EngineCommand, flume::RecvError> {
+    match early.pop_front() {
+        Some(command) => Ok(command),
+        None => commands.recv_async().await,
+    }
+}
+
 fn handle_command(
     cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -2341,11 +2401,11 @@ fn handle_command(
                     fresh: false,
                 })
             };
-            gate_or_start(cx, ctx, session_id, text, prompt, turns, None)
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, None, PromptAuthor::Person)
         }
         // EXP-1292: a person's message row — a steer under its own id. Image
         // embeds localize on the spawned turn path like a composer message.
-        EngineCommand::Deliver { message_id, text, fresh } => {
+        EngineCommand::Deliver { message_id, text, fresh, author } => {
             ctx.note_message(&message_id);
             // EXP-1280: a fresh context is cleared BETWEEN turns only (the
             // claude adapter's `/clear` would be swallowed by a running
@@ -2380,7 +2440,7 @@ fn handle_command(
             } else {
                 TurnPrompt::Ready(LocalizedPrompt::plain(text.clone()))
             };
-            gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id))
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id), author)
         }
         EngineCommand::AnswerCard { question_id, card } => {
             // #EXP-1561: a dismissed card whose elicitation step takes no
@@ -2426,6 +2486,17 @@ fn handle_command(
             TurnPrompt::Ready(LocalizedPrompt::plain(text)),
             turns,
             None,
+            PromptAuthor::Person,
+        ),
+        EngineCommand::HostSteer(text) => gate_or_start(
+            cx,
+            ctx,
+            session_id,
+            text.clone(),
+            TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+            turns,
+            None,
+            PromptAuthor::Other,
         ),
         // EXP-861: a Stop drops what the person queued as well as the turn
         // (the `cancel_queued` semantics, now for the host's own queue); the
@@ -2514,6 +2585,7 @@ fn handle_command(
                 TurnPrompt::Ready(LocalizedPrompt::plain(text)),
                 turns,
                 None,
+                PromptAuthor::Other,
             );
         }
         EngineCommand::SetConfig { id, value } => {
@@ -2560,6 +2632,8 @@ fn handle_command(
                     TurnPrompt::Ready(LocalizedPrompt::plain(line.to_string())),
                     turns,
                     None,
+                    // The host's line about a switch, not the person's words.
+                    PromptAuthor::Other,
                 );
             }
             let ctx = ctx.clone();
@@ -2600,6 +2674,7 @@ fn handle_command(
                 TurnPrompt::Ready(LocalizedPrompt::plain(text)),
                 turns,
                 None,
+                PromptAuthor::Person,
             );
         }
         EngineCommand::LoadHistory => {
@@ -2676,9 +2751,10 @@ fn gate_or_start(
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
     message_id: Option<String>,
+    author: PromptAuthor,
 ) {
     if ctx.compaction_open() {
-        hold_prompt(ctx, announce, prompt, message_id);
+        hold_prompt(ctx, announce, prompt, message_id, author);
         return;
     }
     drain_queue(cx, ctx, session_id, turns);
@@ -2690,16 +2766,22 @@ fn gate_or_start(
         && !ctx.turn_signal.is_idle())
         || ctx.holds_prompts();
     if hold {
-        hold_prompt(ctx, announce, prompt, message_id);
+        hold_prompt(ctx, announce, prompt, message_id, author);
         return;
     }
-    send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id);
+    send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id, author);
 }
 
 /// Hold one message on the host ([`SessionCtx::enqueue_prompt`]); a refused
 /// one is forgotten.
-fn hold_prompt(ctx: &Arc<SessionCtx>, announce: String, prompt: TurnPrompt, message_id: Option<String>) {
-    let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone());
+fn hold_prompt(
+    ctx: &Arc<SessionCtx>,
+    announce: String,
+    prompt: TurnPrompt,
+    message_id: Option<String>,
+    author: PromptAuthor,
+) {
+    let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone(), author);
     if !accepted {
         if let Some(id) = &message_id {
             ctx.forget_message(id);
@@ -2810,13 +2892,14 @@ fn send_prompt(
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
     message_id: Option<String>,
+    author: PromptAuthor,
 ) {
     let pending = if !ctx.turn_signal.is_idle() && ctx.replays_user_messages() {
         ctx.mark_sent(announce, message_id.clone())
     } else {
         None
     };
-    start_turn(cx, ctx, session_id, prompt, turns, pending.clone());
+    start_turn(cx, ctx, session_id, prompt, turns, pending.clone(), author);
     if pending.is_none() {
         ctx.consumed_messages(message_id);
     }
@@ -2838,7 +2921,7 @@ fn drain_queue(
     // Re-derived per line: once the first held line starts a turn, the next
     // one is a mid-turn message.
     let mut idle = ctx.turn_signal.is_idle();
-    let mut starts: Vec<(TurnPrompt, Option<String>)> = Vec::new();
+    let mut starts: Vec<(TurnPrompt, Option<String>, PromptAuthor)> = Vec::new();
     let mut announced: Vec<String> = Vec::new();
     {
         let mut queue = match ctx.prompt_queue.lock() {
@@ -2870,15 +2953,16 @@ fn drain_queue(
             match message.held {
                 None => kept.push_back(message),
                 Some(prompt) if !idle && replays => {
-                    starts.push((prompt, Some(message.id.clone())));
+                    starts.push((prompt, Some(message.id.clone()), message.author));
                     kept.push_back(QueuedPrompt {
                         id: message.id,
                         announce: message.announce,
                         held: None,
+                        author: message.author,
                     });
                 }
                 Some(prompt) => {
-                    starts.push((prompt, None));
+                    starts.push((prompt, None, message.author));
                     // EXP-1292: this line is the next turn — sent announced.
                     announced.push(message.id);
                     idle = false;
@@ -2890,8 +2974,8 @@ fn drain_queue(
     // The bar changes BEFORE the rows appear, so no client shows a message
     // in both places for a frame.
     ctx.publish_queue();
-    for (prompt, pending) in starts {
-        start_turn(cx, ctx, session_id, prompt, turns, pending);
+    for (prompt, pending, author) in starts {
+        start_turn(cx, ctx, session_id, prompt, turns, pending, author);
     }
     ctx.consumed_messages(announced);
 }
@@ -3024,6 +3108,7 @@ fn start_turn(
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
     pending: Option<String>,
+    author: PromptAuthor,
 ) {
     let (announce, ready_blocks, localize, fresh) = match prompt {
         TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None, localized.fresh),
@@ -3055,8 +3140,12 @@ fn start_turn(
     // computer use. Only here, never on the mapper's idle edge: a turn the
     // agent opens by itself (EXP-1224) is not the person speaking again, and
     // `tools::ABORTED` promises their input stays theirs until they do.
-    if let Some(backend) = ctx.backend.get() {
-        backend.turn_started(&ctx.session_id);
+    // EXP-1896: nor is a turn somebody ELSE's message opens (a child's
+    // report, a CI wake, another session, the host's own lines).
+    if author == PromptAuthor::Person {
+        if let Some(backend) = ctx.backend.get() {
+            backend.turn_started(&ctx.session_id);
+        }
     }
     // EXP-848: the turn slot opens HERE — the one signal every client's
     // `working` predicate reads (`on_stop` closes it).
@@ -3188,7 +3277,8 @@ fn start_turn(
                 tokio::time::sleep(SEED_RETRY_AFTER).await;
                 let blocks = retry_blocks.unwrap_or_default();
                 let retry = LocalizedPrompt { announce: blocks_text(&blocks), blocks, fresh };
-                start_turn(&sent_cx, &ctx, &retry_session, TurnPrompt::Ready(retry), &turns, None);
+                // The same seed again: whatever it answered, it has answered.
+                start_turn(&sent_cx, &ctx, &retry_session, TurnPrompt::Ready(retry), &turns, None, PromptAuthor::Other);
                 return Ok(());
             }
             // NEW-17: the child itself went away — the end sequence's `lost`

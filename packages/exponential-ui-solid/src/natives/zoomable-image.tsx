@@ -6,7 +6,7 @@
 // Until the picture loads (pending or failed) the box keeps its size and
 // draws the placeholder (the image glyph + the alt) and NO pill.
 
-import { createSignal, createEffect, on, type Component, type JSX } from "solid-js"
+import { Show, createMemo, createSignal, createEffect, on, type Component, type JSX } from "solid-js"
 import { MEDIA_INTRINSIC_WIDTH, ZOOM, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import type { UiNode, ZoomInitial } from "@exponential_app/eui"
 import { ZOOMABLE_IMAGE_NATIVE_TRANSITION, zoomBoxAspect, zoomableImageLayout, type ZoomControls } from "@exponential_app/eui/web/primitives"
@@ -17,6 +17,7 @@ import { mergeStyle, type NativeProps } from "../node-view"
 import { ZOOM_MATH, createZoomableImage } from "../primitives/zoomable-image"
 import { createBoundState } from "./bound"
 import { PressMenu, type MenuItem } from "./overlays"
+import { ImageStandIn, refusedSource } from "./media"
 import { BuiltinIcon, css, num, parts, str, type Attrs } from "./shared"
 
 const LAYOUT = zoomableImageLayout(ZOOM.pill)
@@ -33,6 +34,17 @@ const positive = (v: unknown): number | undefined => (typeof v === `number` && N
 const over = (base: Attrs, extra: Attrs): Attrs => ({ ...base, ...extra })
 
 export function ZoomableImageNative(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  // #EXP-1945 (`host.imageSource`): a refused picture never loads.
+  const refused = createMemo(() => refusedSource(ctx.host, str(props.props.src), str(props.props.alt)))
+  return (
+    <Show when={refused()} keyed fallback={<LoadedZoomableImage {...props} />}>
+      {(verdict) => <ImageStandIn id={props.node.id} verdict={verdict} />}
+    </Show>
+  )
+}
+
+function LoadedZoomableImage(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   // THE Menu's parts (its recipe styles the percent button's menu).

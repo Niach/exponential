@@ -20,6 +20,9 @@ api = { path = "../api" }
 domain = { path = "../domain" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
+# #EDE-120: `logout` deletes the account's chat store (the desktop's, in the
+# shared data dir; the daemon keeps none). Already linked through steer.
+chat-store = { path = "../chat-store" }
 # EXP-746: the ACP session engine — the daemon runs an Acp-transport session
 # through it instead of the PTY host, sharing one lifecycle with the IDE.
 engine = { path = "../engine" }

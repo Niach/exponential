@@ -225,6 +225,8 @@ data class SessionSendTarget(
     val epoch: Int? = null,
     val publicKey: String? = null,
     val brief: String? = null,
+    /** #EDE-97: the root stays in clear (an outside MCP client started it); absent = false. */
+    val clearTree: Boolean = false,
 )
 
 /** `sessions.send`'s answer: the session it landed in and the message row

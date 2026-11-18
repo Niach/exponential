@@ -20,6 +20,7 @@ use smithay::{
 };
 
 use crate::{
+    desk::DeskId,
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{window_state, Ede},
@@ -64,11 +65,11 @@ impl Ede {
         match event {
             InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time().millis()),
             InputEvent::PointerMotion { event, .. } => {
-                let pos = self.seat.get_pointer().unwrap().current_location() + event.delta();
+                let pos = self.desk.seat.get_pointer().unwrap().current_location() + event.delta();
                 if !self.person_pointer_motion_to(pos, event.time().millis()) {
                     return;
                 }
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self.desk.seat.get_pointer().unwrap();
                 let under = self.surface_under(pointer.current_location());
                 pointer.relative_motion(
                     self,
@@ -78,8 +79,8 @@ impl Ede {
                 pointer.frame(self);
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let Some(output) = self.space.outputs().next().cloned() else { return };
-                let Some(geo) = self.space.output_geometry(&output) else { return };
+                let Some(output) = self.desk.space.outputs().next().cloned() else { return };
+                let Some(geo) = self.desk.space.output_geometry(&output) else { return };
                 let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
                 self.person_pointer_motion_to(pos, event.time().millis());
             }
@@ -102,7 +103,8 @@ impl Ede {
                         frame = frame.stop(axis);
                     }
                 }
-                let pointer = self.seat.get_pointer().unwrap();
+                self.refresh_pointer_focus(event.time().millis());
+                let pointer = self.desk.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }
@@ -113,17 +115,35 @@ impl Ede {
     /// Moves the pointer to `pos` (clamped onto the outputs) and updates focus.
     pub fn pointer_motion_to(&mut self, pos: Point<f64, Logical>, time: u32) {
         let pos = self.clamp_to_outputs(pos);
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
         pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time: smithay::backend::input::InputTime::from_millis(time) });
         pointer.frame(self);
     }
 
+    /// #EDE-103: a raise, a map or a close changes what lies under a still
+    /// pointer; a press or the wheel goes to what is there now, not to the
+    /// surface the last motion found.
+    pub fn refresh_pointer_focus(&mut self, time: u32) {
+        let pointer = self.desk.seat.get_pointer().unwrap();
+        if pointer.is_grabbed() || self.is_locked() {
+            return;
+        }
+        let location = pointer.current_location();
+        let under = self.surface_under(location);
+        if under.as_ref().map(|(s, _)| s) == pointer.current_focus().as_ref() {
+            return;
+        }
+        pointer.motion(self, under, &MotionEvent { location, serial: SERIAL_COUNTER.next_serial(), time: smithay::backend::input::InputTime::from_millis(time) });
+        pointer.frame(self);
+    }
+
     pub fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
 
         if state == ButtonState::Pressed {
+            self.refresh_pointer_focus(time);
             let hit = self.surface_under(pointer.current_location()).map(|(s, _)| s);
             self.hotkeys_pointer_pressed(hit.as_ref());
         }
@@ -137,25 +157,25 @@ impl Ede {
             // A press on a shell layer (the Alt-Tab switcher, Expo, Scale)
             // is the shell's: the window under it neither takes focus nor
             // starts an Alt+drag (#EDE-65: Alt is held while a tile is clicked).
-            let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s));
-            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.space.element_under(location).map(|(w, _)| w.clone()) });
+            // So is one on a popup of such a layer, the start menu (#EDE-123).
+            let on_layer = under.as_ref().is_some_and(|s| self.is_layer_surface(s)) || self.layer_above_windows(location);
+            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| if on_layer { None } else { self.desk.space.element_under(location).map(|(w, _)| w.clone()) });
             match (&window, under) {
-                (Some(_), _) => self.focus(window.clone()),
+                (Some(_), _) => self.focus(DeskId::PERSON, window.clone()),
                 // A layer surface that takes the keyboard (the shell's menu,
                 // a search) gets it on a click; the panel and a wallpaper
                 // leave the app's focus alone (as on Cinnamon).
                 (None, Some(surface)) => {
                     if self.layer_takes_keyboard(&surface) || self.popups.find_popup(&surface).is_some() {
-                        let keyboard = self.seat.get_keyboard().unwrap();
-                        keyboard.set_focus(self, Some(surface), serial);
+                        self.focus_layer(surface, serial);
                     }
                 }
-                (None, None) => self.focus(None),
+                (None, None) => self.focus(DeskId::PERSON, None),
             }
-            let alt = self.seat.get_keyboard().unwrap().modifier_state().alt;
+            let alt = self.desk.seat.get_keyboard().unwrap().modifier_state().alt;
             if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
                 // Alt+drag: move from anywhere in the window.
-                if let Some(loc) = self.space.element_location(&window) {
+                if let Some(loc) = self.desk.space.element_location(&window) {
                     let start = GrabStartData { focus: None, button, location };
                     pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
                 }
@@ -179,7 +199,7 @@ impl Ede {
         self.restore_seat_keymap();
         self.release_ime_grab_if_protected();
         let serial = SERIAL_COUNTER.next_serial();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
         let listening = self.shell_listening();
         let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
@@ -218,7 +238,7 @@ impl Ede {
             }
             match binding(mods, sym) {
                 Some(action) => FilterResult::Intercept(action),
-                None if ede.keyboard_focus_protected() => FilterResult::Forward,
+                None if ede.keyboard_focus_protected(DeskId::PERSON) => FilterResult::Forward,
                 None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
                     Some((owner, id)) => {
                         ede.ipc.shortcuts.active.push((code, owner, id));
@@ -259,12 +279,12 @@ impl Ede {
                 self.switch_workspace(next as usize);
             }
             Action::MoveToWorkspace(i) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     self.move_to_workspace(&w, i, true);
                 }
             }
             Action::MoveToWorkspaceStep(d) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     let n = self.workspace_count() as i32;
                     let next = (self.active_workspace() as i32 + d).rem_euclid(n.max(1));
                     self.move_to_workspace(&w, next as usize, true);
@@ -274,12 +294,12 @@ impl Ede {
             Action::Shortcut(..) => {}
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     self.tile(&w, tile);
                 }
             }
             Action::Restore => {
-                if let Some(w) = self.focused_window() {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
                     if window_state(&w).tile.is_some() {
                         self.untile(&w, None);
                     }
@@ -300,10 +320,10 @@ impl Ede {
     /// double-click maximizes), a resize from the band around the window.
     /// `true` = handled.
     fn frame_press(&mut self, button: u32, serial: smithay::utils::Serial) -> bool {
-        let pointer = self.seat.get_pointer().unwrap();
+        let pointer = self.desk.seat.get_pointer().unwrap();
         let location = pointer.current_location();
         let Some((window, hit)) = self.frame_under(location) else { return false };
-        self.focus(Some(window.clone()));
+        self.focus(DeskId::PERSON, Some(window.clone()));
         if button != BTN_LEFT {
             return true;
         }
@@ -312,12 +332,12 @@ impl Ede {
             crate::frames::Hit::Maximize => self.toggle_maximized(&window),
             crate::frames::Hit::Minimize => self.minimize_window(&window),
             crate::frames::Hit::Title => {
-                let double = self.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
+                let double = self.desk.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
                 if double {
                     self.toggle_maximized(&window);
                 } else {
-                    self.title_click = Some((window.clone(), std::time::Instant::now()));
-                    if let Some(loc) = self.space.element_location(&window) {
+                    self.desk.title_click = Some((window.clone(), std::time::Instant::now()));
+                    if let Some(loc) = self.desk.space.element_location(&window) {
                         let start = GrabStartData { focus: None, button, location };
                         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
                     }
@@ -326,7 +346,7 @@ impl Ede {
             crate::frames::Hit::Edge(edges) => {
                 // The resize grab speaks xdg-shell; X11 windows resize from inside.
                 if window.toplevel().is_some() && !edges.is_empty() {
-                    if let Some(loc) = self.space.element_location(&window) {
+                    if let Some(loc) = self.desk.space.element_location(&window) {
                         let start = GrabStartData { focus: None, button, location };
                         let rect = smithay::utils::Rectangle::new(loc, window.geometry().size);
                         pointer.set_grab(self, crate::grabs::ResizeSurfaceGrab::start(start, window, edges, rect), serial, Focus::Clear);
@@ -362,20 +382,20 @@ impl Ede {
         while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
             root = parent;
         }
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
             map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(&test)
         })
     }
 
     fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
-        if self.space.output_under(pos).next().is_some() {
+        if self.desk.space.output_under(pos).next().is_some() {
             return pos;
         }
         // Off every output: pull it to the nearest point of the nearest one.
-        self.space
+        self.desk.space
             .outputs()
-            .filter_map(|o| self.space.output_geometry(o))
+            .filter_map(|o| self.desk.space.output_geometry(o))
             .map(|g| {
                 let x = pos.x.clamp(g.loc.x as f64, (g.loc.x + g.size.w) as f64 - 1.0);
                 let y = pos.y.clamp(g.loc.y as f64, (g.loc.y + g.size.h) as f64 - 1.0);

@@ -52,6 +52,9 @@ const UPDATE_SUSPEND_SETTLE: Duration = Duration::from_secs(10);
 /// target GC (its own throttle walks each at most once an hour).
 const CARGO_TARGET_GC_BEAT: Duration = Duration::from_secs(5 * 60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
+/// #EXP-1918: how often the unit started before any sign-in asks the user
+/// manager whether a session exists by now ([`crate::session_env`]).
+const SESSION_ENV_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
 /// confirms (or clears) a pending change, so a real change still converges
@@ -481,6 +484,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
         worker
     });
 
+    // #EXP-1918: started at boot, the unit has no screen until someone
+    // signs in; the first probe and the loop below take the session over.
+    crate::session_env::adopt();
     let (mut advertised, mut doctor) = probe_agents(&ctx);
     maybe_fetch_codex(&ctx, &doctor_soon);
     // What the two jsonb columns last SENT said: a beat attaches a map only
@@ -541,6 +547,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let store = rows.store()?;
                 steer::StoredSession::of(&session_row(&store, session_id)?)
             }),
+            // #EDE-108: a reader's catch-up page for a run of this machine
+            // is answered off its journal (the daemon keeps no chat store).
+            device_id: Some(device_id.clone()),
+            chat_store: None,
         });
         node
     });
@@ -567,9 +577,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             data_dir: ctx.data_dir.clone(),
             device_id: device_id.clone(),
             teams: Arc::new(move || synced_team_ids(&teams)),
-            messages: Arc::new(move |session_id| {
+            messages: Arc::new(move |session_id, since| {
                 let Some(store) = rows.store() else { return Vec::new() };
-                let messages = read_shape_rows_where::<domain::rows::MessageRow>(&store, "messages", "session_id", &[session_id]);
+                let messages = match since {
+                    // EXP-1930: a call's reply watch reads only its own rows.
+                    Some(since) => store
+                        .read_session_messages_since(session_id, since)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+                        .collect(),
+                    None => read_shape_rows_where::<domain::rows::MessageRow>(&store, "messages", "session_id", &[session_id]),
+                };
                 coding::sealing::open_messages(&messages)
             }),
             beat_soon: Arc::clone(&check_in),
@@ -612,6 +631,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     let mut last_heartbeat = Instant::now();
     let mut last_doctor = Instant::now();
+    let mut last_session_env = Instant::now();
     // Auto-update (EXP-403): a due check (own cadence, or the web "Update"
     // button via the heartbeat) parks here. EXP-1489: a live session holds
     // it only until every run pauses between turns, at most
@@ -832,10 +852,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // #EXP-1868: the sessions that ended while no run of them was
             // live here (idle first, or this host restarted) still hold
             // their scopes and compose stacks: the sweep takes them.
-            let synced_sessions = pickup
-                .store()
-                .filter(|_| synced.ready(SWEEP_SHAPES))
-                .map(|store| read_shape_rows::<SessionRow>(&store, "sessions"));
+            let sweep_store = pickup.store().filter(|_| synced.ready(SWEEP_SHAPES));
+            let synced_sessions =
+                sweep_store.as_ref().map(|store| read_shape_rows::<SessionRow>(store, "sessions"));
+            let sweep_live = Arc::clone(&sessions);
             let live_ids: std::collections::HashSet<String> = lock_sessions(&sessions)
                 .iter()
                 .filter(|live| !live.session.is_done())
@@ -845,8 +865,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
-                if let Some(rows) = synced_sessions {
-                    coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids);
+                if let (Some(rows), Some(store)) = (synced_sessions, sweep_store) {
+                    // #EXP-1909: one teardown can take minutes; each next one
+                    // reads its row and the live runs again (a revived
+                    // session keeps everything).
+                    let still_ended = |session_id: &str| {
+                        let row = read_shape_rows_where::<SessionRow>(&store, "sessions", "id", &[session_id]);
+                        row.iter().any(|row| row.is_ended())
+                            && !lock_sessions(&sweep_live)
+                                .iter()
+                                .any(|live| live.session.session_id == session_id && !live.session.is_done())
+                    };
+                    coding::session_teardown::sweep_ended(&data_dir, &rows, &live_ids, &still_ended);
                 }
                 sweep_cargo_targets(&repos_root, &data_dir);
                 if let Some(open) = open {
@@ -1192,6 +1222,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // over ssh flips the machine runnable without a restart.
         // EXP-414: acted on only once TWO consecutive probes agree — a single
         // flaky auth probe was flapping the machine offline every 5 minutes.
+        // #EXP-1918: the session that started after this unit: the doctor
+        // re-probes with its screen at once.
+        if last_session_env.elapsed() >= SESSION_ENV_RECHECK {
+            last_session_env = Instant::now();
+            if crate::session_env::adopt() {
+                doctor_soon.store(true, Ordering::SeqCst);
+            }
+        }
         let doctor_due = if pending_advert.is_some() {
             ADVERT_CONFIRM_RECHECK
         } else {
@@ -1302,6 +1340,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if orphans > 0 {
         log::info!("reaped {orphans} agent process(es) that outlived their session");
     }
+    // #EXP-1920: on X11 a clipboard put back after an agent's paste lives
+    // in this process; the desktop's clipboard manager takes it first.
+    coding::computer::before_exit();
     // EXP-781: the same scratch reclaim startup does (EXP-757), now that the
     // reaps are through and nothing this daemon owns is live. Without it a
     // repo-less run stayed resumable — its record and scratch dir outliving
@@ -2193,6 +2234,9 @@ fn reconcile_defaults_with(
     server_has_defaults: bool,
 ) {
     let settings_path = coding::Settings::default_path(&ctx.data_dir);
+    // #EXP-1899: before the server's copy is applied and after: whatever
+    // moved the switch (that copy, a hand-edited file), its grants follow.
+    watch_computer_switch(&settings_path);
     // #FEED-164 TWINS UPGRADE: an old twin pick becomes its connector id
     // first, so the reconcile below pushes it.
     if coding::upgrade_display_pick(&settings_path) {
@@ -2213,6 +2257,29 @@ fn reconcile_defaults_with(
             push_local_defaults(ctx, device_id, &settings, &marker)
         }
     }
+    watch_computer_switch(&settings_path);
+}
+
+/// #EXP-1899: act on a move of THIS device's Computer use switch as its
+/// settings file reads now: on = ask this machine's permissions now, not in
+/// the middle of a run; off = end every grant, stop the calls in flight and
+/// give the person their input back. Once per move, whoever wrote the file.
+fn watch_computer_switch(settings_path: &std::path::Path) {
+    static WATCH: Mutex<coding::ComputerSwitchWatch> =
+        Mutex::new(coding::ComputerSwitchWatch::new());
+    let settings = coding::Settings::load(settings_path);
+    // #EXP-1918: the Work screen follows the file the same way (the app of
+    // this machine saves it too; the server's copy used to be the only
+    // reconcile that set it). NEW-59: the computer hub reads it from here.
+    coding::computer::set_work_display(settings.computer_use_display_id);
+    let moved = WATCH.lock().unwrap().observe(settings.computer_use);
+    match moved {
+        Some(coding::ComputerSwitchMove::On) => coding::computer::prepare_in_background(),
+        Some(coding::ComputerSwitchMove::Off) => {
+            std::thread::spawn(coding::computer::shutdown);
+        }
+        None => {}
+    }
 }
 
 fn apply_server_defaults(
@@ -2230,7 +2297,6 @@ fn apply_server_defaults(
         }
     };
     let mut settings = coding::Settings::load(&settings_path);
-    let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
     // NEW-59: the computer hub reads the Work screen from here.
     coding::computer::set_work_display(settings.computer_use_display_id.clone());
@@ -2240,14 +2306,8 @@ fn apply_server_defaults(
             return;
         }
         log::info!("launch defaults: applied the server copy");
-        // EXP-1196: the switch flipped from another client: on = ask this
-        // machine's permissions now, not in the middle of a run; off = end
-        // every grant and give the person their input back.
-        if settings.computer_use && !was_on {
-            coding::computer::prepare_in_background();
-        } else if !settings.computer_use && was_on {
-            std::thread::spawn(coding::computer::shutdown);
-        }
+        // #EXP-1899: the switch's move is acted on by the caller's watch
+        // (`watch_computer_switch`), whatever wrote the settings.
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
     // recording the stamp stops a re-apply loop either way. #FEED-161
@@ -4356,6 +4416,25 @@ mod tests {
             AdvertStep::Apply
         );
         assert!(pending.is_none());
+    }
+
+    /// #EXP-1918: the app and the daemon of one machine share settings.json.
+    /// A Work screen picked in the app reaches the daemon's hub on its next
+    /// reconcile, whichever way that reconcile goes (the server's copy used
+    /// to be the only one that set it).
+    #[test]
+    fn a_work_screen_pick_saved_by_another_process_reaches_the_hub() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-work-screen-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = coding::Settings::default_path(&dir);
+        for pick in [Some("DP-7".to_string()), None] {
+            let mut settings = coding::Settings::load(&path);
+            settings.computer_use_display_id = pick.clone();
+            settings.save(&path).unwrap();
+            watch_computer_switch(&path);
+            assert_eq!(coding::computer::work_display(), pick);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

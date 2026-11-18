@@ -19,8 +19,18 @@ class ChatStateWordTest {
 
     @Test fun aChildNeedingInputIsTheTreesWord() = assertEquals(
         SessionScreen.Copy.Status.NEEDS_INPUT,
-        chatStateWord("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"unclaimed"}"""))),
+        chatStateWord("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"restarted"}"""))),
     )
+
+    // #FEED-263: a wall is no needs input; the word names it (and its device).
+    @Test fun aWalledChildNamesItsWall() {
+        assertEquals("not picked up", chatStateWord("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"unclaimed"}"""))))
+        assertEquals(null, chatWaiting("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"unclaimed"}"""))))
+        assertEquals(
+            "needs input",
+            chatStateWord("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"device_offline","resumeSince":"2026-11-16T18:00:00Z"}"""))),
+        )
+    }
 
     // #FEED-257: a stale flag with nothing to open is no word; the line opens the flagged child.
     @Test fun aStaleFlagIsNothing() {
@@ -28,7 +38,7 @@ class ChatStateWordTest {
         assertEquals(null, chatWaiting("r", listOf(row("r"), row("c", needsInput = true))))
         assertEquals(
             SessionScreen.Waiting(SessionScreen.WaitingOpen.Session, "c"),
-            chatWaiting("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"stuck"}"""))),
+            chatWaiting("r", listOf(row("r"), row("c", needsInput = true, blocked = """{"kind":"restarted"}"""))),
         )
     }
 

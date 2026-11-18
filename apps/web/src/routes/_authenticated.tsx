@@ -8,6 +8,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
 import { useWebInstall } from "@/lib/enet/use-web-install"
+import { startChatStore, stopChatStore } from "@/lib/chat-store/client"
 
 export const Route = createFileRoute(`/_authenticated`)({
   ssr: false,
@@ -42,6 +43,11 @@ function AuthenticatedLayout() {
   useWebInstall(userId)
   // EXP-1459: its tree keys (opens sealed session content in every tab).
   useKeyHolder(userId)
+  // #EDE-115: every chat on this browser (OPFS), loaded lazily.
+  useEffect(() => {
+    startChatStore(userId)
+    return () => stopChatStore()
+  }, [userId])
 
   // Cookieless signup attribution (EXP-362): ref/utm params ride URLs from
   // the marketing site through the auth flow; the first authenticated load

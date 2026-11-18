@@ -16,7 +16,7 @@
 use serde_json::json;
 use smithay::{backend::input::KeyState, input::keyboard::{keysyms, ModifiersState}};
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 /// `name` of every `hotkey` event the compositor sends.
 pub mod names {
@@ -198,7 +198,7 @@ impl Ede {
             Hotkey::SwitcherNext => self.cycle_focus(false),
             Hotkey::SwitcherPrev => self.cycle_focus(true),
             // No shell to launch one: the compositor opens the terminal itself.
-            Hotkey::Terminal => self.spawn(&["x-terminal-emulator".to_string()]),
+            Hotkey::Terminal => self.spawn_for_person(&["x-terminal-emulator".to_string()]),
             _ => {}
         }
     }
@@ -217,13 +217,23 @@ impl Ede {
     /// most-recent-first order (the stacking order), as Alt+Tab did on
     /// window managers before switchers drew anything.
     pub fn cycle_focus(&mut self, reverse: bool) {
-        let windows: Vec<_> = self.space.elements().cloned().collect();
+        let windows: Vec<_> = self.desk.space.elements().cloned().collect();
         if windows.len() < 2 {
             return;
         }
         let target = if reverse { windows.first().cloned() } else { windows.iter().rev().nth(1).cloned() };
         self.hotkeys.fallback_steps += 1;
-        self.focus(target);
+        self.focus(DeskId::PERSON, target);
+    }
+
+    /// A hold released the person's keys (#EDE-80): a Super that was down
+    /// alone opens nothing, and an open switcher is cancelled.
+    pub(crate) fn hotkeys_let_go(&mut self) {
+        self.hotkeys.super_pending = false;
+        if std::mem::take(&mut self.hotkeys.switcher) {
+            self.hotkeys.fallback_steps = 0;
+            self.hotkey(Hotkey::SwitcherCancel);
+        }
     }
 
     /// A pointer press ends a pending Super (Super+click is not a menu); a
@@ -238,7 +248,7 @@ impl Ede {
     /// Does a layer surface (the shell) have a popup mapped?
     pub fn layer_popups_open(&self) -> bool {
         use smithay::desktop::PopupManager;
-        self.space.outputs().any(|o| {
+        self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
             let any = map.layers().any(|l| PopupManager::popups_for_surface(l.wl_surface()).next().is_some());
             any

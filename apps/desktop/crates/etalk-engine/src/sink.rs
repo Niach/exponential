@@ -366,9 +366,9 @@ impl Drop for Handle {
 mod platform {
     use std::io::Write;
     use std::process::{Child, ChildStdin, Command, Stdio};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::Sink;
 
@@ -389,6 +389,46 @@ mod platform {
         next: Mutex<usize>,
         /// A write went through: the player plays, a later failure is final.
         written: AtomicBool,
+        /// The samples written so far: the most [`Sink::finish`] waits out.
+        samples: AtomicU64,
+    }
+
+    /// EXP-1934: how long a player may take nothing (a write), or play on
+    /// past the reply's own length (the drain), before it is killed: one
+    /// that stopped consuming never holds the engine.
+    const PLAYER_STALL: Duration = Duration::from_secs(3);
+
+    /// EXP-1934: a reply's pipe never blocks a write: [`PipeSink::write`]
+    /// waits itself, with a deadline. (Elsewhere the pipe stays blocking.)
+    fn unblock(stdin: &ChildStdin) {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: a valid pipe descriptor we own; failure only leaves
+            // the pipe blocking.
+            unsafe {
+                let flags = libc::fcntl(stdin.as_raw_fd(), libc::F_GETFL);
+                if flags >= 0 {
+                    libc::fcntl(stdin.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
+                }
+            }
+        }
+        let _ = stdin;
+    }
+
+    /// The bytes a player's pipe holds before the player reads any.
+    fn pipe_capacity(stdin: &ChildStdin) -> usize {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: a valid pipe descriptor we own.
+            let size = unsafe { libc::fcntl(stdin.as_raw_fd(), libc::F_GETPIPE_SZ) };
+            if size > 0 {
+                return size as usize;
+            }
+        }
+        let _ = stdin;
+        65_536
     }
 
     /// Samples per write: ~85 ms at 24 kHz, so a stop lands between chunks.
@@ -428,6 +468,9 @@ mod platform {
             match spawn(program, args) {
                 Ok(mut child) => {
                     let stdin = child.stdin.take();
+                    if let Some(stdin) = &stdin {
+                        unblock(stdin);
+                    }
                     return Ok(Arc::new(PipeSink {
                         stdin: Mutex::new(stdin),
                         child: Mutex::new(Some(child)),
@@ -435,6 +478,7 @@ mod platform {
                         rate,
                         next: Mutex::new(index + 1),
                         written: AtomicBool::new(false),
+                        samples: AtomicU64::new(0),
                     }));
                 }
                 Err(err) => errors.push(err),
@@ -460,14 +504,17 @@ mod platform {
         let feeding = queue.clone();
         std::thread::Builder::new()
             .name("voice-call-audio".into())
-            .spawn(move || feed(rate, target.as_deref(), &feeding, &mut tap, ready_tx))
+            .spawn(move || feed(rate, target.as_deref(), &feeding, &mut tap, ready_tx, &spawn))
             .map_err(|err| err.to_string())?;
         ready_rx.recv().map_err(|_| "the audio thread ended".to_string())??;
         Ok(Arc::new(super::Handle::new(queue, rate)))
     }
 
+    /// How a player is started ([`spawn`]; the tests start fakes).
+    type Spawn = dyn Fn(&str, &[String]) -> Result<Child, String>;
+
     /// Start the first player from `candidates[*next..]` that spawns.
-    fn start(rate: u32, target: Option<&str>, next: &mut usize) -> Result<(Child, ChildStdin), String> {
+    fn start(rate: u32, target: Option<&str>, next: &mut usize, spawn: &Spawn) -> Result<(Child, ChildStdin), String> {
         let mut errors = Vec::new();
         let candidates = candidates(rate);
         while let Some((program, args)) = candidates.get(*next) {
@@ -494,9 +541,16 @@ mod platform {
         Err(format!("no audio player (needs PipeWire or PulseAudio): {}", errors.join("; ")))
     }
 
-    fn feed(rate: u32, target: Option<&str>, queue: &super::Queue, tap: &mut super::Tap, ready: std::sync::mpsc::Sender<Result<(), String>>) {
+    fn feed(
+        rate: u32,
+        target: Option<&str>,
+        queue: &super::Queue,
+        tap: &mut super::Tap,
+        ready: std::sync::mpsc::Sender<Result<(), String>>,
+        spawn: &Spawn,
+    ) {
         let mut next = 0;
-        let (mut child, mut stdin) = match start(rate, target, &mut next) {
+        let (mut child, mut stdin) = match start(rate, target, &mut next, spawn) {
             Ok(player) => player,
             Err(err) => {
                 let _ = ready.send(Err(err));
@@ -505,18 +559,25 @@ mod platform {
         };
         let _ = ready.send(Ok(()));
         let block = (rate / 50).max(1) as usize;
-        let mut written = false;
+        // EXP-1934: what the current player was sent. Up to a pipe's worth
+        // proves nothing: it sits in the pipe whether the player reads or
+        // has exited already.
+        let mut capacity = pipe_capacity(&stdin);
+        let mut sent = 0;
         while let Some(samples) = queue.take(block) {
             let bytes: Vec<u8> = samples.iter().flat_map(|sample| sample.to_le_bytes()).collect();
             while stdin.write_all(&bytes).is_err() {
                 let _ = child.kill();
                 let _ = child.wait();
-                // #1231 review: a player that refused the very first block
-                // (pw-play without a PipeWire session) hands over to the next.
-                let replaced = if written { Err("the audio player stopped taking audio".to_string()) } else { start(rate, target, &mut next) };
+                // #1231 review: a player that never read (pw-play without a
+                // PipeWire session) hands over to the next.
+                let replaced =
+                    if sent > capacity { Err("the audio player stopped taking audio".to_string()) } else { start(rate, target, &mut next, spawn) };
                 match replaced {
                     Ok(player) => {
                         (child, stdin) = player;
+                        capacity = pipe_capacity(&stdin);
+                        sent = 0;
                         eprintln!("audio output: the next player takes over");
                     }
                     Err(err) => {
@@ -525,7 +586,7 @@ mod platform {
                     }
                 }
             }
-            written = true;
+            sent += bytes.len();
             tap(&samples);
         }
         // Closed: the player plays out its pipe and exits.
@@ -540,6 +601,32 @@ mod platform {
                 let _ = child.kill();
                 let _ = child.wait();
             }
+        }
+
+        /// EXP-1934: all of `bytes` into the player. A full pipe is waited
+        /// on here, at most [`PLAYER_STALL`] without a byte taken, and
+        /// never past a stop.
+        fn write(&self, stdin: &mut ChildStdin, bytes: &[u8]) -> std::io::Result<()> {
+            let mut rest = bytes;
+            let mut stalled: Option<Instant> = None;
+            while !rest.is_empty() {
+                match stdin.write(rest) {
+                    Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                    Ok(taken) => {
+                        rest = &rest[taken..];
+                        stalled = None;
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        if self.stopped.load(Ordering::SeqCst) || stalled.get_or_insert_with(Instant::now).elapsed() >= PLAYER_STALL {
+                            return Err(std::io::ErrorKind::TimedOut.into());
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Ok(())
         }
 
         /// Whether the player has exited (given [`EXIT_GRACE`] to do so).
@@ -568,6 +655,9 @@ mod platform {
                 match spawn(program, args) {
                     Ok(mut child) => {
                         let stdin = child.stdin.take();
+                        if let Some(stdin) = &stdin {
+                            unblock(stdin);
+                        }
                         if let Ok(mut guard) = self.stdin.lock() {
                             *guard = stdin;
                         }
@@ -597,9 +687,10 @@ mod platform {
                         return Ok(());
                     }
                     let Ok(mut guard) = self.stdin.lock() else { return Err("the audio pipe lock is poisoned".into()) };
-                    let written = guard.as_mut().is_some_and(|stdin| stdin.write_all(&bytes).is_ok());
+                    let written = guard.as_mut().is_some_and(|stdin| self.write(stdin, &bytes).is_ok());
                     if written {
                         self.written.store(true, Ordering::SeqCst);
+                        self.samples.fetch_add(chunk.len() as u64, Ordering::SeqCst);
                         break;
                     }
                     guard.take();
@@ -626,6 +717,10 @@ mod platform {
             // #NEW-66: the player stays in `child` while it drains (polled,
             // the lock released between polls) so a Stop during the final
             // flush still kills it; it no longer plays a pipe buffer out.
+            // EXP-1934: bounded like the other sinks' drains, by the reply's
+            // own length plus [`PLAYER_STALL`]; a stalled player is killed.
+            let played = Duration::from_secs_f64(self.samples.load(Ordering::SeqCst) as f64 / f64::from(self.rate.max(1)));
+            let deadline = Instant::now() + played + PLAYER_STALL;
             loop {
                 let Ok(mut guard) = self.child.lock() else { return };
                 let Some(child) = guard.as_mut() else { return };
@@ -634,6 +729,11 @@ mod platform {
                     return;
                 }
                 drop(guard);
+                if Instant::now() >= deadline {
+                    eprintln!("voice: the audio player did not play out in time");
+                    self.kill();
+                    return;
+                }
                 std::thread::sleep(Duration::from_millis(20));
             }
         }
@@ -668,6 +768,7 @@ mod platform {
                 rate: 24_000,
                 next: Mutex::new(2),
                 written: AtomicBool::new(true),
+                samples: AtomicU64::new(0),
             });
             let started = std::time::Instant::now();
             let flushing = sink.clone();
@@ -676,6 +777,92 @@ mod platform {
             sink.stop();
             finish.join().unwrap();
             assert!(started.elapsed() < Duration::from_secs(5), "Stop killed the draining player");
+        }
+
+        /// A fake player: `/bin/sh -c script`.
+        fn fake(script: &str) -> Child {
+            Command::new("/bin/sh").args(["-c", script]).stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap()
+        }
+
+        fn sink_into(mut child: Child) -> Arc<PipeSink> {
+            let stdin = child.stdin.take();
+            if let Some(stdin) = &stdin {
+                unblock(stdin);
+            }
+            Arc::new(PipeSink {
+                stdin: Mutex::new(stdin),
+                child: Mutex::new(Some(child)),
+                stopped: AtomicBool::new(false),
+                rate: 24_000,
+                // No player to hand over to.
+                next: Mutex::new(2),
+                written: AtomicBool::new(true),
+                samples: AtomicU64::new(0),
+            })
+        }
+
+        /// `run` on a thread of its own: `None` = it did not return in 15 s
+        /// (the sink is then stopped, so the thread ends).
+        fn bounded<T: Send + 'static>(sink: &Arc<PipeSink>, run: impl FnOnce(&PipeSink) -> T + Send + 'static) -> Option<T> {
+            let (done, returned) = std::sync::mpsc::channel();
+            let running = sink.clone();
+            let thread = std::thread::spawn(move || {
+                let _ = done.send(run(&running));
+            });
+            let result = returned.recv_timeout(Duration::from_secs(15)).ok();
+            sink.stop();
+            thread.join().unwrap();
+            result
+        }
+
+        /// EXP-1934: a player that neither plays its input out nor exits is
+        /// killed once the reply's own length plus the grace is over.
+        #[test]
+        fn a_player_that_never_drains_is_killed_at_the_deadline() {
+            let sink = sink_into(fake("exec sleep 30"));
+            // One block: it fits a pipe of a single page.
+            sink.push(&[0.0; 480]).unwrap();
+            let waiting = sink.clone();
+            assert!(bounded(&sink, move |sink| sink.finish()).is_some(), "finish returned");
+            assert!(waiting.child.lock().unwrap().is_none(), "the player is gone");
+        }
+
+        /// EXP-1934: a player that stops reading fails the reply instead of
+        /// blocking the engine in a write for good.
+        #[test]
+        fn a_player_that_stops_reading_fails_the_reply() {
+            let sink = sink_into(fake("exec sleep 30"));
+            // 4 s of audio, 384 KB: far over any pipe's capacity.
+            let pushed = bounded(&sink, |sink| sink.push(&vec![0.0; 96_000]));
+            assert_eq!(pushed, Some(Err("the audio player stopped taking audio".to_string())));
+        }
+
+        /// EXP-1934: pw-play on a desktop without a PipeWire session takes
+        /// the first block into its pipe and exits: the next player plays.
+        #[test]
+        fn a_stream_hands_over_when_the_first_player_exits_at_once() {
+            let queue = Arc::new(super::super::Queue::new(24_000));
+            let tapped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let (counting, feeding) = (tapped.clone(), queue.clone());
+            let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+            let feed = std::thread::spawn(move || {
+                let mut tap: super::super::Tap = Box::new(move |samples| {
+                    counting.fetch_add(samples.len(), Ordering::SeqCst);
+                });
+                let players = |program: &str, _: &[String]| Ok(fake(if program == "pw-play" { "exit 1" } else { "cat >/dev/null" }));
+                feed(24_000, None, &feeding, &mut tap, ready_tx, &players);
+            });
+            ready_rx.recv().unwrap().unwrap();
+            // Half a second of audio went out (the fake reads without pacing).
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            while tapped.load(Ordering::SeqCst) < 12_000 && queue.failed().is_none() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let failed = queue.failed();
+            queue.closing.store(true, Ordering::SeqCst);
+            feed.join().unwrap();
+            assert_eq!(failed, None, "the second player took the stream over");
+            assert!(tapped.load(Ordering::SeqCst) >= 12_000);
         }
     }
 }

@@ -383,6 +383,14 @@ export function callRingToneOn(ms: number): boolean {
   return ms >= 0 && ms % (ringToneMs + ringGapMs) < ringToneMs
 }
 
+/** EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+ *  (`alive`) and has heard nothing from the relay for `silentMs` treats the
+ *  path as dead and ends the call as dropped; before the first beat (an
+ *  older relay) there is no deadline. */
+export function callPathDead(alive: boolean, silentMs: number): boolean {
+  return alive && silentMs >= fixture.constants.idleTimeoutMs
+}
+
 /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
 export function callTimer(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -391,4 +399,136 @@ export function callTimer(ms: number): string {
   const seconds = total % 60
   const pad = (n: number) => String(n).padStart(2, `0`)
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
+
+// ── #EXP-1941: the call seal's handshake steps (`seal`, `seal.modeCases`) ────
+//
+// One pure step for both ends of a call the server marked sealed. It decides
+// WHAT happens; the end does it: the key source, `finish` and the frames live
+// in the caller and the host (the sealer is @exp/domain-contract/call-seal).
+// The message order is Noise NNpsk2's: the caller's hello, the host's hello
+// with its tag (the host's proof, opened inside the caller's `finish`), then
+// the caller's first frame that opens (the caller's proof).
+
+export const VOICE_CALL_SEAL = fixture.seal
+
+export type CallSealRole = `caller` | `host`
+/** `clear` = a call the server did not mark sealed: today's wire, not stepped here. */
+export type CallSealPhase = `idle` | `clear` | `told` | `offered` | `keying` | `sealed` | `over`
+
+export interface CallSealState {
+  phase: CallSealPhase
+  /** Sealed audio frames in a row that did not open. */
+  failures: number
+}
+
+export const CALL_SEAL_IDLE: CallSealState = { phase: `idle`, failures: 0 }
+
+export type CallSealEvent =
+  /** What the server told this end (`startCall` / `callHostTicket`): the host's socket opens here. */
+  | { t: `start`; seal: boolean; required?: boolean }
+  | { t: `ready` }
+  /** A hello of the other end; `ok` = well-formed (its length, version and role), checked before any `finish`. */
+  | { t: `hello`; ok: boolean }
+  /** The key source gave up: root or epoch still differ or the rotation is still due after asking again, an epoch below the highest held, no key holder. */
+  | { t: `noKey` }
+  | { t: `key` }
+  | { t: `finished`; ok: boolean }
+  /** A binary frame; `opens` = the sealer opened it. */
+  | { t: `frame`; opens: boolean }
+  /** A `sealed` event; `opens` = the sealer opened it (its ctr was the next). */
+  | { t: `sealed`; opens: boolean }
+  /** Clear content: a `call_event` that is neither `hello`, `sealed` nor `failed`, or a `call_mute`. */
+  | { t: `clear` }
+  /** A clear `failed {code}`, or the code of the relay's `error` / `bye`. */
+  | { t: `failed`; code: string }
+  /** The socket closed, or `call_end`, `bye`, `error` without a code that has copy. */
+  | { t: `closed` }
+  | { t: `timeout`; timer: `handshake` | `maxCall` }
+
+/**
+ * What the end does now, in order:
+ * `timer` start the `handshakeMs` timer (it is never restarted) ·
+ * `hello` the caller sends its hello frame, again every `helloEveryMs`; the host sends its hello ONCE ·
+ * `helloStop` · `key` resolve root and epoch and get the secret (the key source) ·
+ * `finish` call the handshake's `finish`, once · `go` the caller starts its microphone, the host steps `Ready` ·
+ * `count` drop the frame and count it · `end` / `end:<reason>` send `call_end` and close ·
+ * `fail:<code>` the caller's toast · `abandon` stop the key source and drop what it still answers.
+ */
+export type CallSealAction = string
+
+export interface CallSealStepped {
+  state: CallSealState
+  actions: CallSealAction[]
+}
+
+/** A wire code about the caller's OWN device is never taken from the wire: it reads `dropped`. */
+export function callSealWireCode(code: string): string {
+  return fixture.seal.ownDeviceCodes.includes(code) ? fixture.hangUpRules.failedCode : code
+}
+
+export function callSealStep(role: CallSealRole, state: CallSealState, event: CallSealEvent): CallSealStepped {
+  const { noKey, seal } = fixture.seal.endReasons
+  const caller = role === `caller`
+  const stay: CallSealStepped = { state, actions: [] }
+  const to = (phase: CallSealPhase, ...actions: CallSealAction[]): CallSealStepped => ({ state: { phase, failures: 0 }, actions })
+  /** Every seal failure reads `dropped` on the caller; the host just ends. */
+  const over = (reason: string): CallSealStepped =>
+    to(`over`, `end:${reason}`, ...(caller ? [`fail:${fixture.hangUpRules.failedCode}`] : []), `abandon`)
+  const count: CallSealStepped = { state, actions: [`count`] }
+
+  if (event.t === `start`) {
+    if (state.phase !== `idle`) return stay
+    if (event.seal) return to(`told`, ...(caller ? [] : [`timer`]))
+    if (!(event.required ?? fixture.seal.required)) return to(`clear`)
+    return caller ? to(`over`, `fail:${fixture.hangUpRules.failedCode}`) : to(`over`, `end`)
+  }
+  // The host ends a call it answered at `maxCallMs` itself, sealed or clear.
+  if (event.t === `timeout` && event.timer === `maxCall`) {
+    return !caller && state.phase !== `idle` && state.phase !== `over` ? to(`over`, `end`, `abandon`) : stay
+  }
+  if (state.phase === `idle` || state.phase === `clear` || state.phase === `over`) return stay
+  const sealed = state.phase === `sealed`
+
+  switch (event.t) {
+    case `failed`:
+      return to(`over`, `fail:${caller ? callSealWireCode(event.code) : event.code}`, `abandon`)
+    case `closed`:
+      return to(`over`, `abandon`)
+    case `timeout`:
+      return sealed ? stay : over(noKey)
+    case `ready`:
+      return caller && state.phase === `told` ? to(`offered`, `timer`, `hello`) : stay
+    case `hello`: {
+      // The first well-formed hello is taken on arrival, once; another changes nothing.
+      const waiting = caller ? state.phase === `offered` : state.phase === `told`
+      if (waiting && event.ok) return caller ? to(`keying`, `helloStop`, `key`) : to(`keying`, `key`)
+      return !event.ok && !sealed && (waiting || !caller) ? count : stay
+    }
+    case `noKey`:
+      return state.phase === `keying` ? over(noKey) : stay
+    case `key`:
+      return state.phase === `keying` ? { state, actions: [`finish`] } : stay
+    case `finished`:
+      if (state.phase !== `keying`) return stay
+      if (!event.ok) return over(caller ? seal : noKey)
+      return caller ? to(`sealed`, `go`) : to(`offered`, `hello`)
+    case `frame`:
+      if (sealed) {
+        if (event.opens) return state.failures === 0 ? stay : to(`sealed`)
+        const failures = state.failures + 1
+        return failures >= fixture.seal.maxOpenFailures ? over(seal) : { state: { phase: `sealed`, failures }, actions: [`count`] }
+      }
+      // A caller gets no binary frame before it is sealed; a host's first frame that opens is the caller's proof.
+      if (caller) return state.phase === `told` ? stay : over(seal)
+      return state.phase === `offered` && event.opens ? to(`sealed`, `go`) : count
+    case `sealed`:
+      if (!caller) return stay
+      if (sealed) return event.opens ? stay : over(seal)
+      return state.phase === `told` ? stay : over(seal)
+    case `clear`:
+      if (sealed) return over(seal)
+      if (caller) return state.phase === `told` ? stay : over(seal)
+      return count
+  }
 }

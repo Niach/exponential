@@ -72,7 +72,7 @@ pub fn displays_changed() {
 
 /// The screen now; `None` without a display or a window list.
 pub fn screen_look() -> Option<ScreenLook> {
-    let backend = backend::open().ok()?;
+    let backend = backend::open(backend::Target::Person, None).ok()?;
     let (displays, epoch) = {
         let mut cache = DISPLAYS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let epoch = display_epoch();
@@ -108,7 +108,7 @@ pub fn screen_look() -> Option<ScreenLook> {
         let mut ids = APP_IDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         ids.get_or_insert_with(HashMap::new).entry(pid).or_insert_with(|| backend::app_id(pid)).clone()
     };
-    Some(ScreenLook { epoch, ..look_of(&displays, &windows, work_screen::picked().as_deref(), app_id) })
+    Some(ScreenLook { epoch, ..look_of(&displays, &windows, work_screen::picked(backend::Target::Person).as_deref(), app_id) })
 }
 
 /// [`screen_look`] off one display set and one window list (top first).
@@ -135,7 +135,7 @@ pub(crate) fn look_of(displays: &[(DisplayInfo, (u32, u32))], windows: &[WindowI
 /// Display `number`'s pixels now (RGBA8, width, height), the OS's live
 /// read (GDI on Windows, the X root on X11).
 pub fn screenshot(number: u32) -> Result<(u32, u32, Vec<u8>), String> {
-    let backend = backend::open()?;
+    let backend = backend::open(backend::Target::Person, None)?;
     let displays = backend.displays()?;
     let display = number.checked_sub(1).and_then(|index| displays.get(index as usize)).ok_or("No such display.")?;
     let image = backend.screenshot(display)?;
@@ -147,7 +147,7 @@ mod tests {
     use super::*;
 
     fn display(id: &str, x: i32, width: u32) -> (DisplayInfo, (u32, u32)) {
-        (DisplayInfo { id: id.into(), x, y: 0, width, height: 1000, primary: x == 0, name: String::new() }, (width * 2, 2000))
+        (DisplayInfo { id: id.into(), x, y: 0, width, height: 1000, primary: x == 0, name: String::new(), connector: None }, (width * 2, 2000))
     }
 
     fn window(app: &str, x: i32, width: u32, active: bool) -> WindowInfo {

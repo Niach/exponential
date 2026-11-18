@@ -164,7 +164,23 @@ class SessionScreenTest {
         root = session.getValue("root").jsonPrimitive.boolean,
         id = session.str("id") ?: "",
         blocked = session.str("blocked"),
+        resumed = session["resumed"]?.jsonPrimitive?.boolean ?: false,
+        device = session.str("device"),
     )
+
+    /** #FEED-263: `wallStatusCases`. */
+    @Test
+    fun `every wall status case matches the fixture`() {
+        val all = cases("wallStatusCases")
+        assertTrue(all.isNotEmpty())
+        for (case in all) {
+            val sessions = case.getValue("sessions").jsonArray.map { statusInput(it.jsonObject) }
+            val expected = (case["expected"] as? JsonObject)?.let { o ->
+                SessionScreen.Wall(o.str("id")!!, o.str("kind")!!, o.str("text")!!)
+            }
+            assertEquals(case.str("name"), expected, SessionScreen.wall(sessions))
+        }
+    }
 
     // #FEED-257: a case's `asks` (absent = none).
     private fun asks(case: JsonObject): List<SessionScreen.Ask> =
@@ -197,6 +213,8 @@ class SessionScreenTest {
                     needsInput = session.getValue("needsInput").jsonPrimitive.boolean,
                     root = session.getValue("root").jsonPrimitive.boolean,
                     blocked = session.str("blocked"),
+                    resumed = session["resumed"]?.jsonPrimitive?.boolean ?: false,
+                    device = session.str("device"),
                 )
             }
             assertEquals(case.str("name"), case.str("expected"), SessionScreen.status(sessions, waitingOn = input.str("waiting")))

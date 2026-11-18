@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 /// What an `ExponentialHost` is built from (VAPP-91, `catalog/host.json`).
 public struct HostOptions {
@@ -812,6 +813,14 @@ final class HostBridge: HostPlugin {
     }
 
     var onImagePress: (@MainActor (String) -> Void)? { host?.options.policy.onImagePress ?? base?.onImagePress }
+
+    func imageSource(_ src: String, alt: String) -> ImageSource? { base?.imageSource(src, alt: alt) }
+
+    var hasImageMenu: Bool { base?.hasImageMenu ?? false }
+
+    func imageMenu(_ target: ImageTarget, onTap: (() -> Void)?, content: AnyView) -> AnyView {
+        base?.imageMenu(target, onTap: onTap, content: content) ?? content
+    }
 
     var markdownOptions: MarkdownOptions { host?.options.policy.markdownOptions ?? base?.markdownOptions ?? MarkdownOptions() }
 

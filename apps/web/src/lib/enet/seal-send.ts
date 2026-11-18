@@ -13,12 +13,20 @@
 //     lines go INSIDE the text (#EXP-1683, `withAttachmentEmbeds`);
 //   - an answer to a SEALED card = `sealedCard` (the full card with the
 //     answer in it, re-sealed) beside the clear `decision` / `fresh`.
-// Without a key holder (this browser has no eNet install yet) nothing is
-// sealed: plaintext stays legal.
+// #EDE-97 (sealed-content.json `clearTree`): NO silent plaintext. Only a
+// root an outside MCP client started (`clear_tree`) takes plaintext; any
+// other text waits for this tab's key holder (`holderWaitMs`) and, for a
+// keyless tree this install may not key, for its device's key
+// (`keyWaitMs`); a text that still cannot be sealed FAILS with
+// `NO_KEY_REFUSAL` (the failed-send toast), nothing leaves in clear.
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
 import {
+  CLEAR_TREE_REFUSAL,
   isStaleTreeRefusal,
+  NO_KEY_REFUSAL,
+  SEAL_HOLDER_WAIT_MS,
+  SEAL_KEY_WAIT_MS,
   sealBody,
   sealCard,
   withAttachmentEmbeds,
@@ -45,6 +53,8 @@ export type SealSessionRow = {
   shared: boolean
   sealPublicKey?: string | null
   sealEpoch?: number | null
+  /** #EDE-97: an outside MCP client's root: plaintext for life. */
+  clearTree?: boolean | null
 }
 
 /** An install a tree key may be wrapped for (`installs.mine` / `installs.list`). */
@@ -67,10 +77,23 @@ export type SealDeps = {
   sendTarget: (input: { agentId?: string; appId?: string }) => Promise<ServerTarget>
   /** The server's current key of a root (`sessionKeys.publicKeys`), if keyed. */
   publicKey: (rootId: string) => Promise<TreePublicKey | undefined>
+  /** #EDE-97: this tab's key holder once it runs (registering its install
+   *  when it has none), within `ms`; undefined = none came. Absent = no wait. */
+  awaitHolder?: (ms: number) => Promise<SealDeps[`holder`]>
+  /** Test seam: waits between key polls (default: a timer). */
+  sleep?: (ms: number) => Promise<void>
+  /** Test seam: the key waits (default: the fixture's). */
+  waits?: { holderMs: number; keyMs: number; pollMs: number }
 }
 
 export type TreePublicKey = { epoch: number; publicKey: string }
-export type ServerTarget = { rootId: string | null; epoch: number | null; publicKey: string | null }
+export type ServerTarget = {
+  rootId: string | null
+  epoch: number | null
+  publicKey: string | null
+  /** #EDE-97: an outside MCP client's conversation (absent on an older server = not). */
+  clearTree?: boolean
+}
 
 export type SealedSendInput = SessionsSendInput & {
   seal?: { installId: string; publicKey: string; epoch: 1; wraps: Array<{ installId: string; wrapped: string }> }
@@ -93,6 +116,16 @@ export function rememberSessionUpload(id: string, upload: AttachmentUpload): voi
 }
 
 const noop = async (_result: { sessionId: string }) => {}
+
+/** #EDE-97: a text that cannot be sealed: the send fails, nothing leaves. */
+export class NoKeyError extends Error {
+  constructor() {
+    super(NO_KEY_REFUSAL)
+    this.name = `NoKeyError`
+  }
+}
+
+const CLEAR = Symbol(`clear`)
 
 /** The root a send lands in, when it exists already. */
 export function targetRoot(input: SessionsSendInput, deps: Pick<SealDeps, `session` | `sessions` | `me`>): SealSessionRow | undefined {
@@ -167,15 +200,31 @@ export async function sealSendInput(
   deps: SealDeps,
   options: { fresh?: boolean } = {}
 ): Promise<SealedSend> {
-  const holder = deps.holder
   const hasText = typeof input.text === `string` && input.text.length > 0
-  if (!holder || (!hasText && !input.name)) return { input, after: noop }
+  if (!hasText && !input.name) return { input, after: noop }
   const mentions = mentionUserIds(input.text, deps)
   const root = targetRoot(input, deps)
   const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps)
   const clearMeta = { ...(mentions ? { mentionUserIds: mentions } : {}), ...(refs ? { refIssueIds: refs } : {}) }
 
   const plain = { input: { ...input, ...clearMeta }, after: noop }
+  // #EDE-97: an outside MCP client's tree is the one place for plaintext.
+  if (root?.clearTree) return plain
+  const waits = deps.waits ?? { holderMs: SEAL_HOLDER_WAIT_MS, keyMs: SEAL_KEY_WAIT_MS, pollMs: 1000 }
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const holder = deps.holder ?? (await deps.awaitHolder?.(waits.holderMs).catch(() => undefined))
+  if (!holder) throw new NoKeyError()
+  /** A keyless tree this install may not key: its device's claim keys it. */
+  const awaitKey = async (rootId: string) => {
+    const deadline = Date.now() + waits.keyMs
+    for (;;) {
+      const key = await deps.publicKey(rootId).catch(() => undefined)
+      if (key) return key
+      const left = deadline - Date.now()
+      if (left <= 0) throw new NoKeyError()
+      await sleep(Math.min(left, waits.pollMs))
+    }
+  }
   const fresh = options.fresh === true
   // #FEED-248: the conversation with an agent / app the store does not
   // have (a missed sync, another device started it) may well exist: ask.
@@ -184,14 +233,19 @@ export async function sealSendInput(
     conversation && (!root || fresh)
       ? await deps.sendTarget({ agentId: input.agentId, appId: input.appId }).catch(() => undefined)
       : undefined
-  /** A keyless root this install keys first; refused = the server's key, else plaintext. */
+  // #EDE-97: a clear conversation the store does not know as one yet.
+  if (target?.clearTree) return plain
+  /** A keyless root this install keys first; refused = the server's key,
+   *  else (not a reader) the key its device's claim makes, waited for. */
   const keyFirst = async (rootId: string, readers: Parameters<typeof readersFor>[0]) => {
     try {
       return await holder.createTree(rootId, await readersFor(readers, deps))
-    } catch {
-      // Keyed meanwhile (#FEED-248), or an older keyless root this install
-      // may not key (not a reader): plaintext stays legal there.
-      return deps.publicKey(rootId).catch(() => undefined)
+    } catch (error) {
+      // #EDE-97: a clear tree the store did not know as one.
+      if (error instanceof Error && error.message === CLEAR_TREE_REFUSAL) return CLEAR
+      // Keyed meanwhile (#FEED-248), or a keyless root this install may not
+      // key (not a reader): never plaintext, its key is waited for.
+      return awaitKey(rootId)
     }
   }
 
@@ -208,19 +262,17 @@ export async function sealSendInput(
         shared: false,
         deviceId: root?.deviceId ?? null,
       }))
-    if (!held) return plain
+    if (held === CLEAR) return plain
     key = held
   } else if (root && !(target && fresh)) {
     const synced = root.sealPublicKey && root.sealEpoch ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey } : undefined
     const known = fresh ? ((await deps.publicKey(root.id).catch(() => undefined)) ?? synced) : synced
     const held = known ?? holder.current(root.id) ?? (await keyFirst(root.id, root))
-    if (!held) return plain
+    if (held === CLEAR) return plain
     key = held
   } else if (fresh && (input.sessionId || input.parentId) && !conversation) {
     // A session the store does not have: its key, when it is a keyed root.
-    const held = await deps.publicKey((input.sessionId ?? input.parentId)!).catch(() => undefined)
-    if (!held) return plain
-    key = held
+    key = await awaitKey((input.sessionId ?? input.parentId)!)
   } else {
     // A root this send creates: its first key rides inline.
     const created = holder.newTreeKey(

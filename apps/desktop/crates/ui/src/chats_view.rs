@@ -71,8 +71,8 @@ impl ChatWords {
     }
 
     /// [`chat_word`] of `root_id`.
-    pub(crate) fn word(&self, root_id: &str, busy: bool, needs_you: bool, offline: bool) -> Option<ChatRowWord> {
-        self.word_waiting(root_id, busy, needs_you, offline, false)
+    pub(crate) fn word(&self, root_id: &str, busy: bool, needs_you: bool, wall: bool) -> Option<ChatRowWord> {
+        self.word_waiting(root_id, busy, needs_you, wall, false)
     }
 
     /// [`Self::word`] with #NEW-49's `waiting` (the row's
@@ -82,12 +82,12 @@ impl ChatWords {
         root_id: &str,
         busy: bool,
         needs_you: bool,
-        offline: bool,
+        wall: bool,
         waiting: bool,
     ) -> Option<ChatRowWord> {
         let own = self.own.get(root_id).map(Vec::as_slice).unwrap_or_default();
         let in_stack = own.iter().any(|pull| pull.state == "open" && self.stacked.contains(&pull.id));
-        chat_row_word_waiting(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline, waiting)
+        chat_row_word_waiting(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, wall, waiting)
     }
 }
 
@@ -104,13 +104,13 @@ pub(crate) fn root_pull_request<'a>(root_id: &str, pulls: &'a [PullRequestRow]) 
 /// EXP-1318: a chat row's quiet word ×4 (`chat-list.json`
 /// `wordCases`): the root's pull requests, whether they sit in an open
 /// stack (`stackCases`, over the team's pull requests) and the row's
-/// busy / needs-you; #EXP-1703: `offline` = the row's
-/// [`ChatsListRow::offline`] (`device offline` instead of `question`).
+/// busy / needs-you; #FEED-263: `wall` = the row's
+/// [`ChatsListRow::wall`] is set (the row names its wall).
 pub(crate) fn chat_word(
     root_id: &str,
     busy: bool,
     needs_you: bool,
-    offline: bool,
+    wall: bool,
     team_pulls: &[PullRequestRow],
 ) -> Option<ChatRowWord> {
     let own: Vec<StackPr> = team_pulls
@@ -120,7 +120,7 @@ pub(crate) fn chat_word(
         .collect();
     let team: Vec<StackPr> = team_pulls.iter().map(StackPr::from_row).collect();
     let in_stack = chat_in_stack(&own, &team);
-    chat_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline)
+    chat_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, wall)
 }
 
 /// EXP-1318: a chat row's trailing DEVICE ICON — the root session's
@@ -322,7 +322,7 @@ fn chats_page_row(
         &row.session_id,
         Some((selected, selecting)),
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
-        crate::chat_list::chat_row(row, lead, cx),
+        crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx),
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
@@ -687,8 +687,8 @@ mod tests {
         pulls.push(on_merged);
         let words = ChatWords::new(&pulls);
         for root in ["r0", "r1", "r2", "r3", "r4", "r5"] {
-            for (busy, needs_you, offline) in [(false, false, false), (true, false, false), (false, true, false), (false, true, true)] {
-                assert_eq!(words.word(root, busy, needs_you, offline), chat_word(root, busy, needs_you, offline, &pulls), "{root}");
+            for (busy, needs_you, wall) in [(false, false, false), (true, false, false), (false, true, false), (false, false, true)] {
+                assert_eq!(words.word(root, busy, needs_you, wall), chat_word(root, busy, needs_you, wall, &pulls), "{root}");
             }
         }
         assert_eq!(ChatRowWord::Merged.text(), None);

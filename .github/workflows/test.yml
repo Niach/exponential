@@ -103,7 +103,8 @@ jobs:
           # packages/ is include_str!-ed as .md); markdown inside apps/ does
           # (runbook.md, the editor's test.md), so it stays.
           rfiles="$(grep -vE '^packages/.*\.md$|^packages/exponential-ui/skills/' <<<"$files" || true)"
-          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
+          # #EXP-1905: + packages/emcp, whose fixtures the emcp crate compiles in and replays.
+          desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecode|ecore|eengine|emcp|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           # #EXP-1870: + the vendored gpui crates eui-gpui links on Linux (#2875's text system).
@@ -180,7 +181,7 @@ jobs:
           echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-65: the shared contract's fixtures and TS references (every
           # client replays them; their own suite ran only on release tags).
-          contract_ts='^(packages/domain-contract/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          contract_ts='^(packages/(domain-contract|etalk|steer-ticket)/|apps/steer-relay/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
           echo "contract_ts=$(grep -qE "$contract_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
@@ -331,6 +332,11 @@ jobs:
       # clone, the forge jobs, and backup → wipe → restore). #FEED-244: the
       # app-screen renderer (a real headless render) and the updater (its
       # device half).
+      # #EXP-1905: Computer Use (epilot, epilot-screen: fake backends and a
+      # fake capturer, no display, no seat) and the MCP Proxy (emcp with code
+      # mode: its contract replay, the loopback server, the hub). epilot's
+      # live test `headless_ede_drives_and_captures` needs a built compositor
+      # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -343,7 +349,8 @@ jobs:
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
-          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows
+          -p epilot -p epilot-screen -p emcp
+          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
@@ -351,7 +358,7 @@ jobs:
       # The vendored gpui-pre-windows' run in check-desktop-windows.yml.
       - name: Vendored gpui-pre-linux patch tests
         working-directory: apps/desktop
-        run: cargo test --locked -p gpui-pre-linux --lib uri_list
+        run: cargo test --locked -p gpui-pre-linux --lib -- uri_list input_shape pointer_left
 
   # systemd 258 expands `${VAR}` in a scope's argv, which would put agent
   # secrets on `ps`. The Mint's runner container has no systemd, so this runs
@@ -625,6 +632,20 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
+      # #EDE-83: the lock's end-to-end tests against the REAL lock client
+      # (`exponential-sealed lock`, a stub libpam.so.0 built with cc): a wrong
+      # password stays locked, the right one unlocks, a stolen grant is
+      # refused, the prompt covers every output. `#[ignore]` elsewhere: they
+      # need the binary from the desktop workspace, which only this job has
+      # next to the compositor (the capture below builds the same ede-shell).
+      - name: Build the lock client (exponential-sealed)
+        working-directory: apps/desktop
+        run: cargo build --locked -p ede-shell --bin exponential-sealed
+      - name: The lock's end-to-end tests (real lock client, stub PAM)
+        working-directory: apps/ede
+        run: |
+          EDE_SEALED_BIN="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/exponential-sealed" \
+            cargo test --locked -p ede-compositor --test sealed_unlock --test sealed_client -- --ignored
       - name: Capture ede-chat, ede-settings, ede-panel-menu
         run: bun run shots -- --platform ede --views ede-chat,ede-settings,ede-panel-menu --skip-seed --golden
       - name: The store did not move
@@ -842,6 +863,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test ./src
         working-directory: packages/domain-contract
+      # #EXP-1941: Voice's contract too (the call seal's vectors replay on the
+      # TS reference in domain-contract; this suite ran only on release tags).
+      - run: bun test ./src
+        working-directory: packages/etalk
+      # #EXP-1941: the steer relay replays both (its wire constants are the
+      # fixtures') and holds the call seal's canary test; its suite was in no
+      # gate job.
+      - run: bun test
+        working-directory: apps/steer-relay
 
   # The release shepherd's deploy scripts (scripts/release/): a dry run proves a pinned
   # prod is never moved onto `latest` by an advert or a deploy, plus bash -n on all.

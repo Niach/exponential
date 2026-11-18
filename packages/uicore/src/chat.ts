@@ -84,6 +84,15 @@ export interface ChatInput {
   replies?: ChatRepliesInput | null
   /** The host paints the context ring beside Send (an Embed it claims). */
   ring?: boolean
+  /** #EDE-98: the chat's marks after the title (chats.json chatMarks, the host resolved them), in order; absent = none. */
+  marks?: ChatMark[]
+}
+
+/** #EDE-98: one chat mark: its concept icon, accessible label and test id. */
+export interface ChatMark {
+  icon: string
+  label: string
+  testId: string
 }
 
 /** One "+" row: `separator` = a separator; `items` = a submenu's entries (absent = an action row). */
@@ -206,7 +215,7 @@ export interface ChatRow {
 /** What the document binds. */
 export interface ChatView {
   face: `home` | `conversation`
-  header: { title: string; icon: string }
+  header: { title: string; icon: string; marks: ChatMark[] }
   agentRow: { label: string; agents: { id: string; name: string; icon: string; selected: boolean }[] }
   rows: ChatRow[]
   empty: boolean
@@ -321,7 +330,7 @@ export function chatView(input: ChatInput): ChatView {
   const rows = home ? [] : input.rows.map((r, i) => ({ ...row(r, input.bubbles), gap: gap(r, i) }))
   return {
     face: home ? `home` : `conversation`,
-    header: { title: input.title, icon: input.icon },
+    header: { title: input.title, icon: input.icon, marks: (input.marks ?? []).map((mark) => ({ icon: mark.icon, label: mark.label, testId: mark.testId })) },
     agentRow: {
       label: picked ? COPY.to.replace(`{name}`, picked.name) : ``,
       agents: input.agents.map((a) => ({ ...a, selected: a.id === picked?.id })),

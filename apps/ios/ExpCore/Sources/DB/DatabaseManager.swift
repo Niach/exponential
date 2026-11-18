@@ -10,6 +10,7 @@ private let logger = Logger(subsystem: "at.exponential", category: "DatabaseMana
 public final class DatabaseManager: @unchecked Sendable {
     private let lock = NSLock()
     private var pools: [String: DatabasePool] = [:]
+    private var shared: [String: SharedReads] = [:]
 
     public init() {}
 
@@ -56,7 +57,20 @@ public final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools[accountId] = nil
+        shared[accountId] = nil
         logger.info("Closed DB pool for account \(accountId, privacy: .public)")
+    }
+
+    /// #ERR-26: the account database's shared reads (one per open pool: a
+    /// reopened pool gets new ones).
+    public func sharedReads(forAccountId accountId: String) throws -> SharedReads {
+        let pool = try pool(forAccountId: accountId)
+        return lock.withLock {
+            if let existing = shared[accountId], existing.writer === pool { return existing }
+            let reads = SharedReads(writer: pool)
+            shared[accountId] = reads
+            return reads
+        }
     }
 
     /// The accounts whose pool is open.
@@ -69,6 +83,7 @@ public final class DatabaseManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         pools.removeAll()
+        shared.removeAll()
     }
 
     /// Delete the underlying SQLite files for the given account.
@@ -3394,6 +3409,24 @@ public final class DatabaseManager: @unchecked Sendable {
             guard try db.columns(in: "sessions").contains(where: { $0.name == "watching" }) == false else { return }
             try db.alter(table: "sessions") { t in
                 t.add(column: "watching", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
+        // v111 (#EDE-97): `sessions.clear_tree` (root rows: an outside MCP
+        // client's tree, in clear for life). The sessions cursor resets only
+        // when the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v111_session_clear_tree") { db in
+            guard try db.tableExists("sessions") else { return }
+            guard try db.columns(in: "sessions").contains(where: { $0.name == "clear_tree" }) == false else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "clear_tree", .boolean).notNull().defaults(to: false)
             }
             if try db.tableExists("electric_offsets") {
                 try db.execute(sql: """

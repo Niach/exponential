@@ -162,6 +162,20 @@ pub enum ClientFrame<'a> {
         seqs: Vec<u64>,
         done: bool,
     },
+    /// #EDE-96 (device role): ONE answer to a [`ServerFrame::Search`], to
+    /// the ONE viewer that asked (steer-enet.json SEARCH). `scanned_to_seq`
+    /// = the last event examined; `done: false` = ask again with
+    /// `beforeSeq = scannedToSeq`. `total` only when the whole journal was
+    /// searched in this answer.
+    #[serde(rename_all = "camelCase")]
+    SearchResult {
+        request_id: String,
+        hits: Vec<SearchHit>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total: Option<usize>,
+        done: bool,
+        scanned_to_seq: u64,
+    },
     /// PUBLISHER-only (EXP-249): drop the room's replay log + last diff and
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
@@ -696,6 +710,20 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+}
+
+/// #EDE-96: one match of a transcript search (steer-enet.json SEARCH): the
+/// ROW it lands on (`seq`; a tool's output = its `tool` row), the row kind
+/// (`user_message`, `narration`, `tool`, `tool_output`) and a short snippet
+/// with the match's offset and length in CODE POINTS of the snippet.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub seq: u64,
+    pub kind: String,
+    pub snippet: String,
+    pub match_start: usize,
+    pub match_len: usize,
 }
 
 /// EXP-1324: the two edges of an [`ActivityEvent::Thought`].
@@ -1825,6 +1853,20 @@ pub enum ServerFrame {
         session_id: String,
         request_id: String,
         before_seq: u64,
+        limit: u32,
+    },
+    /// #EDE-96: a viewer searches the session's transcript (steer-enet.json
+    /// SEARCH); arrives over eNet (`enet_steer` names the session from the
+    /// envelope). The device scans its journal file, newest first below
+    /// `before_seq`, and answers with ONE [`ClientFrame::SearchResult`]
+    /// under the same `request_id`.
+    #[serde(rename_all = "camelCase")]
+    Search {
+        session_id: String,
+        request_id: String,
+        query: String,
+        #[serde(default)]
+        before_seq: Option<u64>,
         limit: u32,
     },
     /// NEW-55: a caller dialed this device (the member's voice device) for a

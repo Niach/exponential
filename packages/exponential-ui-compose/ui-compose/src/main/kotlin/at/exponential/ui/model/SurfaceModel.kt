@@ -40,6 +40,7 @@ import at.exponential.ui.measure.FontResolver
 import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.measure.TextShaper
 import at.exponential.ui.primitives.PrimitiveTokens
+import at.exponential.ui.primitives.ImageSource
 import at.exponential.ui.primitives.Markdown
 import at.exponential.ui.primitives.MarkdownAttachment
 import at.exponential.ui.primitives.MarkdownBlock
@@ -651,6 +652,7 @@ class SurfaceModel(
         get() = MarkdownHooks(
             linkPolicy = ::href,
             imagePolicy = { mediaRequest(it) != null },
+            imageSource = ::imageSource,
             attachment = ::markdownAttachment,
             imageSize = ::markdownImageSize,
             textLinks = ::markdownTextLinks,
@@ -670,6 +672,41 @@ class SurfaceModel(
     fun mediaRequest(src: String): MediaRequest? {
         appFileId(src)?.let { id -> return if (host.appFile == null) null else MediaRequest("$APP_FILE_SCHEME:$id") }
         return policedMediaRequest(host, src)
+    }
+
+    /** #EXP-1926: the host's source rule for a content picture ([HostPlugin.imageSource]); a link's href passes the URL policy (denied = its text). */
+    fun imageSource(src: String, alt: String): ImageSource = when (val r = host.imageSource(src, alt)) {
+        null, ImageSource.Load -> ImageSource.Load
+        is ImageSource.Link -> if (href(r.href) != null) r else ImageSource.Text(r.text)
+        is ImageSource.Text -> r
+    }
+
+    /** #EXP-1926: the Image / ZoomableImage node whose host image menu is open (null = none). */
+    var imageMenuFor: String? by mutableStateOf(null)
+
+    /** #EXP-1926 (`pressMenu`): a press that started on a rendered picture; an enclosing context Menu's long press stands down. */
+    internal var imagePressClaimed = false
+
+    /** #EXP-1926: has [src]'s picture rendered (a loadable source, decoded in the cache)? */
+    fun imageReady(src: String, alt: String = ""): Boolean {
+        if (src.isEmpty() || imageSource(src, alt) != ImageSource.Load) return false
+        val request = mediaRequest(src) ?: return false
+        return at.exponential.ui.compose.LeafImages.cached(request.url) != null
+    }
+
+    /**
+     * #EXP-1926: the ORIGINAL bytes of [src] through the media policy (an
+     * `app-file:` through the host's files): the thumbnail width `w` is
+     * dropped from the query, any other parameter stays. Throws when denied
+     * or failed.
+     */
+    suspend fun originalImageBytes(src: String): ByteArray {
+        val request = mediaRequest(originalImageSrc(src)) ?: throw at.exponential.ui.compose.LeafImages.LoadFailure(at.exponential.ui.compose.LeafImages.Failure.Denied, "denied")
+        appFileId(request.url)?.let { id ->
+            val files = host.appFile ?: throw at.exponential.ui.compose.LeafImages.LoadFailure(at.exponential.ui.compose.LeafImages.Failure.Denied, "no app files")
+            return at.exponential.ui.compose.LeafImages.appFileBytes(id, files)
+        }
+        return kotlinx.coroutines.withContext(Dispatchers.IO) { at.exponential.ui.compose.LeafImages.fetch(request, police = ::mediaRequest) }
     }
 
     /**
@@ -1533,4 +1570,14 @@ class SurfaceModel(
             return roundHalfAway(x * 1e9) / 1e9
         }
     }
+}
+
+/** #EXP-1926: [src] without the thumbnail width `w` in its query (`copyFormat.downscale: false`); a `data:` src as it is. */
+fun originalImageSrc(src: String): String {
+    if (src.startsWith("data:", ignoreCase = true)) return src
+    val q = src.indexOf('?')
+    if (q < 0) return src
+    val hash = src.indexOf('#', q).let { if (it < 0) src.length else it }
+    val kept = src.substring(q + 1, hash).split('&').filter { it.isNotEmpty() && it != "w" && !it.startsWith("w=") }
+    return src.substring(0, q) + (if (kept.isEmpty()) "" else "?" + kept.joinToString("&")) + src.substring(hash)
 }

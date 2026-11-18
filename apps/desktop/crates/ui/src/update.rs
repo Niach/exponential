@@ -1060,8 +1060,10 @@ mod tests {
         std::env::set_var("EXP_UPDATE_DOWNLOAD_BASE", format!("{base}/download"));
         std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
         std::env::set_var("APPIMAGE", &fx.appimage);
+        // #EXP-1875: a test binary is no user install unless it says so.
+        std::env::set_var(updater::install::FORCE_ENV, "1");
         let info = fetch_latest().unwrap().expect("newer release found");
-        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE"] {
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE", updater::install::FORCE_ENV] {
             std::env::remove_var(key);
         }
 
@@ -1091,8 +1093,10 @@ mod tests {
         std::env::set_var("EXP_UPDATE_DOWNLOAD_BASE", format!("{base}/download"));
         std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
         std::env::set_var("APPIMAGE", &fx.appimage);
+        // #EXP-1875: a test binary is no user install unless it says so.
+        std::env::set_var(updater::install::FORCE_ENV, "1");
         let info = fetch_latest();
-        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE"] {
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE", updater::install::FORCE_ENV] {
             std::env::remove_var(key);
         }
         let info = info.unwrap().expect("the advertised release is still offered");
@@ -1135,8 +1139,10 @@ mod tests {
         std::env::set_var("EXP_UPDATE_ADVERT", format!("{base}/api/version"));
         std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
         std::env::set_var("APPIMAGE", &fx.appimage);
+        // #EXP-1875: a test binary is no user install unless it says so.
+        std::env::set_var(updater::install::FORCE_ENV, "1");
         let info = fetch_latest().unwrap().expect("newer release found");
-        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_API", "APPIMAGE"] {
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_API", "APPIMAGE", updater::install::FORCE_ENV] {
             std::env::remove_var(key);
         }
         assert_eq!(info.version, "99.0.0");

@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontFamily
 import at.exponential.ui.ExponentialUi
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.filesPicked
+import at.exponential.ui.primitives.ImageSource
 
 /** A user action: a node's `on.<event>` with an `event` action, resolved. */
 data class SurfaceActionEvent(
@@ -35,6 +36,15 @@ data class SurfaceFunctionCallEvent(
     /** The resolved `args` (an object; empty when the call has none). */
     val args: Map<String, JsonValue>,
 )
+
+/**
+ * #EXP-1926: a rendered content picture the host's [HostPlugin.ImageMenu]
+ * acts on: its RAW [src], [alt] and [bytes] = the ORIGINAL picture's bytes
+ * through the host's media policy (the thumbnail `w` dropped; thrown = failed).
+ */
+class ImageTarget(val src: String, val alt: String, private val load: suspend () -> ByteArray) {
+    suspend fun bytes(): ByteArray = load()
+}
 
 /** What the media loader fetches: the absolute url and the headers to send (auth for `/api/attachments`). */
 data class MediaRequest(val url: String, val headers: Map<String, String> = emptyMap())
@@ -180,6 +190,28 @@ interface HostPlugin {
      * Must be pure: the measurer and the painter both ask.
      */
     fun imageSize(src: String): ImageSize? = null
+
+    /**
+     * #EXP-1926 (image-actions.json `imageSource`): a content picture's
+     * source rule (genUI `Image` + Carousel / Mosaic slides, ZoomableImage,
+     * Markdown block images), asked with the RAW src and its alt BEFORE the
+     * media policy: [ImageSource.Link] paints a link in the picture's place
+     * (never fetched; a press opens it through the URL policy and [openUrl]),
+     * [ImageSource.Text] its text. null (the default) = the media policy
+     * alone decides. Avatars and video posters are never asked. Must be pure.
+     */
+    fun imageSource(src: String, alt: String): ImageSource? = null
+
+    /** #EXP-1926: this host draws [ImageMenu] (a long press on a rendered content picture opens it). */
+    val hasImageMenu: Boolean get() = false
+
+    /**
+     * #EXP-1926: the host's image menu (Copy image, Share) for [target], anchored
+     * at the picture; [expanded] while open, [onDismiss] closes it. Only
+     * composed when [hasImageMenu]. Default: nothing.
+     */
+    @Composable
+    fun ImageMenu(target: ImageTarget, expanded: Boolean, onDismiss: () -> Unit) {}
 
     /** #VAPP-258: a press on a Markdown block image (a lightbox), with the RAW src; null = not pressable. */
     val onImagePress: ((src: String) -> Unit)? get() = null

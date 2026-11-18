@@ -392,6 +392,19 @@ class ChatsTest {
         assertEquals(Chats.Copy.TOAST_SELECTION_FAILED, Chats.chatSelectionFailedTitle(5, 5))
     }
 
+    /** #EDE-98 `marksCases`: the chat marks, the WHOLE expected list. */
+    @Test
+    fun `every marks case matches the fixture`() {
+        for (case in cases("marksCases")) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                Chats.chatMarks(input.bool("shared"), input["sealEpoch"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int),
+            )
+        }
+    }
+
     /** #FEED-191 `sectionCases`: the list's sections, the WHOLE expected array. */
     @Test
     fun `every section case matches the fixture`() {
@@ -610,9 +623,15 @@ class ChatsTest {
             setOf(
                 "title", "tabs", "headers", "boardMenu", "preview", "time", "menu", "confirmDelete", "stopTurn",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
-                "selection", "archived", "sections"),
+                "selection", "archived", "sections", "marks"),
             copy.keys,
         )
+        val marks = copy.getValue("marks").jsonObject
+        assertEquals(marks.str("team"), Chats.Copy.MARK_TEAM)
+        assertEquals(marks.str("unencrypted"), Chats.Copy.MARK_UNENCRYPTED)
+        assertEquals(2, marks.size)
+        assertEquals(Chats.Copy.MARK_TEAM, Chats.chatMarkLabel(Chats.MARK_TEAM))
+        assertEquals(Chats.Copy.MARK_UNENCRYPTED, Chats.chatMarkLabel(Chats.MARK_UNENCRYPTED))
 
         val shell = fixture.getValue("shell").jsonObject
         assertEquals(shell.getValue("tabs").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.TABS)
@@ -666,6 +685,8 @@ class ChatsTest {
         assertEquals(shell.getValue("selectBadgeRadius").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_RADIUS)
         assertEquals(shell.getValue("archivedGlyph").jsonPrimitive.int, Chats.Shell.ARCHIVED_GLYPH)
         assertEquals(shell.getValue("dimOpacity").jsonPrimitive.double.toFloat(), Chats.Shell.DIM_OPACITY)
+        assertEquals(shell.getValue("markGlyph").jsonPrimitive.int, Chats.Shell.MARK_GLYPH)
+        assertEquals(shell.getValue("markGap").jsonPrimitive.int, Chats.Shell.MARK_GAP)
 
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("chatRow"), Chats.TestIds.CHAT_ROW)
@@ -682,7 +703,9 @@ class ChatsTest {
         assertEquals(ids.str("chatArchived"), Chats.TestIds.CHAT_ARCHIVED)
         assertEquals(ids.str("selectionBar"), Chats.TestIds.SELECTION_BAR)
         assertEquals(ids.str("appRow"), Chats.TestIds.APP_ROW)
-        assertEquals(16, ids.size)
+        assertEquals(ids.str("chatMarkTeam"), Chats.TestIds.CHAT_MARK_TEAM)
+        assertEquals(ids.str("chatMarkUnencrypted"), Chats.TestIds.CHAT_MARK_UNENCRYPTED)
+        assertEquals(18, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

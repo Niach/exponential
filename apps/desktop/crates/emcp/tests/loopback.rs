@@ -100,6 +100,72 @@ fn the_endpoint_wants_a_live_token() {
     assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Http(401))));
 }
 
+/// A run whose grant ended reads why on its next call (a bare 401 reads as
+/// "sign in" to an MCP client); the call never reaches the provider. A token
+/// that was never granted stays a 401, and so does a new handshake.
+#[test]
+fn a_revoked_run_reads_why_its_tools_stopped() {
+    let fake = Arc::new(Fake::default());
+    let server = Server::serve(info(), fake.clone()).unwrap();
+    for all in [false, true] {
+        let token = server.grant(&id("s1"), "EXP-1");
+        let client = Client::connect(&upstream(server.url(), token.as_str()), "test", T).unwrap();
+        match all {
+            false => server.revoke(&id("s1")),
+            true => server.revoke_all(),
+        }
+        let refused = client.call("echo", json!({}), T).unwrap();
+        assert_eq!(refused["isError"], json!(true));
+        let text = refused["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("fake") && text.contains("ended this session's access"), "{text}");
+        assert!(matches!(client.list_tools(T), Err(ClientError::Http(401))));
+        assert!(matches!(Client::connect(&upstream(server.url(), token.as_str()), "test", T), Err(ClientError::Http(401))));
+    }
+    assert!(fake.calls.lock().unwrap().is_empty());
+}
+
+/// A provider whose call says it began and returns when told to.
+struct Slow {
+    began: Mutex<std::sync::mpsc::Sender<()>>,
+    finish: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl ToolProvider for Slow {
+    fn tools(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+
+    fn call(&self, _caller: &Caller, _name: &str, _arguments: Value) -> Value {
+        self.began.lock().unwrap().send(()).unwrap();
+        self.finish.lock().unwrap().recv_timeout(T).unwrap();
+        json!({ "content": [{ "type": "text", "text": "the screen" }] })
+    }
+}
+
+/// #EXP-1894: a run that ended while its call ran never gets the result.
+#[test]
+fn a_result_for_a_run_that_ended_meanwhile_is_dropped() {
+    let (began, has_begun) = std::sync::mpsc::channel();
+    let (finish, finished) = std::sync::mpsc::channel();
+    let server = Server::serve(info(), Arc::new(Slow { began: Mutex::new(began), finish: Mutex::new(finished) })).unwrap();
+    for ends in [false, true] {
+        let token = server.grant(&id("s1"), "EXP-1");
+        let client = Client::connect(&upstream(server.url(), token.as_str()), "test", T).unwrap();
+        let call = std::thread::spawn(move || client.call("look", json!({}), T));
+        has_begun.recv_timeout(T).unwrap();
+        if ends {
+            server.revoke(&id("s1"));
+        }
+        finish.send(()).unwrap();
+        let reply = call.join().unwrap();
+        if ends {
+            assert!(matches!(reply, Err(ClientError::Rpc { .. })), "{reply:?}");
+        } else {
+            assert_eq!(reply.unwrap()["content"][0]["text"], "the screen");
+        }
+    }
+}
+
 /// The bearer is eCore's: the scheme matched case-insensitively, anything
 /// but a 64-hex token refused before a lookup, and a refused call never ran.
 #[test]

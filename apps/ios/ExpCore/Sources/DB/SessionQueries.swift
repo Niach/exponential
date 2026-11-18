@@ -184,6 +184,19 @@ public enum SessionQueries {
             """, arguments: [sessionId, limit])
     }
 
+    /// steer-enet.json SYNCED TAIL (#FEED-260): one session's card-less agent
+    /// lines and person inputs, the newest `limit` (newest first;
+    /// `SteerNoFeed.syncedTail` orders).
+    public static func tailMessageRows(db: Database, sessionId: String, limit: Int) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."session_id" = ?
+                AND "messages"."author_kind" IN ('user', 'agent')
+                AND ("messages"."card" IS NULL OR "messages"."card" = 'null')
+            ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
+            LIMIT ?
+            """, arguments: [sessionId, limit])
+    }
+
     /// One session's own messages, oldest first.
     public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """

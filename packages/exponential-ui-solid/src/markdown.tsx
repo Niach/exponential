@@ -16,7 +16,8 @@
 import { For, Show, createMemo, createSignal, onCleanup, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { MARKDOWN_CELL_TEXT, watchMarkdownTable, glueChips, glueWidth, linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, markdownProfileHost, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
-import type { MarkdownVariant } from "@exponential_app/eui/web"
+import type { ImageSourceVerdict, MarkdownVariant } from "@exponential_app/eui/web"
+import { imageSourceOf } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -43,7 +44,10 @@ export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage,
  *  loads or when it fails; an unknown size takes the decoded aspect once
  *  loaded); a DENIED src is a paragraph of its alt text. */
 function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; width?: number; height?: number; scope?: string }): JSX.Element {
-  const media = createMediaSource(() => props.host, () => props.src)
+  // #EXP-1945 (`host.imageSource`): a picture the host refuses never loads:
+  // a link in its place, or its alt as text.
+  const verdict = createMemo(() => imageSourceOf(props.host, props.src, props.alt))
+  const media = createMediaSource(() => props.host, () => (verdict().kind === `load` ? props.src : ``))
   // #VAPP-258: a host-sized image keeps its aspect, capped by the width and
   // the host's `imageMaxHeight` (markdownImageStyle; null = no cap, the
   // width at its aspect up to the viewport's height).
@@ -62,7 +66,12 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
     e.preventDefault()
     press()?.(props.src)
   }
+  const refused = () => {
+    const v = verdict()
+    return v.kind === `load` ? null : v
+  }
   return (
+    <Show when={!refused()} fallback={<MarkdownImageStandIn host={props.host} verdict={refused()!} scope={props.scope ?? ``} />}>
     <Show
       when={mediaRequestOf(props.host, props.src) !== null}
       fallback={props.alt ? <p {...mdPart(props.host, props.scope ?? ``, `paragraph`)}>{props.alt}</p> : null}
@@ -80,6 +89,24 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
       >
         {media().url && !media().error ? <img alt="" src={media().url} onLoad={(e) => setLoaded({ src: props.src, size: rememberImageSize(props.src, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) })} /> : <span class="xui-Markdown-imageAlt">{props.alt}</span>}
       </div>
+    </Show>
+    </Show>
+  )
+}
+
+/** #EXP-1945: a refused picture's stand-in (React's): THE Markdown link or
+ *  the alt, as a paragraph; nothing for an empty text. */
+function MarkdownImageStandIn(props: { host: HostPlugin; verdict: Exclude<ImageSourceVerdict, { kind: `load` }>; scope: string }): JSX.Element {
+  const href = () => (props.verdict.kind === `link` ? linkHref(props.host, props.verdict.href) : null)
+  return (
+    <Show when={props.verdict.text}>
+      <p {...mdPart(props.host, props.scope, `paragraph`)} data-image-stand-in={props.verdict.kind}>
+        <Show when={href()} fallback={props.verdict.text}>
+          <MarkdownLink host={props.host} href={href()!} scope={props.scope}>
+            {props.verdict.text}
+          </MarkdownLink>
+        </Show>
+      </p>
     </Show>
   )
 }

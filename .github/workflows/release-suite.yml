@@ -215,6 +215,20 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
+      # #EDE-83: the lock's end-to-end tests against the REAL lock client
+      # (`exponential-sealed lock`, a stub libpam.so.0 built with cc): a wrong
+      # password stays locked, the right one unlocks, a stolen grant is
+      # refused, the prompt covers every output. `#[ignore]` elsewhere: they
+      # need the binary from the desktop workspace, which only this job has
+      # next to the compositor (the capture below builds the same ede-shell).
+      - name: Build the lock client (exponential-sealed)
+        working-directory: apps/desktop
+        run: cargo build --locked -p ede-shell --bin exponential-sealed
+      - name: The lock's end-to-end tests (real lock client, stub PAM)
+        working-directory: apps/ede
+        run: |
+          EDE_SEALED_BIN="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/exponential-sealed" \
+            cargo test --locked -p ede-compositor --test sealed_unlock --test sealed_client -- --ignored
       - name: Capture the eDE views
         run: bun run shots -- --platform ede --skip-seed
       - name: The store did not move
@@ -487,6 +501,37 @@ jobs:
       - name: Replay
         working-directory: packages/eagent
         run: bun run test:wasm
+
+  # #EDE-115: the web's chat store through its wasm (chat-store-wasm): the
+  # store, the catch-up loop and the big-chat open over the real build (the
+  # PR gate builds no wasm, so these suites skip there).
+  chat-store-wasm:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'chat-store-wasm')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasm toolchain
+        working-directory: apps/desktop
+        run: |
+          rustup target add wasm32-unknown-unknown
+          echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: chat-store-wasm
+      - uses: ./.github/actions/cargo-fetch
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - run: scripts/build-chat-store-wasm.sh
+      - run: cargo test --locked -p chat-store-wasm
+        working-directory: apps/desktop
+      - uses: ./.github/actions/setup-bun
+      - run: bun install --frozen-lockfile
+      - name: Web suites over the wasm
+        working-directory: apps/web
+        run: bunx vitest run --config vitest.config.ts src/lib/chat-store src/lib/perf/chat-store-open.test.ts
 
   # FEED-160: the macOS-only cases (confine.rs's `/System/Volumes` Data
   # volume) never run on the Linux `desktop` job; the engine's confine

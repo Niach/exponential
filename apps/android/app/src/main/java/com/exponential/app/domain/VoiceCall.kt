@@ -139,6 +139,8 @@ object VoiceCall {
         const val MAX_FRAMES_PER_SECOND = 60
         const val MAX_CALL_MS = 3_600_000
         const val IDLE_TIMEOUT_MS = 30_000
+        /** EXP-1929: the relay's beat (`call_alive`) once paired. */
+        const val ALIVE_MS = 5_000
         /** EXP-1858: a server's speech worker exits after this long without a call. */
         const val SERVER_IDLE_MS = 600_000
     }
@@ -182,7 +184,7 @@ object VoiceCall {
         const val KIND_DOWN = 2
         const val MAX_FRAME_BYTES = 1500
         /** The JSON text frames (`wire.control`'s keys). */
-        val control: List<String> = listOf("call_ring", "call_ready", "call_event", "call_mute", "call_end")
+        val control: List<String> = listOf("call_ring", "call_ready", "call_event", "call_mute", "call_end", "call_alive")
 
         /** One uplink/downlink frame: kind, the u16 big-endian [seq], the packet. */
         fun frame(kind: Int, seq: Int, packet: ByteArray): ByteArray {
@@ -621,6 +623,14 @@ object VoiceCall {
     /** EXP-1423: whether the ring tone sounds [ms] after the ring started (`ringToneMs` on, `ringGapMs` off, looping). */
     fun callRingToneOn(ms: Long): Boolean =
         ms >= 0 && ms % (Constants.RING_TONE_MS + Constants.RING_GAP_MS) < Constants.RING_TONE_MS
+
+    /**
+     * EXP-1929 (`livenessCases`): an end of a call that got a `call_alive`
+     * ([alive]) and has heard nothing from the relay for [silentMs] treats the
+     * path as dead (the call ends as dropped); before the first beat (an older
+     * relay) there is no deadline.
+     */
+    fun callPathDead(alive: Boolean, silentMs: Long): Boolean = alive && silentMs >= Constants.IDLE_TIMEOUT_MS
 
     /** The call's timer since it was answered: mm:ss, h:mm:ss from an hour. */
     fun callTimer(ms: Long): String {

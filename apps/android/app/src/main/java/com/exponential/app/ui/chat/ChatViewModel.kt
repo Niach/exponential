@@ -434,9 +434,10 @@ class ChatViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<PullRequestIssueEntity>()) { it.pullRequestIssueDao().observeAll() }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Every synced issue (the stack rail's row names). */
-    val syncedIssues: StateFlow<List<IssueEntity>> =
-        allIssues.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Every synced issue (the stack rail's row names): THE shared read
+     *  itself (#ERR-27), never a StateFlow of its own, which kept a stale
+     *  snapshot of the whole table alive in every chat on the back stack. */
+    val syncedIssues: Flow<List<IssueEntity>> = allIssues
 
     /** The previous build's rows by id: an unchanged row keeps its INSTANCE,
      *  so the transcript's items skip recomposition (chats.json PERF). */
@@ -816,6 +817,13 @@ class ChatViewModel @Inject constructor(
     ) { deviceId, devices ->
         deviceId?.let { id -> devices.firstOrNull { it.deviceId == id }?.label?.takeIf { label -> label.isNotBlank() } }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #FEED-263: every synced device's name by its logical id (a wall's `{device}`). */
+    val deviceLabels: StateFlow<Map<String, String>> =
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+            .map { devices -> devices.mapNotNull { d -> d.label.takeIf { it.isNotBlank() }?.let { d.deviceId to it } }.toMap() }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The header "+": link issues to the chat. */
     fun linkIssues(issueIds: List<String>) {

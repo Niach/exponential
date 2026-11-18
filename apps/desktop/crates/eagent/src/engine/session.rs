@@ -22,7 +22,7 @@ use agent_client_protocol::{Client, ConnectTo};
 
 use super::adapters::{Adapter, AdapterKind, LaunchSpec};
 use super::host::{
-    thread_name, ChildExitLink, EngineCommand, EngineExit, ExitState, LocalFeed, LocalSink,
+    thread_name, ChildExitLink, EngineCommand, EngineExit, PromptAuthor, ExitState, LocalFeed, LocalSink,
     PendingAsks, PromptLocalizer, RunBackend, RunFacts, SessionCtx, SessionIds,
 };
 use super::host_tools::{HostTools, NoHostTools};
@@ -116,7 +116,15 @@ impl EngineSession {
     /// ([`EngineSession::unqueue`] revokes it) and the engine reports it
     /// consumed (`sessions.consume`) once the agent has it.
     pub fn deliver(&self, message_id: String, text: String) {
-        self.send(EngineCommand::Deliver { message_id, text, fresh: false });
+        self.send(EngineCommand::Deliver { message_id, text, fresh: false, author: PromptAuthor::Person });
+    }
+
+    /// EXP-1896: [`Self::deliver`] for a row NO person wrote: a child's
+    /// report, a CI wake, another session's message. Queued, sent and
+    /// consumed the same way; it answers no Esc (the run's computer use
+    /// stays aborted until the person speaks).
+    pub fn deliver_wake(&self, message_id: String, text: String) {
+        self.send(EngineCommand::Deliver { message_id, text, fresh: false, author: PromptAuthor::Other });
     }
 
     /// EXP-1280: [`Self::deliver`] in a FRESH context — a plan approved "in
@@ -125,7 +133,7 @@ impl EngineSession {
     /// prompt; codex, which has no such reset, takes it in the running one.
     /// The row is consumed like any delivery.
     pub fn deliver_fresh(&self, message_id: String, text: String) {
-        self.send(EngineCommand::Deliver { message_id, text, fresh: true });
+        self.send(EngineCommand::Deliver { message_id, text, fresh: true, author: PromptAuthor::Person });
     }
 
     /// EXP-1292: a question/plan card answered IN the Conversation (the
@@ -594,18 +602,23 @@ where
             // self-update parks behind it. The guard flips it on an unwind.
             let mut guard = ExitGuard::arm(&thread_ctx.exit, &thread_ctx.session_id);
             let runtime = thread_ctx.runtime.clone();
-            let result = runtime
-                .block_on(super::host::run_session(
-                    Arc::clone(&thread_ctx),
-                    adapter,
-                    inbox,
-                ));
+            // EXP-1910: a panic under `run_session` still runs the END
+            // sequence below (the unwind has already dropped the adapter, so
+            // the child is gone): the grants, the abort hook, the publisher,
+            // the kill watch and the tickers all hang off `backend.end`. The
+            // guard stays the last resort for a panic inside `end` itself.
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(super::host::run_session(Arc::clone(&thread_ctx), adapter, inbox))
+            }));
             // FEED-25: a watchdog end is not a connection error, but it has
             // a reason the banner must show.
-            let error = result
-                .err()
-                .map(|err| err.to_string())
-                .or_else(|| thread_ctx.take_failure());
+            let error = match run {
+                Ok(result) => result.err().map(|err| err.to_string()).or_else(|| thread_ctx.take_failure()),
+                Err(_) => {
+                    log::error!("engine: session {}'s engine thread panicked", thread_ctx.session_id);
+                    Some(ENGINE_PANIC_ERROR.to_string())
+                }
+            };
             let outcome = thread_ctx.end_outcome();
             let child = thread_ctx.child_exit.get();
             backend.end(&thread_ctx, &outcome, child, error);
@@ -620,6 +633,9 @@ where
         Err(err) => Err(EngineError::Spawn(err)),
     }
 }
+
+/// EXP-1910: the error of a run whose engine thread panicked.
+const ENGINE_PANIC_ERROR: &str = "the engine thread panicked";
 
 /// The engine thread's last resort: an exit for a run that never reached
 /// its backend's `end`.

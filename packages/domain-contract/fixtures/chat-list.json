@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 the Chats page (rail entry Chats, concept nav-chats; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionChats({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `chat` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (S-3: titled `copy.groups.running` 'Working'; else any non-ended session queued or BUSY, never by status) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the chat title (session-chat.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: chatRowMarkState({needsYou, busy}) = the lead of a chat row outside the Chats tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: chatRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; chatRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = chatRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = chatInStack(chatPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railChats(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every chat the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railChats) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the chat, opens the chat), `parentId`, `rootId`, `unread`. #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested child sessions, only the root ones'): EVERY list row is a ROOT (depth 0, parentId null), in every group ×4: no nested descendants, no `earlier` fold row; a child's needs you / working / unread roll up into its root's row, and a child opens from its chat (the strip's session chips keep `visibleChild(session, now)`: a session shows while working (queued or busy) or needs_you, or while its last activity, endedAt once ended else updatedAt, is within `recentChildMinutes` of `now` (absent now = only working/needs_you); `visibleTree` keeps every ancestor of a visible one). `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; no agent message = read. Unread = a bold title ×4; chatsUnread(groups) (any depth-0 row unread) = the Chats nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's display state (S-3: the FOUR states of session-card.json, never running/stale) for every surface that colours a chat: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `working` (any live session queued or busy) · `done` (every session ended, or the chat has PRs and every one merged) · else `idle`; `treeStateCases` replay it. A chat's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty). #EXP-1703 (owner 2026-11-05): a row on a person ONLY because its device stayed away reads `offline` ('device offline'), never `question`: chatRowWord takes `offline` (absent = false) = treeOffline(tree): some live session of the tree needs you and EVERY live session that needs you is session-card.json `sessionOffline` (needsInput, blocked.kind device_offline, no blocked.resumeSince); a real card anywhere in the tree keeps `question`. Order stack → readyToMerge → merged → offline → question. `offlineCases` replay treeOffline (expected = the boolean); partitionChats rows carry `offline: true` when it holds (absent = false). #NEW-49 (owner 2026-11-16): the row word `waiting` = the ROOT's `sessionWaiting` (session-card.json) while the root is idle and nothing else speaks: LAST in the order (stack → readyToMerge → merged → question/offline → waiting), so a PR word wins; its text `copy.words.waiting` ('waiting on {labels}'), truncated by the row like any word; `chatRowWordText(word, waiting)` = a word's text (null for merged) and `wordTextCases` replay it.",
+  "$comment": "EXP-1291 the Chats page (rail entry Chats, concept nav-chats; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionChats({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `chat` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (S-3: titled `copy.groups.running` 'Working'; else any non-ended session queued or BUSY, never by status) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the chat title (session-chat.json sessionTitle, EXP-1341), NO lock (EXP-1339; #EDE-98: the title's only glyphs are chats.json `chatMarks`, the team icon when shared, the open lock when the tree has no key), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: chatRowMarkState({needsYou, busy}) = the lead of a chat row outside the Chats tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: chatRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then the ROOT's PRs, never the word (NEW-41, owner 2026-10-22): ANY open PR, a stacked one too → pr-open emerald, else a merged one → pr-merged VIOLET on every client incl. the IDE, else no PR glyph; chatRowLeadPr(prStates) = `open` | `merged` | null, `leadCases` replay it ×4, a stacked open PR is just another `open` state) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = chatRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = chatInStack(chatPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railChats(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every chat the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railChats) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the chat, opens the chat), `parentId`, `rootId`, `unread`. #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested child sessions, only the root ones'): EVERY list row is a ROOT (depth 0, parentId null), in every group ×4: no nested descendants, no `earlier` fold row; a child's needs you / working / unread roll up into its root's row, and a child opens from its chat (the strip's session chips keep `visibleChild(session, now)`: a session shows while working (queued or busy) or needs_you, or while its last activity, endedAt once ended else updatedAt, is within `recentChildMinutes` of `now` (absent now = only working/needs_you); `visibleTree` keeps every ancestor of a visible one). `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; no agent message = read. Unread = a bold title ×4; chatsUnread(groups) (any depth-0 row unread) = the Chats nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's display state (S-3: the FOUR states of session-card.json, never running/stale) for every surface that colours a chat: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `working` (any live session queued or busy) · `done` (every session ended, or the chat has PRs and every one merged) · else `idle`; `treeStateCases` replay it. A chat's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty). #EXP-1703 (owner 2026-11-05): a row on a person ONLY because its device stayed away reads `offline` ('device offline'), never `question`: chatRowWord takes `offline` (absent = false) = treeOffline(tree): some live session of the tree needs you and EVERY live session that needs you is session-card.json `sessionOffline` (needsInput, blocked.kind device_offline, no blocked.resumeSince); a real card anywhere in the tree keeps `question`. Order stack → readyToMerge → merged → offline → question. `offlineCases` replay treeOffline (expected = the boolean); partitionChats rows carry `offline: true` when it holds (absent = false). #NEW-49 (owner 2026-11-16): the row word `waiting` = the ROOT's `sessionWaiting` (session-card.json) while the root is idle and nothing else speaks: LAST in the order (stack → readyToMerge → merged → question/offline → waiting), so a PR word wins; its text `copy.words.waiting` ('waiting on {labels}'), truncated by the row like any word; `chatRowWordText(word, waiting)` = a word's text (null for merged) and `wordTextCases` replay it. #FEED-263 (Danny 2026-11-17: three chats read 'input needed' and opening them showed nothing to answer; their children waited on an offline MacBook) A WALL IS NOT NEEDS INPUT ×4: the server keeps `needsInput` on a walled session (it is on a person: the watchdog's once, the parent's wake-up), but needs you / needs input ×4 = a live session that ASKS: session-card.json `sessionAsks(session)` = not ended, needsInput, and no wall; `sessionWall(session)` = its blocked.kind when needsInput is set and the kind is a key of `copy.walls` (`device_offline` only while its device stays away: no blocked.resumeSince; a device back with the run not continued is a message away, still needs input), else null. The walls, each decided: `device_offline` (its device is away; the session continues when it is back, or Move), `unclaimed` (no device picked it up), `start_failed` (the device could not start it; its relaunch clears it), `rate_limit` (a usage wall; its reset clears it), `stuck` (a run gone silent): no answer in the chat lifts any of them. `restarted` and every unknown kind stay needs input when the server flags them. partitionChats: `needsYou` = some session of the tree asks (the `needs_you` group, the amber badge, the nav badges); a tree that asks nothing but has a wall carries `wall` = treeWall(tree) = {sessionId, kind, deviceId} of the first walled session in tree order (the root first, then creation order; absent = none, `wallCases` replay it) and groups by the rest of the rule (running when queued or busy, else recent). buildChat `needsYou` and treeState `needs_you` read sessionAsks too. The row word `wall` (chatRowWord input `wall`, true when the row has one) sits after `question`, before `waiting` (stack → readyToMerge → merged → question → wall → waiting); its text = chatWallText(kind, device) = `copy.walls[kind]` with `{device}` = the WALLED session's device name (the viewer's synced device row; unknown = `copy.wallDevice`): 'MacBook offline', 'not picked up', 'couldn't start', 'usage limit', 'stuck'; `chatRowWordText(word, waiting, wall)` takes {kind, device}; `wallTextCases` replay it. The word wears the row's existing quiet word style (no new component, no amber). The rail's Active band keeps a Recent row whose word is `wall` too (`railCases`).",
   "copy": {
     "title": "Chats",
     "agents": "Agents",
@@ -15,9 +15,16 @@
       "readyToMerge": "ready to merge",
       "question": "question",
       "needsInput": "needs input",
-      "offline": "device offline",
       "waiting": "waiting on {labels}"
-    }
+    },
+    "walls": {
+      "device_offline": "{device} offline",
+      "unclaimed": "not picked up",
+      "start_failed": "couldn't start",
+      "rate_limit": "usage limit",
+      "stuck": "stuck"
+    },
+    "wallDevice": "device"
   },
   "agentDefaults": {
     "icon": "bot",
@@ -1020,7 +1027,7 @@
       ]
     },
     {
-      "name": "#EXP-1461: working, waiting and recent children never list: the root row carries the tree's state",
+      "name": "#EXP-1461: working, waiting and recent children never list: the root row carries the tree's state (#FEED-263: a usage-walled child asks nothing: the row works and names the wall)",
       "input": {
         "sessions": [
           {
@@ -1226,8 +1233,8 @@
       },
       "expected": [
         {
-          "key": "needs_you",
-          "title": "Needs you",
+          "key": "running",
+          "title": "Working",
           "rows": [
             {
               "sessionId": "r",
@@ -1238,9 +1245,14 @@
               "title": "Root",
               "deviceId": "dev-mac",
               "busy": true,
-              "needsYou": true,
+              "needsYou": false,
               "unread": false,
-              "activityAt": "2026-10-28T11:50:00.000Z"
+              "activityAt": "2026-10-28T11:50:00.000Z",
+              "wall": {
+                "sessionId": "c2",
+                "kind": "rate_limit",
+                "deviceId": "dev-mac"
+              }
             }
           ]
         }
@@ -1312,6 +1324,291 @@
               "needsYou": false,
               "unread": false,
               "activityAt": "2026-10-28T11:50:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#FEED-263: Danny's trees: walled children never put a chat under Needs you; the row carries the wall, a real question still does",
+      "input": {
+        "teamId": "t-team-1",
+        "sessionIssues": [],
+        "issues": [],
+        "messages": [],
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mint",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Release shepherd",
+            "guide": null,
+            "startedAt": "2026-11-16T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T10:00:00.000Z",
+            "updatedAt": "2026-11-16T21:03:35.512Z",
+            "rootId": "s",
+            "id": "s"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "s",
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "start_failed",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-11-16T17:48:57.047Z"
+            },
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T13:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T13:00:00.000Z",
+            "updatedAt": "2026-11-16T13:00:00.000Z",
+            "rootId": "s",
+            "id": "s1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "s",
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "device_offline",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-11-16T17:48:57.047Z",
+              "resume": true,
+              "resumeSince": null
+            },
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T14:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T14:00:00.000Z",
+            "updatedAt": "2026-11-16T14:00:00.000Z",
+            "rootId": "s",
+            "id": "s2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "s",
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "queued",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "unclaimed",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-11-16T17:48:57.047Z"
+            },
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T18:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T18:00:00.000Z",
+            "updatedAt": "2026-11-16T18:00:00.000Z",
+            "rootId": "s",
+            "id": "s3"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Batch D",
+            "guide": null,
+            "startedAt": "2026-11-16T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T10:00:00.000Z",
+            "updatedAt": "2026-11-16T17:44:06.996Z",
+            "rootId": "b",
+            "id": "b"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "b",
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "device_offline",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-11-16T17:48:57.047Z",
+              "resume": true
+            },
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T16:40:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T16:40:00.000Z",
+            "updatedAt": "2026-11-16T16:40:00.000Z",
+            "rootId": "b",
+            "id": "b1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mint",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Asks a question",
+            "guide": null,
+            "startedAt": "2026-11-16T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T10:00:00.000Z",
+            "updatedAt": "2026-11-16T12:00:00.000Z",
+            "rootId": "q",
+            "id": "q"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "q",
+            "userId": "u-dana",
+            "deviceId": "dev-mint",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T11:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T11:00:00.000Z",
+            "updatedAt": "2026-11-16T11:00:00.000Z",
+            "rootId": "q",
+            "id": "q1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "q",
+            "userId": "u-dana",
+            "deviceId": "dev-mbp",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "device_offline",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-11-16T17:48:57.047Z",
+              "resume": true
+            },
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-11-16T11:30:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-11-16T11:30:00.000Z",
+            "updatedAt": "2026-11-16T11:30:00.000Z",
+            "rootId": "q",
+            "id": "q2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "key": "needs_you",
+          "title": "Needs you",
+          "rows": [
+            {
+              "sessionId": "q",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "q",
+              "title": "Asks a question",
+              "deviceId": "dev-mint",
+              "busy": false,
+              "needsYou": true,
+              "unread": false,
+              "activityAt": "2026-11-16T12:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "key": "running",
+          "title": "Working",
+          "rows": [
+            {
+              "sessionId": "s",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "s",
+              "title": "Release shepherd",
+              "deviceId": "dev-mint",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-11-16T21:03:35.512Z",
+              "wall": {
+                "sessionId": "s1",
+                "kind": "start_failed",
+                "deviceId": "dev-mbp"
+              }
+            }
+          ]
+        },
+        {
+          "key": "recent",
+          "title": "Recent",
+          "rows": [
+            {
+              "sessionId": "b",
+              "teamId": "t-team-1",
+              "depth": 0,
+              "parentId": null,
+              "rootId": "b",
+              "title": "Batch D",
+              "deviceId": "dev-mbp",
+              "busy": false,
+              "needsYou": false,
+              "unread": false,
+              "activityAt": "2026-11-16T17:44:06.996Z",
+              "wall": {
+                "sessionId": "b1",
+                "kind": "device_offline",
+                "deviceId": "dev-mbp"
+              }
             }
           ]
         }
@@ -2097,18 +2394,18 @@
       "expected": "question"
     },
     {
-      "name": "#EXP-1703: on a person only because its device is away",
+      "name": "#FEED-263: a wall alone (an away device, a run nobody picked up) names the wall",
       "input": {
         "pullRequests": [],
         "busy": false,
-        "needsYou": true,
+        "needsYou": false,
         "inStack": false,
-        "offline": true
+        "wall": true
       },
-      "expected": "offline"
+      "expected": "wall"
     },
     {
-      "name": "#EXP-1703: a merged PR still beats an away device",
+      "name": "#FEED-263: a merged PR still beats a wall",
       "input": {
         "pullRequests": [
           {
@@ -2116,9 +2413,9 @@
           }
         ],
         "busy": false,
-        "needsYou": true,
+        "needsYou": false,
         "inStack": false,
-        "offline": true
+        "wall": true
       },
       "expected": "merged"
     },
@@ -2168,6 +2465,40 @@
         "waiting": "CI #1130"
       },
       "expected": "question"
+    },
+    {
+      "name": "#FEED-263: a question beats a wall",
+      "input": {
+        "pullRequests": [],
+        "busy": false,
+        "needsYou": true,
+        "inStack": false,
+        "wall": true
+      },
+      "expected": "question"
+    },
+    {
+      "name": "#FEED-263: a wall beats waiting",
+      "input": {
+        "pullRequests": [],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false,
+        "wall": true,
+        "waiting": "CI #1130"
+      },
+      "expected": "wall"
+    },
+    {
+      "name": "#FEED-263: a wall while working still names it",
+      "input": {
+        "pullRequests": [],
+        "busy": true,
+        "needsYou": false,
+        "inStack": false,
+        "wall": true
+      },
+      "expected": "wall"
     }
   ],
   "railCases": [
@@ -2307,6 +2638,110 @@
         "words": {}
       },
       "expected": []
+    },
+    {
+      "name": "#FEED-263: a recent row behind a wall stays in the rail",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t-team-1",
+                "title": "a",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t-team-1",
+                "title": "b",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "c",
+                "teamId": "t-team-1",
+                "title": "c",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "d",
+                "teamId": "t-team-1",
+                "title": "d",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "e",
+                "teamId": "t-team-1",
+                "title": "e",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "f",
+                "teamId": "t-team-1",
+                "title": "f",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "g",
+                "teamId": "t-team-1",
+                "title": "g",
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "words": {
+          "a": "question",
+          "b": null,
+          "d": "merged",
+          "e": "readyToMerge",
+          "f": "wall",
+          "g": "stack"
+        }
+      },
+      "expected": [
+        "a",
+        "b",
+        "c",
+        "e",
+        "f",
+        "g"
+      ]
     }
   ],
   "unreadCases": [
@@ -3917,7 +4352,7 @@
       "expected": "needs_you"
     },
     {
-      "name": "a walled session (needsInput held by the server) = needs you",
+      "name": "#FEED-263: a walled session (needsInput held by the server) asks nothing: idle",
       "input": {
         "tree": [
           {
@@ -3947,7 +4382,7 @@
         "pullRequests": [],
         "now": "2026-10-20T12:00:00.000Z"
       },
-      "expected": "needs_you"
+      "expected": "idle"
     },
     {
       "name": "queued or busy = working, beats everything but needs you",
@@ -4269,6 +4704,112 @@
         "now": "2026-10-20T12:00:00.000Z"
       },
       "expected": "working"
+    },
+    {
+      "name": "#FEED-263: a queued child nobody picked up works, never needs you",
+      "input": {
+        "tree": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Old chat",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "t",
+            "rootId": "t"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "t",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "queued",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "unclaimed",
+              "agent": null,
+              "window": null,
+              "resetsAt": null,
+              "since": "2026-10-13T10:05:00.000Z"
+            },
+            "shared": true,
+            "title": "Old chat",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "c",
+            "rootId": "t"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-20T12:00:00.000Z"
+      },
+      "expected": "working"
+    },
+    {
+      "name": "#FEED-263: a question beside a wall needs you",
+      "input": {
+        "tree": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": {
+              "kind": "rate_limit",
+              "window": "weekly",
+              "resetsAt": null
+            },
+            "shared": true,
+            "title": "Old chat",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "t",
+            "rootId": "t"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "t",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": "Old chat",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "id": "c",
+            "rootId": "t"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-20T12:00:00.000Z"
+      },
+      "expected": "needs_you"
     }
   ],
   "leadCases": [
@@ -4324,7 +4865,7 @@
       "expected": "open"
     }
   ],
-  "offlineCases": [
+  "wallCases": [
     {
       "name": "the root waits only on its away device",
       "tree": [
@@ -4355,10 +4896,14 @@
           "rootId": "t"
         }
       ],
-      "expected": true
+      "expected": {
+        "sessionId": "t",
+        "kind": "device_offline",
+        "deviceId": "dev-mac"
+      }
     },
     {
-      "name": "a child with a real question keeps question",
+      "name": "a child with a real question: needs input wins, no wall",
       "tree": [
         {
           "teamId": "t-team-1",
@@ -4406,7 +4951,7 @@
           "rootId": "t"
         }
       ],
-      "expected": false
+      "expected": null
     },
     {
       "name": "an away child under an idle root",
@@ -4457,10 +5002,14 @@
           "rootId": "t"
         }
       ],
-      "expected": true
+      "expected": {
+        "sessionId": "c",
+        "kind": "device_offline",
+        "deviceId": "dev-mac"
+      }
     },
     {
-      "name": "the device came back: a plain Needs you",
+      "name": "the device came back: a message continues it, still needs input",
       "tree": [
         {
           "teamId": "t-team-1",
@@ -4490,7 +5039,7 @@
           "rootId": "t"
         }
       ],
-      "expected": false
+      "expected": null
     },
     {
       "name": "an interruption alone is not on a person",
@@ -4522,7 +5071,7 @@
           "rootId": "t"
         }
       ],
-      "expected": false
+      "expected": null
     },
     {
       "name": "an ended away session does not count",
@@ -4554,7 +5103,230 @@
           "rootId": "t"
         }
       ],
-      "expected": false
+      "expected": null
+    },
+    {
+      "name": "Danny's release shepherd: away, unclaimed and failed children under an idle root; the first in tree order names it",
+      "tree": [
+        {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "id": "t",
+          "rootId": "t"
+        },
+        {
+          "teamId": "t-team-1",
+          "parentId": "t",
+          "userId": "u-dana",
+          "deviceId": "dev-mbp",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "start_failed",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:01:00.000Z",
+          "updatedAt": "2026-10-13T10:01:00.000Z",
+          "id": "c1",
+          "rootId": "t"
+        },
+        {
+          "teamId": "t-team-1",
+          "parentId": "t",
+          "userId": "u-dana",
+          "deviceId": "dev-mbp",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "device_offline",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z",
+            "resume": true
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:02:00.000Z",
+          "updatedAt": "2026-10-13T10:02:00.000Z",
+          "id": "c2",
+          "rootId": "t"
+        },
+        {
+          "teamId": "t-team-1",
+          "parentId": "t",
+          "userId": "u-dana",
+          "deviceId": "dev-mbp",
+          "status": "queued",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "unclaimed",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:03:00.000Z",
+          "updatedAt": "2026-10-13T10:03:00.000Z",
+          "id": "c3",
+          "rootId": "t"
+        }
+      ],
+      "expected": {
+        "sessionId": "c1",
+        "kind": "start_failed",
+        "deviceId": "dev-mbp"
+      }
+    },
+    {
+      "name": "a root's own wall comes before a child's",
+      "tree": [
+        {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "rate_limit",
+            "agent": null,
+            "window": "weekly",
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "id": "t",
+          "rootId": "t"
+        },
+        {
+          "teamId": "t-team-1",
+          "parentId": "t",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "stuck",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-12T10:00:00.000Z",
+          "updatedAt": "2026-10-12T10:00:00.000Z",
+          "id": "c",
+          "rootId": "t"
+        }
+      ],
+      "expected": {
+        "sessionId": "t",
+        "kind": "rate_limit",
+        "deviceId": "dev-mac"
+      }
+    },
+    {
+      "name": "a restarted flag on a person is no wall (needs input)",
+      "tree": [
+        {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "restarted",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z",
+            "resume": true,
+            "resumeSince": "2026-10-13T10:40:00.000Z"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "id": "t",
+          "rootId": "t"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a stale flag with no wall kind and no needsInput is nothing",
+      "tree": [
+        {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "id": "t",
+          "rootId": "t"
+        }
+      ],
+      "expected": null
     }
   ],
   "wordTextCases": [
@@ -4586,6 +5358,63 @@
       "name": "no word, no text",
       "word": null,
       "waiting": "CI #1130",
+      "expected": null
+    },
+    {
+      "name": "#FEED-263: an away device names the device",
+      "word": "wall",
+      "waiting": null,
+      "wall": {
+        "kind": "device_offline",
+        "device": "MacBook"
+      },
+      "expected": "MacBook offline"
+    },
+    {
+      "name": "#FEED-263: an unknown device reads device offline",
+      "word": "wall",
+      "waiting": null,
+      "wall": {
+        "kind": "device_offline",
+        "device": null
+      },
+      "expected": "device offline"
+    },
+    {
+      "name": "#FEED-263: nobody picked it up",
+      "word": "wall",
+      "waiting": null,
+      "wall": {
+        "kind": "unclaimed",
+        "device": "MacBook"
+      },
+      "expected": "not picked up"
+    },
+    {
+      "name": "#FEED-263: it could not start",
+      "word": "wall",
+      "waiting": null,
+      "wall": {
+        "kind": "start_failed",
+        "device": null
+      },
+      "expected": "couldn't start"
+    },
+    {
+      "name": "#FEED-263: a usage wall",
+      "word": "wall",
+      "waiting": null,
+      "wall": {
+        "kind": "rate_limit",
+        "device": null
+      },
+      "expected": "usage limit"
+    },
+    {
+      "name": "#FEED-263: a wall word without its wall draws nothing",
+      "word": "wall",
+      "waiting": null,
+      "wall": null,
       "expected": null
     }
   ]

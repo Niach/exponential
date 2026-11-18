@@ -1,6 +1,9 @@
 //! The compositor's end of `ede-protocol` (#NEW-104): the socket, the
 //! grants, and every op. Calls are served on the event loop, one frame at a
-//! time; a client that stops reading for 2 s is dropped.
+//! time. Nothing written to a client blocks the loop (#EDE-74): what its
+//! socket does not take waits in the connection's own queue, its next call
+//! is served once that queue is empty, and a client that lets [`OUT_MAX`]
+//! writes pile up (it stopped reading its events) is dropped.
 
 use std::{
     io::{Read, Write},
@@ -9,12 +12,12 @@ use std::{
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use ede_protocol::{
-    events, take_frames, write_frame, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
-    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
+    events, take_frames, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
+    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, MAX_FRAME, PROTOCOL_VERSION,
 };
 use smithay::{
     backend::input::{ButtonState, KeyState},
@@ -22,7 +25,12 @@ use smithay::{
     reexports::calloop::{generic::Generic, Interest, Mode, PostAction},
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
+
+/// The writes (a frame's length, its bytes) one connection may have
+/// waiting. Replies never pile up (a call waits for an empty queue, however
+/// large the capture in it), so only unread events reach this.
+const OUT_MAX: usize = 1024;
 
 /// The root grant's session: the shell.
 pub const ROOT_SESSION: &str = "exponential-shell";
@@ -37,10 +45,6 @@ pub struct Ipc {
     pub paths: Vec<PathBuf>,
     /// The portal's global shortcuts (#EDE-15).
     pub shortcuts: crate::shortcuts::Shortcuts,
-    /// The modifiers held for `InputEvent::Keysym` (#EDE-22).
-    pub keysyms: crate::keysym::Keysyms,
-    /// `hold_input` (#EDE-23).
-    pub hold: crate::hold::Hold,
 }
 
 #[derive(Debug)]
@@ -56,6 +60,37 @@ struct Conn {
     token: Option<Token>,
     subscribed: bool,
     dead: bool,
+    /// What the socket did not take yet; the first one is sent up to `out_at`.
+    out: std::collections::VecDeque<Vec<u8>>,
+    out_at: usize,
+    /// A writable source drains `out`.
+    flushing: bool,
+}
+
+impl Conn {
+    fn kill(&mut self) {
+        self.dead = true;
+        self.out.clear();
+        let _ = self.writer.shutdown(std::net::Shutdown::Both);
+    }
+
+    /// Writes what the socket takes now. `Ok(true)` = nothing is left.
+    fn write_out(&mut self) -> std::io::Result<bool> {
+        while let Some(front) = self.out.front() {
+            match (&self.writer).write(&front[self.out_at..]) {
+                Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(n) if self.out_at + n == front.len() => {
+                    self.out.pop_front();
+                    self.out_at = 0;
+                }
+                Ok(n) => self.out_at += n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(true)
+    }
 }
 
 impl Drop for Ipc {
@@ -155,17 +190,18 @@ impl Ede {
 
     /// Serves one connection (the socket's, or a test's socketpair).
     pub fn ipc_insert(&mut self, stream: UnixStream) {
-        let _ = stream.set_nonblocking(false);
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        if stream.set_nonblocking(true).is_err() {
+            return;
+        }
         let Ok(reader) = stream.try_clone() else { return };
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
-        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false });
+        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
-            // Level-triggered and readable: one read never blocks.
             let mut r: &UnixStream = reader;
             let n = match r.read(&mut buf) {
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => return Ok(PostAction::Continue),
                 Ok(0) | Err(_) => 0,
                 Ok(n) => n,
             };
@@ -180,13 +216,15 @@ impl Ede {
         }
     }
 
-    /// A connection went; its hold goes with it, the shell's last one
-    /// starts the recovery clock.
+    /// A connection went; its hold and what it pressed go with it, the
+    /// shell's last one starts the recovery clock.
     fn ipc_dropped(&mut self, id: u64) {
         let was_shell = self.ipc.shell_subscribed();
         self.ipc.clients.retain(|c| c.id != id);
         self.ipc.shortcuts.drop_client(id);
-        self.release_input(id);
+        let desk = self.desk_of_conn(id);
+        self.release_driven(desk, id);
+        self.release_input(desk, id);
         if was_shell && !self.ipc.shell_subscribed() {
             self.shell_left();
         }
@@ -205,13 +243,13 @@ impl Ede {
         self.ipc_serve(id)
     }
 
-    /// Serves the queued frames until one defers its reply. `false` = drop
-    /// the connection.
+    /// Serves the queued frames until one defers its reply or the socket
+    /// is behind on the last one. `false` = drop the connection.
     fn ipc_serve(&mut self, id: u64) -> bool {
         loop {
             let frame = {
                 let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
-                if conn.busy.is_some() {
+                if conn.busy.is_some() || !conn.out.is_empty() {
                     break;
                 }
                 match conn.queued.pop_front() {
@@ -220,20 +258,26 @@ impl Ede {
                 }
             };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
-                Ok(call) => (call.id, self.ipc_call(id, call.id, call.request)),
+                Ok(call) => {
+                    // Busy before the call runs (#EDE-74): a deferred read
+                    // that finishes inside it (the selection's owner is
+                    // gone) answers through `ipc_reply_later` all the same.
+                    if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                        conn.busy = Some(call.id);
+                    }
+                    (call.id, self.ipc_call(id, call.id, call.request))
+                }
                 Err(e) => (0, Err(fail(ErrorCode::Invalid, &e.to_string()))),
             };
             let (message, extra) = match outcome {
+                Ok(None) => continue,
                 Ok(Some((result, extra))) => (Message::Reply { id: call_id, result }, extra),
-                Ok(None) => {
-                    if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
-                        conn.busy = Some(call_id);
-                    }
-                    continue;
-                }
                 Err(error) => (Message::Error { id: call_id, error }, None),
             };
-            if !self.ipc_send(id, &message, extra.as_deref()) {
+            if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                conn.busy = None;
+            }
+            if !self.ipc_send(id, &message, extra) {
                 return false;
             }
         }
@@ -254,21 +298,64 @@ impl Ede {
         };
         if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
-                conn.dead = true;
-                let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+                conn.kill();
             }
         }
     }
 
-    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
-        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
+    /// Queues `message` (and a capture's pixels) and writes what the socket
+    /// takes now; the rest goes out as it drains. `false` = the connection
+    /// is gone (or was dropped: [`OUT_MAX`]).
+    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<Vec<u8>>) -> bool {
+        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id && !c.dead) else { return false };
         let json = serde_json::to_vec(message).expect("messages serialize");
-        let ok = write_frame(&mut conn.writer, &json).and_then(|_| extra.map_or(Ok(()), |b| write_frame(&mut conn.writer, b))).is_ok();
-        if !ok {
-            conn.dead = true;
-            let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+        if conn.out.len() >= OUT_MAX || json.len() > MAX_FRAME || extra.as_ref().is_some_and(|b| b.len() > MAX_FRAME) {
+            conn.kill();
+            return false;
         }
-        ok
+        for bytes in std::iter::once(json).chain(extra) {
+            conn.out.push_back((bytes.len() as u32).to_le_bytes().to_vec());
+            if !bytes.is_empty() {
+                conn.out.push_back(bytes);
+            }
+        }
+        match conn.write_out() {
+            Ok(true) => return true,
+            Ok(false) if conn.flushing => return true,
+            Ok(false) => {}
+            Err(_) => {
+                conn.kill();
+                return false;
+            }
+        }
+        let writable = conn.writer.try_clone().map_err(|_| ()).and_then(|writer| {
+            self.loop_handle.insert_source(Generic::new(writer, Interest::WRITE, Mode::Level), move |_, _, state| Ok(state.ipc_writable(id))).map_err(|_| ())
+        });
+        match writable {
+            Ok(_) => conn.flushing = true,
+            Err(()) => conn.kill(),
+        }
+        writable.is_ok()
+    }
+
+    /// The socket takes more: the queue goes on, and once it is empty the
+    /// calls that waited behind it are served.
+    fn ipc_writable(&mut self, id: u64) -> PostAction {
+        let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id && !c.dead) else { return PostAction::Remove };
+        match conn.write_out() {
+            Ok(false) => return PostAction::Continue,
+            Ok(true) => conn.flushing = false,
+            Err(_) => {
+                conn.kill();
+                return PostAction::Remove;
+            }
+        }
+        if !self.ipc_serve(id) {
+            if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                conn.kill();
+            }
+        }
+        PostAction::Remove
     }
 
     /// Sends an event to every subscribed connection whose grant is still
@@ -320,6 +407,7 @@ impl Ede {
                 return Err(fail(ErrorCode::Forbidden, &format!("needs the {} capability", cap.as_str())));
             }
         }
+        let desk = self.desk_of_conn(id);
         let json = |v: serde_json::Value| Ok(Some((v, None)));
         match request {
             Request::Hello { .. } => unreachable!(),
@@ -346,7 +434,7 @@ impl Ede {
                 if ws != self.active_workspace() {
                     self.switch_workspace(ws);
                 }
-                self.focus(Some(w));
+                self.focus(desk, Some(w));
                 json(serde_json::Value::Null)
             }
             Request::CloseWindow { window } => {
@@ -373,7 +461,7 @@ impl Ede {
                     if ws != self.active_workspace() {
                         self.switch_workspace(ws);
                     }
-                    self.focus(Some(w));
+                    self.focus(desk, Some(w));
                 }
                 json(serde_json::Value::Null)
             }
@@ -387,13 +475,16 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::Capture { target, since } => {
-                if since == Some(self.frame_serial) {
+                // An output's pixels change only with a presented frame; a
+                // window capture is always drawn (a parked window's commits
+                // are never presented, #EDE-100).
+                if since == Some(self.frame_serial) && matches!(target, CaptureTarget::Output { .. }) {
                     let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
                     return Ok(Some((serde_json::to_value(info).unwrap(), None)));
                 }
                 let frame = match target {
                     CaptureTarget::Output { name } => {
-                        let output = self.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
+                        let output = self.desk.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
                         crate::backend::capture_output(self, &output)
                     }
                     CaptureTarget::Window { window } => {
@@ -403,7 +494,7 @@ impl Ede {
                         if !self.may_capture(&w) {
                             return Err(fail(ErrorCode::Forbidden, "a protected window is never captured"));
                         }
-                        crate::backend::capture_window(&w)
+                        crate::backend::capture_window(self, &w)
                     }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
@@ -418,6 +509,7 @@ impl Ede {
                 // `bindings` = the person's own input (the harness): it
                 // reaches the lock screen and protected surfaces like a
                 // real keyboard; the agent path refuses those.
+                let before = (!bindings).then(|| self.desk(desk).seat.get_keyboard().unwrap().pressed_keys());
                 let refused = match (event, bindings) {
                     (InputEvent::Key { key, pressed }, true) => {
                         self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
@@ -432,41 +524,51 @@ impl Ede {
                         Ok(())
                     }
                     (InputEvent::Key { key, pressed }, false) => {
-                        self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
+                        self.drive_key(desk, (key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
                     }
                     (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
-                        let pos = self.seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
+                        let pos = self.desk(desk).seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
                         if bindings {
                             self.person_pointer_motion_to(pos, now as u32);
                             Ok(())
                         } else {
-                            self.drive_pointer_motion(pos, now as u32)
+                            self.drive_pointer_motion(desk, pos, now as u32)
                         }
                     }
-                    (InputEvent::Keysym { keysym, pressed }, bindings) => match self.drive_keysym(keysym, pressed, bindings, now as u32) {
+                    (InputEvent::Keysym { keysym, pressed }, bindings) => match self.drive_keysym(desk, keysym, pressed, bindings, now as u32) {
                         Ok(false) => return Err(fail(ErrorCode::NotFound, &format!("no key makes keysym {keysym:#x} on this layout"))),
                         other => other.map(|_| ()),
                     },
-                    (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis((dx, dy), None, now as u32),
-                    (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis((dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
-                    (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion((x, y).into(), now as u32),
+                    (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis(desk, (dx, dy), None, now as u32),
+                    (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis(desk, (dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
+                    (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion(desk, (x, y).into(), now as u32),
                     (InputEvent::PointerButton { button, pressed }, false) => {
-                        self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
+                        let driven = self.drive_pointer_button(desk, button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                        if driven.is_ok() {
+                            self.desk_mut(desk).driven.buttons.retain(|(_, b)| *b != button);
+                            if pressed {
+                                self.desk_mut(desk).driven.buttons.push((id, button));
+                            }
+                        }
+                        driven
                     }
                 };
+                if let Some(before) = before {
+                    self.note_driven(desk, id, &before);
+                }
                 refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
                 json(serde_json::Value::Null)
             }
             Request::PointerPosition => {
-                let at = self.seat.get_pointer().unwrap().current_location();
+                let at = self.desk(desk).seat.get_pointer().unwrap().current_location();
                 json(serde_json::to_value(PointerInfo { x: at.x, y: at.y }).unwrap())
             }
             Request::HoldInput => {
-                self.hold_input(id);
+                self.hold_input(desk, id);
                 json(serde_json::Value::Null)
             }
             Request::ReleaseInput => {
-                self.release_input(id);
+                self.release_input(desk, id);
                 json(serde_json::Value::Null)
             }
             Request::ReloadConfig => {
@@ -506,17 +608,19 @@ impl Ede {
                 self.ipc.shortcuts.unbind(&owner);
                 json(serde_json::Value::Null)
             }
-            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.clipboard.serial }).unwrap()),
+            Request::ClipboardSerial => json(serde_json::to_value(ede_protocol::ClipboardSerial { serial: self.desk.clipboard.serial }).unwrap()),
             Request::ClipboardSet { items, sensitive } => {
-                let serial = self.clipboard_set(items, sensitive)?;
+                let serial = self.clipboard_set(desk, items, sensitive)?;
                 json(serde_json::to_value(ede_protocol::ClipboardSerial { serial }).unwrap())
             }
-            Request::ClipboardTaken { serial } => json(serde_json::to_value(self.clipboard_taken(serial)).unwrap()),
-            Request::ClipboardSnapshot => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Snapshot).map(|v| (v, None))),
-            Request::ClipboardText => Ok(self.clipboard_read(id, call_id, crate::clipboard::Want::Text).map(|v| (v, None))),
+            Request::ClipboardTaken { serial } => json(serde_json::to_value(self.clipboard_taken(desk, serial)).unwrap()),
+            Request::ClipboardSnapshot => Ok(self.clipboard_read(desk, id, call_id, crate::clipboard::Want::Snapshot).map(|v| (v, None))),
+            Request::ClipboardText => Ok(self.clipboard_read(desk, id, call_id, crate::clipboard::Want::Text).map(|v| (v, None))),
             Request::Unlock => {
-                let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
-                self.sealed_unlock(&token).map_err(|e| fail(ErrorCode::Forbidden, e))?;
+                let conn = self.ipc.clients.iter().find(|c| c.id == id);
+                let token = conn.and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
+                let peer = conn.and_then(|c| smithay::reexports::rustix::net::sockopt::socket_peercred(&c.writer).ok()).map(|c| c.pid.as_raw_nonzero().get() as u32);
+                self.sealed_unlock(&token, peer).map_err(|e| fail(ErrorCode::Forbidden, e))?;
                 json(serde_json::Value::Null)
             }
             Request::Logout => {
@@ -525,9 +629,6 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::Lock => {
-                if self.config.lock.command.is_empty() {
-                    return Err(fail(ErrorCode::Unavailable, "no [lock] command is configured"));
-                }
                 self.request_lock();
                 json(serde_json::Value::Null)
             }
@@ -552,11 +653,18 @@ impl Ede {
                 self.ipc.grants.retain(|g| g.token != token);
                 json(serde_json::Value::Null)
             }
+            Request::LaunchToken => {
+                // #EDE-76: only the shell says what the person launched.
+                if grant.session_id.as_str() != ROOT_SESSION {
+                    return Err(fail(ErrorCode::Forbidden, "only the shell's grant marks a launch as the person's"));
+                }
+                json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
+            }
         }
     }
 
     fn window_by_id(&self, id: &WindowId) -> Result<Window, Failure> {
-        self.space.elements().find(|w| &window_id(w) == id).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
+        self.desk.space.elements().find(|w| &window_id(w) == id).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
     }
 
     /// On screen or parked on another workspace.
@@ -565,13 +673,13 @@ impl Ede {
     }
 
     pub fn window_infos(&self) -> Vec<WindowInfo> {
-        let focused = self.focused_window();
+        let focused = self.focused_window(DeskId::PERSON);
         self.all_windows()
             .iter()
             .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
             .filter_map(|w| {
                 let st = crate::state::window_state(w);
-                let g = self.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
+                let g = self.desk.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
                 let protected = self.is_protected_window(w);
                 let (title, app_id) = window_title(w);
                 Some(WindowInfo {
@@ -588,16 +696,18 @@ impl Ede {
                     x11: w.x11_surface().is_some(),
                     workspace: st.workspace,
                     minimized: st.minimized,
+                    // #EDE-91: every window is on the person's desk until spaces land.
+                    space: None,
                 })
             })
             .collect()
     }
 
     pub fn output_infos(&self) -> Vec<OutputInfo> {
-        self.space
+        self.desk.space
             .outputs()
             .filter_map(|o| {
-                let g = self.space.output_geometry(o)?;
+                let g = self.desk.space.output_geometry(o)?;
                 let current = o.current_mode();
                 let preferred = o.preferred_mode();
                 let modes = o
@@ -606,7 +716,7 @@ impl Ede {
                     .map(|m| ede_protocol::ModeInfo { width: m.size.w, height: m.size.h, refresh: m.refresh, preferred: Some(m) == preferred, current: Some(m) == current })
                     .collect();
                 let p = o.physical_properties();
-                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale(), modes, make: p.make, model: p.model, physical_mm: [p.size.w, p.size.h] })
+                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale(), modes, make: p.make, model: p.model, physical_mm: [p.size.w, p.size.h], space: None })
             })
             .collect()
     }
@@ -614,8 +724,14 @@ impl Ede {
     pub fn window_event(&mut self, kind: &str, window: &Window) {
         if self.ipc.clients.iter().any(|c| c.subscribed) {
             let (_, app_id) = window_title(window);
-            self.emit(kind, serde_json::json!({ "window": window_id(window), "appId": app_id }));
+            let data = ede_protocol::WindowEvent { window: window_id(window), app_id, space: None };
+            self.emit(kind, serde_json::to_value(data).unwrap());
         }
+    }
+
+    /// [`ede_protocol::events::OUTPUT_CHANGED`] for the output `name`.
+    pub fn output_changed(&mut self, name: String) {
+        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::to_value(ede_protocol::OutputEvent { output: name, space: None }).unwrap());
     }
 
     /// Re-reads the config file and applies what can change live (all but
@@ -631,9 +747,9 @@ impl Ede {
         config.xwayland = self.config.xwayland;
         let kb = config.keyboard.clone();
         self.config = config;
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         let xkb = smithay::input::keyboard::XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
-        self.virtual_keymap = None;
+        self.desk.virtual_keymap = None;
         if let Err(e) = keyboard.set_xkb_config(self, xkb) {
             tracing::warn!("keyboard layout {:?} rejected on reload: {e:?}", kb.layout);
         }

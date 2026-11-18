@@ -207,6 +207,17 @@ fn own_bubble_fingerprint(bubble: &crate::session_outbox::OwnBubble) -> u64 {
     hasher.finish()
 }
 
+/// #FEED-260 (steer-enet.json SYNCED TAIL): one synced message a not-live
+/// transcript draws after its feed: the agent's (its narration bubble) or a
+/// person's consumed input (an own bubble), its body opened, its time.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct SyncedTailRow {
+    id: String,
+    agent: bool,
+    text: String,
+    at: Option<i64>,
+}
+
 /// A conversation card's measure: its whole row (an answer, a decision, a
 /// draft-free state change re-measures it).
 fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatRow>) -> u64 {
@@ -730,6 +741,15 @@ pub(crate) struct SteerSessionView {
     /// their own (epoch ms) and the one timer that repaints then.
     own_tail_expiry: Option<i64>,
     own_tail_timer: Option<gpui::Task<()>>,
+    /// #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live,
+    /// the session's synced messages after it ([`synced_tail_rows`]),
+    /// synthetic rows right after the feed's last row; and the inputs they
+    /// were read at (rows, feed epoch, feed generation, unreachable).
+    synced_tail: Vec<SyncedTailRow>,
+    synced_tail_key: Option<(usize, u64, u64, bool)>,
+    /// #FEED-260 (OFFLINE LINE): THE inline marker that ends a not-live
+    /// transcript (`noFeedAway.title`), a synthetic row after the own tail.
+    offline_line: Option<String>,
     /// #LOGS-7: the memoised cards and suggestions `conv_cards` /
     /// `tree_suggestions` were last taken from.
     conv_memo: Option<ConvMemo>,
@@ -1034,6 +1054,9 @@ impl SteerSessionView {
             own_tail_key: None,
             own_tail_expiry: None,
             own_tail_timer: None,
+            synced_tail: Vec::new(),
+            synced_tail_key: None,
+            offline_line: None,
             conv_memo: None,
             queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
@@ -1184,18 +1207,39 @@ impl SteerSessionView {
     ///
     /// #EXP-1412: the file is read off the UI thread. The memo's slots wait
     /// for the answer: a journal is fresher and keeps them out.
+    ///
+    /// #EDE-105: any other session with a row opens from the CHAT STORE (what
+    /// this desktop received of it before, on the device it is on now),
+    /// read the same way; the room's replay replaces it the same way.
     fn seed_from_journal(&mut self, cx: &mut gpui::Context<Self>) {
         let row = crate::session_data::session(&self.session_id, cx).filter(|_| self.feed.is_empty());
-        let seeds = match row {
-            // The device id is asked for only with a row: no row, no store.
-            Some(row) => may_seed_from_journal(&row, &crate::queries::own_device_id(cx)),
-            None => false,
-        };
-        if !seeds {
+        let Some(row) = row else {
             self.seed_stream_slots(cx);
             return;
+        };
+        // The device id is asked for only with a row: no row, no store.
+        if may_seed_from_journal(&row, &crate::queries::own_device_id(cx)) {
+            self.read_journal(cx);
+            return;
         }
-        self.read_journal(cx);
+        let (Some(store), Some(device_id)) = (crate::chat_store::store(cx), row.device_id.clone().filter(|device| !device.is_empty())) else {
+            self.seed_stream_slots(cx);
+            return;
+        };
+        let session_id = self.session_id.clone();
+        let read = cx.background_spawn(async move {
+            let started = Instant::now();
+            let read = crate::chat_store::read_events(&store, &session_id, &device_id).map(fold_tail);
+            if read.is_some() {
+                log::info!("[chat-store] {session_id} opened from the store in {} ms", started.elapsed().as_millis());
+            }
+            read
+        });
+        cx.spawn(async move |this, cx| {
+            let read = read.await;
+            let _ = this.update(cx, |this, cx| this.apply_journal_read(read, cx));
+        })
+        .detach();
     }
 
     /// Large chats: this device's journal for the session, read, cut to its
@@ -1397,12 +1441,29 @@ impl SteerSessionView {
             kinds.push(item.kind);
             input.items.push(item);
         }
+        // #FEED-260: the synced tail continues the feed's grouping (its rows
+        // sit right after the feed's last).
+        for (index, row) in self.synced_tail.iter().enumerate() {
+            let id = synthetic_row_id(index).unwrap_or(ORPHAN_ROW_BASE).to_string();
+            let item = if row.agent {
+                TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_AGENT, None, None)
+            } else {
+                TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None)
+            };
+            kinds.push(item.kind);
+            input.items.push(item);
+        }
         let layouts = transcript_layout(&input);
         self.row_layout_at = self.rows.iter().enumerate().map(|(ix, spec)| (spec.id(), ix)).collect();
+        let feed_rows = self.rows.len();
+        self.row_layout_at.extend(
+            (0..self.synced_tail.len()).filter_map(|index| synthetic_row_id(index).map(|id| (id, feed_rows + index))),
+        );
         self.transcript = kinds.into_iter().zip(layouts).collect();
     }
 
-    /// #EXP-1736: list row `ix`'s layout (`None` past the feed rows).
+    /// #EXP-1736: list row `ix`'s layout (`None` past the feed rows and
+    /// the #FEED-260 synced tail right after them).
     fn row_layout(&self, ix: usize) -> Option<&domain::transcript_grouping::TranscriptRowLayout> {
         self.transcript.get(ix).map(|(_, layout)| layout)
     }
@@ -1838,6 +1899,12 @@ impl SteerSessionView {
             let _span = tracing::trace_span!("steer.own_tail").entered();
             self.refresh_own_tail(focus.is_none(), cx);
         }
+        // #FEED-260: a not-live feed's synced tail, and the offline line.
+        {
+            let _span = tracing::trace_span!("steer.synced_tail").entered();
+            self.refresh_synced_tail(focus.is_none(), cx);
+            self.offline_line = self.offline_line_label(focus.is_none(), cx);
+        }
         // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
         // the origin only when the main transcript's window holds the feed's
         // first row (nothing above it, no device page left to load).
@@ -1849,6 +1916,8 @@ impl SteerSessionView {
             use std::hash::{Hash as _, Hasher as _};
             let mut hasher = std::hash::DefaultHasher::new();
             (self.feed_epoch, self.feed.generation(), start, focus.as_deref(), from_start).hash(&mut hasher);
+            // #FEED-260: the synced tail is grouped with the feed's rows.
+            self.synced_tail.hash(&mut hasher);
             crate::markdown::store_revision(cx).hash(&mut hasher);
             sync::Store::try_global(cx).map(|store| store.collections().agents.read(cx).revision()).hash(&mut hasher);
             format!("{:?}", self.transcript_origin).hash(&mut hasher);
@@ -1947,19 +2016,40 @@ impl SteerSessionView {
         // The synthetic rows share the ids between ORPHAN_ROW_BASE and the
         // working row's: whatever does not fit is dropped (keys and paint
         // read the same truncated lists).
-        self.orphan_workflows.truncate(SYNTHETIC_ROWS);
+        // #FEED-260: the synced tail first, right after the feed's last row
+        // (it continues the feed's grouping), then the rest.
+        self.synced_tail.truncate(SYNTHETIC_ROWS);
+        let synced = self.synced_tail.len();
+        for (ix, row) in self.synced_tail.iter().enumerate() {
+            let Some(row_id) = synthetic_row_id(ix) else { break };
+            let at = self.rows.len() + ix;
+            let mut fingerprint = {
+                use std::hash::{Hash as _, Hasher as _};
+                let mut hasher = std::hash::DefaultHasher::new();
+                row.hash(&mut hasher);
+                hasher.finish()
+            };
+            fingerprint = transcript_rows::fold_gap(fingerprint, f32::from(self.row_gap(at)));
+            fingerprint = transcript_rows::fold_extra(
+                fingerprint,
+                self.row_layout(at).map_or(0, crate::session_chat::layout_fingerprint),
+            );
+            keys.push(RowKey { id: row_id, fingerprint });
+        }
+        self.orphan_workflows.truncate(SYNTHETIC_ROWS - synced);
         if self.rows.is_empty() {
-            self.conv_unanchored.truncate(SYNTHETIC_ROWS - self.orphan_workflows.len());
+            self.conv_unanchored.truncate(SYNTHETIC_ROWS - synced - self.orphan_workflows.len());
         }
         let room = SYNTHETIC_ROWS
+            - synced
             - self.orphan_workflows.len()
             - if self.rows.is_empty() { self.conv_unanchored.len() } else { 0 };
         self.conv_trailing.truncate(room);
         // §3: the orphan cards, in feed order, keyed above every feed id and
         // below the working row's so the list sync keeps its ascending order.
         for (ix, id) in self.orphan_workflows.iter().enumerate() {
-            let Some(row_id) = synthetic_row_id(ix) else { break };
-            let gap = f32::from(self.row_gap(self.rows.len() + ix));
+            let Some(row_id) = synthetic_row_id(synced + ix) else { break };
+            let gap = f32::from(self.row_gap(self.rows.len() + synced + ix));
             let fingerprint = transcript_rows::fold_gap(orphan_fingerprint(id), gap);
             let workflow = self.feed.workflow_for(id);
             let fingerprint = transcript_rows::fold_extra(
@@ -1977,14 +2067,14 @@ impl SteerSessionView {
         // rows of their own, keyed right after the orphan cards and below
         // the working row.
         for (ix, &card) in self.conv_tail().iter().enumerate() {
-            let Some(row_id) = synthetic_row_id(self.orphan_workflows.len() + ix) else { break };
-            let at = self.rows.len() + self.orphan_workflows.len() + ix;
+            let Some(row_id) = synthetic_row_id(synced + self.orphan_workflows.len() + ix) else { break };
+            let at = self.rows.len() + synced + self.orphan_workflows.len() + ix;
             let gap = f32::from(self.row_gap(at));
             let fingerprint = transcript_rows::fold_gap(self.conv_prints.get(card).copied().unwrap_or_default(), gap);
             keys.push(RowKey { id: row_id, fingerprint });
         }
         // #FEED-237: the own bubbles, keyed after the trailing cards.
-        let before_own = self.orphan_workflows.len() + self.conv_tail().len();
+        let before_own = synced + self.orphan_workflows.len() + self.conv_tail().len();
         self.own_tail.truncate(SYNTHETIC_ROWS.saturating_sub(before_own));
         for (ix, bubble) in self.own_tail.iter().enumerate() {
             let Some(row_id) = synthetic_row_id(before_own + ix) else { break };
@@ -1992,8 +2082,20 @@ impl SteerSessionView {
             let fingerprint = transcript_rows::fold_gap(own_bubble_fingerprint(bubble), gap);
             keys.push(RowKey { id: row_id, fingerprint });
         }
+        // #FEED-260 (OFFLINE LINE): THE inline marker ends the transcript.
+        let before_line = before_own + self.own_tail.len();
+        if self.offline_line.is_some() && synthetic_row_id(before_line).is_none() {
+            self.offline_line = None;
+        }
+        if let (Some(label), Some(row_id)) = (self.offline_line.as_ref(), synthetic_row_id(before_line)) {
+            use std::hash::{Hash as _, Hasher as _};
+            let mut hasher = std::hash::DefaultHasher::new();
+            ("offline-line", label).hash(&mut hasher);
+            let gap = f32::from(self.row_gap(self.rows.len() + before_line));
+            keys.push(RowKey { id: row_id, fingerprint: transcript_rows::fold_gap(hasher.finish(), gap) });
+        }
         if self.working {
-            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail().len() + self.own_tail.len()));
+            let gap = f32::from(self.row_gap(self.rows.len() + before_line + usize::from(self.offline_line.is_some())));
             // EXP-850 §5: the working row's text is no longer a constant (a
             // verb, a ticking duration, a workflow's caption), so its
             // fingerprint folds in what it will say.
@@ -2060,7 +2162,15 @@ impl SteerSessionView {
             }
             for (ix, key) in self.row_keys.iter().enumerate() {
                 let spec = self.rows.get(ix);
+                // #FEED-260: a synced tail row is the agent's narration or a
+                // person's prompt, as the feed's own.
+                let synced = ix.checked_sub(self.rows.len()).and_then(|index| self.synced_tail.get(index));
                 let content = match spec {
+                    None => match synced {
+                        Some(row) if row.agent => RowContent::Narration(&row.text),
+                        Some(row) => RowContent::Prompt(&row.text),
+                        None => RowContent::Other,
+                    },
                     Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
                         Some(FeedKind::Narration { text, .. }) => RowContent::Narration(text),
                         Some(FeedKind::UserMessage { text, .. })
@@ -2084,8 +2194,9 @@ impl SteerSessionView {
                             .any(|item| self.conv_anchors.get(&item.id).is_some_and(|cards| !cards.is_empty()))
                 });
                 let row_key = row_key(key.id);
-                let layout = spec.and_then(|_| self.row_layout(ix));
+                let layout = (spec.is_some() || synced.is_some()).then(|| self.row_layout(ix)).flatten();
                 let at = match spec {
+                    None => synced.and_then(|row| row.at),
                     Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
                         Some(FeedKind::UserMessage { at, .. } | FeedKind::Narration { at, .. }) => *at,
                         _ => None,
@@ -2500,6 +2611,8 @@ impl SteerSessionView {
 
     fn apply_events(&mut self, events: impl IntoIterator<Item = ViewerEvent>, cx: &mut gpui::Context<Self>) {
         let pulse = feed_pulse(&self.feed);
+        let events: Vec<ViewerEvent> = events.into_iter().collect();
+        self.record_feed(&events, cx);
         for event in events {
             // Per event: a compaction may start and end inside one batch.
             let was_compacting = self.feed.compacting().is_some();
@@ -2510,6 +2623,26 @@ impl SteerSessionView {
         self.note_feed_moved(pulse);
         self.keep_stream_slots(cx);
         cx.notify();
+    }
+
+    /// #EDE-105: what a relay view receives goes into the chat store (its
+    /// live events and the older pages it scrolls in), so the chat opens
+    /// from disk next time and its text is searchable offline.
+    fn record_feed(&self, events: &[ViewerEvent], cx: &App) {
+        if !matches!(self.source, FeedSource::Remote { .. }) {
+            return;
+        }
+        let mut wire = Vec::new();
+        for event in events {
+            match event {
+                ViewerEvent::Activity(seq, activity) => wire.push((*seq, activity.clone())),
+                ViewerEvent::HistoryPage { events, .. } => {
+                    wire.extend(events.iter().filter_map(|(seq, activity)| Some(((*seq)?, activity.clone()))));
+                }
+                _ => {}
+            }
+        }
+        crate::chat_store::record(&self.session_id, wire, cx);
     }
 
     fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
@@ -3024,7 +3157,7 @@ impl SteerSessionView {
         match self.conv_cards.iter().position(|row| row.id() == message_id) {
             Some(card) if self.conv_head().contains(&card) => Some(0),
             Some(card) => match self.conv_tail().iter().position(|&tail| tail == card) {
-                Some(at) => Some(self.rows.len() + self.orphan_workflows.len() + at),
+                Some(at) => Some(self.rows.len() + self.synced_tail.len() + self.orphan_workflows.len() + at),
                 None => row_holding(&|item| self.conv_anchors.get(&item.id).is_some_and(|cards| cards.contains(&card))),
             },
             None => {
@@ -5657,7 +5790,9 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 impl SteerSessionView {
     fn render_feed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        if self.feed.is_empty() {
+        // #FEED-260 (SYNCED TAIL): an empty feed whose synced tail holds an
+        // agent line is a transcript, never the placeholder.
+        if self.feed.is_empty() && self.synced_tail.is_empty() {
             // S-3: no paused body; #EXP-1703: the away state below.
             let host_away = self.host_away(cx);
             let body: AnyElement = if self.phase.is_device_offline() {
@@ -5824,7 +5959,11 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
-        crate::dev_ready::note_feed_painted();
+        // #EXP-1886: the FEED's rows only (a synced tail alone is not the
+        // replay), under this view's own session.
+        if !self.feed.is_empty() {
+            crate::dev_ready::note_feed_painted(&self.session_id);
+        }
         // #EDE-65 lane O: the transcript IS the shared chat document (its
         // windowed list, its bubbles), the rows it does not draw painted by
         // this view ([`Self::chat_host_row`]); [`Self::sync_list`] ran at the
@@ -5911,7 +6050,13 @@ impl SteerSessionView {
     fn row_class(&self, ix: usize) -> RowClass {
         match self.rows.get(ix) {
             Some(spec) => spec.class(self.feed.items()),
-            None => RowClass::Tool,
+            // #FEED-260: the synced tail's agent lines are prose, its
+            // inputs a sent message.
+            None => match ix.checked_sub(self.rows.len()).and_then(|index| self.synced_tail.get(index)) {
+                Some(row) if row.agent => RowClass::Prose,
+                Some(_) => RowClass::Turn,
+                None => RowClass::Tool,
+            },
         }
     }
 
@@ -6044,6 +6189,81 @@ impl SteerSessionView {
         }
     }
 
+    /// #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live,
+    /// the session's synced messages after its last row (their bodies
+    /// opened as every synced message is); none while live, none on a
+    /// subagent's tab. Re-read when the rows or the feed moved.
+    fn refresh_synced_tail(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
+        let live = self.phase == ViewerPhase::Live;
+        if !main || live {
+            self.synced_tail.clear();
+            self.synced_tail_key = None;
+            return;
+        }
+        let rows = crate::session_data::messages_of_session(&self.session_id, cx);
+        // The OFFLINE LINE's condition: an empty feed takes the tail only
+        // while its live transcript cannot be loaded.
+        let unreachable = if self.row_ended() { self.phase.is_device_offline() } else { self.host_away(cx) };
+        let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), unreachable);
+        if self.synced_tail_key == Some(key) {
+            return;
+        }
+        self.synced_tail = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
+        self.synced_tail_key = Some(key);
+    }
+
+    /// #FEED-260 (steer-enet.json OFFLINE LINE): the `noFeedAway.title`
+    /// THE inline marker ends a not-live transcript with, when its live
+    /// transcript cannot be loaded (an ended row whose dial said NO FEED,
+    /// a row not ended whose device is offline); `None` otherwise.
+    fn offline_line_label(&self, main: bool, cx: &App) -> Option<String> {
+        let shown = self.rows.len() + self.synced_tail.len();
+        let line = steer::enet_steer::offline_line(
+            self.phase == ViewerPhase::Live,
+            shown,
+            self.row_ended(),
+            self.phase.is_device_offline(),
+            self.host_away(cx),
+        );
+        (main && line).then(|| steer::enet_steer::no_feed_away(self.device(cx).label.as_deref()).0)
+    }
+
+    /// #FEED-260: synced tail row `index` (list row `ix`): the agent's
+    /// narration bubble under its sender, or an own bubble (a consumed
+    /// input reads `read`), each with its `HH:mm`.
+    fn render_synced_tail_row(&self, ix: usize, index: usize, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let Some(row) = self.synced_tail.get(index).cloned() else {
+            return div().into_any_element();
+        };
+        let row_id = synthetic_row_id(index).unwrap_or(ORPHAN_ROW_BASE);
+        let layout = self.row_layout(ix).cloned();
+        if row.agent {
+            let element = self.render_narration(row_id, row.text, row.at, false, cx);
+            return crate::session_chat::sender_row(layout.as_ref(), element, cx);
+        }
+        let avatar = layout.as_ref().is_none_or(|layout| layout.avatar);
+        let sizes = crate::session_chat::transcript_sizes();
+        let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, true, window);
+        let bubble = crate::session_chat::message_bubble(
+            crate::session_chat::MessageBubble {
+                id: SharedString::from(format!("steer-synced-tail-{}", row.id)),
+                body: self.render_user_message(row_id, &row.text, cx),
+                time: row.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
+                own: true,
+                name: None,
+                link: None,
+                // A consumed input = processed into the session
+                // (message-delivery.json `read`).
+                status: Some(domain::message_delivery::DeliveryState::Read),
+                menu: None,
+                width: Some(width),
+                tail: layout.as_ref().is_none_or(|layout| layout.tail).into(),
+            },
+            cx,
+        );
+        crate::session_chat::own_row(avatar, bubble, cx)
+    }
+
     /// #FEED-237: one own bubble (the viewer's, right) with its delivery
     /// mark beside its `HH:mm` and its menu (`bubbleActions`); #FEED-239:
     /// left of the viewer's avatar (`avatar` = the own group's first row).
@@ -6097,9 +6317,8 @@ impl SteerSessionView {
             return false;
         }
         let between = !self.orphan_workflows.is_empty() || !self.conv_tail().is_empty();
-        let last_own = self
-            .rows
-            .len()
+        // #FEED-260: the synced tail's last row, when there is one.
+        let last_own = (self.rows.len() + self.synced_tail.len())
             .checked_sub(1)
             .and_then(|ix| self.row_layout(ix))
             .is_some_and(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
@@ -6121,9 +6340,14 @@ impl SteerSessionView {
             // §3: past the transcript sit the orphan workflow cards, then the
             // synthetic "Working…" line.
             let past = ix - self.rows.len();
-            let orphan = self
-                .orphan_workflows
-                .get(past)
+            // #FEED-260: the synced tail first, right after the feed.
+            if past < self.synced_tail.len() {
+                return self.render_synced_tail_row(ix, past, window, cx);
+            }
+            let synced = self.synced_tail.len();
+            let orphan = past
+                .checked_sub(synced)
+                .and_then(|o| self.orphan_workflows.get(o))
                 .and_then(|id| self.feed.workflow_for(id))
                 .cloned();
             if let Some(workflow) = orphan {
@@ -6131,7 +6355,7 @@ impl SteerSessionView {
             }
             // Session 58cb32df: the unanchored conversation cards.
             let conv_tail = self.conv_tail();
-            let at = past.checked_sub(self.orphan_workflows.len());
+            let at = past.checked_sub(synced + self.orphan_workflows.len());
             let tail = at.and_then(|t| conv_tail.get(t).copied());
             if let Some(card) = tail {
                 return self.render_conversation_cards(&[card], window, cx);
@@ -6142,6 +6366,17 @@ impl SteerSessionView {
                 let row_id = synthetic_row_id(past).unwrap_or(ORPHAN_ROW_BASE);
                 let avatar = own.is_some_and(|o| self.own_tail_avatar(o));
                 return self.render_own_bubble(row_id, &bubble, avatar, window, cx);
+            }
+            // #FEED-260 (OFFLINE LINE): THE inline marker, the `Context
+            // compacted` row's, reading `noFeedAway.title`.
+            let line = own.and_then(|o| o.checked_sub(self.own_tail.len())) == Some(0);
+            if let Some(label) = self.offline_line.as_ref().filter(|_| line) {
+                return crate::surface_card::transcript_marker(
+                    SharedString::from(format!("steer-offline-line-{}", self.session_id)),
+                    label,
+                    None,
+                    cx,
+                );
             }
             return self.render_working_row(cx);
         };
@@ -10071,7 +10306,7 @@ impl Render for SteerSessionView {
             self.render_feed(window, cx)
         };
         let width_probe = self.view_width.clone();
-        let jump = self.render_jump_to_bottom(!self.feed.is_empty(), composer_visible, cx);
+        let jump = self.render_jump_to_bottom(!self.feed.is_empty() || !self.synced_tail.is_empty(), composer_visible, cx);
         let conversation = v_flex()
             .flex_1()
             .h_full()
@@ -10239,13 +10474,18 @@ pub(crate) struct JournalTail {
 /// into a feed, and the whole read kept for paging. Runs off the main
 /// thread; `None` when there is no journal.
 pub(crate) fn read_journal_tail(data_dir: &std::path::Path, session_id: &str) -> Option<JournalTail> {
-    let events = steer::read_journal_seq(data_dir, session_id)?;
+    steer::read_journal_seq(data_dir, session_id).map(fold_tail)
+}
+
+/// A transcript read (a journal's, #EDE-105 the chat store's), seq order:
+/// its REPLAY TAIL folded, the whole read kept for paging when it is longer.
+pub(crate) fn fold_tail(events: Vec<(u64, steer::frames::ActivityEvent)>) -> JournalTail {
     let (kept, truncated) = steer::replay_tail(events.iter().map(|(seq, event)| (*seq, event)).collect(), steer::REPLAY_TAIL);
     let mut feed = SteerFeed::new();
     for (seq, event) in kept {
         feed.apply_seq(Some(seq), event.clone());
     }
-    Some(JournalTail { feed, older: truncated.then(|| Arc::new(events)) })
+    JournalTail { feed, older: truncated.then(|| Arc::new(events)) }
 }
 
 /// One older page off a journal read: the newest `limit` events below
@@ -10285,6 +10525,63 @@ fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::M
             created_at: m.created_at.as_deref().unwrap_or_default(),
         }
     })
+}
+
+/// #FEED-260 (steer-enet.json SYNCED TAIL, web `syncedTailMessages`): the
+/// synced messages a not-live transcript draws after `feed`, read off its
+/// MAIN-lane rows (a narration's text + first fragment's `at`, an input's,
+/// a settled tool's time), each body opened (a sealed one it cannot open
+/// reads the sealed placeholder).
+fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
+    use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow, SYNCED_TAIL_MAX};
+    if live {
+        return Vec::new();
+    }
+    let rows: Vec<TailFeedRow> = feed
+        .iter()
+        .filter_map(|item| match &item.kind {
+            FeedKind::Narration { subagent_id: Some(_), .. }
+            | FeedKind::UserMessage { subagent_id: Some(_), .. }
+            | FeedKind::Tool { subagent_id: Some(_), .. }
+            | FeedKind::Thought { subagent_id: Some(_), .. } => None,
+            FeedKind::Narration { text, at, .. } => Some(TailFeedRow { author: Some("agent"), text: Some(text), at_ms: *at }),
+            FeedKind::UserMessage { text, at, .. } => Some(TailFeedRow { author: Some("user"), text: Some(text), at_ms: *at }),
+            FeedKind::Tool { settled, settled_at, .. } => {
+                Some(TailFeedRow { author: None, text: None, at_ms: if *settled { *settled_at } else { None } })
+            }
+            _ => Some(TailFeedRow { author: None, text: None, at_ms: None }),
+        })
+        .collect();
+    let body = |m: &domain::rows::MessageRow| -> String {
+        match m.locked() {
+            Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+            None => m.body_text().to_string(),
+        }
+    };
+    let bodies: Vec<String> = messages.iter().map(body).collect();
+    let indexed: Vec<usize> = (0..messages.len()).collect();
+    synced_tail(live, &rows, &indexed, SYNCED_TAIL_MAX, unreachable, |&i| {
+        let m = &messages[i];
+        Row {
+            id: &m.id,
+            author_kind: m.author_kind.as_deref().unwrap_or_default(),
+            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()),
+            consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
+            created_at: m.created_at.as_deref().unwrap_or_default(),
+            body: &bodies[i],
+        }
+    })
+    .into_iter()
+    .map(|&i| {
+        let m = &messages[i];
+        SyncedTailRow {
+            id: m.id.clone(),
+            agent: m.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT),
+            text: bodies[i].clone(),
+            at: m.created_at.as_deref().and_then(domain::session_tree::iso_ms),
+        }
+    })
+    .collect()
 }
 
 /// #EXP-1412: whether a relay view may start from this machine's journal.

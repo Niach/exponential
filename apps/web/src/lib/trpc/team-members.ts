@@ -17,6 +17,7 @@ import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endHostedSessions, foreignHostedSessionIds } from "@/lib/sessions/lifecycle"
 import { lockDeviceShares } from "@/lib/sessions/host"
+import { syncVoiceMirror } from "@/lib/agents/assistant"
 import {
   addPlaceholderToRoster,
   deletePlaceholderIfOrphaned,
@@ -399,6 +400,11 @@ export const teamMembersRouter = router({
       // The share was the consent that let teammates run sessions on the
       // ex-member's box — end the still-live foreign-hosted runs read above.
       await endHostedSessions(ending)
+      // #EXP-1935: their Assistant in this team is no longer theirs to talk
+      // to: voice moves to one of a team they are still in, or clears.
+      await syncVoiceMirror(ctx.db, target.userId).catch((error: unknown) =>
+        console.error(`[team-members] voice mirror after a removal failed`, error)
+      )
 
       return { ok: true }
     }),

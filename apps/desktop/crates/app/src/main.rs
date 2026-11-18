@@ -150,7 +150,9 @@ fn main() {
     #[cfg(target_os = "macos")]
     macos_integration::match_web_font_smoothing();
 
-    let app = gpui_platform::application().with_assets(assets::Assets);
+    // #EXP-1938: closing the last window quits only when the shell, the tray
+    // or `ui`'s observer say so; gpui's default would end the loop first.
+    let app = gpui_platform::application().with_quit_mode(ui::QUIT_MODE).with_assets(assets::Assets);
 
     // on_open_urls is the macOS OAuth-callback surface (exponential:// → §5.7).
     // Real signature: FnMut(Vec<String>) — NO cx.

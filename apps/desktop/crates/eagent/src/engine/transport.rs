@@ -280,6 +280,41 @@ impl Drop for ChildGuard {
     }
 }
 
+/// EXP-1910: how long an exited agent's process group gets between SIGTERM
+/// and SIGKILL. Short: it delays the exit's announcement.
+#[cfg(unix)]
+const GROUP_TERM_GRACE: Duration = Duration::from_millis(200);
+
+/// EXP-1910: wait for `pid` to exit WITHOUT reaping it, then end what is left
+/// of its process group (SIGTERM, [`GROUP_TERM_GRACE`], SIGKILL). The zombie
+/// still pins the pid and the group id, so neither can name a stranger; the
+/// caller reaps afterwards. [`ChildGuard`] never signals a group whose
+/// leader is gone, so an agent that died by itself used to leave its tool
+/// subprocesses (a build) running for good.
+#[cfg(unix)]
+fn end_group_of_exited(pid: u32) {
+    // SAFETY: `waitid` fills a zeroed `siginfo_t`; WNOWAIT leaves the child
+    // a zombie for `Child::wait`. `killpg` on our own child's group (set at
+    // spawn, `process_group(0)`) while that zombie holds the id.
+    unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        loop {
+            let waited = libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT);
+            if waited == 0 {
+                break;
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                return;
+            }
+        }
+        if libc::killpg(pid as i32, libc::SIGTERM) != 0 {
+            return;
+        }
+        std::thread::sleep(GROUP_TERM_GRACE);
+        libc::killpg(pid as i32, libc::SIGKILL);
+    }
+}
+
 /// Spawn `spec` as a line-delimited JSON child.
 ///
 /// The `SpawnSpec` comes straight off `coding::PreparedLaunch::spawn`, so an
@@ -299,6 +334,9 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     let argv = mode.wrap_for(&spec.program, &spec.args, session);
     let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
+    for key in &spec.env_remove {
+        cmd.env_remove(key);
+    }
     for (key, value) in &spec.env {
         cmd.env(key, value);
     }
@@ -395,6 +433,10 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     std::thread::Builder::new()
         .name(format!("acp-wait-{pid}"))
         .spawn(move || {
+            // EXP-1910: the agent went away by itself (a crash, the OOM
+            // killer) while its tools still run in its process group.
+            #[cfg(unix)]
+            end_group_of_exited(pid);
             let captured = match child.wait() {
                 Ok(status) => child_exit(status),
                 Err(err) => {
@@ -530,8 +572,17 @@ mod tests {
         let leftover: i32 =
             child.lines.recv_timeout(Duration::from_secs(10)).expect("the leftover's pid").trim().parse().unwrap();
         let alive = |pid: i32| unsafe { libc::kill(pid, 0) == 0 };
+        // #EXP-1902: the shell prints the pid at the fork. Until the leftover
+        // has reached `setsid(2)` it is still in the agent's group, and the
+        // kill below would rightly take it.
+        let led = std::time::Instant::now() + Duration::from_secs(30);
+        while unsafe { libc::getsid(leftover) } != leftover {
+            assert!(std::time::Instant::now() < led, "the leftover leads its own session");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let exit = child.exit.clone();
         drop(child);
-        std::thread::sleep(Duration::from_millis(300));
+        exit.recv_timeout(Duration::from_secs(30)).expect("the agent is reaped after its group kill");
         assert!(alive(leftover), "the agent's group kill misses a setsid leftover");
         assert!(crate::run_scope::stop_session_scopes(&session), "the stop is asked");
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
@@ -570,6 +621,43 @@ mod tests {
             .expect("the wait thread reports the exit");
         assert_eq!(exit.code, 3);
         assert!(!exit.success);
+    }
+
+    /// EXP-1910: an agent that goes away by itself (a crash, the OOM
+    /// killer) takes its process group with it: a tool subprocess it left
+    /// running (a build) used to stay for good, since the guard never
+    /// signals a group whose leader was already reaped.
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_that_exits_by_itself_takes_its_process_group_with_it() {
+        let spec = SpawnSpec::new("sh").args(["-c", "sleep 300 >/dev/null 2>&1 & echo $!; exit 3"]);
+        let child = spawn_lines(&spec, StderrPolicy::Drop).expect("sh spawns");
+        let leftover: i32 = child
+            .lines
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the leftover's pid")
+            .trim()
+            .parse()
+            .expect("a pid");
+        let exit = child.exit.recv_timeout(Duration::from_secs(10)).expect("the exit");
+        assert_eq!(exit.code, 3, "the agent's own exit code is still what the run reports");
+        // Gone, or a zombie its new parent has not reaped yet.
+        let gone = || {
+            // SAFETY: signal 0 only probes a pid this test's own child printed.
+            let dead = unsafe { libc::kill(leftover, 0) } != 0;
+            dead || std::fs::read_to_string(format!("/proc/{leftover}/stat"))
+                .is_ok_and(|stat| stat.rsplit(')').next().is_some_and(|rest| rest.trim_start().starts_with('Z')))
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !gone() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let survived = !gone();
+        if survived {
+            // SAFETY: still the test's own `sleep` (a reaped pid is never signalled).
+            unsafe { libc::kill(leftover, libc::SIGKILL) };
+        }
+        assert!(!survived, "the agent's leftover outlived it");
     }
 
     /// EXP-758: the teardown ASKS first. A child that handles SIGTERM runs

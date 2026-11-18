@@ -210,3 +210,65 @@ fn a_broken_edit_is_refused_and_never_committed() {
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Refused { name } if name == "panel"));
     assert_eq!(log(&dir), ["Factory panel", "exponential-ui: history starts"]);
 }
+
+/// `exponential-ui --dir <dir> set panel -`: the agent's shell_edit, another process that writes and commits at once.
+fn cli_set(dir: &Path, factory: &Path, doc: &Value) {
+    use std::io::Write;
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_exponential-ui"))
+        .arg("--dir")
+        .arg(dir)
+        .args(["set", "panel", "-"])
+        .env("EDE_FACTORY_DIR", factory)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(&serde_json::to_vec_pretty(doc).unwrap()).unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn an_edit_through_the_cli_is_supervised() {
+    let (_tmp, dir, factory) = setup();
+    let run = Run::start(&dir, &factory);
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    cli_set(&dir, &factory, &panel("crash"));
+    let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
+    assert!(seen.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "panel")), "{seen:?}");
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    assert_eq!(text(&dir), "factory");
+    assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+}
+
+#[test]
+fn a_cli_edit_nobody_draws_rolls_back() {
+    let (_tmp, dir, factory) = setup();
+    let run = Run::start(&dir, &factory);
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    cli_set(&dir, &factory, &panel("silent"));
+    run.wait(Duration::from_secs(6), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(text(&dir), "factory");
+}
+
+#[test]
+fn an_edit_from_an_earlier_run_is_still_a_suspect() {
+    let (_tmp, dir, factory) = setup();
+    {
+        let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+        ui.write("panel", &panel("crash"), "Edit panel.json").unwrap();
+    }
+    let run = Run::start(&dir, &factory);
+    let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
+    assert_eq!(seen.iter().filter(|r| matches!(r, Report::Crashed)).count(), 3, "{seen:?}");
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    assert_eq!(text(&dir), "factory");
+}
+
+#[test]
+fn an_unchanged_factory_document_from_an_earlier_run_is_no_suspect() {
+    let (_tmp, dir, factory) = setup();
+    Runtime::open_with_factory(&dir, &factory).unwrap();
+    let (ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+    let supervisor = Supervisor::new(ui, vec!["true".into()], |_| {}).unwrap();
+    assert!(supervisor.state().documents["panel"].from_factory);
+}

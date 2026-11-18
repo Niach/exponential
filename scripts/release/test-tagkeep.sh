@@ -11,4 +11,6 @@ echo "$out" | grep -q "tag prod-app: latest -> latest" && pass "advert: unpinned
 out=$(DRY_RUN=1 bash -c ". '$R/tagkeep.sh'; settle_tag stagingapp sha-7166e3f sha-3b3fad2" 2>&1)
 echo "$out" | grep -q "tag staginga: sha-7166e3f -> sha-3b3fad2" && pass "deploy: a pin stays a pin, on the deployed sha" || bad "deploy settle" "$out"
 for f in "$R"/*.sh; do bash -n "$f" || bad "syntax $f" ""; done; [ $fail = 0 ] && pass "syntax of every script"
+# the deploy checks (#EXP-1838) ride on this CI step
+bash "$R/test-deploy.sh" || fail=1
 exit $fail

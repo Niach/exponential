@@ -319,6 +319,28 @@ impl Runtime {
         self.reload_with(Some(&format!("Factory {name}")))
     }
 
+    /// The newest commit of `name` when the file on disk is what git holds
+    /// (`None` while it has an uncommitted edit or does not exist).
+    pub fn committed(&self, name: &str) -> io::Result<Option<Commit>> {
+        let file = file_of(name);
+        let Ok(bytes) = fs::read(self.dir.join(&file)) else { return Ok(None) };
+        if self.repo.show_head(&file)?.as_deref() != Some(bytes.as_slice()) {
+            return Ok(None);
+        }
+        self.repo.newest_of(&file)
+    }
+
+    /// [`Self::committed`], unless the file is its newest factory copy
+    /// (#EDE-110: at start, an edit from an earlier run stays a suspect).
+    pub fn edited_commit(&self, name: &str) -> io::Result<Option<Commit>> {
+        let file = file_of(name);
+        let factory = self.repo.show_at_newest(&file, &format!("Factory {name}"))?;
+        if factory.is_some() && factory == fs::read(self.dir.join(&file)).ok() {
+            return Ok(None);
+        }
+        self.committed(name)
+    }
+
     /// Every factory document back as it ships, each a commit (#EDE-16:
     /// the restore hotkey; the person's edits stay in the history).
     pub fn reset_to_factory(&mut self) -> io::Result<Vec<Change>> {

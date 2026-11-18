@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 
 // #FEED-219: the composer field as a plain field (no drafts shape here).
 vi.mock(`@/hooks/use-composer-draft`, () => import(`@/test/composer-draft-plain`))
+vi.mock(`@/lib/enet/send-sealed`, () => import(`@/test/send-plain`))
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
     sessions: {

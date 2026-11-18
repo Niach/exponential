@@ -134,6 +134,8 @@ async function world(opts: { shared?: boolean } = {}) {
     deviceId,
     label: `box`,
     kind: `server`,
+    // #EXP-1899: a build that applies the Computer use gate itself.
+    caps: [`computer-use-switch`],
     sharedTeamIds: opts.shared ? [teamId] : [],
   })
   const issue = async (title = `An issue`, boardId = board!.id) =>

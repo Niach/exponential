@@ -14,8 +14,10 @@
 pub mod backend;
 pub mod clipboard;
 pub mod config;
+pub mod desk;
 pub mod doctor;
 pub mod fallback;
+pub mod focus;
 pub mod frames;
 pub mod grabs;
 mod handlers;
@@ -25,6 +27,7 @@ pub mod idle;
 pub mod input;
 pub mod ipc;
 pub mod keysym;
+pub mod launch;
 pub mod layout;
 pub mod lock;
 pub mod logind;

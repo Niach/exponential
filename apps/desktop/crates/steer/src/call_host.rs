@@ -13,6 +13,7 @@
 //! is the IDE's (`ui::voice_call`).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{json, Value};
@@ -32,6 +33,53 @@ pub const FRAME_MS: u32 = etalk_codec::FRAME_MS;
 pub const UP_RATE: u32 = 16_000;
 /// voice-call.json `constants.downKbps`.
 pub const DOWN_BITRATE: i32 = 32_000;
+
+/// EXP-1929 (`livenessCases`): once the relay beat (`call_alive`), a call
+/// that hears nothing from it for voice-call.json `idleTimeoutMs` is dropped.
+pub fn idle_timeout() -> Duration {
+    Duration::from_millis(etalk::call::VOICE_CALL.constants.idle_timeout_ms)
+}
+
+/// EXP-1929: the liveness deadline of one call socket. An older relay never
+/// beats: then there is none.
+pub(crate) struct Liveness {
+    alive: bool,
+    heard: tokio::time::Instant,
+    timeout: Duration,
+}
+
+impl Liveness {
+    pub(crate) fn new(timeout: Duration) -> Self {
+        Liveness { alive: false, heard: tokio::time::Instant::now(), timeout }
+    }
+
+    /// Anything arrived from the relay; `beat` = it was `call_alive`.
+    pub(crate) fn heard(&mut self, beat: bool) {
+        self.alive |= beat;
+        self.heard = tokio::time::Instant::now();
+    }
+
+    /// Resolves once the path is dead; never before the first beat.
+    pub(crate) async fn dead(&self) {
+        if !self.alive {
+            return std::future::pending().await;
+        }
+        tokio::time::sleep_until(self.heard + self.timeout).await;
+    }
+}
+
+/// EXP-1929: a send that cannot finish within the deadline (a peer that
+/// stopped reading) fails the call instead of parking it.
+pub(crate) async fn send_within<S>(sink: &mut S, message: Message, timeout: Duration) -> Result<(), String>
+where
+    S: futures_util::Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    match tokio::time::timeout(timeout, sink.send(message)).await {
+        Ok(result) => result.map_err(|err| err.to_string()),
+        Err(_) => Err("the call went silent".into()),
+    }
+}
 
 /// What the socket reports to the IDE.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,14 +207,14 @@ pub fn connect(
 ) -> CallHost {
     let (tx, rx) = flume::unbounded::<Outbound>();
     runtime.handle().spawn(async move {
-        if let Err(err) = run(&url, &rx, &on_event).await {
+        if let Err(err) = run(&url, &rx, &on_event, idle_timeout()).await {
             on_event(CallHostEvent::Dropped(err));
         }
     });
     CallHost { tx }
 }
 
-async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(CallHostEvent) + Send + Sync)) -> Result<(), String> {
+async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(CallHostEvent) + Send + Sync), timeout: Duration) -> Result<(), String> {
     let stream = crate::dial(url).await.map_err(|err| match err {
         crate::DialError::Unauthorized => "the call ticket was refused".to_string(),
         crate::DialError::Other(err) => err,
@@ -174,11 +222,15 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
     let (mut sink, mut source) = stream.split();
     let mut decoder = etalk_codec::Uplink::new(UP_RATE)?;
     let mut encoder: Option<Encoder> = None;
+    let mut liveness = Liveness::new(timeout);
     loop {
         tokio::select! {
+            () = liveness.dead() => return Err("the call went silent".into()),
             inbound = source.next() => {
                 let Some(inbound) = inbound else { return Err("the relay closed the call".into()) };
-                match inbound.map_err(|err| crate::redact_ticket(&err.to_string()))? {
+                let inbound = inbound.map_err(|err| crate::redact_ticket(&err.to_string()))?;
+                liveness.heard(false);
+                match inbound {
                     Message::Binary(frame) => {
                         if let Some((KIND_UP, seq, packet)) = parse_audio_frame(&frame) {
                             let pcm = decoder.push(seq, packet);
@@ -191,6 +243,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
                         match value["t"].as_str() {
                             Some("call_ready") => on_event(CallHostEvent::Ready),
+                            Some("call_alive") => liveness.heard(true),
                             Some("call_mute") => on_event(CallHostEvent::Mute(value["muted"].as_bool().unwrap_or(false))),
                             Some("call_end") | Some("bye") => {
                                 on_event(CallHostEvent::Ended { reason: value["reason"].as_str().or(value["outcome"].as_str()).map(str::to_string) });
@@ -212,20 +265,20 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
             outbound = rx.recv_async() => {
                 let Ok(outbound) = outbound else {
                     // Every handle dropped without End: hang up.
-                    let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
+                    let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end" }).to_string()), timeout).await;
                     return Ok(());
                 };
                 match outbound {
                     Outbound::Event(event) => {
                         let frame = json!({ "t": "call_event", "event": event }).to_string();
-                        sink.send(Message::text(frame)).await.map_err(|err| err.to_string())?;
+                        send_within(&mut sink, Message::text(frame), timeout).await?;
                     }
                     Outbound::Speech { pcm, rate } => {
                         if encoder.as_ref().is_none_or(|encoder| encoder.rate != rate) {
                             encoder = Some(Encoder::new(rate)?);
                         }
                         for frame in encoder.as_mut().expect("set above").push(&pcm) {
-                            sink.send(Message::Binary(frame.into())).await.map_err(|err| err.to_string())?;
+                            send_within(&mut sink, Message::Binary(frame.into()), timeout).await?;
                         }
                     }
                     Outbound::Flush => {
@@ -234,7 +287,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                         }
                     }
                     Outbound::End => {
-                        let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
+                        let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end" }).to_string()), timeout).await;
                         let _ = sink.close().await;
                         return Ok(());
                     }
@@ -259,6 +312,69 @@ mod tests {
         assert_eq!(FRAME_MS, spec.constants.frame_ms);
         assert_eq!(UP_RATE, spec.constants.up_rate);
         assert_eq!(DOWN_BITRATE, i32::try_from(spec.constants.down_kbps * 1000).unwrap());
+    }
+
+    /// A fake relay on localhost: it admits one call socket, sends `frames`,
+    /// then goes silent with the socket open (a path that died without a FIN)
+    /// and reports what the call sent it, pongs included.
+    async fn silent_relay(frames: Vec<Message>) -> (String, tokio::sync::mpsc::UnboundedReceiver<Message>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            for frame in frames {
+                ws.send(frame).await.unwrap();
+            }
+            while let Some(Ok(message)) = ws.next().await {
+                let _ = tx.send(message);
+            }
+            std::future::pending::<()>().await;
+        });
+        (url, rx)
+    }
+
+    fn text(t: &str) -> Message {
+        Message::text(json!({ "t": t }).to_string())
+    }
+
+    const TEST_TIMEOUT: Duration = Duration::from_millis(300);
+
+    /// EXP-1929 (voice-gpui-call-2, voice-hosts-2, lens-cleanup-5): a relay
+    /// that beat once and then went silent drops the call within the deadline.
+    #[tokio::test]
+    async fn a_call_that_goes_silent_drops() {
+        let (url, _sent) = silent_relay(vec![text("call_ready"), text("call_alive")]).await;
+        let events = std::sync::Mutex::new(Vec::new());
+        let (_tx, rx) = flume::unbounded();
+        let started = std::time::Instant::now();
+        let ended = tokio::time::timeout(TEST_TIMEOUT * 10, run(&url, &rx, &|event| events.lock().unwrap().push(event), TEST_TIMEOUT)).await;
+        assert_eq!(ended.expect("the dead call ends"), Err("the call went silent".to_string()));
+        assert!(started.elapsed() >= TEST_TIMEOUT);
+        assert_eq!(*events.lock().unwrap(), vec![CallHostEvent::Ready]);
+    }
+
+    /// EXP-1929: an OLDER relay never beats: a silent call is never dropped
+    /// for it (a listening host and a muted-free caller say nothing).
+    #[tokio::test]
+    async fn an_older_relay_without_a_beat_keeps_the_call() {
+        let (url, _sent) = silent_relay(vec![text("call_ready")]).await;
+        let (_tx, rx) = flume::unbounded();
+        let ended = tokio::time::timeout(TEST_TIMEOUT * 4, run(&url, &rx, &|_| {}, TEST_TIMEOUT)).await;
+        assert!(ended.is_err(), "still in the call: {ended:?}");
+    }
+
+    /// EXP-1929: a NEW relay pings; a host (this one and every older build:
+    /// tungstenite answers by itself while it reads) pongs while it says
+    /// nothing, so the relay sees it alive.
+    #[tokio::test]
+    async fn a_silent_host_answers_the_relays_ping() {
+        let (url, mut sent) = silent_relay(vec![text("call_ready"), Message::Ping(vec![7u8].into())]).await;
+        let (_tx, rx) = flume::unbounded();
+        tokio::spawn(async move { run(&url, &rx, &|_| {}, TEST_TIMEOUT).await });
+        let pong = tokio::time::timeout(TEST_TIMEOUT, sent.recv()).await.expect("a pong").unwrap();
+        assert_eq!(pong, Message::Pong(vec![7u8].into()));
     }
 
     #[test]

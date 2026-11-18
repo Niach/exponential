@@ -245,6 +245,11 @@ impl KeyHolder {
                 lock(&self.inner.refused).insert((root_id.to_string(), flagged));
                 Ok(false)
             }
+            // #EDE-97: a clear tree is never keyed (nor rotated).
+            Err(Created::Clear) => {
+                self.inner.keyring.rotated(root_id);
+                Ok(false)
+            }
             Err(Created::Failed(err)) => Err(err),
         }
     }
@@ -277,6 +282,12 @@ impl KeyHolder {
             }
             Err(ApiError::Http { status: 409, .. }) => Err(Created::Conflict),
             Err(ApiError::Http { status: 403 | 404, .. }) => Err(Created::Refused),
+            // #EDE-97: the server refuses to key a clear tree (its row may
+            // not have synced here yet): remembered, plaintext is its wire.
+            Err(ApiError::Http { status: 400, message }) if message.contains(coding::sealing::CLEAR_REFUSAL) => {
+                coding::sealing::note_clear_tree(root_id);
+                Err(Created::Clear)
+            }
             Err(err) => Err(Created::Failed(err.to_string())),
         }
     }
@@ -364,6 +375,7 @@ impl SealService for KeyHolder {
                 .map_err(SealError::NoKey)?
                 .ok_or_else(|| SealError::NoKey("the tree was keyed concurrently but has no key".to_string())),
             Err(Created::Refused) => Err(SealError::NotReader),
+            Err(Created::Clear) => Err(SealError::ClearTree),
             Err(Created::Failed(err)) => Err(SealError::NoKey(err)),
         }
     }
@@ -411,6 +423,8 @@ enum Created {
     Conflict,
     /// 403/404: this install may not write this key.
     Refused,
+    /// #EDE-97: 400 `clearTree.clearRefusal`: a clear tree.
+    Clear,
     Failed(String),
 }
 

@@ -160,6 +160,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             sweep_scratch_dirs(cx);
             // EXP-369: give the account a clock for its daily digest.
             claim_timezone(account, cx);
+            // #EDE-105: the account's chat store opens and starts filling.
+            crate::chat_store::start(&account.id, cx);
             true
         }
         Err(err) => {
@@ -234,6 +236,9 @@ pub fn sign_out_active(cx: &mut App) {
     let enet = crate::enet_wiring::stop(&account_id, cx);
     // #EXP-1538: the Dock's last-known stream slots belong to this account.
     crate::steer_viewer::StreamSlotMemo::clear(cx);
+    // #EDE-120: a deliberate sign-out stops the account's chat store and
+    // deletes it (it holds chats decrypted); an expiry never comes here.
+    crate::chat_store::sign_out(&account_id, cx);
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     crate::device_sync::stop_device_sync(&account_id, cx);

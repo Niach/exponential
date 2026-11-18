@@ -138,6 +138,119 @@ pub fn no_feed_inputs<'r, T>(rows: &'r [T], max: usize, row: impl Fn(&'r T) -> N
     inputs.into_iter().skip(skip).map(|(_, item)| item).collect()
 }
 
+/// #FEED-260 (`syncedTailMax`): how many synced messages a not-live
+/// transcript draws after its feed.
+pub const SYNCED_TAIL_MAX: usize = 50;
+
+/// One row of the viewer's feed as [`synced_tail`] reads it: a main-lane
+/// narration (`Some("agent")`), an input (`Some("user")`) or anything else
+/// (`None`), its text and its known time in epoch ms (a narration's first
+/// fragment, an input, a settled tool; `None` = unknown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TailFeedRow<'a> {
+    pub author: Option<&'a str>,
+    pub text: Option<&'a str>,
+    pub at_ms: Option<i64>,
+}
+
+/// One synced message as [`synced_tail`] reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyncedTailRow<'a> {
+    pub id: &'a str,
+    pub author_kind: &'a str,
+    /// The row carries a card (`card` set and not JSON null).
+    pub has_card: bool,
+    pub consumed_at: Option<&'a str>,
+    pub created_at: &'a str,
+    pub body: &'a str,
+}
+
+/// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
+/// messages a NOT-live transcript draws after its feed, oldest first
+/// (`createdAt`, then `id`), the newest `max`: card-less with a non-blank
+/// body, the agent's or a person's CONSUMED input, later than the feed's
+/// newest known row time, and not already held by the feed (an agent line
+/// equal to, a prefix of or prefixed by a narration; an input equal to a feed
+/// input). An empty feed takes the tail only while its live transcript
+/// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
+/// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
+/// live feed = none.
+pub fn synced_tail<'r, T>(
+    live: bool,
+    feed: &[TailFeedRow<'_>],
+    rows: &'r [T],
+    max: usize,
+    unreachable: bool,
+    row: impl Fn(&'r T) -> SyncedTailRow<'r>,
+) -> Vec<&'r T> {
+    if live || (feed.is_empty() && !unreachable) {
+        return Vec::new();
+    }
+    let feed_at = feed.iter().filter_map(|r| r.at_ms).max();
+    if !feed.is_empty() && feed_at.is_none() {
+        return Vec::new();
+    }
+    let narrations: Vec<&str> = feed
+        .iter()
+        .filter(|r| r.author == Some("agent"))
+        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
+        .map(str::trim)
+        .collect();
+    let inputs: Vec<&str> = feed
+        .iter()
+        .filter(|r| r.author == Some("user"))
+        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
+        .map(str::trim)
+        .collect();
+    let mut tail: Vec<(SyncedTailRow<'r>, &'r T)> = rows
+        .iter()
+        .map(|item| (row(item), item))
+        .filter(|(m, _)| {
+            if m.has_card {
+                return false;
+            }
+            let body = m.body.trim();
+            if body.is_empty() {
+                return false;
+            }
+            match m.author_kind {
+                "agent" => {
+                    if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
+                        return false;
+                    }
+                }
+                "user" => {
+                    if m.consumed_at.is_none() || inputs.contains(&body) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+            match feed_at {
+                None => true,
+                Some(feed_at) => domain::session_tree::iso_ms(m.created_at).is_some_and(|created| created > feed_at),
+            }
+        })
+        .collect();
+    tail.sort_by(|(a, _), (b, _)| a.created_at.cmp(b.created_at).then_with(|| a.id.cmp(b.id)));
+    if feed.is_empty() && !tail.iter().any(|(m, _)| m.author_kind == "agent") {
+        return Vec::new();
+    }
+    let skip = tail.len().saturating_sub(max);
+    tail.into_iter().skip(skip).map(|(_, item)| item).collect()
+}
+
+/// #FEED-260 (steer-enet.json OFFLINE LINE, TS `steerOfflineLine`): whether a
+/// not-live transcript showing `rows` ends with THE inline marker reading
+/// `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
+/// ended whose device is offline.
+pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool) -> bool {
+    if live || rows == 0 {
+        return false;
+    }
+    if ended { no_feed } else { device_offline }
+}
+
 /// The synced row fields [`row_wakes`] reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WakeRow {
@@ -180,11 +293,11 @@ pub const SEND_TIMEOUT: Duration = Duration::from_millis(20_000);
 
 /// The frames a viewer sends.
 pub const VIEWER_FRAMES: &[&str] = &[
-    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page",
+    "join", "leave", "input", "answer", "interrupt", "unqueue", "set_config", "set_mode", "kill", "history_page", "search",
 ];
 /// The frames a device sends.
 pub const DEVICE_FRAMES: &[&str] =
-    &["activity_reset", "activity", "activity_synced", "history_chunk", "keepalive", "bye", "error"];
+    &["activity_reset", "activity", "activity_synced", "history_chunk", "search_result", "keepalive", "bye", "error"];
 /// This install neither runs the session live nor holds its journal.
 pub const ERROR_NO_SUCH_SESSION: &str = "no_such_session";
 /// The access rule refused the sender.
@@ -381,7 +494,7 @@ impl FeedPeer {
 
     /// One envelope of `frames`: eNet waits for the ack (at most
     /// [`SEND_TIMEOUT`]); a tunnel queues it sealed on the control socket.
-    async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
+    pub(crate) async fn send(&self, session_id: &str, frames: &[String]) -> Result<(), String> {
         match self {
             FeedPeer::Enet(peer) => send_envelope(&peer.node, peer.id, session_id, frames).await,
             FeedPeer::Tunnel(peer) => peer.send(&envelope_bytes(session_id, frames)),
@@ -397,7 +510,7 @@ impl FeedPeer {
         }
     }
 
-    fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match self {
             FeedPeer::Enet(peer) => crate::enet::endpoint_hex(&peer.id),
             FeedPeer::Tunnel(peer) => format!("tunnel {}", peer.tunnel_id),
@@ -528,10 +641,24 @@ fn serve_envelope(
     user_of: &dyn Fn(&str) -> Option<String>,
     stored: Option<&StoredJournals>,
 ) {
+    let mut envelope = envelope;
     let session_id = envelope.session_id.clone();
     let room = lock(rooms())
         .get(&session_id)
         .and_then(|room| Some((room.audience.clone(), room.cmd_tx.upgrade()?)));
+    // #EDE-108 CATCH-UP: a page that names a device needs no join; it is
+    // answered to the asker alone (journal or chat store), never queued to a
+    // feed.
+    let (pages, frames): (Vec<Value>, Vec<Value>) =
+        std::mem::take(&mut envelope.frames).into_iter().partition(crate::enet_catchup::is_page);
+    envelope.frames = frames;
+    if !pages.is_empty() {
+        let audience = room.as_ref().map(|(audience, _)| audience.clone());
+        crate::enet_catchup::serve(&peer, &session_id, pages, audience, user_of, stored);
+        if envelope.frames.is_empty() {
+            return;
+        }
+    }
     let Some((audience, cmd_tx)) = room else {
         match stored.and_then(|stored| Some((stored, stored.lookup(&session_id)?))) {
             Some((stored, session)) => {
@@ -726,6 +853,12 @@ pub struct StoredJournals {
     pub data_dir: PathBuf,
     /// Session id → its synced row's [`StoredSession`]; `None` = no row.
     pub session: Arc<dyn Fn(&str) -> Option<StoredSession> + Send + Sync>,
+    /// #EDE-108: this machine's `devices.device_id` (a catch-up page for its
+    /// own runs is answered off the journal).
+    pub device_id: Option<String>,
+    /// #EDE-108: the account's chat store, once open (a catch-up page for
+    /// any other device's run is answered off it).
+    pub chat_store: Option<crate::enet_catchup::ChatStoreSlot>,
 }
 
 /// What STORED REPLAY reads off a session's synced row.
@@ -796,7 +929,8 @@ pub fn has_stored_viewer(session_id: &str, endpoint: &EndpointId) -> bool {
 }
 
 /// One allowed envelope for a session served from its journal: `join`,
-/// `leave` and `history_page` apply; a stored run cannot be steered.
+/// `leave`, `history_page` and `search` apply; a stored run cannot be
+/// steered.
 fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, ended: bool) {
     let session_id = envelope.session_id;
     let from = peer.id();
@@ -815,6 +949,20 @@ fn serve_stored(peer: FeedPeer, envelope: Envelope, stored: &StoredJournals, end
                     (request_id, page("beforeSeq"), page("limit"))
                 {
                     stored_page(&session_id, &from, stored.data_dir.clone(), request_id.to_string(), before_seq, limit);
+                }
+            }
+            Some("search") => {
+                let request_id = frame.get("requestId").and_then(Value::as_str);
+                let query = frame.get("query").and_then(Value::as_str);
+                let limit = frame.get("limit").and_then(Value::as_u64);
+                if let (Some(request_id), Some(query), Some(limit)) = (request_id, query, limit) {
+                    let ask = StoredSearch {
+                        request_id: request_id.to_string(),
+                        query: query.to_string(),
+                        before_seq: frame.get("beforeSeq").and_then(Value::as_u64),
+                        limit,
+                    };
+                    stored_search(&peer, &session_id, stored.data_dir.clone(), ask);
                 }
             }
             _ => {}
@@ -889,6 +1037,46 @@ fn stored_page(session_id: &str, from: &PeerId, data_dir: PathBuf, request_id: S
         .await
         .unwrap_or_default();
         let _ = tx.send(crate::history::history_chunk_frame(&request_id, page));
+    });
+}
+
+/// #EDE-96: one `search` ask on a stored journal.
+struct StoredSearch {
+    request_id: String,
+    query: String,
+    before_seq: Option<u64>,
+    limit: u64,
+}
+
+/// A `search` on a stored journal (steer-enet.json SEARCH), answered off the
+/// file to the asker only: through its stored feed when it is joined (in
+/// order with that feed), else on its own (an ended row's viewer was dropped
+/// at `bye`; a search needs no join).
+fn stored_search(peer: &FeedPeer, session_id: &str, data_dir: PathBuf, ask: StoredSearch) {
+    let feed = lock(stored_viewers())
+        .get(session_id)
+        .and_then(|viewers| viewers.get(&peer.id()))
+        .map(|(_, tx)| tx.clone())
+        .filter(|tx| !tx.is_disconnected());
+    let peer = peer.clone();
+    let id = session_id.to_string();
+    tokio::spawn(async move {
+        let read_id = id.clone();
+        let frame = tokio::task::spawn_blocking(move || {
+            crate::search::answer(Some(&data_dir), &read_id, &ask.request_id, &ask.query, ask.before_seq, ask.limit)
+        })
+        .await;
+        let Ok(frame) = frame else { return };
+        match feed {
+            Some(tx) => {
+                let _ = tx.send(frame);
+            }
+            None => {
+                if let Err(err) = peer.send(&id, &[frame]).await {
+                    log::debug!("enet steer: search answer to {} failed: {err}", peer.label());
+                }
+            }
+        }
     });
 }
 
@@ -1010,7 +1198,12 @@ pub fn subscribe(session_id: &str, device: EndpointId) -> ViewerSubscription {
     ViewerSubscription { key, generation, frames }
 }
 
-fn deliver_to_viewer(from: EndpointId, envelope: Envelope) {
+fn deliver_to_viewer(from: EndpointId, mut envelope: Envelope) {
+    // #EDE-108: a catch-up page's answer goes to its asker, never a viewer.
+    crate::enet_catchup::take_answers(&mut envelope.frames);
+    if envelope.frames.is_empty() {
+        return;
+    }
     let key = (envelope.session_id, from);
     let mut viewers = lock(viewers());
     let Some(subs) = viewers.get_mut(&key) else {
@@ -1147,6 +1340,54 @@ mod tests {
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #FEED-260: `syncedTailMax` + `syncedTailCases` (SYNCED TAIL).
+    #[test]
+    fn synced_tail_cases() {
+        let f = fixture();
+        assert_eq!(f["syncedTailMax"], SYNCED_TAIL_MAX as u64);
+        for case in f["syncedTailCases"].as_array().unwrap() {
+            let feed: Vec<TailFeedRow> = case["feed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| TailFeedRow {
+                    author: r["author"].as_str(),
+                    text: r["text"].as_str(),
+                    at_ms: r["at"].as_str().and_then(domain::session_tree::iso_ms),
+                })
+                .collect();
+            let messages = case["messages"].as_array().unwrap();
+            let max = case["max"].as_u64().map_or(SYNCED_TAIL_MAX, |max| max as usize);
+            let unreachable = case["unreachable"].as_bool().unwrap_or(false);
+            let picked = synced_tail(case["live"].as_bool().unwrap(), &feed, messages, max, unreachable, |m| SyncedTailRow {
+                id: m["id"].as_str().unwrap(),
+                author_kind: m["authorKind"].as_str().unwrap(),
+                has_card: !m["card"].is_null(),
+                consumed_at: m["consumedAt"].as_str(),
+                created_at: m["createdAt"].as_str().unwrap(),
+                body: m["body"].as_str().unwrap(),
+            });
+            let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #FEED-260: `offlineLineCases` (OFFLINE LINE).
+    #[test]
+    fn offline_line_cases() {
+        for case in fixture()["offlineLineCases"].as_array().unwrap() {
+            let line = offline_line(
+                case["live"].as_bool().unwrap(),
+                case["rows"].as_u64().unwrap() as usize,
+                case["ended"].as_bool().unwrap(),
+                case["noFeed"].as_bool().unwrap(),
+                case["deviceOffline"].as_bool().unwrap(),
+            );
+            assert_eq!(line, case["line"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

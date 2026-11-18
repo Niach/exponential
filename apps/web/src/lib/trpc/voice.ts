@@ -21,7 +21,6 @@
 // only the stamp it read and, when it did, posts `stopNote` once into the
 // member's conversation with the voice agent (never waking it).
 
-import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
@@ -41,10 +40,13 @@ import {
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
-import { authedProcedure, router } from "@/lib/trpc"
+import { authedProcedure, generateTxId, router } from "@/lib/trpc"
+import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
+import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
+import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
 
@@ -262,6 +264,42 @@ async function memberAgent(database: Db, userId: string, agentId: string): Promi
   return { deviceId: agent.deviceId ?? null }
 }
 
+/** Every agent the member may call (`memberAgent`'s rule, as a set). */
+async function memberAgentIds(database: Db, userId: string): Promise<string[]> {
+  const memberTeams = database
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+  const rows = await database
+    .select({ id: agents.id, role: agents.role, ownerId: agents.ownerId })
+    .from(agents)
+    .where(inArray(agents.teamId, memberTeams))
+  return rows.filter((agent) => !(agent.role === `assistant` && agent.ownerId !== userId)).map((agent) => agent.id)
+}
+
+/** #EXP-1941: the mode of a call the SERVER minted for this member and
+ *  device (lib/voice-call-id.ts), or null for a ring it did not make. A host
+ *  that names the ring's agent must name the id's agent, in both modes; the
+ *  sealed candidate is tried only for a host that names its own device and
+ *  that agent. A host that names no agent (a build before it sealed) gets
+ *  the clear candidate only, tried for each agent the member may call. */
+export async function vouchedCall(
+  database: Db,
+  userId: string,
+  call: { callId: string; deviceId: string; namedDevice: boolean; agentId?: string }
+): Promise<{ sealed: boolean; tried: string } | { sealed: null; tried: string }> {
+  const binding = { userId, deviceId: call.deviceId }
+  if (call.agentId !== undefined) {
+    const named = { ...binding, agentId: call.agentId }
+    if (call.namedDevice && verifyCallId(call.callId, { ...named, sealed: true })) return { sealed: true, tried: `sealed` }
+    if (verifyCallId(call.callId, { ...named, sealed: false })) return { sealed: false, tried: `clear` }
+    return { sealed: null, tried: call.namedDevice ? `sealed and clear for the named agent` : `clear for the named agent` }
+  }
+  const agentIds = await memberAgentIds(database, userId)
+  const match = agentIds.some((agentId) => verifyCallId(call.callId, { ...binding, agentId, sealed: false }))
+  return match ? { sealed: false, tried: `clear` } : { sealed: null, tried: `clear for ${agentIds.length} agents (the host named none)` }
+}
+
 /** EXP-1857 (voice-call.json `callTarget`): the member's OWN desktops,
  *  newest first, as a call's possible speech devices (EXP-1858: and their
  *  own servers, a candidate only as the agent's device). A meeting runs on
@@ -454,6 +492,8 @@ export const voiceRouter = router({
         /** The calling client's own steer deviceId (desktops): the desktop
          *  you're at, the first fallback. */
         deviceId: z.string().min(1).max(128).optional(),
+        /** #EXP-1941: the caller can seal this call (it holds a key holder). */
+        seal: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -481,7 +521,18 @@ export const voiceRouter = router({
       if (!config) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
-      const callId = randomUUID()
+      // #EXP-1941: ONE boolean for the id and for the answer, so the host is
+      // never told another mode than the caller. It will be the caller's
+      // claim (`input.seal`) AND the target's `call-seal` cap; until the
+      // hosts are released and sealing is turned on it is the constant false.
+      const sealed = false
+      // The id vouches for this member, device, agent and mode
+      // (lib/voice-call-id.ts). Without the secret it could vouch for
+      // nothing: no call.
+      const callId = mintCallId({ userId, deviceId: target.device, agentId: input.agentId, sealed })
+      if (!callId) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
+      }
       const minted = mintSteerTicket(config, {
         kind: `caller`,
         userId,
@@ -500,16 +551,83 @@ export const voiceRouter = router({
         deviceId: target.device,
         device: target.name ?? target.device,
         fallback: target.fallback,
+        seal: sealed,
       }
+    }),
+
+  // #EXP-1941: THE CHAT OF A FIRST CALL. A sealed call is keyed with the
+  // chat's tree secret, and a first call to an agent has no chat yet: the
+  // answering host creates it, with its key, before it sends its hello. A
+  // text-less `sessions.send` is refused by its schema, hence this op. In
+  // this order: the call id must be a SEALED one the server minted for this
+  // member, this device and THIS agent (the verify `callHostTicket` uses),
+  // so it runs only inside a call the server vouched for; then
+  // `loadAgentForUser`, the rule a send applies first; then the
+  // conversation and, ONLY when its root has no key, the key, in one
+  // transaction under the tree's key lock. A root somebody keyed a moment
+  // before (a first message, a second ring) answers its STORED key, never
+  // the stale-tree conflict: the host keeps its own secret only when the
+  // answer names its own public key. It posts no message. A new row is
+  // `queued` and its device is nudged, exactly as a first message does it.
+  // Key writes stay bound to the caller's own install and to readers
+  // (`createTreeKeyInTx`). Unreachable until `startCall` mints sealed ids.
+  callConversation: authedProcedure
+    .input(
+      z.object({
+        agentId: z.string().uuid(),
+        callId: z.string().uuid(),
+        deviceId: z.string().min(1).max(128),
+        seal: z.object({
+          installId: z.string().uuid(),
+          publicKey: z.string().length(43),
+          epoch: z.literal(1),
+          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256) })).min(1).max(200),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      if (!verifyCallId(input.callId, { userId, deviceId: input.deviceId, agentId: input.agentId, sealed: true })) {
+        console.warn(`[voice] callConversation refused: member=${userId} device=${input.deviceId}: no sealed call the server minted`)
+        throw new TRPCError({ code: `NOT_FOUND`, message: `No such call` })
+      }
+      const agent = await loadAgentForUser(userId, input.agentId)
+      const outcome = await ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const { session, created } = await conversationInTx(tx, agent, userId)
+        // `conversationInTx` read an existing row BEFORE this lock: read the
+        // root again under it, so "has no key" and the write are one step.
+        await lockTreeKeys(tx, session.id)
+        const root = await loadRoot(tx, session.id)
+        if (root.sealEpoch === null || !root.sealPublicKey) {
+          await createTreeKeyInTx(tx, userId, { ...input.seal, rootId: root.id })
+          return { rootId: root.id, epoch: input.seal.epoch as number, publicKey: input.seal.publicKey, txid, created }
+        }
+        return { rootId: root.id, epoch: root.sealEpoch, publicKey: root.sealPublicKey, txid, created }
+      })
+      const { created, ...answer } = outcome
+      if (created) nudge(created.ownerId, created.deviceId)
+      return answer
     }),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
   // alone; the relay admits it only into a ringing call on a device this
-  // account owns, so the callId is not a grant of anything. EXP-1857: any
-  // of the member's desktops may be rung; it names itself (`deviceId`, one
-  // of the member's own devices); an old IDE without it = the voice device.
+  // account owns. EXP-1857: any of the member's desktops may be rung; it
+  // names itself (`deviceId`, one of the member's own devices); an old IDE
+  // without it = the voice device. #EXP-1941: the relay writes the ring and
+  // could invent one, so a ticket is minted ONLY for a call id `startCall`
+  // minted for this member, this device and the agent the host names
+  // (`agentId`, the ring's; `vouchedCall` has the rule for a host that names
+  // none), within the id's life. The answer says `seal`, the mode the caller
+  // was told. Stateless: an id is answered again while it lives.
   callHostTicket: authedProcedure
-    .input(z.object({ callId: z.string().uuid(), deviceId: z.string().min(1).max(128).optional() }))
+    .input(
+      z.object({
+        callId: z.string().uuid(),
+        deviceId: z.string().min(1).max(128).optional(),
+        agentId: z.string().uuid().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const config = getSteerRelayConfig()
       if (!config) {
@@ -534,6 +652,18 @@ export const voiceRouter = router({
         }
         deviceId = settings.voiceDeviceId
       }
+      const vouched = await vouchedCall(ctx.db, userId, {
+        callId: input.callId,
+        deviceId,
+        namedDevice: input.deviceId !== undefined,
+        agentId: input.agentId,
+      })
+      if (vouched.sealed === null) {
+        // A healthy call that fails here must be told from a forged ring:
+        // who, where and which candidates, never an id or MAC bytes.
+        console.warn(`[voice] callHostTicket refused: member=${userId} device=${deviceId} tried ${vouched.tried}`)
+        throw new TRPCError({ code: `NOT_FOUND`, message: `No such call` })
+      }
       const minted = mintSteerTicket(config, {
         kind: `call_host`,
         userId,
@@ -543,6 +673,6 @@ export const voiceRouter = router({
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
-      return { callId: input.callId, ticket: minted.ticket, url: minted.url, relayUrl: config.url }
+      return { callId: input.callId, ticket: minted.ticket, url: minted.url, relayUrl: config.url, seal: vouched.sealed }
     }),
 })

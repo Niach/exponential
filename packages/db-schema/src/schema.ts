@@ -2298,6 +2298,12 @@ export const sessions = pgTable(
     // The title as a body envelope (`exp-sealed:v1:…`); `title` stays a
     // neutral fallback. SYNCED.
     sealedTitle: text(`sealed_title`),
+    // #EDE-97 (sealed-content.json `clearTree`): ROOT rows only: an outside
+    // MCP client (no device gateway, no `seal`) started this tree, so it
+    // stays in clear FOR LIFE (that client cannot encrypt, yet keeps sending
+    // and reading): nobody keys it (`sessionKeys.create` / an inline `seal`
+    // refused), writers send plaintext. Every other tree is sealed. SYNCED.
+    clearTree: boolean(`clear_tree`).notNull().default(false),
     // #EXP-1730 (one-tree model): the list digest of this session's messages
     // (domain-contract `conversationDigest`), mirrored from its kind-session
     // conversation by trigger `mirror_conversation_digest` until phase B

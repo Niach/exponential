@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1683 ATTACHMENT LINES: the server never appends to a sealed body, so the WRITER names a send's attachments inside the text before sealing (`withAttachmentEmbeds`, `attachmentEmbedCases`, the server's claimAttachments rule): one line per id (once each, in order) the text does not reference yet, a blank line apart, `![name](/api/attachments/<id>)` for an inline image type (`inlineImageTypes`, exact match) and `[name](/api/attachments/<id>)` for anything else, `[` and `]` dropped from the name. So a PDF in a sealed chat is a file row, never a broken image. An upload this process did not record is an image named `image` (the older clients' reading of a bare id). An attachment-only send has no text and is not sealed: the server writes its lines. EXP-1458 (design #EXP-1457): sealed session content, the ONE wire format every platform reads and writes. Replayed x4 through each platform's reference: TS packages/domain-contract/src/sealed-content.ts, Rust enet-core sealed.rs (exported as free functions by exponential-net-ffi, full AND push-only build, and by exponential-net-wasm), Swift + Kotlin through the UniFFI binding. PRIMITIVE: `push_seal(recipient_x25519_public, plaintext)` from enet-core push.rs, byte-exact (fixtures/push-seal.json); secrets are lowercase hex here, everything that travels (public keys, wrapped keys, envelopes) is base64url WITHOUT padding, canonical (a padded, non-alphabet or non-zero-trailing-bits encoding is malformed). TREE KEY: one X25519 keypair per session tree (root) and EPOCH (1-based, <= 2147483647). The ROOT row carries `sessions.seal_public_key` (base64url of 32 bytes, 43 chars) and `sessions.seal_epoch` (int, the current epoch); both NULL until a key exists. `session_keys(root_id, epoch, install_id, wrapped, created_by_install_id, created_at)`, unique (root_id, epoch, install_id): `wrapped` = base64url(push_seal(installs.x25519_public, tree_secret[32])) = 81 bytes. `generateTreeKey()` = 32 random secret bytes + their clamped X25519 public; `wrapTreeKey(installPublic, treeSecret)` / `unwrapTreeKey(installSecret, wrapped)` (fails unless it opens to exactly 32 bytes). READERS of a tree (the server computes them, tRPC sessionKeys): every non-revoked install of the root's starter (`sessions.user_id`) while a member of the root's team; every non-revoked install of every team member when the root is `shared`; the non-revoked installs bound (`installs.device_id`) to the HOST devices row (lib/sessions/host.ts: the starter's own row for the session's `device_id`, else the first row sharing the team) of ANY session in the tree. Nothing crosses teams. BODY ENVELOPE (`messages.body`, `sessions.sealed_title`, text): `exp-sealed:v1:<epoch>:<b64url push_seal(tree_public, utf8(text))>`. A body without the `exp-sealed:` prefix is plaintext and stays legal (server lines, older rows). Parse: after the prefix, the version runs to the next `:` (or the end); a version other than `v1` = `unsupported` (never an error, never shown as text); for v1 the epoch is decimal without leading zeros, 1..2147483647, then `:` and the payload, which must decode to at least the 49-byte seal overhead; anything else = `malformed`. Open (`openBody(body, keys by epoch)`) gives exactly one status: `plain` (text = the body), `opened` (epoch, text), `noKey` (epoch: this install holds no secret for that epoch yet: show a locked placeholder and wait for the wrap), `unsupported`, `malformed`, `refused` (epoch: the secret did not authenticate it, or the plaintext is not UTF-8). CARD ENVELOPE (`messages.card`, jsonb): `{...clear, \"sealed\": \"v1:<epoch>:<b64url push_seal(tree_public, utf8(JSON(full card)))>\"}` (the same sealed-value grammar as the body after its prefix). CLEAR fields (`cardClearFields`): `kind` plus only what routing needs: messageId, sessionId, issueId, pullRequestId, event, status, final, decision, fresh, answered, pictures, story; each is copied from the full card when set (null/absent = omitted) except `answered`, which is `true` when the card carries `answer` or `answers` (or `answered: true`) and absent otherwise, and `pictures` (addendum 2026-10-30: the attachments a card shows, so the server can claim them and build the PR's attachment list), which is PROJECTED: each entry becomes `{label, attachmentId}` with each only when a string (captions, sizes and everything else stay sealed), entries naming neither dropped, omitted when none is left. Addendum 4 (2026-10-30): an entry with a label and no attachmentId is a picture STILL TO UPLOAD: the server mints its upload (`exponential_show`'s curls) and, when it lands, files it on that CLEAR entry only (`{label, attachmentId}`), never touching `sealed`. Addendum 5 (2026-10-30): `story` (the older name of the results flag, false = chat only) stays in clear, copied only when a boolean (absent otherwise), so the server builds PR pictures from a sealed card without opening it: a sealed card's PR pictures (the PR body and `pr open`'s per-platform picture gate) are its CLEAR `pictures` entries that carry an attachmentId, the label standing in for the caption (captions stay sealed: a PR body is a public export and never carries sealed text), none when the clear `story` is false. EVERYTHING else (question, options, plan, questions, picture captions/sizes, surface, summary, answers, title, caption, items, text, headSha...) exists only inside `sealed`, and the sealed JSON is the FULL card (the clear fields included). `splitCard(card)` = {clear, plaintext}; `card.splits` lists EVERY MessageCard kind (packages/db-schema domain.ts) with its clear part, its plaintext and its envelope. The plaintext's key order and whitespace are NOT part of the contract (readers parse it); the vectors are written with sorted keys and no whitespace so sorting serializers (serde_json, JSONSerialization .sortedKeys) reproduce `plaintext` and `envelope` byte-exact, and every platform must at least open every envelope to `card`. Answering re-seals the FULL card with the answers and sets the clear `decision` / `answered`. `openCard(card, keys)`: no `sealed` field = `plain` (the card as is); `sealed` not a string = `malformed`; otherwise the body statuses; `opened` = the sealed card with the clear fields (except the `pictures` projection: the sealed pictures stay whole, except that a sealed picture WITHOUT an attachmentId takes the attachmentId of the first clear entry with its label and, on a plan, every `](upload:<label>)` embed then points at `/api/attachments/<id>`; a sealed attachmentId is never replaced) laid OVER it (the server may update clear flags such as `decision: superseded` without re-sealing); a sealed card whose `kind` differs from the clear `kind`, or that is not a JSON object, = `refused`; any status but plain/opened returns the clear part alone (show the kind's locked placeholder). ESCALATED ASK (addendum 2026-10-30): an `ask` mirror stays clear `{kind: ask, sessionId, messageId}` (its routing); escalating a sealed card into another tree adds `sealedCard` = that card's envelope sealed to the TARGET tree (`sessions.escalateTarget` -> rootId, then `publicKeys`), opened with `openCard` under that tree's keys. SEALED TITLE: `sessions.sealed_title` = a body envelope; the plaintext `title` stays a neutral fallback. KEY API (tRPC `sessionKeys`, authed; the caller must own the `installId` it names, not revoked): `create {rootId, installId, epoch, publicKey, wraps:[{installId, wrapped}]}` (epoch 1 when the root has no key, or `seal_epoch + 1` by the root's starter or an install of the executing device; the caller's install must be a reader and must be among the wraps; every wrap targets a reader); `mine {installId, rootIds?}` -> [{rootId, epoch, wrapped}]; `pending {installId, limit<=200}` -> [{rootId, epoch, publicKey, targetInstallId, targetX25519Public}] = readers without a wrap for the current epoch on roots where installId holds the current epoch (and is still a reader); automatic, no approval; `wrap {installId, wraps:[{rootId, epoch, targetInstallId, wrapped}]}` only for pairs `pending` lists (a pair another holder wrapped meanwhile is skipped); `publicKeys {rootIds}` -> [{rootId, epoch, publicKey}] for keyed roots the caller may read or send to (keyless or invisible roots are omitted). VECTORS: `tree` (epoch 1) and `rotatedTree` (epoch 2) = fixed secrets and their public keys; `install` = an install's X25519 secret and public; `wrap` = wrapping `wrap.treeSecret` for `wrap.installPublic` with the fixed `wrap.ephemeralSecret` gives exactly `wrapped`, which unwraps with `install.secret`; `body` = sealing `body.text` with `body.ephemeralSecret` (test code only; production draws a fresh ephemeral per seal) gives exactly `body.envelope`; `card.splits` = per kind, `card` splits into `clear` + `plaintext` and seals (with `card.ephemeralSecret`, epoch 1) to exactly `envelope`; `bodyCases` / `cardCases` open with `keys` (epoch -> tree secret hex) to the given status, epoch and text / card. ANSWER CASES (`answerCases`, EXP-1486): which wire a person's `sessions.answer` takes is decided by the STORED card alone, never by whether the tree or this install has a key: a card WITHOUT `sealed` is answered in clear (answer / answers / decision / fresh / feedback as given), even inside a keyed tree (a session posts its MCP plans and questions in clear); a card WITH `sealed` that this install opened is answered with `sealedCard` = the opened card answered (card-answer.ts `answeredCard`) and re-sealed to the tree's current key, beside only the clear `decision` / `fresh`; a sealed card this install cannot open (`noKey`, or no current key) is REFUSED locally, no request leaves (a plaintext answer would leak). Each case: `stored` (the card as synced: inline, or `split` = a `card.splits` name whose `envelope` it is), `keys` (`tree` = this install holds `tree`'s key and the tree's current key, `none` = no key at all), `input` (the answer as the card's UI builds it), `wire` (`clear` | `sealed` | `refused`); a `sealed` case lists `clear` (the sealedCard's clear fields) and `opened` (a subset of the opened answered card); `server` = the card the server stamps (card-answer.ts `answeredCard(stored, wire)`, a subset), every non-refused case is accepted.",
+  "$comment": "#EXP-1683 ATTACHMENT LINES: the server never appends to a sealed body, so the WRITER names a send's attachments inside the text before sealing (`withAttachmentEmbeds`, `attachmentEmbedCases`, the server's claimAttachments rule): one line per id (once each, in order) the text does not reference yet, a blank line apart, `![name](/api/attachments/<id>)` for an inline image type (`inlineImageTypes`, exact match) and `[name](/api/attachments/<id>)` for anything else, `[` and `]` dropped from the name. So a PDF in a sealed chat is a file row, never a broken image. An upload this process did not record is an image named `image` (the older clients' reading of a bare id). An attachment-only send has no text and is not sealed: the server writes its lines. EXP-1458 (design #EXP-1457): sealed session content, the ONE wire format every platform reads and writes. Replayed x4 through each platform's reference: TS packages/domain-contract/src/sealed-content.ts, Rust enet-core sealed.rs (exported as free functions by exponential-net-ffi, full AND push-only build, and by exponential-net-wasm), Swift + Kotlin through the UniFFI binding. PRIMITIVE: `push_seal(recipient_x25519_public, plaintext)` from enet-core push.rs, byte-exact (fixtures/push-seal.json); secrets are lowercase hex here, everything that travels (public keys, wrapped keys, envelopes) is base64url WITHOUT padding, canonical (a padded, non-alphabet or non-zero-trailing-bits encoding is malformed). TREE KEY: one X25519 keypair per session tree (root) and EPOCH (1-based, <= 2147483647). The ROOT row carries `sessions.seal_public_key` (base64url of 32 bytes, 43 chars) and `sessions.seal_epoch` (int, the current epoch); both NULL until a key exists. `session_keys(root_id, epoch, install_id, wrapped, created_by_install_id, created_at)`, unique (root_id, epoch, install_id): `wrapped` = base64url(push_seal(installs.x25519_public, tree_secret[32])) = 81 bytes. `generateTreeKey()` = 32 random secret bytes + their clamped X25519 public; `wrapTreeKey(installPublic, treeSecret)` / `unwrapTreeKey(installSecret, wrapped)` (fails unless it opens to exactly 32 bytes). READERS of a tree (the server computes them, tRPC sessionKeys): every non-revoked install of the root's starter (`sessions.user_id`) while a member of the root's team; every non-revoked install of every team member when the root is `shared`; the non-revoked installs bound (`installs.device_id`) to the HOST devices row (lib/sessions/host.ts: the starter's own row for the session's `device_id`, else the first row sharing the team) of ANY session in the tree. Nothing crosses teams. BODY ENVELOPE (`messages.body`, `sessions.sealed_title`, text): `exp-sealed:v1:<epoch>:<b64url push_seal(tree_public, utf8(text))>`. A body without the `exp-sealed:` prefix is plaintext and stays legal (server lines, older rows). Parse: after the prefix, the version runs to the next `:` (or the end); a version other than `v1` = `unsupported` (never an error, never shown as text); for v1 the epoch is decimal without leading zeros, 1..2147483647, then `:` and the payload, which must decode to at least the 49-byte seal overhead; anything else = `malformed`. Open (`openBody(body, keys by epoch)`) gives exactly one status: `plain` (text = the body), `opened` (epoch, text), `noKey` (epoch: this install holds no secret for that epoch yet: show a locked placeholder and wait for the wrap), `unsupported`, `malformed`, `refused` (epoch: the secret did not authenticate it, or the plaintext is not UTF-8). CARD ENVELOPE (`messages.card`, jsonb): `{...clear, \"sealed\": \"v1:<epoch>:<b64url push_seal(tree_public, utf8(JSON(full card)))>\"}` (the same sealed-value grammar as the body after its prefix). CLEAR fields (`cardClearFields`): `kind` plus only what routing needs: messageId, sessionId, issueId, pullRequestId, event, status, final, decision, fresh, answered, pictures, story; each is copied from the full card when set (null/absent = omitted) except `answered`, which is `true` when the card carries `answer` or `answers` (or `answered: true`) and absent otherwise, and `pictures` (addendum 2026-10-30: the attachments a card shows, so the server can claim them and build the PR's attachment list), which is PROJECTED: each entry becomes `{label, attachmentId}` with each only when a string (captions, sizes and everything else stay sealed), entries naming neither dropped, omitted when none is left. Addendum 4 (2026-10-30): an entry with a label and no attachmentId is a picture STILL TO UPLOAD: the server mints its upload (`exponential_show`'s curls) and, when it lands, files it on that CLEAR entry only (`{label, attachmentId}`), never touching `sealed`. Addendum 5 (2026-10-30): `story` (the older name of the results flag, false = chat only) stays in clear, copied only when a boolean (absent otherwise), so the server builds PR pictures from a sealed card without opening it: a sealed card's PR pictures (the PR body and `pr open`'s per-platform picture gate) are its CLEAR `pictures` entries that carry an attachmentId, the label standing in for the caption (captions stay sealed: a PR body is a public export and never carries sealed text), none when the clear `story` is false. EVERYTHING else (question, options, plan, questions, picture captions/sizes, surface, summary, answers, title, caption, items, text, headSha...) exists only inside `sealed`, and the sealed JSON is the FULL card (the clear fields included). `splitCard(card)` = {clear, plaintext}; `card.splits` lists EVERY MessageCard kind (packages/db-schema domain.ts) with its clear part, its plaintext and its envelope. The plaintext's key order and whitespace are NOT part of the contract (readers parse it); the vectors are written with sorted keys and no whitespace so sorting serializers (serde_json, JSONSerialization .sortedKeys) reproduce `plaintext` and `envelope` byte-exact, and every platform must at least open every envelope to `card`. Answering re-seals the FULL card with the answers and sets the clear `decision` / `answered`. `openCard(card, keys)`: no `sealed` field = `plain` (the card as is); `sealed` not a string = `malformed`; otherwise the body statuses; `opened` = the sealed card with the clear fields (except the `pictures` projection: the sealed pictures stay whole, except that a sealed picture WITHOUT an attachmentId takes the attachmentId of the first clear entry with its label and, on a plan, every `](upload:<label>)` embed then points at `/api/attachments/<id>`; a sealed attachmentId is never replaced) laid OVER it (the server may update clear flags such as `decision: superseded` without re-sealing); a sealed card whose `kind` differs from the clear `kind`, or that is not a JSON object, = `refused`; any status but plain/opened returns the clear part alone (show the kind's locked placeholder). ESCALATED ASK (addendum 2026-10-30): an `ask` mirror stays clear `{kind: ask, sessionId, messageId}` (its routing); escalating a sealed card into another tree adds `sealedCard` = that card's envelope sealed to the TARGET tree (`sessions.escalateTarget` -> rootId, then `publicKeys`), opened with `openCard` under that tree's keys. SEALED TITLE: `sessions.sealed_title` = a body envelope; the plaintext `title` stays a neutral fallback. KEY API (tRPC `sessionKeys`, authed; the caller must own the `installId` it names, not revoked): `create {rootId, installId, epoch, publicKey, wraps:[{installId, wrapped}]}` (epoch 1 when the root has no key, or `seal_epoch + 1` by the root's starter or an install of the executing device; the caller's install must be a reader and must be among the wraps; every wrap targets a reader); `mine {installId, rootIds?}` -> [{rootId, epoch, wrapped}]; `pending {installId, limit<=200}` -> [{rootId, epoch, publicKey, targetInstallId, targetX25519Public}] = readers without a wrap for the current epoch on roots where installId holds the current epoch (and is still a reader); automatic, no approval; `wrap {installId, wraps:[{rootId, epoch, targetInstallId, wrapped}]}` only for pairs `pending` lists (a pair another holder wrapped meanwhile is skipped); `publicKeys {rootIds}` -> [{rootId, epoch, publicKey}] for keyed roots the caller may read or send to (keyless or invisible roots are omitted). VECTORS: `tree` (epoch 1) and `rotatedTree` (epoch 2) = fixed secrets and their public keys; `install` = an install's X25519 secret and public; `wrap` = wrapping `wrap.treeSecret` for `wrap.installPublic` with the fixed `wrap.ephemeralSecret` gives exactly `wrapped`, which unwraps with `install.secret`; `body` = sealing `body.text` with `body.ephemeralSecret` (test code only; production draws a fresh ephemeral per seal) gives exactly `body.envelope`; `card.splits` = per kind, `card` splits into `clear` + `plaintext` and seals (with `card.ephemeralSecret`, epoch 1) to exactly `envelope`; `bodyCases` / `cardCases` open with `keys` (epoch -> tree secret hex) to the given status, epoch and text / card. ANSWER CASES (`answerCases`, EXP-1486): which wire a person's `sessions.answer` takes is decided by the STORED card alone, never by whether the tree or this install has a key: a card WITHOUT `sealed` is answered in clear (answer / answers / decision / fresh / feedback as given), even inside a keyed tree (an older row: since #EDE-97 a keyed tree refuses plaintext cards); a card WITH `sealed` that this install opened is answered with `sealedCard` = the opened card answered (card-answer.ts `answeredCard`) and re-sealed to the tree's current key, beside only the clear `decision` / `fresh`; a sealed card this install cannot open (`noKey`, or no current key) is REFUSED locally, no request leaves (a plaintext answer would leak). Each case: `stored` (the card as synced: inline, or `split` = a `card.splits` name whose `envelope` it is), `keys` (`tree` = this install holds `tree`'s key and the tree's current key, `none` = no key at all), `input` (the answer as the card's UI builds it), `wire` (`clear` | `sealed` | `refused`); a `sealed` case lists `clear` (the sealedCard's clear fields) and `opened` (a subset of the opened answered card); `server` = the card the server stamps (card-answer.ts `answeredCard(stored, wire)`, a subset), every non-refused case is accepted. SEALED BY DEFAULT (#EDE-97, the `clearTree` section is its spec): every chat tree is sealed; the one exception is a tree an OUTSIDE MCP client started (`clearTree`).",
   "cardClearFields": [
     "kind",
     "messageId",
@@ -1459,6 +1459,247 @@
         "refusals": 2,
         "sends": 2,
         "outcome": "failed"
+      }
+    ]
+  },
+  "clearTree": {
+    "$comment": "#EDE-97 SEALED BY DEFAULT (design: #EDE-94's 'Session encryption: the dataflows today'). EVERY chat tree is sealed, except one kind: a ROOT an OUTSIDE MCP client starts (an MCP call with no calling session, i.e. not through a device's gateway, that carries no `seal`) is stamped `sessions.clear_tree = true` (SYNCED, roots only, never changes) and stays in clear FOR LIFE, so that client keeps sending into it and reading it: nobody keys it (`sessionKeys.create` and an inline `seal` for it are refused with `clearRefusal`; the device does not key it at its claim), every writer sends plaintext into it, its agent's cards and replies go plaintext. Old trees in clear (no key, `clear_tree` false) are left as they are; the first writer that holds a key keys them from then on. Lines the server writes itself (system cards, check and watch lines, trigger lines, bus fallbacks) and the routing metadata (`issue_brief`, mention / attachment / ref ids, card clear fields, the neutral `title`) stay clear as before. START (`startCases`, the server): `via` = `mcpOutside` (an MCP client outside any session), `mcpSession` (an agent through its device's gateway), `trpc` (a person's app), `server` (a trigger or schedule firing, an app hand-off, a suggestion started); `seal` = an inline key rides the start; `clearTree` = what the new root is stamped. WRITERS (`writerCases`, the pure `sendWire` of every writer x4: web seal-send.ts, iOS SendSealing.swift, Android SealedWriter.kt, Rust coding sealing.rs + the device gateway): NO SILENT PLAINTEXT. `tree` = where the text goes: `clear` (a clear_tree root), `new` (the send creates the root), `keyed`, `keyless` (an existing root without a key); `holder` = this process's key holder: `ready`, `late` (not running yet, it comes up within `holderWaitMs`: the writer waits for it, registering its install when it has none), `none` (none within the wait: signed out, eNet off, registration refused); `reader` = this install may key that keyless tree; `keyArrives` = a keyless tree this install may not key gets its key from its device's claim within `keyWaitMs`. `wire`: `plain` (only into a clear tree), `inline` (a new root's key rides as `seal`), `create` (`sessionKeys.create` first), `sealed` (the tree's current key), `failed` = nothing leaves: the send fails with the failed-action toast (feedback-states.json `errors`: `Couldn't send the message`, the description `noKeyRefusal`), the draft stays. An attachment-only send has no text and is not sealed (unchanged). CLAIM (`claimCases`, the device's pick-up, Rust pickup.rs): a root it claims without a key is keyed at once (`keys`) unless `clear_tree`; then, the tree keyed and not clear, the device RE-SEALS the session's first message (`reseals`) when it is still plaintext (the server wrote it before any key existed: a trigger or schedule firing, an app hand-off, a suggestion started, a raw tRPC start): it asks `sessions.resealTarget {sessionId, deviceId}` -> {messageId, body} | null and posts `sessions.reseal {sessionId, deviceId, messageId, body}` with the body sealed to the tree's current key. RESEAL (`resealCases`, the server): accepted ONLY when the caller is the device executing the message's session (`deviceId` = the session's), the tree is keyed and not clear, the message is that session's FIRST message (author user or agent), its stored body is plaintext (so the rewrite happens once), no agent reply follows it in that session yet, and the new body is a valid envelope at the tree's current epoch; the stored body is REPLACED (mentions, attachment and ref ids, `issue_brief` and the card stay); anything else is refused (`accepted: false`). CARDS (`cardCases`, plan.ts): a plaintext plan, question or show card into a KEYED tree is refused like a plaintext send (EXP-1472's `assertNotPlainInSealedTree`, its writer hint); a keyless or clear tree takes it; a sealed card goes as before. MINIMUM VERSION: devices below `deviceMinVersion` (desktop and CLI) never key a tree: the server's CLIENT_MIN_VERSION gate holds them at that floor (a configured minimum below it counts as the floor).",
+    "holderWaitMs": 20000,
+    "keyWaitMs": 20000,
+    "deviceMinVersion": "0.14.96",
+    "noKeyRefusal": "This chat is end-to-end encrypted and this device holds no key for it yet. Try again in a moment.",
+    "clearRefusal": "This chat stays in clear: an MCP client outside Exponential started it",
+    "startCases": [
+      {
+        "name": "an outside MCP client starts a chat: clear for life",
+        "via": "mcpOutside",
+        "seal": false,
+        "clearTree": true
+      },
+      {
+        "name": "an agent starts a chat through its device's gateway",
+        "via": "mcpSession",
+        "seal": true,
+        "clearTree": false
+      },
+      {
+        "name": "an agent's gateway without a key: still sealed later, never clear",
+        "via": "mcpSession",
+        "seal": false,
+        "clearTree": false
+      },
+      {
+        "name": "a person's app starts a chat",
+        "via": "trpc",
+        "seal": true,
+        "clearTree": false
+      },
+      {
+        "name": "an older app starts one in clear: the device keys it at its claim",
+        "via": "trpc",
+        "seal": false,
+        "clearTree": false
+      },
+      {
+        "name": "a trigger, a hand-off or a suggestion starts one",
+        "via": "server",
+        "seal": false,
+        "clearTree": false
+      }
+    ],
+    "writerCases": [
+      {
+        "name": "into a clear tree: plaintext, no holder needed",
+        "tree": "clear",
+        "holder": "none",
+        "wire": "plain"
+      },
+      {
+        "name": "into a clear tree: plaintext even with a key holder",
+        "tree": "clear",
+        "holder": "ready",
+        "wire": "plain"
+      },
+      {
+        "name": "a new chat: its key rides inline",
+        "tree": "new",
+        "holder": "ready",
+        "wire": "inline"
+      },
+      {
+        "name": "a new chat waits for a holder still coming up",
+        "tree": "new",
+        "holder": "late",
+        "wire": "inline"
+      },
+      {
+        "name": "a new chat without any key holder fails",
+        "tree": "new",
+        "holder": "none",
+        "wire": "failed"
+      },
+      {
+        "name": "a keyed tree: sealed",
+        "tree": "keyed",
+        "holder": "ready",
+        "wire": "sealed"
+      },
+      {
+        "name": "a keyed tree waits for the holder",
+        "tree": "keyed",
+        "holder": "late",
+        "wire": "sealed"
+      },
+      {
+        "name": "a keyed tree without any key holder fails",
+        "tree": "keyed",
+        "holder": "none",
+        "wire": "failed"
+      },
+      {
+        "name": "a keyless tree this install may key: keyed first",
+        "tree": "keyless",
+        "holder": "ready",
+        "reader": true,
+        "wire": "create"
+      },
+      {
+        "name": "a keyless tree keyed by its device's claim meanwhile",
+        "tree": "keyless",
+        "holder": "ready",
+        "reader": false,
+        "keyArrives": true,
+        "wire": "sealed"
+      },
+      {
+        "name": "a keyless tree nobody keys within the wait fails, never plaintext",
+        "tree": "keyless",
+        "holder": "ready",
+        "reader": false,
+        "keyArrives": false,
+        "wire": "failed"
+      },
+      {
+        "name": "an old clear chat without a key holder fails",
+        "tree": "keyless",
+        "holder": "none",
+        "reader": true,
+        "wire": "failed"
+      }
+    ],
+    "claimCases": [
+      {
+        "name": "a server-started root: keyed at the claim, its first message re-sealed",
+        "clearTree": false,
+        "keyed": false,
+        "firstPlain": true,
+        "keys": true,
+        "reseals": true
+      },
+      {
+        "name": "a root its writer keyed: nothing to re-seal",
+        "clearTree": false,
+        "keyed": true,
+        "firstPlain": false,
+        "keys": false,
+        "reseals": false
+      },
+      {
+        "name": "a keyed root whose first message an older app sent in clear: re-sealed",
+        "clearTree": false,
+        "keyed": true,
+        "firstPlain": true,
+        "keys": false,
+        "reseals": true
+      },
+      {
+        "name": "an outside-MCP root: never keyed, never re-sealed",
+        "clearTree": true,
+        "keyed": false,
+        "firstPlain": true,
+        "keys": false,
+        "reseals": false
+      }
+    ],
+    "resealCases": [
+      {
+        "name": "the executing device re-seals the first message",
+        "accepted": true
+      },
+      {
+        "name": "another device",
+        "caller": "otherDevice",
+        "accepted": false
+      },
+      {
+        "name": "a keyless tree",
+        "tree": "keyless",
+        "accepted": false
+      },
+      {
+        "name": "a clear tree",
+        "tree": "clear",
+        "accepted": false
+      },
+      {
+        "name": "already sealed: one rewrite only",
+        "stored": "sealed",
+        "accepted": false
+      },
+      {
+        "name": "not the first message",
+        "position": "later",
+        "accepted": false
+      },
+      {
+        "name": "the agent already replied",
+        "agentReplied": true,
+        "accepted": false
+      },
+      {
+        "name": "an envelope of an epoch the tree does not have",
+        "epoch": "future",
+        "accepted": false
+      },
+      {
+        "name": "not an envelope",
+        "body": "plain",
+        "accepted": false
+      }
+    ],
+    "resealDefaults": {
+      "caller": "executing",
+      "tree": "keyed",
+      "stored": "plain",
+      "position": "first",
+      "agentReplied": false,
+      "epoch": "current",
+      "body": "envelope"
+    },
+    "cardCases": [
+      {
+        "name": "a plaintext plan into a keyed tree is refused",
+        "tree": "keyed",
+        "card": "plain",
+        "accepted": false
+      },
+      {
+        "name": "a sealed plan into a keyed tree",
+        "tree": "keyed",
+        "card": "sealed",
+        "accepted": true
+      },
+      {
+        "name": "a plaintext plan into an old keyless tree",
+        "tree": "keyless",
+        "card": "plain",
+        "accepted": true
+      },
+      {
+        "name": "a plaintext plan into a clear tree",
+        "tree": "clear",
+        "card": "plain",
+        "accepted": true
       }
     ]
   }

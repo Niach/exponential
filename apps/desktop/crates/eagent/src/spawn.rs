@@ -31,6 +31,10 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
     pub env: Vec<(String, String)>,
+    /// Inherited variables the child must NOT see (#EXP-1875: an AppImage
+    /// parent's `APPIMAGE` made a test build treat itself as the user's
+    /// AppImage). Removed before [`Self::env`] is applied.
+    pub env_remove: Vec<String>,
 }
 
 impl SpawnSpec {
@@ -59,6 +63,11 @@ impl SpawnSpec {
 
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn env_remove(mut self, key: impl Into<String>) -> Self {
+        self.env_remove.push(key.into());
         self
     }
 }
@@ -472,6 +481,9 @@ pub fn build_command(spec: &SpawnSpec) -> CommandBuilder {
     // minimal PATH without Homebrew/npm-global/~/.claude/local — bare
     // `claude`/`git` would fail to resolve.
     cmd.env("PATH", login_path());
+    for key in &spec.env_remove {
+        cmd.env_remove(key);
+    }
     for (key, value) in &spec.env {
         cmd.env(key, value);
     }

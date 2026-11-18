@@ -208,6 +208,7 @@ class MainActivity : ComponentActivity() {
                         it,
                         face = data.getQueryParameter(PushDeepLinks.PARAM_FACE),
                         comment = data.getQueryParameter(PushDeepLinks.PARAM_COMMENT),
+                        rooted = true,
                     )
                 }
             }
@@ -222,11 +223,11 @@ class MainActivity : ComponentActivity() {
                     data.getQueryParameter(PushDeepLinks.PARAM_CARD_KIND),
                     data.getQueryParameter(PushDeepLinks.PARAM_ROOT),
                 )
-                if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it, card)
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it, card, rooted = true)
             }
             // agent_signed_out push taps (#EXP-1534): that device's settings.
             "device" -> data.pathSegments.firstOrNull()?.let {
-                if (switchToPushAccount(linkUserId)) deepLinkBus.openDevice(it)
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openDevice(it, rooted = true)
             }
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
@@ -263,19 +264,19 @@ class MainActivity : ComponentActivity() {
         when (target) {
             is PushDeepLinks.Target.Issue -> {
                 intent.removeExtra("issueId")
-                deepLinkBus.openIssue(target.id)
+                deepLinkBus.openIssue(target.id, rooted = true)
             }
             is PushDeepLinks.Target.IssueGuide -> {
                 intent.removeExtra("issueId")
-                deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_GUIDE)
+                deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_GUIDE, rooted = true)
             }
             is PushDeepLinks.Target.Session -> {
                 intent.removeExtra("sessionId")
-                deepLinkBus.openSession(target.id, target.card)
+                deepLinkBus.openSession(target.id, target.card, rooted = true)
             }
             is PushDeepLinks.Target.Device -> {
                 intent.removeExtra("deviceId")
-                deepLinkBus.openDevice(target.deviceId)
+                deepLinkBus.openDevice(target.deviceId, rooted = true)
             }
             PushDeepLinks.Target.Inbox -> {
                 intent.removeExtra("type")

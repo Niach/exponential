@@ -423,8 +423,17 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
-                        // #EXP-1703: set only when true.
-                        if (row.offline) put("offline", true)
+                        // #FEED-263: set only when one holds.
+                        row.wall?.let { wall ->
+                            put(
+                                "wall",
+                                buildJsonObject {
+                                    put("sessionId", wall.sessionId)
+                                    put("kind", wall.kind)
+                                    put("deviceId", nullable(wall.deviceId))
+                                },
+                            )
+                        }
                     }
                 },
             ),
@@ -620,15 +629,29 @@ class SessionTreeTest {
         }
     }
 
-    // #EXP-1703 (TS `treeOffline`): a tree on a person only because its device stayed away.
+    // #FEED-263 (TS `treeWall`): the wall a tree's row names.
     @Test
-    fun `every tree offline case matches the fixture`() {
-        val cases = listFixture.list("offlineCases")
+    fun `every tree wall case matches the fixture`() {
+        val cases = listFixture.list("wallCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val tree = case.getValue("tree").jsonArray.map { session(it.jsonObject) }
-            assertEquals(case.str("name"), case.bool("expected"), SessionTree.treeOffline(tree))
+            val expected = case["expected"]?.takeUnless { it is JsonNull }?.jsonObject?.let {
+                SessionTree.TreeWall(it.str("sessionId")!!, it.str("kind")!!, it.str("deviceId"))
+            }
+            assertEquals(case.str("name"), expected, SessionTree.treeWall(tree))
         }
+    }
+
+    // #FEED-263: every wall of the fixture's `copy.walls` has words here.
+    @Test
+    fun `the walls match the fixture copy`() {
+        val walls = listFixture.getValue("copy").jsonObject.getValue("walls").jsonObject
+        assertEquals(walls.mapValues { it.value.jsonPrimitive.content }, SessionTree.WALLS)
+        assertEquals(
+            listFixture.getValue("copy").jsonObject.getValue("wallDevice").jsonPrimitive.content,
+            SessionTree.WALL_DEVICE,
+        )
     }
 
     @Test

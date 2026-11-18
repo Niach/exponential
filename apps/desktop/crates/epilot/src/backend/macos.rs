@@ -1,9 +1,11 @@
 //! macOS = Quartz events, through core-graphics.
 //!
 //! Input is CGEvents posted at the HID tap: exactly where the person's own
-//! mouse and keyboard enter, so every app takes it. Keys are the ANSI
-//! (US) virtual keycodes; a character with no key there is typed as a
-//! unicode string on a blank keystroke. Held modifiers ride on every event
+//! mouse and keyboard enter, so every app takes it. A character goes to its
+//! key on the active keyboard layout (#EXP-1922), the ANSI (US) keycodes
+//! only when the layout cannot be read or for a shortcut a non-Latin layout
+//! has no key for; a character with no key is typed as a unicode string on
+//! a blank keystroke. Held modifiers ride on every event
 //! as its flags, the way Cocoa and Chrome read shortcuts. Windows come
 //! from the window server's list (CGWindowListCopyWindowInfo) and are
 //! activated through AppKit, the exact window raised over Accessibility.
@@ -11,9 +13,14 @@
 //! The lock is an active event tap at the HID level on its own thread:
 //! every keyboard and pointer event passes it, ours (tagged with
 //! [`MAGIC`] in the event source's user data) go through, the person's are
-//! swallowed; their Esc fires `on_esc`. Needs Accessibility; the screenshot
+//! swallowed except the release of a key or button they held when the lock
+//! engaged (#EXP-1921); their Esc fires `on_esc`. Needs Accessibility; the screenshot
 //! needs Screen Recording. Coordinates are points of the global display
 //! space (origin top-left of the main display, y down).
+//!
+//! Nothing here may depend on the host's main run loop (#EXP-1921): the
+//! daemon has none, and AppKit state that only moves while it turns
+//! (NSWorkspace's frontmost app) goes stale there.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -47,11 +54,11 @@ use foreign_types::ForeignType;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{
-    NSApplicationActivationOptions, NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
+    NSApplicationActivationOptions, NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication,
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -85,6 +92,8 @@ extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> u8;
     fn AXUIElementCreateApplication(pid: Pid) -> CFTypeRef;
+    fn AXUIElementCreateSystemWide() -> CFTypeRef;
+    fn AXUIElementGetPid(element: CFTypeRef, pid: *mut Pid) -> i32;
     fn AXUIElementCopyAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: *mut CFTypeRef) -> i32;
     fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: CFTypeRef) -> i32;
     fn AXUIElementPerformAction(element: CFTypeRef, action: CFStringRef) -> i32;
@@ -104,6 +113,40 @@ extern "C" {
     ) -> CFMachPortRef;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventGetIntegerValueField(event: core_graphics::sys::CGEventRef, field: u32) -> i64;
+    fn CGEventSourceKeyState(state: CGEventSourceStateID, key: CGKeyCode) -> bool;
+    fn CGEventSourceButtonState(state: CGEventSourceStateID, button: u32) -> bool;
+}
+
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    static kTISPropertyUnicodeKeyLayoutData: CFStringRef;
+    fn TISCopyCurrentKeyboardLayoutInputSource() -> CFTypeRef;
+    fn TISGetInputSourceProperty(source: CFTypeRef, key: CFStringRef) -> CFTypeRef;
+    fn LMGetKbdType() -> u8;
+    fn UCKeyTranslate(
+        layout: *const u8,
+        keycode: u16,
+        action: u16,
+        modifiers: u32,
+        keyboard: u32,
+        options: u32,
+        dead_keys: *mut u32,
+        max: usize,
+        len: *mut usize,
+        text: *mut u16,
+    ) -> i32;
+}
+
+/// libdispatch's main queue (`dispatch_get_main_queue()`).
+#[repr(C)]
+struct DispatchQueue {
+    _private: [u8; 0],
+}
+
+extern "C" {
+    static _dispatch_main_q: DispatchQueue;
+    fn dispatch_async_f(queue: *const DispatchQueue, context: *mut c_void, work: extern "C" fn(*mut c_void));
+    fn pthread_main_np() -> i32;
 }
 
 #[link(name = "ColorSync", kind = "framework")]
@@ -178,6 +221,8 @@ pub(crate) struct Mac {
     /// The last press, for the click count of the next.
     last_press: Cell<Option<(Button, Instant)>>,
     click_state: Cell<i64>,
+    /// The active keyboard layout, read at the first character key.
+    layout: std::cell::OnceCell<Option<Layout>>,
 }
 
 // SAFETY: a CGEventSource is a CoreFoundation object (retain/release are
@@ -197,6 +242,7 @@ impl Mac {
             left_down: Cell::new(false),
             last_press: Cell::new(None),
             click_state: Cell::new(1),
+            layout: std::cell::OnceCell::new(),
         })
     }
 
@@ -321,10 +367,8 @@ impl Backend for Mac {
                 app.activateWithOptions(options)
             })
         });
-        if !activated {
-            log::debug!("[computer] macOS did not activate the app of window {id}");
-        }
-        Ok(())
+        let front = u32::try_from(pid).ok();
+        settle_activation(id, activated, ACTIVATE_WAIT, || frontmost_pid() == front)
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -380,7 +424,12 @@ impl Backend for Mac {
                 self.held.set(if down { held | flag } else { held - flag });
             }
         }
-        match stroke(key) {
+        let layout = match key {
+            Key::Char(_) => self.layout.get_or_init(current_layout).as_ref(),
+            Key::Named(_) => None,
+        };
+        let shortcut = CGEventFlags::CGEventFlagControl | CGEventFlags::CGEventFlagAlternate | CGEventFlags::CGEventFlagCommand;
+        match stroke(key, layout, self.held.get().intersects(shortcut)) {
             Stroke::Code(keycode, shift) => {
                 let extra = if shift { CGEventFlags::CGEventFlagShift } else { CGEventFlags::CGEventFlagNull };
                 self.post(self.keystroke(keycode, down)?, extra);
@@ -458,20 +507,26 @@ impl Clipboard for MacClipboard {
     fn save(&self) -> Result<SavedClipboard, String> {
         objc2::rc::autoreleasepool(|_| {
             let mut formats = Vec::new();
+            // A type without data or past the cap is left out: partial (#EXP-1900).
+            let mut partial = false;
             let Some(items) = self.board.pasteboardItems() else { return Ok(SavedClipboard::default()) };
             let mut total = 0usize;
             for (index, item) in items.iter().enumerate() {
                 for kind in item.types().iter() {
-                    let Some(data) = item.dataForType(&kind) else { continue };
+                    let Some(data) = item.dataForType(&kind) else {
+                        partial = true;
+                        continue;
+                    };
                     let len = data.len();
                     if total.saturating_add(len) > SAVE_CAP {
+                        partial = true;
                         continue;
                     }
                     total += len;
                     formats.push((format!("{index}\t{kind}"), data.to_vec()));
                 }
             }
-            Ok(SavedClipboard { formats })
+            Ok(SavedClipboard { formats, partial })
         })
     }
 
@@ -556,6 +611,7 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
                 height: bounds.size.height.round().max(0.0) as u32,
                 primary: display.is_main(),
                 name: format!("Display {}", index + 1),
+                connector: None,
             };
             (id, info)
         })
@@ -618,6 +674,29 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
             .and_then(|element| ax_copy(&element, "AXFullScreen"))
             .and_then(|value| value.downcast::<CFBoolean>())
             .is_some_and(bool::from)
+}
+
+/// How long an accepted activation may take to put the app in front.
+const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
+
+/// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
+/// one that did not put the window's app in front within `wait`, is an
+/// error (the agent's keys would go to the app in front).
+fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
+    let refused = || Err(format!("macOS did not activate window {id}."));
+    if !activated {
+        return refused();
+    }
+    let until = Instant::now() + wait;
+    loop {
+        if in_front() {
+            return Ok(());
+        }
+        if Instant::now() >= until {
+            return refused();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
@@ -688,10 +767,37 @@ pub(crate) fn app_id(pid: u32) -> Option<String> {
     id
 }
 
+/// The app in front, asked fresh (#EXP-1921): Accessibility's focused
+/// application, else the owner of the frontmost window. Never NSWorkspace,
+/// whose answer only moves while the host's main run loop turns.
 fn frontmost_pid() -> Option<u32> {
-    objc2::rc::autoreleasepool(|_| {
-        let pid = NSWorkspace::sharedWorkspace().frontmostApplication()?.processIdentifier();
-        u32::try_from(pid).ok()
+    focused_by_accessibility().or_else(front_window_owner)
+}
+
+fn focused_by_accessibility() -> Option<u32> {
+    // SAFETY: returns a new AXUIElement (create rule), never null.
+    let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide()) };
+    let app = ax_copy(&system, "AXFocusedApplication")?;
+    let mut pid: Pid = 0;
+    // SAFETY: `app` is a live AXUIElement; `pid` receives its process id.
+    let err = unsafe { AXUIElementGetPid(app.as_CFTypeRef(), &mut pid) };
+    (err == 0).then(|| u32::try_from(pid).ok()).flatten().filter(|&pid| pid != 0)
+}
+
+/// The owner of the topmost app window (layer 0) on screen.
+fn front_window_owner() -> Option<u32> {
+    let list = copy_window_info(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID)?;
+    list.iter().find_map(|item| {
+        // SAFETY: every entry of the window list is a CFDictionary with
+        // CFString keys, alive as long as `list`.
+        let entry: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
+        if number(&entry, window_key(KeyName::Layer)) != Some(0) {
+            return None;
+        }
+        if text(&entry, window_key(KeyName::OwnerName)).is_some_and(|owner| owner == "Window Server" || owner == "Dock") {
+            return None;
+        }
+        number(&entry, window_key(KeyName::OwnerPid)).and_then(|pid| u32::try_from(pid).ok())
     })
 }
 
@@ -801,18 +907,24 @@ fn modifier_flag(named: Named) -> Option<CGEventFlags> {
 enum Stroke {
     /// A virtual keycode, with Shift when the character needs it.
     Code(CGKeyCode, bool),
-    /// No key on the ANSI layout: the character as a unicode string.
+    /// No key for it: the character as a unicode string.
     Unicode(char),
     /// A named key Macs do not have (F21 and up).
     Missing,
 }
 
-fn stroke(key: Key) -> Stroke {
+/// #EXP-1922: a character goes to its key on the active `layout`. One the
+/// layout has no plain or Shift key for is typed as itself, except under
+/// Control, Option or Command (`shortcut`): macOS reads a shortcut of a
+/// non-Latin layout through its US keys, so the ANSI key stands. Without a
+/// layout to read, the ANSI keys.
+fn stroke(key: Key, layout: Option<&Layout>, shortcut: bool) -> Stroke {
     match key {
         Key::Named(named) => named_keycode(named).map_or(Stroke::Missing, |keycode| Stroke::Code(keycode, false)),
-        Key::Char(ch) => match char_keycode(ch) {
-            Some((keycode, shift)) => Stroke::Code(keycode, shift),
-            None => Stroke::Unicode(ch),
+        Key::Char(ch) => match (layout.and_then(|layout| layout.0.get(&ch)), char_keycode(ch)) {
+            (Some(&(keycode, shift)), _) => Stroke::Code(keycode, shift),
+            (None, Some((keycode, shift))) if shortcut || layout.is_none() => Stroke::Code(keycode, shift),
+            _ => Stroke::Unicode(ch),
         },
     }
 }
@@ -842,6 +954,81 @@ fn named_keycode(named: Named) -> Option<CGKeyCode> {
         Named::Alt => 58,
         Named::Super => 55,
     })
+}
+
+/// #EXP-1922: what each plain and Shift keystroke types on one keyboard
+/// layout, by character (a plain key before a Shift one, the lower keycode
+/// first; the keypad aside).
+#[derive(Debug, Default)]
+struct Layout(std::collections::HashMap<char, (CGKeyCode, bool)>);
+
+/// The keypad's keycodes: its digits and operators are the main keys'.
+const KEYPAD: [CGKeyCode; 18] = [65, 67, 69, 71, 75, 76, 78, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92];
+
+impl Layout {
+    /// `translate(keycode, shift)` = the one character that keystroke types.
+    fn from(translate: impl Fn(CGKeyCode, bool) -> Option<char>) -> Layout {
+        let mut chars = std::collections::HashMap::new();
+        for shift in [false, true] {
+            for keycode in (0..128).filter(|keycode| !KEYPAD.contains(keycode)) {
+                if let Some(ch) = translate(keycode, shift).filter(|ch| !ch.is_control()) {
+                    chars.entry(ch).or_insert((keycode, shift));
+                }
+            }
+        }
+        Layout(chars)
+    }
+}
+
+/// The active keyboard layout (`None` = macOS names none with key data, a
+/// layout of an input method). TIS is read on the main thread when the
+/// host's main run loop runs (the IDE: AppKit's TSM asserts the main queue
+/// there), on this one when nothing runs it (the daemon, tests).
+fn current_layout() -> Option<Layout> {
+    // SAFETY: no arguments.
+    if unsafe { pthread_main_np() } != 0 || CFRunLoop::get_main().current_mode().is_none() {
+        return read_layout();
+    }
+    extern "C" fn work(context: *mut c_void) {
+        // SAFETY: the box `current_layout` handed over, taken back once.
+        let reply = unsafe { Box::from_raw(context.cast::<std::sync::mpsc::Sender<Option<Layout>>>()) };
+        let _ = reply.send(read_layout());
+    }
+    let (reply, answer) = std::sync::mpsc::channel::<Option<Layout>>();
+    // SAFETY: the main queue is a static of libdispatch; `work` owns the box.
+    unsafe { dispatch_async_f(&_dispatch_main_q, Box::into_raw(Box::new(reply)).cast(), work) };
+    answer.recv_timeout(Duration::from_secs(2)).ok().flatten()
+}
+
+/// [`current_layout`]'s read, through UCKeyTranslate.
+fn read_layout() -> Option<Layout> {
+    // SAFETY: the source is ours (create rule) and released below; the
+    // layout data is the source's (get rule), alive while it is.
+    unsafe {
+        let source = TISCopyCurrentKeyboardLayoutInputSource();
+        if source.is_null() {
+            return None;
+        }
+        let source = CFType::wrap_under_create_rule(source);
+        let data = TISGetInputSourceProperty(source.as_CFTypeRef(), kTISPropertyUnicodeKeyLayoutData);
+        if data.is_null() {
+            return None;
+        }
+        let data = core_foundation::data::CFData::wrap_under_get_rule(data as core_foundation::data::CFDataRef);
+        let keyboard = u32::from(LMGetKbdType());
+        Some(Layout::from(|keycode, shift| {
+            const DISPLAY: u16 = 3; // kUCKeyActionDisplay
+            const NO_DEAD_KEYS: u32 = 1; // kUCKeyTranslateNoDeadKeysMask
+            let modifiers = if shift { 2 } else { 0 }; // (shiftKey >> 8) & 0xff
+            let (mut dead, mut len, mut text) = (0u32, 0usize, [0u16; 4]);
+            let err = UCKeyTranslate(data.bytes().as_ptr(), keycode, DISPLAY, modifiers, keyboard, NO_DEAD_KEYS, &mut dead, text.len(), &mut len, text.as_mut_ptr());
+            let mut chars = char::decode_utf16(text.get(..len)?.iter().copied());
+            match (err, chars.next(), chars.next()) {
+                (0, Some(Ok(ch)), None) => Some(ch),
+                _ => None,
+            }
+        }))
+    }
 }
 
 /// kVK_ANSI_* of a character on the US layout, and whether it is the
@@ -1005,11 +1192,24 @@ struct TapState {
     fired: Cell<bool>,
     stop: Arc<AtomicBool>,
     port: Cell<CFMachPortRef>,
+    /// What the person held when the tap went in ([`TAP_HELD`]).
+    held: Cell<HeldAtEngage<TAP_HELD>>,
 }
+
+/// [`TapState::held`]: keycodes 0..128, then mouse buttons 0..32 from
+/// [`TAP_BUTTONS`].
+const TAP_BUTTONS: usize = 128;
+const TAP_HELD: usize = TAP_BUTTONS + 32;
 
 /// The tap thread: install the tap, report, run until `stop`, tear down.
 fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::sync::mpsc::Sender<Result<CFRunLoop, String>>) {
-    let state = Box::new(TapState { on_esc, fired: Cell::new(false), stop: stop.clone(), port: Cell::new(std::ptr::null_mut()) });
+    let state = Box::new(TapState {
+        on_esc,
+        fired: Cell::new(false),
+        stop: stop.clone(),
+        port: Cell::new(std::ptr::null_mut()),
+        held: Cell::new(HeldAtEngage::NONE),
+    });
     let mask = LOCKED_EVENTS.iter().fold(0 as CGEventMask, |mask, &kind| mask | 1 << kind as CGEventMask);
     // SAFETY: `state` outlives the tap (invalidated below before `state`
     // drops); the callback matches CGEventTapCallBack.
@@ -1042,6 +1242,9 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     run_loop.add_source(&source, common);
     // SAFETY: `port_ref` is the live tap.
     unsafe { CGEventTapEnable(port_ref, true) };
+    // After the tap: a release between this snapshot and the tap cannot be
+    // missed. No callback runs before the run loop below.
+    state.held.set(held_now());
     if ready.send(Ok(run_loop.clone())).is_err() {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
@@ -1076,24 +1279,76 @@ unsafe extern "C" fn tap_callback(
         return event;
     }
     // SAFETY: `event` is the live event this callback was handed.
-    let tag = unsafe { CGEventGetIntegerValueField(event, EventField::EVENT_SOURCE_USER_DATA) };
-    if tag == MAGIC {
-        return event;
-    }
-    if kind == CGEventType::KeyDown as u32 {
-        // SAFETY: as above.
-        let keycode = unsafe { CGEventGetIntegerValueField(event, EventField::KEYBOARD_EVENT_KEYCODE) };
-        if keycode == i64::from(ESCAPE) && !state.fired.replace(true) {
-            log::info!("[computer] Esc from the keyboard");
-            // A panic must not unwind into the window server's callback.
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (state.on_esc)())).is_err() {
-                log::warn!("[computer] the Esc handler panicked");
+    let field = |field: u32| unsafe { CGEventGetIntegerValueField(event, field) };
+    let ours = field(EventField::EVENT_SOURCE_USER_DATA) == MAGIC;
+    let mut held = state.held.get();
+    let verdict = tap_verdict(ours, kind, field(EventField::KEYBOARD_EVENT_KEYCODE), field(EventField::MOUSE_EVENT_BUTTON_NUMBER), &mut held);
+    state.held.set(held);
+    match verdict {
+        Verdict::Pass => return event,
+        Verdict::Swallow => {}
+        Verdict::Esc => {
+            if !state.fired.replace(true) {
+                log::info!("[computer] Esc from the keyboard");
+                // A panic must not unwind into the window server's callback.
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (state.on_esc)())).is_err() {
+                    log::warn!("[computer] the Esc handler panicked");
+                }
+                state.stop.store(true, Ordering::Release);
+                CFRunLoop::get_current().stop();
             }
-            state.stop.store(true, Ordering::Release);
-            CFRunLoop::get_current().stop();
         }
     }
     std::ptr::null_mut()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verdict {
+    Pass,
+    Swallow,
+    Esc,
+}
+
+/// The tap's decision on one event of `kind` (its keycode and mouse
+/// button number read whatever the kind).
+/// `held` = what the person held when the tap went in: each one's release
+/// passes, once (a modifier's next FlagsChanged is its release).
+fn tap_verdict(ours: bool, kind: u32, keycode: i64, button: i64, held: &mut HeldAtEngage<TAP_HELD>) -> Verdict {
+    if ours {
+        return Verdict::Pass;
+    }
+    if kind == CGEventType::KeyDown as u32 && keycode == i64::from(ESCAPE) {
+        return Verdict::Esc;
+    }
+    let index = |value: i64, base: usize| usize::try_from(value).ok().map(|value| base + value);
+    let released = match kind {
+        k if k == CGEventType::KeyUp as u32 || k == CGEventType::FlagsChanged as u32 => index(keycode, 0).filter(|&key| key < TAP_BUTTONS),
+        k if k == CGEventType::LeftMouseUp as u32 => Some(TAP_BUTTONS),
+        k if k == CGEventType::RightMouseUp as u32 => Some(TAP_BUTTONS + 1),
+        k if k == CGEventType::OtherMouseUp as u32 => index(button, TAP_BUTTONS),
+        _ => None,
+    };
+    if released.is_some_and(|index| held.passes(index, false)) {
+        Verdict::Pass
+    } else {
+        Verdict::Swallow
+    }
+}
+
+/// Every key and mouse button down right now ([`TAP_HELD`]'s indexes), as
+/// the HID system sees them.
+fn held_now() -> HeldAtEngage<TAP_HELD> {
+    let mut held = HeldAtEngage::NONE;
+    for (index, slot) in held.0.iter_mut().enumerate() {
+        // SAFETY: plain queries of the HID system's state.
+        *slot = unsafe {
+            match index.checked_sub(TAP_BUTTONS) {
+                None => CGEventSourceKeyState(CGEventSourceStateID::HIDSystemState, index as CGKeyCode),
+                Some(button) => CGEventSourceButtonState(CGEventSourceStateID::HIDSystemState, button as u32),
+            }
+        };
+    }
+    held
 }
 
 #[cfg(test)]
@@ -1120,20 +1375,140 @@ mod tests {
         assert!(ax_reachable(1));
     }
 
+    /// #EXP-1921: a button or key the person held when the lock engaged
+    /// gets its release through, once; everything else of theirs stays out.
+    #[test]
+    fn the_tap_passes_the_release_of_what_was_held_at_engage_once() {
+        let mut held = HeldAtEngage::<TAP_HELD>::NONE;
+        held.0[56] = true; // kVK_Shift
+        held.0[TAP_BUTTONS] = true; // the left button
+        held.0[TAP_BUTTONS + 3] = true; // a side button
+        let mut verdict = |kind: CGEventType, keycode: i64, button: i64| tap_verdict(false, kind as u32, keycode, button, &mut held);
+        assert_eq!(verdict(CGEventType::LeftMouseDragged, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::LeftMouseUp, 0, 0), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::LeftMouseUp, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::RightMouseUp, 0, 1), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::OtherMouseUp, 0, 2), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::OtherMouseUp, 0, 3), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::FlagsChanged, 56, 0), Verdict::Pass);
+        assert_eq!(verdict(CGEventType::FlagsChanged, 56, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::KeyUp, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::LeftMouseDown, 0, 0), Verdict::Swallow);
+        assert_eq!(verdict(CGEventType::KeyDown, i64::from(ESCAPE), 0), Verdict::Esc);
+        assert_eq!(tap_verdict(true, CGEventType::LeftMouseDown as u32, 0, 0, &mut held), Verdict::Pass);
+        // The snapshot's FFI answers (what is down is the person's business).
+        let _ = held_now();
+    }
+
+    /// The pid `lsappinfo` (Launch Services, asked fresh) says is in front.
+    fn front_by_launch_services() -> Option<u32> {
+        let run = |args: &[&str]| String::from_utf8(std::process::Command::new("lsappinfo").args(args).output().ok()?.stdout).ok();
+        let asn = run(&["front"])?;
+        let info = run(&["info", asn.trim()])?;
+        let after = info.split("pid").nth(1)?;
+        after.trim_start_matches(|c: char| !c.is_ascii_digit()).split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    }
+
+    /// A window of its own in front for two seconds (JXA).
+    const FRONT_WINDOW: &str = "ObjC.import('Cocoa'); var app = $.NSApplication.sharedApplication; app.setActivationPolicy(0); \
+        var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 320, 120), 1, 2, false); \
+        w.title = 'epilot test'; w.makeKeyAndOrderFront(null); app.activateIgnoringOtherApps(true); \
+        $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(2));";
+
+    /// #EXP-1921, LIVE (`--ignored`): shows a window of its own for two
+    /// seconds, types and clicks nothing. A host without a main run loop
+    /// (the daemon, this test) still reads the app in front now.
+    #[test]
+    #[ignore = "drives the real screen"]
+    fn the_focused_app_is_read_fresh_without_a_main_run_loop() {
+        let before = frontmost_pid();
+        let mut dialog = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", FRONT_WINDOW]).spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(1200));
+        let (now, truth) = (frontmost_pid(), front_by_launch_services());
+        dialog.wait().unwrap();
+        assert_eq!(truth, Some(dialog.id()), "the window came to the front");
+        assert_ne!(truth, before);
+        assert_eq!(now, truth);
+    }
+
+    /// #EXP-1921: activate_window answers success only once the window's
+    /// app is in front.
+    #[test]
+    fn an_activation_counts_once_the_app_is_in_front() {
+        let wait = Duration::from_millis(100);
+        assert!(settle_activation(4, false, wait, || true).is_err(), "macOS refused");
+        assert!(settle_activation(4, true, wait, || false).is_err(), "never in front");
+        let mut polls = 0;
+        assert_eq!(
+            settle_activation(4, true, wait, || {
+                polls += 1;
+                polls == 3
+            }),
+            Ok(())
+        );
+    }
+
+    /// #EXP-1922: on the layout this Mac has active, the key pressed for a
+    /// character types that character (German QWERTZ: `z` is not keycode 6).
+    #[test]
+    fn every_key_types_its_character_on_the_active_layout() {
+        let Some(active) = current_layout() else { return };
+        for ch in ('a'..='z').chain('0'..='9').chain(['-', '.', ',']) {
+            let Stroke::Code(keycode, shift) = stroke(Key::Char(ch), Some(&active), false) else { continue };
+            let typed = active.0.iter().find(|(_, &at)| at == (keycode, shift)).map(|(&typed, _)| typed);
+            assert_eq!(typed, Some(ch), "{ch:?} pressed as keycode {keycode}");
+        }
+    }
+
+    /// The US keys moved the way a layout moves them: `swaps` exchanges
+    /// two keys' characters (both levels), `cyrillic` = no Latin letters.
+    fn layout(swaps: &[(char, char)], cyrillic: bool) -> Layout {
+        Layout::from(|keycode, shift| {
+            let ch = (0..=127u8).map(char::from).find(|&ch| char_keycode(ch) == Some((keycode, shift)))?;
+            let lower = ch.to_ascii_lowercase();
+            let moved = swaps.iter().find_map(|&(a, b)| (lower == a).then_some(b).or((lower == b).then_some(a))).unwrap_or(lower);
+            let moved = if ch.is_ascii_uppercase() { moved.to_ascii_uppercase() } else { moved };
+            match cyrillic && moved.is_ascii_alphabetic() {
+                true => char::from_u32(u32::from(moved.to_ascii_lowercase()) - u32::from('a') + 0x430),
+                false => Some(moved),
+            }
+        })
+    }
+
+    /// #EXP-1922: QWERTZ and AZERTY press the key the layout has the
+    /// character on; a non-Latin layout keeps the US key for a shortcut and
+    /// types a bare letter as itself.
+    #[test]
+    fn characters_go_to_their_key_on_the_layout() {
+        let qwertz = layout(&[('y', 'z')], false);
+        assert_eq!(stroke(Key::Char('z'), Some(&qwertz), true), Stroke::Code(16, false));
+        assert_eq!(stroke(Key::Char('y'), Some(&qwertz), true), Stroke::Code(6, false));
+        assert_eq!(stroke(Key::Char('Z'), Some(&qwertz), false), Stroke::Code(16, true));
+        let azerty = layout(&[('a', 'q'), ('z', 'w')], false);
+        assert_eq!(stroke(Key::Char('a'), Some(&azerty), true), Stroke::Code(12, false));
+        assert_eq!(stroke(Key::Char('q'), Some(&azerty), true), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('w'), Some(&azerty), true), Stroke::Code(6, false));
+        let cyrillic = layout(&[], true);
+        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), true), Stroke::Code(9, false));
+        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), false), Stroke::Unicode('v'));
+        assert_eq!(stroke(Key::Char('\u{0430}'), Some(&cyrillic), false), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('€'), Some(&qwertz), true), Stroke::Unicode('€'));
+    }
+
     #[test]
     fn keys_map_to_mac_virtual_keycodes() {
-        assert_eq!(stroke(Key::Named(Named::Return)), Stroke::Code(36, false));
-        assert_eq!(stroke(Key::Named(Named::Escape)), Stroke::Code(53, false));
-        assert_eq!(stroke(Key::Named(Named::Super)), Stroke::Code(55, false));
-        assert_eq!(stroke(Key::Named(Named::F(1))), Stroke::Code(122, false));
-        assert_eq!(stroke(Key::Named(Named::F(12))), Stroke::Code(111, false));
-        assert_eq!(stroke(Key::Named(Named::F(20))), Stroke::Code(90, false));
-        assert_eq!(stroke(Key::Named(Named::F(21))), Stroke::Missing);
-        assert_eq!(stroke(Key::Char('a')), Stroke::Code(0, false));
-        assert_eq!(stroke(Key::Char('A')), Stroke::Code(0, true));
-        assert_eq!(stroke(Key::Char('0')), Stroke::Code(29, false));
-        assert_eq!(stroke(Key::Char('?')), Stroke::Code(44, true));
-        assert_eq!(stroke(Key::Char('€')), Stroke::Unicode('€'));
+        assert_eq!(stroke(Key::Named(Named::Return), None, false), Stroke::Code(36, false));
+        assert_eq!(stroke(Key::Named(Named::Escape), None, false), Stroke::Code(53, false));
+        assert_eq!(stroke(Key::Named(Named::Super), None, false), Stroke::Code(55, false));
+        assert_eq!(stroke(Key::Named(Named::F(1)), None, false), Stroke::Code(122, false));
+        assert_eq!(stroke(Key::Named(Named::F(12)), None, false), Stroke::Code(111, false));
+        assert_eq!(stroke(Key::Named(Named::F(20)), None, false), Stroke::Code(90, false));
+        assert_eq!(stroke(Key::Named(Named::F(21)), None, false), Stroke::Missing);
+        assert_eq!(stroke(Key::Char('a'), None, false), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('A'), None, false), Stroke::Code(0, true));
+        assert_eq!(stroke(Key::Char('0'), None, false), Stroke::Code(29, false));
+        assert_eq!(stroke(Key::Char('?'), None, false), Stroke::Code(44, true));
+        assert_eq!(stroke(Key::Char('€'), None, false), Stroke::Unicode('€'));
     }
 
     #[test]

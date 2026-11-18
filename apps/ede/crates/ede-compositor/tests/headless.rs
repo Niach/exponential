@@ -6,7 +6,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, layout::Tile, state::window_state, Config};
+use ede_compositor::{backend::headless::Harness, desk::DeskId, layout::Tile, state::window_state, Config};
 use smithay::{
     backend::input::{ButtonState, KeyState},
     utils::Rectangle,
@@ -41,7 +41,7 @@ fn harness(outputs: &[(i32, i32)]) -> Harness {
 /// Window geometries in the space, back to front, with their titles.
 fn windows(h: &Harness) -> Vec<(String, Rectangle<i32, smithay::utils::Logical>)> {
     h.with(|ede| {
-        ede.space
+        ede.desk.space
             .elements()
             .map(|w| {
                 let title = smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| {
@@ -54,7 +54,7 @@ fn windows(h: &Harness) -> Vec<(String, Rectangle<i32, smithay::utils::Logical>)
                         .clone()
                         .unwrap_or_default()
                 });
-                (title, ede.space.element_geometry(w).unwrap())
+                (title, ede.desk.space.element_geometry(w).unwrap())
             })
             .collect()
     })
@@ -144,7 +144,7 @@ fn dropping_a_window_on_the_left_edge_tiles_it_and_dragging_it_off_restores_it()
     alt_drag(&h, (640.0, 400.0), (0.0, 400.0));
     wait_for(&mut c, |c| c.state.toplevels[0].size == (640, 800));
     assert!(c.state.toplevels[0].states.contains(&XdgState::TiledLeft));
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), Some(Tile::Left));
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), Some(Tile::Left));
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((0, 0).into(), (640, 800).into()));
     let frame = h.capture(0);
@@ -154,7 +154,7 @@ fn dropping_a_window_on_the_left_edge_tiles_it_and_dragging_it_off_restores_it()
     alt_drag(&h, (320.0, 10.0), (700.0, 300.0));
     wait_for(&mut c, |c| c.state.toplevels[0].size == (400, 300));
     assert!(!c.state.toplevels[0].states.contains(&XdgState::TiledLeft));
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), None);
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), None);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn an_alt_click_on_a_layer_over_a_window_leaves_the_window_alone() {
     let focused = c.toplevel("focused");
     c.draw(&focused, 300, 200, BLUE);
     wait_for(&mut c, |_| windows(&h).len() == 2);
-    let focus_title = || h.with(|ede| ede.space.elements().find(|w| w.toplevel().is_some_and(|t| t.with_pending_state(|s| s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)))).and_then(|w| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone())));
+    let focus_title = || h.with(|ede| ede.desk.space.elements().find(|w| w.toplevel().is_some_and(|t| t.with_pending_state(|s| s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated)))).and_then(|w| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone())));
     assert_eq!(focus_title().as_deref(), Some("focused"));
     let before = windows(&h);
 
@@ -337,7 +337,7 @@ fn the_panel_margin_keeps_windows_off_the_frame() {
     let mut c = Session::connect(h.connect());
     let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
     c.draw_layer(&panel, GREEN);
-    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.space.outputs().next().unwrap()).unwrap()) == Rectangle::new((10, 10).into(), (1260, 740).into()));
+    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.desk.space.outputs().next().unwrap()).unwrap()) == Rectangle::new((10, 10).into(), (1260, 740).into()));
 
     let t = c.toplevel("w");
     c.draw(&t, 400, 300, RED);
@@ -367,7 +367,7 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
     let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
     assert_eq!(c.state.layers[0].size, (1280, 40), "stretched across the output");
     c.draw_layer(&panel, GREEN);
-    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.space.outputs().next().unwrap()).unwrap().size.h) == 760);
+    wait_for(&mut c, |_| h.with(|ede| ede.work_area(ede.desk.space.outputs().next().unwrap()).unwrap().size.h) == 760);
 
     let t = c.toplevel("w");
     // The initial configure bounds it to the work area.
@@ -389,7 +389,7 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
 #[test]
 fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
     let h = harness(&[(1280, 800), (1920, 1080)]);
-    let geos = h.with(|ede| ede.space.outputs().map(|o| ede.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
+    let geos = h.with(|ede| ede.desk.space.outputs().map(|o| ede.desk.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
     assert_eq!(geos, vec![Rectangle::new((0, 0).into(), (1280, 800).into()), Rectangle::new((1280, 0).into(), (1920, 1080).into())]);
 
     let mut c = Session::connect(h.connect());
@@ -405,7 +405,7 @@ fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
 
     // The pointer can't leave the outputs.
     h.with(|ede| ede.pointer_motion_to((9000.0, -50.0).into(), 1));
-    let p = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    let p = h.with(|ede| ede.desk.seat.get_pointer().unwrap().current_location());
     assert_eq!((p.x, p.y), (3199.0, 0.0));
 }
 
@@ -420,7 +420,7 @@ fn unplugging_an_output_moves_its_windows_onto_the_remaining_one() {
     assert_eq!(windows(&h)[0].1.loc, (2040, 390).into());
 
     h.with_backend(|ede, headless| headless.remove_output(ede, 1));
-    let geos = h.with(|ede| ede.space.outputs().map(|o| ede.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
+    let geos = h.with(|ede| ede.desk.space.outputs().map(|o| ede.desk.space.output_geometry(o).unwrap()).collect::<Vec<_>>());
     assert_eq!(geos, vec![Rectangle::new((0, 0).into(), (1280, 800).into()), Rectangle::new((1280, 0).into(), (1280, 800).into())], "no gap left");
     assert_eq!(windows(&h)[0].1.loc, (440, 250).into(), "rescued onto the first output");
     assert_eq!(h.capture(0).at(640, 400), BLUE);
@@ -456,6 +456,82 @@ fn fullscreen_covers_the_panel_and_the_output_shows_only_that_window() {
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[1].1.size == (400, 300).into());
     assert_eq!(h.capture(0).at(640, 790), GREEN, "the panel is back");
+}
+
+/// #EDE-100: frame callbacks go to what an output shows. A window under a
+/// fullscreen window or behind the lock gets at most one a second, not one
+/// per refresh; the window on top keeps the refresh rate.
+#[test]
+fn hidden_windows_get_frame_callbacks_at_most_once_a_second() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let behind = c.toplevel("behind");
+    c.draw(&behind, 300, 200, BLUE);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    let shown = c.count_frames(&behind.surface, Duration::from_millis(500));
+    assert!(shown >= 10, "a shown window gets one per refresh: {shown}");
+
+    let t = c.toplevel("game");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+    t.toplevel.set_fullscreen(None);
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[1].states.contains(&XdgState::Fullscreen));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| windows(&h)[1].1 == Rectangle::new((0, 0).into(), (1280, 800).into()));
+    let covered = c.count_frames(&behind.surface, Duration::from_millis(1500));
+    assert!(covered <= 2, "under a fullscreen window: {covered} in 1.5 s");
+    let top = c.count_frames(&t.surface, Duration::from_millis(500));
+    assert!(top >= 10, "the fullscreen window gets one per refresh: {top}");
+
+    let mut locker = Session::connect(h.connect());
+    let _lock = locker.lock();
+    wait_for(&mut locker, |c| c.state.locked);
+    let locked = c.count_frames(&t.surface, Duration::from_millis(1500));
+    assert!(locked <= 2, "behind the lock: {locked} in 1.5 s");
+}
+
+/// #EDE-100: a capture on GLES (what udev and winit capture on, so GPU
+/// clients' dmabufs are in it) is the software capture, pixel for pixel:
+/// same scene, same orientation, same colours. Runs on Mesa's software EGL
+/// device (llvmpipe); skipped where there is none.
+#[test]
+fn a_gles_capture_is_the_software_capture() {
+    use ede_compositor::backend::{capture_on_gles, capture_output, capture_window, CaptureOf};
+    use smithay::backend::{
+        egl::{EGLContext, EGLDevice, EGLDisplay},
+        renderer::gles::GlesRenderer,
+    };
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    // Not symmetric top to bottom: a flipped readback cannot pass.
+    let panel = c.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    c.draw_layer(&panel, GREEN);
+    let t = c.toplevel("app");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    let frames = h.with_backend(|state, headless| {
+        let device = EGLDevice::enumerate().ok()?.find(|d| d.is_software())?;
+        let display = unsafe { EGLDisplay::new(device) }.ok()?;
+        let mut gles = unsafe { GlesRenderer::new(EGLContext::new(&display).ok()?) }.ok()?;
+        let output = headless.outputs[0].clone();
+        let window = state.desk.space.elements().next().cloned().unwrap();
+        Some((
+            capture_on_gles(&mut gles, state, CaptureOf::Output(&output)).unwrap(),
+            capture_output(state, &output).unwrap(),
+            capture_on_gles(&mut gles, state, CaptureOf::Window(&window)).unwrap(),
+            capture_window(state, &window).unwrap(),
+        ))
+    });
+    let Some((gles, software, gles_window, software_window)) = frames else {
+        eprintln!("no software EGL device: skipped");
+        return;
+    };
+    assert_eq!((software.at(640, 790), software.at(640, 400)), (GREEN, RED));
+    assert_eq!((gles.width, gles.height), (software.width, software.height));
+    assert!(gles.pixels == software.pixels, "output: GLES {:#x} {:#x}, software {:#x} {:#x} (bottom, centre)", gles.at(640, 790), gles.at(640, 400), software.at(640, 790), software.at(640, 400));
+    assert_eq!((gles_window.width, gles_window.height), (software_window.width, software_window.height));
+    assert!(gles_window.pixels == software_window.pixels, "window: GLES {:#x}, software {:#x}", gles_window.at(10, 10), software_window.at(10, 10));
 }
 
 /// Xwayland must be installed (CI installs it); skipped otherwise.
@@ -513,18 +589,19 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
 
     let deadline = Instant::now() + Duration::from_secs(30);
     let geo = loop {
-        let w = h.with(|ede| ede.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.space.element_geometry(w)));
+        let w = h.with(|ede| ede.desk.space.elements().find(|w| w.x11_surface().is_some()).and_then(|w| ede.desk.space.element_geometry(w)));
         if let Some(g) = w.filter(|g| g.size.w > 0) {
             break g;
         }
         assert!(Instant::now() < deadline, "the X11 window never mapped");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert_eq!(geo, Rectangle::new((480, 280).into(), (320, 240).into()), "centred like a Wayland window");
+    // Its title bar (#EDE-88) counts in the centring, as a Wayland window's.
+    assert_eq!(geo, Rectangle::new((480, 298).into(), (320, 240).into()), "centred like a Wayland window");
     // The focus follows the map asynchronously (the X11 WM handshake), so
     // wait for it instead of racing it: CI runners lost the race.
     let deadline = Instant::now() + Duration::from_secs(30);
-    while !h.with(|ede| ede.focused_window().is_some_and(|w| w.x11_surface().is_some())) {
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
         assert!(Instant::now() < deadline, "it has keyboard focus");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -541,6 +618,244 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     }
 }
 
+/// Xwayland on `h`, or `None` (skipped) without the binary.
+#[cfg(feature = "xwayland")]
+fn xwayland(h: &Harness) -> Option<x11rb::rust_connection::RustConnection> {
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return None;
+    }
+    h.with(|ede| ede.start_xwayland());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let display = loop {
+        if let Some(n) = h.with(|ede| ede.xdisplay) {
+            break n;
+        }
+        assert!(Instant::now() < deadline, "Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Some(x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland").0)
+}
+
+/// Maps a 320×240 X11 window (key presses selected) with `motif` as its
+/// `_MOTIF_WM_HINTS` and waits until the compositor maps it.
+#[cfg(feature = "xwayland")]
+fn map_x11(h: &Harness, conn: &x11rb::rust_connection::RustConnection, motif: Option<[u32; 5]>) -> u32 {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, WindowClass},
+        wrapper::ConnectionExt as _,
+    };
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    let aux = CreateWindowAux::new().background_pixel(0x00ff_0000).event_mask(EventMask::KEY_PRESS | EventMask::FOCUS_CHANGE);
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 320, 240, 0, WindowClass::INPUT_OUTPUT, 0, &aux).unwrap();
+    conn.change_property8(PropMode::REPLACE, win, AtomEnum::WM_NAME, AtomEnum::STRING, b"xclient").unwrap();
+    if let Some(hints) = motif {
+        let atom = conn.intern_atom(false, b"_MOTIF_WM_HINTS").unwrap().reply().unwrap().atom;
+        conn.change_property32(PropMode::REPLACE, win, atom, atom, &hints).unwrap();
+    }
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |ede| ede.desk.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win) && smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some())) {
+        assert!(Instant::now() < deadline, "the X11 window never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    win
+}
+
+/// #EDE-88 (`ede-core-5`): the first X11 window of a session takes the
+/// keys typed next without a click, wherever the pointer is: the X side
+/// of the focus (SetInputFocus) follows the compositor's.
+#[cfg(feature = "xwayland")]
+#[test]
+fn the_first_x11_window_takes_keys_without_a_click() {
+    use x11rb::{connection::Connection, protocol::Event};
+    // Two outputs: the window opens centred on the right one, away from
+    // where X's own pointer starts (the middle of the whole X screen), so
+    // keys that follow X's pointer miss it.
+    let h = harness(&[(1280, 800), (1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    h.with(|ede| ede.pointer_motion_to((2500.0, 5.0).into(), 0));
+    let win = map_x11(&h, &conn, None);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(|ede| ede.focused_window(DeskId::PERSON).is_some_and(|w| w.x11_surface().is_some())) {
+        assert!(Instant::now() < deadline, "it has keyboard focus");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    const KEY_A: u32 = 30 + 8;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut sent = Instant::now() - Duration::from_secs(1);
+    loop {
+        // Xwayland may still be taking the focus in: type again until it lands.
+        if sent.elapsed() > Duration::from_millis(500) {
+            key(&h, KEY_A, KeyState::Pressed);
+            key(&h, KEY_A, KeyState::Released);
+            sent = Instant::now();
+        }
+        match conn.poll_for_event().unwrap() {
+            Some(Event::KeyPress(e)) if e.event == win && u32::from(e.detail) == KEY_A => break,
+            Some(_) => continue,
+            None => {}
+        }
+        assert!(Instant::now() < deadline, "the X11 window never got the key");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// What still keeps the X11 window `win` from being typed into, or `None`:
+/// the seat's keyboard is on its live surface, `windows` lists it focused,
+/// and X's own input focus is the window.
+#[cfg(feature = "xwayland")]
+fn x11_keyboard_gap(h: &Harness, conn: &x11rb::rust_connection::RustConnection, ipc: &mut ede_protocol::Client, win: u32) -> Option<String> {
+    use smithay::{utils::IsAlive, wayland::seat::WaylandFocus};
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    let seat = h.with(move |ede| {
+        let focus = ede.desk.seat.get_keyboard().unwrap().current_focus().filter(|f| f.alive());
+        let surface = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).and_then(|w| w.wl_surface().map(|s| s.into_owned()));
+        focus.is_some() && focus == surface
+    });
+    if !seat {
+        return Some("the seat's keyboard is not on its surface".into());
+    }
+    if !ipc.windows().unwrap().iter().any(|w| w.focused && w.title.as_deref() == Some("xclient")) {
+        return Some("`windows` does not list it focused".into());
+    }
+    let x = conn.get_input_focus().unwrap().reply().unwrap().focus;
+    (x != win).then(|| format!("X's input focus is {x:#x}, not the window {win:#x}"))
+}
+
+#[cfg(feature = "xwayland")]
+fn wait_for_x11_keyboard(h: &Harness, conn: &x11rb::rust_connection::RustConnection, ipc: &mut ede_protocol::Client, win: u32, when: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Some(gap) = x11_keyboard_gap(h, conn, ipc, win) {
+        assert!(Instant::now() < deadline, "{when}: {gap}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // And it stays: nothing that arrives late (the surface Xwayland
+    // associates after a restore) takes it away again.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(x11_keyboard_gap(h, conn, ipc, win), None, "{when}");
+}
+
+/// #EDE-122: an X11 window that is the only window, minimized and brought
+/// back (the taskbar's click = `focus_window`, or `restore_window`), has
+/// the keyboard again without a click. Xwayland
+/// gives a restored window a new surface, so the focus has to wait for it.
+#[cfg(feature = "xwayland")]
+#[test]
+fn a_restored_x11_window_that_is_the_only_window_has_the_keyboard_again() {
+    use ede_protocol::Request;
+    use x11rb::{connection::Connection, protocol::Event};
+    let h = harness(&[(1280, 800), (1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    // Away from the window, as in the first-window test: keys that follow
+    // X's pointer would miss it.
+    h.with(|ede| ede.pointer_motion_to((2500.0, 5.0).into(), 0));
+    let win = map_x11(&h, &conn, None);
+    let mut ipc = h.ipc();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "the first X11 window");
+    let id = ipc.windows().unwrap()[0].id.clone();
+    let minimize = |ipc: &mut ede_protocol::Client| {
+        ipc.call(Request::MinimizeWindow { window: id.clone() }).unwrap();
+        // Until Xwayland has taken the unmap in (its surface is gone).
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while h.with(|ede| ede.desk.minimized.iter().any(|w| smithay::wayland::seat::WaylandFocus::wl_surface(w).is_some_and(|s| smithay::utils::IsAlive::alive(&*s)))) {
+            assert!(Instant::now() < deadline, "the minimized X11 window kept its surface");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(h.with(|ede| (ede.desk.space.elements().count(), ede.desk.minimized.len())), (0, 1));
+    };
+
+    minimize(&mut ipc);
+    ipc.call(Request::FocusWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back by focus_window (the taskbar's click)");
+
+    minimize(&mut ipc);
+    ipc.call(Request::RestoreWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back by restore_window");
+
+    // Right after the minimize, before Xwayland answered it.
+    ipc.call(Request::MinimizeWindow { window: id.clone() }).unwrap();
+    ipc.call(Request::FocusWindow { window: id.clone() }).unwrap();
+    wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "back at once after the minimize");
+
+    // The key typed next arrives.
+    const KEY_A: u32 = 30 + 8;
+    while conn.poll_for_event().unwrap().is_some() {}
+    key(&h, KEY_A, KeyState::Pressed);
+    key(&h, KEY_A, KeyState::Released);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match conn.poll_for_event().unwrap() {
+            Some(Event::KeyPress(e)) if e.event == win && u32::from(e.detail) == KEY_A => break,
+            Some(_) => continue,
+            None => {}
+        }
+        assert!(Instant::now() < deadline, "the restored X11 window never got the key");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-122, the cases that worked: with a second window the restored X11
+/// window takes the keyboard from it, and a Wayland window alone comes
+/// back focused.
+#[cfg(feature = "xwayland")]
+#[test]
+fn a_restored_window_takes_the_keyboard_beside_another_and_as_a_wayland_window() {
+    use ede_protocol::Request;
+    let h = harness(&[(1280, 800)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    let mut ipc = h.ipc();
+    let notes = ipc.windows().unwrap()[0].id.clone();
+    let focused = |ipc: &mut ede_protocol::Client| ipc.windows().unwrap().into_iter().find(|w| w.focused).map(|w| w.id);
+    assert_eq!(focused(&mut ipc), Some(notes.clone()));
+    for restore in [Request::FocusWindow { window: notes.clone() }, Request::RestoreWindow { window: notes.clone() }] {
+        ipc.call(Request::MinimizeWindow { window: notes.clone() }).unwrap();
+        assert_eq!(focused(&mut ipc), None);
+        ipc.call(restore).unwrap();
+        assert_eq!(focused(&mut ipc), Some(notes.clone()), "a Wayland window alone comes back focused");
+    }
+
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, None);
+    let x = ipc.windows().unwrap().into_iter().find(|w| w.title.as_deref() == Some("xclient")).unwrap().id;
+    for restore in [Request::FocusWindow { window: x.clone() }, Request::RestoreWindow { window: x.clone() }] {
+        ipc.call(Request::FocusWindow { window: x.clone() }).unwrap();
+        wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "focused beside the Wayland window");
+        ipc.call(Request::MinimizeWindow { window: x.clone() }).unwrap();
+        assert_eq!(focused(&mut ipc), Some(notes.clone()), "the keyboard falls to the window left");
+        std::thread::sleep(Duration::from_millis(200));
+        ipc.call(restore).unwrap();
+        wait_for_x11_keyboard(&h, &conn, &mut ipc, win, "restored beside the Wayland window");
+    }
+}
+
+/// #EDE-88 (`ede-core-9`): an X11 window gets the compositor's title bar
+/// (the same frame as a Wayland window's); one whose Motif hints ask for
+/// no decorations keeps none.
+#[cfg(feature = "xwayland")]
+#[test]
+fn x11_windows_get_the_title_bar_unless_motif_hints_say_none() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let plain = map_x11(&h, &conn, None);
+    // flags = MWM_HINTS_DECORATIONS, decorations = none.
+    let bare = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let framed = move |id: u32| {
+        h.with(move |ede| {
+            let w = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == id)).cloned().unwrap();
+            ede.frame_rect(&w).map(|r| (r, ede.desk.space.element_geometry(&w).unwrap()))
+        })
+    };
+    let (bar, geo) = framed(plain).expect("a plain X11 window has the title bar");
+    assert_eq!((bar.loc.y + bar.size.h, bar.size.w), (geo.loc.y, geo.size.w), "it sits right above the window");
+    assert_eq!(framed(bare), None, "Motif no-decorations keeps none");
+}
+
 /// #EDE-16: a window that leaves decorations to the compositor gets a
 /// title bar above its geometry, tiles under it, closes from its button;
 /// one that insists on its own gets none.
@@ -555,8 +870,8 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     app.draw(&t, 300, 200, BLUE);
     wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
     let (geo, framed) = h.with(|ede| {
-        let w = ede.space.elements().next().cloned().unwrap();
-        (ede.space.element_geometry(&w).unwrap(), ede.framed_geometry(&w).unwrap())
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        (ede.desk.space.element_geometry(&w).unwrap(), ede.framed_geometry(&w).unwrap())
     });
     assert_eq!(framed.size.h, geo.size.h + ede_compositor::frames::HEIGHT);
     assert_eq!(framed.loc.y + ede_compositor::frames::HEIGHT, geo.loc.y);
@@ -576,8 +891,8 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     });
     wait_for(&mut app, |c| c.state.toplevels[t.index].size.1 > 0 && c.state.toplevels[t.index].size.1 < 600);
     let (max_geo, tile) = h.with(|ede| {
-        let w = ede.space.elements().next().cloned().unwrap();
-        (ede.space.element_geometry(&w).unwrap(), window_state(&w).tile)
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        (ede.desk.space.element_geometry(&w).unwrap(), window_state(&w).tile)
     });
     assert_eq!(tile, Some(Tile::Maximized));
     assert_eq!(max_geo.loc.y, ede_compositor::frames::HEIGHT, "the bar sits at the top of the work area");
@@ -597,7 +912,7 @@ fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
     app.draw(&csd, 300, 200, RED);
     wait_for(&mut app, |c| c.state.decoration_modes.get(&csd.index) == Some(&(Mode::ClientSide as u32)));
     assert!(h.with(|ede| {
-        let w = ede.space.elements().last().cloned().unwrap();
+        let w = ede.desk.space.elements().last().cloned().unwrap();
         ede.frame_height(&w) == 0
     }));
 }
@@ -659,7 +974,7 @@ fn a_client_side_title_bar_moves_resizes_and_unmaximizes_its_window() {
     c.draw(&t, 400, 300, RED);
     wait_for(&mut c, |_| !windows(&h).is_empty());
     let start = windows(&h)[0].1;
-    assert_eq!(h.with(|ede| ede.frame_height(ede.space.elements().next().unwrap())), 0, "no xdg-decoration: the client draws its own bar");
+    assert_eq!(h.with(|ede| ede.frame_height(ede.desk.space.elements().next().unwrap())), 0, "no xdg-decoration: the client draws its own bar");
 
     // Move: the header drag.
     let grab = ((start.loc.x + 150) as f64, (start.loc.y + 10) as f64);
@@ -719,7 +1034,7 @@ fn a_client_side_title_bar_moves_resizes_and_unmaximizes_its_window() {
     wait_for(&mut c, |c| c.state.toplevels[0].size == (200, 150) && !c.state.toplevels[0].states.contains(&XdgState::Maximized));
     c.draw_configured(&t, 0, 0, RED);
     let floating = windows(&h)[0].1;
-    assert_eq!(h.with(|ede| window_state(ede.space.elements().next().unwrap()).tile), None);
+    assert_eq!(h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile), None);
     assert_eq!(300 - floating.loc.y, 10, "the pointer holds the header where it grabbed it: {floating:?}");
     assert!(floating.to_f64().contains((700.0, 300.0)), "{floating:?}");
 }
@@ -747,8 +1062,9 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
     wait_for(&mut other, |_| windows(&h).len() == 2);
     let over = (geo.loc.x - 50, geo.loc.y - 100);
     h.with(move |ede| {
-        let w = ede.space.elements().last().cloned().unwrap();
-        ede.space.map_element(w, over, true);
+        // Another app's window opens behind (#EDE-82): bring it in front.
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        ede.desk.space.map_element(w, over, true);
     });
     other.state.press_serial = None;
     let title = ((geo.loc.x + 20) as f64, bar_y);
@@ -768,11 +1084,229 @@ fn the_frame_minimizes_and_a_window_above_it_keeps_its_own_presses() {
         ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 4);
         ede.pointer_button(BTN_LEFT, ButtonState::Released, 5);
     });
-    assert!(h.with(|ede| ede.space.elements().count() == 1 && ede.minimized.len() == 1));
+    assert!(h.with(|ede| ede.desk.space.elements().count() == 1 && ede.desk.minimized.len() == 1));
     let restored = h.with(|ede| {
-        let w = ede.minimized[0].clone();
+        let w = ede.desk.minimized[0].clone();
         ede.restore_window(&w);
-        ede.space.element_geometry(&w)
+        ede.desk.space.element_geometry(&w)
     });
     assert_eq!(restored, Some(geo));
+}
+
+/// #EDE-103: a press on a server-side bar's button is the frame's: the
+/// other app's window under the bar never sees it.
+#[test]
+fn a_press_on_a_title_bar_button_never_reaches_the_window_under_the_bar() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut under = Session::connect(h.connect());
+    let _pointer = under.pointer();
+    let b = under.toplevel("Browser");
+    under.draw(&b, 700, 500, RED);
+    wait_for(&mut under, |_| windows(&h).len() == 1);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 2);
+    // The terminal in front (another app's window opens behind, #EDE-82).
+    let (geo, browser) = h.with(|ede| {
+        let terminal = ede.desk.space.elements().find(|w| ede.is_decorated(w)).cloned().unwrap();
+        let browser = ede.desk.space.elements().find(|w| !ede.is_decorated(w)).cloned().unwrap();
+        ede.focus(DeskId::PERSON, Some(terminal.clone()));
+        (ede.desk.space.element_geometry(&terminal).unwrap(), ede.desk.space.element_geometry(&browser).unwrap())
+    });
+    let close = ((geo.loc.x + geo.size.w - 18) as f64, (geo.loc.y - 18) as f64);
+    assert!(browser.to_f64().contains(close), "the bar's close button lies over the browser");
+    h.with(move |ede| {
+        ede.pointer_motion_to(close.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    wait_for(&mut app, |c| c.state.toplevels[t.index].closed);
+    under.roundtrip();
+    assert_eq!(under.state.press_serial, None, "the browser under the bar got the press");
+}
+
+/// #EDE-103: a fullscreen window is all its output draws, so it alone
+/// takes the pointer: a click where the hidden panel lies is the window's.
+#[test]
+fn a_fullscreen_window_takes_the_click_where_the_hidden_panel_lies() {
+    let h = harness(&[(1280, 800)]);
+    let mut shell = Session::connect(h.connect());
+    let _shell_pointer = shell.pointer();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let mut c = Session::connect(h.connect());
+    let _pointer = c.pointer();
+    let t = c.toplevel("video");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| windows(&h).len() == 1);
+    t.toplevel.set_fullscreen(None);
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Fullscreen));
+    c.draw_configured(&t, 0, 0, RED);
+    wait_for(&mut c, |_| h.capture(0).at(640, 790) == RED);
+    h.with(|ede| {
+        ede.pointer_motion_to((640.0, 790.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    c.roundtrip();
+    shell.roundtrip();
+    assert_eq!(shell.state.press_serial, None, "the hidden panel took the click");
+    assert!(c.state.press_serial.is_some(), "the fullscreen window did not get the click");
+}
+
+/// #EDE-119: a press on a shell layer drawn above the windows (a toast)
+/// is the layer's: the title bar under it neither closes nor moves its
+/// window.
+#[test]
+fn a_press_on_a_layer_over_a_title_bar_is_the_layers() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 1);
+    let geo = windows(&h)[0].1;
+    let bar_y = geo.loc.y - 18;
+    let close = (geo.loc.x + geo.size.w - 18, bar_y);
+    let title = (geo.loc.x + 20, bar_y);
+
+    // A toast: a top layer over the whole bar.
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    let toast = shell.layer("toast", Anchor::empty(), (700, 500), 0);
+    shell.draw_layer(&toast, GREEN);
+    wait_for(&mut shell, |_| h.capture(0).at(close.0, close.1) == GREEN);
+    assert_eq!(h.capture(0).at(title.0, title.1), GREEN, "the layer covers the bar's title too");
+
+    // The bar's close button lies under the layer.
+    h.with(move |ede| {
+        ede.pointer_motion_to((close.0 as f64, close.1 as f64).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    app.roundtrip();
+    assert!(!app.state.toplevels[t.index].closed, "the bar under the layer closed its window");
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+
+    // So does its title: no move starts.
+    shell.state.press_serial = None;
+    h.with(move |ede| {
+        ede.pointer_motion_to((title.0 as f64, title.1 as f64).into(), 3);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 4);
+        ede.pointer_motion_to((title.0 as f64 + 60.0, title.1 as f64 + 40.0).into(), 5);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 6);
+    });
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+    assert_eq!(windows(&h)[0].1, geo, "the bar under the layer moved its window");
+}
+
+/// A decorated window whose bar's close button lies at (100, 450), under a
+/// popup of the bottom panel (the start menu under the taskbar); a click
+/// there. Returns whether the window was closed and whether the popup's
+/// client got the press.
+fn click_a_panel_popup_over_a_close_button(grab: bool) -> (bool, bool) {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    wait_for(&mut app, |_| windows(&h).len() == 1);
+    h.with(|ede| {
+        let w = ede.desk.space.elements().next().cloned().unwrap();
+        ede.desk.space.map_element(w, (100 + 18 - 300, 450 + 18), true);
+    });
+    let geo = windows(&h)[0].1;
+    assert_eq!((geo.loc.x + geo.size.w - 18, geo.loc.y - 18), (100, 450), "the bar's close button");
+
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let _menu = shell.layer_popup(&panel, (300, 300), grab, RED);
+    wait_for(&mut shell, |_| h.capture(0).at(100, 450) == RED);
+
+    h.with(|ede| {
+        ede.pointer_motion_to((100.0, 450.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    app.roundtrip();
+    shell.roundtrip();
+    (app.state.toplevels[t.index].closed, shell.state.press_serial.is_some())
+}
+
+/// #EDE-123: a press inside the start menu (a popup of the panel) where a
+/// window lies beneath is the menu's: that window is neither focused nor
+/// raised, and the menu keeps the keyboard it had.
+#[test]
+fn a_press_on_a_layer_popup_over_a_window_leaves_the_window_and_the_keyboard_alone() {
+    let h = harness(&[(800, 600)]);
+    let mut under = Session::connect(h.connect());
+    let _under_pointer = under.pointer();
+    under.keyboard();
+    let b = under.toplevel("Browser");
+    under.draw(&b, 300, 200, RED);
+    wait_for(&mut under, |_| windows(&h).len() == 1);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.draw(&t, 200, 100, BLUE);
+    wait_for(&mut app, |_| windows(&h).len() == 2);
+    // The browser where the menu will open, the terminal beside it, in
+    // front and typed into.
+    h.with(|ede| {
+        let title = |w: &smithay::desktop::Window| smithay::wayland::compositor::with_states(w.toplevel().unwrap().wl_surface(), |s| s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().unwrap().lock().unwrap().title.clone());
+        let browser = ede.desk.space.elements().find(|w| title(w).as_deref() == Some("Browser")).cloned().unwrap();
+        let terminal = ede.desk.space.elements().find(|w| title(w).as_deref() == Some("Terminal")).cloned().unwrap();
+        ede.desk.space.map_element(browser, (50, 300), false);
+        ede.desk.space.map_element(terminal.clone(), (500, 50), false);
+        ede.focus(DeskId::PERSON, Some(terminal));
+    });
+    let order = |h: &Harness| windows(h).into_iter().map(|(title, _)| title).collect::<Vec<_>>();
+    assert_eq!(order(&h), ["Browser", "Terminal"]);
+
+    let mut shell = Session::connect(h.connect());
+    let _pointer = shell.pointer();
+    shell.keyboard();
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    let menu = shell.layer_popup(&panel, (300, 300), true, 0xffff_ff00);
+    wait_for(&mut shell, |_| h.capture(0).at(100, 450) == 0xffff_ff00);
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&menu.surface));
+    assert!(windows(&h)[0].1.to_f64().contains((100.0, 450.0)), "the browser lies under that spot of the menu");
+
+    h.with(|ede| {
+        ede.pointer_motion_to((100.0, 450.0).into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.press_serial.is_some());
+    under.roundtrip();
+    app.roundtrip();
+    shell.roundtrip();
+    assert_eq!(under.state.press_serial, None, "the window under the menu got the press");
+    assert_eq!(order(&h), ["Browser", "Terminal"], "the window under the menu was raised");
+    assert!(h.with(|ede| ede.focused_window(DeskId::PERSON).is_none()), "a window took the keyboard from the menu");
+    assert_eq!(shell.state.keyboard_focus.as_ref(), Some(&menu.surface), "the menu lost the keyboard");
+    assert_eq!(under.state.keyboard_focus, None, "the window under the menu took the keyboard");
+}
+
+/// #EDE-119: the same for a popup of a layer above the windows.
+#[test]
+fn a_press_on_a_layer_popup_over_a_title_bar_is_the_popups() {
+    assert_eq!(click_a_panel_popup_over_a_close_button(false), (false, true), "(window closed, popup got the press)");
+}
+
+/// #EDE-119: and for one that holds the keyboard grab, as the start menu does.
+#[test]
+fn a_press_on_a_grabbing_layer_popup_over_a_title_bar_is_the_popups() {
+    assert_eq!(click_a_panel_popup_over_a_close_button(true), (false, true), "(window closed, popup got the press)");
 }

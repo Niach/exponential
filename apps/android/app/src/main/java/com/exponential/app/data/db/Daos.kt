@@ -667,6 +667,18 @@ abstract class MessageDao {
     fun observeConsumedInputs(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveConsumedInputs(sessionId, limit).openedMessages()
 
+    // #FEED-260 (steer-enet.json SYNCED TAIL): a session's NEWEST [limit]
+    // card-less agent lines and person inputs, oldest first: what a
+    // not-live transcript appends after its feed.
+    @Query(
+        "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind IN ('user', 'agent') " +
+            "AND (card IS NULL OR card = 'null') " +
+            "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
+    )
+    abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveTailMessages(sessionId, limit).openedMessages()
+
     // EXP-1459: one message RAW (sealed as synced): the answer re-seals its card.
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     abstract suspend fun getById(id: String): MessageEntity?
@@ -712,7 +724,7 @@ interface SessionReadDao {
 // write (a message's digest update): a digest-less reader no longer re-reads
 // them all per write.
 private const val SESSION_COLUMNS_NO_DIGEST =
-    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, watching, NULL AS digest"
+    "id, team_id, parent_id, root_id, user_id, device_id, cli, account, model, effort, plan_mode, computer_use, ultracode, repository_id, branch, status, busy, background, needs_input, blocked, started_at, last_turn_at, ended_at, shared, title, guide, created_at, updated_at, agent_id, app_id, agent_instructions_at, started_by_agent_id, seal_public_key, seal_epoch, sealed_title, via_app_id, scope_team_ids, watching, clear_tree, NULL AS digest"
 
 // session-title.json `firstPrompt`: a row a session title can read.
 private const val TITLE_ROW = "(card IS NULL OR card = 'null') AND (author_kind = 'user' OR " +

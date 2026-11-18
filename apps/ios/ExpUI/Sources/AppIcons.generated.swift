@@ -743,6 +743,7 @@ public enum AppIcons {
         "ui-unassigned": "user-x",
         "ui-undo": "undo-2",
         "ui-undock": "arrow-up-right",
+        "ui-unencrypted": "lock-open",
         "ui-unlock": "lock-open",
         "ui-unpin": "pin-off",
         "ui-unselected": "square",
@@ -1413,6 +1414,8 @@ public enum AppIcons {
     public static let uiUndo: String = "undo-2"
     /// Concept `ui-undock`.
     public static let uiUndock: String = "arrow-up-right"
+    /// Concept `ui-unencrypted`.
+    public static let uiUnencrypted: String = "lock-open"
     /// Concept `ui-unlock`.
     public static let uiUnlock: String = "lock-open"
     /// Concept `ui-unpin`.

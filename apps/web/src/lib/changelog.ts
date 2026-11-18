@@ -25,11 +25,114 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    id: `2026-11-16-whole-chat-messages`,
-    date: `2026-11-16`,
+    id: `2026-11-18-whole-chat-messages`,
+    date: `2026-11-18`,
     title: `Chat messages always show in full`,
     summary: `Every chat message shows its whole text again, on web, desktop, iOS and Android: no more "Show more" under long messages.`,
     body: `- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble.`,
+  },
+  {
+    id: `2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls`,
+    date: `2026-11-18`,
+    title: `Encrypted chats, a local copy of your chats, and steadier calls`,
+    summary: `Desktop and CLI 0.14.169: chats are end-to-end encrypted by default, desktop and web keep a local copy of your chats, calls and voice are steadier, and computer use pastes and copies again in eDE 0.2.28.`,
+    body: `- **Chats are encrypted by default**: every new chat is end-to-end encrypted and shows a lock. Devices older than 0.14.96 can't send plans or questions into an encrypted chat, so please update them.
+- **No unencrypted fallback on the web**: a browser that can't keep an encryption key (no eNet install, or storage blocked) now shows a failed-send message instead of sending the message unencrypted.
+- **A local copy of your chats**: desktop and web keep a local, searchable copy of your chats, so a chat opens right away, even offline.
+- **Sign out deletes the local copy**: signing out on purpose deletes it on desktop, in the CLI (\`exponential logout\`) and on the web. An expired session or switching accounts keeps it. One edge: logging out in the CLI while the desktop app runs on the same account leaves the app writing to the deleted file until it restarts.
+- **Steadier calls and voice**: calls and push to talk connect and end more reliably, and calls are sealed end to end where the server asks for it.
+- **Steadier computer use**: computer use on X11, Wayland and eDE holds and releases your input more reliably.
+- **Paste and copy in eDE**: with eDE 0.2.28, computer use pastes and copies through the clipboard again instead of typing the text.`,
+  },
+  {
+    id: `2026-11-18-phones-copy-image-and-encrypted-chats`,
+    date: `2026-11-18`,
+    title: `Copy image on phones, and chats encrypted by default`,
+    summary: `Android 0.14.150 and iOS 0.14.138: long-press a picture to copy or share it, pictures from other websites show as links, new chats are encrypted by default, and calls hold up better.`,
+    body: `- **Copy image and Share**: long-press a picture in a comment, chat, plan, result or the viewer to copy it or share it.
+- **Pictures from other websites**: a picture or video from another website shows as a link and is never loaded.
+- **Chats encrypted by default**: new chats are encrypted; a chat's mark shows when it is shared with the team or not encrypted.
+- **Calls**: on Android a call follows a headset you connect mid-call and keeps going when you leave the app while it rings; on both phones a call whose connection died says so instead of hanging.
+- **Computer use** follows the device's switch in the + menu.`,
+  },
+  {
+    id: `2026-11-18-copy-image-android`,
+    date: `2026-11-18`,
+    title: `Copy image on Android`,
+    summary: `Long-press a picture on Android to copy it or share it. A picture from another website shows as a link and is never loaded.`,
+    body: `- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it.`,
+  },
+  {
+    id: `2026-11-18-copy-image-ios`,
+    date: `2026-11-18`,
+    title: `Copy image on iOS`,
+    summary: `Long-press a picture on iOS to copy it or share it. A picture from another website shows as a link and is never loaded.`,
+    body: `- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file. The share sheet also saves it to Photos.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it.`,
+  },
+  {
+    id: `2026-11-18-copy-image-on-the-web`,
+    date: `2026-11-18`,
+    title: `Copy image on the web`,
+    summary: `Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.`,
+    body: `- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
+- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
+- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab.`,
+  },
+  {
+    id: `2026-11-17-chats-encrypted-by-default`,
+    date: `2026-11-17`,
+    title: `Chats are encrypted by default`,
+    summary: `Every new chat is end-to-end encrypted, including chats a trigger, a schedule or an app starts. Only a chat an MCP client outside Exponential starts stays in clear.`,
+    body: `- **Every new chat is encrypted**: messages, cards and titles are sealed before they leave your device. A device that holds no key yet waits a moment, then says so; your draft stays.
+- **Started for you, sealed too**: a chat a trigger, a schedule, an app or a suggestion starts is sealed by the device that picks it up.
+- **Outside MCP clients**: a chat an MCP client outside Exponential starts stays in clear for life, so that client can keep reading and writing it.
+- **Older chats**: chats already in clear stay as they are.
+- **Update your desktop app and CLI**: version 0.14.96 or later is required.`,
+  },
+  {
+    id: `2026-11-17-computer-use-follows-the-device-switch`,
+    date: `2026-11-17`,
+    title: `Computer use follows your device's switch`,
+    summary: `Computer use runs only while the device's Computer use switch is on. A new session follows the switch, and you can turn it off for that one session in the + menu; an agent cannot turn it on for itself.`,
+    body: `- **The device's switch decides**: a session gets computer use only while its device's Computer use switch is on. Turning the switch off ends computer use in every running session on that device at once.
+- **Off for one session**: the + menu shows Computer use only where the device's switch is on and it can drive the screen. It starts on; turn it off to start that session without computer use.
+- **Agents cannot turn it on**: a session or agent can turn computer use off for itself, never on.
+- **Why a device cannot**: a device that cannot drive its screen (a Wayland session, no display) says why under its Computer use switch.`,
+  },
+  {
+    id: `2026-11-17-desktop-cli-0-14-168-waiting-on-offline-chats-computer-use`,
+    date: `2026-11-17`,
+    title: `What a session waits on, offline chats you can read, and steadier computer use`,
+    summary: `Desktop and CLI 0.14.168: a session that watches CI, a pull request or an issue says "Waiting on …" on its chat row and header; a chat whose device is offline still shows its synced messages and says the device is offline; computer use on X11, Wayland and eDE is steadier.`,
+    body: `- **"Waiting on …"**: a session that watches something (a CI run, a merge, an issue moving, a time) says what it waits on in its chat row, the chat header, the session card and the Dock; a wall shows as the wall, not as "needs input".
+- **Offline chats stay readable**: when a chat's device is offline, the chat shows the messages already synced and says the device is offline instead of staying blank.
+- **Paste and copy with computer use**: paste_text and copy_selection never touch a clipboard they cannot put back whole. With an Exponential Desktop session already installed, pasting and copying through computer use (paste_text, copy_selection) are refused and the agent types the text instead until the next Exponential Desktop release.
+- **Steadier computer use**: calls queue and hold your input for a whole call, only while a tool drives (looking and waiting hold nothing); Stop, a run's end or the device's Computer use switch going off stop a call in flight; keys follow your keyboard layout, Caps Lock and AltGr on X11; the banner follows the run to another display and lets clicks through on X11 and Wayland; push to talk no longer crashes when its capsule opens or hides.
+- **Cleaner session ends**: a run that ends, is killed or panics releases its grants and processes, and ended sessions are swept without touching one that still runs.
+- **Sessions that keep going**: a stuck claude start restarts, a stalled end says why, a conversation that was never recorded starts fresh instead of failing to resume, and blank agent turns no longer show as messages.
+- **Issue references keep their punctuation**: a full stop or comma touching an issue chip wraps with it.`,
+  },
+  {
+    id: `2026-11-17-phones-offline-chats-and-waiting`,
+    date: `2026-11-17`,
+    title: `Offline chats keep their messages, and sessions say what they wait on`,
+    summary: `Android 0.14.148 and iOS 0.14.137: a chat whose device is offline shows the messages synced so far, a waiting session says what it waits on, and large accounts use less memory.`,
+    body: `- **Offline chats keep their messages**: when the device running a session is offline, its chat shows every message synced so far and ends with a line saying the device is offline.
+- **Waiting on**: a session waiting for CI, a merge or another session says what it is waiting on in the chat row and header.
+- **Walls read as walls**: a session that hit a wall says so instead of showing "needs input", and blank agent turns no longer show as empty messages.
+- **Large accounts**: Android opens a very large chat with less than half the memory and slides back the way it came; on iOS, screens that read a whole list share one read.`,
+  },
+  {
+    id: `2026-11-16-android-notification-taps-and-big-chats`,
+    date: `2026-11-16`,
+    title: `A notification opens its chat on the Agent tab`,
+    summary: `Android: tapping a notification opens its chat or issue over the Agent tab, so Back goes there instead of through every chat opened before, and opening a very large chat uses less than half the memory it did.`,
+    body: `- **Notifications open over the Agent tab**: a notification or push link replaces what was open instead of stacking on it; Back returns to the Agent tab, then leaves the app.
+- **Large accounts use less memory**: opening the biggest chat on a large account peaks at about 107 MB instead of about 234 MB, and the app no longer asks Android for its larger memory allowance.`,
   },
   {
     id: `2026-11-16-phones-issue-chip-punctuation`,

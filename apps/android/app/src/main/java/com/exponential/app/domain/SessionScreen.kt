@@ -353,7 +353,31 @@ object SessionScreen {
         val root: Boolean,
         val id: String = "",
         val blocked: String? = null,
+        /** #FEED-263: its `blocked.resumeSince` is set (its device came back). */
+        val resumed: Boolean = false,
+        /** #FEED-263: its device's name (a wall's `{device}`; null = none). */
+        val device: String? = null,
     )
+
+    /** #FEED-263 (TS `sessionWall` over a status input): its wall, else null. */
+    private fun inputWall(session: StatusInput): String? {
+        if (session.status == "ended" || !session.needsInput) return null
+        val kind = session.blocked?.takeIf { it.isNotEmpty() } ?: return null
+        if (kind !in SessionTree.WALLS) return null
+        if (kind == "device_offline" && session.resumed) return null
+        return kind
+    }
+
+    /** #FEED-263 (`wallStatusCases`): the first walled session (a child
+     *  first, then the root) and its words. */
+    data class Wall(val id: String, val kind: String, val text: String)
+
+    fun wall(sessions: List<StatusInput>): Wall? {
+        val walled = sessions.filter { inputWall(it) != null }
+        val session = walled.firstOrNull { !it.root } ?: walled.firstOrNull { it.root } ?: return null
+        val kind = inputWall(session) ?: return null
+        return Wall(session.id, kind, SessionTree.chatWallText(kind, session.device) ?: kind)
+    }
 
     /** #FEED-257: one waiting card of the chat (`chatPendingAsks`,
      *  Conversation order); [kind] = `plan` | `question`. */
@@ -369,20 +393,25 @@ object SessionScreen {
      *  else null (a stale `needsInput` with nothing to open is nothing). */
     fun waiting(sessions: List<StatusInput>, asks: List<Ask> = emptyList()): Waiting? {
         asks.firstOrNull()?.let { return Waiting(if (it.kind == "plan") WaitingOpen.Plan else WaitingOpen.Card, it.id) }
-        val flagged = sessions.filter { it.status != "ended" && it.needsInput && !it.blocked.isNullOrEmpty() }
+        // #FEED-263: a wall never waits (no answer in the chat lifts it).
+        val flagged = sessions.filter {
+            it.status != "ended" && it.needsInput && !it.blocked.isNullOrEmpty() && inputWall(it) == null
+        }
         flagged.firstOrNull { !it.root }?.let { return Waiting(WaitingOpen.Session, it.id) }
         return flagged.firstOrNull { it.root }?.let { Waiting(WaitingOpen.Chat, it.id) }
     }
 
     /** THE tree's status word (`statusCases`): needs input (#FEED-257: only
-     *  while something waits, [waiting]) > working > queued (the root) >
-     *  done (the root ended) > idle; an empty tree = idle. */
+     *  while something waits, [waiting]) > working > the wall's words
+     *  (#FEED-263 [wall]) > queued (the root) > done (the root ended) >
+     *  idle; an empty tree = idle. */
     fun status(sessions: List<StatusInput>, asks: List<Ask> = emptyList(), waitingOn: String? = null): String {
         val live = sessions.filter { it.status != "ended" }
         val root = sessions.firstOrNull { it.root }
         return when {
             waiting(sessions, asks) != null -> Copy.Status.NEEDS_INPUT
             live.any { it.busy } -> Copy.Status.WORKING
+            wall(sessions) != null -> wall(sessions)!!.text
             root?.status == "queued" -> Copy.Status.QUEUED
             root?.status == "ended" -> Copy.Status.DONE
             !waitingOn.isNullOrEmpty() -> Copy.WAITING.replace("{labels}", waitingOn)

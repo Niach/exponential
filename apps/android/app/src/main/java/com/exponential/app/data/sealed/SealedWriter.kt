@@ -47,8 +47,9 @@ internal data class Readers(val teamId: String?, val deviceId: String?)
  * - Mentions travel as `mentionUserIds`, `#IDENT`s as `refIssueIds`; attachment embeds go INSIDE the
  *   sealed body (the server never appends to it).
  *
- * Nothing to seal with (no registered install yet, no eNet library) = the
- * plaintext send of before: a body without the envelope stays legal.
+ * #EDE-97 (`clearTree`): NO SILENT PLAINTEXT. Only a `clear_tree` root (an
+ * outside MCP client's) takes a text in clear and is never keyed; nothing to
+ * seal with after the waits = the send fails with [NO_KEY_REFUSAL].
  *
  * #FEED-250 (`staleTree`): Room is a CACHE of the tree ([StaleTree]): a
  * conversation with an agent / app it lacks asks `sessions.sendTarget`.
@@ -66,7 +67,16 @@ class SealedWriter @Inject constructor(
 ) {
     private val crypto: SealedCrypto get() = SealedContent.crypto
 
-    /** [fresh] = the server refused this send's key write once: resolve the tree from the server alone. */
+    /**
+     * [fresh] = the server refused this send's key write once: resolve the tree from the server alone.
+     *
+     * #EDE-97 (sealed-content.json `clearTree`, [sendWire]): a text goes out in
+     * clear ONLY into a `clear_tree` root; otherwise sealed, after waiting for
+     * the key holder ([SEAL_HOLDER_WAIT_MS]) and a keyless tree's key
+     * ([SEAL_KEY_WAIT_MS]), or the send FAILS with [NO_KEY_REFUSAL] (the
+     * failed-send toast; the draft stays). An attachment-only send has no text
+     * and is not held to it (sealed when it can be, as before).
+     */
     suspend fun prepareSend(accountId: String, input: SessionsSendInput, fresh: Boolean = false): PreparedSend = withContext(Dispatchers.IO) {
         val text = input.text.orEmpty()
         val attachments = input.attachmentIds.orEmpty()
@@ -78,37 +88,130 @@ class SealedWriter @Inject constructor(
             mentionUserIds = mentions.takeIf { it.isNotEmpty() },
             refIssueIds = refs.takeIf { it.isNotEmpty() },
         )
+        val body = SealedWrite.withAttachmentEmbeds(text, attachments)
+        if (text.isBlank()) {
+            return@withContext try {
+                attachmentsOnly(db, accountId, input, withMentions, body, fresh)
+            } catch (err: CancellationException) {
+                throw err
+            } catch (err: Throwable) {
+                Log.w(TAG, "sealing an attachment-only send failed: ${err.javaClass.simpleName}")
+                PreparedSend(withMentions)
+            }
+        }
         try {
-            val (wire, readers) = target(db, accountId, input, fresh)
-            val body = SealedWrite.withAttachmentEmbeds(text, attachments)
-            val treeKey = when (wire) {
-                TreeWire.Unknown -> return@withContext PreparedSend(withMentions)
-                is TreeWire.Sealed -> wire.key
-                // An existing keyless root: its key first (refused = the server's key), then the sealed text.
-                is TreeWire.Create -> StaleTree.keyFirst(
-                    wire.rootId,
-                    create = { createKey(accountId, wire.rootId, readers) },
-                    publicKey = { publicKey(accountId, it) },
-                ) ?: return@withContext PreparedSend(withMentions)
-                TreeWire.Inline -> null
-            }
-            if (treeKey != null) {
-                return@withContext PreparedSend(withMentions.copy(text = crypto.sealBody(treeKey.publicKey, treeKey.epoch, body)))
-            }
-            val installId = nodes.get().installId(accountId) ?: return@withContext PreparedSend(withMentions)
-            val key = crypto.generateTreeKey()
-            val wraps = readerWraps(accountId, installId, readers, key.secret) ?: return@withContext PreparedSend(withMentions)
-            val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
-            PreparedSend(
-                withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
-            ) { result -> keep(accountId, result.sessionId, key.secret) }
+            sealed(db, accountId, input, withMentions, body, fresh)
         } catch (err: CancellationException) {
             throw err
         } catch (err: Throwable) {
-            // No eNet library, or the server refused the key: plaintext stays legal.
+            // Never the plaintext send of before: nothing leaves.
+            if (err is TrpcException && err.message == NO_KEY_REFUSAL) throw err
             Log.w(TAG, "sealing a send failed: ${err.javaClass.simpleName}")
-            PreparedSend(withMentions)
+            throw TrpcException(NO_KEY_REFUSAL)
         }
+    }
+
+    /** A text send ([sendWire]): plaintext into a clear tree, sealed otherwise, else [NO_KEY_REFUSAL]. */
+    private suspend fun sealed(
+        db: ExponentialDatabase,
+        accountId: String,
+        input: SessionsSendInput,
+        withMentions: SessionsSendInput,
+        body: String,
+        fresh: Boolean,
+    ): PreparedSend {
+        val (first, readers) = target(db, accountId, input, fresh)
+        // A tree Room cannot tell yet (its root not synced): wait for it, then ask the server.
+        val wire: TreeWire = if (first != TreeWire.Unknown) first else {
+            awaitWithin(SEAL_KEY_WAIT_MS, POLL_MS) {
+                target(db, accountId, input, fresh).first.takeIf { it != TreeWire.Unknown }
+            } ?: target(db, accountId, input, fresh = true).first
+        }
+        val tree = when (wire) {
+            is TreeWire.Clear -> SendTree.Clear
+            TreeWire.Inline -> SendTree.New
+            is TreeWire.Sealed -> SendTree.Keyed
+            is TreeWire.Create -> SendTree.Keyless
+            TreeWire.Unknown -> throw TrpcException(NO_KEY_REFUSAL)
+        }
+        if (tree == SendTree.Clear) return PreparedSend(withMentions)
+        val installId = nodes.get().awaitInstallId(accountId, SEAL_HOLDER_WAIT_MS)
+        val holder = if (installId != null && identities.vault.identity(accountId, create = false) != null) SendHolder.Ready else SendHolder.None
+        if (refusesUpFront(tree, holder, hasInstall = installId != null) || installId == null) throw TrpcException(NO_KEY_REFUSAL)
+        return when (wire) {
+            is TreeWire.Sealed -> sealedTo(withMentions, wire.key, body)
+            is TreeWire.Create -> {
+                // `reader` = this install keys it; else the device's claim may key it meanwhile.
+                var clear = false
+                val created = StaleTree.keyFirst(
+                    wire.rootId,
+                    create = {
+                        try {
+                            createKey(accountId, wire.rootId, readers)
+                        } catch (err: TrpcException) {
+                            if (err.message != CLEAR_TREE_REFUSAL) throw err
+                            clear = true
+                            null
+                        }
+                    },
+                    publicKey = { publicKey(accountId, it) },
+                )
+                if (clear) return PreparedSend(withMentions)
+                val key = created ?: awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, wire.rootId) }
+                when (sendWire(tree, holder, reader = created != null, keyArrives = key != null)) {
+                    SendWire.Create, SendWire.Sealed -> sealedTo(withMentions, key!!, body)
+                    else -> throw TrpcException(NO_KEY_REFUSAL)
+                }
+            }
+            else -> {
+                val key = crypto.generateTreeKey()
+                val wraps = readerWraps(accountId, installId, readers, key.secret) ?: throw TrpcException(NO_KEY_REFUSAL)
+                val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
+                PreparedSend(
+                    withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
+                ) { result -> keep(accountId, result.sessionId, key.secret) }
+            }
+        }
+    }
+
+    /** An attachment-only send (`clearTree`: unchanged): its embeds sealed when this install can, plain otherwise. */
+    private suspend fun attachmentsOnly(
+        db: ExponentialDatabase,
+        accountId: String,
+        input: SessionsSendInput,
+        withMentions: SessionsSendInput,
+        body: String,
+        fresh: Boolean,
+    ): PreparedSend {
+        val (wire, readers) = target(db, accountId, input, fresh)
+        val treeKey = when (wire) {
+            TreeWire.Unknown, is TreeWire.Clear -> return PreparedSend(withMentions)
+            is TreeWire.Sealed -> wire.key
+            is TreeWire.Create -> StaleTree.keyFirst(
+                wire.rootId,
+                create = { createKey(accountId, wire.rootId, readers) },
+                publicKey = { publicKey(accountId, it) },
+            ) ?: return PreparedSend(withMentions)
+            TreeWire.Inline -> null
+        }
+        if (treeKey != null) return sealedTo(withMentions, treeKey, body)
+        val installId = nodes.get().installId(accountId) ?: return PreparedSend(withMentions)
+        val key = crypto.generateTreeKey()
+        val wraps = readerWraps(accountId, installId, readers, key.secret) ?: return PreparedSend(withMentions)
+        val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
+        return PreparedSend(
+            withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
+        ) { result -> keep(accountId, result.sessionId, key.secret) }
+    }
+
+    private fun sealedTo(input: SessionsSendInput, key: PublicTreeKey, body: String) =
+        PreparedSend(input.copy(text = crypto.sealBody(key.publicKey, key.epoch, body)))
+
+    /** A keyless root's key once one exists: Room's synced row first, else the server's word. */
+    private suspend fun currentKey(db: ExponentialDatabase, accountId: String, rootId: String): PublicTreeKey? {
+        val row = runCatching { db.sessionDao().getById(rootId) }.getOrNull()
+        row?.sealPublicKey?.let { key -> row.sealEpoch?.let { return PublicTreeKey(key, it) } }
+        return publicKey(accountId, rootId)
     }
 
     /**
@@ -146,7 +249,7 @@ class SealedWriter @Inject constructor(
      * #EXP-1641: a message into the ENCRYPTED tree [rootId], named explicitly
      * (a notification's reply: the session row may not be synced here). Sealed
      * with that tree's public key (the root row's, else the server's); no key
-     * = refused, never the plaintext fallback of [prepareSend].
+     * = refused at once (no waits; #EDE-97: never plaintext, as [prepareSend]).
      */
     suspend fun prepareSealedSend(accountId: String, input: SessionsSendInput, rootId: String): PreparedSend =
         withContext(Dispatchers.IO) {
@@ -197,7 +300,9 @@ class SealedWriter @Inject constructor(
             val rootId = row.rootId.ifEmpty { row.id }
             if (rootId == row.id) row else db.sessionDao().getById(rootId)
         }
-        val local = root?.let { row -> LocalRoot(row.id, row.sealPublicKey?.let { key -> row.sealEpoch?.let { PublicTreeKey(key, it) } }) }
+        val local = root?.let { row ->
+            LocalRoot(row.id, row.sealPublicKey?.let { key -> row.sealEpoch?.let { PublicTreeKey(key, it) } }, clear = row.clearTree)
+        }
         val teamId = root?.teamId
             ?: input.teamId
             ?: input.agentId?.let { db.agentDefinitionDao().observeById(it).first()?.teamId }
@@ -212,7 +317,7 @@ class SealedWriter @Inject constructor(
             fresh = fresh,
             sendTarget = {
                 sessions.get().sendTarget(accountId, input.agentId, input.appId).let { target ->
-                    ServerTree(target.rootId, target.publicKey?.let { key -> target.epoch?.let { PublicTreeKey(key, it) } })
+                    ServerTree(target.rootId, target.publicKey?.let { key -> target.epoch?.let { PublicTreeKey(key, it) } }, clear = target.clearTree)
                 }
             },
             publicKey = { publicKey(accountId, it) },
@@ -265,6 +370,10 @@ class SealedWriter @Inject constructor(
     private companion object {
         const val TAG = "SealedWriter"
         const val FIRST_EPOCH = 1
+        /** How often a send waiting for its tree (Room's root) looks again. */
+        const val POLL_MS = 500L
+        /** How often a send waiting for a keyless tree's key asks again (Room, then the server). */
+        const val KEY_POLL_MS = 2_000L
         const val LOCKED_ANSWER = "This card can't be answered on this device yet."
         const val LOCKED_SEND = "This chat can't be written to from this device yet."
     }

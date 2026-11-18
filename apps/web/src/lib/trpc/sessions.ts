@@ -95,6 +95,7 @@ import {
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
 import { trainEdge } from "@/lib/merge-train/edge"
+import { reseal, resealTarget } from "@/lib/sessions/reseal"
 import {
   assertNotPlainInSealedTree,
   effectiveCli,
@@ -662,6 +663,32 @@ export const sessionsRouter = router({
     }),
 
   /** queued → running: the device took it (idempotent for its own device). */
+  /** #EDE-97 (sealed-content.json `clearTree`, RESEAL): the session's first
+   *  message its executing device re-seals (the server wrote it before the
+   *  tree had a key), or null. */
+  resealTarget: authedProcedure
+    .input(z.object({ sessionId: uuid, deviceId: z.string().min(1).max(128) }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      return session ? resealTarget(session, input.deviceId) : null
+    }),
+
+  /** #EDE-97: that message's body replaced by its envelope, once. */
+  reseal: authedProcedure
+    .input(
+      z.object({
+        sessionId: uuid,
+        deviceId: z.string().min(1).max(128),
+        messageId: uuid,
+        body: z.string().min(1).max(sealedBodyMax(MESSAGE_BODY_MAX)),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
+      return reseal(session, input)
+    }),
+
   claim: authedProcedure
     .input(
       z.object({

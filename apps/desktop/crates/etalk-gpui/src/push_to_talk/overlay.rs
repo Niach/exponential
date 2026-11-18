@@ -19,6 +19,14 @@
 //! display: the pointer's without one, else the work screen, else the first
 //! free one; none = the window stays hidden (the turn still runs, the reply
 //! is still spoken).
+//!
+//! EXP-1912: none of these windows takes the keyboard. On Wayland they are
+//! layer-shell surfaces on the overlay layer with keyboard interactivity
+//! None ([`overlay_kind`]), anchored to the bottom centre of their display;
+//! a compositor without wlr-layer-shell gets the window it had before
+//! ([`open_overlay`]). A layer surface cannot be moved, so the pill's surface covers
+//! what the panel leaves free of its display and the pill moves inside it
+//! ([`Float`]): only the pill takes clicks (the window's input region).
 
 use eui_core::voice_wave::Activity;
 use gpui::{
@@ -38,6 +46,102 @@ const EDGE: f32 = 24.;
 /// The window's air around the capsule (its shadow).
 const AIR: f32 = 8.;
 
+/// EXP-1912: the capsule's layer-shell namespace (a compositor rule can
+/// tell the overlays apart).
+const CAPSULE_NAMESPACE: &str = "exponential-overlay:push-to-talk";
+const PILL_NAMESPACE: &str = "exponential-overlay:call-pill";
+
+/// EXP-1912: whether this app's windows are Wayland surfaces.
+pub fn on_wayland(cx: &App) -> bool {
+    cx.compositor_name() == "Wayland"
+}
+
+/// EXP-1912: the kind of a window that floats above every other and never
+/// takes the keyboard. On Wayland a layer-shell surface on the overlay
+/// layer, at the bottom centre of its display, `bottom` px above the edge
+/// of what the panel leaves free, keyboard interactivity None (an ordinary
+/// toplevel there takes the keyboard from the window being typed into, or
+/// opens behind it). Elsewhere the PopUp: X11 override-redirect, a floating
+/// panel on macOS.
+pub fn overlay_kind(wayland: bool, namespace: &str, bottom: f32) -> WindowKind {
+    #[cfg(target_os = "linux")]
+    if wayland {
+        use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
+        return WindowKind::LayerShell(LayerShellOptions {
+            namespace: namespace.into(),
+            layer: Layer::Overlay,
+            anchor: Anchor::BOTTOM,
+            margin: Some((px(0.), px(0.), px(bottom), px(0.))),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            ..Default::default()
+        });
+    }
+    let _ = (wayland, namespace, bottom);
+    WindowKind::PopUp
+}
+
+/// EXP-1912: the pill's kind: on Wayland a layer surface anchored to all
+/// four edges (what the panel leaves free of the display), keyboard
+/// interactivity None; the pill floats inside it ([`Float`]).
+fn pill_kind(wayland: bool) -> WindowKind {
+    #[cfg(target_os = "linux")]
+    if wayland {
+        use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
+        return WindowKind::LayerShell(LayerShellOptions {
+            namespace: PILL_NAMESPACE.into(),
+            layer: Layer::Overlay,
+            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+            keyboard_interactivity: KeyboardInteractivity::None,
+            ..Default::default()
+        });
+    }
+    let _ = wayland;
+    WindowKind::PopUp
+}
+
+/// EXP-1912: open the overlay window `options` describes for `kind`; `build`
+/// hears whether it is a layer surface. A Wayland compositor without
+/// wlr-layer-shell refuses one: the window then opens as the PopUp it was
+/// before.
+pub fn open_overlay<V: Render + 'static>(
+    kind: WindowKind,
+    cx: &mut App,
+    options: impl Fn(WindowKind, &App) -> WindowOptions,
+    build: impl Fn(bool, &mut Window, &mut App) -> gpui::Entity<V>,
+) -> gpui::Result<WindowHandle<V>> {
+    let layer = kind != WindowKind::PopUp;
+    let first = options(kind, cx);
+    match cx.open_window(first, |window, cx| build(layer, window, cx)) {
+        Err(err) if layer => {
+            log::warn!("[overlay] no layer surface ({err}): opening a plain window");
+            let plain = options(WindowKind::PopUp, cx);
+            cx.open_window(plain, |window, cx| build(false, window, cx))
+        }
+        opened => opened,
+    }
+}
+
+/// EXP-1912: the pill inside its Wayland layer surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Float {
+    /// The pill's origin in the window (`None` = [`pill_default`]).
+    offset: Option<Point<Pixels>>,
+    /// The display's origin: a remembered position is a desktop position.
+    display: Point<Pixels>,
+    /// A drag: the pointer's distance from the pill's origin at the press.
+    grab: Option<Point<Pixels>>,
+    /// Where the pill was drawn last: the window's input region.
+    region: Option<Bounds<Pixels>>,
+}
+
+/// EXP-1912: the floating pill's origin in a window of `room`: `offset`, or
+/// the default place, kept whole inside the window.
+fn float_origin(offset: Option<Point<Pixels>>, room: Size<Pixels>, pill: Size<Pixels>) -> Point<Pixels> {
+    let at = offset.unwrap_or_else(|| pill_default(Bounds { origin: point(px(0.), px(0.)), size: room }, pill));
+    let inside = |at: Pixels, room: Pixels, pill: Pixels| px(f32::from(at).min(f32::from(room - pill)).max(0.));
+    point(inside(at.x, room.width, pill.width), inside(at.y, room.height, pill.height))
+}
+
 /// What the window shows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Face {
@@ -56,6 +160,38 @@ pub struct Overlay {
     /// NEW-59: where this showing went, read once when it opened and kept
     /// until the face closes (a wider reopen stays on the same display).
     place: Option<Place>,
+    /// EXP-1901: the windows this overlay closed last; the watcher's
+    /// window-close observer asks once ([`Overlay::closed`]).
+    closed: Vec<gpui::WindowId>,
+}
+
+/// EXP-1901: how many closed windows an overlay remembers (the pill's are
+/// never asked for).
+const CLOSED_KEPT: usize = 4;
+
+/// EXP-1901: run `update` in the overlay's own window. A click on the pill
+/// or the capsule arrives here from inside that window's update, where gpui
+/// refuses a nested one: `update` then runs right after it. `false` = the
+/// window is gone.
+fn update_window(
+    window: WindowHandle<OverlayView>,
+    cx: &mut App,
+    update: impl FnOnce(&mut OverlayView, &mut Window, &mut Context<OverlayView>) + 'static,
+) -> bool {
+    let mut update = Some(update);
+    let _ = window.update(cx, |this, window, cx| {
+        if let Some(update) = update.take() {
+            update(this, window, cx);
+        }
+    });
+    let Some(update) = update else { return true };
+    if !cx.windows().iter().any(|open| open.window_id() == window.window_id()) {
+        return false;
+    }
+    cx.defer(move |cx| {
+        let _ = window.update(cx, update);
+    });
+    true
 }
 
 /// NEW-59: where the overlay shows.
@@ -72,7 +208,7 @@ impl Overlay {
         let Some(view) = view else {
             self.place = None;
             if let Some(window) = self.window.take() {
-                let _ = window.update(cx, |_, window, _| window.remove_window());
+                self.close(window, cx);
             }
             return;
         };
@@ -96,21 +232,46 @@ impl Overlay {
         if let Some(window) = self.window.take() {
             // The window only grows while it shows: a shorter line sits
             // centred in it, a longer one opens it again.
-            if f32::from(window_size.width) <= self.width
-                && window
-                    .update(cx, |this, _, cx| {
-                        this.view = view.clone();
-                        cx.notify();
-                    })
-                    .is_ok()
-            {
+            if f32::from(window_size.width) <= self.width && {
+                let view = view.clone();
+                update_window(window, cx, move |this, _, cx| {
+                    this.view = view;
+                    cx.notify();
+                })
+            } {
                 self.window = Some(window);
                 return;
             }
-            let _ = window.update(cx, |_, window, _| window.remove_window());
+            self.close(window, cx);
         }
         let origin = area.map(|area| bottom_centre(area, window_size)).unwrap_or_else(|| point(px(0.), px(0.)));
-        match cx.open_window(options(display, origin, window_size, cx), |_, cx| cx.new(|_| OverlayView { view, drag: None })) {
+        // EXP-1912: on Wayland the layer surface's anchor and margin are
+        // this very place ([`bottom_centre`]).
+        let kind = overlay_kind(on_wayland(cx), CAPSULE_NAMESPACE, EDGE - AIR);
+        let opened = open_overlay(
+            kind,
+            cx,
+            |kind, cx| options(kind, display, origin, window_size, cx),
+            |_, window, cx| {
+                cx.new(|cx| {
+                    // #EXP-1938: a capsule that was given the focus after
+                    // all (a plain Wayland window) and loses it again takes
+                    // a focused-window hold with it.
+                    cx.observe_window_activation(window, |_, window, cx| {
+                        if !window.is_window_active() {
+                            super::on_window_deactivated(cx);
+                        }
+                    })
+                    .detach();
+                    // gpui hands a key only to what holds its focus: the
+                    // capsule's root, should the window ever get a key.
+                    let keys = cx.focus_handle();
+                    window.focus(&keys, cx);
+                    OverlayView { view: view.clone(), drag: None, float: None, keys: Some(keys), level: 0., bands: Vec::new() }
+                })
+            },
+        );
+        match opened {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(window_size.width);
@@ -123,31 +284,69 @@ impl Overlay {
     /// open one only repaints; a new one opens where it was last dropped
     /// (or at the bottom centre of the display under the pointer).
     fn show_pill(&mut self, face: Box<CallFace>, cx: &mut App) {
-        if let Some(window) = self.window.as_ref() {
-            let updated = window.update(cx, |this, _, cx| {
-                if this.view != Face::Call(face.clone()) {
-                    this.view = Face::Call(face.clone());
+        if let Some(window) = self.window {
+            let next = Face::Call(face.clone());
+            let updated = update_window(window, cx, move |this, _, cx| {
+                if this.view != next {
+                    this.view = next;
                     cx.notify();
                 }
             });
-            if updated.is_ok() {
+            if updated {
                 return;
             }
             self.window = None;
         }
         let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
-        let remembered = load_pill_origin(cx).filter(|origin| on_a_display(*origin, pill, cx));
-        let (display, origin) = match remembered {
-            Some(origin) => (None, origin),
+        // EXP-1916 (work-screen.json OVERLAY): read once per call, like the
+        // capsule's place; hidden stays hidden until the face closes.
+        let place = match self.place.clone() {
+            Some(place) => place,
             None => {
-                let (display, area) = match placement(cx) {
-                    Place::At(display, area) => (display, area),
-                    Place::Hidden => (None, None),
-                };
-                (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.))))
+                let place = placement(cx);
+                self.place = Some(place.clone());
+                place
             }
         };
-        match cx.open_window(options(display, origin, pill, cx), |_, cx| cx.new(|_| OverlayView { view: Face::Call(face), drag: None })) {
+        let remembered = load_pill_origin(cx).filter(|origin| on_a_display(*origin, pill, cx));
+        let free = remembered.is_none_or(|origin| remembered_is_free(origin, pill, cx));
+        let Some((display, area, remembered)) = pill_place(place, remembered, free) else {
+            return;
+        };
+        let (display, origin) = match remembered {
+            Some(origin) => (None, origin),
+            None => (display, area.map(|area| pill_default(area, pill)).unwrap_or_else(|| point(px(0.), px(0.)))),
+        };
+        // EXP-1912: on Wayland the pill floats inside a layer surface over
+        // its display: the remembered one's, else the placement's.
+        let displays = cx.displays();
+        let home = remembered.and_then(|origin| {
+            let centre = point(origin.x + pill.width / 2., origin.y + pill.height / 2.);
+            displays.iter().find(|display| display.bounds().contains(&centre)).map(|display| (display.id(), display.bounds()))
+        });
+        let float = match (remembered, home) {
+            (Some(origin), Some((_, bounds))) => {
+                Float { offset: Some(point(origin.x - bounds.origin.x, origin.y - bounds.origin.y)), display: bounds.origin, ..Float::default() }
+            }
+            _ => {
+                let on = displays.iter().find(|shown| Some(shown.id()) == display).or(displays.first());
+                Float { display: on.map(|display| display.bounds().origin).unwrap_or_default(), ..Float::default() }
+            }
+        };
+        let room = home.map(|(_, bounds)| bounds.size).or(displays.first().map(|display| display.bounds().size)).unwrap_or(pill);
+        let layer_display = home.map(|(id, _)| id).or(display);
+        let opened = open_overlay(
+            pill_kind(on_wayland(cx)),
+            cx,
+            |kind, cx| match kind {
+                WindowKind::PopUp => options(kind, display, origin, pill, cx),
+                kind => options(kind, layer_display, point(px(0.), px(0.)), room, cx),
+            },
+            |layer, _, cx| {
+                cx.new(|_| OverlayView { view: Face::Call(face.clone()), drag: None, float: layer.then_some(float), keys: None, level: 0., bands: Vec::new() })
+            },
+        );
+        match opened {
             Ok(window) => {
                 self.window = Some(window);
                 self.width = f32::from(pill.width);
@@ -156,16 +355,49 @@ impl Overlay {
         }
     }
 
+    fn close(&mut self, window: WindowHandle<OverlayView>, cx: &mut App) {
+        if self.closed.len() == CLOSED_KEPT {
+            self.closed.remove(0);
+        }
+        self.closed.push(window.window_id());
+        update_window(window, cx, |_, window, _| window.remove_window());
+    }
+
+    /// EXP-1901: whether `id` is a window this overlay closed (asked once:
+    /// by then [`Overlay::owns`] no longer knows it).
+    pub fn closed(&mut self, id: gpui::WindowId) -> bool {
+        let at = self.closed.iter().position(|closed| *closed == id);
+        at.map(|at| self.closed.remove(at)).is_some()
+    }
+
     /// Whether `id` is the overlay's own window (it opens again, wider, for
     /// a longer line mid-hold: never the IDE window the key is held in).
     pub fn owns(&self, id: gpui::WindowId) -> bool {
         self.window.as_ref().is_some_and(|window| window.window_id() == id)
     }
 
-    /// A new level frame: redraw the wave.
-    pub fn refresh(&self, cx: &mut App) {
+    /// The open window.
+    #[cfg(test)]
+    pub(crate) fn window_id(&self) -> Option<gpui::WindowId> {
+        self.window.as_ref().map(|window| window.window_id())
+    }
+
+    /// The face the open window shows.
+    #[cfg(test)]
+    pub(crate) fn face(&self, cx: &mut App) -> Option<Face> {
+        self.window.as_ref()?.update(cx, |this, _, _| this.view.clone()).ok()
+    }
+
+    /// A new level frame: redraw the wave. EXP-1901: the window holds the
+    /// level itself; its first draw runs inside the watcher's update, where
+    /// reading the watcher is a panic.
+    pub fn refresh(&self, level: f32, bands: &[f32], cx: &mut App) {
         if let Some(window) = self.window.as_ref() {
-            let _ = window.update(cx, |_, _, cx| cx.notify());
+            let _ = window.update(cx, |this, _, cx| {
+                this.level = level;
+                this.bands = bands.to_vec();
+                cx.notify();
+            });
         }
     }
 }
@@ -177,6 +409,46 @@ fn pill_default(area: Bounds<Pixels>, pill: Size<Pixels>) -> Point<Pixels> {
         area.origin.x + (area.size.width - pill.width) / 2.,
         area.origin.y + area.size.height - pill.height - px(VOICE_CALL.pill.margin_px),
     )
+}
+
+/// EXP-1916 (work-screen.json OVERLAY): where the pill opens. Nowhere
+/// (`None`) when every display holds a fullscreen app; at the remembered
+/// place only when that display is `free` of one; else at the default
+/// place on the display the rule picked.
+#[allow(clippy::type_complexity)]
+fn pill_place(
+    place: Place,
+    remembered: Option<Point<Pixels>>,
+    free: bool,
+) -> Option<(Option<gpui::DisplayId>, Option<Bounds<Pixels>>, Option<Point<Pixels>>)> {
+    let Place::At(display, area) = place else { return None };
+    Some((display, area, remembered.filter(|_| free)))
+}
+
+/// EXP-1916: whether the display holding the remembered place has no
+/// fullscreen app (unknown = free, as before).
+fn remembered_is_free(origin: Point<Pixels>, pill: Size<Pixels>, cx: &App) -> bool {
+    // A test never asks the machine's real screen.
+    if cfg!(test) {
+        return true;
+    }
+    let Some(state) = epilot::screen_state().filter(|state| !state.fullscreen.is_empty()) else { return true };
+    let centre = point(origin.x + pill.width / 2., origin.y + pill.height / 2.);
+    // X11: the toolkit's one display is the whole screen; the computer
+    // crate's are physical root pixels.
+    #[cfg(target_os = "linux")]
+    if super::hotkey::session() == Some(etalk::voice::VoiceSession::X11) {
+        let Some((_, scale)) = x11_pointer(cx) else { return true };
+        let (x, y) = (f32::from(centre.x) * scale, f32::from(centre.y) * scale);
+        let holds = |display: &epilot::Display| {
+            x >= display.x as f32 && x < display.x as f32 + display.width as f32 && y >= display.y as f32 && y < display.y as f32 + display.height as f32
+        };
+        return !state.displays.iter().enumerate().any(|(index, display)| holds(display) && state.fullscreen.contains(&index));
+    }
+    let displays = cx.displays();
+    let map = display_map(&displays, &state.displays);
+    let screen = displays.iter().position(|display| display.bounds().contains(&centre)).and_then(|index| map.get(index).copied().flatten());
+    screen.is_none_or(|screen| !state.fullscreen.contains(&screen))
 }
 
 /// S-3: a remembered position still shows the whole pill's centre on one
@@ -220,6 +492,15 @@ pub struct OverlayView {
     view: Face,
     /// S-3: the pill being dragged (X11's own pointer tracking).
     drag: Option<Drag>,
+    /// EXP-1912: the pill floats inside this window (a Wayland layer
+    /// surface); `None` = the window is the pill.
+    float: Option<Float>,
+    /// #EXP-1938: the capsule's root holds gpui's focus in its window, so a
+    /// key release that reaches the window reaches push to talk.
+    keys: Option<gpui::FocusHandle>,
+    /// The wave's level and bands now ([`Overlay::refresh`]).
+    level: f32,
+    bands: Vec<f32>,
 }
 
 /// S-3: a pill drag on X11: the pointer and the window's origin at the
@@ -304,7 +585,14 @@ fn drag_origin(origin: (i32, i32), start: (i32, i32), now: (i32, i32)) -> (i32, 
 impl OverlayView {
     /// A press outside the pill's buttons starts a drag: X11 tracks the
     /// pointer itself, everything else hands the move to the system.
-    fn press(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn press(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        // EXP-1912: inside a layer surface the pill follows the pointer
+        // itself ([`OverlayView::float_to`]).
+        if let Some(float) = self.float.as_mut() {
+            let origin = float.region.map(|region| region.origin).unwrap_or_default();
+            float.grab = Some(point(at.x - origin.x, at.y - origin.y));
+            return;
+        }
         #[cfg(target_os = "linux")]
         if let Some(x11) = X11Drag::start(window, cx) {
             self.drag = Some(Drag { x11: Some(x11) });
@@ -329,8 +617,23 @@ impl OverlayView {
         }
     }
 
+    /// EXP-1912: a floating pill being dragged follows the pointer.
+    fn float_to(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(float) = self.float.as_mut() else { return };
+        let Some(grab) = float.grab else { return };
+        float.offset = Some(point(at.x - grab.x, at.y - grab.y));
+        cx.notify();
+    }
+
     /// The drop: remember where the pill went.
     fn release(&mut self, window: &Window, cx: &App) {
+        if let Some(float) = self.float.as_mut() {
+            // The place it was drawn at, as a desktop position.
+            if let (Some(_), Some(region)) = (float.grab.take(), float.region) {
+                save_pill_origin(point(float.display.x + region.origin.x, float.display.y + region.origin.y), cx);
+            }
+            return;
+        }
         let Some(drag) = self.drag.take() else { return };
         #[cfg(target_os = "linux")]
         if let Some(x11) = drag.x11.as_ref() {
@@ -382,40 +685,73 @@ impl Render for OverlayView {
         // No `Root` here: the rem and the font are set like the banner's.
         window.set_rem_size(cx.theme().font_size);
         let root = div().size_full().flex().items_center().justify_center().font_family(cx.theme().font_family.clone());
+        // EXP-1912: a floating pill's place; only the pill takes clicks,
+        // every other point of the layer surface belongs to what is under it.
+        let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
+        let floating = self.float.as_mut().filter(|_| matches!(self.view, Face::Call(_))).map(|float| {
+            let region = Bounds { origin: float_origin(float.offset, window.viewport_size(), pill), size: pill };
+            if float.region != Some(region) {
+                window.set_input_region(Some(&[region]));
+                float.region = Some(region);
+            }
+            region
+        });
         match &self.view {
             Face::Ptt(view) => {
                 let c = specimen(&self.view);
-                let (level, bands) = if view.activity == "listening" { super::level(cx) } else { (0., Vec::new()) };
+                let (level, bands) = if view.activity == "listening" { (self.level, self.bands.clone()) } else { (0., Vec::new()) };
                 let c = Capsule { level, bands, ..c };
                 // The window never takes focus; a click still lands: the
                 // pill's action (Stop, Unmute).
-                root.child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx))).into_any_element()
+                // #EXP-1938: nor the keyboard, where the compositor lets
+                // it choose. Where it is focused anyway mid-hold, the
+                // release of the push-to-talk key arrives here.
+                let root = match self.keys.as_ref() {
+                    Some(keys) => root.track_focus(keys),
+                    None => root,
+                };
+                root.capture_key_up(|event: &gpui::KeyUpEvent, _, cx| {
+                    super::on_focused_key(false, &event.keystroke, cx);
+                })
+                .child(capsule("push-to-talk-overlay", &c, cx).on_click(|_, _, cx| super::on_pill(cx)))
+                .into_any_element()
             }
             Face::Call(face) => {
                 let actions = CallActions {
                     on_mute: std::rc::Rc::new(crate::voice_call::toggle_mute),
                     on_end: std::rc::Rc::new(crate::voice_call::end),
                 };
-                root.child(
-                    call_pill(SharedString::from(VOICE_CALL.test_ids.pill.clone()), face, &actions, cx)
-                        // Any point outside the buttons drags it (they stop
-                        // their own presses).
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.press(window, cx)))
-                        .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, _| {
-                            if event.pressed_button == Some(MouseButton::Left) {
-                                this.moved();
-                            }
-                        }))
-                        .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
-                        .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
-                        // Esc ends the call when the pill has the focus.
-                        .on_key_down(|event, _, cx| {
-                            if event.keystroke.key == "escape" {
-                                crate::voice_call::end(cx);
-                            }
-                        }),
-                )
-                .into_any_element()
+                let pill = call_pill(SharedString::from(VOICE_CALL.test_ids.pill.clone()), face, &actions, cx)
+                    // Any point outside the buttons drags it (they stop
+                    // their own presses).
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| this.press(event.position, window, cx)))
+                    .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, _| {
+                        if event.pressed_button == Some(MouseButton::Left) {
+                            this.moved();
+                        }
+                    }))
+                    .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
+                    // Esc ends the call when the pill has the focus.
+                    .on_key_down(|event, _, cx| {
+                        if event.keystroke.key == "escape" {
+                            crate::voice_call::end(cx);
+                        }
+                    });
+                let Some(region) = floating else { return root.child(pill).into_any_element() };
+                // The whole window hears the drag: the pointer may outrun
+                // the pill between two frames.
+                div()
+                    .size_full()
+                    .font_family(cx.theme().font_family.clone())
+                    .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                        if event.pressed_button == Some(MouseButton::Left) {
+                            this.float_to(event.position, cx);
+                        }
+                    }))
+                    .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.release(window, cx)))
+                    .child(div().absolute().left(region.origin.x).top(region.origin.y).w(region.size.width).h(region.size.height).child(pill))
+                    .into_any_element()
             }
         }
     }
@@ -429,15 +765,15 @@ fn window_size(c: &Capsule, room: Option<f32>, cx: &App) -> Size<Pixels> {
     size(capsule.width + px(2. * AIR), capsule.height + px(2. * AIR))
 }
 
-fn options(display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size<Pixels>, cx: &App) -> WindowOptions {
+fn options(kind: WindowKind, display: Option<gpui::DisplayId>, origin: Point<Pixels>, window: Size<Pixels>, cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds { origin, size: window })),
         titlebar: None,
         focus: false,
         show: true,
         // Above every window, never activated (X11 override-redirect, a
-        // floating panel on macOS).
-        kind: WindowKind::PopUp,
+        // floating panel on macOS, a layer surface on Wayland).
+        kind,
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
@@ -461,6 +797,10 @@ pub fn bottom_centre(area: Bounds<Pixels>, window: Size<Pixels>) -> Point<Pixels
 /// The display under the pointer and the area the window centres in; NEW-59
 /// moved off (or hidden from) a display with a fullscreen app.
 fn placement(cx: &App) -> Place {
+    // A test never asks the machine's real screen.
+    if cfg!(test) {
+        return Place::At(None, None);
+    }
     #[cfg(target_os = "linux")]
     if super::hotkey::session() == Some(etalk::voice::VoiceSession::X11) {
         if let Some(place) = x11_place(cx) {
@@ -693,6 +1033,68 @@ mod tests {
         assert_eq!(f32::from(origin.y) + VOICE_CALL.pill.height, 1080. - VOICE_CALL.pill.margin_px);
         assert_eq!(f32::from(origin.x) + VOICE_CALL.pill.width / 2., 1920. + 960.);
         assert_eq!(drag_origin((100, 200), (150, 220), (180, 200)), (130, 180));
+    }
+
+    /// EXP-1912: on Wayland the overlays are layer surfaces on the overlay
+    /// layer that never take the keyboard, anchored where the PopUp sits
+    /// elsewhere: the bottom centre, the same distance above the edge.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_wayland_overlay_is_a_layer_surface_without_the_keyboard() {
+        use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer};
+        let WindowKind::LayerShell(layer) = overlay_kind(true, CAPSULE_NAMESPACE, EDGE - AIR) else {
+            panic!("an ordinary window on Wayland takes the keyboard");
+        };
+        assert_eq!(layer.keyboard_interactivity, KeyboardInteractivity::None);
+        assert_eq!(layer.layer, Layer::Overlay);
+        assert_eq!(layer.anchor, Anchor::BOTTOM);
+        assert_eq!(layer.namespace, "exponential-overlay:push-to-talk");
+        // No zone of its own: the panel's keeps it off the panel.
+        assert_eq!(layer.exclusive_zone, None);
+        // The margin is the PopUp's distance from the bottom edge.
+        let area = Bounds { origin: point(px(0.), px(0.)), size: size(px(1920.), px(1080.)) };
+        let window = size(px(436.), px(90.));
+        let popup_bottom = 1080. - f32::from(bottom_centre(area, window).y) - 90.;
+        assert_eq!(layer.margin, Some((px(0.), px(0.), px(popup_bottom), px(0.))));
+        assert_eq!(overlay_kind(false, CAPSULE_NAMESPACE, EDGE - AIR), WindowKind::PopUp);
+        // The pill's surface covers what the panel leaves free of its display.
+        let WindowKind::LayerShell(pill) = pill_kind(true) else {
+            panic!("the pill is a layer surface on Wayland");
+        };
+        assert_eq!(pill.keyboard_interactivity, KeyboardInteractivity::None);
+        assert_eq!((pill.layer, pill.anchor), (Layer::Overlay, Anchor::all()));
+        assert_eq!(pill_kind(false), WindowKind::PopUp);
+    }
+
+    /// EXP-1912: inside its layer surface the pill sits at the default
+    /// place until it was dragged, then where it was dropped, always whole
+    /// inside the window.
+    #[test]
+    fn the_floating_pill_keeps_its_place_inside_the_layer_surface() {
+        let room = size(px(1280.), px(752.));
+        let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));
+        let default = pill_default(Bounds { origin: point(px(0.), px(0.)), size: room }, pill);
+        assert_eq!(float_origin(None, room, pill), default);
+        assert_eq!(float_origin(Some(point(px(100.), px(200.))), room, pill), point(px(100.), px(200.)));
+        // Dropped past an edge (or remembered from a larger display).
+        assert_eq!(float_origin(Some(point(px(-40.), px(9000.))), room, pill), point(px(0.), px(752. - VOICE_CALL.pill.height)));
+        assert_eq!(float_origin(Some(point(px(5000.), px(-3.))), room, pill), point(px(1280. - VOICE_CALL.pill.width), px(0.)));
+    }
+
+    /// EXP-1916 (work-screen.json OVERLAY): the pill never opens when no
+    /// display is free, a remembered place on a display with a fullscreen
+    /// app gives way to the default place on the display the rule picked,
+    /// and a remembered place on a free display still wins.
+    #[test]
+    fn the_pill_obeys_the_overlay_rule() {
+        let remembered = Some(point(px(100.), px(200.)));
+        let area = Bounds { origin: point(px(1920.), px(0.)), size: size(px(1920.), px(1080.)) };
+        let picked = Place::At(None, Some(area));
+        assert_eq!(pill_place(Place::Hidden, remembered, true), None, "the pill opened over a fullscreen app");
+        assert_eq!(pill_place(Place::Hidden, None, true), None);
+        assert_eq!(pill_place(picked.clone(), remembered, false), Some((None, Some(area), None)), "a remembered place won over a fullscreen app");
+        assert_eq!(pill_place(picked.clone(), remembered, true), Some((None, Some(area), remembered)));
+        assert_eq!(pill_place(picked, None, true), Some((None, Some(area), None)));
     }
 
     #[test]

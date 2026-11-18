@@ -139,29 +139,51 @@ pub fn mark_display_pushed(settings_path: &std::path::Path) -> std::io::Result<(
     settings.save(settings_path)
 }
 
-/// #FEED-164 TWINS UPGRADE (`work-screen.json` `legacyIdCases`): a Work
-/// screen pick stored as an order-based twin id (`base`, `base#n`) becomes
-/// the connector id it names now, so the next converge pushes it (the
-/// fingerprint moved) and every client lists the new id. Saves only on a
-/// rewrite; returns whether it did.
+/// #EXP-1919 SAME MONITOR (`work-screen.json` `pickCases`) + #FEED-164
+/// TWINS UPGRADE (`legacyIdCases`): the Work screen pick is stored as the
+/// id its display carries NOW (a display's id changes form when its twin
+/// connects or goes; an order-based twin id `base`, `base#n` becomes the
+/// connector id it names), so the next converge pushes it (the fingerprint
+/// moved) and every client lists it; the display's `base@connector` form is
+/// remembered beside it. Saves only on a change; returns whether the pick
+/// was rewritten.
 pub fn upgrade_display_pick(settings_path: &std::path::Path) -> bool {
     let mut settings = Settings::load(settings_path);
     let Some(stored) = settings.computer_use_display_id.clone() else {
         return false;
     };
-    let displays = crate::computer::displays();
-    let ids: Vec<&str> = displays.iter().map(|display| display.id.as_str()).collect();
-    let Some(id) = crate::computer::picked_display_id(&ids, &stored).filter(|id| *id != stored) else {
+    let picked = crate::computer::picked_display(&stored, settings.computer_use_display_seen.as_deref());
+    if !keep_display_pick(&mut settings, picked) {
         return false;
-    };
-    settings.computer_use_display_id = Some(id.to_string());
+    }
+    let rewritten = settings.computer_use_display_id.as_deref() != Some(stored.as_str());
     match settings.save(settings_path) {
-        Ok(()) => true,
+        Ok(()) => rewritten,
         Err(err) => {
             log::debug!("[launch-defaults] Work screen upgrade save failed: {err}");
             false
         }
     }
+}
+
+/// [`upgrade_display_pick`] onto `settings`: `picked` = the connected
+/// display the stored pick names (`None` = not connected: nothing moves).
+/// Returns whether anything changed.
+fn keep_display_pick(settings: &mut Settings, picked: Option<crate::computer::PickedDisplay>) -> bool {
+    let Some(picked) = picked else {
+        return false;
+    };
+    let mut changed = false;
+    if settings.computer_use_display_id.as_deref() != Some(picked.id.as_str()) {
+        settings.computer_use_display_id = Some(picked.id);
+        changed = true;
+    }
+    // A display no connector tells apart keeps what was seen before.
+    if picked.seen.is_some() && settings.computer_use_display_seen != picked.seen {
+        settings.computer_use_display_seen = picked.seen;
+        changed = true;
+    }
+    changed
 }
 
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
@@ -170,6 +192,39 @@ pub fn upgrade_display_pick(settings_path: &std::path::Path) -> bool {
 /// RESET what it didn't validly set (unlike `normalize_choice`'s load-time
 /// fallback). Returns whether anything changed. Persisting stays the
 /// caller's `Settings::save` (merge-preserving).
+/// #EXP-1899: the device's Computer use switch as its host last saw it, so
+/// a move is acted on ONCE whatever wrote the settings (the server's copy, a
+/// hand-edited file, another process of this device).
+#[derive(Debug, Default)]
+pub struct ComputerSwitchWatch {
+    last: Option<bool>,
+}
+
+/// What the switch did since the last look ([`ComputerSwitchWatch::observe`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputerSwitchMove {
+    /// Ask this machine's permissions now, not in the middle of a run.
+    On,
+    /// End every grant, stop the calls in flight, give the input back.
+    Off,
+}
+
+impl ComputerSwitchWatch {
+    pub const fn new() -> Self {
+        Self { last: None }
+    }
+
+    /// The first look only records; after that a change is reported once.
+    pub fn observe(&mut self, on: bool) -> Option<ComputerSwitchMove> {
+        let before = self.last.replace(on)?;
+        match (before, on) {
+            (false, true) => Some(ComputerSwitchMove::On),
+            (true, false) => Some(ComputerSwitchMove::Off),
+            _ => None,
+        }
+    }
+}
+
 pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> bool {
     fn set_string(slot: &mut String, value: &str, changed: &mut bool) {
         if slot != value {
@@ -322,6 +377,20 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
 mod tests {
     use super::*;
 
+    /// #EXP-1899: the watch reports each move of the switch once, and the
+    /// first look (the host's start) is no move.
+    #[test]
+    fn the_computer_switch_watch_reports_each_move_once() {
+        let mut watch = ComputerSwitchWatch::default();
+        assert_eq!(watch.observe(true), None);
+        assert_eq!(watch.observe(true), None);
+        assert_eq!(watch.observe(false), Some(ComputerSwitchMove::Off));
+        assert_eq!(watch.observe(false), None);
+        assert_eq!(watch.observe(true), Some(ComputerSwitchMove::On));
+        let mut off_first = ComputerSwitchWatch::default();
+        assert_eq!(off_first.observe(false), None);
+    }
+
     // -- apply_defaults_patch --------------------------------------------------
 
     #[test]
@@ -422,6 +491,26 @@ mod tests {
     /// garbage changes nothing, null clears it to Auto, and so does a row
     /// snapshot WITHOUT the key (a remote client's Auto: the server stores
     /// no key) once the device's pick reached the server.
+    /// #EXP-1919: the stored pick follows its display's id (a twin went or
+    /// came), remembers its `base@connector` form, and never moves while
+    /// the display is not connected.
+    #[test]
+    fn the_stored_pick_follows_its_displays_id_and_remembers_its_connector() {
+        use crate::computer::PickedDisplay;
+        let mut settings = Settings { computer_use_display_id: Some("edid:a@DP-1".into()), ..Settings::default() };
+        // Seen as it is stored: only the connector form is new.
+        assert!(keep_display_pick(&mut settings, Some(PickedDisplay { id: "edid:a@DP-1".into(), seen: Some("edid:a@DP-1".into()) })));
+        assert!(!keep_display_pick(&mut settings, Some(PickedDisplay { id: "edid:a@DP-1".into(), seen: Some("edid:a@DP-1".into()) })));
+        // Its twin went: the display carries the bare id now.
+        assert!(keep_display_pick(&mut settings, Some(PickedDisplay { id: "edid:a".into(), seen: Some("edid:a@DP-1".into()) })));
+        assert_eq!(settings.computer_use_display_id.as_deref(), Some("edid:a"));
+        assert_eq!(settings.computer_use_display_seen.as_deref(), Some("edid:a@DP-1"));
+        // Not connected, or no connector to tell it apart: nothing is lost.
+        assert!(!keep_display_pick(&mut settings, None));
+        assert!(!keep_display_pick(&mut settings, Some(PickedDisplay { id: "edid:a".into(), seen: None })));
+        assert_eq!(settings.computer_use_display_seen.as_deref(), Some("edid:a@DP-1"));
+    }
+
     #[test]
     fn computer_use_display_id_carries_forward_and_null_clears_it() {
         let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
@@ -612,6 +701,7 @@ mod tests {
             computer_use_model: "opus".into(),
             computer_use_display_id: Some("uuid-b".into()),
             computer_use_display_id_pushed: true,
+            computer_use_display_seen: Some("uuid-b@2".into()),
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             emoji_recents: vec!["🎉".into()],
@@ -638,6 +728,7 @@ mod tests {
             os_notifications: Settings::default().os_notifications,
             // Local sync bookkeeping, not a launch default.
             computer_use_display_id_pushed: Settings::default().computer_use_display_id_pushed,
+            computer_use_display_seen: Settings::default().computer_use_display_seen,
             ..from.clone()
         };
         assert_eq!(onto, expected);

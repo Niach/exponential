@@ -41,6 +41,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
     },
   }
 })
+vi.mock(`@/lib/enet/send-sealed`, () => import(`@/test/send-plain`))
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => mockState.navigate }))
 vi.mock(`@/lib/collections`, () => ({
   agentCollection: {},

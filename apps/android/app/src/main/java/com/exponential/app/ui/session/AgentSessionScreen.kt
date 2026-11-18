@@ -387,6 +387,7 @@ import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TITLE
 import com.exponential.app.data.steer.SteerNoFeedState
 import com.exponential.app.data.steer.steerNoFeedAway
 import com.exponential.app.data.steer.steerNoFeedState
+import com.exponential.app.data.steer.steerOfflineLine
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
@@ -698,7 +699,30 @@ private fun RunFaceContent(
     // EXP-773: an ENDED run's transcript is republished by the machine that
     // ran it — this is that fetch's status.
     val history by viewModel.history.collectAsStateWithLifecycle()
-    val feed = activity.feed
+    // #FEED-237: the viewer's own bubbles at the bottom (their synced rows
+    // never repeat in the synced tail below).
+    val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
+    // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
+    // tail painted at open, a dropped feed's cache, an empty feed) is
+    // followed by the session's synced messages after it, so the agent's
+    // answer shows whether or not its device is reachable. A live feed is
+    // the authority (its replay holds the same lines).
+    val tailMessages by viewModel.tailMessages.collectAsStateWithLifecycle()
+    val feedLive = phase == AgentPhase.Live
+    // An EMPTY feed takes it only while the live transcript cannot be
+    // loaded (the OFFLINE LINE's condition): a reachable device's replay
+    // is on its way.
+    val tailUnreachable = if (session?.isEnded == true) history == HistoryState.DeviceOffline else hostDevice.offline
+    val syncedTail = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable) {
+        com.exponential.app.data.steer.syncedTailItems(
+            activity.feed,
+            feedLive,
+            tailMessages,
+            ownTail.mapNotNullTo(HashSet()) { it.messageId },
+            unreachable = tailUnreachable,
+        )
+    }
+    val feed = if (syncedTail.isEmpty()) activity.feed else activity.feed + syncedTail
     val latestDiff = activity.latestDiff
     val killError by viewModel.killError.collectAsStateWithLifecycle()
     // FEED-79 (EXP-1259 D10): a failed kill call (EXP-268) is the error toast
@@ -1066,7 +1090,6 @@ private fun RunFaceContent(
     val bodyPlaceholder = feedPlaceholder
     // #FEED-237 (message-delivery.json): the viewer's own pending bubbles; a
     // refused Cancel sending is the one toast.
-    val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
     val cancelError by viewModel.cancelError.collectAsStateWithLifecycle()
     val cancelToaster = LocalToaster.current
     LaunchedEffect(cancelError) {
@@ -1223,6 +1246,35 @@ private fun RunFaceContent(
                     LocalFeedFooter.current?.invoke()
                 }
             } else {
+                // #FEED-260 (steer-enet.json OFFLINE LINE): a transcript the
+                // live feed cannot reach ENDS with THE inline marker saying
+                // so, never silently after its last row.
+                val hostFooter = LocalFeedFooter.current
+                val offlineLine = steerOfflineLine(
+                    live = phase == AgentPhase.Live,
+                    rows = feed.size,
+                    ended = sessionEnded,
+                    noFeed = history == HistoryState.DeviceOffline,
+                    deviceOffline = hostDevice.offline,
+                )
+                val offlineTitle = steerNoFeedAway(hostDevice.label).title
+                val transcriptFooter: (@Composable () -> Unit)? = if (offlineLine) {
+                    {
+                        Column {
+                            // The marker's own place in the transcript (a Turn gap,
+                            // like any row after a bubble).
+                            com.exponential.app.ui.chat.FeedMarkerRow(
+                                offlineTitle,
+                                modifier = Modifier.padding(top = TranscriptGap.Turn.dp),
+                                testTag = "transcript-offline-line",
+                            )
+                            hostFooter?.invoke()
+                        }
+                    }
+                } else {
+                    hostFooter
+                }
+                androidx.compose.runtime.CompositionLocalProvider(LocalFeedFooter provides transcriptFooter) {
                 ActivityFeed(
                     feed = feed,
                     live = phase == AgentPhase.Live,
@@ -1291,6 +1343,7 @@ private fun RunFaceContent(
                     ownTail = ownTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
+                }
             }
         }
         }

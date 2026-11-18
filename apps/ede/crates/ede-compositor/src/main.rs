@@ -171,18 +171,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut h = ede_compositor::backend::headless::Headless {
                 renderer: smithay::backend::renderer::pixman::PixmanRenderer::new()?,
                 outputs: Vec::new(),
+                globals: Vec::new(),
             };
             h.add_output(&mut state, "HEADLESS-1", size);
             let outputs = h.outputs.clone();
-            event_loop.handle().insert_source(
-                smithay::reexports::calloop::timer::Timer::from_duration(std::time::Duration::from_millis(16)),
-                move |_, _, state| {
-                    for o in &outputs {
-                        ede_compositor::backend::frame_done(state, o);
-                    }
-                    smithay::reexports::calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(16))
-                },
-            )?;
+            let mut clock = ede_compositor::backend::headless::FrameClock::new()?;
+            let tick = ede_compositor::backend::headless::FrameClock::TICK;
+            event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
+                clock.tick(state, &outputs);
+                smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
+            })?;
             Some(h)
         }
         #[cfg(feature = "winit")]

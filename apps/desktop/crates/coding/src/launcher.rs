@@ -1708,10 +1708,10 @@ fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
     resolved
 }
 
-/// EXP-1196: give the run this device's computer-use server when its
-/// Computer use switch is on — EXP-1249: or when the RUN asked for it
-/// (`options`' per-run `computer_use`, the composer "+" toggle; `None` =
-/// the switch decides, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
+/// EXP-1196: give the run this device's computer-use server while its
+/// Computer use switch is on — #EXP-1899: and the RUN did not opt out
+/// (`options`' per-run `computer_use`; a run's own `true` never wins over a
+/// switch that is off, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
@@ -1728,9 +1728,6 @@ fn attach_computer_use(
     if !options.computer_use_on(deps.settings.computer_use) {
         return false;
     }
-    // NEW-59: the run drives the device's Work screen as of its start (the
-    // hosts also set it whenever the converged value moves).
-    epilot::set_work_display(deps.settings.computer_use_display_id.clone());
     match epilot::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);
@@ -2613,7 +2610,8 @@ fn session_spawn(
             )
             .env("CARGO_INCREMENTAL", "0");
     }
-    spawn
+    // #EXP-1875: no AppImage identity, and the session's own XDG dirs.
+    crate::session_env::apply(spawn, Some(session_id))
 }
 
 /// EXP-1292 — RESUME a session natively (blocking, background executor): a
@@ -3612,6 +3610,9 @@ pub fn prepare_agent_shell(
             shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
         )
         .env("CARGO_INCREMENTAL", "0");
+    // #EXP-1875: an agent shell is no session (no own XDG dirs), but it
+    // never passes the IDE's AppImage identity on either.
+    spawn = crate::session_env::apply(spawn, None);
 
     Ok(PreparedAgentShell::Ready(AgentShellLaunch {
         spawn,
@@ -4406,6 +4407,50 @@ mod tests {
         agent.agent_id = Some("ag-1".to_string());
         agent.title = Some("Inbox watcher".to_string());
         assert_eq!(session_label(&agent, &[], ""), "Inbox watcher");
+    }
+
+    /// #EXP-1899: the device's switch is the gate. Switch off + a session
+    /// whose row says on = no grant and no computer entry; an opted-out
+    /// session gets none with the switch on either. (Neither reaches the
+    /// screen: the gate answers before a grant is asked.)
+    #[test]
+    fn a_switch_that_is_off_gives_no_grant_whatever_the_session_says() {
+        let dir = temp_dir("computer-use-gate");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        let mut on = row("s-1", None);
+        on.computer_use = true;
+        deps.settings.computer_use = false;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        assert_eq!(options.computer_use, Some(true));
+        let mut mcp = ResolvedMcp::default();
+        assert!(!attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"));
+        assert_eq!(mcp, ResolvedMcp::default());
+
+        deps.settings.computer_use = true;
+        let opted_out = session_launch_options(&row("s-2", None), &base_options(), &deps.settings);
+        assert_eq!(opted_out.computer_use, Some(false));
+        assert!(!attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"));
+        assert_eq!(mcp, ResolvedMcp::default());
+    }
+
+    /// #EXP-1919: a launch never puts its settings snapshot's Work screen
+    /// back over the pick the hosts keep current: the person may have
+    /// changed it while the launch prepared.
+    #[test]
+    fn a_launch_leaves_the_work_screen_pick_alone() {
+        let dir = temp_dir("computer-use-pick");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.computer_use = true;
+        deps.settings.computer_use_display_id = Some("display-1".to_string());
+        let mut on = row("s-pick", None);
+        on.computer_use = true;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        // Saved while the launch prepared (the hosts' `set_work_display`).
+        epilot::set_work_display(Some("display-2".to_string()));
+        let mut mcp = ResolvedMcp::default();
+        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1");
+        epilot::revoke("s-pick");
+        assert_eq!(epilot::work_display().as_deref(), Some("display-2"));
     }
 
     /// The row's pickers win over the host's defaults, normalized against the

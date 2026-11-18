@@ -5,6 +5,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
+import { CALL_ALIVE_MS } from "./protocol"
 
 process.env.STEER_RELAY_SECRET = `integration-secret`
 
@@ -369,6 +370,40 @@ describe(`voice call end-to-end (NEW-55)`, () => {
     expect(await hostClosed).toBe(4001)
     device.close()
   })
+
+  // EXP-1929: a NEW relay with OLD ends: both get `call_alive` (an old build
+  // ignores it) and answer the beat's ping by themselves (here Bun's own
+  // WebSocket client, like URLSession, OkHttp, tungstenite and browsers), so
+  // a silent host stays alive.
+  test(`the beat reaches both ends and their own pongs answer it`, async () => {
+    const device = await connect(ticket({ role: `control`, sub: `beat-owner`, team: `` }))
+    const deviceIn = collector(device)
+    device.send(JSON.stringify({ t: `online`, deviceId: `mint` }))
+    await nudgeWhenOnline(`beat-owner`, `mint`)
+    expect(await deviceIn.nextJson()).toEqual({ t: `check_in` })
+    const caller = await connect(
+      ticket({ role: `caller`, sub: `beat-owner`, team: ``, callId: `call-beat`, agentId: `agent-1`, deviceId: `mint`, deviceOwnerId: `beat-owner` })
+    )
+    const callerIn = collector(caller)
+    expect((await deviceIn.nextJson()).t).toBe(`call_ring`)
+    const host = await connect(ticket({ role: `call_host`, sub: `beat-owner`, team: ``, callId: `call-beat`, deviceId: `mint` }))
+    const hostIn = collector(host)
+    expect(await hostIn.nextJson()).toEqual({ t: `call_ready` })
+    expect(await callerIn.nextJson()).toEqual({ t: `call_ready` })
+    const pongs = async () => ((await (await fetch(`${base}/stats`, { headers: { "x-relay-secret": `integration-secret` } })).json()) as { counters: { callPongs: number } }).counters.callPongs
+    const before = await pongs()
+    expect(await hostIn.nextJson(CALL_ALIVE_MS + 2000)).toEqual({ t: `call_alive` })
+    expect(await callerIn.nextJson(2000)).toEqual({ t: `call_alive` })
+    let after = before
+    for (let i = 0; i < 40 && after < before + 2; i++) {
+      await new Promise((r) => setTimeout(r, 25))
+      after = await pongs()
+    }
+    expect(after).toBeGreaterThanOrEqual(before + 2)
+    caller.send(JSON.stringify({ t: `call_end` }))
+    expect(await hostIn.nextJson()).toEqual({ t: `call_end` })
+    device.close()
+  }, CALL_ALIVE_MS + 8000)
 
   test(`a caller for an offline device is told so`, async () => {
     const caller = await connect(

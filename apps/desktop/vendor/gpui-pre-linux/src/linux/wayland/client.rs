@@ -826,7 +826,65 @@ impl WaylandClientStatePtr {
     }
 }
 
+/// Exponential patch (#EDE-89): where a window that lost the pointer puts it.
+pub(crate) const POINTER_OUTSIDE: Point<Pixels> = Point { x: px(-1.0e6), y: px(-1.0e6) };
+
+/// Exponential patch (#EDE-89): what a window hears when the pointer leaves
+/// it: a move far outside, then the exit. The exit alone left gpui's window
+/// with the pointer where it was last seen: every later frame hit-tested it
+/// there, and a hover listener whose element repainted turned hovered again
+/// (eDE's taskbar button kept its hover preview open after the pointer left,
+/// and a dismissed preview opened again).
+fn pointer_left(
+    position: Point<Pixels>,
+    pressed_button: Option<MouseButton>,
+    modifiers: Modifiers,
+) -> [PlatformInput; 2] {
+    [
+        PlatformInput::MouseMove(MouseMoveEvent {
+            position: POINTER_OUTSIDE,
+            pressed_button: None,
+            modifiers,
+        }),
+        PlatformInput::MouseExited(MouseExitEvent {
+            position,
+            pressed_button,
+            modifiers,
+        }),
+    ]
+}
+
+#[cfg(test)]
+mod pointer_left_tests {
+    use super::{POINTER_OUTSIDE, pointer_left};
+    use gpui::{Bounds, Modifiers, PlatformInput, point, px, size};
+
+    /// #EDE-89: after a leave, the window's pointer is far outside it (no
+    /// element there hit-tests as hovered), and the exit still follows.
+    #[test]
+    fn a_leave_moves_the_pointer_out_of_the_window_first() {
+        let window = Bounds::new(point(px(-10_000.0), px(-10_000.0)), size(px(20_000.0), px(20_000.0)));
+        let [moved, exited] = pointer_left(point(px(164.0), px(23.0)), None, Modifiers::default());
+        let PlatformInput::MouseMove(moved) = moved else { panic!("a move first") };
+        assert_eq!(moved.position, POINTER_OUTSIDE);
+        assert!(!window.contains(&moved.position));
+        let PlatformInput::MouseExited(exited) = exited else { panic!("then the exit") };
+        assert_eq!(exited.position, point(px(164.0), px(23.0)));
+    }
+}
+
 impl WaylandClientState {
+    /// Exponential patch (#EDE-89): the pointer's location in `window`'s
+    /// coordinates, `None` while the pointer is over another surface (or
+    /// none). `mouse_location` is the client's one location, in the
+    /// coordinates of whichever surface has the pointer.
+    pub(crate) fn mouse_location_in(&self, window: &WaylandWindowStatePtr) -> Option<Point<Pixels>> {
+        self.mouse_focused_window
+            .as_ref()
+            .filter(|focused| focused.ptr_eq(window))
+            .and(self.mouse_location)
+    }
+
     fn hide_cursor_until_mouse_moves(&mut self) {
         if self.cursor_hidden_window.is_some() {
             return;
@@ -1305,18 +1363,21 @@ impl WaylandConnection {
                     .find(|window| window.handle() == options.parent)
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("popup parent window not found"))?;
-                // A popup grab must reference a press event or the compositor declines it and
-                // immediately dismisses the popup, so use the most recent press serial, or no
-                // grab before any press.
+                // A popup grab should reference a press event, so use the most recent press
+                // serial.
+                // Exponential patch (#EDE-86): before any press the grab is still sent, with
+                // serial 0. A popup opened from a compositor hotkey (eDE's start menu on
+                // Super) asks for the keyboard with it, and the client may never have seen
+                // a press.
                 let popup_grab = options.grab.then(|| {
                     let serial = state
                         .serial_tracker
                         .get(SerialKind::MousePress)
                         .as_raw()
                         .max(state.serial_tracker.get(SerialKind::KeyPress).as_raw());
-                    (serial != 0).then(|| (serial, state.wl_seat.clone()))
+                    (serial, state.wl_seat.clone())
                 });
-                (Some(parent), popup_grab.flatten())
+                (Some(parent), popup_grab)
             }
             _ => (state.keyboard_focused_window.clone(), None),
         };
@@ -2452,18 +2513,20 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
             }
             wl_pointer::Event::Leave { .. } => {
                 if let Some(focused_window) = state.mouse_focused_window.clone() {
-                    let input = PlatformInput::MouseExited(MouseExitEvent {
-                        position: state.mouse_location.unwrap(),
-                        pressed_button: state.button_pressed,
-                        modifiers: state.modifiers,
-                    });
+                    let inputs = pointer_left(
+                        state.mouse_location.unwrap(),
+                        state.button_pressed,
+                        state.modifiers,
+                    );
                     state.mouse_focused_window = None;
                     state.mouse_location = None;
                     state.button_pressed = None;
                     state.cursor_hidden_window = None;
 
                     drop(state);
-                    focused_window.handle_input(input);
+                    for input in inputs {
+                        focused_window.handle_input(input);
+                    }
                     focused_window.set_hovered(false);
                 }
             }

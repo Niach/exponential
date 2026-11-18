@@ -16,7 +16,7 @@ use smithay::{
     },
 };
 
-use crate::state::Ede;
+use crate::{desk::DeskId, state::Ede};
 
 impl InputMethodHandler for Ede {
     fn new_popup(&mut self, surface: PopupSurface) {
@@ -34,7 +34,7 @@ impl InputMethodHandler for Ede {
     }
 
     fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, Logical> {
-        self.window_for_surface(parent).and_then(|w| self.space.element_geometry(&w)).unwrap_or_default()
+        self.window_for_surface(parent).and_then(|w| self.desk.space.element_geometry(&w)).unwrap_or_default()
     }
 }
 
@@ -50,8 +50,8 @@ impl Ede {
         if !(self.is_locked() || focused.is_some_and(|s| self.is_protected_surface(s))) {
             return;
         }
-        let text_input = self.seat.text_input();
-        if self.seat.input_method().has_instance() || text_input.compositor_input_method() {
+        let text_input = self.desk.seat.text_input();
+        if self.desk.seat.input_method().has_instance() || text_input.compositor_input_method() {
             text_input.leave();
         }
         text_input.set_focus(None);
@@ -60,12 +60,12 @@ impl Ede {
     /// A real key goes under the configured keymap again after a virtual
     /// keyboard swapped in its own.
     pub(crate) fn restore_seat_keymap(&mut self) {
-        if self.virtual_keymap.take().is_none() {
+        if self.desk.virtual_keymap.take().is_none() {
             return;
         }
         let kb = self.config.keyboard.clone();
         let xkb = XkbConfig { layout: &kb.layout, variant: &kb.variant, options: Some(kb.options.clone()).filter(|o| !o.is_empty()), ..Default::default() };
-        if let Err(e) = self.seat.get_keyboard().unwrap().set_xkb_config(self, xkb) {
+        if let Err(e) = self.desk.seat.get_keyboard().unwrap().set_xkb_config(self, xkb) {
             tracing::warn!("keyboard layout {:?} not restored: {e:?}", kb.layout);
         }
     }
@@ -74,10 +74,10 @@ impl Ede {
     /// it uses the seat's).
     fn use_virtual_keymap(&mut self, device: &VirtualKeyboardDevice) {
         match device.keymap() {
-            Some(keymap) if self.virtual_keymap != Some(device.source()) => {
-                let keyboard = self.seat.get_keyboard().unwrap();
+            Some(keymap) if self.desk.virtual_keymap != Some(device.source()) => {
+                let keyboard = self.desk.seat.get_keyboard().unwrap();
                 match keyboard.set_keymap_from_keymap_file(self, keymap) {
-                    Ok(()) => self.virtual_keymap = Some(device.source()),
+                    Ok(()) => self.desk.virtual_keymap = Some(device.source()),
                     Err(e) => tracing::warn!("virtual keyboard keymap: {e:?}"),
                 }
             }
@@ -92,10 +92,10 @@ impl Ede {
 // protected surfaces and the lock screen.
 impl VirtualKeyboardHandler for Ede {
     fn process_virtual_keyboard_event(&mut self, event: InputEvent<VirtualKeyboardBackend>) {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
         match event {
             InputEvent::Keyboard { event } => {
-                if self.keyboard_focus_protected() {
+                if self.keyboard_focus_protected(DeskId::PERSON) {
                     return;
                 }
                 let device = event.device();
@@ -105,20 +105,20 @@ impl VirtualKeyboardHandler for Ede {
                 keyboard.input_forward_bypassing_grab(self, code, state, SERIAL_COUNTER.next_serial(), event.time(), mods_changed);
             }
             InputEvent::Special(VirtualKeyboardSpecialEvent::Modifiers { device, mods_depressed, mods_latched, mods_locked, group }) => {
-                if self.keyboard_focus_protected() {
+                if self.keyboard_focus_protected(DeskId::PERSON) {
                     return;
                 }
                 self.use_virtual_keymap(&device);
                 keyboard.with_xkb_state(self, |mut xkb| xkb.set_modifier_mask(mods_depressed, mods_latched, mods_locked, group));
             }
             InputEvent::Special(VirtualKeyboardSpecialEvent::KeymapChanged { device }) => {
-                if self.virtual_keymap == Some(device.source()) {
-                    self.virtual_keymap = None;
+                if self.desk.virtual_keymap == Some(device.source()) {
+                    self.desk.virtual_keymap = None;
                 }
             }
             InputEvent::DeviceRemoved { device } => {
                 keyboard.release_source(self, device.source());
-                if self.virtual_keymap == Some(device.source()) {
+                if self.desk.virtual_keymap == Some(device.source()) {
                     self.restore_seat_keymap();
                 }
             }

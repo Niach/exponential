@@ -249,8 +249,9 @@ describe(`useLaunchOptions MCP pick`, () => {
   })
 })
 
-// EXP-1249: per-run computer use — the "+" menu toggle. It seeds from the
-// device's own switch, rides out only to a picked device, and every key the
+// EXP-1249: per-run computer use — the "+" menu toggle. #EXP-1899: offered
+// only while the device's switch is on and it can drive, starts on, only an
+// opt-out rides out, and every key the
 // payload can carry is a contract launch key.
 describe(`useLaunchOptions computer use`, () => {
   const capable: SteerDevice = {
@@ -267,35 +268,52 @@ describe(`useLaunchOptions computer use`, () => {
     expect(`computerUse` in result.current.buildOptions()).toBe(false)
   })
 
-  it(`shows the device default, omits it untouched, sends a flip`, () => {
+  it(`#EXP-1899: starts on, omits it untouched, only an opt-out rides`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [capable] })
     )
     expect(result.current.computerUseAvailable).toBe(true)
     expect(result.current.computerUse).toBe(true)
-    // Untouched: the machine's own default applies, so the key is omitted.
+    // Untouched: the session follows the device's switch, the key is omitted.
     expect(`computerUse` in result.current.buildOptions()).toBe(false)
     act(() => result.current.setComputerUse(false))
     expect(result.current.buildOptions().computerUse).toBe(false)
-    // An explicit flip rides out even when it matches the default.
+    // Switched back on = follows again: still no key.
     act(() => result.current.setComputerUse(true))
-    expect(result.current.buildOptions().computerUse).toBe(true)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
   })
 
-  it(`follows a device default that changes after open, untouched`, () => {
+  it(`#EXP-1899: no toggle while the device's switch is off`, () => {
     const { result, rerender } = renderHook(
       ({ devices }: { devices: SteerDevice[] }) =>
         useLaunchOptions({ open: true, devices }),
       { initialProps: { devices: [capable] } }
     )
-    expect(result.current.computerUse).toBe(true)
+    expect(result.current.computerUseAvailable).toBe(true)
+    act(() => result.current.setComputerUse(false))
     rerender({
       devices: [
         { ...capable, launchDefaults: { ...capable.launchDefaults, computerUse: false } },
       ],
     })
-    // The stale seed never overrides the machine's current setting.
-    expect(result.current.computerUse).toBe(false)
+    expect(result.current.computerUseAvailable).toBe(false)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
+  })
+
+  it(`#EXP-1899: no toggle on a machine that cannot drive a screen`, () => {
+    const wayland: SteerDevice = {
+      ...capable,
+      doctor: {
+        checkedAt: `2026-11-17T09:00:00.000Z`,
+        items: [
+          { key: `computer_use`, group: `computer_use`, state: `missing`, detail: `Wayland` },
+        ],
+      },
+    }
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [wayland] })
+    )
+    expect(result.current.computerUseAvailable).toBe(false)
     expect(`computerUse` in result.current.buildOptions()).toBe(false)
   })
 

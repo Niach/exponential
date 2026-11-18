@@ -42,6 +42,7 @@ import com.exponential.app.domain.withId
 import kotlin.math.pow
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -303,6 +304,9 @@ class SteerConnection internal constructor(
      *  nothing new (stop asking). */
     private var historyRequest: String? = null
     private var historyRequests = 0
+    /** #EDE-96: the `search` in flight — a result for any other id is not ours. */
+    private var searchRequest: Pair<String, CompletableDeferred<SteerSearchResult?>>? = null
+    private var searchRequests = 0
     private var historyTruncated = false
     private var historyExhausted = false
 
@@ -711,6 +715,8 @@ class SteerConnection internal constructor(
         // A page asked for on that socket is not coming either (EXP-795):
         // the device drops the ask with the viewer, so a new one may go out.
         historyRequest = null
+        searchRequest?.second?.complete(null)
+        searchRequest = null
         // The phase is state a ViewModel still holding this connection reads;
         // leaving it on Connecting behind a cancelled scope stranded the
         // screen on a spinner nothing could clear (EXP-625).
@@ -1099,6 +1105,15 @@ class SteerConnection internal constructor(
                     obj["seqs"]!!.jsonArray.mapNotNull { (it as? JsonPrimitive)?.longOrNull }
                 }.getOrDefault(emptyList())
                 prependPage(events, seqs)
+                null
+            }
+            // #EDE-96: the answer to this viewer's `search`, to it only.
+            "search_result" -> {
+                val requestId = (obj["requestId"] as? JsonPrimitive)?.contentOrNull
+                val pending = searchRequest
+                if (pending == null || requestId != pending.first) return null
+                searchRequest = null
+                pending.second.complete(parseSteerSearchResult(obj))
                 null
             }
             // The device's liveness beat to joined viewers (EXP-648). Already
@@ -1730,6 +1745,26 @@ class SteerConnection internal constructor(
             }
         }
         return true
+    }
+
+    /** #EDE-96 (fixtures/steer-enet.json SEARCH) — ask the device that holds
+     *  the journal to search the transcript, newest first below [beforeSeq]
+     *  (null = from the newest event). ONE search in flight: a newer ask
+     *  settles the older one with null. Null = no socket, superseded, or no
+     *  answer within the send timeout. */
+    suspend fun search(query: String, beforeSeq: Long? = null): SteerSearchResult? {
+        searchRequest?.second?.complete(null)
+        searchRequest = null
+        val socket = ws ?: return null
+        searchRequests += 1
+        val requestId = "s$searchRequests"
+        val answer = CompletableDeferred<SteerSearchResult?>()
+        searchRequest = requestId to answer
+        val frame = steerSearchFrame(requestId, query, beforeSeq)
+        runCatching { socket.send(json.encodeToString(JsonObject.serializer(), frame)) }
+        val result = withTimeoutOrNull(STEER_SEARCH_TIMEOUT_MS) { answer.await() }
+        if (searchRequest?.first == requestId) searchRequest = null
+        return result
     }
 
     /** EXP-783 — PREPEND one older page, oldest first.

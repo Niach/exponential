@@ -6,7 +6,15 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::Session;
-use ede_compositor::{backend::headless::Harness, protected::Refused, Config};
+use ede_compositor::{
+    backend::headless::Harness,
+    desk::DeskId,
+    lock::LockState,
+    logind::{self, Held, Listener, Signal},
+    protected::Refused,
+    sealed::{Sealed, HEALTHY, MAX_RESPAWNS, NO_SURFACE},
+    Config,
+};
 use ede_protocol::{Error, ErrorCode};
 use smithay::backend::input::{ButtonState, KeyState};
 
@@ -45,8 +53,8 @@ fn press(h: &Harness, code: u32) {
 /// The centre of the only (or topmost) window.
 fn window_center(h: &Harness) -> (i32, i32) {
     h.with(|ede| {
-        let w = ede.space.elements().last().unwrap();
-        let g = ede.space.element_geometry(w).unwrap();
+        let w = ede.desk.space.elements().last().unwrap();
+        let g = ede.desk.space.element_geometry(w).unwrap();
         (g.loc.x + g.size.w / 2, g.loc.y + g.size.h / 2)
     })
 }
@@ -193,7 +201,7 @@ fn protected_windows_are_never_captured_or_driven() {
     app.draw(&normal, 200, 200, BLUE);
     // A corner the next window (cascaded down-right) leaves uncovered.
     let (nx, ny) = h.with(|ede| {
-        let g = ede.space.element_geometry(ede.space.elements().last().unwrap()).unwrap();
+        let g = ede.desk.space.element_geometry(ede.desk.space.elements().last().unwrap()).unwrap();
         (g.loc.x + 5, g.loc.y + 5)
     });
 
@@ -211,12 +219,12 @@ fn protected_windows_are_never_captured_or_driven() {
         // It has keyboard focus (it mapped last): agent keys are refused,
         // the person's go through.
         wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
-        let refused = h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false));
+        let refused = h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false));
         assert_eq!(refused, Err(Refused::Protected));
-        let refused = h.with(move |ede| ede.drive_pointer_motion((sx as f64, sy as f64).into(), 0));
+        let refused = h.with(move |ede| ede.drive_pointer_motion(DeskId::PERSON, (sx as f64, sy as f64).into(), 0));
         assert_eq!(refused, Err(Refused::Protected));
-        assert_eq!(h.with(move |ede| ede.drive_pointer_motion((nx as f64, ny as f64).into(), 0)), Ok(()));
-        let lendable = h.with(|ede| ede.space.elements().map(|w| ede.may_lend(w)).collect::<Vec<_>>());
+        assert_eq!(h.with(move |ede| ede.drive_pointer_motion(DeskId::PERSON, (nx as f64, ny as f64).into(), 0)), Ok(()));
+        let lendable = h.with(|ede| ede.desk.space.elements().map(|w| ede.may_lend(w)).collect::<Vec<_>>());
         assert_eq!(lendable.iter().filter(|l| !**l).count(), 1);
 
         secret.toplevel.destroy();
@@ -228,18 +236,18 @@ fn protected_windows_are_never_captured_or_driven() {
 
     // A normal focused window may be driven.
     h.with(|ede| {
-        let w = ede.space.elements().last().cloned();
-        ede.focus(w);
+        let w = ede.desk.space.elements().last().cloned();
+        ede.focus(DeskId::PERSON, w);
     });
     app.roundtrip();
-    assert_eq!(h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false)), Ok(()));
+    assert_eq!(h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false)), Ok(()));
     app.roundtrip();
     assert_eq!(app.state.keys.last(), Some(&KEY_A));
 
     // Locked: nothing may be driven.
     let mut locker = Session::connect(h.connect());
     let _lock = locker.lock();
-    assert_eq!(h.with(|ede| ede.drive_key((KEY_A + 8).into(), KeyState::Pressed, 0, false)), Err(Refused::Locked));
+    assert_eq!(h.with(|ede| ede.drive_key(DeskId::PERSON, (KEY_A + 8).into(), KeyState::Pressed, 0, false)), Err(Refused::Locked));
 }
 
 #[test]
@@ -350,4 +358,433 @@ fn the_sealed_lock_shows_only_the_lock_clients_surface_and_its_grant_unlocks() {
     wait_for(&mut app, |_| h.capture(0).at(cx, cy) == RED);
     // The grant was single-use: it is gone.
     assert!(matches!(lock_client.windows(), Err(ede_protocol::Error::Failed(_))));
+}
+
+/// #EDE-71: a prompt (`exponential-sealed polkit`, consent, share) maps an
+/// Exclusive overlay. The password typed right away is the prompt's, never
+/// the window's behind it, and the window types again once it closed.
+#[test]
+fn an_exclusive_overlay_takes_the_keyboard_as_it_maps_and_gives_it_back() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("terminal");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    // Not before it drew: a surface without a buffer shows nothing to type into.
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface));
+    prompt.draw_layer(&l, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_none());
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut prompt, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the window behind the prompt got the password");
+
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+}
+
+/// #EDE-71: a shell surface that took the keyboard on a click (Settings,
+/// chat, history, connect are on-demand layers) hands it back as it closes.
+#[test]
+fn closing_a_focused_layer_gives_the_keyboard_back_to_the_window() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut shell = Session::connect(h.connect());
+    shell.keyboard();
+    let l = shell.keyboard_layer("settings", Layer::Top, (200, 100), KeyboardInteractivity::OnDemand);
+    shell.draw_layer(&l, BLUE);
+    // On-demand never takes the keyboard by itself.
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface));
+    wait_for(&mut shell, |_| h.capture(0).at(400, 300) == BLUE);
+    h.with(|ede| {
+        ede.pointer_motion_to((400.0, 300.0).into(), 0);
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+
+    l.layer.destroy();
+    l.surface.destroy();
+    shell.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+}
+
+/// #EDE-71: a prompt over a focused shell surface (Settings asks for the
+/// password) gives the keyboard back to that surface, not to a window.
+#[test]
+fn a_prompt_over_a_focused_layer_gives_the_keyboard_back_to_that_layer() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut shell = Session::connect(h.connect());
+    shell.keyboard();
+    let settings = shell.keyboard_layer("settings", Layer::Top, (200, 100), KeyboardInteractivity::OnDemand);
+    shell.draw_layer(&settings, BLUE);
+    wait_for(&mut shell, |_| h.capture(0).at(400, 300) == BLUE);
+    h.with(|ede| {
+        ede.pointer_motion_to((400.0, 300.0).into(), 0);
+        ede.pointer_button(0x110, ButtonState::Pressed, 1);
+        ede.pointer_button(0x110, ButtonState::Released, 2);
+    });
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&settings.surface));
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (100, 50), KeyboardInteractivity::Exclusive);
+    prompt.draw_layer(&l, BLACK);
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut shell, |c| c.state.keyboard_focus.as_ref() == Some(&settings.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut shell, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty());
+}
+
+/// #EDE-77: a prompt that mapped while the session was locked (polkit asks
+/// behind the lock screen) has the keyboard once it is unlocked: the
+/// password is not the window's behind it.
+fn a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(sealed: bool) {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("terminal");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    // Sealed: pid 1 is the lock client, so nothing of this process is.
+    let mut locker = Session::connect(h.connect());
+    let token = sealed.then(|| h.with(|ede| ede.begin_sealed_lock_as(1)));
+    let lock = (!sealed).then(|| locker.lock());
+    if !sealed {
+        wait_for(&mut locker, |c| c.state.locked);
+    }
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_none());
+
+    let mut prompt = Session::connect(h.connect());
+    prompt.keyboard();
+    let l = prompt.keyboard_layer("polkit", Layer::Overlay, (200, 100), KeyboardInteractivity::Exclusive);
+    prompt.draw_layer(&l, BLUE);
+    assert!(prompt.state.keyboard_focus.is_none(), "a prompt took the keyboard from the lock");
+
+    match (token, lock) {
+        (Some(token), _) => h.ipc_with(token).unwrap().unlock().unwrap(),
+        (_, Some(lock)) => {
+            lock.unlock_and_destroy();
+            locker.roundtrip();
+        }
+        _ => unreachable!(),
+    }
+    assert!(!is_locked(&h));
+    wait_for(&mut prompt, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A + 8);
+    wait_for(&mut prompt, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the window behind the prompt got the password");
+
+    l.layer.destroy();
+    l.surface.destroy();
+    prompt.roundtrip();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+}
+
+#[test]
+fn a_prompt_behind_the_sealed_lock_gets_the_keyboard_at_unlock() {
+    a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(true);
+}
+
+#[test]
+fn a_prompt_behind_an_ext_session_lock_gets_the_keyboard_at_unlock() {
+    a_prompt_behind_the_lock_gets_the_keyboard_at_unlock(false);
+}
+
+/// Stands in for `exponential-sealed` where the compositor looks first (next
+/// to the running binary), so the default config's lock client starts. It
+/// ends at once, which keeps the session locked.
+fn sealed_stand_in() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let path = std::env::current_exe().unwrap().parent().unwrap().join("exponential-sealed");
+        match std::os::unix::fs::symlink("/bin/true", &path) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => panic!("{}: {e}", path.display()),
+            _ => {}
+        }
+    });
+}
+
+/// #EDE-70: the default config (the sealed lock, `on_suspend`) listens to
+/// logind, and both of its signals lock.
+#[test]
+fn the_default_config_locks_on_logind_lock_and_before_suspend() {
+    sealed_stand_in();
+    let config = Config::default();
+    assert!(config.lock.command.is_empty() && config.lock.on_suspend);
+    assert!(logind::listens(&config), "the default config does not listen to logind");
+    let mut off = Config::default();
+    off.lock.on_suspend = false;
+    assert!(!logind::listens(&off));
+    for signal in [Signal::Lock, Signal::PrepareForSleep(true)] {
+        let h = harness(Config::default());
+        h.with(move |ede| Listener::new(|| None).handle(ede, signal));
+        assert!(is_locked(&h), "{signal:?} did not lock");
+    }
+}
+
+/// #EDE-70: `lock` over ede-protocol (Lock in the start menu) locks with
+/// the default config.
+#[test]
+fn lock_over_the_protocol_locks_with_the_default_config() {
+    sealed_stand_in();
+    let h = harness(Config::default());
+    let mut ipc = h.ipc();
+    ipc.lock().unwrap();
+    assert!(is_locked(&h));
+}
+
+/// #EDE-70: the sealed lock counts as confirmed once every output showed a
+/// locked frame, so suspend is held for that long and not for the full 2 s.
+#[test]
+fn suspend_is_held_only_until_the_sealed_lock_showed() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static INHIBITOR: AtomicU32 = AtomicU32::new(0);
+    fn take() -> Option<Held> {
+        let held = Held::spawn(std::process::Command::new("sleep").arg("30")).ok()?;
+        INHIBITOR.store(held.0.id(), Ordering::SeqCst);
+        Some(held)
+    }
+    sealed_stand_in();
+    let h = harness(Config::default());
+    assert!(!h.with(|ede| ede.lock_confirmed()));
+    h.with(|ede| Listener::new(take).handle(ede, Signal::PrepareForSleep(true)));
+    assert!(is_locked(&h));
+    let pid = INHIBITOR.load(Ordering::SeqCst);
+    assert_ne!(pid, 0, "no inhibitor was taken");
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        assert!(Instant::now() < deadline, "the inhibitor was still held 1 s after the lock");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(h.with(|ede| ede.lock_confirmed()));
+}
+
+/// The sealed lock's state, on the compositor thread.
+fn sealed<R: Send + 'static>(h: &Harness, f: impl FnOnce(&mut Sealed) -> R + Send + 'static) -> R {
+    h.with(|ede| match &mut ede.lock {
+        LockState::Sealed(s) => f(s),
+        _ => panic!("not sealed-locked"),
+    })
+}
+
+/// The pid of the lock client the compositor runs (0 = none).
+fn lock_child(h: &Harness) -> u32 {
+    sealed(h, |s| s.child.as_ref().map_or(0, |c| c.id()))
+}
+
+fn runs(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| !s.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'))
+}
+
+/// Locks with `argv` standing in for `exponential-sealed lock`.
+fn lock_with(h: &Harness, argv: &[&str]) -> u32 {
+    let argv: Vec<String> = argv.iter().map(|a| a.to_string()).collect();
+    h.with(move |ede| ede.begin_sealed_lock_with(argv));
+    assert!(is_locked(h));
+    lock_child(h)
+}
+
+/// Ticks (the compositor's once-a-second check) until `ok`.
+fn tick_until(h: &Harness, what: &str, mut ok: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        h.with(|ede| ede.sealed_tick());
+        if ok() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-72: the lock screen's output goes (monitor off, KVM, undock): the
+/// prompt moves to an output that is left, or shows on the next one, and
+/// takes the keys there.
+#[test]
+fn the_sealed_lock_survives_its_output_going_and_coming_back() {
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let h = Harness::start(Config::default(), &[(800, 600), (1024, 768)]);
+    let pid = std::process::id();
+    h.with(move |ede| ede.begin_sealed_lock_as(pid));
+    let mut locker = Session::connect(h.connect());
+    locker.keyboard();
+    let l = locker.layer("exponential-sealed", Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 0), -1);
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(790, 590) == BLUE);
+    assert_eq!(h.capture(1).at(5, 5), BLACK);
+    wait_for(&mut locker, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+
+    // Its output goes while another is left: the prompt moves there.
+    h.with_backend(|ede, backend| backend.remove_output(ede, 0));
+    assert!(is_locked(&h));
+    wait_for(&mut locker, |c| c.state.layers[l.index].size == (1024, 768));
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(1000, 700) == BLUE);
+    press(&h, KEY_A + 8);
+    wait_for(&mut locker, |c| c.state.keys == [KEY_A]);
+
+    // The last output goes and a new one comes: the prompt shows on it.
+    h.with_backend(|ede, backend| backend.remove_output(ede, 0));
+    assert!(is_locked(&h));
+    h.with_backend(|ede, backend| {
+        backend.add_output(ede, "HEADLESS-3", (1600, 900));
+    });
+    wait_for(&mut locker, |c| c.state.layers[l.index].size == (1600, 900));
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(1500, 800) == BLUE);
+    press(&h, KEY_A + 8);
+    wait_for(&mut locker, |c| c.state.keys == [KEY_A, KEY_A]);
+}
+
+/// #EDE-72: a lock client that runs but shows nothing (its surface closed,
+/// it hangs) is started again after [`NO_SURFACE`].
+#[test]
+fn a_lock_client_that_shows_nothing_is_started_again() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    h.with(|ede| ede.sealed_tick());
+    assert_eq!(lock_child(&h), first, "restarted before it had the time to show");
+    sealed(&h, |s| s.seen = Instant::now() - NO_SURFACE);
+    tick_until(&h, "a lock client without a surface kept running", || ![0, first].contains(&lock_child(&h)));
+    assert!(!runs(first), "the old lock client still runs");
+    assert!(is_locked(&h));
+}
+
+/// #EDE-72: quick deaths count up to [`MAX_RESPAWNS`], but a client that
+/// lived [`HEALTHY`] starts the count anew (#NEW-106).
+#[test]
+fn a_lock_client_that_was_healthy_is_started_again_whatever_died_before() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.respawns = MAX_RESPAWNS;
+        s.started = Instant::now() - HEALTHY;
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the lock client was not started again", || ![0, first].contains(&lock_child(&h)));
+    assert!(runs(lock_child(&h)));
+}
+
+/// #EDE-72: a lock client that could not start is tried again on the next
+/// tick, not never.
+#[test]
+fn a_lock_client_that_could_not_start_is_tried_again() {
+    let h = harness(Config::default());
+    lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.command = vec!["/nonexistent/exponential-sealed".into()];
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the dead lock client was never noticed", || lock_child(&h) == 0);
+    sealed(&h, |s| s.command = vec!["sleep".into(), "30".into()]);
+    tick_until(&h, "a failed start ended respawning", || lock_child(&h) != 0);
+    assert!(is_locked(&h));
+}
+
+/// #EDE-79: a lock client that keeps dying is started again after a pause
+/// that grows, not never: the screen does not stay black until the next
+/// login.
+#[test]
+fn a_lock_client_that_keeps_dying_is_started_again_after_a_pause() {
+    let h = harness(Config::default());
+    let first = lock_with(&h, &["sleep", "30"]);
+    sealed(&h, |s| {
+        s.respawns = MAX_RESPAWNS;
+        s.child.as_mut().unwrap().kill().unwrap();
+    });
+    tick_until(&h, "the dead lock client was never noticed", || lock_child(&h) == 0);
+    assert!(!runs(first));
+    h.with(|ede| ede.sealed_tick());
+    assert_eq!(lock_child(&h), 0, "started again without a pause");
+    sealed(&h, |s| s.retry_at = Instant::now());
+    tick_until(&h, "a lock client that kept dying was never started again", || lock_child(&h) != 0);
+    assert!(is_locked(&h));
+}
+
+/// #EDE-79: the grant alone does not unlock: `unlock` counts only on the
+/// lock client's own connection (a process that read the grant from the
+/// client's stdin or memory is another pid).
+#[test]
+fn only_the_lock_clients_own_connection_unlocks() {
+    let h = harness(Config::default());
+    lock_with(&h, &["sleep", "30"]);
+    let token = sealed(&h, |s| s.token.clone());
+    let mut thief = h.ipc_with(token).unwrap();
+    assert_eq!(code(thief.unlock().unwrap_err()), ErrorCode::Forbidden);
+    assert!(is_locked(&h), "a stolen grant unlocked the session");
+    // The lock client's own pid on the connection: it unlocks.
+    let (token, pid) = sealed(&h, |s| (s.token.clone(), s.pid));
+    h.with(move |ede| ede.sealed_unlock(&token, Some(pid))).unwrap();
+    assert!(!is_locked(&h));
+}
+
+/// #EDE-72: the unlock grant reaches the lock client over its stdin, never
+/// in its environment (`/proc/<pid>/environ` is every process's to read).
+#[test]
+fn the_unlock_grant_is_not_in_the_lock_clients_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let got = dir.path().join("grant");
+    let h = harness(Config::default());
+    let pid = lock_with(&h, &["sh", "-c", r#"IFS= read -r grant; printf %s "$grant" > "$0.part"; mv "$0.part" "$0"; exec sleep 30"#, got.to_str().unwrap()]);
+    let token = sealed(&h, |s| s.token.as_str().to_string());
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).unwrap();
+    assert!(!String::from_utf8_lossy(&environ).contains(&token), "the unlock grant is in the lock client's environment");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !got.exists() {
+        assert!(Instant::now() < deadline, "the lock client was handed nothing on its stdin");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(std::fs::read_to_string(&got).unwrap(), token);
+}
+
+/// #EDE-72: the lock client never outlives the compositor.
+#[test]
+fn the_lock_client_ends_with_the_compositor() {
+    let h = harness(Config::default());
+    let pid = lock_with(&h, &["sleep", "30"]);
+    assert!(runs(pid));
+    drop(h);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while runs(pid) {
+        assert!(Instant::now() < deadline, "the lock client outlived the compositor");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.domain.DeviceLiveness
@@ -115,7 +116,9 @@ class ChatsViewModel @Inject constructor(
     // Six flows below read them; each used to re-run every query + mapping
     // (digest JSON parsing included) on the main thread per database write,
     // and a send writes a burst of rows right as the screen comes back.
-    private val sessions = sessionRows.map { rows -> rows.map(SessionTree::session) }
+    // #ERR-28: only a changed row is mapped (and its guide / flags parsed) again.
+    private val sessionCache = com.exponential.app.data.db.MappedRows(SessionEntity::id, SessionTree::session)
+    private val sessions = sessionRows.map { rows -> sessionCache.read(rows) }
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
@@ -124,16 +127,23 @@ class ChatsViewModel @Inject constructor(
     // the per-team badges both read it. Each parsed it on its own before,
     // which kept two to four copies of every digest's messages (and their
     // card JSON trees) on a large account.
+    // #ERR-28: only a CHANGED digest is parsed again (Chats.DigestMessagesCache).
+    private val digestCache = Chats.DigestMessagesCache()
     private val digestMessagesById = sessionRows.map { rows ->
-        rows.associate { row -> row.id to Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        digestCache.read(rows.map { it.id to it.digest })
     }
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
+    private val issueCache = com.exponential.app.data.db.MappedRows<com.exponential.app.data.db.IssueEntity, SessionTree.Issue>(
+        { it.id },
+        { SessionTree.issue(it) },
+    )
+
     private val inputs = combine(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { issueCache.read(it) },
         // #EXP-1380 / session e4a04d22: the ACTIVE team's session DIGESTS
         // (#EXP-1730: `sessions.digest`), never its messages — every list
         // row, preview, unread count and bubble ring reads the server-kept
@@ -232,11 +242,11 @@ class ChatsViewModel @Inject constructor(
         val roots = g.flatMap { it.rows }.filter { it.depth == 0 && !it.busy && !it.needsYou }.map { it.sessionId }.toSet()
         if (roots.isEmpty()) return@combine emptyMap()
         val byId = input.sessions.associateBy { it.id }
+        // #ERR-28: the rows indexed once for every child's name, never per child.
+        val titleOf by lazy { SessionTree.titler(input.links, input.issues, input.messages) }
         roots.mapNotNull { id ->
             val root = byId[id] ?: return@mapNotNull null
-            SessionTree.sessionWaitingIn(root, input.sessions) { child ->
-                SessionTree.sessionTitle(child, input.links, input.issues, input.messages)
-            }?.let { id to it }
+            SessionTree.sessionWaitingIn(root, input.sessions) { child -> titleOf(child) }?.let { id to it }
         }.toMap()
     }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
@@ -253,11 +263,22 @@ class ChatsViewModel @Inject constructor(
                 needsYou = row.needsYou,
                 prs = byRoot[row.sessionId].orEmpty(),
                 teamPrs = byTeam[row.teamId].orEmpty(),
-                offline = row.offline,
+                wall = row.wall != null,
                 waiting = waits[row.sessionId],
             )?.let { row.sessionId to it }
         }.toMap()
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
+
+    /** #FEED-263: each listed row's wall (kind, its device's name) by root id. */
+    val walls: StateFlow<Map<String, Pair<String, String?>>> = combine(
+        groups,
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+    ) { g, devices ->
+        val names = devices.associate { it.deviceId to it.label.takeIf { label -> label.isNotBlank() } }
+        g.flatMap { it.rows }.mapNotNull { row ->
+            row.wall?.let { wall -> row.sessionId to (wall.kind to wall.deviceId?.let { names[it] }) }
+        }.toMap()
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * NEW-41 (`chat-list.json`, web `rowLead`): each listed root's PR
@@ -405,10 +426,10 @@ class ChatsViewModel @Inject constructor(
     val chatList: StateFlow<Chats.ChatList> = combine(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
-        combine(words, waiting) { w, waits -> w to waits },
+        combine(words, waiting, walls) { w, waits, ws -> Triple(w, waits, ws) },
         _view,
         minuteClock,
-    ) { (g, input), states, (w, waits), view, now ->
+    ) { (g, input), states, (w, waits, ws), view, now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
@@ -416,6 +437,7 @@ class ChatsViewModel @Inject constructor(
             prStates = states,
             words = w,
             waiting = waits,
+            walls = ws,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
@@ -482,8 +504,15 @@ class ChatsViewModel @Inject constructor(
 
     /** What a chat row's menu needs per root: its status, whether the
      *  viewer may steer it (shared, or the starter) and whether the viewer
-     *  started it (with [isOwner], who may delete it). */
-    data class RootFacts(val status: String, val canSteer: Boolean, val agent: String?, val mine: Boolean = false)
+     *  started it (with [isOwner], who may delete it). #EDE-98: its title's
+     *  marks ([Chats.chatMarks]). */
+    data class RootFacts(
+        val status: String,
+        val canSteer: Boolean,
+        val agent: String?,
+        val mine: Boolean = false,
+        val marks: List<String> = emptyList(),
+    )
 
     val rootFacts: StateFlow<Map<String, RootFacts>> = combine(sessionRows, auth.userId) { rows, me ->
         rows.filter { it.isRoot }.associate { row ->
@@ -492,6 +521,7 @@ class ChatsViewModel @Inject constructor(
                 row.shared || (me != null && row.userId == me),
                 row.cli,
                 mine = me != null && row.userId == me,
+                marks = Chats.chatMarks(row.shared, row.sealEpoch),
             )
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
@@ -608,11 +638,14 @@ class ChatsViewModel @Inject constructor(
         combine(auth.userId, minuteClock) { me, now -> me to now },
     ) { (s, messages), teamRows, definitions, prs, (me, now) ->
         val teamIds = teamRows.map { it.id }
+        // #ERR-28: every team's fold names its rows off ONE index of the digests.
+        val titleOf = SessionTree.titler(emptyList(), emptyList(), messages)
         teamRows.associate { team ->
             team.id to needsYouFold(
                 s, emptyList(), emptyList(), messages, definitions, prs, team.id, me, now,
                 teamIds = teamIds,
                 mergeMode = team.mergeMode,
+                titleOf = titleOf,
             ).size
         }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
@@ -639,12 +672,13 @@ internal fun needsYouFold(
     owner: Boolean = false,
     /** #EXP-1710: the synced devices (a stuck row's `Device offline`). */
     devices: List<DeviceEntity> = emptyList(),
+    /** #ERR-28: the rows' titles, indexed once by a caller that folds per team. */
+    titleOf: (SessionTree.Session) -> String = SessionTree.titler(links, issues, messages),
 ): List<NeedsYou.Row> {
     val inTeam = sessions.filter {
         team == null || com.exponential.app.domain.AgentSettings.Assistant.inTeamOrPersonal(it.teamId, it.userId, team, teamIds, me)
     }
     val ids = inTeam.mapTo(HashSet()) { it.id }
-    val titles = SessionTree.sessionTitles(sessions, links, issues, messages)
     val agentNames = definitions.associate { it.id to it.name }
     val sessionsById = sessions.associateBy { it.id }
     val devicesById = devices.associateBy { it.deviceId }
@@ -655,7 +689,7 @@ internal fun needsYouFold(
             NeedsYou.SessionInput(
                 id = session.id,
                 rootId = session.rootId,
-                name = session.agentId?.let(agentNames::get) ?: titles[session.id] ?: session.title.orEmpty(),
+                name = session.agentId?.let(agentNames::get) ?: titleOf(session),
                 status = session.status,
                 agentId = session.agentId,
                 userId = session.userId,

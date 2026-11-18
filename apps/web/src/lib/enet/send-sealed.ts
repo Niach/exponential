@@ -14,7 +14,7 @@ import {
 } from "@/lib/collections"
 import type { CardAnswerInput } from "@/lib/sessions/card-answer"
 import { trpc } from "@/lib/trpc-client"
-import { currentKeyHolder } from "./current-key-holder"
+import { awaitKeyHolder, currentKeyHolder } from "./current-key-holder"
 import { sealAnswerInput, sendSealed, type SealDeps, type SealSessionRow } from "./seal-send"
 import { openCardCached } from "./sealed-open"
 
@@ -26,8 +26,10 @@ function sealDeps(): SealDeps {
   const holder = currentKeyHolder()
   return {
     holder,
-    // The holder belongs to the signed-in account (no holder = no sealing).
-    me: holder?.userId ?? ``,
+    // The holder belongs to the signed-in account.
+    get me() {
+      return currentKeyHolder()?.userId ?? holder?.userId ?? ``
+    },
     session: (id) => sessionCollection.get(id) as SealSessionRow | undefined,
     sessions: () => [...sessionCollection.values()] as SealSessionRow[],
     deviceRowIds: (machineId) =>
@@ -48,6 +50,7 @@ function sealDeps(): SealDeps {
     },
     sendTarget: (target) => trpc.sessions.sendTarget.query(target, quiet),
     publicKey: async (rootId) => (await trpc.sessionKeys.publicKeys.query({ rootIds: [rootId] }, quiet))[0],
+    awaitHolder: awaitKeyHolder,
   }
 }
 

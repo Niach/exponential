@@ -31,6 +31,8 @@ use crate::{
 pub struct Headless {
     pub renderer: PixmanRenderer,
     pub outputs: Vec<Output>,
+    /// The `wl_output` global of each output, in the same order.
+    pub globals: Vec<smithay::reexports::wayland_server::backend::GlobalId>,
 }
 
 /// One rendered output: `pixels` are `0xAARRGGBB`, row-major.
@@ -58,7 +60,7 @@ impl Headless {
             PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (headless)".into(), serial_number: "Unknown".into() },
         );
         let mode = Mode { size: size.into(), refresh: 60_000 };
-        let _global = output.create_global::<Ede>(&state.display_handle);
+        let global = output.create_global::<Ede>(&state.display_handle);
         output.change_current_state(Some(mode), Some(Transform::Normal), None, None);
         output.set_preferred(mode);
         // Like a VM's virtual GPU, a few more sizes to switch to (#EDE-65:
@@ -70,6 +72,7 @@ impl Headless {
         }
         state.add_output(&output);
         self.outputs.push(output.clone());
+        self.globals.push(global);
         output
     }
 
@@ -77,6 +80,8 @@ impl Headless {
     pub fn remove_output(&mut self, state: &mut Ede, index: usize) {
         let output = self.outputs.remove(index);
         state.remove_output(&output);
+        // Clients see it go, as they do when a monitor is unplugged.
+        state.display_handle.remove_global::<Ede>(self.globals.remove(index));
     }
 
     /// A full repaint of output `index`, as the monitor shows it.
@@ -93,6 +98,33 @@ impl Headless {
     fn draw(&mut self, state: &mut Ede, index: usize, shared: bool) -> Result<Frame, String> {
         let output = self.outputs.get(index).ok_or("no such output")?.clone();
         super::draw_output(&mut self.renderer, state, &output, shared)
+    }
+}
+
+/// The headless frame clock: every tick ends a frame on each output; it
+/// counts as presented when the output's scene changed since the last tick
+/// (#EDE-100: a `since` capture of an idle output is unchanged).
+pub struct FrameClock {
+    renderer: PixmanRenderer,
+    trackers: std::collections::HashMap<String, smithay::backend::renderer::damage::OutputDamageTracker>,
+}
+
+impl FrameClock {
+    /// How often it ticks (60 Hz).
+    pub const TICK: Duration = Duration::from_millis(16);
+
+    pub fn new() -> Result<Self, String> {
+        Ok(Self { renderer: PixmanRenderer::new().map_err(|e| e.to_string())?, trackers: Default::default() })
+    }
+
+    pub fn tick(&mut self, state: &mut Ede, outputs: &[Output]) {
+        self.trackers.retain(|name, _| outputs.iter().any(|o| o.name() == *name));
+        for output in outputs {
+            let tracker = self.trackers.entry(output.name()).or_insert_with(|| smithay::backend::renderer::damage::OutputDamageTracker::from_output(output));
+            let elements = super::output_elements(state, output, &mut self.renderer);
+            let presented = matches!(tracker.damage_output(1, &elements), Ok((Some(damage), _)) if !damage.is_empty());
+            super::frame_done(state, output, presented);
+        }
     }
 }
 
@@ -117,7 +149,7 @@ impl Harness {
                 let mut event_loop: EventLoop<'static, Ede> = EventLoop::try_new().expect("event loop");
                 let display: Display<Ede> = Display::new().expect("display");
                 let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
-                let mut headless = Headless { renderer: PixmanRenderer::new().expect("pixman"), outputs: Vec::new() };
+                let mut headless = Headless { renderer: PixmanRenderer::new().expect("pixman"), outputs: Vec::new(), globals: Vec::new() };
                 for (i, size) in outputs.into_iter().enumerate() {
                     headless.add_output(&mut state, &format!("HEADLESS-{}", i + 1), size);
                 }
@@ -134,13 +166,13 @@ impl Harness {
 
                 // 60 Hz frame clock: without frame callbacks clients stall.
                 let h = headless.clone();
+                let mut clock = FrameClock::new().expect("pixman");
                 event_loop
                     .handle()
-                    .insert_source(Timer::from_duration(Duration::from_millis(16)), move |_, _, state| {
-                        for output in h.borrow().outputs.clone() {
-                            super::frame_done(state, &output);
-                        }
-                        TimeoutAction::ToDuration(Duration::from_millis(16))
+                    .insert_source(Timer::from_duration(FrameClock::TICK), move |_, _, state| {
+                        let outputs = h.borrow().outputs.clone();
+                        clock.tick(state, &outputs);
+                        TimeoutAction::ToDuration(FrameClock::TICK)
                     })
                     .expect("frame timer");
 

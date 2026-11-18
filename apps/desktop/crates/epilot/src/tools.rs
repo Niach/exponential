@@ -166,8 +166,9 @@ pub(crate) struct CallContext<'a> {
     pub copy_mark: &'a mut Option<u64>,
     /// `launch_defaults.computerUseDisplayId` (a display id; `None` = Auto).
     pub picked: Option<String>,
-    /// Takes the person's input; runs once the call passed the gate, so a
-    /// refused call never locks them out. `Err` = the answer.
+    /// Takes the person's input; runs once a DRIVING call
+    /// (`work_screen::drives`) passed the gate, so a refused call never
+    /// locks them out and a look or a wait never does. `Err` = the answer.
     pub engage: &'a dyn Fn() -> Result<(), String>,
 }
 
@@ -264,10 +265,24 @@ pub(crate) fn call(backend: &dyn Backend, name: &str, args: &Value, ctx: &mut Ca
     let current = work_screen::current(&screen.work, screen.primary(), *ctx.display);
     if current.is_some() {
         *ctx.display = current;
-        work_screen::set_banner(current);
+        work_screen::set_banner(backend.target(), current);
     }
-    if let Err(text) = (ctx.engage)() {
-        return error(text);
+    // #EXP-1898: looking and waiting leave the person's input alone.
+    if work_screen::drives(name) {
+        if let Err(text) = (ctx.engage)() {
+            return error(text);
+        }
+    }
+    // #EXP-1895: the gate read the focus before the hold was taken, and it
+    // may have moved since: the keys go where the focus is NOW.
+    if work_screen::is_key(name) {
+        let now = match Screen::read(backend, name, ctx.picked.as_deref()) {
+            Ok(now) => now,
+            Err(text) => return error(text),
+        };
+        if let Err(refused) = work_screen::gate(&now.state, work_screen::Call { tool: name, ..Default::default() }) {
+            return refusal(refused, &now.work);
+        }
     }
     match dispatch(backend, name, args, ctx, &screen, current) {
         Ok(result) => result,
@@ -304,7 +319,7 @@ fn dispatch(
             return Ok(ok("No work screen.".to_string(), json!({ "work": [] })));
         };
         *ctx.display = Some(current);
-        work_screen::set_banner(Some(current));
+        work_screen::set_banner(backend.target(), Some(current));
         return screenshot(backend, &screen, current, Frame::fit(&screen.displays[current]));
     }
     // Every other tool passed the gate, so a work display exists.
@@ -362,20 +377,19 @@ fn dispatch(
             };
             backend.mouse_move(x, y)?;
             std::thread::sleep(MOVE_SETTLE);
+            let mut pressed = Held::new(backend);
             for modifier in &held {
-                backend.key(Key::Named(*modifier), true)?;
+                pressed.key(Key::Named(*modifier))?;
             }
             for click in 0..clicks {
                 if click > 0 {
                     std::thread::sleep(CLICK_GAP);
                 }
-                backend.mouse_button(button, true)?;
+                pressed.button(button)?;
                 std::thread::sleep(CLICK_GAP);
-                backend.mouse_button(button, false)?;
+                pressed.up()?;
             }
-            for modifier in held.iter().rev() {
-                backend.key(Key::Named(*modifier), false)?;
-            }
+            pressed.release()?;
             Ok(ok("Clicked.", json!({})))
         }
         "drag" => {
@@ -383,7 +397,8 @@ fn dispatch(
             let to = point(args, frame, "to_x", "to_y")?;
             backend.mouse_move(from.0, from.1)?;
             std::thread::sleep(MOVE_SETTLE);
-            backend.mouse_button(Button::Left, true)?;
+            let mut pressed = Held::new(backend);
+            pressed.button(Button::Left)?;
             std::thread::sleep(CLICK_GAP);
             // A few intermediate points so drag-and-drop targets see motion.
             for step in 1..=8 {
@@ -393,7 +408,7 @@ fn dispatch(
                 backend.mouse_move(x.round() as i32, y.round() as i32)?;
                 std::thread::sleep(Duration::from_millis(15));
             }
-            backend.mouse_button(Button::Left, false)?;
+            pressed.release()?;
             Ok(ok("Dragged.", json!({})))
         }
         "scroll" => {
@@ -473,16 +488,82 @@ fn dispatch(
 const DEFAULT_PASTE: &str = if cfg!(target_os = "macos") { "cmd+v" } else { "ctrl+v" };
 const DEFAULT_COPY: &str = if cfg!(target_os = "macos") { "cmd+c" } else { "ctrl+c" };
 
-const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
+pub(crate) const READ_REFUSED: &str = "read_clipboard reads only what your own last click or key copied (an app's Copy button, a copy shortcut), never the person's clipboard. Copy first, or use copy_selection.";
+
+/// One thing a tool holds down.
+#[derive(Clone, Copy)]
+enum Press {
+    Key(Key),
+    Button(Button),
+}
+
+/// What a tool holds down on the person's seat (#EXP-1895): released in
+/// reverse on EVERY exit path, a failed step's early return included, so
+/// no button or modifier stays pressed. A release that fails is tried once
+/// more.
+struct Held<'a> {
+    backend: &'a dyn Backend,
+    pressed: Vec<Press>,
+}
+
+impl<'a> Held<'a> {
+    fn new(backend: &'a dyn Backend) -> Self {
+        Held { backend, pressed: Vec::new() }
+    }
+
+    fn key(&mut self, key: Key) -> Result<(), String> {
+        self.backend.key(key, true)?;
+        self.pressed.push(Press::Key(key));
+        Ok(())
+    }
+
+    fn button(&mut self, button: Button) -> Result<(), String> {
+        self.backend.mouse_button(button, true)?;
+        self.pressed.push(Press::Button(button));
+        Ok(())
+    }
+
+    /// Release the last press.
+    fn up(&mut self) -> Result<(), String> {
+        let Some(press) = self.pressed.pop() else {
+            return Ok(());
+        };
+        let release = || match press {
+            Press::Key(key) => self.backend.key(key, false),
+            Press::Button(button) => self.backend.mouse_button(button, false),
+        };
+        release().or_else(|_| release())
+    }
+
+    /// Release everything, last press first; the first failure is the answer.
+    fn release_all(&mut self) -> Result<(), String> {
+        let mut result = Ok(());
+        while !self.pressed.is_empty() {
+            result = result.and(self.up());
+        }
+        result
+    }
+
+    fn release(mut self) -> Result<(), String> {
+        self.release_all()
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Err(err) = self.release_all() {
+            log::warn!("[computer] a release failed after a failed step ({err})");
+        }
+    }
+}
 
 fn press_combo(backend: &dyn Backend, combo: &crate::keys::Combo) -> Result<(), String> {
+    let mut held = Held::new(backend);
     for modifier in &combo.modifiers {
-        backend.key(Key::Named(*modifier), true)?;
+        held.key(Key::Named(*modifier))?;
     }
     let pressed = press(backend, combo.key);
-    for modifier in combo.modifiers.iter().rev() {
-        backend.key(Key::Named(*modifier), false)?;
-    }
+    held.release()?;
     pressed
 }
 
@@ -495,13 +576,34 @@ fn clipboard_mark(backend: &dyn Backend) -> Option<u64> {
     backend.clipboard().and_then(|clipboard| clipboard.change_count()).ok()
 }
 
+/// `paste_text`'s `file` (#EXP-1895): its size is checked before a byte is
+/// read, and the read itself stops just past the limit (a path whose size
+/// reads 0, a file that grows).
+fn read_paste_file(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    let unreadable = |err: std::io::Error| format!("Could not read `file` ({err}).");
+    let too_large = || format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.");
+    // A character is at most 4 bytes; one trailing line end is dropped.
+    let limit = (PASTE_MAX_CHARS * 4 + 2) as u64;
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    if file.metadata().map_err(unreadable)?.len() > limit {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(unreadable)?;
+    if bytes.len() as u64 > limit {
+        return Err(too_large());
+    }
+    String::from_utf8(bytes).map_err(|err| format!("Could not read `file` ({err})."))
+}
+
 /// `paste_text`'s text: `text`, or `file`'s contents less one trailing
 /// newline. Never logged or echoed.
 fn paste_source(args: &Value) -> Result<String, String> {
     let text = match (args.get("text").and_then(Value::as_str), args.get("file").and_then(Value::as_str)) {
         (Some(text), None) => text.to_string(),
         (None, Some(path)) => {
-            let mut text = std::fs::read_to_string(path).map_err(|err| format!("Could not read `file` ({err})."))?;
+            let mut text = read_paste_file(path)?;
             if text.ends_with('\n') {
                 text.pop();
                 if text.ends_with('\r') {
@@ -522,11 +624,25 @@ fn paste_source(args: &Value) -> Result<String, String> {
     Ok(text)
 }
 
+/// The person's clipboard, saved whole, or a refusal BEFORE anything touched
+/// it (#EXP-1900): a save that left a format out (a large image, one that
+/// cannot be read) would come back as a smaller clipboard, so the tool does
+/// not start. The one policy for every backend; they only report
+/// [`crate::backend::SavedClipboard::partial`]. `nothing` = what did not
+/// happen, `instead` = what the agent does now.
+fn save_whole(clipboard: &dyn crate::backend::Clipboard, nothing: &str, instead: &str) -> Result<crate::backend::SavedClipboard, String> {
+    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); {nothing}."))?;
+    if saved.partial {
+        return Err(format!("The person's clipboard holds something that cannot be saved whole (a large image, or a type that cannot be read), so it was left untouched and {nothing}. {instead}"));
+    }
+    Ok(saved)
+}
+
 /// Save, set, press once, put back. The person's clipboard is back
 /// whatever happens after it was saved.
 fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
     let clipboard = backend.clipboard()?;
-    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was pasted."))?;
+    let saved = save_whole(&*clipboard, "nothing was pasted", "Use `type` for this text.")?;
     let pasted = (|| {
         clipboard.set_text(text, sensitive)?;
         if interrupted() {
@@ -555,7 +671,7 @@ fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys
 /// Press copy, wait for the clipboard to change, read it, put it back.
 fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn() -> bool) -> Result<Value, String> {
     let clipboard = backend.clipboard()?;
-    let saved = clipboard.save().map_err(|err| format!("Could not keep the clipboard ({err}); nothing was copied."))?;
+    let saved = save_whole(&*clipboard, "nothing was copied", "Read the text from a screenshot instead.")?;
     let copied = (|| {
         let before = clipboard.change_count()?;
         press_combo(backend, combo)?;
@@ -583,9 +699,10 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
 pub(crate) const ABORTED: &str = "The person pressed Esc: computer use is aborted. Stop driving the screen and say so in your reply; drive again only when they ask.";
 
 fn press(backend: &dyn Backend, key: Key) -> Result<(), String> {
-    backend.key(key, true)?;
+    let mut held = Held::new(backend);
+    held.key(key)?;
     std::thread::sleep(TYPE_GAP);
-    backend.key(key, false)
+    held.release()
 }
 
 fn window_json(w: &WindowInfo, frame: Frame, displays: &[DisplayInfo]) -> Value {
@@ -645,6 +762,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 pub(crate) mod tests {
     use super::*;
     use crate::backend::Clipboard;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     /// A backend that records what it was asked: a 2000x1000 primary display
@@ -658,6 +776,23 @@ pub(crate) mod tests {
         /// The window list fails (#1295 review: input fails closed).
         pub no_windows: bool,
         pub clip: Mutex<FakeClip>,
+        /// The input step (a move, a button, a key, a scroll, a typed
+        /// character; 0-based) that fails, once (#EXP-1895).
+        pub fail_step: Option<usize>,
+        pub steps: AtomicUsize,
+        /// The person's fullscreen game took the focus mid-call.
+        pub focus_moved: AtomicBool,
+    }
+
+    impl FakeBackend {
+        /// One input step: logged, or failed when it is `fail_step`.
+        fn step(&self, line: String) -> Result<(), String> {
+            if self.fail_step == Some(self.steps.fetch_add(1, Ordering::SeqCst)) {
+                return Err(format!("the compositor refused `{line}`"));
+            }
+            self.log.lock().unwrap().push(line);
+            Ok(())
+        }
     }
 
     /// The fake clipboard: its text, change count, what the focused app
@@ -668,6 +803,8 @@ pub(crate) mod tests {
         pub count: u64,
         pub copies: Option<String>,
         pub refuses_paste: bool,
+        /// It also holds something `save` cannot keep (a large image).
+        pub partial: bool,
     }
 
     struct FakeClipboard<'a>(&'a FakeBackend);
@@ -684,8 +821,8 @@ pub(crate) mod tests {
         }
         fn save(&self) -> Result<crate::backend::SavedClipboard, String> {
             self.log("clip save".into());
-            let text = self.0.clip.lock().unwrap().text.clone();
-            Ok(crate::backend::SavedClipboard { formats: text.map(|text| vec![("text".to_string(), text.into_bytes())]).unwrap_or_default() })
+            let clip = self.0.clip.lock().unwrap();
+            Ok(crate::backend::SavedClipboard { formats: clip.text.clone().map(|text| vec![("text".to_string(), text.into_bytes())]).unwrap_or_default(), partial: clip.partial })
         }
         fn set_text(&self, text: &str, sensitive: bool) -> Result<(), String> {
             self.log(format!("clip set {}", if sensitive { "<secret>" } else { text }));
@@ -716,8 +853,8 @@ pub(crate) mod tests {
     impl Backend for FakeBackend {
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
-                DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into() },
-                DisplayInfo { id: "uuid-B".into(), x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into() },
+                DisplayInfo { id: "uuid-A".into(), x: 0, y: 0, width: 2000, height: 1000, primary: true, name: "A".into(), connector: None },
+                DisplayInfo { id: "uuid-B".into(), x: 2000, y: 0, width: 1000, height: 1000, primary: false, name: "B".into(), connector: None },
             ])
         }
         fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
@@ -731,8 +868,9 @@ pub(crate) mod tests {
             if self.no_windows {
                 return Err("no window list".into());
             }
-            let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !self.gaming, fullscreen: false };
-            if !self.gaming {
+            let gaming = self.gaming || self.focus_moved.load(Ordering::SeqCst);
+            let brave = WindowInfo { id: 7, title: "Brave".into(), app: "brave".into(), pid: Some(42), x: 200, y: 100, width: 1000, height: 500, active: !gaming, fullscreen: false };
+            if !gaming {
                 return Ok(vec![brave]);
             }
             // The person's game, fullscreen and focused on display B.
@@ -744,19 +882,16 @@ pub(crate) mod tests {
             Ok(())
         }
         fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("move {x},{y}"));
-            Ok(())
+            self.step(format!("move {x},{y}"))
         }
         fn mouse_button(&self, button: Button, down: bool) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("{button:?} {}", if down { "down" } else { "up" }));
-            Ok(())
+            self.step(format!("{button:?} {}", if down { "down" } else { "up" }))
         }
         fn scroll(&self, dx: i32, dy: i32) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("scroll {dx},{dy}"));
-            Ok(())
+            self.step(format!("scroll {dx},{dy}"))
         }
         fn key(&self, key: Key, down: bool) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("key {key:?} {}", if down { "down" } else { "up" }));
+            self.step(format!("key {key:?} {}", if down { "down" } else { "up" }))?;
             let mut clip = self.clip.lock().unwrap();
             if key == Key::Char('c') && down {
                 if let Some(copied) = clip.copies.clone() {
@@ -770,8 +905,7 @@ pub(crate) mod tests {
             Ok(Box::new(FakeClipboard(self)))
         }
         fn type_char(&self, ch: char) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("type {ch}"));
-            Ok(())
+            self.step(format!("type {ch}"))
         }
         fn lock(&self, _on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn crate::backend::LockGuard>, String> {
             if self.fail_lock {
@@ -800,7 +934,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_frame_fits_1280x800_and_maps_both_ways() {
-        let display = |x, y, width, height| DisplayInfo { id: String::new(), x, y, width, height, primary: true, name: String::new() };
+        let display = |x, y, width, height| DisplayInfo { id: String::new(), x, y, width, height, primary: true, name: String::new(), connector: None };
         let frame = Frame::fit(&display(0, 0, 2560, 1440));
         assert_eq!(frame.image, (1280, 720));
         assert_eq!(frame.to_screen(640.0, 360.0), (1280, 720));
@@ -895,6 +1029,98 @@ pub(crate) mod tests {
         assert_eq!(one(&backend, "left_click", json!({ "x": "ten" }))["isError"], true);
     }
 
+    /// What the log left pressed: every `down` without a later `up`.
+    fn still_pressed(backend: &FakeBackend) -> Vec<String> {
+        let mut pressed: Vec<String> = Vec::new();
+        for line in backend.log.lock().unwrap().iter() {
+            if let Some(what) = line.strip_suffix(" down") {
+                pressed.push(what.to_string());
+            } else if let Some(what) = line.strip_suffix(" up") {
+                if let Some(index) = pressed.iter().rposition(|held| held == what) {
+                    pressed.remove(index);
+                }
+            }
+        }
+        pressed
+    }
+
+    /// #EXP-1895: `name` with the backend failing at each of its steps in
+    /// turn: whatever step fails, every press has its release.
+    fn fails_at_every_step(name: &str, args: Value) {
+        for fail in 0.. {
+            let backend = FakeBackend { fail_step: Some(fail), ..Default::default() };
+            backend.clip.lock().unwrap().copies = Some("copied".to_string());
+            one(&backend, name, args.clone());
+            assert_eq!(still_pressed(&backend), Vec::<String>::new(), "{name} failing at step {fail}: {:?}", backend.log.lock().unwrap());
+            if backend.steps.load(Ordering::SeqCst) <= fail {
+                assert!(fail > 0, "{name} never reached the backend");
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_step_in_a_drag_releases_the_button() {
+        fails_at_every_step("drag", json!({ "from_x": 10, "from_y": 10, "to_x": 90, "to_y": 50 }));
+    }
+
+    #[test]
+    fn a_failed_step_in_a_modifier_click_releases_the_button_and_the_modifiers() {
+        fails_at_every_step("left_click", json!({ "x": 10, "y": 10, "modifiers": "ctrl+shift" }));
+        fails_at_every_step("double_click", json!({ "x": 10, "y": 10, "modifiers": "shift" }));
+        fails_at_every_step("right_click", json!({ "x": 10, "y": 10 }));
+    }
+
+    #[test]
+    fn a_failed_step_in_a_key_combo_releases_the_modifiers() {
+        fails_at_every_step("key", json!({ "combo": "ctrl+shift+s" }));
+        fails_at_every_step("paste_text", json!({ "text": "hello" }));
+        fails_at_every_step("copy_selection", json!({}));
+    }
+
+    /// #EXP-1895: the gate read the focus before the hold was taken; the
+    /// person's game took it meanwhile, so the keys would land in it.
+    #[test]
+    fn a_key_tool_checks_the_focus_again_once_the_hold_is_taken() {
+        for (name, args) in [
+            ("key", json!({ "combo": "ctrl+s" })),
+            ("type", json!({ "text": "a" })),
+            ("paste_text", json!({ "text": "a" })),
+            ("copy_selection", json!({})),
+        ] {
+            let backend = FakeBackend::default();
+            let engage = || {
+                backend.focus_moved.store(true, Ordering::SeqCst);
+                Ok(())
+            };
+            let mut display = None;
+            let reply = call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engage });
+            assert_eq!(reply["structuredContent"]["refusal"], "wrong_display", "{name}: {reply}");
+            assert_eq!(reply["structuredContent"]["kind"], "gaming");
+            assert!(backend.log.lock().unwrap().is_empty(), "{name}: {:?}", backend.log.lock().unwrap());
+        }
+    }
+
+    /// #EXP-1895: a `file` over the limit is refused by its size, unread.
+    #[test]
+    fn paste_text_stats_a_file_before_reading_it() {
+        let dir = std::env::temp_dir().join(format!("epilot-paste-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let huge = dir.join("huge");
+        // Sparse: 64 MiB that take no disk.
+        std::fs::File::create(&huge).unwrap().set_len(64 << 20).unwrap();
+        let refused = paste_source(&json!({ "file": huge.to_str().unwrap() }));
+        let small = dir.join("small");
+        std::fs::write(&small, "secret\r\n").unwrap();
+        let read = paste_source(&json!({ "file": small.to_str().unwrap() }));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(refused, Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+        assert_eq!(read.as_deref(), Ok("secret"));
+        // A path whose size reads 0 and never ends: the read is bounded too.
+        #[cfg(unix)]
+        assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+    }
+
     #[test]
     fn a_fullscreen_game_refuses_input_without_locking_and_hides_its_display() {
         let backend = FakeBackend { gaming: true, ..Default::default() };
@@ -931,12 +1157,19 @@ pub(crate) mod tests {
         assert_eq!(windows["structuredContent"]["windows"][0]["id"], 7);
         assert_eq!(windows["structuredContent"]["displays"].as_array().unwrap().len(), 1);
         assert_eq!(windows["structuredContent"]["displays"][0]["index"], 0);
+        // #EXP-1898: looking and waiting never take the person's input, so
+        // their game keeps its keys and its pointer.
+        for (name, args) in [("screenshot", json!({})), ("cursor_position", json!({})), ("wait", json!({ "seconds": 0 }))] {
+            let looked = run(name, args, None);
+            assert_eq!(looked["isError"], Value::Null, "{name}: {looked}");
+        }
+        assert_eq!(engaged.get(), 0, "a look or a wait locked the person out");
         // The device picked display B (by its id): its fullscreen app is the agent's own.
         let click = run("left_click", json!({ "x": 0, "y": 0 }), Some("uuid-B"));
         assert_eq!(click["isError"], Value::Null, "{click}");
-        assert_eq!(engaged.get(), 2);
+        assert_eq!(engaged.get(), 1, "an input tool takes the hold");
         assert_eq!(display, Some(1));
-        assert_eq!(backend.log.lock().unwrap().first().map(String::as_str), Some("move 2000,0"));
+        assert_eq!(backend.log.lock().unwrap().iter().find(|line| line.starts_with("move ")).map(String::as_str), Some("move 2000,0"));
     }
 
     #[test]
@@ -965,9 +1198,11 @@ pub(crate) mod tests {
         let waited = run("wait", json!({ "seconds": 0 }), None);
         assert_eq!(waited["isError"], Value::Null);
         assert_eq!(waited["structuredContent"]["work"], json!([]), "no screenshot after the wait: {waited}");
+        assert_eq!(engaged.get(), 0, "a wait without a work screen locked the person out");
         let shot = run("screenshot", json!({}), Some("uuid-B"));
         assert_eq!(shot["isError"], Value::Null);
         assert_eq!(shot["structuredContent"]["display"], 1);
+        assert_eq!(engaged.get(), 0);
     }
 
     #[test]
@@ -1023,6 +1258,34 @@ pub(crate) mod tests {
         assert_eq!(one(&backend, "paste_text", json!({}))["isError"], true);
         assert_eq!(one(&backend, "paste_text", json!({ "text": "a", "file": "/x" }))["isError"], true);
         assert_eq!(one(&backend, "paste_text", json!({ "text": "x".repeat(PASTE_MAX_CHARS + 1) }))["isError"], true);
+    }
+
+    /// #EXP-1900: a clipboard that cannot be saved whole (a large image
+    /// beside the text) is never touched: no set, no key, no restore, and
+    /// the refusal says what to do instead.
+    #[test]
+    fn a_clipboard_that_cannot_be_saved_whole_is_left_untouched() {
+        let backend = FakeBackend::default();
+        *backend.clip.lock().unwrap() = FakeClip { text: Some("mine".into()), count: 3, copies: Some("picked".into()), partial: true, ..FakeClip::default() };
+        for (tool, args, instead) in [("paste_text", json!({ "text": "hello" }), "nothing was pasted. Use `type` for this text."), ("copy_selection", json!({}), "nothing was copied. Read the text from a screenshot instead.")] {
+            let reply = one(&backend, tool, args);
+            assert_eq!(reply["isError"], true, "{tool}: {reply}");
+            let text = reply["content"][0]["text"].as_str().unwrap();
+            assert!(text.starts_with("The person's clipboard holds something that cannot be saved whole") && text.ends_with(instead), "{tool}: {text}");
+            assert!(!text.contains("as it was"), "{tool}: {text}");
+            assert_eq!(backend.log.lock().unwrap().as_slice(), ["clip save"], "{tool} touched the clipboard or pressed a key");
+            backend.log.lock().unwrap().clear();
+            let clip = backend.clip.lock().unwrap();
+            assert_eq!((clip.text.as_deref(), clip.count), (Some("mine"), 3), "{tool}");
+        }
+        // Saved whole, the same clipboard is pasted over and put back.
+        backend.clip.lock().unwrap().partial = false;
+        let reply = one(&backend, "paste_text", json!({ "text": "hello" }));
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert_eq!(reply["content"][0]["text"], "Pasted 5 characters; the clipboard is as it was.");
+        let log = backend.log.lock().unwrap().join(" | ");
+        assert!(log.starts_with("clip save | clip set hello") && log.contains("key Char('v') down") && log.ends_with("clip restore 1"), "{log}");
+        assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("mine"));
     }
 
     #[test]

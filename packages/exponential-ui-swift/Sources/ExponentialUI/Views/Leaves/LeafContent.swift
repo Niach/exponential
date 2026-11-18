@@ -179,7 +179,7 @@ struct TextLeaf: View {
             // EXP-1324: `shimmer` = the glyphs filled with the moving gradient.
             let shimmer = cx.props.flag("shimmer") ? TextShimmer.resolve(color: cx.ink.hexRGBA(), dark: cx.dark) : nil
             ShimmerMask(shimmer: shimmer, size: cx.inner.size, rtl: cx.rtl) {
-                lines(shimmer == nil ? cx.ink : .black)
+                lines(shimmer == nil ? cx.ink : .black, marked: shimmer == nil)
             }
             .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
             .clipped()
@@ -194,11 +194,19 @@ struct TextLeaf: View {
     private func linked(_ segments: [TextLinkSegment]) -> some View {
         let ts = cx.textStyle
         let ink = PlatformColor(cx.ink)
-        let runs = TextShaper.runs(
+        let plain = TextShaper.runs(
             segments.map { MarkdownInline(text: ts.shown($0.text), link: $0.href) },
             MarkdownTextSpec(size: ts.fontSize, lineHeight: ts.lineHeight, weight: ts.fontWeight, family: ts.fontFamily),
             mono: nil, ink: ink, link: ink, codeBackground: nil
         )
+        // #EDE-95: the search marks over the linked line (its own text).
+        let runs: NSAttributedString
+        if let spec = TextHighlightSpec(cx.props["highlight"]) {
+            let fills = HighlightPainter.colors(cx.model)
+            runs = HighlightPainter.marked(plain, query: spec.query, current: spec.localCurrent, match: HighlightPainter.platform(fills.match), currentFill: HighlightPainter.platform(fills.current)).text
+        } else {
+            runs = plain
+        }
         return TextLabel(attributed: runs, lineHeight: ts.lineHeight, lines: 1)
             .frame(width: cx.inner.width, height: ts.lineHeight)
             .contentShape(Rectangle())
@@ -219,16 +227,32 @@ struct TextLeaf: View {
             }
     }
 
-    private func lines(_ ink: Color) -> some View {
+    private func lines(_ ink: Color, marked: Bool = true) -> some View {
         let align = cx.style.textAlign ?? cx.props["align"]?.string
         let lh = cx.textStyle.lineHeight
+        let shown = shownLines()
+        let marks = marked ? lineMarks(shown) : []
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(shownLines().enumerated()), id: \.offset) { _, line in
-                TextLabel(line, cx.textStyle, color: ink, align: align, lines: 1)
+            ForEach(Array(shown.enumerated()), id: \.offset) { i, line in
+                TextLabel(line, cx.textStyle, color: ink, align: align, lines: 1, marks: i < marks.count ? marks[i] : [])
                     .frame(width: cx.inner.width, height: lh)
             }
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+    }
+
+    /// #EDE-95: each shown line's search marks (the matches in the node's
+    /// text, `match` / `matchCurrent` behind them); none without a
+    /// `highlight`. A shimmering text paints none.
+    private func lineMarks(_ shown: [String]) -> [[(range: NSRange, color: PlatformColor)]] {
+        guard let spec = TextHighlightSpec(cx.props["highlight"]) else { return [] }
+        let text = cx.props.text("text")
+        let middle = cx.props["truncate"]?.string == "middle" ? cx.textStyle.shown(text.replacingOccurrences(of: "\n", with: " ")) : nil
+        let fills = HighlightPainter.colors(cx.model)
+        let match = HighlightPainter.platform(fills.match), current = HighlightPainter.platform(fills.current)
+        return HighlightPainter.lineMarks(text, lines: shown, spec: spec, middle: middle).map { line -> [(range: NSRange, color: PlatformColor)] in
+            line.map { m in (range: m.range, color: m.current ? current : match) }
+        }
     }
 
     /// #EXP-1778: `truncate: middle` = start…end in the content box (the

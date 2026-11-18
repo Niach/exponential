@@ -9,7 +9,10 @@
 use serde_json::json;
 use smithay::desktop::Window;
 
-use crate::state::{set_window_state, window_state, Ede};
+use crate::{
+    desk::DeskId,
+    state::{set_window_state, window_state, Ede},
+};
 
 /// Never more than this many.
 pub const MAX: usize = 9;
@@ -26,41 +29,41 @@ pub struct Workspaces {
 
 impl Ede {
     pub fn active_workspace(&self) -> usize {
-        self.workspaces.active
+        self.desk.workspaces.active
     }
 
     /// How many to list: the highest in use plus one, at least [`MIN_LISTED`].
     pub fn workspace_count(&self) -> usize {
-        let highest = self.workspaces.parked.iter().chain(&self.minimized).map(|w| window_state(w).workspace).chain(std::iter::once(self.workspaces.active)).max().unwrap_or(0);
+        let highest = self.desk.workspaces.parked.iter().chain(&self.desk.minimized).map(|w| window_state(w).workspace).chain(std::iter::once(self.desk.workspaces.active)).max().unwrap_or(0);
         (highest + 1).max(MIN_LISTED).min(MAX)
     }
 
     /// Switches to `index` (clamped to [`MAX`]); `false` = already there.
     pub fn switch_workspace(&mut self, index: usize) -> bool {
         let index = index.min(MAX - 1);
-        if index == self.workspaces.active || self.is_locked() {
+        if index == self.desk.workspaces.active || self.is_locked() {
             return false;
         }
         // Park the active workspace's windows, bottom to top.
-        let leaving: Vec<Window> = self.space.elements().cloned().collect();
+        let leaving: Vec<Window> = self.desk.space.elements().cloned().collect();
         for w in &leaving {
             let mut st = window_state(w);
-            st.parked_at = self.space.element_location(w);
+            st.parked_at = self.desk.space.element_location(w);
             set_window_state(w, st);
-            self.space.unmap_elem(w);
+            self.desk.space.unmap_elem(w);
         }
-        self.workspaces.parked.extend(leaving);
-        self.workspaces.active = index;
+        self.desk.workspaces.parked.extend(leaving);
+        self.desk.workspaces.active = index;
         // Bring the new one's windows back where they were.
-        let arriving: Vec<Window> = self.workspaces.parked.iter().filter(|w| window_state(w).workspace == index).cloned().collect();
-        self.workspaces.parked.retain(|w| window_state(w).workspace != index);
+        let arriving: Vec<Window> = self.desk.workspaces.parked.iter().filter(|w| window_state(w).workspace == index).cloned().collect();
+        self.desk.workspaces.parked.retain(|w| window_state(w).workspace != index);
         for w in &arriving {
             let at = window_state(w).parked_at.unwrap_or_default();
-            self.space.map_element(w.clone(), at, false);
+            self.desk.space.map_element(w.clone(), at, false);
         }
         let top = arriving.last().cloned();
-        self.focus(top);
-        let pos = self.seat.get_pointer().unwrap().current_location();
+        self.focus(DeskId::PERSON, top);
+        let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);
         self.emit(ede_protocol::events::WORKSPACE_SWITCHED, json!({ "workspace": index }));
         true
@@ -84,38 +87,38 @@ impl Ede {
             if follow {
                 self.switch_workspace(index);
             }
-        } else if index != self.workspaces.active {
-            st.parked_at = self.space.element_location(window);
+        } else if index != self.desk.workspaces.active {
+            st.parked_at = self.desk.space.element_location(window);
             set_window_state(window, st);
-            let had_focus = self.focused_window().as_ref() == Some(window);
-            self.space.unmap_elem(window);
-            self.workspaces.parked.push(window.clone());
+            let had_focus = self.focused_window(DeskId::PERSON).as_ref() == Some(window);
+            self.desk.space.unmap_elem(window);
+            self.desk.workspaces.parked.push(window.clone());
             if had_focus {
-                let next = self.space.elements().last().cloned();
-                self.focus(next);
+                let next = self.desk.space.elements().last().cloned();
+                self.focus(DeskId::PERSON, next);
             }
             if follow {
                 self.switch_workspace(index);
-                self.focus(Some(window.clone()));
+                self.focus(DeskId::PERSON, Some(window.clone()));
             }
         } else {
             set_window_state(window, st);
-            self.workspaces.parked.retain(|w| w != window);
+            self.desk.workspaces.parked.retain(|w| w != window);
             let at = st.parked_at.unwrap_or_default();
-            self.space.map_element(window.clone(), at, true);
-            self.focus(Some(window.clone()));
+            self.desk.space.map_element(window.clone(), at, true);
+            self.focus(DeskId::PERSON, Some(window.clone()));
         }
         self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
     }
 
     /// A window that closed while parked.
     pub fn forget_parked(&mut self, window: &Window) {
-        self.workspaces.parked.retain(|w| w != window);
+        self.desk.workspaces.parked.retain(|w| w != window);
     }
 
     /// Every window: on screen, parked on another workspace, or minimized.
     pub fn all_windows(&self) -> Vec<Window> {
-        self.space.elements().cloned().chain(self.workspaces.parked.iter().cloned()).chain(self.minimized.iter().cloned()).collect()
+        self.desk.space.elements().cloned().chain(self.desk.workspaces.parked.iter().cloned()).chain(self.desk.minimized.iter().cloned()).collect()
     }
 
     /// The workspaces as ede-protocol lists them.
@@ -124,7 +127,7 @@ impl Ede {
         (0..count)
             .map(|i| ede_protocol::WorkspaceInfo {
                 index: i,
-                active: i == self.workspaces.active,
+                active: i == self.desk.workspaces.active,
                 windows: self.all_windows().iter().filter(|w| window_state(w).workspace == i).map(crate::ipc::window_id).collect(),
             })
             .collect()

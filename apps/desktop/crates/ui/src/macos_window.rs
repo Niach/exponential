@@ -65,3 +65,25 @@ pub(crate) fn resize_keeping_top(window: &Window, cx: &App, size: Size<Pixels>) 
         .detach();
     true
 }
+
+/// EXP-1923: `window` takes no click: each goes to the window under it, and
+/// a click can never make it key (`-[NSWindow setIgnoresMouseEvents:]`;
+/// gpui's `set_input_region` is a no-op on macOS). Whether the window
+/// reports it back; `false` when the native window cannot be reached.
+pub(crate) fn ignore_mouse(window: &Window) -> bool {
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return false;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return false;
+    };
+    let ns_view = appkit.ns_view.as_ptr() as id;
+    let ns_window: id = unsafe { msg_send![ns_view, window] };
+    if ns_window == nil {
+        return false;
+    }
+    // A plain property set: no delegate callback re-enters gpui.
+    let _: () = unsafe { msg_send![ns_window, setIgnoresMouseEvents: cocoa::base::YES] };
+    let ignores: BOOL = unsafe { msg_send![ns_window, ignoresMouseEvents] };
+    ignores != NO
+}

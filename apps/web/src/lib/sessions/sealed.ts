@@ -85,3 +85,11 @@ export function clearCard<T extends Record<string, unknown>>(card: T): Omit<T, `
 
 /** SQL fragment helpers' literal: `body LIKE 'exp-sealed:%'`. */
 export const SEALED_BODY_LIKE = `${SEALED_BODY_PREFIX}%`
+
+/** #EDE-97 (sealed-content.json `clearTree.startCases`): a new root stays in
+ *  clear for life only when an OUTSIDE MCP client starts it: over MCP, with
+ *  no calling session (no device gateway) and no inline key. Every other
+ *  root is sealed (by its writer, else by its device at the claim). */
+export function startsClearTree(args: { viaMcp: boolean; caller: unknown; seal: boolean }): boolean {
+  return args.viaMcp && !args.caller && !args.seal
+}

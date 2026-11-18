@@ -270,6 +270,12 @@ pub struct ChatsListCopy {
     pub rail: String,
     /// EXP-1318: the trailing words.
     pub words: ChatRowWords,
+    /// #FEED-263: the walls a row names by `blocked.kind` (`{device}` = the
+    /// walled session's device name, else `wall_device`).
+    pub walls: BTreeMap<String, String>,
+    /// #FEED-263: `{device}` when the device has no name.
+    #[serde(rename = "wallDevice")]
+    pub wall_device: String,
 }
 
 /// `chat-list.json` `copy.words`. `deny_unknown_fields`: a word key
@@ -282,8 +288,6 @@ pub struct ChatRowWords {
     pub ready_to_merge: String,
     pub question: String,
     pub needs_input: String,
-    /// #EXP-1703: on a person only because its device is away.
-    pub offline: String,
     /// #NEW-49: an idle root that waits (`waiting on {labels}`).
     pub waiting: String,
 }
@@ -659,6 +663,30 @@ pub fn session_offline(session: &SessionRow) -> bool {
         && session.needs_input
         && blocked_kind(session) == Some("device_offline")
         && blocked_resume_since(session).is_none()
+}
+
+/// #FEED-263 (TS `sessionWall`, chat-list.json `copy.walls`): the WALL a
+/// live session sits behind that no answer in the chat can lift: its
+/// `needs_input` is set and its `blocked.kind` is a key of `copy.walls`
+/// (`device_offline` only while its device stays away). `None` otherwise.
+pub fn session_wall(session: &SessionRow) -> Option<&str> {
+    if session.is_ended() || !session.needs_input {
+        return None;
+    }
+    let kind = blocked_kind(session)?;
+    if !CHATS_LIST.copy.walls.contains_key(kind) {
+        return None;
+    }
+    if kind == "device_offline" && blocked_resume_since(session).is_some() {
+        return None;
+    }
+    Some(kind)
+}
+
+/// #FEED-263 (TS `sessionAsks`): a live session ASKS a person (needs input
+/// ×4): `needs_input` set and no wall ([`session_wall`]).
+pub fn session_asks(session: &SessionRow) -> bool {
+    !session.is_ended() && session.needs_input && session_wall(session).is_none()
 }
 
 /// NEW-1: whether a blocked session sits behind a USAGE wall (`rate_limit`,
@@ -2103,7 +2131,8 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
         live: !live.is_empty(),
         live_session_id: (!root.is_ended()).then(|| root.id.clone()),
         busy: live.iter().any(|session| session.busy),
-        needs_you: live.iter().any(|session| session.needs_input),
+        // #FEED-263: a wall is not needs input.
+        needs_you: live.iter().any(|session| session_asks(session)),
         main_session_id: single.then(|| root.id.clone()),
         origin,
     }
@@ -2140,16 +2169,26 @@ pub struct ChatsListRow {
     pub unread: bool,
     /// The tree's newest `updated_at` (the sort key), verbatim.
     pub activity_at: String,
-    /// #EXP-1703: needs you only because its device stayed away
-    /// ([`tree_offline`]); serialized only when true (absent = false).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub offline: bool,
+    /// #FEED-263: the wall the row names while nothing asks
+    /// ([`tree_wall`]); serialized only when set (absent = none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall: Option<TreeWall>,
     /// #NEW-49: what the IDLE root waits on ([`session_waiting`]: its live
     /// children, then its watches); `None` otherwise. Not part of the
     /// fixture's row (TS `partitionChats` leaves it to the row word), so it
     /// never serializes.
     #[serde(default, skip_serializing)]
     pub waiting: Option<String>,
+}
+
+/// #FEED-263 (TS `TreeWall`): the wall a chat row names: its kind and the
+/// walled session's logical device id (the word's `{device}`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeWall {
+    pub session_id: String,
+    pub kind: String,
+    pub device_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2210,7 +2249,8 @@ pub type TreeState = SessionState;
 /// else `idle`. `now_ms` is kept for the signature (no stale state).
 pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], _now_ms: i64) -> TreeState {
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-    if live.iter().any(|session| session.needs_input) {
+    // #FEED-263: a wall is not needs input.
+    if live.iter().any(|session| session_asks(session)) {
         return SessionState::NeedsYou;
     }
     if live.iter().any(|session| status_is(session, SESSION_STATUS_QUEUED) || session.busy) {
@@ -2281,7 +2321,8 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
         let alone = [root];
         let tree: &[&SessionRow] = by_root.get(root.id.as_str()).map_or(&alone[..], Vec::as_slice);
         let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-        let needs_you = live.iter().any(|session| session.needs_input);
+        // #FEED-263: needs you = something ASKS; a wall is named instead.
+        let needs_you = live.iter().any(|session| session_asks(session));
         let running = live.iter().any(|session| status_is(session, SESSION_STATUS_QUEUED) || session.busy);
         let mut activity = root.updated_at.clone().unwrap_or_default();
         for session in tree {
@@ -2309,7 +2350,7 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
             activity_at: activity,
-            offline: needs_you && tree_offline(tree),
+            wall: tree_wall(tree),
             // #NEW-49: the root's own wait (its live children by title,
             // then its watches) while the root itself is idle.
             waiting: (session_state(root) == SessionState::Idle)
@@ -2389,9 +2430,10 @@ pub enum ChatRowWord {
     Stack,
     ReadyToMerge,
     Merged,
-    /// #EXP-1703: `device offline` (needs you only because its device is away).
-    Offline,
     Question,
+    /// #FEED-263: the row's wall (`MacBook offline`, `not picked up`, …);
+    /// its text needs the wall ([`chat_row_word_text_wall`]).
+    Wall,
     /// #NEW-49: an idle root that waits (`waiting on {labels}`; LAST: a PR
     /// word or a question wins). Its text needs the labels
     /// ([`chat_row_word_text`]).
@@ -2401,7 +2443,7 @@ pub enum ChatRowWord {
 impl ChatRowWord {
     /// Every word (the fixture keys' order).
     pub const ALL: [ChatRowWord; 6] =
-        [Self::Stack, Self::ReadyToMerge, Self::Merged, Self::Offline, Self::Question, Self::Waiting];
+        [Self::Stack, Self::ReadyToMerge, Self::Merged, Self::Question, Self::Wall, Self::Waiting];
 
     /// The fixture key (`readyToMerge`, …).
     pub fn key(self) -> &'static str {
@@ -2409,22 +2451,22 @@ impl ChatRowWord {
             Self::Stack => "stack",
             Self::ReadyToMerge => "readyToMerge",
             Self::Merged => "merged",
-            Self::Offline => "offline",
             Self::Question => "question",
+            Self::Wall => "wall",
             Self::Waiting => "waiting",
         }
     }
 
     /// The copy (`ready to merge`, …); `None` for `Merged` (EXP-1339: the
     /// violet pr-merged lead says it, no trailing text) and for `Waiting`
-    /// (its labels: [`chat_row_word_text`]).
+    /// (its labels: [`chat_row_word_text`]) and `Wall` (its wall:
+    /// [`chat_row_word_text_wall`]).
     pub fn text(self) -> Option<&'static str> {
         let words = &CHATS_LIST.copy.words;
         match self {
             Self::Stack => Some(&words.stack),
             Self::ReadyToMerge => Some(&words.ready_to_merge),
-            Self::Merged | Self::Waiting => None,
-            Self::Offline => Some(&words.offline),
+            Self::Merged | Self::Waiting | Self::Wall => None,
             Self::Question => Some(&words.question),
         }
     }
@@ -2434,13 +2476,37 @@ impl ChatRowWord {
 /// word's text; `waiting` names what it waits on (the root's
 /// [`session_waiting`]; none = no text). `None` = no word or no text.
 pub fn chat_row_word_text(word: Option<ChatRowWord>, waiting: Option<&str>) -> Option<String> {
+    chat_row_word_text_wall(word, waiting, None)
+}
+
+/// #FEED-263 (TS `chatRowWordText` with its `wall`): [`chat_row_word_text`]
+/// where `Wall` reads [`chat_wall_text`] of `wall` = (kind, device name);
+/// no wall = no text.
+pub fn chat_row_word_text_wall(
+    word: Option<ChatRowWord>,
+    waiting: Option<&str>,
+    wall: Option<(&str, Option<&str>)>,
+) -> Option<String> {
     match word? {
+        ChatRowWord::Wall => {
+            let (kind, device) = wall?;
+            chat_wall_text(kind, device)
+        }
         ChatRowWord::Waiting => {
             let waiting = waiting.filter(|waiting| !waiting.is_empty())?;
             Some(CHATS_LIST.copy.words.waiting.replacen("{labels}", waiting, 1))
         }
         word => word.text().map(str::to_string),
     }
+}
+
+/// #FEED-263 (TS `chatWallText`, `wallTextCases`): a wall's words
+/// (`copy.walls[kind]`, `{device}` = the device's name, else
+/// `copy.wallDevice`); `None` = no wall of that kind.
+pub fn chat_wall_text(kind: &str, device: Option<&str>) -> Option<String> {
+    let text = CHATS_LIST.copy.walls.get(kind)?;
+    let device = device.map(str::trim).filter(|device| !device.is_empty()).unwrap_or(&CHATS_LIST.copy.wall_device);
+    Some(text.replacen("{device}", device, 1))
 }
 
 /// A PR as the stack test needs it.
@@ -2481,7 +2547,7 @@ pub fn chat_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool {
 /// Word order: an open PR in a stack → stack; an open PR while nothing
 /// works → ready to merge (working = no word); else merged; else a
 /// question when waiting on a person; else none. `states` = the chat's
-/// PR states. (#EXP-1703: [`chat_row_word_on`] with the row's `offline`.)
+/// PR states. (#FEED-263: [`chat_row_word_on`] with the row's `wall`.)
 pub fn chat_row_word<'a>(
     states: impl IntoIterator<Item = &'a str>,
     busy: bool,
@@ -2491,17 +2557,17 @@ pub fn chat_row_word<'a>(
     chat_row_word_on(states, busy, needs_you, in_stack, false)
 }
 
-/// [`chat_row_word`] with #EXP-1703's `offline` ([`tree_offline`], the
-/// row's [`ChatsListRow::offline`]): waiting on a person only because its
-/// device is away reads `device offline` instead of `question`.
+/// [`chat_row_word`] with #FEED-263's `wall` (the row's
+/// [`ChatsListRow::wall`] is set): after the question, the row names its
+/// wall.
 pub fn chat_row_word_on<'a>(
     states: impl IntoIterator<Item = &'a str>,
     busy: bool,
     needs_you: bool,
     in_stack: bool,
-    offline: bool,
+    wall: bool,
 ) -> Option<ChatRowWord> {
-    chat_row_word_waiting(states, busy, needs_you, in_stack, offline, false)
+    chat_row_word_waiting(states, busy, needs_you, in_stack, wall, false)
 }
 
 /// [`chat_row_word_on`] with #NEW-49's `waiting` (the root's
@@ -2512,7 +2578,7 @@ pub fn chat_row_word_waiting<'a>(
     busy: bool,
     needs_you: bool,
     in_stack: bool,
-    offline: bool,
+    wall: bool,
     waiting: bool,
 ) -> Option<ChatRowWord> {
     let states: Vec<&str> = states.into_iter().collect();
@@ -2526,21 +2592,42 @@ pub fn chat_row_word_waiting<'a>(
         return Some(ChatRowWord::Merged);
     }
     if needs_you {
-        return Some(if offline { ChatRowWord::Offline } else { ChatRowWord::Question });
+        return Some(ChatRowWord::Question);
+    }
+    if wall {
+        return Some(ChatRowWord::Wall);
     }
     waiting.then_some(ChatRowWord::Waiting)
 }
 
-/// #EXP-1703 (TS `treeOffline`): a tree on a person ONLY because its device
-/// stayed away: some live session needs you and every one that does is
-/// [`session_offline`].
-pub fn tree_offline(tree: &[&SessionRow]) -> bool {
-    let mut waiting = tree.iter().filter(|session| !session.is_ended() && session.needs_input).peekable();
-    waiting.peek().is_some() && waiting.all(|session| session_offline(session))
+/// #FEED-263 (TS `treeWall`, `wallCases`): the wall a tree's row names:
+/// `None` while any session ASKS ([`session_asks`]), else the first walled
+/// session ([`session_wall`]) in tree order (the root first, then creation
+/// order, ties by id).
+pub fn tree_wall(tree: &[&SessionRow]) -> Option<TreeWall> {
+    if tree.iter().any(|session| session_asks(session)) {
+        return None;
+    }
+    let mut ordered: Vec<&SessionRow> = tree.to_vec();
+    ordered.sort_by(|a, b| {
+        a.parent_id
+            .is_some()
+            .cmp(&b.parent_id.is_some())
+            .then_with(|| ms_or_zero(a.created_at.as_deref()).cmp(&ms_or_zero(b.created_at.as_deref())))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    ordered.into_iter().find_map(|session| {
+        session_wall(session).map(|kind| TreeWall {
+            session_id: session.id.clone(),
+            kind: kind.to_string(),
+            device_id: session.device_id.clone(),
+        })
+    })
 }
 
 /// The rail's Active band (`copy.rail`): every Needs you row, every Running
-/// row, then the Recent rows whose word still asks for a merge.
+/// row, then the Recent rows whose word still asks for a merge or
+/// (#FEED-263) names a wall.
 pub fn rail_chats(
     groups: &[ChatsListGroup],
     word_of: impl Fn(&ChatsListRow) -> Option<ChatRowWord>,
@@ -2550,7 +2637,7 @@ pub fn rail_chats(
         .flat_map(|group| {
             group.rows.iter().filter(|row| {
                 group.key != ChatsListKey::Recent
-                    || matches!(word_of(row), Some(ChatRowWord::ReadyToMerge | ChatRowWord::Stack))
+                    || matches!(word_of(row), Some(ChatRowWord::ReadyToMerge | ChatRowWord::Stack | ChatRowWord::Wall))
             })
         })
         .cloned()
@@ -3232,8 +3319,8 @@ mod tests {
                 input["busy"].as_bool().unwrap(),
                 input["needsYou"].as_bool().unwrap(),
                 input["inStack"].as_bool().unwrap(),
-                // #EXP-1703: absent = false.
-                input["offline"].as_bool().unwrap_or(false),
+                // #FEED-263: absent = false.
+                input["wall"].as_bool().unwrap_or(false),
                 // #NEW-49: the root's wait (absent / null = none).
                 input["waiting"].as_str().is_some_and(|waiting| !waiting.is_empty()),
             );
@@ -3246,21 +3333,27 @@ mod tests {
             let word = case["word"].as_str().map(|key| {
                 ChatRowWord::ALL.into_iter().find(|word| word.key() == key).expect("a known word")
             });
+            let wall = case["wall"]["kind"].as_str().map(|kind| (kind, case["wall"]["device"].as_str()));
             assert_eq!(
-                chat_row_word_text(word, case["waiting"].as_str()).as_deref(),
+                chat_row_word_text_wall(word, case["waiting"].as_str(), wall).as_deref(),
                 case["expected"].as_str(),
                 "{}",
                 case["name"]
             );
         }
-        // #EXP-1703: `offlineCases` (treeOffline).
-        let offline_cases = fixture["offlineCases"].as_array().unwrap();
-        assert!(!offline_cases.is_empty());
-        for case in offline_cases {
+        // #FEED-263: `wallCases` (treeWall).
+        let wall_cases = fixture["wallCases"].as_array().unwrap();
+        assert!(!wall_cases.is_empty());
+        for case in wall_cases {
             let tree: Vec<SessionRow> = rows(&case["tree"]);
             let tree: Vec<&SessionRow> = tree.iter().collect();
-            assert_eq!(tree_offline(&tree), case["expected"].as_bool().unwrap(), "{}", case["name"]);
+            let expected: Option<TreeWall> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(tree_wall(&tree), expected, "{}", case["name"]);
         }
+        for kind in CHATS_LIST.copy.walls.keys() {
+            assert!(chat_wall_text(kind, Some("MacBook")).is_some(), "{kind}");
+        }
+        assert_eq!(chat_wall_text("restarted", None), None);
         let rail_cases = fixture["railCases"].as_array().unwrap();
         assert!(!rail_cases.is_empty());
         for case in rail_cases {

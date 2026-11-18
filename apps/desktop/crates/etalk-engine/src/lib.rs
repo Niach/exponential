@@ -741,6 +741,18 @@ enum State {
     Ready(Loaded),
 }
 
+/// EXP-1930: what a worker whose voice is not up says: `VoiceRetry` while
+/// it will be tried again (a slow warm-up, a failed load), never for no GPU;
+/// then the empty `Voices`.
+fn not_up(state: &State, now: Instant) -> Vec<Event> {
+    let mut events = Vec::new();
+    if let State::Idle { retry_at: Some(at), .. } = state {
+        events.push(Event::VoiceRetry { in_ms: at.saturating_duration_since(now).as_millis() as u64 });
+    }
+    events.push(Event::Voices { voices: Vec::new() });
+    events
+}
+
 fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
     let mut state = State::Idle { failures: 0, retry_at: None };
     let mut choice = VoiceChoice { language: "en".into(), ..Default::default() };
@@ -764,30 +776,15 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             },
         };
         wanted = true;
-        // Only the newest Speak matters; the newest Prepare is the choice.
-        let mut job = first;
-        while let Ok(next) = rx.try_recv() {
-            match next {
-                Job::Prepare(voice) => {
-                    choice = voice;
-                    if !matches!(job, Job::Speak { .. }) {
-                        job = Job::Prepare(choice.clone());
-                    }
-                }
-                // Any job brings the voice up.
-                Job::Warm => {}
-                speak => job = speak,
-            }
-        }
-        if let Job::Prepare(voice) = &job {
-            choice = voice.clone();
-        }
+        let job = coalesce(first, rx.try_iter(), &mut choice);
         if let State::Idle { failures, retry_at } = state {
             if retry_at.is_some_and(|at| Instant::now() < at) {
                 // Backing off: the voice is not tried again yet (settled:
                 // a call need not wait for it).
                 shared.voice_settled.store(true, Ordering::SeqCst);
-                emit(&Event::Voices { voices: Vec::new() });
+                for event in not_up(&state, Instant::now()) {
+                    emit(&event);
+                }
                 if let Job::Speak { id, .. } = job {
                     emit(&Event::Failed { id, error: "the voice is unavailable for now".into() });
                 }
@@ -821,7 +818,9 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
         let State::Ready(loaded) = &mut state else {
             // Unavailable (no GPU, or backing off): settled all the same.
             shared.voice_settled.store(true, Ordering::SeqCst);
-            emit(&Event::Voices { voices: Vec::new() });
+            for event in not_up(&state, Instant::now()) {
+                emit(&event);
+            }
             if let Job::Speak { id, .. } = job {
                 emit(&Event::Failed { id, error: "no usable GPU for the voice".into() });
             }
@@ -840,6 +839,31 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             Job::Speak { id, text, generation } => speak(loaded, shared, &id, &text, generation),
         }
     }
+}
+
+/// One job out of `first` and what queued up behind it: only the newest
+/// Speak matters; the newest Prepare is the `choice`.
+fn coalesce(first: Job, rest: impl Iterator<Item = Job>, choice: &mut VoiceChoice) -> Job {
+    let mut job = first;
+    // EXP-1934: before the rest: a Speak right behind a Prepare replaces it
+    // as the job, and is spoken in the voice it prepared.
+    if let Job::Prepare(voice) = &job {
+        *choice = voice.clone();
+    }
+    for next in rest {
+        match next {
+            Job::Prepare(voice) => {
+                *choice = voice;
+                if !matches!(job, Job::Speak { .. }) {
+                    job = Job::Prepare(choice.clone());
+                }
+            }
+            // Any job brings the voice up.
+            Job::Warm => {}
+            speak => job = speak,
+        }
+    }
+    job
 }
 
 /// Why [`bring_up`] did not finish; both are retried later.
@@ -1079,17 +1103,79 @@ pub fn speech_chunks(text: &str, streaming: bool) -> Vec<&str> {
 /// NEW-55: a remote call's reply: every pushed sample goes to the host as
 /// `SpeechAudio` (i16 LE, at most [`etalk::SPEECH_AUDIO_CHUNK_MS`] each),
 /// never to a speaker. Stopped (Stop, barge-in), it sends nothing more; a
-/// chunk being sent finishes before `stop` returns.
+/// chunk being sent finishes before `stop` returns. EXP-1929: the audio
+/// leaves at real time, at most [`REMOTE_LEAD`] ahead of the clock (the
+/// relay forwards at most `maxFramesPerSecond`), and `finish` waits out the
+/// lead, so the reply ends when the caller has heard it.
 pub struct StreamSink {
     id: String,
     rate: u32,
     stopped: Mutex<bool>,
     emit: Emitter,
+    clock: Arc<dyn Clock>,
+    /// When the audio sent so far started (on `clock`), and how many samples.
+    sent: Mutex<Option<(Duration, u64)>>,
+}
+
+/// EXP-1929: how far a remote reply may run ahead of real time.
+pub(crate) const REMOTE_LEAD: Duration = Duration::from_millis(200);
+
+/// The time a remote reply is paced by (a fake one in the tests).
+pub(crate) trait Clock: Send + Sync {
+    fn now(&self) -> Duration;
+    fn sleep(&self, duration: Duration);
+}
+
+struct WallClock(Instant);
+
+impl Clock for WallClock {
+    fn now(&self) -> Duration {
+        self.0.elapsed()
+    }
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 impl StreamSink {
     fn new(id: &str, rate: u32, emit: Emitter) -> Self {
-        StreamSink { id: id.into(), rate, stopped: Mutex::new(false), emit }
+        Self::with_clock(id, rate, emit, Arc::new(WallClock(Instant::now())))
+    }
+
+    fn with_clock(id: &str, rate: u32, emit: Emitter, clock: Arc<dyn Clock>) -> Self {
+        StreamSink { id: id.into(), rate, stopped: Mutex::new(false), emit, clock, sent: Mutex::new(None) }
+    }
+
+    fn is_stopped(&self) -> bool {
+        *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// How far the audio sent so far runs ahead of the clock; a stream that
+    /// fell behind (synthesis slower than real time, a pause between
+    /// sentences) starts over from now, never sending a backlog at once.
+    fn lead(&self) -> Duration {
+        let now = self.clock.now();
+        let mut sent = self.sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (start, samples) = *sent.get_or_insert((now, 0));
+        let end = start + Duration::from_micros(samples * 1_000_000 / u64::from(self.rate.max(1)));
+        if end <= now {
+            *sent = Some((now, 0));
+            return Duration::ZERO;
+        }
+        end - now
+    }
+
+    /// Wait (in steps of at most one frame, Stop ends it) until the lead is
+    /// at most `lead`.
+    fn wait_for_lead(&self, lead: Duration) {
+        let step = Duration::from_millis(u64::from(etalk::call::VOICE_CALL.constants.frame_ms));
+        loop {
+            let ahead = self.lead();
+            if ahead <= lead || self.is_stopped() {
+                return;
+            }
+            self.clock.sleep((ahead - lead).min(step));
+        }
     }
 }
 
@@ -1097,17 +1183,23 @@ impl sink::Sink for StreamSink {
     fn push(&self, samples: &[f32]) -> Result<(), String> {
         let chunk = (self.rate * etalk::SPEECH_AUDIO_CHUNK_MS / 1000).max(1) as usize;
         for part in samples.chunks(chunk) {
+            self.wait_for_lead(REMOTE_LEAD);
             let stopped = self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if *stopped {
                 return Ok(());
             }
             let pcm: Vec<i16> = part.iter().map(|sample| etalk::to_i16(*sample)).collect();
             (self.emit)(&Event::SpeechAudio { id: self.id.clone(), pcm: etalk::encode_pcm(&pcm), rate: self.rate });
+            if let Some((_, sent)) = self.sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_mut() {
+                *sent += part.len() as u64;
+            }
         }
         Ok(())
     }
 
-    fn finish(&self) {}
+    fn finish(&self) {
+        self.wait_for_lead(Duration::ZERO);
+    }
 
     fn stop(&self) {
         *self.stopped.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
@@ -1287,6 +1379,34 @@ mod tests {
         assert!(ring_tone(rate, 0).is_empty());
     }
 
+    /// EXP-1934: a Prepare is the choice whatever queued up behind it: a
+    /// Speak sent right after it is spoken in ITS voice, not the last one's.
+    #[test]
+    fn a_prepare_keeps_its_voice_whatever_follows_it() {
+        let voice = |language: &str| VoiceChoice { language: language.into(), ..Default::default() };
+        let speak = || Job::Speak { id: "r1".into(), text: "Hi.".into(), generation: 0 };
+        let run = |jobs: Vec<Job>| {
+            let mut choice = voice("previous");
+            let mut jobs = jobs.into_iter();
+            let job = coalesce(jobs.next().unwrap(), jobs, &mut choice);
+            let kind = match job {
+                Job::Prepare(prepared) => {
+                    assert_eq!(prepared, choice, "a Prepare that runs is the choice");
+                    "prepare"
+                }
+                Job::Speak { .. } => "speak",
+                Job::Warm => "warm",
+            };
+            (kind, choice.language)
+        };
+        assert_eq!(run(vec![Job::Prepare(voice("a")), speak()]), ("speak", "a".into()));
+        assert_eq!(run(vec![speak(), Job::Prepare(voice("a"))]), ("speak", "a".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a")), Job::Warm]), ("prepare", "a".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a")), Job::Prepare(voice("b")), speak()]), ("speak", "b".into()));
+        assert_eq!(run(vec![Job::Warm, speak()]), ("speak", "previous".into()));
+        assert_eq!(run(vec![Job::Prepare(voice("a"))]), ("prepare", "a".into()));
+    }
+
     #[test]
     fn failed_downloads_back_off_to_an_hour() {
         assert_eq!(retry_after(1), Duration::from_secs(60));
@@ -1401,6 +1521,102 @@ mod tests {
         stream.stop();
         stream.push(&pcm).unwrap();
         assert_eq!(events.lock().unwrap().len(), 3, "a stopped stream sends nothing");
+    }
+
+    /// A clock the test moves: `sleep` advances it.
+    #[derive(Default)]
+    struct FakeClock(Mutex<Duration>);
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Duration {
+            *self.0.lock().unwrap()
+        }
+        fn sleep(&self, duration: Duration) {
+            *self.0.lock().unwrap() += duration;
+        }
+    }
+
+    /// The relay's budget per socket (hub.ts `takeFrameToken`): a bucket of
+    /// `maxFramesPerSecond` refilled at `maxFramesPerSecond` per second.
+    struct FakeRelay {
+        tokens: f64,
+        at: Duration,
+        forwarded: u64,
+        dropped: u64,
+    }
+
+    impl FakeRelay {
+        fn frame(&mut self, now: Duration) {
+            let rate = f64::from(etalk::call::VOICE_CALL.constants.max_frames_per_second);
+            self.tokens = (self.tokens + (now - self.at).as_secs_f64() * rate).min(rate);
+            self.at = now;
+            if self.tokens >= 1.0 {
+                self.tokens -= 1.0;
+                self.forwarded += 1;
+            } else {
+                self.dropped += 1;
+            }
+        }
+    }
+
+    /// EXP-1929: a 30 s reply synthesised far faster than real time reaches
+    /// the caller whole through the relay's 60 frames/s budget, and the
+    /// stream finishes when it has played, not when synthesis ended.
+    #[test]
+    fn a_long_remote_reply_is_paced_through_the_relays_budget() {
+        use sink::Sink as _;
+        let clock = Arc::new(FakeClock::default());
+        let rate = f64::from(etalk::call::VOICE_CALL.constants.max_frames_per_second);
+        let relay = Arc::new(Mutex::new(FakeRelay { tokens: rate, at: Duration::ZERO, forwarded: 0, dropped: 0 }));
+        let frame = (24_000 * etalk::call::VOICE_CALL.constants.frame_ms / 1000) as usize;
+        let emitter: Emitter = {
+            let (clock, relay) = (clock.clone(), relay.clone());
+            Arc::new(move |event: &Event| {
+                let Event::SpeechAudio { pcm, .. } = event else { return };
+                // The host frames each chunk at once (call_host), 20 ms per frame.
+                for _ in 0..etalk::decode_pcm(pcm).unwrap().len() / frame {
+                    relay.lock().unwrap().frame(clock.now());
+                }
+            })
+        };
+        let stream = StreamSink::with_clock("m1", 24_000, emitter, clock.clone());
+        // Thirty one-second sentences, each synthesised in no time.
+        for _ in 0..30 {
+            stream.push(&vec![0.1; 24_000]).unwrap();
+        }
+        assert!(clock.now() <= Duration::from_secs(30) - Duration::from_millis(100), "the push leads the clock");
+        stream.finish();
+        let relay = relay.lock().unwrap();
+        assert_eq!((relay.forwarded, relay.dropped), (1500, 0), "every frame of the 30 s reply arrives");
+        assert!(clock.now() >= Duration::from_secs(30), "finished once played: {:?}", clock.now());
+        assert!(clock.now() <= Duration::from_secs(30) + Duration::from_millis(40));
+    }
+
+    /// EXP-1929: Stop ends a paced wait at once.
+    #[test]
+    fn a_stopped_paced_reply_ends_at_once() {
+        use sink::Sink as _;
+        let clock = Arc::new(FakeClock::default());
+        let (emitter, events) = recording();
+        let stream = StreamSink::with_clock("m1", 24_000, emitter, clock.clone());
+        stream.push(&vec![0.1; 24_000]).unwrap();
+        stream.stop();
+        let before = clock.now();
+        stream.push(&vec![0.1; 24_000]).unwrap();
+        stream.finish();
+        assert_eq!(clock.now(), before, "a stopped stream waits for nothing");
+        assert_eq!(events.lock().unwrap().len(), 10);
+    }
+
+    /// EXP-1930 (voice-engine-speak-2): a voice that will be tried again
+    /// (a slow warm-up, a failed load) says so before its empty `Voices`; no
+    /// GPU says only the empty `Voices`.
+    #[test]
+    fn a_voice_not_up_yet_is_told_apart_from_no_gpu() {
+        let now = Instant::now();
+        let slow = State::Idle { failures: 1, retry_at: Some(now + Duration::from_secs(60)) };
+        assert_eq!(not_up(&slow, now), vec![Event::VoiceRetry { in_ms: 60_000 }, Event::Voices { voices: Vec::new() }]);
+        assert_eq!(not_up(&State::NoGpu, now), vec![Event::Voices { voices: Vec::new() }]);
     }
 
     /// NEW-55: the first clause of a reply is synthesized on its own.

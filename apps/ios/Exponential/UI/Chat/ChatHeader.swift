@@ -85,7 +85,8 @@ struct ChatHeaderTitle: View {
     let title: String
     var subtitle: String?
     var subtitleTone: Tone = .muted
-    var isPrivate = false
+    /// #EDE-98 (chats.json `chatMarks`): the glyphs after the title.
+    var marks: [Chats.ChatMark] = []
     var agentIcon: String?
     var agentColor: String?
     /// #EXP-1448: the viewer's Assistant wears the brand mark (chats.json),
@@ -135,18 +136,15 @@ struct ChatHeaderTitle: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title)
-                        .font(.system(size: CGFloat(Measures.title), weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("chat-title")
-                    if isPrivate {
-                        AppIcon(AppIcons.uiPrivate, size: 11)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .accessibilityLabel("Private")
-                            .accessibilityIdentifier("chat-private")
+                    HStack(spacing: CGFloat(Chats.Shell.markGap)) {
+                        Text(title)
+                            .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("chat-title")
+                        ChatMarksView(marks: marks)
                     }
                     if let titleAccessory { titleAccessory }
                 }
@@ -181,9 +179,14 @@ struct ChatHeaderTitle: View {
 
     private static func statusInputs(rows: ChatRows) -> [SessionScreen.StatusInput] {
         func input(_ session: SessionEntity) -> SessionScreen.StatusInput {
-            SessionScreen.StatusInput(
+            let blocked = TreeSessionBlocked.parse(session.blocked)
+            return SessionScreen.StatusInput(
                 id: session.id, status: session.status, busy: session.busy, needsInput: session.needsInput,
-                blocked: TreeSessionBlocked.parse(session.blocked)?.kind, root: session.id == rows.root.id
+                blocked: blocked?.kind,
+                // #FEED-263: a device back is no wall; a wall names its device.
+                resumed: !(blocked?.resumeSince ?? "").isEmpty,
+                device: rows.deviceLabels[session.deviceId],
+                root: session.id == rows.root.id
             )
         }
         let tree = rows.sessions.filter { $0.rootId == rows.root.id || $0.id == rows.root.id }

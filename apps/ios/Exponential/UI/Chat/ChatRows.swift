@@ -109,6 +109,9 @@ struct ChatRows: Sendable {
     /// EXP-1334: the root's device row (the composer's Computer use row
     /// shows only when it advertises the per-run cap).
     var rootDevice: DeviceEntity?
+    /// #FEED-263: every synced device's name by its logical id (a wall's
+    /// `{device}`).
+    var deviceLabels: [String: String] = [:]
     /// NEW-2: an agent conversation's DEFINITION row (`agents`, the root's
     /// `agent_id`): its name, icon and colour head the screen; nil = a
     /// chat, or a definition not synced yet (the defaults stand in).
@@ -609,6 +612,10 @@ struct ChatRows: Sendable {
             teamPullRequests: teamPullRequests,
             issueParents: try issueParents(db: db, issueIds: issues.map(\.id)),
             rootDevice: try DeviceEntity.filter(Column("device_id") == root.deviceId).fetchOne(db),
+            deviceLabels: Dictionary(
+                try DeviceEntity.fetchAll(db).filter { !$0.label.isEmpty }.map { ($0.deviceId, $0.label) },
+                uniquingKeysWith: { a, _ in a }
+            ),
             agent: try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) },
             app: try root.appId.flatMap { try AppEntity.fetchOne(db, key: $0) },
             issueStatuses: IssueStatusResolver.teamStatusesOrFallback(
