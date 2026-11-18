@@ -200,6 +200,50 @@ pub enum Request {
     /// `DESKTOP_STARTUP_ID` it lets that app's window take the keyboard,
     /// for [`LAUNCH_TOKEN_SECS`]; any other new window opens without it.
     LaunchToken,
+    /// An agent space for the caller's session (#EDE-126): a desk of its
+    /// own with one output of `width` x `height`, a seat and a Wayland
+    /// socket: [`SpaceInfo`]. A session has one space: a second call
+    /// answers the same one. A space grant only ([`Capability::Space`]
+    /// and nothing else).
+    CreateSpace { width: i32, height: i32 },
+    /// Closes a space: its clients and what was launched into it end.
+    DestroySpace { space: SpaceId },
+    /// The caller's space, or every space for `system`: `Vec<SpaceInfo>`.
+    ListSpaces,
+    /// Starts `argv` inside the caller's space: [`Launched`]. The
+    /// compositor decides the environment (the space's socket and runtime
+    /// directory, never the person's displays or session bus); `env` goes
+    /// on top, without the names the compositor sets.
+    Launch {
+        argv: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        env: std::collections::BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+    },
+}
+
+/// In [`Hello::features`]: this compositor makes agent spaces.
+pub const FEATURE_SPACES: &str = "spaces";
+
+/// An agent space ([`Request::CreateSpace`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceInfo {
+    pub id: SpaceId,
+    /// The session that owns it (its grant's).
+    pub session_id: SessionId,
+    /// Its one output's name, for [`CaptureTarget::Output`].
+    pub output: String,
+    pub width: i32,
+    pub height: i32,
+    /// The absolute path of its Wayland socket (a `WAYLAND_DISPLAY`).
+    pub wayland_display: String,
+}
+
+/// A [`Request::Launch`] reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Launched {
+    pub pid: u32,
 }
 
 /// How long a [`Request::LaunchToken`] waits for its window.
@@ -372,6 +416,26 @@ impl Request {
                 Some(Capability::InputPerson)
             }
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
+            Request::CreateSpace { .. } | Request::Launch { .. } => Some(Capability::Space),
+            Request::DestroySpace { .. } | Request::ListSpaces => Some(Capability::System),
+        }
+    }
+
+    /// May a space grant (`[space]` and nothing else) ask this at all
+    /// (#EDE-126)? An allowlist: every op here acts inside the grant's own
+    /// space and needs only `space`, whatever [`Request::capability`]
+    /// names for the person's side; everything else is refused. No
+    /// wildcard arm: a new op is outside until it is written here.
+    pub fn in_space(&self) -> bool {
+        match self {
+            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => true,
+            Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::PointerPosition => true,
+            Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
+            Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
+            Request::Input { bindings, .. } => !bindings,
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
+            Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
         }
     }
 }
@@ -381,6 +445,8 @@ impl Request {
 pub enum CaptureTarget {
     Output { name: String },
     Window { window: WindowId },
+    /// An agent space's output, by the space (#EDE-126): its owner, or `system`.
+    Space { space: SpaceId },
 }
 
 /// Input in global logical coordinates; keys and buttons are evdev codes.
@@ -423,6 +489,18 @@ pub struct Hello {
     pub version: u32,
     pub capabilities: Vec<Capability>,
     pub session_id: SessionId,
+    /// What this compositor can do beyond v1 ([`FEATURE_SPACES`]); an
+    /// older one sends none. Absent on the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
+}
+
+impl Hello {
+    /// The compositor makes agent spaces. A client reads this before it
+    /// asks for one and never falls back to the person's seat.
+    pub fn offers_spaces(&self) -> bool {
+        self.features.iter().any(|f| f == FEATURE_SPACES)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -683,7 +761,7 @@ impl Client {
 
     fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap() }, call_timeout };
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![] }, call_timeout };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -907,6 +985,24 @@ impl Client {
 
     pub fn clipboard_text(&mut self) -> Result<ClipboardText, Error> {
         self.call_as(Request::ClipboardText)
+    }
+
+    /// [`Request::CreateSpace`]: this grant's space (the same one again).
+    pub fn create_space(&mut self, width: i32, height: i32) -> Result<SpaceInfo, Error> {
+        self.call_as(Request::CreateSpace { width, height })
+    }
+
+    pub fn destroy_space(&mut self, space: SpaceId) -> Result<(), Error> {
+        self.call(Request::DestroySpace { space }).map(|_| ())
+    }
+
+    pub fn spaces(&mut self) -> Result<Vec<SpaceInfo>, Error> {
+        self.call_as(Request::ListSpaces)
+    }
+
+    /// [`Request::Launch`]: the pid of what started in this grant's space.
+    pub fn launch(&mut self, argv: Vec<String>, env: std::collections::BTreeMap<String, String>, cwd: Option<String>) -> Result<u32, Error> {
+        self.call_as::<Launched>(Request::Launch { argv, env, cwd }).map(|l| l.pid)
     }
 
     /// [`Request::LaunchToken`]: for the environment of a launch the person made.
@@ -1138,12 +1234,164 @@ mod tests {
         assert_eq!(persons(both), vec![window(None)]);
     }
 
+    /// #EDE-126: the ops that name a space, as they go over the wire.
+    #[test]
+    fn space_ops_are_flat_json_and_round_trip() {
+        let space = || SpaceId::new("space-1").unwrap();
+        for (request, json) in [
+            (Request::CreateSpace { width: 1280, height: 800 }, serde_json::json!({"id": 1, "op": "create_space", "width": 1280, "height": 800})),
+            (Request::DestroySpace { space: space() }, serde_json::json!({"id": 1, "op": "destroy_space", "space": "space-1"})),
+            (Request::ListSpaces, serde_json::json!({"id": 1, "op": "list_spaces"})),
+            (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, serde_json::json!({"id": 1, "op": "launch", "argv": ["foot"]})),
+            (
+                Request::Launch { argv: vec!["sh".into(), "-c".into(), "true".into()], env: [("A".to_string(), "b".to_string())].into(), cwd: Some("/tmp".into()) },
+                serde_json::json!({"id": 1, "op": "launch", "argv": ["sh", "-c", "true"], "env": {"A": "b"}, "cwd": "/tmp"}),
+            ),
+            (Request::Capture { target: CaptureTarget::Space { space: space() }, since: None }, serde_json::json!({"id": 1, "op": "capture", "target": {"kind": "space", "space": "space-1"}})),
+        ] {
+            let call = Call { id: 1, request };
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let info = SpaceInfo { id: space(), session_id: SessionId::new("run-1").unwrap(), output: "space-1".into(), width: 1280, height: 800, wayland_display: "/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/wayland-0".into() };
+        assert_eq!(serde_json::from_value::<SpaceInfo>(serde_json::to_value(&info).unwrap()).unwrap(), info);
+        assert_eq!(serde_json::to_value(Launched { pid: 7 }).unwrap(), serde_json::json!({"pid": 7}));
+    }
+
+    /// `Hello` as it was before `features`: what an old client parses a reply into.
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct OldHello {
+        version: u32,
+        capabilities: Vec<Capability>,
+        session_id: SessionId,
+    }
+
+    /// #EDE-126: a hello without features is written and read as before;
+    /// an old client reads one that has them.
+    #[test]
+    fn hello_features_are_additive() {
+        let hello = |features: &[&str]| Hello { version: 1, capabilities: vec![Capability::Space], session_id: SessionId::new("run-1").unwrap(), features: features.iter().map(|f| f.to_string()).collect() };
+        assert_eq!(serde_json::to_string(&hello(&[])).unwrap(), r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#);
+        let old: Hello = serde_json::from_str(r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#).unwrap();
+        assert!(old.features.is_empty() && !old.offers_spaces(), "an older compositor offers no spaces");
+        let new = hello(&[FEATURE_SPACES, "later"]);
+        assert!(new.offers_spaces());
+        let wire = serde_json::to_string(&new).unwrap();
+        assert_eq!(serde_json::from_str::<Hello>(&wire).unwrap(), new);
+        assert_eq!(serde_json::from_str::<OldHello>(&wire).unwrap().version, 1);
+    }
+
+    /// #EDE-126: what a space grant may ask at all. Every variant is here:
+    /// `in_space` has no wildcard arm, and neither has `listed`.
+    #[test]
+    fn the_in_space_table() {
+        let w = || WindowId::new("w1").unwrap();
+        let space = || SpaceId::new("space-1").unwrap();
+        let key = InputEvent::Key { key: 30, pressed: true };
+        let table = [
+            (Request::Hello { version: 1, token: Token::new("0".repeat(64)).unwrap() }, true),
+            (Request::ListWindows, true),
+            (Request::ListOutputs, true),
+            (Request::FocusWindow { window: w() }, true),
+            (Request::CloseWindow { window: w() }, true),
+            (Request::MoveWindow { window: w(), x: 0, y: 0 }, false),
+            (Request::MinimizeWindow { window: w() }, false),
+            (Request::RestoreWindow { window: w() }, false),
+            (Request::Capture { target: CaptureTarget::Output { name: "space-1".into() }, since: None }, true),
+            (Request::Capture { target: CaptureTarget::Space { space: space() }, since: Some(3) }, true),
+            (Request::Capture { target: CaptureTarget::Window { window: w() }, since: None }, false),
+            (Request::Input { event: key.clone(), bindings: false }, true),
+            (Request::Input { event: key, bindings: true }, false),
+            (Request::PointerPosition, true),
+            (Request::HoldInput, false),
+            (Request::ReleaseInput, false),
+            (Request::ReloadConfig, false),
+            (Request::Lock, false),
+            (Request::Logout, false),
+            (Request::Unlock, false),
+            (Request::ListWorkspaces, false),
+            (Request::SwitchWorkspace { index: 0 }, false),
+            (Request::MoveToWorkspace { window: w(), index: 0 }, false),
+            (Request::SetOutput { name: "space-1".into(), mode: None, scale: None, position: None }, false),
+            (Request::Subscribe, false),
+            (Request::MintGrant { session_id: SessionId::new("run-1").unwrap(), run_id: None, capabilities: vec![Capability::Space], expires_at: None }, false),
+            (Request::RevokeGrant { token: Token::new("0".repeat(64)).unwrap() }, false),
+            (Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] }, false),
+            (Request::UnbindShortcuts { owner: "p".into() }, false),
+            (Request::ClipboardSerial, true),
+            (Request::ClipboardSnapshot, true),
+            (Request::ClipboardSet { items: vec![], sensitive: false }, true),
+            (Request::ClipboardTaken { serial: 1 }, true),
+            (Request::ClipboardText, true),
+            (Request::LaunchToken, false),
+            (Request::CreateSpace { width: 1280, height: 800 }, true),
+            (Request::DestroySpace { space: space() }, true),
+            (Request::ListSpaces, true),
+            (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for (request, allowed) in &table {
+            assert_eq!(request.in_space(), *allowed, "{request:?}");
+            seen.insert(listed(request));
+        }
+        assert_eq!(seen.len(), 36, "one row per variant at least");
+        // The new ops name `space`, or `system` where the person's side may ask.
+        assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
+        assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
+        assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
+        assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
+    }
+
+    /// The op's name; no wildcard, so a new variant fails to compile here
+    /// until it has a row in [`the_in_space_table`].
+    fn listed(request: &Request) -> &'static str {
+        match request {
+            Request::Hello { .. } => "hello",
+            Request::ListWindows => "list_windows",
+            Request::ListOutputs => "list_outputs",
+            Request::FocusWindow { .. } => "focus_window",
+            Request::CloseWindow { .. } => "close_window",
+            Request::MoveWindow { .. } => "move_window",
+            Request::MinimizeWindow { .. } => "minimize_window",
+            Request::RestoreWindow { .. } => "restore_window",
+            Request::Capture { .. } => "capture",
+            Request::Input { .. } => "input",
+            Request::PointerPosition => "pointer_position",
+            Request::HoldInput => "hold_input",
+            Request::ReleaseInput => "release_input",
+            Request::ReloadConfig => "reload_config",
+            Request::Lock => "lock",
+            Request::Logout => "logout",
+            Request::Unlock => "unlock",
+            Request::ListWorkspaces => "list_workspaces",
+            Request::SwitchWorkspace { .. } => "switch_workspace",
+            Request::MoveToWorkspace { .. } => "move_to_workspace",
+            Request::SetOutput { .. } => "set_output",
+            Request::Subscribe => "subscribe",
+            Request::MintGrant { .. } => "mint_grant",
+            Request::RevokeGrant { .. } => "revoke_grant",
+            Request::BindShortcuts { .. } => "bind_shortcuts",
+            Request::UnbindShortcuts { .. } => "unbind_shortcuts",
+            Request::ClipboardSerial => "clipboard_serial",
+            Request::ClipboardSnapshot => "clipboard_snapshot",
+            Request::ClipboardSet { .. } => "clipboard_set",
+            Request::ClipboardTaken { .. } => "clipboard_taken",
+            Request::ClipboardText => "clipboard_text",
+            Request::LaunchToken => "launch_token",
+            Request::CreateSpace { .. } => "create_space",
+            Request::DestroySpace { .. } => "destroy_space",
+            Request::ListSpaces => "list_spaces",
+            Request::Launch { .. } => "launch",
+        }
+    }
+
     /// A peer that answers hello and then nothing, and never reads again.
     #[cfg(unix)]
     fn silent_after_hello() -> (UnixStream, UnixStream, Token) {
         let (ours, mut theirs) = UnixStream::pair().unwrap();
         let token = Token::new("0".repeat(64)).unwrap();
-        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap() };
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![] };
         let reply = Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() };
         write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
         (ours, theirs, token)

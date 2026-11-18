@@ -393,7 +393,7 @@ impl Ede {
             if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                 c.token = Some(grant.token.clone());
             }
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id };
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: vec![] };
             return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
@@ -487,6 +487,8 @@ impl Ede {
                         let output = self.desk.space.outputs().find(|o| o.name() == name).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such output"))?;
                         crate::backend::capture_output(self, &output)
                     }
+                    // #EDE-126: named by the protocol, made by no compositor yet.
+                    CaptureTarget::Space { .. } => return Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
                         // frame (the taskbar's hover preview).
@@ -660,6 +662,9 @@ impl Ede {
                 }
                 json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
             }
+            // #EDE-126: named by the protocol, made by no compositor yet
+            // (`Hello::features` offers no `spaces`).
+            Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
         }
     }
 
