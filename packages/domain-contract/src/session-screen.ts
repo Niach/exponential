@@ -100,7 +100,9 @@ export function sessionScreen(input: SessionScreenInput): SessionScreen {
   const labels = fixture.copy.tabs as Record<string, string>
   const counts = input.counts as unknown as Record<string, number>
   const empty = (id: string) => COUNTED.includes(id) && !((counts[id] ?? 0) > 0)
-  const shown = input.wide && !spec.wideChatTab ? spec.tabs.filter((id) => id !== `chat`) : spec.tabs
+  // #FEED-271: a kind with ONE tab (an agent, the Assistant) shows no strip.
+  const shown =
+    spec.tabs.length <= 1 ? [] : input.wide && !spec.wideChatTab ? spec.tabs.filter((id) => id !== `chat`) : spec.tabs
   const tabs = shown.map((id) => {
     const value = COUNTED.includes(id) ? (counts[id] ?? 0) : 0
     return { id: id as SessionScreenTab, label: labels[id] ?? id, count: value > 0 ? value : null, disabled: empty(id) }
