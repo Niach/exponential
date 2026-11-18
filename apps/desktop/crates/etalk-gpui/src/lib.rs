@@ -21,6 +21,7 @@ pub mod voice_overlay;
 pub mod voice_tray;
 
 pub use host::{
+    CallSessionJob,
     AgentVoice, Brand, CallConnection, CallLink, CallLinkEvent, DialConnection, DialError, DialLink, DialLinkEvent, Notice, Outgoing, SendError,
     SendJob, Sent, SignedIn, Surface, TalkAgent, TalkDesktop, TalkDevice, TalkHost, TalkIcon, TalkMessage, VoiceWrite, DIAL_DOWN_RATE,
 };
