@@ -55,6 +55,9 @@ pub struct Client {
     /// The surface our keyboard is on, and the keys it received (evdev codes).
     pub keyboard_focus: Option<wl_surface::WlSurface>,
     pub keys: Vec<u32>,
+    /// The keys it was told were let go, and how often it was sent a keymap.
+    pub key_releases: Vec<u32>,
+    pub keymaps: u32,
     /// The depressed modifiers of every `modifiers` event (Shift = 1).
     pub modifiers: Vec<u32>,
     /// What our pointer heard: enters, motions, and each button with its state.
@@ -562,7 +565,11 @@ impl Dispatch<wl_output::WlOutput, ()> for Client {
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
-            wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => state.keymap = Some((format as u32, fd, size)),
+            wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => {
+                state.keymaps += 1;
+                state.keymap = Some((format as u32, fd, size));
+            }
+            wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Released), .. } => state.key_releases.push(key),
             wl_keyboard::Event::Enter { surface, .. } => state.keyboard_focus = Some(surface),
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),

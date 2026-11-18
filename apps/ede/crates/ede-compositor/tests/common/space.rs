@@ -35,6 +35,12 @@ pub fn person_key(h: &Harness, code: u32) {
     });
 }
 
+/// The person holds a key down, or lets it go.
+pub fn person_key_state(h: &Harness, code: u32, pressed: bool) {
+    use smithay::backend::input::KeyState;
+    h.with(move |ede| ede.keyboard_key((code + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, 0));
+}
+
 /// Every closed space's seat is gone from the compositor.
 pub fn spaces_settled(h: &Harness) {
     let deadline = Instant::now() + Duration::from_secs(5);
