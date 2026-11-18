@@ -873,6 +873,15 @@ pub(crate) fn take_dev_skills_picker() -> bool {
 /// composer once (the first page composer with a team and synced shapes):
 /// `Explain #APP` opens the `#` search list at the caret, prefilled with
 /// `APP` (web's `typeIssueRef`, the `search-list` capture).
+/// #EDE-129 (DEV-ONLY) — `EXP_DEV_FIND=<query>` opens a session view's
+/// find bar on that query once (the find-in-chat pictures).
+pub(crate) fn take_dev_find() -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    let text = std::env::var("EXP_DEV_FIND").ok().filter(|text| !text.is_empty())?;
+    (!TAKEN.swap(true, Ordering::SeqCst)).then_some(text)
+}
+
 pub(crate) fn take_dev_composer_text() -> Option<String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     static TAKEN: AtomicBool = AtomicBool::new(false);

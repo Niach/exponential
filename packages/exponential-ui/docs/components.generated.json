@@ -1114,7 +1114,7 @@
           "name": "highlight",
           "type": "highlight",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Marks a search term's matches."
         },
@@ -1237,7 +1237,7 @@
           "name": "highlight",
           "type": "highlight",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Marks a search term's matches."
         },
@@ -7853,7 +7853,7 @@
           "name": "highlight",
           "type": "highlight",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Marks a search term in title and subtitle."
         }
@@ -8056,7 +8056,7 @@
           "name": "highlight",
           "type": "highlight",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Marks a search term's matches."
         }

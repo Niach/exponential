@@ -209,6 +209,12 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
 /** OPEN: what the store holds of `sessionId` on the device it is on now,
  *  through the REPLAY TAIL; null = nothing (or no store here). */
 export async function openStoredTail(sessionId: string): Promise<OpenedTail | null> {
+  // DEV ONLY (never in a production build): a capture's seeded tail, the
+  // transcript a find-in-chat picture photographs (#EDE-129).
+  if (import.meta.env.DEV) {
+    const seeded = (globalThis as { __expDevStoredTail?: Record<string, OpenedTail> }).__expDevStoredTail?.[sessionId]
+    if (seeded) return seeded
+  }
   const row = sessionRow(sessionId)
   if (!account || !row?.deviceId) return null
   const tail = await within(

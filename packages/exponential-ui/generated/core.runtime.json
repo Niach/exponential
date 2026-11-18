@@ -1849,7 +1849,8 @@
         },
         "highlight": {
           "type": "object",
-          "shape": "highlight"
+          "shape": "highlight",
+          "bindable": true
         },
         "style": {
           "type": "style"
@@ -1906,7 +1907,8 @@
         },
         "highlight": {
           "type": "object",
-          "shape": "highlight"
+          "shape": "highlight",
+          "bindable": true
         },
         "style": {
           "type": "style"
@@ -4829,7 +4831,8 @@
         },
         "highlight": {
           "type": "object",
-          "shape": "highlight"
+          "shape": "highlight",
+          "bindable": true
         }
       },
       "events": [
@@ -4921,7 +4924,8 @@
         },
         "highlight": {
           "type": "object",
-          "shape": "highlight"
+          "shape": "highlight",
+          "bindable": true
         }
       },
       "events": [

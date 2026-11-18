@@ -799,7 +799,7 @@ fn guide_menu(model: &ChatModel, link: ChatMenuTarget, cx: &App) -> Option<AnyEl
     let member = chat_member(model, cx);
     // #EXP-1834: Link or file an issue leads (a member, on every tab).
     let screen_entries = crate::chat_actions::chat_screen_entries(&root_id, member, cx);
-    let chat = !screen_entries.is_empty();
+    let _chat = !screen_entries.is_empty();
     let pull = model.pull();
     // #EXP-1611: the PR's synced check rows lead the menu (any viewer).
     let checks = pull.map(|pull| crate::pr_checks::checks_of(&pull.id, cx)).unwrap_or_default();
@@ -814,9 +814,7 @@ fn guide_menu(model: &ChatModel, link: ChatMenuTarget, cx: &App) -> Option<AnyEl
             merge_menu_entries(pull.state.as_deref(), member, owner, checks.len(), Some(pr_merge_state(pull)))
         })
         .unwrap_or_default();
-    if entries.is_empty() && !chat {
-        return None;
-    }
+    // #EDE-129: Search in chat makes the menu (whatever else it lists).
     let pull_request_id = pull.map(|pull| pull.id.clone()).unwrap_or_default();
     // The batch line names the issues the PR closes beyond one.
     let others = crate::pr_checks::linked_issue_count(&pull_request_id, cx).saturating_sub(1);
@@ -833,10 +831,11 @@ fn guide_menu(model: &ChatModel, link: ChatMenuTarget, cx: &App) -> Option<AnyEl
                     &screen_entries,
                     on_entry,
                     Some(&link),
+                    Some(root_id.clone()),
                     window,
                     cx,
                 );
-                if chat && !entries.is_empty() {
+                if !entries.is_empty() {
                     menu = menu.separator();
                 }
                 let copy = &MERGE_TRAIN.copy.menu;
@@ -3171,10 +3170,22 @@ pub(crate) fn link_then_menu_items(
     entries: &[domain::session_screen::SessionScreenMenuEntry],
     on_entry: crate::chat_actions::OnMenuEntry,
     link: Option<&ChatMenuTarget>,
+    find_session: Option<String>,
     window: &mut Window,
     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
     use domain::session_screen::{session_screen_menu_icon, session_screen_menu_label, SessionScreenMenuEntry};
+    // #EDE-129 (find-in-chat.json `menuCases`): Search in chat leads, in its
+    // own group, with its shortcut hint.
+    menu = menu.item(crate::controls::pointer_menu_item(
+        Some(registry::NAV_SEARCH),
+        domain::find_in_chat::copy().menu.clone(),
+        |cx| Some(crate::steer_viewer::find_shortcut_hint(cx)),
+        move |window, cx| crate::steer_viewer::request_find(find_session.clone(), window, cx),
+    ));
+    if !entries.is_empty() {
+        menu = menu.separator();
+    }
     let mut rest = entries;
     if let (Some(SessionScreenMenuEntry::LinkIssue), Some(target)) = (entries.first(), link) {
         let target = target.clone();
