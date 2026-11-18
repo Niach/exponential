@@ -50,6 +50,7 @@ function sealDeps(): SealDeps {
     },
     sendTarget: (target) => trpc.sessions.sendTarget.query(target, quiet),
     publicKey: async (rootId) => (await trpc.sessionKeys.publicKeys.query({ rootIds: [rootId] }, quiet))[0],
+    requestKey: (rootId) => trpc.sessionKeys.requestKey.mutate({ rootId }, quiet),
     awaitHolder: awaitKeyHolder,
   }
 }

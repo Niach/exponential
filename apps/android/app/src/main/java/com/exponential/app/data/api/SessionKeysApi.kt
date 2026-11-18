@@ -55,6 +55,13 @@ data class PublicKeysInput(val rootIds: List<String>)
 @Serializable
 data class TreePublicKey(val rootId: String, val epoch: Int, val publicKey: String)
 
+/** #EXP-1960 `sessionKeys.requestKey`: `state` = keyed | clear | requested | noHost. */
+@Serializable
+data class RequestKeyInput(val rootId: String)
+
+@Serializable
+data class RequestKeyResult(val state: String, val epoch: Int? = null, val publicKey: String? = null)
+
 const val PENDING_MAX = 200
 
 @Singleton
@@ -97,5 +104,15 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
             input = PublicKeysInput(rootIds),
             inputSerializer = PublicKeysInput.serializer(),
             outputSerializer = ListSerializer(TreePublicKey.serializer()),
+        )
+
+    /** #EXP-1960: a keyless tree this install may not key: its devices key it. */
+    suspend fun requestKey(accountId: String, rootId: String): RequestKeyResult =
+        trpc.mutation(
+            accountId,
+            path = "sessionKeys.requestKey",
+            input = RequestKeyInput(rootId),
+            inputSerializer = RequestKeyInput.serializer(),
+            outputSerializer = RequestKeyResult.serializer(),
         )
 }

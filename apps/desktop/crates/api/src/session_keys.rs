@@ -145,6 +145,30 @@ pub fn public_keys(trpc: &TrpcClient, root_ids: &[String]) -> Result<Vec<RootKey
     trpc.query_with_input("sessionKeys.publicKeys", &RootsInput { root_ids })
 }
 
+/// #EXP-1960: `sessionKeys.requestKey`'s answer (`clearTree.requestKeyCases`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum RequestedKey {
+    #[serde(rename_all = "camelCase")]
+    Keyed { epoch: u32, public_key: String },
+    Clear,
+    Requested,
+    NoHost,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RootInput<'a> {
+    root_id: &'a str,
+}
+
+/// `sessionKeys.requestKey`: a keyless tree this install may not key asks
+/// its devices to key it (a `tree_key` command each). NOT_FOUND (404) =
+/// the caller may not see the root.
+pub fn request_key(trpc: &TrpcClient, root_id: &str) -> Result<RequestedKey, ApiError> {
+    trpc.mutation("sessionKeys.requestKey", &RootInput { root_id })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +199,15 @@ mod tests {
         .unwrap();
         assert_eq!(rows[0].epoch, 2);
         assert_eq!(rows[0].target_install_id, "t");
+    }
+
+    #[test]
+    fn request_key_answers_parse() {
+        let keyed: RequestedKey = serde_json::from_str(r#"{"state":"keyed","epoch":1,"publicKey":"k"}"#).unwrap();
+        assert_eq!(keyed, RequestedKey::Keyed { epoch: 1, public_key: "k".into() });
+        let requested: RequestedKey = serde_json::from_str(r#"{"state":"requested"}"#).unwrap();
+        assert_eq!(requested, RequestedKey::Requested);
+        let none: RequestedKey = serde_json::from_str(r#"{"state":"noHost"}"#).unwrap();
+        assert_eq!(none, RequestedKey::NoHost);
     }
 }

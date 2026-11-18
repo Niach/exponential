@@ -37,8 +37,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use api::error::ApiError;
-use api::session_keys::{CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RootKey};
-use coding::sealing::{self, Keyring, SealError, SealService};
+use api::session_keys::{CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RequestedKey, RootKey};
+use coding::sealing::{self, CreateFailure, KeylessStep, Keyring, RequestKeyAnswer, SealError, SealService};
 use enet_core::sealed::{generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
 use enet_core::PushKeypair;
 
@@ -56,6 +56,10 @@ pub trait KeyApi: Send + Sync + 'static {
     fn pending(&self, install_id: &str) -> Result<Vec<PendingWrap>, ApiError>;
     fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError>;
     fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError>;
+    /// #EXP-1960: `sessionKeys.requestKey` (default: no answer).
+    fn request_key(&self, _root_id: &str) -> Result<RequestedKey, ApiError> {
+        Err(ApiError::Transport { message: "requestKey unsupported".into(), offline: false })
+    }
 }
 
 impl KeyApi for api::TrpcClient {
@@ -73,6 +77,9 @@ impl KeyApi for api::TrpcClient {
     }
     fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
         api::session_keys::public_keys(self, root_ids)
+    }
+    fn request_key(&self, root_id: &str) -> Result<RequestedKey, ApiError> {
+        api::session_keys::request_key(self, root_id)
     }
 }
 
@@ -268,7 +275,24 @@ impl KeyHolder {
             public_key: key.public_key(),
             wraps: vec![InstallWrap { install_id: self.inner.install_id.clone(), wrapped: own }],
         };
-        match self.inner.api.create(&input) {
+        // #EXP-1960 (`keylessCases`): a blip (no answer, a 5xx, a 429) is the
+        // same create again, `CREATE_RETRY` x attempt later, up to `CREATE_ATTEMPTS`.
+        let mut attempt = 1;
+        let answer = loop {
+            let answer = self.inner.api.create(&input);
+            let failure = match &answer {
+                Err(ApiError::Http { status, message }) => Some(sealing::create_failure(Some(*status), message)),
+                Err(ApiError::Transport { message, .. }) => Some(sealing::create_failure(None, message)),
+                _ => None,
+            };
+            if failure == Some(CreateFailure::Transient) && sealing::keyless_step(CreateFailure::Transient, attempt, false) == KeylessStep::Retry {
+                std::thread::sleep(sealing::CREATE_RETRY * attempt);
+                attempt += 1;
+                continue;
+            }
+            break answer;
+        };
+        match answer {
             Ok(()) => {
                 self.inner.keyring.insert_secret(root_id, epoch, key.secret);
                 self.inner.keyring.set_current(root_id, epoch, key.public);
@@ -404,6 +428,26 @@ impl SealService for KeyHolder {
         }
     }
 
+    fn request_key(&self, root_id: &str) -> RequestKeyAnswer {
+        match self.inner.api.request_key(root_id) {
+            Ok(RequestedKey::Keyed { epoch, public_key }) => match public_key_from_b64(&public_key) {
+                Ok(public) => RequestKeyAnswer::Keyed(epoch, public),
+                Err(_) => RequestKeyAnswer::Error,
+            },
+            Ok(RequestedKey::Clear) => RequestKeyAnswer::Clear,
+            Ok(RequestedKey::Requested) => {
+                log::info!("seal-keys: asked the devices of {root_id} to key it");
+                RequestKeyAnswer::Requested
+            }
+            Ok(RequestedKey::NoHost) => RequestKeyAnswer::NoHost,
+            Err(ApiError::Http { status: 404, .. }) => RequestKeyAnswer::NotFound,
+            Err(err) => {
+                log::debug!("seal-keys: sessionKeys.requestKey {root_id} failed: {err}");
+                RequestKeyAnswer::Error
+            }
+        }
+    }
+
     fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
         let readers = lock(&self.inner.device_readers).clone();
         readers.map(|readers| readers(target_device)).unwrap_or_default()
@@ -451,6 +495,11 @@ mod tests {
         wraps: Mutex<Vec<(String, u32, String, String)>>,
         creates: Mutex<Vec<(String, u32, String)>>,
         attempts: Mutex<u32>,
+        /// #EXP-1960: `create` answers this many 5xx first.
+        blips: Mutex<u32>,
+        /// `requestKey`'s answer, and the roots asked.
+        request: Option<RequestedKey>,
+        requested: Mutex<Vec<String>>,
     }
 
     impl FakeKeys {
@@ -462,6 +511,13 @@ mod tests {
     impl KeyApi for FakeKeys {
         fn create(&self, input: &CreateKey) -> Result<(), ApiError> {
             *self.attempts.lock().unwrap() += 1;
+            {
+                let mut blips = self.blips.lock().unwrap();
+                if *blips > 0 {
+                    *blips -= 1;
+                    return Err(ApiError::Http { status: 502, message: "Bad Gateway".into() });
+                }
+            }
             if self.strangers.contains(&input.install_id) {
                 return Err(ApiError::Http { status: 404, message: "Session not found".into() });
             }
@@ -543,6 +599,44 @@ mod tests {
                 .filter(|(root, _)| root_ids.contains(root))
                 .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone() })
                 .collect())
+        }
+        fn request_key(&self, root_id: &str) -> Result<RequestedKey, ApiError> {
+            self.requested.lock().unwrap().push(root_id.to_string());
+            self.request.clone().ok_or(ApiError::Http { status: 404, message: "Session not found".into() })
+        }
+    }
+
+    /// #EXP-1960: a 5xx on create is the same create again, a few times.
+    #[test]
+    fn a_blip_on_create_is_retried_then_keyed() {
+        let device = PushKeypair::generate();
+        let api = Arc::new(FakeKeys { blips: Mutex::new(1), ..FakeKeys::with_readers(vec![("device".into(), device.public())]) });
+        let holder = KeyHolder::new("device".into(), &device, api.clone(), Keyring::in_memory());
+        assert_eq!(holder.ensure_key("root").unwrap().0, 1);
+        assert_eq!(*api.attempts.lock().unwrap(), 2);
+        // Never answering: the attempts run out, a NoKey (the send fails), no wait.
+        let api = Arc::new(FakeKeys { blips: Mutex::new(9), ..Default::default() });
+        let holder = KeyHolder::new("device".into(), &device, api.clone(), Keyring::in_memory());
+        assert!(matches!(holder.ensure_key("root"), Err(SealError::NoKey(_))));
+        assert_eq!(*api.attempts.lock().unwrap(), sealing::CREATE_ATTEMPTS);
+    }
+
+    /// #EXP-1960: `requestKey`'s answers, read for the writer.
+    #[test]
+    fn request_key_answers_map_to_the_writer_steps() {
+        let phone = PushKeypair::generate();
+        let theirs = generate_tree_key();
+        for (answer, want) in [
+            (Some(RequestedKey::Requested), RequestKeyAnswer::Requested),
+            (Some(RequestedKey::NoHost), RequestKeyAnswer::NoHost),
+            (Some(RequestedKey::Clear), RequestKeyAnswer::Clear),
+            (Some(RequestedKey::Keyed { epoch: 1, public_key: theirs.public_key() }), RequestKeyAnswer::Keyed(1, theirs.public)),
+            (None, RequestKeyAnswer::NotFound),
+        ] {
+            let api = Arc::new(FakeKeys { request: answer, ..Default::default() });
+            let holder = KeyHolder::new("phone".into(), &phone, api.clone(), Keyring::in_memory());
+            assert_eq!(holder.request_key("root"), want);
+            assert_eq!(api.requested.lock().unwrap().as_slice(), ["root"]);
         }
     }
 
