@@ -143,7 +143,7 @@ struct PlanPageBody: View {
                 aspect: aspect(pictures.first),
                 onOpen: { index in openLightbox(at: pictures[index], plan: plan) }
             ) { index in
-                PlanPictureImage(src: pictures[index].src)
+                PlanPictureImage(src: pictures[index].src) { openLightbox(at: pictures[index], plan: plan) }
             }
         }
     }
@@ -347,10 +347,21 @@ struct PlanQuestionsPanel: View {
 /// One plan picture fitted (contain) on black through the attachment loader.
 struct PlanPictureImage: View {
     let src: String
+    /// A tap opens THE plan lightbox.
+    let onOpen: () -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var image: UIImage?
+
+    private var loader: AttachmentImageLoader {
+        AttachmentImageLoader(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient,
+            pendingImages: [:]
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -362,17 +373,16 @@ struct PlanPictureImage: View {
                 DesignTokens.Palette.muted
             }
         }
+        // #EXP-1949: THE image menu once the picture rendered; the tap opens.
+        .imageActionsMenu(enabled: image != nil, onTap: onOpen) {
+            if let tile = SpecimenPicture.image(src), let png = tile.pngData() { return png }
+            return try await loader.data(ImageActions.originalSrc(src))
+        }
         .task(id: src) {
             if let tile = SpecimenPicture.image(src) {
                 image = tile
                 return
             }
-            let loader = AttachmentImageLoader(
-                baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-                accountId: accountId,
-                httpClient: deps.httpClient,
-                pendingImages: [:]
-            )
             image = try? await loader.load(src)
         }
     }

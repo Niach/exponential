@@ -46,6 +46,72 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls",
+    date: "2026-11-18",
+    title: "Encrypted chats, a local copy of your chats, and steadier calls",
+    summary: "Desktop and CLI 0.14.169: chats are end-to-end encrypted by default, desktop and web keep a local copy of your chats, calls and voice are steadier, and computer use pastes and copies again in eDE 0.2.28.",
+    body: r##"- **Chats are encrypted by default**: every new chat is end-to-end encrypted and shows a lock. Devices older than 0.14.96 can't send plans or questions into an encrypted chat, so please update them.
+- **No unencrypted fallback on the web**: a browser that can't keep an encryption key (no eNet install, or storage blocked) now shows a failed-send message instead of sending the message unencrypted.
+- **A local copy of your chats**: desktop and web keep a local, searchable copy of your chats, so a chat opens right away, even offline.
+- **Sign out deletes the local copy**: signing out on purpose deletes it on desktop, in the CLI (`exponential logout`) and on the web. An expired session or switching accounts keeps it. One edge: logging out in the CLI while the desktop app runs on the same account leaves the app writing to the deleted file until it restarts.
+- **Steadier calls and voice**: calls and push to talk connect and end more reliably, and calls are sealed end to end where the server asks for it.
+- **Steadier computer use**: computer use on X11, Wayland and eDE holds and releases your input more reliably.
+- **Paste and copy in eDE**: with eDE 0.2.28, computer use pastes and copies through the clipboard again instead of typing the text."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_324: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-phones-copy-image-and-encrypted-chats",
+    date: "2026-11-18",
+    title: "Copy image on phones, and chats encrypted by default",
+    summary: "Android 0.14.150 and iOS 0.14.138: long-press a picture to copy or share it, pictures from other websites show as links, new chats are encrypted by default, and calls hold up better.",
+    body: r##"- **Copy image and Share**: long-press a picture in a comment, chat, plan, result or the viewer to copy it or share it.
+- **Pictures from other websites**: a picture or video from another website shows as a link and is never loaded.
+- **Chats encrypted by default**: new chats are encrypted; a chat's mark shows when it is shared with the team or not encrypted.
+- **Calls**: on Android a call follows a headset you connect mid-call and keeps going when you leave the app while it rings; on both phones a call whose connection died says so instead of hanging.
+- **Computer use** follows the device's switch in the + menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_323: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-copy-image-android",
+    date: "2026-11-18",
+    title: "Copy image on Android",
+    summary: "Long-press a picture on Android to copy it or share it. A picture from another website shows as a link and is never loaded.",
+    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_322: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-copy-image-ios",
+    date: "2026-11-18",
+    title: "Copy image on iOS",
+    summary: "Long-press a picture on iOS to copy it or share it. A picture from another website shows as a link and is never loaded.",
+    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
+- **Share**: the same menu shares the picture as a PNG file. The share sheet also saves it to Photos.
+- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_321: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-copy-image-on-the-web",
+    date: "2026-11-18",
+    title: "Copy image on the web",
+    summary: "Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.",
+    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
+- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
+- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_320: ChangelogEntry = ChangelogEntry {
     id: "2026-11-17-chats-encrypted-by-default",
     date: "2026-11-17",
     title: "Chats are encrypted by default",

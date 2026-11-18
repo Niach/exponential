@@ -26,7 +26,9 @@ import com.exponential.app.R
  * runs, so the microphone keeps capturing with the screen off or the app in
  * the background. Its one ongoing notification is titled with the call copy
  * (`Call {agent}`) and opens the app; [VoiceCallController] starts it at
- * `call_ready` and stops it on every end.
+ * the tap (#EXP-1942: the app is in front, so the microphone stays usable
+ * when the host answers with another app in front) and stops it on every
+ * end.
  *
  * #ERR-11, #EXP-1940: it is started with a plain `startService` (allowed
  * exactly when the microphone type is: the app in front), never
@@ -124,8 +126,9 @@ internal class CallServiceLink(private val host: Host) {
 
     @Volatile private var onRefused: (() -> Unit)? = null
 
+    /** False also while a call holds the service (#EXP-1942): one call, one service. */
     fun start(title: String, onRefused: () -> Unit): Boolean {
-        if (!host.visible() || !host.microphoneGranted()) return false
+        if (this.onRefused != null || !host.visible() || !host.microphoneGranted()) return false
         this.onRefused = onRefused
         return runCatching { host.startService(title) }.onFailure { this.onRefused = null }.isSuccess
     }

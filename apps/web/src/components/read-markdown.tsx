@@ -17,6 +17,7 @@ import { isOwnAttachmentHref } from "@/lib/markdown-media"
 import { createMentionRegExp } from "@/lib/mention-refs"
 import { isAudioContentType, isVideoContentType } from "@/lib/storage/issue-attachments"
 import { ownPrivateHosts } from "@exponential_app/eui/web"
+import { imageSource, imageSourceAllowed } from "@exp/domain-contract/image-actions"
 
 // #VAPP-258: every read-only Markdown of the web app (descriptions, comments,
 // chats, plans, results) is genUI's Markdown (`AppMarkdown`, @exp/ui) with
@@ -219,6 +220,11 @@ export function useReadMarkdownHost(options: MarkdownOptions, agentProse: boolea
       icons: appIcons,
       markdownOptions: { breaks, density, streaming, imageMaxHeight, selectable },
       media: { baseUrl: origin, allowPrivate },
+      // #EXP-1945 (image-actions.json `imageSource`): only our attachments,
+      // data and local pictures load; another website's is a link in the
+      // picture's place (the app's link path), anything else its alt.
+      mediaRequest: (src) => (imageSourceAllowed(src, origin) ? { url: new URL(src, origin).href, headers: {} } : null),
+      imageSource: (src, alt) => imageSource(src, alt, origin),
       urls: { baseUrl: origin, allowPrivate, ...(team ? { linkBase: `/t/${encodeURIComponent(team)}` } : {}) },
       imageSize: (src) => {
         const id = attachmentIdFromSrc(src)

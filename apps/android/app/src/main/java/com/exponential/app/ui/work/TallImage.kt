@@ -50,7 +50,7 @@ interface TallImageEntryPoint {
     fun authRepository(): AuthRepository
 }
 
-private fun tallImageEntryPoint(context: Context): TallImageEntryPoint =
+internal fun tallImageEntryPoint(context: Context): TallImageEntryPoint =
     EntryPointAccessors.fromApplication(context.applicationContext, TallImageEntryPoint::class.java)
 
 /** The in-memory byte ceiling: a few originals, sized by BYTES not count. */
@@ -69,7 +69,7 @@ private val tallImageBytes = object : LruCache<String, ByteArray>(TALL_IMAGE_MEM
 private fun tallImageCacheFile(context: Context, attachmentId: String): File =
     File(File(File(context.cacheDir, "attachments"), attachmentId), "original")
 
-private suspend fun loadTallImageBytes(context: Context, attachmentId: String): ByteArray {
+internal suspend fun loadTallImageBytes(context: Context, attachmentId: String): ByteArray {
     tallImageBytes.get(attachmentId)?.let { return it }
     return withContext(Dispatchers.IO) {
         val file = tallImageCacheFile(context, attachmentId)

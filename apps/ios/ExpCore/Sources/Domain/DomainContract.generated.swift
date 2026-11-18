@@ -174,6 +174,12 @@ public enum DomainContract {
     public static let composerUiChatPlaceholder: String = "Ask the agent…"
     public static let composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     public static let composerUiDialogTitle: String = "Start a session"
+    public static let imageActionsCopyImage: String = "Copy image"
+    public static let imageActionsShare: String = "Share"
+    public static let imageActionsCopied: String = "Image copied"
+    public static let imageActionsCopyFailed: String = "Couldn't copy image"
+    public static let imageActionsShareFailed: String = "Couldn't share image"
+    public static let imageActionsLinkHost: String = "Image: {host}"
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

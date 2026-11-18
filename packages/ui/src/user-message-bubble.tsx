@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react"
-import { tailRules } from "@exponential_app/eui/web"
+import { imageMenuOwns, imageMenuProps, tailRules } from "@exponential_app/eui/web"
 import type { DeliveryState } from "@exp/domain-contract/message-delivery"
 import { MESSAGE_DELIVERY_TEST_IDS } from "@exp/domain-contract/message-delivery"
 import type { TranscriptRowLayout, TranscriptSender } from "@exp/domain-contract/transcript-grouping"
@@ -190,12 +190,15 @@ export function MessageBubble({
   }
   const menuGestures = hasMenu
     ? {
+        // #EXP-1945 (image-actions.json `pressMenu`): a press on a ready
+        // picture inside is the picture's (THE image menu), never the bubble's.
         onContextMenu: (event: MouseEvent) => {
+          if (imageMenuOwns(event.target)) return
           event.preventDefault()
           setMenuOpen(true)
         },
         onPointerDown: (event: PointerEvent) => {
-          if (event.pointerType !== `touch`) return
+          if (event.pointerType !== `touch` || imageMenuOwns(event.target)) return
           clearPress()
           pressTimer.current = window.setTimeout(() => setMenuOpen(true), LONG_PRESS_MS)
         },
@@ -229,6 +232,7 @@ export function MessageBubble({
           alt=""
           loading="lazy"
           data-slot="user-message-thumb"
+          {...imageMenuProps(imageSrc)}
           className="mt-2 h-20 w-auto rounded-md border border-glass-stroke-card object-cover"
         />
       ) : null}

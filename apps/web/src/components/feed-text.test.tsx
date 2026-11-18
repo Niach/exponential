@@ -58,4 +58,17 @@ describe(`read-markdown helpers`, () => {
     expect(attachmentImageSize(`/api/attachments/a?w=400`, { width: 800, height: 400 })).toEqual({ width: 400, height: 200 })
     expect(attachmentImageSize(`/api/attachments/a`, undefined)).toBeNull()
   })
+
+  // #EXP-1945 (image-actions.json `imageSource`): another website's picture
+  // is never fetched: THE link in its place (alt, else `Image: <host>`).
+  it(`an external picture is a link with no <img>; our attachment loads`, () => {
+    const { container } = render(<FeedText text={"![A cat](https://example.com/cat.png)\n\n![](http://evil.test/x.png)\n\n![shot](/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90)"} ariaLabel="message" />)
+    const imgs = [...container.querySelectorAll(`img`)].map((img) => img.getAttribute(`src`))
+    expect(imgs).toEqual([`${window.location.origin}/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90`])
+    const links = [...container.querySelectorAll(`a`)].map((a) => [a.getAttribute(`href`), a.textContent])
+    expect(links).toEqual([
+      [`https://example.com/cat.png`, `A cat`],
+      [`http://evil.test/x.png`, `Image: evil.test`],
+    ])
+  })
 })

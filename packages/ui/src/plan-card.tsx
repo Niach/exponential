@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useRef, type ReactNode } from "react"
+import { imageSource, imageSourceAllowed } from "@exp/domain-contract/image-actions"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
@@ -111,10 +112,11 @@ const CARD_ICONS: IconMap = (name: string) => {
   return ICON_COMPONENTS[(concept ?? name) as IconName]
 }
 
-/** Whether a surface media `src` may load: an own attachment (relative) or
- *  an https url (desktop `card_media_allowed`). */
-export function cardMediaAllowed(src: string): boolean {
-  return src.startsWith(`/api/attachments/`) || src.startsWith(`https://`)
+/** Whether a surface media `src` may load (#EXP-1945, image-actions.json
+ *  `imageSource`): our attachment, a data image or a local source; another
+ *  website's never loads (its Image is a link instead). */
+export function cardMediaAllowed(src: string, origin: string = typeof window === `undefined` ? `http://localhost` : window.location.origin): boolean {
+  return imageSourceAllowed(src, origin)
 }
 
 /** #EXP-1674: what the app gives a card: `~/x`'s base (the card's team), THE
@@ -148,7 +150,9 @@ export function planCardHost(
     media: { baseUrl: origin },
     // #EXP-1674: https, plus the instance's own scheme (a local http stack).
     urls: { baseUrl: origin, schemes: origin.startsWith(`http://`) ? [`https`, `http`] : [`https`], ...(links?.linkBase ? { linkBase: links.linkBase } : {}) },
-    mediaRequest: (src) => (cardMediaAllowed(src) ? { url: new URL(src, origin).href, headers: {} } : null),
+    mediaRequest: (src) => (cardMediaAllowed(src, origin) ? { url: new URL(src, origin).href, headers: {} } : null),
+    // #EXP-1945: another website's picture is a link in its place.
+    imageSource: (src, alt) => imageSource(src, alt, origin),
     // No transport: events reach nobody, every host function is denied
     // (`set` runs inside the renderer). Links go through the app's opener.
     onFunctionCall: () => undefined,

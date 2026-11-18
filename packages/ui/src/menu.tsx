@@ -36,6 +36,7 @@ import {
 } from "./sheet"
 import { Switch } from "./switch"
 import { useIsMobile } from "./use-mobile"
+import { contentImageSrc, readyContentImage } from "@exponential_app/eui/web"
 
 // UI cleanup batch — THE menu: ONE data-driven component for every action
 // menu on the web (the issue context menu, the issue `…` menu, the action
@@ -1031,6 +1032,10 @@ export interface MenuTarget {
   kind: string
   id: string
   from?: string
+  /** #EXP-1945 (image-actions.json `gestures`): what opened it: a mouse
+   *  right-click (or the context-menu key) = `pointer`, a touch long-press
+   *  (or a touch `contextmenu`) = `touch`. */
+  input: `pointer` | `touch`
   /** The element the gesture landed on; focus returns here on close. */
   origin: HTMLElement | null
   anchor: MenuAnchor
@@ -1046,9 +1051,24 @@ function hitOf(element: HTMLElement): MenuHit {
   }
 }
 
+/** #EXP-1945 (image-actions.json `pressMenu`): the kind a READY content
+ *  picture answers as (`readyContentImage`: genUI's Image / ZoomableImage /
+ *  Markdown images and every `imageMenuProps` picture); its id = the src to
+ *  copy. A host that does not build `image` leaves it alone (never its
+ *  own menu around it); a picture still loading or failed is no hit, so the
+ *  press falls through to the element's own menu. */
+export const IMAGE_MENU_KIND = `image`
+
+function imageHit(target: EventTarget | null): MenuHit | null {
+  const img = readyContentImage(target)
+  return img ? { element: img, kind: IMAGE_MENU_KIND, id: contentImageSrc(img) } : null
+}
+
 /** The opted-in element the event landed in, innermost first (a chip inside
- *  a row wins over the row). */
+ *  a row wins over the row; a ready picture over both). */
 export function findMenuElement(target: EventTarget | null): MenuHit | null {
+  const image = imageHit(target)
+  if (image) return image
   if (!(target instanceof Element)) return null
   const element = target.closest<HTMLElement>(`[${MENU_ID_ATTR}]`)
   return element ? hitOf(element) : null
@@ -1107,13 +1127,14 @@ function isRootTarget(target: EventTarget | null): boolean {
   return target === document.documentElement || target === document.body
 }
 
-function targetOf(hit: MenuHit, point: { x: number; y: number }): MenuTarget {
+function targetOf(hit: MenuHit, point: { x: number; y: number }, input: MenuTarget[`input`]): MenuTarget {
   const rect = hit.element.getBoundingClientRect()
   const atPointer = insideRect(rect, point.x, point.y)
   return {
     kind: hit.kind,
     id: hit.id,
     ...(hit.from ? { from: hit.from } : {}),
+    input,
     origin: hit.element,
     anchor: atPointer
       ? { x: point.x, y: point.y, width: 0, height: 0 }
@@ -1176,9 +1197,24 @@ export function useMenuGestures(
       document.addEventListener(`click`, onClick, { capture: true })
     }
 
-    const openFromContextMenu = (hit: MenuHit, point: { x: number; y: number }) => {
-      onOpenRef.current(targetOf(hit, point))
+    const openFromContextMenu = (hit: MenuHit, point: { x: number; y: number }, event: MouseEvent) => {
+      const pointerType = (event as PointerEvent).pointerType
+      onOpenRef.current(targetOf(hit, point, pointerType === `touch` || pointerType === `pen` ? `touch` : `pointer`))
       swallowClickTail(hit.element)
+    }
+
+    // #EXP-1945: a right-click (or a touch browser's `contextmenu`) on a
+    // ready picture opens the image menu FIRST, in the capture phase, so the
+    // element around it (a message bubble, a genUI context Menu, another
+    // host's row) never sees it: never merged with its menu.
+    const onImageContextMenu = (event: MouseEvent) => {
+      if (event.defaultPrevented || !acceptsRef.current(IMAGE_MENU_KIND)) return
+      const hit = imageHit(event.target)
+      if (!hit) return
+      clearPress()
+      event.preventDefault()
+      event.stopPropagation()
+      openFromContextMenu(hit, { x: event.clientX, y: event.clientY }, event)
     }
 
     const onContextMenu = (event: MouseEvent) => {
@@ -1193,14 +1229,14 @@ export function useMenuGestures(
         event.preventDefault()
         if (event.target instanceof Element && event.target.closest(`[role="menu"]`)) return
         const hit = accepted(findMenuElement(event.target) ?? menuElementAt(point.x, point.y))
-        if (hit) openFromContextMenu(hit, point)
+        if (hit) openFromContextMenu(hit, point, event)
         return
       }
       if (isEditable(event.target)) return
       const hit = accepted(findMenuElement(event.target))
       if (!hit) return
       event.preventDefault()
-      openFromContextMenu(hit, point)
+      openFromContextMenu(hit, point, event)
     }
 
     const onPointerDown = (event: PointerEvent) => {
@@ -1215,7 +1251,7 @@ export function useMenuGestures(
         clearPress()
         if (current) {
           pressOpened = true
-          onOpenRef.current(targetOf(current.hit, { x: current.x, y: current.y }))
+          onOpenRef.current(targetOf(current.hit, { x: current.x, y: current.y }, `touch`))
         }
       }, LONG_PRESS_MS)
     }
@@ -1238,6 +1274,7 @@ export function useMenuGestures(
       }
     }
 
+    document.addEventListener(`contextmenu`, onImageContextMenu, { capture: true })
     document.addEventListener(`contextmenu`, onContextMenu)
     document.addEventListener(`pointerdown`, onPointerDown, { passive: true })
     document.addEventListener(`pointermove`, onPointerMove, { passive: true })
@@ -1246,6 +1283,7 @@ export function useMenuGestures(
     return () => {
       clearPress()
       clearTail()
+      document.removeEventListener(`contextmenu`, onImageContextMenu, { capture: true })
       document.removeEventListener(`contextmenu`, onContextMenu)
       document.removeEventListener(`pointerdown`, onPointerDown)
       document.removeEventListener(`pointermove`, onPointerMove)

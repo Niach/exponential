@@ -81,6 +81,10 @@ import meetingFixture from "@exp/etalk/fixtures/meeting.json" with { type: "json
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { verifySteerTicket } from "@exp/steer-ticket"
 import { callSpeechOf, voiceRouter, withClearOnNone, withMeetingScope } from "@/lib/trpc/voice"
+import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
+
+// #EXP-1941: a call id is a MAC under this secret; without it no call starts.
+process.env.BETTER_AUTH_SECRET = `unit-test-secret`
 
 const caller = voiceRouter.createCaller({
   session: { user: { id: `me`, name: `Me`, email: `me@example.com` } },
@@ -686,29 +690,115 @@ describe(`voice.startCall`, () => {
 })
 
 describe(`voice.callHostTicket`, () => {
-  const callId = `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d`
+  const storedRow = [{ userId: `me`, ...stored, createdAt: new Date(), updatedAt: new Date() }]
+  const mint = (patch: { userId?: string; deviceId?: string; agentId?: string; sealed?: boolean } = {}, now = new Date()) =>
+    mintCallId({ userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false, ...patch }, now)!
+  const claimsOf = (ticket: string) => {
+    const verdict = verifySteerTicket(ticket, `relay-secret`)
+    return verdict.ok ? verdict.claims : null
+  }
+  const refusedCall = { code: `NOT_FOUND`, message: `No such call` }
+  /** The member's callable agents, as `memberAgentIds` reads them. */
+  const agentRows = [
+    { id: OTHER_AGENT, role: `agent`, ownerId: null },
+    { id: AGENT, role: `assistant`, ownerId: `me` },
+    { id: FOREIGN_AGENT, role: `assistant`, ownerId: `mate` },
+  ]
 
-  it(`mints a call_host ticket for the member's voice device (an old IDE)`, async () => {
-    h.state.selectQueue = [[{ userId: `me`, ...stored, createdAt: new Date(), updatedAt: new Date() }]]
+  it(`an old IDE (no device, no agent): the voice device, the clear id of any agent the member may call`, async () => {
+    const callId = mint()
+    h.state.selectQueue = [storedRow, agentRows]
     const out = await caller.callHostTicket({ callId })
     expect(out.url).toBe(`wss://relay.example/ws?ticket=${encodeURIComponent(out.ticket)}`)
-    const verdict = verifySteerTicket(out.ticket, `relay-secret`)
-    expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mint` })
+    expect(out.seal).toBe(false)
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mint` })
+    // Another member's Assistant is not one of them, whatever id names it.
+    h.state.selectQueue = [storedRow, agentRows]
+    await expect(caller.callHostTicket({ callId: mint({ agentId: FOREIGN_AGENT }) })).rejects.toMatchObject(refusedCall)
   })
 
   it(`EXP-1857: any of the member's own desktops answers for itself`, async () => {
     h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
+    const callId = mint({ deviceId: `d-mac` })
     h.state.selectQueue = [[{ deviceId: `d-mac` }]]
-    const out = await caller.callHostTicket({ callId, deviceId: `d-mac` })
-    const verdict = verifySteerTicket(out.ticket, `relay-secret`)
-    expect(verdict.ok && verdict.claims).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mac` })
+    const out = await caller.callHostTicket({ callId, deviceId: `d-mac`, agentId: AGENT })
+    expect(out.seal).toBe(false)
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `call_host`, sub: `me`, callId, deviceId: `d-mac` })
     // Someone else's device is not the member's to answer for.
     h.state.selectQueue = [[]]
-    await expect(caller.callHostTicket({ callId, deviceId: `d-theirs` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await expect(caller.callHostTicket({ callId, deviceId: `d-theirs`, agentId: AGENT })).rejects.toMatchObject({ code: `NOT_FOUND`, message: `That device isn't yours` })
   })
 
   it(`refuses a member without a voice device`, async () => {
     h.state.assistants = [{ id: AGENT, voiceDeviceId: null }]
-    await expect(caller.callHostTicket({ callId })).rejects.toThrow(`No voice device`)
+    await expect(caller.callHostTicket({ callId: mint() })).rejects.toThrow(`No voice device`)
+  })
+
+  it(`#EXP-1941: refuses a ring the server did not mint, and logs who and where, never the id`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    const own = [{ deviceId: `d-mint` }]
+    const forged = `7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d`
+    const cases: [string, Parameters<typeof caller.callHostTicket>[0]][] = [
+      [`an id of its own`, { callId: forged, deviceId: `d-mint`, agentId: AGENT }],
+      [`minted for another device`, { callId: mint({ deviceId: `d-mac` }), deviceId: `d-mint`, agentId: AGENT }],
+      [`minted for another member`, { callId: mint({ userId: `mate` }), deviceId: `d-mint`, agentId: AGENT }],
+      [`older than its window`, { callId: mint({}, new Date(Date.now() - 4 * 60_000)), deviceId: `d-mint`, agentId: AGENT }],
+      [`a clear id with another agent than the host names`, { callId: mint(), deviceId: `d-mint`, agentId: OTHER_AGENT }],
+      [`a sealed id with another agent than the host names`, { callId: mint({ sealed: true }), deviceId: `d-mint`, agentId: OTHER_AGENT }],
+    ]
+    for (const [name, input] of cases) {
+      h.state.selectQueue = [own]
+      await expect(caller.callHostTicket(input), name).rejects.toMatchObject(refusedCall)
+    }
+    // A sealed id from a host that names no agent, or no device (the voice device).
+    h.state.selectQueue = [own, agentRows]
+    await expect(caller.callHostTicket({ callId: mint({ sealed: true }), deviceId: `d-mint` })).rejects.toMatchObject(refusedCall)
+    h.state.selectQueue = [storedRow]
+    await expect(caller.callHostTicket({ callId: mint({ sealed: true }), agentId: AGENT })).rejects.toMatchObject(refusedCall)
+    const lines = warn.mock.calls.map((call) => String(call[0]))
+    expect(lines).toHaveLength(8)
+    expect(lines[0]).toBe(`[voice] callHostTicket refused: member=me device=d-mint tried sealed and clear for the named agent`)
+    expect(lines[6]).toBe(`[voice] callHostTicket refused: member=me device=d-mint tried clear for 2 agents (the host named none)`)
+    expect(lines.join(`\n`)).not.toContain(forged)
+    warn.mockRestore()
+  })
+
+  it(`#EXP-1941: accepts an id minted one minute ahead, and answers the mode the id was minted with`, async () => {
+    h.state.selectQueue = [[{ deviceId: `d-mint` }]]
+    const ahead = mint({}, new Date(Date.now() + 60_000))
+    await expect(caller.callHostTicket({ callId: ahead, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: false })
+    // Until sealing is turned on `startCall` mints no sealed id: this one comes from the lib.
+    h.state.selectQueue = [[{ deviceId: `d-mint` }]]
+    const sealed = mint({ sealed: true })
+    await expect(caller.callHostTicket({ callId: sealed, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: true, callId: sealed })
+  })
+})
+
+describe(`#EXP-1941 voice.startCall mints the id callHostTicket vouches for`, () => {
+  const doctor = { checkedAt: new Date().toISOString(), items: [{ key: `speech`, group: `voice`, state: `ok` }] }
+  const MINT = { deviceId: `d-mint`, kind: `desktop`, label: `mint`, lastSeenAt: new Date(), doctor }
+  const start = (input: { seal?: boolean } = {}) => {
+    h.state.selectQueue = [[{ id: AGENT, deviceId: `d-mint` }], [{ userId: `me`, ...stored }], [MINT]]
+    return caller.startCall({ agentId: AGENT, platform: `phone`, ...input })
+  }
+
+  it(`the answer says seal: false, also to a caller that claims it, and the host is told the same`, async () => {
+    for (const input of [{}, { seal: false }, { seal: true }]) {
+      const out = await start(input)
+      expect(out.seal).toBe(false)
+      expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false })).toBe(true)
+      h.state.selectQueue = [[{ deviceId: `d-mint` }]]
+      await expect(caller.callHostTicket({ callId: out.callId, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: out.seal })
+    }
+  })
+
+  it(`without BETTER_AUTH_SECRET no call starts: an id never vouches for nothing`, async () => {
+    const secret = process.env.BETTER_AUTH_SECRET
+    delete process.env.BETTER_AUTH_SECRET
+    try {
+      await expect(start()).rejects.toMatchObject({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
+    } finally {
+      process.env.BETTER_AUTH_SECRET = secret
+    }
   })
 })

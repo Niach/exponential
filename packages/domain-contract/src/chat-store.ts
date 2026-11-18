@@ -449,8 +449,15 @@ export function catchUpBucket(ops: ({ at: number; spend: number } | { at: number
 /** Why the account is left. */
 export type ChatStoreLeaveReason = `sign_out` | `expired` | `switch`
 
-/** An account id the store may name a path by. */
-const SAFE_ACCOUNT = /^[A-Za-z0-9_-]{1,128}$/
+/** An account id the store may name a path by: one segment of 1 to 255
+ *  `[A-Za-z0-9._-]`, never all dots (real desktop ids are
+ *  `<host>--<userId>`, e.g. `app.exponential.at--8Jk3…`). */
+const SAFE_ACCOUNT = /^(?!\.+$)[A-Za-z0-9._-]{1,255}$/
+
+/** Whether `account` is one safe path segment (the SIGN-OUT rule). */
+export function chatStoreSafeAccount(account: string): boolean {
+  return SAFE_ACCOUNT.test(account)
+}
 
 /** The desktop store's own file names (beside the account's sync store). */
 const DESKTOP_STORE_FILES = new Set([`chat-store.sqlite`, `chat-store.sqlite-wal`, `chat-store.sqlite-shm`, `chat-store.sqlite-journal`])

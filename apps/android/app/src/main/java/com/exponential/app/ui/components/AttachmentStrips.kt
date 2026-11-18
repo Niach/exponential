@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.isInlineAudio
@@ -170,14 +171,14 @@ fun CommentAttachmentsStrip(
                 if (isInlineMedia(attachment.contentType)) {
                     MediaThumbTile(attachment)
                 } else if (isInlineImage(attachment.contentType)) {
-                    AsyncImage(
-                        model = attachment.url,
-                        contentDescription = attachment.filename,
+                    AttachmentPicture(
+                        attachment = attachment,
                         contentScale = ContentScale.Crop,
+                        menu = onRemove == null,
+                        onOpen = onOpen,
                         modifier = Modifier
                             .size(TileSize)
-                            .clip(TileShape)
-                            .clickable { onOpen(attachment) },
+                            .clip(TileShape),
                     )
                 } else {
                     FileTile(
@@ -196,6 +197,35 @@ fun CommentAttachmentsStrip(
                 }
             }
         }
+    }
+}
+
+/**
+ * #EXP-1948: a comment's image attachment: a tap opens it; while reading
+ * ([menu]; not the edit form's strip) a rendered one's long press = the
+ * image menu, its original bytes through the Tall cache.
+ */
+@Composable
+private fun AttachmentPicture(
+    attachment: AttachmentEntity,
+    contentScale: ContentScale,
+    menu: Boolean,
+    onOpen: (AttachmentEntity) -> Unit,
+    modifier: Modifier,
+    /** The picture inside the box: the box's size (known), else the width at its own aspect. */
+    sized: Boolean = true,
+) {
+    val context = LocalContext.current
+    var loaded by remember(attachment.id) { mutableStateOf(false) }
+    val bytes = remember(attachment.id) { attachmentImageBytes(context, attachment.id) }
+    ImageActionsBox(bytes = if (loaded && menu) bytes else null, modifier = modifier, name = attachment.filename, onClick = { onOpen(attachment) }) {
+        AsyncImage(
+            model = attachment.url,
+            contentDescription = attachment.filename,
+            contentScale = contentScale,
+            onState = { loaded = it is AsyncImagePainter.State.Success },
+            modifier = if (sized) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -243,10 +273,12 @@ fun LargeCommentAttachments(
                 } else if (isInlineImage(attachment.contentType)) {
                     val width = attachment.width
                     val height = attachment.height
-                    AsyncImage(
-                        model = attachment.url,
-                        contentDescription = attachment.filename,
+                    AttachmentPicture(
+                        attachment = attachment,
                         contentScale = ContentScale.Fit,
+                        menu = onRemove == null,
+                        onOpen = onOpen,
+                        sized = width != null && height != null && width > 0 && height > 0,
                         // EXP-1586: a known size = the aspect box under the
                         // height cap (a tall picture narrows instead of
                         // overflowing the cap and bleeding over the comment's
@@ -264,8 +296,7 @@ fun LargeCommentAttachments(
                                 },
                             )
                             .clip(LargeImageShape)
-                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, LargeImageShape)
-                            .clickable { onOpen(attachment) },
+                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, LargeImageShape),
                     )
                 } else {
                     FileTile(

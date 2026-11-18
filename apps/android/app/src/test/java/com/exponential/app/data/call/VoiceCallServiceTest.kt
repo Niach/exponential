@@ -60,4 +60,38 @@ class VoiceCallServiceTest {
         link.refused()
         assertEquals(0, refused)
     }
+
+    /** #EXP-1942: the service is held from the tap, so Cancel during the ring is its stop. */
+    @Test
+    fun aCallCancelledDuringTheRingStopsTheServiceAndTheNextCallStartsItAgain() {
+        val android = Android()
+        val link = CallServiceLink(android)
+        assertTrue(link.start("Call Assistant") {})
+        link.stop()
+        assertTrue(link.start("Call Assistant") {})
+        assertEquals(listOf("start Call Assistant", "stop", "start Call Assistant"), android.calls)
+    }
+
+    @Test
+    fun aSecondCallStartsNoSecondService() {
+        var first = 0
+        var second = 0
+        val android = Android()
+        val link = CallServiceLink(android)
+        assertTrue(link.start("Call Assistant") { first++ })
+        assertFalse(link.start("Call Other") { second++ })
+        assertEquals(listOf("start Call Assistant"), android.calls)
+        // The service still belongs to the first call.
+        link.refused()
+        assertEquals(1 to 0, first to second)
+    }
+
+    @Test
+    fun aRefusedServiceIsHeldNoLonger() {
+        val android = Android()
+        val link = CallServiceLink(android)
+        link.start("Call Assistant") {}
+        link.refused()
+        assertTrue(link.start("Call Assistant") {})
+    }
 }

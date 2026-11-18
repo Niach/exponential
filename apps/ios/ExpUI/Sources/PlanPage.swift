@@ -111,18 +111,20 @@ public struct PlanPictureCarousel<Slide: View>: View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 8) {
                     ForEach(0..<count, id: \.self) { index in
-                        Button { onOpen(index) } label: {
-                            slide(index)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.black)
-                                .clipShape(RoundedRectangle(cornerRadius: radius))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: radius)
-                                        .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
-                                )
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        // #EXP-1949: a gesture, not a Button: the host's
+                        // slide may own its tap with its long-press image menu.
+                        slide(index)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: radius))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: radius)
+                                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture { onOpen(index) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { onOpen(index) }
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(index)
                     }
