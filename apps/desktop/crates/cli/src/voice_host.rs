@@ -431,7 +431,7 @@ impl Host {
     }
 
     /// One flow step: the caller hears it, the machine follows; rang and
-    /// ready answered = the greeting.
+    /// ready answered = Listening (#EXP-1966), then the opening or silence.
     fn step(&mut self, event: CallEvent) {
         let Some(call) = self.call.as_mut() else { return };
         if let Some(wire) = call_wire_event(&event) {
@@ -440,7 +440,7 @@ impl Host {
         let before = call.state.phase;
         call.state = call_step(&call.state, &event);
         call.state.toast = None;
-        if before == CallPhase::Ringing && call.state.phase == CallPhase::Speaking {
+        if before == CallPhase::Ringing && call.state.phase == CallPhase::Listening {
             // #EXP-1961 (#FEED-275): the agent's own opening line, or silence
             // (no fixed greeting any more, a call without its session too).
             match call.opening.clone() {

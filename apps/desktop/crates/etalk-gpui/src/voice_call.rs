@@ -610,9 +610,10 @@ impl VoiceCall {
             self.toasts.push(toast.clone());
             host::notify(Notice::Error(toast), cx);
         }
-        // S-3: rang and ready answered it: the device says its greeting
-        // (EXP-1857: a dialled call's host says it; only the timer starts).
-        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
+        // S-3: rang and ready answered it (#EXP-1966: on Listening): the
+        // device says the agent's opening, or listens (EXP-1857: a dialled
+        // call's host does; only the timer starts).
+        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Listening {
             if self.dialled() {
                 if let Some(active) = self.active.as_mut() {
                     active.answered_at = Some(Instant::now());
@@ -1889,8 +1890,8 @@ mod tests {
         global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Event(event), cx));
     }
 
-    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (the
-    /// host greets; no greeting here), its flow events step this machine,
+    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (on
+    /// Listening, #EXP-1966; the host speaks), its flow events step this machine,
     /// the microphone goes up, mute and End reach the host; the via line
     /// names the desktop that speaks; Speak replies never speaks it here.
     #[gpui::test]
@@ -1905,7 +1906,7 @@ mod tests {
             assert_eq!(phase(cx), CallPhase::Ringing, "the ring is the host's");
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
-            assert_eq!(phase(cx), CallPhase::Speaking, "the host greets");
+            assert_eq!(phase(cx), CallPhase::Listening, "answered (#EXP-1966: the host speaks its opening as a reply)");
             assert!(global(cx).unwrap().read(cx).active.as_ref().unwrap().answered_at.is_some(), "the timer runs");
             host_event(&id, serde_json::json!({ "t": "replyFinished" }), cx);
             assert_eq!(phase(cx), CallPhase::Listening);
@@ -2149,7 +2150,7 @@ mod tests {
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
             let before = global(cx).unwrap().read(cx).state.clone();
-            assert_eq!(before.phase, CallPhase::Speaking);
+            assert_eq!(before.phase, CallPhase::Listening);
             for foreign in [
                 serde_json::json!({ "t": "start", "device": "elsewhere" }),
                 serde_json::json!({ "t": "mute" }),
