@@ -672,7 +672,12 @@ impl Ede {
                 if g.session_id.as_str() == ROOT_SESSION {
                     return Err(fail(ErrorCode::Forbidden, "the root grant lives as long as the compositor"));
                 }
+                let scope = Scope::of(g);
                 self.ipc.grants.retain(|g| g.token != token);
+                // #EDE-125: a space ends with its session's last space grant.
+                if let Scope::Space(session) = scope {
+                    self.space_grant_revoked(&session);
+                }
                 json(serde_json::Value::Null)
             }
             Request::LaunchToken => {
@@ -682,9 +687,12 @@ impl Ede {
                 }
                 json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
             }
-            // #EDE-126: named by the protocol, made by no compositor yet
-            // (`Hello::features` offers no `spaces`).
-            Request::DestroySpace { .. } | Request::ListSpaces => Err(fail(ErrorCode::Unavailable, "this compositor has no agent spaces")),
+            // #EDE-125: the person's side, `system` only: every space.
+            Request::ListSpaces => json(serde_json::to_value(self.space_infos(None)).unwrap()),
+            Request::DestroySpace { space } => {
+                self.space_destroy(None, &space)?;
+                json(serde_json::Value::Null)
+            }
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
         }
