@@ -27,8 +27,6 @@ object TranscriptGrouping {
     object Copy {
         const val FORMER_MEMBER = "Former member"
         const val LINK_CHEVRON = "›"
-        const val SHOW_MORE = "Show more"
-        const val SHOW_LESS = "Show less"
 
         /** #EXP-1772 `copy.markers`: a system input's marker label by key. */
         val MARKERS: Map<String, String> = linkedMapOf(
@@ -397,17 +395,6 @@ object TranscriptGrouping {
         CheckInSpecimenRow(FeedRowRole.Schedule, "18:00", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
     )
-
-    /** #FEED-238 `fold`: a bubble over [CHARS] characters or [LINES] lines folds. */
-    object Fold {
-        const val LINES = 6
-        const val CHARS = 600
-    }
-
-    /** #FEED-238 THE FOLD ×4 (`foldCases`): a message bubble longer than
-     *  `fold.chars` characters or `fold.lines` lines folds behind Show more. */
-    fun messageFolds(text: String): Boolean =
-        text.length > Fold.CHARS || text.split("\n").size > Fold.LINES
 
     /** #EXP-1864 `notices`: an Exponential tool row drawn as THE inline marker
      *  (its own line, never a trace beside the avatar), by contract row. */

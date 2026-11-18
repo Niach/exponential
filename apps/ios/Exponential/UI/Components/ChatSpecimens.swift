@@ -673,9 +673,7 @@ struct ChatTranscriptSpecimens: View {
                     onPress: layout?.sender?.link.map { _ -> () -> Void in {} },
                     tail: layout?.tail == true
                 ) {
-                    MessageFold(text: text) {
-                        AgentMarkdownText(text: text, context: context, hugsWidth: true)
-                    }
+                    AgentMarkdownText(text: text, context: context, hugsWidth: true)
                 }
             }
         } else if let marker = row.marker {

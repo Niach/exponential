@@ -32,9 +32,6 @@ public enum TranscriptGrouping {
     public enum Copy {
         public static let formerMember = "Former member"
         public static let linkChevron = "›"
-        /// #FEED-238 THE FOLD's text button.
-        public static let showMore = "Show more"
-        public static let showLess = "Show less"
         /// #EXP-1772 `copy.markers`: a system input's marker label by key.
         public static let markers: [String: String] = [
             "schedule": "Schedule",
@@ -304,19 +301,6 @@ public enum TranscriptGrouping {
             prevKey = key
         }
         return out
-    }
-
-    /// #FEED-238 THE FOLD ×4 (fixture `fold`).
-    public enum Fold {
-        public static let lines = 6
-        public static let chars = 600
-    }
-
-    /// THE FOLD (`foldCases`): a message bubble longer than `Fold.chars`
-    /// characters (UTF-16, as the TS reference counts) or `Fold.lines` lines
-    /// folds behind Show more.
-    public static func messageFolds(_ text: String) -> Bool {
-        text.utf16.count > Fold.chars || text.components(separatedBy: "\n").count > Fold.lines
     }
 
     /// #EXP-1864 fixture `notices`: an Exponential tool row drawn as THE

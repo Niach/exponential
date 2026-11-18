@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-16-whole-chat-messages`,
+    date: `2026-11-16`,
+    title: `Chat messages always show in full`,
+    summary: `Every chat message shows its whole text again, on web, desktop, iOS and Android: no more "Show more" under long messages.`,
+    body: `- **No more "Show more"**: long messages in a chat, your own, an agent's and those from other sessions, show their whole text; long links or codes still wrap inside the bubble.`,
+  },
+  {
     id: `2026-11-18-desktop-cli-0-14-169-encrypted-chats-local-search-calls`,
     date: `2026-11-18`,
     title: `Encrypted chats, a local copy of your chats, and steadier calls`,
