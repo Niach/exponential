@@ -75,6 +75,8 @@ pub struct Client {
     pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
     /// Every offer the data device announced, with its types.
     pub offers: Vec<(wl_data_offer::WlDataOffer, Vec<String>)>,
+    /// How often a drag entered one of our surfaces.
+    pub drag_enters: u32,
     /// The offer the data device last named the selection (`None` = cleared).
     pub selection: Option<wl_data_offer::WlDataOffer>,
     /// What our own source serves per type; a type missing here is never
@@ -656,6 +658,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
         match event {
             wl_data_device::Event::DataOffer { id } => state.offers.push((id, Vec::new())),
             wl_data_device::Event::Selection { id } => state.selection = id,
+            wl_data_device::Event::Enter { .. } => state.drag_enters += 1,
             _ => {}
         }
     }
