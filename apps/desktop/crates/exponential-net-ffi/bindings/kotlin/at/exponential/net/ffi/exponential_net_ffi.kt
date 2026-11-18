@@ -749,6 +749,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_wrap_tree_key(
     ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_call_seal_pad(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_call_seal_selftest(
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_default_config(
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_endpoint_id_of(
@@ -758,6 +762,20 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_net_ffi_checksum_func_identity_sign(
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_finish(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_hello(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallseal_host_hello(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallseal_open_audio(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallseal_open_control(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallseal_seal_audio(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_method_enetcallseal_seal_control(
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow(
     ): Int
@@ -823,6 +841,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetnode_ticket(
     ): Int
+    external fun uniffi_exponential_net_ffi_checksum_constructor_enetcallhandshake_new(
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_constructor_enetnode_start(
     ): Int
     external fun ffi_exponential_net_ffi_uniffi_contract_version(
@@ -847,6 +867,30 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_exponential_net_ffi_fn_clone_enetcallhandshake(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_free_enetcallhandshake(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_constructor_enetcallhandshake_new(`role`: RustBuffer.ByValue,`rootId`: RustBuffer.ByValue,`epoch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallhandshake_finish(`ptr`: Long,`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallhandshake_hello(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_clone_enetcallseal(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_net_ffi_fn_free_enetcallseal(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallseal_host_hello(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallseal_open_audio(`ptr`: Long,`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallseal_open_control(`ptr`: Long,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_audio(`ptr`: Long,`seq`: Short,`flags`: Byte,`packet`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_control(`ptr`: Long,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_clone_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_exponential_net_ffi_fn_free_enetaccesspolicy(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -951,6 +995,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_func_wrap_tree_key(`installPublic`: RustBuffer.ByValue,`treeSecret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_call_seal_pad(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_call_seal_selftest(`fixtureJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_exponential_net_ffi_fn_func_default_config(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_func_endpoint_id_of(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1303,6 +1351,60 @@ private class AndroidSystemCleanable(
     private val cleanable: java.lang.ref.Cleaner.Cleanable,
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUShort: FfiConverter<UShort, Short> {
+    override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    fun lift(value: Int): UShort {
+        return value.toUShort()
+    }
+
+    override fun read(buf: ByteBuffer): UShort {
+        return lift(buf.getShort())
+    }
+
+    override fun lower(value: UShort): Short {
+        return value.toShort()
+    }
+
+    override fun allocationSize(value: UShort) = 2UL
+
+    override fun write(value: UShort, buf: ByteBuffer) {
+        buf.putShort(value.toShort())
+    }
 }
 
 /**
@@ -1768,6 +1870,668 @@ public object FfiConverterTypeEnetAccessPolicy: FfiConverter<EnetAccessPolicy, L
     override fun allocationSize(value: EnetAccessPolicy) = 8UL
 
     override fun write(value: EnetAccessPolicy, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * One end's half of the exchange: it holds the eph secret until `finish`.
+ */
+public interface EnetCallHandshakeInterface {
+    
+    /**
+     * The call's sealer. WORKS ONCE, whatever it answers.
+     */
+    fun `finish`(`input`: EnetCallFinish): EnetCallSeal
+    
+    /**
+     * The CALLER's hello (54 bytes): made once, resent unchanged.
+     */
+    fun `hello`(): kotlin.ByteArray
+    
+    companion object
+}
+
+/**
+ * One end's half of the exchange: it holds the eph secret until `finish`.
+ */
+open class EnetCallHandshake: Disposable, AutoCloseable, EnetCallHandshakeInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    /**
+     * A fresh eph key per socket. `root_id` None = a caller that knows no root yet.
+     */
+    constructor(`role`: EnetCallRole, `rootId`: kotlin.String?, `epoch`: kotlin.UInt) :
+        this(UniffiWithHandle, 
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_constructor_enetcallhandshake_new(
+    
+        
+        FfiConverterTypeEnetCallRole.lower(`role`),
+        FfiConverterOptionalString.lower(`rootId`),
+        FfiConverterUInt.lower(`epoch`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_net_ffi_fn_free_enetcallhandshake(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_net_ffi_fn_clone_enetcallhandshake(handle, status)
+        }
+    }
+
+    
+    /**
+     * The call's sealer. WORKS ONCE, whatever it answers.
+     */
+    @Throws(EnetException::class)override fun `finish`(`input`: EnetCallFinish): EnetCallSeal {
+            return FfiConverterTypeEnetCallSeal.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallhandshake_finish(
+        it,
+        
+        FfiConverterTypeEnetCallFinish.lower(`input`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The CALLER's hello (54 bytes): made once, resent unchanged.
+     */
+    @Throws(EnetException::class)override fun `hello`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallhandshake_hello(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetCallHandshake: FfiConverter<EnetCallHandshake, Long> {
+    override fun lower(value: EnetCallHandshake): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): EnetCallHandshake {
+        return EnetCallHandshake(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): EnetCallHandshake {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: EnetCallHandshake) = 8UL
+
+    override fun write(value: EnetCallHandshake, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * The sealed call of one end; it owns its counters.
+ */
+public interface EnetCallSealInterface {
+    
+    /**
+     * HOST ONLY: its hello with the tag (70 bytes), sent once.
+     */
+    fun `hostHello`(): kotlin.ByteArray?
+    
+    fun `openAudio`(`frame`: kotlin.ByteArray): EnetOpenedAudio
+    
+    /**
+     * CALLER ONLY: the control frame's JSON text, trailing spaces included.
+     */
+    fun `openControl`(`data`: kotlin.String): kotlin.String
+    
+    /**
+     * One audio frame, always one size. A packet above the step is refused
+     * (`too_large`): seal an empty packet in its place.
+     */
+    fun `sealAudio`(`seq`: kotlin.UShort, `flags`: kotlin.UByte, `packet`: kotlin.ByteArray): kotlin.ByteArray
+    
+    /**
+     * HOST ONLY: the `data` of `call_event {t: "sealed"}`.
+     */
+    fun `sealControl`(`text`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+/**
+ * The sealed call of one end; it owns its counters.
+ */
+open class EnetCallSeal: Disposable, AutoCloseable, EnetCallSealInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_net_ffi_fn_free_enetcallseal(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_net_ffi_fn_clone_enetcallseal(handle, status)
+        }
+    }
+
+    
+    /**
+     * HOST ONLY: its hello with the tag (70 bytes), sent once.
+     */override fun `hostHello`(): kotlin.ByteArray? {
+            return FfiConverterOptionalByteArray.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallseal_host_hello(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(EnetException::class)override fun `openAudio`(`frame`: kotlin.ByteArray): EnetOpenedAudio {
+            return FfiConverterTypeEnetOpenedAudio.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallseal_open_audio(
+        it,
+        
+        FfiConverterByteArray.lower(`frame`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * CALLER ONLY: the control frame's JSON text, trailing spaces included.
+     */
+    @Throws(EnetException::class)override fun `openControl`(`data`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallseal_open_control(
+        it,
+        
+        FfiConverterString.lower(`data`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * One audio frame, always one size. A packet above the step is refused
+     * (`too_large`): seal an empty packet in its place.
+     */
+    @Throws(EnetException::class)override fun `sealAudio`(`seq`: kotlin.UShort, `flags`: kotlin.UByte, `packet`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_audio(
+        it,
+        
+        FfiConverterUShort.lower(`seq`),
+        FfiConverterUByte.lower(`flags`),
+        FfiConverterByteArray.lower(`packet`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * HOST ONLY: the `data` of `call_event {t: "sealed"}`.
+     */
+    @Throws(EnetException::class)override fun `sealControl`(`text`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_control(
+        it,
+        
+        FfiConverterString.lower(`text`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetCallSeal: FfiConverter<EnetCallSeal, Long> {
+    override fun lower(value: EnetCallSeal): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): EnetCallSeal {
+        return EnetCallSeal(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): EnetCallSeal {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: EnetCallSeal) = 8UL
+
+    override fun write(value: EnetCallSeal, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -3103,6 +3867,138 @@ public object FfiConverterTypeEnetBlob: FfiConverterRustBuffer<EnetBlob> {
 
 
 
+data class EnetCallFinish (
+    /**
+     * The tree SECRET (32 bytes) of the HOST hello's root and epoch.
+     */
+    var `secret`: kotlin.ByteArray
+    , 
+    var `callId`: kotlin.String
+    , 
+    var `agentId`: kotlin.String
+    , 
+    /**
+     * The host's steer device id.
+     */
+    var `deviceId`: kotlin.String
+    , 
+    /**
+     * The other end's hello: 70 bytes for a caller, 54 for a host.
+     */
+    var `peerHello`: kotlin.ByteArray
+    , 
+    /**
+     * CALLER ONLY, required there: the root and the epoch its own
+     * `sendTarget` answer names NOW. A host hello that names others is refused.
+     */
+    var `rootId`: kotlin.String?
+    , 
+    var `epoch`: kotlin.UInt
+    , 
+    var `pad`: EnetCallSealPad
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetCallFinish: FfiConverterRustBuffer<EnetCallFinish> {
+    override fun read(buf: ByteBuffer): EnetCallFinish {
+        return EnetCallFinish(
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeEnetCallSealPad.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetCallFinish) = (
+            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterString.allocationSize(value.`callId`) +
+            FfiConverterString.allocationSize(value.`agentId`) +
+            FfiConverterString.allocationSize(value.`deviceId`) +
+            FfiConverterByteArray.allocationSize(value.`peerHello`) +
+            FfiConverterOptionalString.allocationSize(value.`rootId`) +
+            FfiConverterUInt.allocationSize(value.`epoch`) +
+            FfiConverterTypeEnetCallSealPad.allocationSize(value.`pad`)
+    )
+
+    override fun write(value: EnetCallFinish, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterString.write(value.`callId`, buf)
+            FfiConverterString.write(value.`agentId`, buf)
+            FfiConverterString.write(value.`deviceId`, buf)
+            FfiConverterByteArray.write(value.`peerHello`, buf)
+            FfiConverterOptionalString.write(value.`rootId`, buf)
+            FfiConverterUInt.write(value.`epoch`, buf)
+            FfiConverterTypeEnetCallSealPad.write(value.`pad`, buf)
+    }
+}
+
+
+
+/**
+ * The sizes a sealer pads to (`seal.audioPadStep`, `controlPadBytes`, `maxPlainBytes`).
+ */
+data class EnetCallSealPad (
+    var `audioUp`: kotlin.UInt
+    , 
+    var `audioDown`: kotlin.UInt
+    , 
+    var `controlPad`: kotlin.UInt
+    , 
+    var `maxPlain`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetCallSealPad: FfiConverterRustBuffer<EnetCallSealPad> {
+    override fun read(buf: ByteBuffer): EnetCallSealPad {
+        return EnetCallSealPad(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetCallSealPad) = (
+            FfiConverterUInt.allocationSize(value.`audioUp`) +
+            FfiConverterUInt.allocationSize(value.`audioDown`) +
+            FfiConverterUInt.allocationSize(value.`controlPad`) +
+            FfiConverterUInt.allocationSize(value.`maxPlain`)
+    )
+
+    override fun write(value: EnetCallSealPad, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`audioUp`, buf)
+            FfiConverterUInt.write(value.`audioDown`, buf)
+            FfiConverterUInt.write(value.`controlPad`, buf)
+            FfiConverterUInt.write(value.`maxPlain`, buf)
+    }
+}
+
+
+
 data class EnetChatMessage (
     var `id`: kotlin.ByteArray
     , 
@@ -3271,6 +4167,64 @@ public object FfiConverterTypeEnetEpochKey: FfiConverterRustBuffer<EnetEpochKey>
     override fun write(value: EnetEpochKey, buf: ByteBuffer) {
             FfiConverterUInt.write(value.`epoch`, buf)
             FfiConverterByteArray.write(value.`secret`, buf)
+    }
+}
+
+
+
+data class EnetOpenedAudio (
+    var `seq`: kotlin.UShort
+    , 
+    /**
+     * Bit 0 on `up` = the microphone is muted.
+     */
+    var `flags`: kotlin.UByte
+    , 
+    /**
+     * Empty for a frame with `len` 0: nothing of it reaches a decoder.
+     */
+    var `packet`: kotlin.ByteArray
+    , 
+    /**
+     * Frames missing before this packet (a `len` 0 frame counts as one):
+     * never join audio across a gap.
+     */
+    var `missing`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetOpenedAudio: FfiConverterRustBuffer<EnetOpenedAudio> {
+    override fun read(buf: ByteBuffer): EnetOpenedAudio {
+        return EnetOpenedAudio(
+            FfiConverterUShort.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetOpenedAudio) = (
+            FfiConverterUShort.allocationSize(value.`seq`) +
+            FfiConverterUByte.allocationSize(value.`flags`) +
+            FfiConverterByteArray.allocationSize(value.`packet`) +
+            FfiConverterUInt.allocationSize(value.`missing`)
+    )
+
+    override fun write(value: EnetOpenedAudio, buf: ByteBuffer) {
+            FfiConverterUShort.write(value.`seq`, buf)
+            FfiConverterUByte.write(value.`flags`, buf)
+            FfiConverterByteArray.write(value.`packet`, buf)
+            FfiConverterUInt.write(value.`missing`, buf)
     }
 }
 
@@ -3551,6 +4505,40 @@ public object FfiConverterTypeEnetTreeKey: FfiConverterRustBuffer<EnetTreeKey> {
             FfiConverterString.write(value.`publicKey`, buf)
     }
 }
+
+
+
+
+enum class EnetCallRole {
+    
+    CALLER,
+    HOST;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetCallRole: FfiConverterRustBuffer<EnetCallRole> {
+    override fun read(buf: ByteBuffer) = try {
+        EnetCallRole.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: EnetCallRole) = 4UL
+
+    override fun write(value: EnetCallRole, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -4578,6 +5566,34 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
 }
     )
     }
+    
+
+        /**
+         * The fixture's sizes (the self-test holds them against `seal`).
+         */ fun `callSealPad`(): EnetCallSealPad {
+            return FfiConverterTypeEnetCallSealPad.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_call_seal_pad(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Replays `seal` of voice-call.json (the whole fixture's JSON) inside Rust;
+         * an error's reason names every vector and refusal that did not hold.
+         */
+    @Throws(EnetException::class) fun `callSealSelftest`(`fixtureJson`: kotlin.String)
+        = 
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_call_seal_selftest(
+    
+        
+        FfiConverterString.lower(`fixtureJson`),_status)
+}
+    
     
 
         /**

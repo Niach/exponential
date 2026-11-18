@@ -16,6 +16,8 @@
 //!   `pushOpen` for notification extensions (no node, no runtime needed);
 //!   sealed session content (EXP-1458): `generateTreeKey`, `wrapTreeKey`,
 //!   `unwrapTreeKey`, `sealBody`, `openBody`, `sealCard`, `openCard`.
+//! - The call seal (#EXP-1941, src/call_seal.rs, `node` only): the objects
+//!   `EnetCallHandshake` and `EnetCallSeal`, and `callSealSelftest`.
 //! - Feature `node` (default) = the node (src/node.rs). Without it
 //!   (`--no-default-features`, the PUSH-ONLY build) the facade is the push
 //!   and sealed-content functions alone: no iroh, no tokio, small enough for a Notification
@@ -29,7 +31,11 @@ use net::NetError;
 uniffi::setup_scaffolding!();
 
 #[cfg(feature = "node")]
+mod call_seal;
+#[cfg(feature = "node")]
 mod node;
+#[cfg(feature = "node")]
+pub use call_seal::*;
 #[cfg(feature = "node")]
 pub use node::*;
 
