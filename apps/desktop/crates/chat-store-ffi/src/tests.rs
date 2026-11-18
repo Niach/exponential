@@ -221,12 +221,14 @@ fn open_time_on_a_big_chat() {
         store.put_feed("r".into(), "s".into(), "d".into(), Value::Array(rows).to_string(), 0).unwrap();
     }
     drop(store);
-    let started = std::time::Instant::now();
-    let store = ChatStore::open(data_dir.clone(), "acct".into()).unwrap();
-    let opened = store.open_tail("s".into(), "d".into(), 500).unwrap();
-    let ms = started.elapsed().as_secs_f64() * 1000.0;
-    let rows = serde_json::from_str::<Value>(&opened).unwrap()["events"].as_array().unwrap().len();
-    println!("open_tail of 17000 events: {rows} rows in {ms:.1} ms ({} KiB of JSON)", opened.len() / 1024);
-    drop(store);
+    for run in 0..5 {
+        let started = std::time::Instant::now();
+        let store = ChatStore::open(data_dir.clone(), "acct".into()).unwrap();
+        let opened_at = started.elapsed().as_secs_f64() * 1000.0;
+        let opened = store.open_tail("s".into(), "d".into(), 500).unwrap();
+        let ms = started.elapsed().as_secs_f64() * 1000.0;
+        let rows = serde_json::from_str::<Value>(&opened).unwrap()["events"].as_array().unwrap().len();
+        println!("run {run}: open {opened_at:.1} ms, open_tail of 17000 events: {rows} rows, {ms:.1} ms in all ({} KiB of JSON)", opened.len() / 1024);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

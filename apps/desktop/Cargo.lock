@@ -3758,6 +3758,7 @@ dependencies = [
 name = "exponential-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "chat-store-ffi",
  "eengine-ffi",
  "exponential-net-ffi",
  "exponential-ui-ffi",

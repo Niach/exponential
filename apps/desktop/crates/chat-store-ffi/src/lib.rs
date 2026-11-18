@@ -155,7 +155,7 @@ impl ChatStore {
     /// events on `device_id` through the REPLAY TAIL of `tail` events (the
     /// contract's `steerFeed.replayTail`). Empty `events` = nothing stored.
     pub fn open_tail(&self, session_id: String, device_id: String, tail: u32) -> Result<String, ChatStoreError> {
-        let held = self.store.read_events(&session_id, &device_id, None, None)?;
+        let held = self.store.read_open(&session_id, &device_id, tail as usize)?;
         let wire: Vec<&Value> = held.iter().map(|event| &event.event).collect();
         let (kept, truncated) = open::replay_tail(&wire, tail as usize);
         let events: Vec<Value> = kept.into_iter().map(|ix| json!({ "seq": held[ix].seq, "event": held[ix].event })).collect();
