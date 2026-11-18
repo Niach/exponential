@@ -341,7 +341,36 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
 pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str, cx: &App) -> Vec<Block> {
     let urls = host.url_policy();
     let options = host.markdown_options_for(text, cx);
-    resolve_urls(parse_with(text, options.hard_breaks, options.streaming), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
+    let blocks = resolve_sources(parse_with(text, options.hard_breaks, options.streaming), |src, alt| host.image_source(src, alt));
+    resolve_urls(blocks, |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
+}
+
+/// #EXP-1947 (`fixtures/image-actions.json` `imageSource`, the host's
+/// [`crate::host::HostPlugin::image_source`]): a block image the host
+/// refuses never loads: a paragraph of ONE ordinary link in its place (the
+/// Markdown link look; [`resolve_urls`] then polices its href like any
+/// link), or of its text (dropped when empty). `None` / `Load` = the image
+/// stays for the media policy.
+pub fn resolve_sources(blocks: Vec<Block>, verdict: impl Fn(&str, &str) -> Option<crate::host::ImageSourceVerdict>) -> Vec<Block> {
+    use crate::host::ImageSourceVerdict;
+    blocks
+        .into_iter()
+        .filter_map(|b| {
+            let BlockKind::Image { src, alt, .. } = &b.kind else { return Some(b) };
+            if src.is_empty() {
+                return Some(b);
+            }
+            let (text, link) = match verdict(src, alt) {
+                None | Some(ImageSourceVerdict::Load) => return Some(b),
+                Some(ImageSourceVerdict::Link { href, text }) => (text, Some(href)),
+                Some(ImageSourceVerdict::Text(text)) => (text, None),
+            };
+            if text.is_empty() {
+                return None;
+            }
+            Some(Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text, link, ..Inline::default() }], list_group: None, lang: None, table_cols: Vec::new() })
+        })
+        .collect()
 }
 
 /// `fixtures/markdown-text-links.json`: every text run through a host's text
@@ -2225,6 +2254,9 @@ pub struct MdPaint {
     pub icon: IconPainter,
     /// #VAPP-258: `on_image_press` (`None` = a block image is not pressable).
     pub image_press: Option<LinkHandler>,
+    /// #EXP-1947: a RENDERED block image `(id, src, alt, picture)` wrapped in
+    /// the host's image menu (`None` = the host has none).
+    pub image_menu: Option<ImageMenuWrap>,
     /// #VAPP-258: `on_task_toggle(ordinal, checked)` (`None` = task boxes
     /// are inert).
     pub task_press: Option<TaskPress>,
@@ -2300,6 +2332,11 @@ pub type TaskBox = Rc<dyn Fn(bool) -> AnyElement>;
 pub type LinkHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// A block image's src → what `img()` paints (`None` = denied).
 pub type ImageResolver = Rc<dyn Fn(&str) -> Option<gpui::ImageSource>>;
+
+/// #EXP-1947: a block image's picture `(id, src, alt, picture)` → the
+/// picture under the host's image menu once it rendered
+/// ([`crate::image_menu::with_image_menu`]).
+pub type ImageMenuWrap = Rc<dyn Fn(SharedString, &str, &str, AnyElement) -> AnyElement>;
 
 impl MdPaint {
     /// Runs cut per cluster ([`crate::fallback::cluster_runs`]), as the
@@ -2645,7 +2682,14 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                             .rounded(px(s.image_radius))
                             .overflow_hidden()
                             .when_some(s.image_border_color.filter(|_| s.image_border_width > 0.0), |d, c| d.border(px(s.image_border_width)).border_color(c))
-                            .child(gpui::img(source).size_full().object_fit(gpui::ObjectFit::Contain).with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()));
+                            .child({
+                                let picture = gpui::img(source).size_full().object_fit(gpui::ObjectFit::Contain).with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()).into_any_element();
+                                // #EXP-1947: a rendered picture answers the host's image menu.
+                                match &p.image_menu {
+                                    Some(wrap) => wrap(SharedString::from(format!("{bid}.picture")), src, alt, picture),
+                                    None => picture,
+                                }
+                            });
                         let frame: AnyElement = match &p.image_press {
                             Some(press) => {
                                 let (press, src) = (press.clone(), src.clone());

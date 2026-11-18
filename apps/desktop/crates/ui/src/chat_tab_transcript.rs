@@ -892,6 +892,19 @@ impl HostPlugin for TranscriptHost {
         self.md.attachment(href, cx)
     }
 
+    // #EXP-1947: the source rule and THE image menu pass through.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        self.md.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.md.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.md.image_menu(target, picture, window, cx)
+    }
+
     fn markdown_hooks_version(&self, text: &str, cx: &App) -> Option<u64> {
         self.md.markdown_hooks_version(text, cx)
     }

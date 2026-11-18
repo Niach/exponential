@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    canvas, div, img, px, App, AppContext as _, Bounds, ClipboardEntry, ClipboardItem,
+    canvas, div, img, px, App, AppContext as _, Bounds, ClipboardEntry,
     Context, ElementId, Entity, EntityId, Focusable as _,
     ImageCacheError, ImageSource, InteractiveElement as _, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render,
@@ -288,6 +288,13 @@ impl CachedImage {
             .get(key)
             .and_then(Weak::upgrade)
             .map(Self)
+    }
+
+    /// #EXP-1947: the ENCODED bytes of the picture any view holds for
+    /// `url` (query-stripped: the registry's key), never a fetch — Copy
+    /// image's cache-first source.
+    pub(crate) fn live_encoded(url: &str, cx: &App) -> Option<Arc<gpui::Image>> {
+        Self::live(super::image_url::strip_query(url), cx).map(|image| image.encoded())
     }
 
     /// Locally-staged bytes (a `draft://` paste): only this editor shows
@@ -708,6 +715,13 @@ fn render_image_slot(
     on_open: Option<OpenImageCallback>,
     cx: &mut App,
 ) -> gpui::AnyElement {
+    // #EXP-1947 (`image-actions.json` `imageSource`): a picture the source
+    // rule refuses is never fetched: the block shows its link (another
+    // website) or its alt in the picture's place; the Markdown keeps it.
+    // A `draft://` paste = bytes this editor holds already (a local source).
+    if !url.starts_with("draft://") && !crate::image_actions::source_allowed(url, cx) {
+        return render_image_stand_in(id, url, alt, hooks.as_ref(), cx);
+    }
     let fetch_url = image_url::strip_query(url).to_string();
     // EXP-1280: a CHAT picture (the steer feed, THE plan / question card) =
     // the full content width at its own aspect, `plan-card.json`
@@ -916,6 +930,37 @@ fn render_image_slot(
 
 /// The hover ✕ on an editor image block (absolute top-right, appears with
 /// the group hover like the resize handles).
+/// #EXP-1947: a refused picture's block: THE link (the account's link
+/// opener) or its alt as text, with the block's hover ✕ remove.
+fn render_image_stand_in(id: impl Into<ElementId>, url: &str, alt: &str, hooks: Option<&EditorImageHooks>, cx: &App) -> gpui::AnyElement {
+    let verdict = crate::image_actions::source_verdict(url, alt, crate::image_actions::instance(cx).as_deref());
+    let (text, href) = match verdict {
+        eui_gpui::host::ImageSourceVerdict::Link { href, text } => (text, Some(href)),
+        eui_gpui::host::ImageSourceVerdict::Text(text) => (text, None),
+        eui_gpui::host::ImageSourceVerdict::Load => (alt.to_string(), None),
+    };
+    let text = if text.is_empty() { url.to_string() } else { text };
+    let label = div()
+        .id("md-image-link")
+        .role(gpui::Role::Link)
+        .aria_label(text.clone())
+        .when_some(href, |el, href| {
+            el.text_color(cx.theme().link).underline().cursor_pointer().on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                crate::links::open_agent_link(&href, window, cx);
+            })
+        })
+        .child(SharedString::from(text));
+    div()
+        .id(id.into())
+        .relative()
+        .max_w_full()
+        .pr_8()
+        .child(label)
+        .when_some(hooks, |el, hooks| el.child(render_image_remove_button(hooks)))
+        .into_any_element()
+}
+
 fn render_image_remove_button(hooks: &EditorImageHooks) -> impl IntoElement {
     let editor = hooks.editor.clone();
     let block_id = hooks.block_id;
@@ -1073,17 +1118,14 @@ fn attach_image_context_menu(
                     }),
             );
             menu = menu.item(
-                crate::controls::pointer_label_item("Copy image", false)
-                    .icon(Icon::from(crate::icons::registry::UI_COPY))
-                    .on_click({
-                        let images = images.clone();
-                        let url = url.clone();
-                        move |_, _, cx| {
-                            if let Some(image) = images.read(cx).ready_image(&url) {
-                                cx.write_to_clipboard(ClipboardItem::new_image(&image));
-                            }
-                        }
-                    }),
+                // #EXP-1947: THE copy (original bytes as PNG, the toasts).
+                crate::image_actions::copy_image_item({
+                    let images = images.clone();
+                    let url = url.clone();
+                    Rc::new(move |window: &mut Window, cx: &mut App| {
+                        crate::image_actions::copy_attachment_image(&url, Some(&images), window, cx)
+                    })
+                }),
             );
         }
         if let Some((editor, block_id)) = editor.clone() {

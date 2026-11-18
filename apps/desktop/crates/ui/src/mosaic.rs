@@ -81,20 +81,23 @@ fn mosaic_tile(
 ) -> AnyElement {
     let spec = &PLAN_PAGE.mosaic;
     let label = picture.map(|picture| picture.alt.clone()).unwrap_or_default();
+    let src = picture.map(|picture| picture.src.clone()).unwrap_or_default();
+    // #EXP-1947: a picture the source rule refuses is never fetched.
     let picture = match (picture, images) {
-        (Some(picture), Some(images)) => match images.update(cx, |cache, cx| cache.slot(&picture.src, cx)) {
+        (Some(picture), Some(images)) if crate::image_actions::source_allowed(&picture.src, cx) => match images.update(cx, |cache, cx| cache.slot(&picture.src, cx)) {
             ImageSlot::Ready(image) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
             _ => None,
         },
         _ => None,
     };
+    let ready = picture.is_some();
     let index = entry.index;
     let size = match entry.size {
         MosaicTileSize::Large => "large",
         MosaicTileSize::Half => "half",
         MosaicTileSize::Small => "small",
     };
-    div()
+    let tile = div()
         .id(SharedString::from(format!("mosaic-tile-{group}-{index}-{size}")))
         .relative()
         .flex_1()
@@ -128,6 +131,7 @@ fn mosaic_tile(
                 cx.stop_propagation();
                 on_open(index, window, cx);
             })
-        })
-        .into_any_element()
+        });
+    // #EXP-1947: a rendered tile answers THE image menu.
+    crate::image_actions::attachment_menu_when(tile, ready, &src, images)
 }

@@ -83,6 +83,8 @@ pub(crate) fn result_section(
                 ImageSlot::Ready(image) => Some(image),
                 _ => None,
             };
+            // #EXP-1947: a rendered picture answers THE image menu.
+            let menu_images = images.clone();
             let (open, images) = (result.clone(), images.clone());
             v_flex()
                 .id(SharedString::from(format!("result-picture-{}-{index}", result.id)))
@@ -93,8 +95,9 @@ pub(crate) fn result_section(
                 .gap_1p5()
                 .cursor_pointer()
                 .on_click(move |_, window, cx| open_lightbox(&open, index, images.clone(), window, cx))
-                .child(
+                .child(crate::image_actions::attachment_menu_when(
                     div()
+                        .id(SharedString::from(format!("result-picture-{}-{index}-image", result.id)))
                         .w(px(width))
                         .h(px(tile.thumb_height.wide))
                         .rounded(px(tile.radius))
@@ -102,8 +105,11 @@ pub(crate) fn result_section(
                         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                         .bg(ground)
                         .overflow_hidden()
-                        .when_some(ready, |frame, image| frame.child(img(image).size_full().object_fit(ObjectFit::Cover))),
-                )
+                        .when_some(ready.clone(), |frame, image| frame.child(img(image).size_full().object_fit(ObjectFit::Cover))),
+                    ready.is_some(),
+                    &url,
+                    Some(&menu_images),
+                ))
                 .child(div().truncate().text_xs().text_color(muted).child(SharedString::from(picture_text(picture))))
                 .into_any_element()
         })

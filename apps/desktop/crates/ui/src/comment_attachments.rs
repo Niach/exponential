@@ -256,6 +256,7 @@ fn image_tile(
         _ => None,
     };
     let slot = images.update(cx, |cache, cx| cache.slot(&fetch_url, cx));
+    let ready = crate::image_actions::slot_ready(&slot);
     let (box_w, box_h) = large_tile_box(natural, LARGE_TILE_MAX_H);
     let tile = div()
         .id(SharedString::from(format!(
@@ -308,7 +309,9 @@ fn image_tile(
             }
         });
 
-    with_remove_badge(tile.into_any_element(), attachment, remove, cx)
+    // #EXP-1947: a rendered attachment answers THE image menu.
+    let tile = crate::image_actions::attachment_menu_when(tile, ready, &fetch_url, Some(images));
+    with_remove_badge(tile, attachment, remove, cx)
 }
 
 /// Edit mode's ✕ over a large tile's top-right corner (web's
