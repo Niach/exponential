@@ -257,6 +257,9 @@ export interface VoiceCallPillProps extends Omit<ComponentProps<`div`>, `childre
   end: string
   onMute?: () => void
   onEnd?: () => void
+  /** FEED-272: the row docked on the call's Chat tab: the chat column's
+   *  width, no drag handle, a card's corners instead of the capsule. */
+  docked?: boolean
 }
 
 /** The compact row: the desktop's floating call pill (`pill.width` ×
@@ -273,6 +276,7 @@ export function VoiceCallPill({
   end,
   onMute,
   onEnd,
+  docked = false,
   className,
   style,
   ...props
@@ -282,14 +286,16 @@ export function VoiceCallPill({
     <div
       data-slot="call-pill"
       data-testid={VOICE_CALL_TEST_IDS.pill}
+      data-docked={docked || undefined}
       className={cn(
-        `flex shrink-0 items-center gap-2 rounded-full border border-glass-stroke-card bg-glass-card pr-2.5 pl-3 shadow-lg`,
+        `flex shrink-0 items-center gap-2 border border-glass-stroke-card bg-glass-card pr-2.5 pl-3`,
+        docked ? `w-full rounded-xl` : `rounded-full shadow-lg`,
         className
       )}
-      style={{ width: VOICE_CALL_PILL.width, height: VOICE_CALL_PILL.height, ...style }}
+      style={{ width: docked ? undefined : VOICE_CALL_PILL.width, height: VOICE_CALL_PILL.height, ...style }}
       {...props}
     >
-      <DragHandle />
+      {docked ? null : <DragHandle />}
       <CallAvatar agent={agent} activity={activity} size="sm">
         {avatar}
       </CallAvatar>
