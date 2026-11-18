@@ -222,6 +222,9 @@ fun sessionScreenMenuGroups(
             onClick = { onPick(entry) },
             destructive = entry == SessionScreen.MenuEntry.Delete,
             testTag = "${SessionScreen.TestIds.MENU}-${entry.wire}",
+            // #FEED-271: it opens THE link menu as the next sheet: its `›`
+            // (web-mobile, iOS, the IDE's submenu row).
+            chevron = entry == SessionScreen.MenuEntry.LinkIssue,
         )
     }
     return groups.filter { it.isNotEmpty() }

@@ -274,8 +274,8 @@ private fun ChatMenuPanelRow(item: ChatMenuItem, onClick: () -> Unit) {
             }
         },
         text = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        trailing = if (item.value != null || item.submenu != null) {
-            { ChatMenuTrailing(item.value, chevron = item.submenu != null) }
+        trailing = if (item.value != null || item.submenu != null || item.chevron) {
+            { ChatMenuTrailing(item.value, chevron = item.submenu != null || item.chevron) }
         } else {
             null
         },
