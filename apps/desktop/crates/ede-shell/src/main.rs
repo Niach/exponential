@@ -1785,10 +1785,11 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
 fn dispatch(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
     {
         let mut s = shell.borrow_mut();
+        let before = s.model.start_menu.query.clone();
         s.model = reduce(&s.model, &event);
         // #EDE-92: an open, a close or new text = the first result again.
         let open = s.model.start_menu.open;
-        s.menu_selection.follow(&event, open);
+        s.menu_selection.follow(&event, &before, open);
     }
     model_changed(shell, cx);
 }
@@ -2774,9 +2775,11 @@ fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64
 const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
+    let changed = shell.borrow().model.start_menu.query != query;
     dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
-    // #EDE-92: the rebuilt results start at their top, on the first row.
-    let first = shell.borrow().feed.get("/shell").map(|v| if v["startMenu"]["apps"].as_array().is_some_and(|a| !a.is_empty()) { "apps" } else { "issues" });
+    // #EDE-92: new text = the results start at their top, on the first row
+    // (Enter's flush of the same text keeps the place).
+    let first = if !changed { None } else { shell.borrow().feed.get("/shell").map(|v| if v["startMenu"]["apps"].as_array().is_some_and(|a| !a.is_empty()) { "apps" } else { "issues" }) };
     if let Some(list) = first {
         for name in ["start-menu", "menu"] {
             shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, 0, cx);

@@ -37,12 +37,15 @@ impl Selection {
 }
 
 impl Selection {
-    /// After the reducer ran `event`: the menu opened, closed or got its
-    /// text (the list rebuilt, the same text too) = back to the first row;
-    /// a closed menu keeps no selection.
-    pub fn follow(&mut self, event: &uicore_model::ShellEvent, open: bool) {
+    /// After the reducer ran `event` on a menu whose text was `before`: the
+    /// menu opened, closed or its text really changed = back to the first
+    /// row; a closed menu keeps no selection. A query with the text it
+    /// already had changes nothing: Enter flushes the box's text (the same)
+    /// right before it runs the selected row.
+    pub fn follow(&mut self, event: &uicore_model::ShellEvent, before: &str, open: bool) {
         use uicore_model::ShellEvent::*;
-        if !open || matches!(event, StartMenuOpen | StartMenuClose | StartMenuToggle | StartMenuQuery { .. }) {
+        let changed = matches!(event, StartMenuQuery { query } if query != before);
+        if !open || changed || matches!(event, StartMenuOpen | StartMenuClose | StartMenuToggle) {
             *self = Selection::default();
         }
     }
@@ -207,15 +210,73 @@ mod tests {
 
     use uicore_model::{reduce, ShellEvent, ShellState, StartMenuApp};
 
-    /// The shell's path for one event: the reducer, then the selection follows it.
+    /// The shell's path for one event (`dispatch`): the reducer, then the selection follows it.
     fn send(state: &mut ShellState, selection: &mut Selection, event: ShellEvent) {
+        let before = state.start_menu.query.clone();
         *state = reduce(state, &event);
-        selection.follow(&event, state.start_menu.open);
+        selection.follow(&event, &before, state.start_menu.open);
+    }
+
+    /// Typing as the search box tells the shell: one query per text.
+    fn type_text(state: &mut ShellState, selection: &mut Selection, text: &str) {
+        for end in 1..=text.len() {
+            send(state, selection, ShellEvent::StartMenuQuery { query: text[..end].into() });
+        }
+    }
+
+    fn down(state: &ShellState, selection: &mut Selection, by: i64) {
+        let menu = fed(state, selection);
+        selection.step(&state.start_menu.query, rows(&menu), by).expect("a row");
+    }
+
+    /// Enter in the product, in its order: the box flushes its text (the
+    /// deferred `StartMenuQuery`, the text unchanged), then `activate` reads
+    /// the marked row.
+    fn enter(state: &mut ShellState, selection: &mut Selection) -> Option<(&'static str, Value)> {
+        let query = state.start_menu.query.clone();
+        send(state, selection, ShellEvent::StartMenuQuery { query });
+        activation(&fed(state, selection))
+    }
+
+    fn launched(app: &str) -> Option<(&'static str, Value)> {
+        Some(("ede_launch", json!({"app": app})))
+    }
+
+    /// The VM's third run (#EDE-92 R2, R3, R5): after Up or Down, Enter ran
+    /// row 0, because the submit's own query (the same text) reset the
+    /// selection before it was read.
+    #[test]
+    fn enter_after_the_arrows_runs_the_highlighted_row() {
+        for (text, moves, app) in [("e", vec![1], "app01"), ("e", vec![1; 24], "app24"), ("te", vec![1, 1, -1], "text01"), ("e", vec![], "app00")] {
+            let (mut state, mut selection) = (ShellState::default(), Selection::default());
+            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+            type_text(&mut state, &mut selection, text);
+            for by in &moves {
+                down(&state, &mut selection, *by);
+            }
+            assert_eq!(enter(&mut state, &mut selection), launched(app), "{text:?} {moves:?}");
+        }
+    }
+
+    /// Delete the last letter and type it again: two real changes, the first row.
+    #[test]
+    fn a_retyped_letter_selects_the_first_row() {
+        let (mut state, mut selection) = (ShellState::default(), Selection::default());
+        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
+        type_text(&mut state, &mut selection, "e");
+        for _ in 0..10 {
+            down(&state, &mut selection, 1);
+        }
+        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: String::new() });
+        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
+        assert_eq!(enter(&mut state, &mut selection), launched("app00"));
     }
 
     /// `/shell/startMenu` as the shell feeds it, marked: 40 apps match "e".
     fn fed(state: &ShellState, selection: &Selection) -> Value {
-        let apps: Vec<StartMenuApp> = (0..40).map(|i| StartMenuApp { id: format!("app{i:02}"), name: format!("Edit {i:02}"), comment: String::new(), categories: Vec::new(), keywords: String::new() }).collect();
+        // "e" finds the Edits first (the name starts with it), then the Texts; "te" the Texts.
+        let app = |id: String, name: String| StartMenuApp { id, name, comment: String::new(), categories: Vec::new(), keywords: String::new() };
+        let apps: Vec<StartMenuApp> = (0..40).map(|i| app(format!("app{i:02}"), format!("Edit {i:02}"))).chain((0..5).map(|i| app(format!("text{i:02}"), format!("Text {i:02}")))).collect();
         let mut menu = uicore_data::shell_feed(state, &apps, &[])["startMenu"].clone();
         menu["issues"] = json!([]);
         mark(&mut menu, selection);
@@ -250,10 +311,10 @@ mod tests {
     }
 
     /// A menu closed without the shell hearing it (Lock closes the popup
-    /// alone) still opens with the first row; the same text typed again
-    /// (the list rebuilt) selects the first row too.
+    /// alone) still opens with the first row; a query with the text the
+    /// selection already follows (the submit's flush) changes nothing.
     #[test]
-    fn opening_or_retyping_selects_the_first_row() {
+    fn opening_selects_the_first_row_and_the_same_text_keeps_it() {
         let (mut state, mut selection) = (ShellState::default(), Selection::default());
         send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
         send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
@@ -261,10 +322,7 @@ mod tests {
             selection.step("e", 40, 1);
         }
         send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-        assert_eq!(selected_rows(&fed(&state, &selection)), ["app00"], "the same text again");
-        for _ in 0..5 {
-            selection.step("e", 40, 1);
-        }
+        assert_eq!(selected_rows(&fed(&state, &selection)), ["app05"], "the same text again changes nothing");
         send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
         send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
         assert_eq!(selected_rows(&fed(&state, &selection)), ["app00"], "an open without a close");
