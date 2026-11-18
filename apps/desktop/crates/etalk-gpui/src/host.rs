@@ -201,6 +201,9 @@ pub enum CallLinkEvent {
     Ready,
     /// The caller's audio: mono 16-bit PCM.
     Audio(Vec<i16>),
+    /// #EXP-1941: this many ms of the caller's audio were lost before the
+    /// next audio (a sealed call's socket counts it).
+    Lost { ms: u32 },
     Mute(bool),
     /// The caller (or the relay) hung up, with its reason.
     Ended { reason: Option<String> },

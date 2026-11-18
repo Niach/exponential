@@ -340,6 +340,7 @@ fn link_event(event: steer::call_host::CallHostEvent) -> CallLinkEvent {
     match event {
         CallHostEvent::Ready => CallLinkEvent::Ready,
         CallHostEvent::Audio(pcm) => CallLinkEvent::Audio(pcm),
+        CallHostEvent::Lost { ms } => CallLinkEvent::Lost { ms },
         CallHostEvent::Mute(muted) => CallLinkEvent::Mute(muted),
         CallHostEvent::Ended { reason } => CallLinkEvent::Ended { reason },
         CallHostEvent::Dropped(reason) => CallLinkEvent::Dropped(reason),
