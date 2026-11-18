@@ -49,6 +49,7 @@ import { callSpeechOf } from "@/lib/voice-call/availability"
 import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
+import { endCallSession, startCallSession } from "@/lib/sessions/call"
 
 type Db = typeof Database
 
@@ -609,6 +610,29 @@ export const voiceRouter = router({
       if (created) nudge(created.ownerId, created.deviceId)
       return answer
     }),
+
+  // #EXP-1961 (voice-call.json `callSession`): the HOST asks for the call's
+  // own session while it rings (a desktop running the call itself too): a
+  // child of the member's chat with the agent, started, or resumed within
+  // `resumeMs`. Null = no chat yet or no room: the host keeps sending into
+  // the chat (the old path).
+  callSession: authedProcedure
+    .input(z.object({ agentId: z.string().uuid(), callId: z.string().min(1).max(256).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      if (!(await memberAgent(ctx.db, userId, input.agentId))) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
+      }
+      return startCallSession({ userId, agentId: input.agentId, callId: input.callId ?? null })
+    }),
+
+  // #EXP-1961: the hang-up (either side, a drop too): the call session is
+  // asked for its summary, which reaches the chat as a waking report card.
+  callEnded: authedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => ({
+      ended: await endCallSession({ userId: ctx.session.user.id, sessionId: input.sessionId }),
+    })),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
   // alone; the relay admits it only into a ringing call on a device this

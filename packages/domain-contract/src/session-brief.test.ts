@@ -4,6 +4,11 @@ import fixture from "../fixtures/session-brief.json" with { type: "json" }
 import { agentForwardText, composeBrief, composeIssueBrief, withIssueBrief } from "./session-brief"
 
 describe(`session brief fixture (EXP-1291)`, () => {
+  for (const entry of fixture.callCases) {
+    test(entry.name, () => {
+      expect(composeBrief(entry.input)).toBe(entry.expected)
+    })
+  }
   for (const entry of fixture.cases) {
     test(entry.name, () => {
       expect(composeBrief(entry.input as never)).toBe(entry.expected)

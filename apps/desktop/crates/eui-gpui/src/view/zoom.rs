@@ -59,7 +59,8 @@ impl SurfaceView {
         for n in nodes {
             keep.insert(n.id.clone());
             let src = text(&n, "src").to_string();
-            let image = crate::media::image_source(self.host.as_ref(), &src);
+            // #EXP-1947: a refused picture never loads (its stand-in paints).
+            let image = if self.image_stand_in(&n).is_some() { None } else { crate::media::image_source(self.host.as_ref(), &src) };
             let natural = num(&n, "naturalWidth").zip(num(&n, "naturalHeight"));
             let options = self.zoom_options(&n);
             let scale = num(&n, "scale");

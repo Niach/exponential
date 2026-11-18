@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    anchored, deferred, div, point, px, App, AppContext as _, ClipboardItem, Context, Entity,
+    anchored, deferred, div, point, px, App, AppContext as _, Context, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
     Pixels, Point, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window,
@@ -1727,18 +1727,17 @@ impl WysiwygDescription {
                 list = list.child(
                     item(
                         "wysiwyg-image-copy",
-                        "Copy image",
+                        domain::contract::IMAGE_ACTIONS_COPY_IMAGE,
                         crate::icons::registry::UI_COPY,
                         false,
                     )
                     .on_mouse_down(MouseButton::Left, {
                         let key = key.clone();
                         let images = images_entity.clone();
-                        cx.listener(move |this, _event, _window, cx| {
+                        cx.listener(move |this, _event, window, cx| {
                             this.image_menu = None;
-                            if let Some(image) = images.read(cx).ready_image(&key) {
-                                cx.write_to_clipboard(ClipboardItem::new_image(&image));
-                            }
+                            // #EXP-1947: THE copy (original bytes as PNG, the toasts).
+                            crate::image_actions::copy_attachment_image(&key, Some(&images), window, cx);
                             cx.notify();
                         })
                     }),

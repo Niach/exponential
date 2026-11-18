@@ -339,6 +339,18 @@ impl<S: 'static> HostPlugin for BindingHost<S> {
         self.inner.on_image_press(src, window, cx)
     }
 
+    fn image_source(&self, src: &str, alt: &str) -> Option<crate::host::ImageSourceVerdict> {
+        self.inner.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.inner.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: crate::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.inner.image_menu(target, picture, window, cx)
+    }
+
     fn attachment(&self, href: &str, cx: &App) -> Option<MarkdownAttachment> {
         self.inner.attachment(href, cx)
     }

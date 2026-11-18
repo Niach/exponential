@@ -762,6 +762,19 @@ impl HostPlugin for AppMarkdownHost {
         crate::links::markdown_attachment(href, cx)
     }
 
+    // #EXP-1947: the card host's source rule and THE image menu.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        self.media.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.media.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
+        self.media.image_menu(target, picture, window, cx)
+    }
+
     fn markdown_options(&self, _cx: &App) -> MarkdownOptions {
         let config = self.config.borrow();
         MarkdownOptions {

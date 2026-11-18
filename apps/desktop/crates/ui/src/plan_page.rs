@@ -473,6 +473,17 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                             }
                             crate::steer_viewer::ask_body_text(cx).child(view).into_any_element()
                         }
+                        // #EXP-1947: a picture the source rule refuses is
+                        // never fetched: the Markdown paints its link or alt.
+                        Piece::Picture { alt, src } if !crate::image_actions::source_allowed(&src, cx) => {
+                            let view = crate::session_chat::message_markdown(
+                                SharedString::from(format!("plan-page-{message_id}-{ix}-{at}")),
+                                &format!("![{alt}]({src})"),
+                                props.text,
+                                props.images,
+                            );
+                            crate::steer_viewer::ask_body_text(cx).child(view).into_any_element()
+                        }
                         Piece::Picture { alt, src } => {
                             lone_picture(&format!("{message_id}-{ix}-{at}"), &alt, &src, &props, open_picture.clone(), cx)
                         }
@@ -594,12 +605,14 @@ fn lone_picture(
         _ => None,
     });
     let aspect = natural.filter(|(w, h)| *w > 0. && *h > 0.).map_or(spec.aspect, |(w, h)| w / h);
+    let ready = crate::image_actions::slot_ready(&slot);
     let picture = match slot {
         ImageSlot::Ready(image) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
         _ => None,
     };
     let src = src.to_string();
-    div()
+    let menu_src = src.clone();
+    let tile = div()
         .id(SharedString::from(format!("plan-picture-{id}")))
         .role(gpui::Role::Button)
         .aria_label(alt.to_string())
@@ -621,8 +634,9 @@ fn lone_picture(
                 cx.stop_propagation();
                 open(&src, window, cx);
             })
-        })
-        .into_any_element()
+        });
+    // #EXP-1947: a rendered plan picture answers THE image menu.
+    crate::image_actions::attachment_menu_when(tile, ready, &menu_src, Some(props.images))
 }
 
 #[cfg(test)]

@@ -36,6 +36,7 @@ pub mod controls;
 pub mod extension;
 pub mod fallback;
 pub mod host;
+pub mod image_menu;
 pub mod measure;
 pub mod media;
 pub mod motion;

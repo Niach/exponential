@@ -187,6 +187,39 @@ pub struct VoiceCallSpec {
     pub hang_up_rules: HangUpRules,
     pub pill: CallPill,
     pub host_voice: HostVoice,
+    pub call_session: CallSessionSpec,
+}
+
+/// #EXP-1961 (`callSession`): the call's own session's host-side numbers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSessionSpec {
+    pub resume_ms: u64,
+    pub opening_wait_ms: u64,
+}
+
+/// #EXP-1961: what [`call_opening`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallOpening {
+    /// Keep ringing.
+    Wait,
+    /// Pick up and say the agent's opening line.
+    Speak,
+    /// Pick up silently on Listening; that opening is never spoken.
+    Listen,
+}
+
+/// #EXP-1961 (`callSession.openingCases`): the agent's own opening line
+/// (its call session's first reply), against the host's `ready` (the voice
+/// is in): before ready = wait; in by `ready + openingWaitMs` = speak;
+/// none by then = listen.
+pub fn call_opening(ready_at_ms: Option<u64>, opening_at_ms: Option<u64>, now_ms: u64) -> CallOpening {
+    let Some(ready) = ready_at_ms else { return CallOpening::Wait };
+    let deadline = ready + VOICE_CALL.call_session.opening_wait_ms;
+    if opening_at_ms.is_some_and(|at| at < deadline) {
+        return CallOpening::Speak;
+    }
+    if now_ms >= deadline { CallOpening::Listen } else { CallOpening::Wait }
 }
 
 /// FEED-276: how long a host's `ready` waits for the agent's own voice.
@@ -783,6 +816,16 @@ mod tests {
         }
         for case in fixture["ringToneCases"].as_array().unwrap() {
             assert_eq!(call_ring_tone_on(case["ms"].as_i64().unwrap()), case["on"].as_bool().unwrap(), "{case}");
+        }
+        for case in fixture["callSession"]["openingCases"].as_array().unwrap() {
+            let expected = match case["opening"].as_str().unwrap() {
+                "wait" => CallOpening::Wait,
+                "speak" => CallOpening::Speak,
+                "listen" => CallOpening::Listen,
+                other => panic!("unknown opening {other}"),
+            };
+            let got = call_opening(case["readyAtMs"].as_u64(), case["openingAtMs"].as_u64(), case["nowMs"].as_u64().unwrap());
+            assert_eq!(got, expected, "{case}");
         }
         for case in fixture["hostVoice"]["cases"].as_array().unwrap() {
             let voice = match case["clip"].as_str().unwrap() {

@@ -532,3 +532,42 @@ export function callSealStep(role: CallSealRole, state: CallSealState, event: Ca
       return count
   }
 }
+
+// EXP-1961 (`callSession`): a call runs in its own call session, a child of
+// the chat. Pure parts the server (pick, duration) and the Rust hosts
+// (opening) replay.
+export const VOICE_CALL_SESSION = fixture.callSession
+
+export type CallSessionPick = `start` | `resume` | `replace`
+
+/** `pickCases`: the chat's newest call child (`prev`: its status and its
+ *  call's `endedAt` in ms, null = running) decides the call's session. */
+export function callSessionPick(
+  prev: { status: string; endedAtMs: number | null } | null,
+  nowMs: number
+): CallSessionPick {
+  if (!prev || prev.status === `ended`) return `start`
+  if (prev.endedAtMs === null || nowMs - prev.endedAtMs <= fixture.callSession.resumeMs) return `resume`
+  return `replace`
+}
+
+export type CallOpening = `wait` | `speak` | `listen`
+
+/** `openingCases`: whether the host says the agent's opening line. */
+export function callOpening(readyAtMs: number | null, openingAtMs: number | null, nowMs: number): CallOpening {
+  if (readyAtMs === null) return `wait`
+  const deadline = readyAtMs + fixture.callSession.openingWaitMs
+  if (openingAtMs !== null && openingAtMs < deadline) return `speak`
+  return nowMs >= deadline ? `listen` : `wait`
+}
+
+/** `durationCases`: the call's total after a segment ends. */
+export function callDuration(durationMs: number, segmentStartedAtMs: number, endedAtMs: number): number {
+  return durationMs + Math.max(0, endedAtMs - segmentStartedAtMs)
+}
+
+/** The `request` / `resumeText` with the agent's Voice language. */
+export function callSessionText(template: string, language: string | null | undefined): string {
+  const names = fixture.callSession.languageNames as Record<string, string>
+  return template.replaceAll(`{language}`, names[language ?? `en`] ?? names.en!)
+}

@@ -58,6 +58,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_327: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-calls-own-session",
+    date: "2026-11-18",
+    title: "Calls run in their own session",
+    summary: "A call with your agent now runs in its own session under the chat: the agent opens with its own words in its own voice, and when you hang up a summary lands in the chat.",
+    body: r##"- **Its own words**: the agent writes and says its own opening line while the phone rings; no fixed "Hello?" any more. If it has nothing ready in time, the call picks up and listens.
+- **Its own session**: the call reads where the chat stands and what you type there, does small things itself and hands bigger work to the chat.
+- **A summary after**: when the call ends, its summary arrives in the chat, and calling back within 10 minutes picks up the same call."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_326: ChangelogEntry = ChangelogEntry {
     id: "2026-11-18-whole-chat-messages",
     date: "2026-11-18",
@@ -96,37 +108,14 @@ const PREVIOUS_324: ChangelogEntry = ChangelogEntry {
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_323: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-android",
+    id: "2026-11-18-copy-image-everywhere",
     date: "2026-11-18",
-    title: "Copy image on Android",
-    summary: "Long-press a picture on Android to copy it or share it. A picture from another website shows as a link and is never loaded.",
-    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
-- **Share**: the same menu shares the picture as a PNG file.
-- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_322: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-ios",
-    date: "2026-11-18",
-    title: "Copy image on iOS",
-    summary: "Long-press a picture on iOS to copy it or share it. A picture from another website shows as a link and is never loaded.",
-    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
-- **Share**: the same menu shares the picture as a PNG file. The share sheet also saves it to Photos.
-- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_321: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-on-the-web",
-    date: "2026-11-18",
-    title: "Copy image on the web",
-    summary: "Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.",
-    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
-- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
-- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab."##,
+    title: "Copy image everywhere",
+    summary: "Right-click a picture on the web or the desktop app, or long-press it on a phone, and pick Copy image. Pictures from other websites show as a link and are never loaded.",
+    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image; on iOS, Android and phone browsers, long-press it. The picture itself goes to the clipboard as PNG, at full size, ready to paste into another app.
+- **Share on phones**: the same menu shares the picture as a PNG file (on iOS the share sheet also saves it to Photos). A phone browser offers Share where it can share files.
+- **Desktop and Exponential Desktop**: right-click works on macOS, Windows and Linux (X11 and Wayland).
+- **Pictures from other websites**: a picture from another website is never loaded. It shows as a link with its description (or the website's name) and opens in your browser."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
