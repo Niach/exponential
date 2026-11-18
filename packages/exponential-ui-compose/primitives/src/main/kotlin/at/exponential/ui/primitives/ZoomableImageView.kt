@@ -891,6 +891,8 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.zoomGest
                         state.fling(v.x / d / 1000f, v.y / d / 1000f)
                     }
                 }
+                // #EXP-1926: a hold past the long-press timeout is a long press (an image menu), not a tap.
+                !moved && mode == Drag.None && upAt - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis -> Unit
                 !moved && mode == Drag.None -> {
                     val prev = lastTap
                     val point = Offset(upPos.x / d, upPos.y / d)

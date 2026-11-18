@@ -59,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
 import at.exponential.ui.catalog.CatalogConstants
+import at.exponential.ui.primitives.ImageSource
+import androidx.compose.ui.semantics.role
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_BRIDGE
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_COLUMN
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_RADIUS
@@ -456,10 +458,64 @@ private fun imageCovered(cx: LeafContext): Boolean {
     }
 }
 
-/** `Image`: the picture scaled by `fit` (cover default; contain / scaleDown fit; fill stretches), clipped; else the placeholder. */
+/**
+ * #EXP-1926 (image-actions.json `imageSource`): a picture the host's source
+ * rule does not load: a [ImageSource.Link] = THE Markdown link look (the
+ * `Markdown/link` colour, underlined) in the picture's place, a press opens
+ * it through the URL policy and the host; a [ImageSource.Text] = its text
+ * in the muted ink (nothing when empty). Never fetched, no image menu.
+ */
+@Composable
+internal fun ImageSourceText(cx: LeafContext, source: ImageSource) {
+    val model = cx.model
+    when (source) {
+        ImageSource.Load -> Unit
+        is ImageSource.Link -> Box(Modifier.fillMaxSize()) {
+            val color = cx.part("Markdown", "link").color ?: cx.themeColor("primary") ?: cx.ink
+            BasicText(
+                source.text,
+                modifier = Modifier
+                    .semantics { this.role = Role.Button }
+                    .pointerInput(source.href) { detectTapGestures { model.openHref(source.href) } },
+                style = cx.composeTextStyle(color = color).copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        is ImageSource.Text -> if (source.text.isNotEmpty()) {
+            BasicText(
+                source.text,
+                modifier = Modifier.fillMaxSize(),
+                style = cx.composeTextStyle(color = cx.themeColor("mutedForeground") ?: cx.ink),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** #EXP-1926: the host's image menu for the picture node [nodeId], anchored at its centre (open while [SurfaceModel.imageMenuFor] is it). */
+@Composable
+internal fun ImageMenuAnchor(model: at.exponential.ui.model.SurfaceModel, nodeId: String, src: String, alt: String) {
+    val host = model.host
+    if (!host.hasImageMenu || src.isEmpty()) return
+    val target = remember(src, alt, model) { at.exponential.ui.host.ImageTarget(src, alt) { model.originalImageBytes(src) } }
+    Box(Modifier.fillMaxSize().wrapContentSize(Alignment.Center)) {
+        host.ImageMenu(target, expanded = model.imageMenuFor == nodeId, onDismiss = { if (model.imageMenuFor == nodeId) model.imageMenuFor = null })
+    }
+}
+
+/** `Image`: the picture scaled by `fit` (cover default; contain / scaleDown fit; fill stretches), clipped; else the placeholder. #EXP-1926: a source the host does not load = [ImageSourceText]; a rendered one carries the host's image menu. */
 @Composable
 internal fun ImageLeaf(cx: LeafContext) {
-    val picture = rememberLeafImage(cx, cx.props.str("src"))
+    val src = cx.props.str("src")
+    val alt = cx.props.str("alt")
+    val source = remember(src, alt, cx.model.host) { cx.model.imageSource(src, alt) }
+    if (source != ImageSource.Load) {
+        ImageSourceText(cx, source)
+        return
+    }
+    val picture = rememberLeafImage(cx, src)
     val scale = when (cx.props.str("fit")) {
         "contain", "scaleDown" -> ContentScale.Fit
         "fill" -> ContentScale.FillBounds
@@ -469,6 +525,7 @@ internal fun ImageLeaf(cx: LeafContext) {
     Box(Modifier.fillMaxSize().clipToBounds()) {
         if (picture != null) {
             Image(picture, null, Modifier.fillMaxSize(), contentScale = scale)
+            ImageMenuAnchor(cx.model, cx.node.id, src, alt)
         } else {
             ImagePlaceholder(cx, covered = imageCovered(cx))
         }

@@ -20,6 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import com.exponential.app.ui.components.ImageActionsBox
+import com.exponential.app.ui.components.attachmentImageBytes
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LocalSpecimenPicture
@@ -212,13 +220,20 @@ private fun ResultThumbnail(picture: ResultsTab.Picture, onClick: () -> Unit) {
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, TILE_SHAPE),
         ) {
             val src = "/api/attachments/${picture.attachmentId}"
-            AsyncImage(
-                model = LocalSpecimenPicture.current?.invoke(src) ?: src,
-                contentDescription = text,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-                modifier = Modifier.fillMaxWidth().height(height),
-            )
+            // #EXP-1948: a rendered thumbnail's long press = the image menu (the original bytes).
+            val context = LocalContext.current
+            var loaded by remember(picture.attachmentId) { mutableStateOf(false) }
+            val bytes = remember(picture.attachmentId) { attachmentImageBytes(context, picture.attachmentId) }
+            ImageActionsBox(bytes = if (loaded) bytes else null, name = picture.label, onClick = onClick) {
+                AsyncImage(
+                    model = LocalSpecimenPicture.current?.invoke(src) ?: src,
+                    contentDescription = text,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    onState = { loaded = it is AsyncImagePainter.State.Success },
+                    modifier = Modifier.fillMaxWidth().height(height),
+                )
+            }
         }
         Text(
             text,
