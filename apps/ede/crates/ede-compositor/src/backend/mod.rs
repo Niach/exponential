@@ -195,7 +195,7 @@ pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRend
     })
 }
 
-fn draw_offscreen(
+pub(crate) fn draw_offscreen(
     renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer,
     (w, h): (i32, i32),
     clear: [f32; 4],

@@ -45,6 +45,7 @@ impl Ede {
             let next = desk.space.elements().last().cloned();
             self.space_focus(id, next);
         }
+        self.space_schedule(id);
     }
 
     /// A space's window is as large as it gets and never fullscreen: the
@@ -65,6 +66,8 @@ impl Ede {
     /// A commit of a surface made in space `id`.
     pub(crate) fn space_commit(&mut self, id: DeskId, surface: &WlSurface) {
         let Some(size) = self.spaces.get(id).and_then(|s| s.output.current_mode()).map(|m| m.size.to_logical(1)) else { return };
+        // Every commit may change the scene and may wait for a frame callback.
+        self.space_schedule(id);
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {

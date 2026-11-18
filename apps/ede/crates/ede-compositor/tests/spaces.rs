@@ -286,3 +286,69 @@ fn a_window_fills_its_space_and_takes_its_keyboard() {
     assert_eq!(shell.windows().unwrap().len(), 1);
     assert_eq!(events_until_mark(&h, &mut shell, "test.end"), Vec::<String>::new());
 }
+
+/// A space has a clock of its own: a commit arms one tick, slow while
+/// nobody uses the space and fast after a capture, and an idle space arms
+/// none. Its capture shows the space alone, the person's shows none of
+/// it, and the person's lock changes neither.
+#[test]
+fn a_space_has_its_own_frames_and_capture() {
+    use ede_compositor::spaces::frames::{FAST, SLOW};
+    use std::time::Duration;
+    const GREEN: u32 = 0xff00_ff00;
+
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut a = person_with_a_window(&h);
+    let before = person_snapshot(&h);
+    let (desk, _socket, mut b) = space_with_a_client(&h);
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    let clock = move |h: &Harness| h.with(move |state| state.spaces.get(desk).map(|s| (s.scheduled, s.pace, s.ticks, s.serial)).unwrap());
+    let settled = |h: &Harness| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while clock(h).0 {
+            assert!(std::time::Instant::now() < deadline, "the space's clock never rests");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        clock(h)
+    };
+
+    // The window's commits armed the clock, slowly: nobody uses the space.
+    let (_, pace, ticks, serial) = settled(&h);
+    assert!(ticks > 0 && serial > 0 && pace == SLOW, "{ticks} ticks, serial {serial}, {pace:?}");
+    // Idle: nothing is armed and nothing ticks.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(clock(&h), (false, SLOW, ticks, serial));
+
+    // A client that animates gets its callbacks, ten a second at most.
+    person_key(&h, KEY_A);
+    let slow = b.count_frames(&window.surface, Duration::from_millis(600));
+    assert!((1..=7).contains(&slow), "{slow} callbacks in 600 ms on the slow clock");
+    assert_eq!(settled(&h).3, serial, "a commit without a new buffer changes nothing");
+
+    // The capture shows the space alone, and makes the clock fast.
+    let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
+    assert_eq!((frame.width, frame.height, frame.at(320, 240)), (640, 480, RED));
+    assert!(!frame.pixels.contains(&BLUE), "nothing of the person's desk");
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+    assert_eq!(settled(&h).1, FAST);
+    // A new buffer moves the serial, once, whoever looks first.
+    b.draw_configured(&window, 64, 64, GREEN);
+    let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
+    assert_eq!(frame.at(320, 240), GREEN);
+    assert_eq!(settled(&h).3, serial + 1);
+
+    // The person's capture has their window and nothing of the space.
+    let persons = h.capture_shared(0);
+    assert!(persons.pixels.contains(&BLUE) && !persons.pixels.contains(&GREEN));
+    wait_for(&mut a, |a| a.state.keys == [KEY_A]);
+    assert_person_untouched(&h, &before);
+
+    // Locked: the person's capture is black, the space draws and ticks on.
+    let mut locker = Session::connect(h.connect());
+    let _lock = locker.lock();
+    assert!(h.with(|state| state.is_locked()));
+    assert!(h.capture_shared(0).pixels.iter().all(|p| *p == 0xff00_0000));
+    assert_eq!(h.with(move |state| state.capture_space(desk)).expect("a capture").at(320, 240), GREEN);
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+}
