@@ -20,7 +20,7 @@ type SyncHandle = SyncFile & { close(): void }
 type OpfsFileHandle = FileSystemFileHandle & { createSyncAccessHandle(): Promise<SyncHandle> }
 
 async function init(account: string): Promise<boolean> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(account)) return false
+  if (!/^(?!\.+$)[A-Za-z0-9._-]{1,255}$/.test(account)) return false
   if (!navigator.storage?.getDirectory || !navigator.locks) return false
   if (typeof FileSystemFileHandle === `undefined` || !(`createSyncAccessHandle` in FileSystemFileHandle.prototype)) return false
   const root = await navigator.storage.getDirectory()
