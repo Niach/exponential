@@ -2024,7 +2024,7 @@
             "consumedAt": "2026-11-18T09:25:10.000Z",
             "createdAt": "2026-11-18T09:25:10.000Z",
             "authorSessionId": null,
-            "locked": "no_key"
+            "locked": "noKey"
           },
           {
             "id": "x3",
@@ -2073,7 +2073,7 @@
             "consumedAt": "2026-11-18T09:31:10.000Z",
             "createdAt": "2026-11-18T09:31:10.000Z",
             "authorSessionId": null,
-            "locked": "no_key"
+            "locked": "noKey"
           }
         ],
         "agentName": "Assistant",
@@ -2131,7 +2131,7 @@
           {
             "type": "locked",
             "id": "x2",
-            "reason": "no_key",
+            "reason": "noKey",
             "author": "user"
           }
         ]

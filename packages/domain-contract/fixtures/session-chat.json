@@ -6461,7 +6461,7 @@
             "consumedAt": "2026-11-18T09:21:00.000Z",
             "createdAt": "2026-11-18T09:21:00.000Z",
             "authorSessionId": "call2",
-            "locked": "no_key"
+            "locked": "noKey"
           }
         ]
       },
