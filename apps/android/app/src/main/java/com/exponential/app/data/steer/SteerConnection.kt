@@ -230,8 +230,9 @@ class SteerConnection internal constructor(
     stats: SteerConnStatsSink? = null,
     version: String = "",
     private val settleAfterMs: Long = SteerConnStatsSpec.SETTLE_AFTER_MS,
-    /** #PERF-9 (steer-enet.json STORED TAIL): the newest feed events, kept on disk; null = none. */
-    private val tail: SteerTailRecorder? = null,
+    /** #EDE-114 (chat-store.json OPEN): the account's chat store, fed with
+     *  every event this view receives and paged from first; null = none. */
+    private val store: SteerFeedStore? = null,
 ) {
 
     /** The connection's own lifetime — outlives every screen that attaches. */
@@ -295,9 +296,18 @@ class SteerConnection internal constructor(
      */
     private var stagedFrames: MutableList<StagedFrame>? = null
 
-    /** #PERF-9: [activity] holds the STORED TAIL painted on open, not yet
-     *  replaced by a join's replay ([seedStoredTail]). */
+    /** #PERF-9 / #EDE-114: [activity] holds the chat store's tail painted on
+     *  open, not yet replaced by a join's replay ([seedStoredTail]). */
     private var showingStoredTail = false
+    /** #EDE-114: the painted store tail was cut (the store holds older
+     *  events): Load earlier pages them in without a feed. */
+    private var storeOlder = false
+    /** #EDE-114: the store had nothing below [storeCursor]: Load earlier asks
+     *  the device (reset by every replay, which may have stored more). */
+    private var storeEmptyBelow = false
+    /** #EDE-114: the lowest seq a store page reached (its rows may fold to none). */
+    private var storeCursor: Long? = null
+    private var storePaging: Job? = null
     /** EXP-783: the `history_page` ask in flight — a chunk for any other id is
      *  not ours; whether the device said its log is a TAIL (so there IS older
      *  transcript to ask the device for); and whether a page came back with
@@ -703,8 +713,6 @@ class SteerConnection internal constructor(
         val wasFinished = isFinished
         closed = true
         Log.i(TAG, "[$sid] close")
-        // #PERF-9: what the tail gained since its last write goes out now.
-        tail?.flush()
         closeView()
         connectJob?.cancel()
         connectJob = null
@@ -1104,7 +1112,9 @@ class SteerConnection internal constructor(
                 val seqs = runCatching {
                     obj["seqs"]!!.jsonArray.mapNotNull { (it as? JsonPrimitive)?.longOrNull }
                 }.getOrDefault(emptyList())
-                prependPage(events, seqs)
+                // #EDE-114: a page the device sent is stored like the feed.
+                store?.record(events.mapIndexed { index, event -> TailEvent(event, seqs.getOrNull(index)) })
+                if (prependPage(events, seqs) == false) historyExhausted = true
                 null
             }
             // #EDE-96: the answer to this viewer's `search`, to it only.
@@ -1153,9 +1163,9 @@ class SteerConnection internal constructor(
 
     private fun handleActivityEvent(event: JsonObject?, seq: Long? = null) {
         if (event == null) return
-        // #PERF-9: every applied event goes into the stored tail (an echoed
-        // `user_message` too: the tail is folded without local echoes).
-        tail?.append(TailEvent(event, seq))
+        // #EDE-114: every event received goes into the chat store (an
+        // echoed `user_message` too: the store keeps the wire).
+        store?.record(listOf(TailEvent(event, seq)))
         val before = _activity.value
         val after = before.applyActivityEvent(event, { consumeEcho(it) }, seq)
         if (after === before) return
@@ -1334,14 +1344,15 @@ class SteerConnection internal constructor(
             showingStoredTail = false
         }
         _activity.value = next
-        // #PERF-9: the replay is the new tail (its newest events).
-        // (Latest-wins slots ride at the replay's end, so its newest
-        // `storedTail` frames plus a margin hold the newest rows.)
-        val keep = STEER_STORED_TAIL * 2
-        tail?.replace(
-            (if (staged.size >= keep) staged.takeLast(keep) else folded.takeLast(keep - staged.size) + staged)
-                .mapNotNull { frame -> frame.decoded(json)?.let { (event, seq) -> TailEvent(event, seq) } },
-        )
+        // #EDE-114: the whole replay goes into the chat store (deduped there
+        // by seq; decoded already by the fold), and the store may hold more
+        // below it now.
+        store?.let { feedStore ->
+            feedStore.record((folded + staged).mapNotNull { frame -> frame.decoded(json)?.let { (event, seq) -> TailEvent(event, seq) } })
+            storeOlder = false
+            storeEmptyBelow = false
+            storeCursor = null
+        }
         _replayed.value = true
         // EXP-724: the swap re-derived the compaction state from the replay —
         // arm the backstop for a start it carried, drop it otherwise. The
@@ -1362,10 +1373,11 @@ class SteerConnection internal constructor(
      * as the transcript while discovery and the join run. Only onto an empty
      * feed that no replay has reached yet; the join's replay replaces it.
      */
-    internal fun seedStoredTail(state: ActivityFeedState) {
+    internal fun seedStoredTail(state: ActivityFeedState, truncated: Boolean = false) {
         if (closed || state.feed.isEmpty() || _replayed.value || _activity.value.feed.isNotEmpty()) return
         com.exponential.app.domain.perfTrace("SteerConnection.storedTail") {
             showingStoredTail = true
+            storeOlder = truncated && store != null
             _activity.value = state
         }
         Log.i(TAG, "[$sid] stored tail painted (rows=${state.feed.size})")
@@ -1715,7 +1727,7 @@ class SteerConnection internal constructor(
      *  EXP-796: it also takes an OPEN viewer feed: pages flow until the feed
      *  really closes (an ENDED row's stored replay signs off with `bye`), and
      *  once it has, there is nothing to ask. */
-    fun canLoadEarlier(): Boolean = historyTruncated && !historyExhausted && ws != null
+    fun canLoadEarlier(): Boolean = storeOlder || (historyTruncated && !historyExhausted && ws != null)
 
     /** EXP-783 — one `history_page` ask, at most one in flight.
      *
@@ -1723,6 +1735,34 @@ class SteerConnection internal constructor(
      *  replay TAIL (`truncated` on `activity_synced` is how it knows), and the
      *  pages below it exist only in the device's journal. */
     fun loadEarlier(): Boolean {
+        // #EDE-114 (chat-store.json OPEN): older events come from the store
+        // first; only once it holds none below the oldest row is the device asked.
+        val feedStore = store
+        if (feedStore != null && (storeOlder || (historyTruncated && !storeEmptyBelow))) {
+            if (storePaging?.isActive == true) return false
+            val oldest = _activity.value.feed.firstNotNullOfOrNull { it.seq }
+            val before = listOfNotNull(oldest, storeCursor).minOrNull()
+            if (before != null && before > 0L) {
+                storePaging = scope.launch {
+                    val page = runCatching { feedStore.older(before, HISTORY_PAGE_LIMIT) }.getOrNull().orEmpty()
+                    val lowest = page.mapNotNull { it.seq }.minOrNull()
+                    if (lowest == null || lowest >= before) {
+                        storeOlder = false
+                        storeEmptyBelow = true
+                        loadEarlierFromDevice()
+                        return@launch
+                    }
+                    // Ignored while a replay stages (it decides the prefix): asked again later.
+                    if (prependPage(page.map { it.event }, page.map { it.seq ?: -1L }) != null) storeCursor = lowest
+                }
+                return true
+            }
+            storeOlder = false
+        }
+        return loadEarlierFromDevice()
+    }
+
+    private fun loadEarlierFromDevice(): Boolean {
         if (historyRequest != null || historyExhausted || !historyTruncated) return false
         val before = _activity.value.feed.firstNotNullOfOrNull { it.seq }
         if (before == null || before == 0L) {
@@ -1776,8 +1816,10 @@ class SteerConnection internal constructor(
      *  trimmed against the oldest sequence on screen — a re-asked page must
      *  never double the transcript. Ignored while a replay is staging: the
      *  replay is authoritative and is about to decide what the prefix is. */
-    private fun prependPage(events: List<JsonObject>, seqs: List<Long>) {
-        if (stagedFrames != null || events.isEmpty()) return
+    /** Null = ignored (a replay is staging, or nothing came); false = the
+     *  page held no row older than the oldest on screen. */
+    private fun prependPage(events: List<JsonObject>, seqs: List<Long>): Boolean? {
+        if (stagedFrames != null || events.isEmpty()) return null
         val current = _activity.value
         val oldest = current.feed.firstNotNullOfOrNull { it.seq }
         var page = ActivityFeedState()
@@ -1786,10 +1828,7 @@ class SteerConnection internal constructor(
             if (oldest != null && seq != null && seq >= oldest) return@forEachIndexed
             page = page.applyActivityEvent(event, { false }, seq)
         }
-        if (page.feed.isEmpty()) {
-            historyExhausted = true
-            return
-        }
+        if (page.feed.isEmpty()) return false
         // The prepended rows take ids BELOW every id on screen, so ordering by
         // id stays the ordering of the transcript.
         val base = (current.feed.firstOrNull()?.id ?: page.feed.size.toLong()) - page.feed.size
@@ -1800,6 +1839,7 @@ class SteerConnection internal constructor(
             feed = renumbered + current.feed,
             feedBytes = current.feedBytes + renumbered.sumOf { feedItemBytes(it) },
         ).trimmed()
+        return true
     }
 
     private fun lockAnswer(lockKey: String, labels: List<String> = emptyList()) {

@@ -696,6 +696,9 @@ jobs:
       - name: Build the Engine facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p eengine-ffi --release --features cli
+      - name: Build the chat store facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p chat-store-ffi --release
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v4

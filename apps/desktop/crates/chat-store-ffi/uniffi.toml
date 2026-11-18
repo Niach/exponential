@@ -1,0 +1,10 @@
+[bindings.swift]
+module_name = "ExponentialChatStoreFFI"
+
+[bindings.kotlin]
+package_name = "at.exponential.chatstore.ffi"
+cdylib_name = "chat_store_ffi"
+# Binding and .so ship together (exponential-mobile-ffi), as the other facades.
+omit_checksums = true
+android = true
+android_cleaner = true

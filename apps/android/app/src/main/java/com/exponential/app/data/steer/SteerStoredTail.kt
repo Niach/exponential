@@ -5,12 +5,6 @@ import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.sealed.SealedCrypto
 import com.exponential.app.domain.TailEvent
 import java.io.File
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -22,7 +16,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-/** fixtures/steer-enet.json `storedTail`: the feed events a viewer keeps per opened session. */
+// #EDE-114 (chat-store.json S3): the chat store replaced the #PERF-9 stored
+// tail. A session opens from the store; a tail file an older build wrote is
+// read into the store ONCE (opened like before: sealed for a keyed tree), then
+// deleted (ChatStoreManager). Nothing writes tails any more; the codec and the
+// files stay for that migration and for a sign-out's delete.
+
+/** fixtures/steer-enet.json `storedTail`: the feed events a viewer kept per opened session. */
 const val STEER_STORED_TAIL = 200
 
 /** fixtures/steer-enet.json PRUNING: past the `storedTailMaxSessions` most recently opened
@@ -31,23 +31,6 @@ const val STEER_STORED_TAIL_MAX_SESSIONS = 100
 
 /** fixtures/steer-enet.json PRUNING: a tail not opened within `storedTailMaxAgeDays` is deleted. */
 const val STEER_STORED_TAIL_MAX_AGE_DAYS = 30
-
-/** How long a changed tail waits before it is written (at most one write per window). */
-internal const val STEER_TAIL_WRITE_DEBOUNCE_MS = 2_000L
-
-/**
- * The latest-wins slot kinds: each event replaces the last one of its kind,
- * so the tail keeps only the newest of each. A working agent republishes its
- * `turn` every couple of seconds; kept one by one they pushed every row out
- * of the tail within minutes.
- */
-internal val STEER_TAIL_SLOT_KINDS = setOf(
-    "turn", "usage", "config_state", "context_layout", "background_tasks",
-    "task_list", "queue", "rate_limit", "diff",
-)
-
-private fun TailEvent.slotKind(): String? =
-    (event["kind"] as? JsonPrimitive)?.content?.takeIf { it in STEER_TAIL_SLOT_KINDS }
 
 /** The tree a session's tail belongs to: [publicKey] = the root's `seal_public_key` (null = keyless). */
 data class TailTree(val rootId: String, val publicKey: String?, val epoch: Int)
@@ -139,6 +122,14 @@ class SteerTailFiles(private val root: File) {
         }.isSuccess
     }
 
+    /** #EDE-114: the sessions [accountId] still has a tail file of (the store's migration). */
+    fun sessions(accountId: String): List<String> = synchronized(lock) {
+        File(root, safe(accountId)).listFiles { f -> f.isFile && f.name.endsWith(TAIL_SUFFIX) }
+            ?.map { it.name.removeSuffix(TAIL_SUFFIX) }
+            ?.sorted()
+            .orEmpty()
+    }
+
     fun delete(accountId: String, sessionId: String) {
         synchronized(lock) { file(accountId, sessionId).delete() }
     }
@@ -186,73 +177,4 @@ class SteerTailFiles(private val root: File) {
     }
 
     private fun safe(id: String) = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
-}
-
-/**
- * One connection's tail: the newest [cap] events its feed applied, in memory
- * (written on the connection's thread), persisted off it at most once per
- * [debounceMs]. A join's replay [replace]s it; live events [append].
- */
-class SteerTailRecorder(
-    private val scope: CoroutineScope,
-    private val persist: suspend (List<TailEvent>) -> Unit,
-    private val cap: Int = STEER_STORED_TAIL,
-    private val debounceMs: Long = STEER_TAIL_WRITE_DEBOUNCE_MS,
-) {
-    private val lock = Any()
-    private val events = ArrayDeque<TailEvent>(cap + 1)
-    private var dirty = false
-    private var job: Job? = null
-
-    fun replace(next: List<TailEvent>) {
-        synchronized(lock) {
-            events.clear()
-            next.forEach(::addLocked)
-        }
-        schedule()
-    }
-
-    fun append(event: TailEvent) {
-        synchronized(lock) { addLocked(event) }
-        schedule()
-    }
-
-    private fun addLocked(event: TailEvent) {
-        event.slotKind()?.let { kind -> events.removeAll { it.slotKind() == kind } }
-        events.addLast(event)
-        while (events.size > cap) events.removeFirst()
-    }
-
-    fun snapshot(): List<TailEvent> = synchronized(lock) { events.toList() }
-
-    /** Write what changed now (the connection closing). */
-    fun flush() {
-        synchronized(lock) { job?.cancel() }
-        scope.launch { writeNow() }
-    }
-
-    /** One write at a time, so an older snapshot never lands after a newer one. */
-    private val writing = Mutex()
-
-    internal suspend fun writeNow() {
-        writing.withLock {
-            val snapshot = synchronized(lock) {
-                if (!dirty) return
-                dirty = false
-                events.toList()
-            }
-            runCatching { persist(snapshot) }
-        }
-    }
-
-    private fun schedule() {
-        synchronized(lock) {
-            dirty = true
-            if (job?.isActive == true) return
-            job = scope.launch {
-                delay(debounceMs)
-                writeNow()
-            }
-        }
-    }
 }
