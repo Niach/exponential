@@ -345,7 +345,10 @@ struct ChatRows: Sendable {
         var changed = false
         func refreshed(_ card: SessionCard) -> SessionCard? {
             guard let session = session(id: card.sessionId), session.isLive else { return nil }
-            let next = SessionTree.sessionCard(TreeSession(sessionRow: session), title: card.name, now: now)
+            // #EXP-1943: a call card ticks as a call card, its caption kept.
+            let next = card.isCall
+                ? SessionTree.callCard(TreeSession(sessionRow: session), summary: card.caption, now: now)
+                : SessionTree.sessionCard(TreeSession(sessionRow: session), title: card.name, now: now)
             return next == card ? nil : next
         }
         let rows = view.rows.map { row -> SessionChatRow in

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-18-call-card`,
+    date: `2026-11-18`,
+    title: `A call is one card in the chat`,
+    summary: `Each call shows as one card in the agent chat, “In a call · 02:14” while it runs and “Call ended after 4 min” with its summary afterwards; a tap opens the call: its summary on top, then what was said.`,
+    body: `- **One card per call**: the spoken turns stay out of the chat; the card ticks while the call runs, and a call you pick up again within ten minutes updates the same card.
+- **The summary as its caption**: once the call ends, its summary reads under “Call ended after 4 min” instead of a separate report bubble.
+- **The call's own view**: “Call · 4 min”, the date and time range with the agent's name, the summary under its band, then every spoken turn as bubbles.
+- **On web, desktop, iOS and Android**.`,
+  },
+  {
     id: `2026-11-18-find-in-chat`,
     date: `2026-11-18`,
     title: `Find in a chat`,

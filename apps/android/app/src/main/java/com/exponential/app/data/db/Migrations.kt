@@ -474,3 +474,18 @@ val MIGRATION_130_131: Migration = object : Migration(130, 131) {
         )
     }
 }
+
+/**
+ * v132 (#EXP-1943, session-card.json `call`): `sessions.voice_call`, a call
+ * session's call (NULL = not a call). Only the sessions shape refetches, so
+ * synced rows re-arrive carrying it.
+ */
+val MIGRATION_131_132: Migration = object : Migration(131, 132) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `voice_call` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}

@@ -489,6 +489,9 @@ pub const SHAPES: [ShapeSpec; 38] = [
             // the projection of the server-only `session_watches`.
             // `heal_missing_columns` ALTERs it onto existing store tables.
             "watching",
+            // #EXP-1943: a call session's call (the call card + call view;
+            // jsonb, null = not a call). `heal_missing_columns` ALTERs it on.
+            "voice_call",
             "created_at",
             "updated_at",
         ],
@@ -1494,10 +1497,10 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 42);
+        assert_eq!(sessions.columns.len(), 43);
         // #EXP-1720: the Assistant conversation root's Teams pick; #NEW-49:
         // what it waits on.
-        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "clear_tree", "scope_team_ids", "watching"] {
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "clear_tree", "scope_team_ids", "watching", "voice_call"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         // NEW-8: the legacy columns are never read (the server drops them).

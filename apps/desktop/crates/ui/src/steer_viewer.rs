@@ -188,6 +188,76 @@ const WORKING_TICK: Duration = Duration::from_secs(1);
 /// ease-in-out, ×4.
 pub(crate) const WORKING_PULSE: Duration = Duration::from_millis(1400);
 
+/// #EXP-1943 (session-card.json THE LIVE CHAT): this session's call
+/// sessions and the feed's report relays from them ([`domain::session_tree::feed_call_session`]).
+#[derive(Default, Clone)]
+struct CallFold {
+    /// The call sessions under this one.
+    calls: Vec<domain::rows::SessionRow>,
+    /// The row drawing each call's card (its FIRST report) → the call.
+    first: HashMap<FeedItemId, String>,
+    /// Every later report of a call: drawn as nothing.
+    hidden: HashSet<FeedItemId>,
+    /// Each call's newest report body (its card's caption).
+    summaries: HashMap<String, String>,
+}
+
+impl CallFold {
+    fn new(calls: Vec<domain::rows::SessionRow>, items: &[FeedItem]) -> Self {
+        let mut fold = CallFold { calls, ..CallFold::default() };
+        if fold.calls.is_empty() {
+            return fold;
+        }
+        let ids: Vec<String> = fold.calls.iter().map(|call| call.id.clone()).collect();
+        for item in items {
+            let FeedKind::UserMessage { text, subagent_id: None, .. } = &item.kind else { continue };
+            let Some(call) = domain::session_tree::feed_call_session(text, &ids) else { continue };
+            if fold.first.values().any(|id| *id == call) {
+                fold.hidden.insert(item.id);
+            } else {
+                fold.first.insert(item.id, call.clone());
+            }
+            let body = domain::transcript_grouping::cross_session_input(text).map(|input| input.body).unwrap_or_default();
+            fold.summaries.insert(call, body);
+        }
+        fold
+    }
+
+    /// A report relay of one of the calls (drawn as its card or nothing).
+    fn is_call_report(&self, id: FeedItemId) -> bool {
+        self.first.contains_key(&id) || self.hidden.contains(&id)
+    }
+
+    /// The card of call `id` now.
+    fn card(&self, id: &str, now_ms: i64) -> Option<domain::session_tree::SessionCard> {
+        let call = self.calls.iter().find(|call| call.id == id)?;
+        Some(domain::session_tree::call_card(call, self.summaries.get(id).map(String::as_str), now_ms))
+    }
+
+    /// The RUNNING calls with no report in the feed: their cards sit after
+    /// the feed's last row.
+    fn pending(&self) -> impl Iterator<Item = &domain::rows::SessionRow> {
+        self.calls
+            .iter()
+            .filter(|call| domain::session_tree::call_running(call) && !self.summaries.contains_key(&call.id))
+    }
+
+    fn running(&self) -> bool {
+        self.calls.iter().any(domain::session_tree::call_running)
+    }
+
+    /// What the cards say (the rows' measure moves with it).
+    fn fingerprint(&self, id: FeedItemId, now_ms: i64) -> u64 {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::hash::DefaultHasher::new();
+        match self.first.get(&id) {
+            Some(call) => self.card(call, now_ms).map(|card| (card.name, card.caption)).hash(&mut hasher),
+            None => self.hidden.contains(&id).hash(&mut hasher),
+        }
+        hasher.finish()
+    }
+}
+
 /// How many synthetic rows (the orphan workflow cards, then the trailing
 /// conversation cards) fit between [`ORPHAN_ROW_BASE`] and the working row's
 /// id: positions past it are dropped, never keyed onto the working row or
@@ -706,6 +776,9 @@ pub(crate) struct SteerSessionView {
     /// #EXP-1873: the schedule rows drawn as THE check-in line, with the
     /// number of quiet check-ins each covers ([`drop_silent_rows`]).
     check_ins: HashMap<FeedItemId, u32>,
+    /// #EXP-1943 (session-card.json THE LIVE CHAT): the feed's call report
+    /// relays: each call's ONE card at its first report.
+    call_fold: CallFold,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
     /// #EXP-1736 (transcript-grouping.json): one entry per `rows` entry —
@@ -1046,6 +1119,7 @@ impl SteerSessionView {
             rows: Vec::new(),
             orphan_workflows: Vec::new(),
             check_ins: HashMap::new(),
+            call_fold: CallFold::default(),
             row_keys: Vec::new(),
             active: HashSet::new(),
             transcript: Vec::new(),
@@ -1412,12 +1486,15 @@ impl SteerSessionView {
                     Some((_, FeedKind::Narration { .. })) => {
                         TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_AGENT, None, None)
                     }
+                    // #EXP-1943: a call's report = its card, full width.
+                    Some((item, FeedKind::UserMessage { .. })) if self.call_fold.is_call_report(item.id) => TranscriptItem::full(id),
                     Some((_, FeedKind::UserMessage { text, .. }))
                         if domain::chats::command_divider(text).is_none() && parse_command(text, self.agent()).is_none() =>
                     {
                         match feed_input(text) {
                             // #EXP-1772: a system input = THE marker, full width.
                             Some(FeedInput::Marker { .. }) => TranscriptItem::full(id),
+
                             Some(FeedInput::Relay { name, session_id, .. }) => {
                                 if !input.sessions.iter().any(|session| session.id == session_id) {
                                     let known = Self::transcript_session(&session_id, Some(name.as_str()), cx);
@@ -1878,6 +1955,12 @@ impl SteerSessionView {
         // EXP-789: a focused subagent tab projects ONLY that subagent's rows
         // (web `AgentConversation`); Main is the grouped transcript.
         let focus = self.active_subagent();
+        // #EXP-1943: the calls under this session and their report relays.
+        self.call_fold = if focus.is_none() {
+            CallFold::new(crate::session_data::call_children_of(&self.session_id, cx), self.feed.items())
+        } else {
+            CallFold::default()
+        };
         // EXP-850 §3: the lane projection needs them too — a workflow call is
         // its own card inside a lane exactly as it is in the main transcript.
         // Large chats: the projection is a pure function of the feed, the
@@ -1928,6 +2011,7 @@ impl SteerSessionView {
             crate::markdown::store_revision(cx).hash(&mut hasher);
             sync::Store::try_global(cx).map(|store| store.collections().agents.read(cx).revision()).hash(&mut hasher);
             format!("{:?}", self.transcript_origin).hash(&mut hasher);
+            self.call_fold.calls.iter().map(|call| &call.id).collect::<Vec<_>>().hash(&mut hasher);
             hasher.finish()
         };
         if project || self.layout_key != Some(layout_key) {
@@ -2017,6 +2101,12 @@ impl SteerSessionView {
             let fingerprint = match self.check_ins.get(&id) {
                 Some(count) => transcript_rows::fold_extra(fingerprint, u64::from(*count) + 2),
                 None => fingerprint,
+            };
+            // #EXP-1943: a call card's words (its ticking timer, its caption).
+            let fingerprint = if self.call_fold.is_call_report(id) {
+                transcript_rows::fold_extra(fingerprint, self.call_fold.fingerprint(id, crate::session_data::now_ms()))
+            } else {
+                fingerprint
             };
             keys.push(RowKey { id, fingerprint });
         }
@@ -2180,6 +2270,12 @@ impl SteerSessionView {
                         Some(row) => RowContent::Prompt(&row.text),
                         None => RowContent::Other,
                     },
+                    // #EXP-1943: a call's report relay = its card (the IDE's row).
+                    Some(FeedRowSpec::Single { item, .. })
+                        if items.get(*item).is_some_and(|item| self.call_fold.is_call_report(item.id)) =>
+                    {
+                        RowContent::Other
+                    }
                     Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
                         Some(FeedKind::Narration { text, .. }) => RowContent::Narration(text),
                         Some(FeedKind::UserMessage { text, .. })
@@ -3858,13 +3954,29 @@ impl SteerSessionView {
         // card stays inline, at the tail).
         let docked = crate::session_chat::docked_ids(&self.tree_suggestions);
         self.conv_trailing.clear();
+        // #EXP-1943 (session-card.json THE LIVE CHAT): a RUNNING call with
+        // no report in the feed yet = its card after the feed's last row.
+        let now = crate::session_data::now_ms();
+        let pending: Vec<domain::session_tree::SessionChatRow> = self
+            .call_fold
+            .pending()
+            .map(|call| domain::session_tree::SessionChatRow::Session {
+                id: format!("call-card-{}", call.id),
+                card: domain::session_tree::call_card(call, None, now),
+            })
+            .collect();
+        let calls = !pending.is_empty();
+        for row in pending {
+            self.conv_trailing.push(self.conv_cards.len());
+            self.conv_cards.push(row);
+        }
         for row in &self.tree_suggestions {
             if !docked.contains(row.id()) {
                 self.conv_trailing.push(self.conv_cards.len());
                 self.conv_cards.push(row.clone());
             }
         }
-        if !same || self.conv_prints.len() != self.conv_cards.len() {
+        if !same || calls || self.conv_prints.len() != self.conv_cards.len() {
             self.conv_prints = self.conv_cards.iter().map(|row| conversation_card_fingerprint(Some(row))).collect();
         }
     }
@@ -4141,7 +4253,10 @@ impl SteerSessionView {
                 .update(cx, |this, cx| {
                     // EXP-1324: a background task's elapsed time ticks in the
                     // Queue even between turns.
-                    if this.working_now() || !this.feed.background_tasks().is_empty() {
+                    // #EXP-1943: a running call's card counts seconds too.
+                    if this.working_now() || !this.feed.background_tasks().is_empty() || this.call_fold.running()
+                        || this.row.as_ref().is_some_and(domain::session_tree::call_running)
+                    {
                         cx.notify();
                     }
                 })
@@ -6569,6 +6684,22 @@ impl SteerSessionView {
                     _ => label,
                 };
                 crate::surface_card::transcript_marker(SharedString::from(format!("steer-marker-{}", item.id)), &label, None, cx)
+            }
+            // #EXP-1943: a call's FIRST report relay = THE call card; every
+            // later one of the same call draws nothing.
+            FeedKind::UserMessage { .. } if self.call_fold.is_call_report(item.id) => {
+                match self.call_fold.first.get(&item.id).and_then(|call| self.call_fold.card(call, crate::session_data::now_ms())) {
+                    Some(card) => {
+                        let open = card.session_id.clone();
+                        crate::work_card::session_card_row(
+                            &card,
+                            Some(crate::icons::registry::UI_CHEVRON_RIGHT),
+                            Some(Box::new(move |window, cx| crate::session_chat::open_session_card(&open, window, cx))),
+                            cx,
+                        )
+                    }
+                    None => div().into_any_element(),
+                }
             }
             // #EXP-1736: a person's prompt = THE bubble, the viewer's own
             // (right); a session's input (`Message from …` / `Report from
@@ -10283,9 +10414,64 @@ impl Focusable for SteerSessionView {
     }
 }
 
+impl SteerSessionView {
+    /// #EXP-1943 (session-card.json `callView`): a call session's own
+    /// screen (its summary, its spoken turns), `None` for any other session.
+    fn call_view(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
+        let row = self.row.clone().filter(domain::session_tree::is_call_session)?;
+        let store = sync::Store::try_global(cx)?;
+        let chat = row
+            .parent_id
+            .as_deref()
+            .and_then(|parent| store.collections().sessions.read(cx).get(parent).cloned());
+        let agent = chat
+            .as_ref()
+            .and_then(|chat| chat.agent_id.as_deref())
+            .and_then(|agent| crate::session_data::agent_def(agent, cx));
+        let agent_name = agent.as_ref().and_then(|agent| agent.name.clone()).unwrap_or_default();
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let refs: Vec<&domain::rows::MessageRow> = messages.iter().collect();
+        let offset = chrono::Local::now().offset().local_minus_utc() / 60;
+        let view = domain::session_tree::call_view(&row, &refs, &agent_name, crate::session_data::now_ms(), offset);
+        let times: HashMap<String, String> = messages
+            .iter()
+            .map(|message| (message.id.clone(), crate::session_chat::clock(message.created_at.as_deref())))
+            .collect();
+        let time = move |id: &str| times.get(id).cloned().unwrap_or_default();
+        let call_agent = crate::call_view::CallAgent {
+            icon: agent.as_ref().and_then(|agent| agent.icon.clone()),
+            color: agent.as_ref().and_then(|agent| agent.color.clone()),
+        };
+        let body = crate::call_view::call_view_body(&view, true, &call_agent, &time, &self.images, cx);
+        Some(
+            v_flex().size_full().min_h_0().min_w_0().child(
+                div()
+                    .id(SharedString::from(format!("call-view-scroll-{}", self.session_id)))
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(crate::work_header::CHAT_COLUMN_W))
+                            .mx_auto()
+                            .px(px(crate::work_header::WORK_GUTTER))
+                            .py_4()
+                            .child(body),
+                    ),
+            ),
+        )
+    }
+}
+
 impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SteerSessionView").entered();
+        // #EXP-1943: a call session opens as THE call view.
+        if let Some(view) = self.call_view(cx) {
+            return view;
+        }
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);

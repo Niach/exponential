@@ -68,7 +68,9 @@ final class SessionTreeTests: XCTestCase {
             deviceId: string(row["deviceId"]),
             agentId: string(row["agentId"]),
             background: (row["background"] as? Bool) ?? false,
-            startedByAgentId: string(row["startedByAgentId"])
+            startedByAgentId: string(row["startedByAgentId"]),
+            // #EXP-1943: a call session's call.
+            voiceCall: (row["voiceCall"] as? [String: Any]).flatMap(TreeVoiceCall.parse(object:))
         )
     }
 
@@ -132,6 +134,8 @@ final class SessionTreeTests: XCTestCase {
                 consumedAt: string($0["consumedAt"]),
                 createdAt: try XCTUnwrap(string($0["createdAt"])),
                 authorSessionId: string($0["authorSessionId"]),
+                // EXP-1459: a fixture's `locked` reason = content this install can't open.
+                sealStatus: string($0["locked"]).map { $0 == LockedReason.noKey.rawValue ? .noKey : .refused } ?? .plain,
                 attachmentIds: ($0["attachmentIds"] as? [String]) ?? []
             )
         }
@@ -153,7 +157,7 @@ final class SessionTreeTests: XCTestCase {
     private func json(_ value: Double?) -> Any { value ?? NSNull() }
 
     private func json(_ card: SessionCard) -> [String: Any] {
-        [
+        var object: [String: Any] = [
             "sessionId": card.sessionId,
             "icon": card.icon,
             "name": card.name,
@@ -164,6 +168,9 @@ final class SessionTreeTests: XCTestCase {
             "running": card.running,
             "testId": card.testId,
         ]
+        // #EXP-1943: only call cards carry the key.
+        if card.isCall { object["caption"] = json(card.caption) }
+        return object
     }
 
     /// EXP-1374: nil = the reference's `null`.
@@ -380,6 +387,102 @@ final class SessionTreeTests: XCTestCase {
             )
             assertJSON(json(card), testCase["expected"], name)
         }
+    }
+
+    // MARK: - #EXP-1943: session-card.json `call`
+
+    func testCallCopyMatchesTheFixture() throws {
+        let call = try XCTUnwrap(try fixture("session-card.json")["call"] as? [String: Any])
+        let copy = SessionTree.CallCopy.self
+        let expected: [String: String] = [
+            "icon": copy.icon, "tone": copy.tone, "running": copy.running, "ended": copy.ended,
+            "seconds": copy.seconds, "minutes": copy.minutes, "hours": copy.hours,
+            "viewTitle": copy.viewTitle, "viewRunning": copy.viewRunning, "subtitle": copy.subtitle,
+            "when": copy.when, "whenRunning": copy.whenRunning, "today": copy.today, "summary": copy.summary,
+        ]
+        for (key, value) in expected { XCTAssertEqual(call[key] as? String, value, key) }
+        var prompts: [String: String] = [:]
+        for (key, template) in copy.prompts { prompts[key] = template }
+        XCTAssertEqual(call["prompts"] as? [String: String], prompts)
+        XCTAssertEqual(Set(call.keys), Set(expected.keys).union(["prompts"]))
+    }
+
+    func testCallCardReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json"), "callCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let card = SessionTree.callCard(
+                try session(input["session"]), summary: string(input["summary"]), now: try date(input["now"])
+            )
+            assertJSON(json(card), testCase["expected"], name)
+        }
+    }
+
+    func testCallViewReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json"), "callViewCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let view = SessionTree.callView(
+                session: try session(input["session"]),
+                messages: try messages(input["messages"]),
+                agentName: try XCTUnwrap(string(input["agentName"])),
+                now: try date(input["now"]),
+                utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
+            )
+            let object: [String: Any] = [
+                "sessionId": view.sessionId,
+                "title": view.title,
+                "subtitle": view.subtitle,
+                "running": view.running,
+                "summary": json(view.summary),
+                "summaryLabel": view.summaryLabel,
+                "rows": view.rows.map(json),
+            ]
+            assertJSON(object, testCase["expected"], name)
+        }
+    }
+
+    func testFeedCallSessionReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json"), "feedCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let found = SessionTree.feedCallSession(
+                try XCTUnwrap(string(testCase["text"])),
+                callIds: Set(try XCTUnwrap(testCase["calls"] as? [String]))
+            )
+            assertJSON(json(found), testCase["expected"], name)
+        }
+    }
+
+    /// The call prompts = the etalk callSession lines (drift), matched by
+    /// the text around their ONE placeholder.
+    func testCallPromptsMatchTheEtalkLines() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/etalk/fixtures/voice-call.json")
+        let etalk = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let lines = try XCTUnwrap(etalk["callSession"] as? [String: Any])
+        var prompts: [String: String] = [:]
+        for (key, template) in SessionTree.CallCopy.prompts { prompts[key] = template }
+        XCTAssertEqual(prompts["request"], lines["request"] as? String)
+        XCTAssertEqual(prompts["resume"], lines["resumeText"] as? String)
+        XCTAssertEqual(prompts["ended"], lines["endedText"] as? String)
+        let ended = try XCTUnwrap(lines["endedText"] as? String)
+        XCTAssertEqual(SessionTree.callPrompt(ended.replacingOccurrences(of: "{minutes}", with: "04:12")), "ended")
+        XCTAssertEqual(SessionTree.callPrompt(ended), "ended")
+        XCTAssertNil(SessionTree.callPrompt("The call ended after."))
+        XCTAssertNil(SessionTree.callPrompt("Hey, where are we?"))
+    }
+
+    func testVoiceCallParsesTolerantly() {
+        XCTAssertNil(TreeVoiceCall.parse(nil))
+        XCTAssertNil(TreeVoiceCall.parse("null"))
+        XCTAssertNil(TreeVoiceCall.parse("[]"))
+        XCTAssertNil(TreeVoiceCall.parse("{}"))
+        XCTAssertEqual(
+            TreeVoiceCall.parse(#"{"startedAt":"a","segmentStartedAt":"b","endedAt":null,"durationMs":252000}"#),
+            TreeVoiceCall(startedAt: "a", segmentStartedAt: "b", endedAt: nil, durationMs: 252000)
+        )
     }
 
     /// #NEW-49: `waitingCases` — `sessionWaiting(watching, children)`, the

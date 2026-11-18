@@ -56,6 +56,7 @@ import {
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { DeepLinkContext, useDeepLinkDriver, useDeepLinkHost } from "@/hooks/use-deep-link"
 import { InPlaceSession } from "@/components/chat/session-body"
+import { CallSessionBody, useCallView } from "@/components/chat/call-session-view"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import type { ChatSearch } from "@/lib/session-screen-search"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
@@ -215,6 +216,8 @@ export function ChatScreen({
   // #EXP-1732: the root's own work IS the Chat tab; `open=session` naming
   // the root is just that.
   const openSessionRow = search.open === `session` && focused && focused.id !== root.id ? focused : null
+  // #EXP-1943: an opened CALL session = THE call view (null otherwise).
+  const openCall = useCallView(openSessionRow, agent?.name ?? view.title)
   // waiting-cards.json DEEP LINKS / plan-page.json: a plan link waits for
   // its plan's message (paging older ones in) before it draws a plan;
   // only once it is missing does the tab's own target stand in.
@@ -508,7 +511,22 @@ export function ChatScreen({
   let item: ReactNode = null
   /** Phones: the pushed item page's title. */
   let itemTitle = ``
-  if (screen.open === `session` && openSessionRow) {
+  let itemSubtitle: string | null = null
+  if (screen.open === `session` && openSessionRow && openCall) {
+    // #EXP-1943: a call session opens THE call view.
+    itemTitle = openCall.view.title
+    itemSubtitle = openCall.view.subtitle
+    item = (
+      <CallSessionBody
+        key={openSessionRow.id}
+        view={openCall.view}
+        messageTimes={openCall.times}
+        agentId={root.agentId ?? null}
+        agentName={agent?.name ?? view.title}
+        heading={!isMobile}
+      />
+    )
+  } else if (screen.open === `session` && openSessionRow) {
     itemTitle = titles.get(openSessionRow.id) ?? ``
     item = (
       <InPlaceSession
@@ -682,6 +700,7 @@ export function ChatScreen({
             item={item}
             onCloseItem={closeItem}
             itemTitle={itemTitle}
+            itemSubtitle={itemSubtitle}
             overlay={agent?.overlay}
             find={{ open: find.open, wide: <FindInChatBar find={find} />, compact: <FindInChatHeader find={find} /> }}
           />

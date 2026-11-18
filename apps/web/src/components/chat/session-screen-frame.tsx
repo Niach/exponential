@@ -80,6 +80,9 @@ export interface SessionScreenFrameProps {
   onCloseItem?: () => void
   /** Phones: the opened item's title (its pushed page's header). */
   itemTitle?: string
+  /** #EXP-1943: phones: the opened item's muted second header line (the
+   *  call view's date and agent); absent = the title alone. */
+  itemSubtitle?: string | null
   /** Over the body (the voice call card). */
   overlay?: ReactNode
   /** #EDE-129 (find-in-chat.json WHERE THE BAR SITS): wide = the band over
@@ -177,6 +180,7 @@ export function SessionScreenFrame({
   item,
   onCloseItem,
   itemTitle,
+  itemSubtitle,
   overlay,
   find,
 }: SessionScreenFrameProps) {
@@ -231,7 +235,17 @@ export function SessionScreenFrame({
     return (
       <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid={testId} data-layout={screen.layout}>
         <MobileDetailHeader
-          title={<span data-testid="session-item-title">{itemTitle ?? ``}</span>}
+          title={
+            itemSubtitle ? (
+              <PhoneHeaderTitle
+                disc={null}
+                title={<span data-testid="session-item-title">{itemTitle ?? ``}</span>}
+                subtitle={<span className="text-muted-foreground">{itemSubtitle}</span>}
+              />
+            ) : (
+              <span data-testid="session-item-title">{itemTitle ?? ``}</span>
+            )
+          }
           onBack={onCloseItem}
           backLabel={SESSION_SCREEN_COPY.back}
         />

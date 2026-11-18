@@ -441,20 +441,42 @@ public struct SessionCardView: View {
                 .stroke(bare ? Color.clear : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(card.name), \(kindWord ?? card.kindWord)")
+        .accessibilityLabel([card.name, kindWord ?? card.kindWord, card.caption ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityIdentifier(card.testId)
     }
 
-    /// The header row.
-    private var content: some View { row }
+    /// The header row; #EXP-1943: a call card's caption (its summary) is
+    /// the muted second line under the name.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if let caption = card.caption, !caption.isEmpty {
+                Text(caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Under the name: the row's inset + the 13pt icon + its 8pt gap.
+                    .padding(.leading, 12 + 13 + 8)
+                    .padding(.trailing, 12)
+                    .padding(.top, -6)
+                    .padding(.bottom, 10)
+                    .accessibilityIdentifier("session-card-caption")
+            }
+        }
+    }
 
     private var row: some View {
         let tone = tone ?? card.tone
+        let word = kindWord ?? card.kindWord
         return WorkCardHeaderRow(
-            icon: Self.glyph(card.state),
+            // #EXP-1943: a call card carries its own concept (`voice-call`).
+            icon: card.isCall ? (AppIcons.conceptOrName(card.icon) ?? card.icon) : Self.glyph(card.state),
             iconTint: Self.tint(tone),
             name: card.name,
-            kindWord: kindWord ?? card.kindWord,
+            // #EXP-1943: an empty word (a call card) draws none.
+            kindWord: word.isEmpty ? nil : word,
             // #EXP-1466 session-card.json: the word stays muted unless amber.
             kindTint: tone == "amber"
                 ? Self.tint(tone)

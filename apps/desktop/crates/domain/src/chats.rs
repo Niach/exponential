@@ -881,11 +881,16 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 /// `utc_offset_minutes` — today `HH:mm`, yesterday, a short weekday under
 /// 7 days, else `Mon D` (`, YYYY` from another year).
 pub fn chat_time_label(at: &str, now: &str, utc_offset_minutes: i32) -> String {
+    chat_time_label_ms(ms(Some(at)).unwrap_or(0), ms(Some(now)).unwrap_or(0), utc_offset_minutes)
+}
+
+/// [`chat_time_label`] on epoch milliseconds (#EXP-1943: the call view).
+pub fn chat_time_label_ms(at_ms: i64, now_ms: i64, utc_offset_minutes: i32) -> String {
     const DAY: i64 = 86_400_000;
     let copy = &CHATS.copy.time;
     let shift = i64::from(utc_offset_minutes) * 60_000;
-    let local = ms(Some(at)).unwrap_or(0) + shift;
-    let today = ms(Some(now)).unwrap_or(0) + shift;
+    let local = at_ms + shift;
+    let today = now_ms + shift;
     let (local_day, today_day) = (local.div_euclid(DAY), today.div_euclid(DAY));
     let diff = today_day - local_day;
     if diff <= 0 {

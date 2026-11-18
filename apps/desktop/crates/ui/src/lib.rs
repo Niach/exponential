@@ -21,6 +21,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
+mod call_view;
 mod action_error;
 // EXP-1252: moving a live session to another device (the session composer's Device pin).
 mod device_move;

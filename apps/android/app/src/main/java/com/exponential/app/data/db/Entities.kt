@@ -795,6 +795,12 @@ data class SessionEntity(
     // stays in clear for life (writers send plaintext, nobody keys it).
     @ColumnInfo(name = "clear_tree", defaultValue = "0") @SerialName("clear_tree") @JsonNames("clearTree")
     val clearTree: PgBool = false,
+    // #EXP-1943 ([MIGRATION_131_132], session-card.json `call`): a call
+    // session's call, raw jsonb TEXT of `{callId, startedAt, segmentStartedAt,
+    // endedAt, durationMs, summaryPending, readUpTo}`; NULL = not a call. Read
+    // through [com.exponential.app.domain.SessionTree.parseVoiceCall].
+    @ColumnInfo(name = "voice_call") @SerialName("voice_call") @JsonNames("voiceCall")
+    @Serializable(with = JsonAsStringSerializer::class) val voiceCall: String? = null,
 ) {
     /** #EXP-1715: [scopeTeamIds] as ids; null (or empty) = every team. */
     val scopeTeamIdList: List<String>? get() = scopeTeamIds?.let(PgUuidArraySerializer::parseText)?.takeIf { it.isNotEmpty() }

@@ -791,6 +791,21 @@ pub struct SessionWatch {
     pub at: Option<String>,
 }
 
+/// #EXP-1943: the fields of `sessions.voice_call` the UI reads (TS
+/// `TreeVoiceCall`; the jsonb keeps its own camelCase).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceCall {
+    pub started_at: String,
+    pub segment_started_at: String,
+    /// `None` = the call is running.
+    #[serde(default)]
+    pub ended_at: Option<String>,
+    /// The ended segments' total (a resume adds one).
+    #[serde(default)]
+    pub duration_ms: f64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct SessionRow {
     pub id: String,
@@ -912,6 +927,11 @@ pub struct SessionRow {
     /// [`crate::session_tree::session_waiting`].
     #[serde(default, deserialize_with = "crate::hydrate::tolerant_watching")]
     pub watching: Vec<SessionWatch>,
+    /// #EXP-1943: a call session's call (`sessions.voice_call`, etalk
+    /// voice-call.json `callSession`); null, absent or garbage = not a call.
+    /// Read through [`crate::session_tree::call_card`].
+    #[serde(default, deserialize_with = "crate::hydrate::tolerant_voice_call")]
+    pub voice_call: Option<VoiceCall>,
     /// #VAPP-229: the app whose tool started it (NOT [`Self::app_id`], an
     /// editor session's app) — the session view reads `via <app>`.
     #[serde(default)]

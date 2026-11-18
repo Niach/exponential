@@ -98,3 +98,43 @@ class ClearTreeMigrationTest {
         assertEquals(false, decode("""{"id":"s1"}""").clearTree)
     }
 }
+
+/** #EXP-1943: v132 adds `sessions.voice_call` and refetches ONLY the sessions shape. */
+class VoiceCallMigrationTest {
+    @Test
+    fun `v132 adds voice_call and refetches only sessions`() {
+        assertEquals(131, MIGRATION_131_132.startVersion)
+        assertEquals(132, MIGRATION_131_132.endVersion)
+        val statements = mutableListOf<String>()
+        val db = Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            if (method.name == "execSQL") statements += args!![0] as String else error("unexpected ${method.name}")
+            null
+        } as SupportSQLiteDatabase
+        MIGRATION_131_132.migrate(db)
+        assertEquals(
+            listOf(
+                "ALTER TABLE `sessions` ADD COLUMN `voice_call` TEXT",
+                "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                    "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+            ),
+            statements,
+        )
+    }
+
+    @Test
+    fun `the row decodes voice_call as raw text into the tree session's call`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val row = json.decodeFromString(
+            SessionEntity.serializer(),
+            """{"id":"s1","voice_call":{"callId":"c1","startedAt":"2026-11-18T09:08:00.000Z","segmentStartedAt":"2026-11-18T09:08:00.000Z","endedAt":null,"durationMs":0,"summaryPending":false,"readUpTo":null}}""",
+        )
+        assertEquals(
+            com.exponential.app.domain.SessionTree.TreeVoiceCall("2026-11-18T09:08:00.000Z", "2026-11-18T09:08:00.000Z", null, 0L),
+            com.exponential.app.domain.SessionTree.parseVoiceCall(row.voiceCall),
+        )
+        assertEquals(null, com.exponential.app.domain.SessionTree.parseVoiceCall(json.decodeFromString(SessionEntity.serializer(), """{"id":"s1"}""").voiceCall))
+    }
+}

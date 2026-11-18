@@ -105,6 +105,7 @@ import {
   MessageBubble,
   userMessageTime,
   SenderAvatar,
+  SessionCard,
   TranscriptRow,
   transcriptSenderName,
   UserAvatar,
@@ -117,6 +118,7 @@ import {
 import {
   TRANSCRIPT_LAYOUT,
   checkInLabel,
+  crossSessionInput,
   feedInput,
   isBlankText,
   traceNotice,
@@ -125,7 +127,14 @@ import {
   type TranscriptRowLayout,
 } from "@exp/domain-contract/transcript-grouping"
 import { useXrefAgent } from "@/hooks/use-session-nav"
-import type { SessionXref as SessionXrefModel, TreeIssue } from "@exp/domain-contract/session-tree"
+import {
+  callCard,
+  callRunning,
+  feedCallSession,
+  type SessionCard as SessionCardModel,
+  type SessionXref as SessionXrefModel,
+  type TreeIssue,
+} from "@exp/domain-contract/session-tree"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -531,6 +540,34 @@ export function AgentSessionView({
     () => (handoff.ids.size === 0 ? sentInputIds : new Set([...sentInputIds, ...handoff.ids])),
     [sentInputIds, handoff.ids]
   )
+  // #EXP-1943 (session-card.json `call`, THE LIVE CHAT): the tree's call
+  // sessions; a call's report relay in the feed is its ONE card (at its
+  // first report, the newest report its caption), a running call not in
+  // the feed yet sits after the feed's last row.
+  const callRows = useMemo(() => (tree ?? NO_TREE).filter((row) => row.voiceCall), [tree])
+  const callIds = useMemo(() => new Set(callRows.map((row) => row.id)), [callRows])
+  const callFeed = useMemo(() => {
+    const first = new Map<string, number>()
+    const caption = new Map<string, string>()
+    if (callIds.size === 0) return { first, caption }
+    for (const item of feed) {
+      if (item.kind !== `user_message`) continue
+      const id = feedCallSession(item.text, callIds)
+      if (!id) continue
+      if (!first.has(id)) first.set(id, item.id)
+      caption.set(id, crossSessionInput(item.text)?.body ?? ``)
+    }
+    return { first, caption }
+  }, [feed, callIds])
+  const callTreeRows = useMemo(() => callRows.map(toTreeSession), [callRows])
+  const callTicking = callTreeRows.some((row) => callRunning(row))
+  const callNow = useNow(callTicking ? 1_000 : 60_000)
+  const callCards = useMemo(() => {
+    const cards = new Map<string, SessionCardModel>()
+    for (const row of callTreeRows) cards.set(row.id, callCard(row, callFeed.caption.get(row.id) ?? null, callNow.toISOString()))
+    return cards
+  }, [callTreeRows, callFeed, callNow])
+  const tailCalls = callTreeRows.filter((row) => callRunning(row) && !callFeed.first.has(row.id))
   const chatRows = useMemo(
     () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES, extraIds),
     [session, sessionMessages, tree, issues, extraIds]
@@ -749,9 +786,10 @@ export function AgentSessionView({
           origin,
           fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
           isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
+          callIds,
         }
       ),
-    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands]
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands, callIds]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
@@ -1062,6 +1100,18 @@ export function AgentSessionView({
         if (item.checkIns) {
           return wrap(<TranscriptMarker label={checkInLabel(item.checkIns, item.at ? userMessageTime(item.at) : null)} />)
         }
+        // #EXP-1943: a call's report = its ONE card, at its first report.
+        const callId = callIds.size > 0 ? feedCallSession(item.text, callIds) : null
+        if (callId) {
+          const card = callFeed.first.get(callId) === item.id ? callCards.get(callId) : undefined
+          if (!card) return null
+          return wrap(
+            <SessionCard
+              card={card}
+              onOpen={openSessionRef.current ? () => openSessionRef.current?.(callId) : undefined}
+            />
+          )
+        }
         const input = feedInput(item.text)
         if (input?.kind === `marker`) return wrap(<TranscriptMarker label={input.label} />)
         // #EXP-1736: another session's input = that session's bubble.
@@ -1146,6 +1196,10 @@ export function AgentSessionView({
     const deps = [
       ...rowGlobals,
       ...(row.kind === `single` ? [row.item] : [row.kind, ...row.items]),
+      // #EXP-1943: a call card row re-renders with its card (the timer).
+      row.kind === `single` && row.item.kind === `user_message` && callIds.size > 0
+        ? callCards.get(feedCallSession(row.item.text, callIds) ?? ``) ?? null
+        : null,
       // #EDE-129: the row's own find key (never the whole map: one streamed
       // event would re-render every row).
       row.kind === `single` ? (findKeys.get(row.item.id) ?? null) : null,
@@ -1546,6 +1600,14 @@ export function AgentSessionView({
                     />
                   </div>
                 )}
+                {tailCalls.map((call) => {
+                  const card = callCards.get(call.id)
+                  return card ? (
+                    <div key={call.id} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-call">
+                      <SessionCard card={card} onOpen={onOpenSession ? () => onOpenSession(call.id) : undefined} />
+                    </div>
+                  ) : null
+                })}
                 {chatExtras}
                 {offlineLine && (
                   <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-offline-line">
@@ -1862,7 +1924,13 @@ export function transcriptFindRows(
 export function feedTranscriptLayout(
   rows: readonly FeedRowLike[],
   chat: { sessionId: string; title: string; agentId: string | null },
-  options: { origin?: SessionXrefModel | null; fromStart?: boolean; isCommand?: (text: string) => boolean } = {}
+  options: {
+    origin?: SessionXrefModel | null
+    fromStart?: boolean
+    isCommand?: (text: string) => boolean
+    /** #EXP-1943: the tree's call sessions (their reports = cards). */
+    callIds?: ReadonlySet<string>
+  } = {}
 ): Map<string, TranscriptRowLayout> {
   const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
   const origin = options.origin ?? null
@@ -1879,6 +1947,7 @@ export function feedTranscriptLayout(
         return { id, kind: `message`, authorKind: `agent` }
       case `user_message`: {
         if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
+        if (options.callIds?.size && feedCallSession(item.text ?? ``, options.callIds)) return { id, kind: `full` }
         const cross = feedInput(item.text ?? ``)
         if (cross?.kind === `marker`) return { id, kind: `full` }
         if (cross) {
