@@ -14,7 +14,7 @@ import chats from "../fixtures/chats.json" with { type: "json" }
 import mergeTrainFixture from "../fixtures/merge-train.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
-import { commandDivider } from "./chats"
+import { chatTimeLabel, commandDivider } from "./chats"
 import type { LockedReason } from "./sealed-content"
 import { isBlankText } from "./transcript-grouping"
 
@@ -52,6 +52,8 @@ export interface TreeSession {
   appId?: string | null
   /** #NEW-49: what it waits on (`sessions.watching`, absent = nothing). */
   watching?: readonly SessionWatching[] | null
+  /** #EXP-1943: a call session's call (`sessions.voice_call`, absent = not a call). */
+  voiceCall?: TreeVoiceCall | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
@@ -260,6 +262,9 @@ export interface SessionCard {
   elapsed: string | null
   running: boolean
   testId: string
+  /** #EXP-1943: a call card's muted second line (its summary); only call
+   *  cards carry the key. */
+  caption?: string | null
 }
 
 /** NEW-1: the card's state word; a session that needs you because of a
@@ -308,6 +313,198 @@ export function sessionCard(
     elapsed,
     running: state === `working`,
     testId: cardFixture.testIds.card,
+  }
+}
+
+// ── #EXP-1943 (session-card.json `call`): a call in the chat ─────────────
+
+/** The fields of `sessions.voice_call` the UI reads (etalk voice-call.json
+ *  `callSession`). */
+export interface TreeVoiceCall {
+  startedAt: string
+  segmentStartedAt: string
+  /** null = the call is running. */
+  endedAt: string | null
+  /** The ended segments' total (a resume adds one). */
+  durationMs: number
+}
+
+export const CALL_COPY = cardFixture.call
+
+/** A call session (a non-null `voiceCall`). */
+export function isCallSession(session: Pick<TreeSession, `voiceCall`> | null | undefined): boolean {
+  return !!session?.voiceCall
+}
+
+/** The call is running: not ended, its segment open. */
+export function callRunning(session: Pick<TreeSession, `status` | `voiceCall`>): boolean {
+  return session.status !== `ended` && !!session.voiceCall && session.voiceCall.endedAt === null
+}
+
+/** The call's length so far: the ended segments + the running one. */
+export function callTotalMs(session: Pick<TreeSession, `status` | `voiceCall`>, now: string): number {
+  const call = session.voiceCall
+  if (!call) return 0
+  if (!callRunning(session)) return call.durationMs
+  const since = ms(call.segmentStartedAt)
+  const at = ms(now)
+  return call.durationMs + (since !== null && at !== null ? Math.max(0, at - since) : 0)
+}
+
+/** The live timer: `02:14`, `1:02:14` past an hour (the call surface's). */
+export function callClock(durationMs: number): string {
+  const total = Math.max(0, Math.floor(durationMs / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (n: number) => String(n).padStart(2, `0`)
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
+
+/** An ended call's length: `42 sec`, `4 min`, `1 h 5 min`. */
+export function callLength(durationMs: number): string {
+  const copy = cardFixture.call
+  const safe = Math.max(0, durationMs)
+  if (safe < 60_000) return copy.seconds.replace(`{count}`, String(Math.floor(safe / 1000)))
+  const minutes = Math.max(1, Math.round(safe / 60_000))
+  if (minutes < 60) return copy.minutes.replace(`{count}`, String(minutes))
+  return copy.hours.replace(`{hours}`, String(Math.floor(minutes / 60))).replace(`{minutes}`, String(minutes % 60))
+}
+
+/** THE session card of a call session (`callCases`). */
+export function callCard(session: TreeSession, summary: string | null, now: string): SessionCard {
+  const copy = cardFixture.call
+  const running = callRunning(session)
+  const total = callTotalMs(session, now)
+  const caption = !running && summary && summary.trim() ? summary.trim() : null
+  return {
+    sessionId: session.id,
+    icon: copy.icon,
+    name: running
+      ? copy.running.replace(`{timer}`, callClock(total))
+      : copy.ended.replace(`{duration}`, callLength(total)),
+    kindWord: ``,
+    state: running ? `working` : `done`,
+    tone: copy.tone,
+    elapsed: null,
+    running: false,
+    testId: cardFixture.testIds.card,
+    caption,
+  }
+}
+
+/** Which of `call.prompts` (the server's lines in a call session) a body
+ *  is, else null: ONE {placeholder} each, matched by the text around it. */
+export function callPrompt(body: string): `request` | `resume` | `ended` | null {
+  const text = body.trim()
+  for (const [key, template] of Object.entries(cardFixture.call.prompts)) {
+    const open = template.indexOf(`{`)
+    const close = template.indexOf(`}`, open)
+    if (open < 0 || close < 0) continue
+    const before = template.slice(0, open)
+    const after = template.slice(close + 1)
+    if (text.length > before.length + after.length && text.startsWith(before) && text.endsWith(after)) {
+      return key as `request` | `resume` | `ended`
+    }
+  }
+  return null
+}
+
+export interface CallView {
+  sessionId: string
+  title: string
+  subtitle: string
+  running: boolean
+  /** The newest summary, null = none yet (no band). */
+  summary: string | null
+  summaryLabel: string
+  /** The spoken turns: `message` and `locked` rows. */
+  rows: SessionChatRow[]
+}
+
+const hhmm = (iso: string, utcOffsetMinutes: number): string => {
+  const local = new Date((ms(iso) ?? 0) + utcOffsetMinutes * 60_000)
+  const pad = (n: number) => String(n).padStart(2, `0`)
+  return `${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}`
+}
+
+/** THE call view (`callViewCases`): the call session's own screen. */
+export function callView(input: {
+  session: TreeSession
+  messages: readonly TreeMessage[]
+  agentName: string
+  now: string
+  utcOffsetMinutes: number
+}): CallView {
+  const { session, now, utcOffsetMinutes } = input
+  const copy = cardFixture.call
+  const running = callRunning(session)
+  const total = callTotalMs(session, now)
+  const call = session.voiceCall
+  const startedAt = call?.startedAt ?? session.createdAt
+  const localDay = (iso: string) => Math.floor(((ms(iso) ?? 0) + utcOffsetMinutes * 60_000) / 86_400_000)
+  const day = localDay(startedAt) >= localDay(now) ? copy.today : chatTimeLabel(startedAt, now, utcOffsetMinutes)
+  const when =
+    running || !call?.endedAt
+      ? copy.whenRunning.replace(`{day}`, day).replace(`{start}`, hhmm(startedAt, utcOffsetMinutes))
+      : copy.when
+          .replace(`{day}`, day)
+          .replace(`{start}`, hhmm(startedAt, utcOffsetMinutes))
+          .replace(`{end}`, hhmm(call.endedAt, utcOffsetMinutes))
+  const own = input.messages
+    .filter((m) => m.sessionId === session.id)
+    .sort(
+      (a, b) =>
+        (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    )
+  const rows: SessionChatRow[] = []
+  let summary: string | null = null
+  let afterEnded = false
+  for (const message of own) {
+    if (message.card) continue
+    if (message.authorSessionId && message.authorSessionId !== session.id) continue
+    const author = message.authorKind === `user` || message.authorKind === `agent` ? message.authorKind : `system`
+    if (author === `system`) continue
+    if (author === `user` && !message.locked) {
+      const prompt = callPrompt(message.body)
+      if (prompt) {
+        afterEnded = prompt === `ended`
+        continue
+      }
+    }
+    if (author === `agent` && afterEnded) {
+      afterEnded = false
+      if (!message.locked && !isBlankText(message.body)) summary = message.body.trim()
+      continue
+    }
+    if (message.locked) {
+      rows.push({ type: `locked`, id: message.id, reason: message.locked, author })
+      continue
+    }
+    const body = messageRowBody(message.body, message.attachmentIds)
+    if (isBlankText(body)) continue
+    rows.push({
+      type: `message`,
+      id: message.id,
+      author,
+      authorId: message.authorId,
+      body,
+      queued: false,
+      authorSessionId: message.authorSessionId ?? null,
+      xref: null,
+    })
+  }
+  return {
+    sessionId: session.id,
+    title: running
+      ? copy.viewRunning.replace(`{timer}`, callClock(total))
+      : copy.viewTitle.replace(`{duration}`, callLength(total)),
+    subtitle: copy.subtitle.replace(`{when}`, when).replace(`{agent}`, input.agentName),
+    running,
+    summary,
+    summaryLabel: copy.summary,
+    rows,
   }
 }
 
@@ -1086,6 +1283,25 @@ export function buildSessionChat(input: {
       (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   )
+  // #EXP-1943 (session-card.json `call`): a call's reports fold into its
+  // ONE card as the caption (the newest summary); they draw no row.
+  const callOf = (card: Record<string, unknown> | null): TreeSession | null => {
+    const target = card && typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
+    return target && isCallSession(target) ? target : null
+  }
+  const callSummaries = new Map<string, string>()
+  for (const message of conversation) {
+    if (message.card?.kind !== `report`) continue
+    const call = callOf(message.card)
+    if (!call) continue
+    const summary =
+      typeof message.card.summary === `string` && message.card.summary.trim()
+        ? message.card.summary
+        : message.locked
+          ? ``
+          : message.body
+    if (summary.trim()) callSummaries.set(call.id, summary)
+  }
   const rows: SessionChatRow[] = []
   const messagesById = new Map(input.messages.map((m) => [m.id, m]))
   const escalated = new Set<string>()
@@ -1093,6 +1309,8 @@ export function buildSessionChat(input: {
   for (const message of conversation) {
     const card = message.card
     if (message.locked) {
+      // #EXP-1943: a call's locked report is folded into its card too.
+      if ((card?.kind === `report` || card?.kind === `event`) && callOf(card)) continue
       const author =
         message.authorKind === `user` || message.authorKind === `agent` ? message.authorKind : `system`
       rows.push({ type: `locked`, id: message.id, reason: message.locked, author })
@@ -1134,7 +1352,9 @@ export function buildSessionChat(input: {
         rows.push({
           type: `session`,
           id: message.id,
-          card: sessionCard(target, titles.get(target.id) ?? ``, now),
+          card: isCallSession(target)
+            ? callCard(target, callSummaries.get(target.id) ?? null, now)
+            : sessionCard(target, titles.get(target.id) ?? ``, now),
         })
         break
       }
@@ -1175,7 +1395,7 @@ export function buildSessionChat(input: {
         break
       case `report`: {
         const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
-        if (!target) break
+        if (!target || isCallSession(target)) break
         rows.push({
           type: `report`,
           id: message.id,
@@ -1195,6 +1415,8 @@ export function buildSessionChat(input: {
         break
       }
       case `event`: {
+        // #EXP-1943: a line about a call session draws nothing (its card speaks).
+        if (callOf(card)) break
         // #EXP-1772: a firing draws nothing of its own; one the agent
         // answered is THE marker above that reply (`fires`, below).
         if (card.event === `trigger_fired`) {
