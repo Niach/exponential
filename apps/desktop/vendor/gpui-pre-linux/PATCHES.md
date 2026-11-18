@@ -90,10 +90,43 @@ Marked `Exponential patch (#EDE-89)` in the source.
 - **Test:** `pointer_left_tests::a_leave_moves_the_pointer_out_of_the_window_first`
   (`client.rs`), in the gate's vendored patch test step (`test.yml`).
 
+## Images on the clipboard (#EXP-1946)
+
+Marked `Exponential patch (#EXP-1946)` in the source. Upstream wrote every
+clipboard item as text: Wayland offered only the text MIME types, and X11's
+`write_to_clipboard` went through `set_text` (its `set_image` was unused and
+put any format under the PNG target). A copied image reached no other
+program, so the IDE's "Copy image" shipped on macOS/Windows only.
+
+- **`src/linux/clipboard_formats.rs` (new):** `image_offers` (an item's first
+  image in its own format, then a PNG copy when that is not PNG; an SVG or an
+  undecodable image offers its own format only) and `has_text`. An
+  image-only item offers no text; an item with neither offers empty text, as
+  before.
+- **`src/linux/x11/clipboard.rs`:** `Clipboard::set_item` replaces the unused
+  `set_image`: the image targets first, then the text as `UTF8_STRING`. A
+  conversion larger than one request (`maximum_request_bytes`, a PNG copy of a
+  photo) is sent in `INCR` chunks (ICCCM 2.7.2, at most 1 MiB each; a
+  requestor silent for 5 s is dropped). The exit handover to the clipboard
+  manager finishes only once those chunks are out, waiting up to 3 s while
+  one runs (100 ms otherwise, as before). The reader waits 1 s (upstream:
+  10 ms) for another owner's next `INCR` chunk.
+- **`src/linux/x11/client.rs`:** `write_to_clipboard` and `write_to_primary`
+  call `set_item`.
+- **`src/linux/wayland/clipboard.rs` + `client.rs`:** the data source offers
+  the item's MIME types (`mime_types`, `primary_mime_types`) and `send` writes
+  the requested type's bytes (any other type, our `pid/` marker, gets the
+  text when there is some).
+- **`src/linux.rs`:** declares `mod clipboard_formats`. **`Cargo.toml`:** the
+  `image` crate (already in the lock through gpui) for the PNG copy.
+- **Tests:** the `clipboard` tests in the three files; the X11 round trip
+  starts a private Xvfb (skipped without one) and reads from another client,
+  including an image larger than a request.
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left`
-from `apps/desktop` (the input shape test starts a private Xvfb and is
-skipped without one).
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard`
+from `apps/desktop` (the input shape and clipboard round-trip tests start a
+private Xvfb and are skipped without one).
