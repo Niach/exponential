@@ -319,6 +319,8 @@ public struct TreeSuggestionItem: Equatable, Sendable {
     public let text: String
     public let sessionId: String?
     public let issueId: String?
+    /// The issues a Start links (#EXP-1958: a sealed card's Start names them).
+    public let issueIds: [String]
     public let here: Bool
     public let dismissed: Bool
     /// EXP-1211 `replies` item: already sent as a message.
@@ -332,11 +334,13 @@ public struct TreeSuggestionItem: Equatable, Sendable {
         text: String,
         sessionId: String? = nil,
         issueId: String? = nil,
+        issueIds: [String] = [],
         here: Bool = false,
         dismissed: Bool = false,
         sent: Bool = false,
         textIsString: Bool = true
     ) {
+        self.issueIds = issueIds
         self.sent = sent
         self.textIsString = textIsString
         self.id = id
@@ -347,6 +351,8 @@ public struct TreeSuggestionItem: Equatable, Sendable {
         self.here = here
         self.dismissed = dismissed
     }
+    /// Not started, done here, filed or dismissed (`suggestionState` open).
+    public var isOpen: Bool { sessionId == nil && !here && issueId == nil && !dismissed }
 }
 
 /// A message's `card` jsonb (contract `messageCardKindValues`), read
@@ -585,6 +591,7 @@ public struct TreeMessageCard: Equatable, Sendable {
                         text: scalar("text"),
                         sessionId: item["sessionId"] as? String,
                         issueId: item["issueId"] as? String,
+                        issueIds: (item["issueIds"] as? [Any])?.compactMap { $0 as? String } ?? [],
                         here: (item["here"] as? Bool) == true,
                         dismissed: (item["dismissed"] as? Bool) == true,
                         sent: (item["sent"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false,
@@ -630,10 +637,16 @@ public struct ComposerReply: Equatable, Sendable, Identifiable {
 public struct ComposerReplies: Equatable, Sendable {
     public let messageId: String
     public let items: [ComposerReply]
+    /// #EXP-1958: the card's session and its own seal status (a sealed
+    /// card's tap is the client's, `CardItemWire`).
+    public let sessionId: String?
+    public let cardSealStatus: SealStatus
 
-    public init(messageId: String, items: [ComposerReply]) {
+    public init(messageId: String, items: [ComposerReply], sessionId: String? = nil, cardSealStatus: SealStatus = .plain) {
         self.messageId = messageId
         self.items = items
+        self.sessionId = sessionId
+        self.cardSealStatus = cardSealStatus
     }
 }
 
@@ -655,6 +668,9 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     /// EXP-1459: `plain` / `opened` = readable; anything else = this install
     /// can't open it (yet): the body is empty and the card is its clear part.
     public let sealStatus: SealStatus
+    /// #EXP-1958: the card's own status: `plain` = an unsealed card,
+    /// `opened` = a sealed one this install opened, else locked.
+    public let cardSealStatus: SealStatus
     /// EXP-1459: an escalated `ask` mirror's `sealedCard` (the origin card
     /// sealed to THIS tree), opened; nil = none or locked.
     public let escalated: TreeMessageCard?
@@ -692,10 +708,12 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         authorSessionId: String? = nil,
         sealStatus: SealStatus = .plain,
         escalated: TreeMessageCard? = nil,
-        attachmentIds: [String] = []
+        attachmentIds: [String] = [],
+        cardSealStatus: SealStatus = .plain
     ) {
         self.authorSessionId = authorSessionId
         self.sealStatus = sealStatus
+        self.cardSealStatus = cardSealStatus
         self.escalated = escalated
         self.attachmentIds = attachmentIds
         self.id = id
@@ -2889,7 +2907,9 @@ public enum SessionTree {
             else { return nil }
             return ComposerReply(id: item.id, text: item.text)
         }
-        return items.isEmpty ? nil : ComposerReplies(messageId: newest.id, items: items)
+        return items.isEmpty
+            ? nil
+            : ComposerReplies(messageId: newest.id, items: items, sessionId: newest.sessionId, cardSealStatus: newest.cardSealStatus)
     }
 
     // MARK: - Helpers

@@ -2838,9 +2838,21 @@ struct AgentSessionView: View {
     private var suggestionActions: ChatSuggestionActions {
         ChatSuggestionActions(
             onStart: { rowId, itemId in startSuggestion(rowId, itemId, where: .child) },
-            onStartAll: { rowId in
+            onStartAll: { [db = deps.db] rowId in
                 runSuggestion(ChatSuggestionActions.key(rowId), verb: "start", thing: "the tasks") { api, accountId in
-                    try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
+                    let card = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)
+                    switch CardItemWire.wire(card?.cardSealStatus ?? .plain, action: .startAll) {
+                    case .server, .stamp:
+                        try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
+                    case .sealed:
+                        // #EXP-1958: one sealed Start per open item, in card order.
+                        guard let card else { return }
+                        for item in card.card?.items ?? [] where item.isOpen {
+                            try await SealedSuggestionTap.start(api: api, accountId: accountId, card: card, item: item)
+                        }
+                    case .refused:
+                        throw SealRefusal()
+                    }
                 }
             },
             onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
@@ -2907,17 +2919,59 @@ struct AgentSessionView: View {
         _ rowId: String, _ itemId: String, where target: SuggestionStartWhere,
         deviceId: String? = nil, model: String? = nil
     ) {
+        let db = deps.db
         runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "start", thing: "the task") { api, accountId in
-            try await api.startSuggestion(
-                accountId: accountId, messageId: rowId, itemId: itemId, where: target,
-                deviceId: deviceId, model: model
-            )
+            let card = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)
+            switch CardItemWire.wire(card?.cardSealStatus ?? .plain, action: target == .here ? .here : .start) {
+            case .server, .stamp:
+                try await api.startSuggestion(
+                    accountId: accountId, messageId: rowId, itemId: itemId, where: target,
+                    deviceId: deviceId, model: model
+                )
+            case .sealed:
+                guard let card, let item = card.card?.items?.first(where: { $0.id == itemId }) else { return }
+                if target == .here {
+                    try await api.send(
+                        accountId: accountId,
+                        CardItemWire.message(sessionId: card.sessionId, text: CardItemWire.request(title: item.title, text: item.text)),
+                        cardItem: CardItemRef(messageId: card.id, itemId: item.id)
+                    )
+                } else {
+                    try await SealedSuggestionTap.start(
+                        api: api, accountId: accountId, card: card, item: item, deviceId: deviceId, model: model
+                    )
+                }
+            case .refused:
+                throw SealRefusal()
+            }
         }
     }
 
     private func dismissSuggestion(_ rowId: String, _ itemId: String) {
+        let db = deps.db
         runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
+            let status = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)?.cardSealStatus ?? .plain
+            guard CardItemWire.wire(status, action: .dismiss) != .refused else { throw SealRefusal() }
             try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
+        }
+    }
+
+    private func fileSuggestion(_ rowId: String, _ itemId: String) {
+        let db = deps.db
+        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
+            let card = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)
+            switch CardItemWire.wire(card?.cardSealStatus ?? .plain, action: .file) {
+            case .server, .sealed:
+                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
+            case .stamp:
+                // #EXP-1958: the server cannot read the item: it names the issue.
+                guard let item = card?.card?.items?.first(where: { $0.id == itemId }) else { return }
+                try await api.fileSuggestion(
+                    accountId: accountId, messageId: rowId, itemId: itemId, title: item.title, text: item.text
+                )
+            case .refused:
+                throw SealRefusal()
+            }
         }
     }
 
@@ -2954,9 +3008,7 @@ struct AgentSessionView: View {
         case let .startWith(model):
             startSuggestion(rowId, itemId, where: .child, model: model)
         case .file:
-            runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
-                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
-            }
+            fileSuggestion(rowId, itemId)
         case .dismiss:
             dismissSuggestion(rowId, itemId)
         }
@@ -2973,6 +3025,34 @@ struct AgentSessionView: View {
                 id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
             )
         }
+    }
+}
+
+/// #EXP-1958 (sealed-content.json `cardStamps`): a suggestions card as
+/// this install opened it, and a SEALED card's Start through the composer's
+/// sealing writer (`sessions.send` + `cardItem`).
+enum SealedSuggestionTap {
+    /// The card message behind a suggestions row (nil = not synced).
+    static func card(db: DatabaseManager, accountId: String, rowId: String) -> TreeMessage? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db in
+            try SessionQueries.messages(db: db, ids: [rowId]).first.map(TreeMessage.init(messageRow:))
+        }) ?? nil
+    }
+
+    /// Start = a child of the card's session, named by the item's title.
+    static func start(
+        api: SessionsApi, accountId: String, card: TreeMessage, item: TreeSuggestionItem,
+        deviceId: String? = nil, model: String? = nil
+    ) async throws {
+        try await api.send(
+            accountId: accountId,
+            CardItemWire.start(
+                parentId: card.sessionId, title: item.title, text: item.text, issueIds: item.issueIds,
+                deviceId: deviceId, model: model
+            ),
+            cardItem: CardItemRef(messageId: card.id, itemId: item.id)
+        )
     }
 }
 

@@ -76,7 +76,9 @@ extension TreeMessage {
             authorSessionId: row.authorSessionId,
             sealStatus: opened.status,
             escalated: TreeMessageCard.parse(SealedMessage.escalatedCard(row.card, rootId: row.message.rootId)),
-            attachmentIds: row.attachmentIds
+            attachmentIds: row.attachmentIds,
+            // #EXP-1958: the card's own status (the opener caches it).
+            cardSealStatus: row.card.map { SealedOpener.shared.card($0, rootId: row.message.rootId).status } ?? .plain
         )
     }
 }
