@@ -1,5 +1,11 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.data.sealed.CardItemAction
+import com.exponential.app.data.sealed.CardItemWire
+import com.exponential.app.data.sealed.CardItemWire.str
+import com.exponential.app.data.sealed.CardItemWire.text
+import com.exponential.app.data.sealed.CardTap
+import com.exponential.app.data.sealed.CardTapWire
 import com.exponential.app.data.sealed.SealedWriter
 import com.exponential.app.data.sealed.StaleTree
 import javax.inject.Inject
@@ -71,6 +77,14 @@ data class SessionsSendInput(
     /** #FEED-237 (F21): the sender's idempotency key, the outbox entry's
      *  clientId; a resend with the same key gets the row already stored. */
     val clientMessageId: String? = null,
+    /** EXP-1341: a new session's display name; the sealing writer moves it
+     *  into [sealedName] for a keyed tree (never sent beside it). */
+    val name: String? = null,
+    /** EXP-1458: [name] as a body envelope (`sessions.sealed_title`). */
+    val sealedName: String? = null,
+    /** #EXP-1958 (sealed-content.json `cardStamps`): the SEALED replies /
+     *  suggestions card item this send answers; the server stamps it. */
+    val cardItem: CardItemRef? = null,
 ) {
     companion object {
         /** #EXP-1715: the wire of a Teams pick (null = every team). */
@@ -288,6 +302,22 @@ data class StartSuggestionInput(
 
 @Serializable
 private data class SuggestionItemInput(val messageId: String, val itemId: String)
+
+/** #EXP-1958: a sealed card this install cannot open (nothing leaves), or an item it lacks. */
+private const val LOCKED_CARD = "This card can't be answered on this device yet."
+private const val ITEM_GONE = "This suggestion was already handled"
+
+/** #EXP-1958: `sessions.send` `cardItem` = the sealed card item a send answers. */
+@Serializable
+data class CardItemRef(val messageId: String, val itemId: String)
+
+/** #EXP-1958: File as issue on a SEALED card names the item's title + text. */
+@Serializable
+private data class FileSuggestionInput(val messageId: String, val itemId: String, val title: String? = null, val text: String? = null)
+
+/** #EXP-1958: `itemIds` = a SEALED card's open replies. */
+@Serializable
+private data class DismissRepliesInput(val messageId: String, val itemIds: List<String>? = null)
 
 /** `sessions.answer`: [answer] for a `question` card, [decision]
  *  (`approved` | `rejected`) + optional [feedback] for a `plan` card.
@@ -521,8 +551,64 @@ class SessionsApi @Inject constructor(
         )
     }
 
+    /**
+     * #EXP-1958 (sealed-content.json `cardStamps`, [CardItemWire]): a tap on
+     * a replies / suggestions card. An UNSEALED card keeps the server action;
+     * a SEALED card this install opened sends the item's text SEALED through
+     * [send] (the composer's writer) with `cardItem`, or has the server stamp
+     * it; one it cannot open is refused here (nothing leaves).
+     */
+    private suspend fun cardTap(accountId: String, messageId: String, action: CardItemAction): CardTap? {
+        val tap = sealer.get().cardTap(accountId, messageId)
+        return when (CardItemWire.route(tap?.sealed == true, tap?.opened != null, action).wire) {
+            CardTapWire.Server -> null
+            CardTapWire.Refused -> throw TrpcException(LOCKED_CARD)
+            CardTapWire.Sealed, CardTapWire.Stamp -> tap
+        }
+    }
+
+    private fun CardTap.item(itemId: String): JsonObject =
+        opened?.let { CardItemWire.item(it, itemId) } ?: throw TrpcException(ITEM_GONE)
+
+    private fun CardTap.target(): String = sessionId ?: throw TrpcException(LOCKED_CARD)
+
+    /** A sealed Start: a child of the card's session, its request + title sealed by [send]. */
+    private suspend fun sealedStart(accountId: String, tap: CardTap, messageId: String, item: JsonObject, input: StartSuggestionInput?) {
+        val itemId = item.str("id") ?: throw TrpcException(ITEM_GONE)
+        val title = item.text("title")
+        val issueIds = sealer.get().startIssueIds(accountId, CardItemWire.issueIds(item))
+        send(
+            accountId,
+            SessionsSendInput(
+                parentId = tap.target(),
+                text = CardItemWire.request(title, item.text("text")),
+                name = title.trim().takeIf { it.isNotEmpty() }?.take(255),
+                issueIds = issueIds.takeIf { it.isNotEmpty() },
+                deviceId = input?.deviceId,
+                account = input?.account,
+                model = input?.model,
+                cardItem = CardItemRef(messageId, itemId),
+            ),
+        )
+    }
+
     /** EXP-1323: Start / Do it here on one suggested task. */
     suspend fun startSuggestion(accountId: String, input: StartSuggestionInput) {
+        val action = if (input.where == "here") CardItemAction.Here else CardItemAction.Start
+        val tap = cardTap(accountId, input.messageId, action)
+        if (tap != null) {
+            val item = tap.item(input.itemId)
+            if (action == CardItemAction.Start) return sealedStart(accountId, tap, input.messageId, item, input)
+            send(
+                accountId,
+                SessionsSendInput(
+                    sessionId = tap.target(),
+                    text = CardItemWire.request(item.text("title"), item.text("text")),
+                    cardItem = CardItemRef(input.messageId, input.itemId),
+                ),
+            )
+            return
+        }
         trpc.mutationUnit(
             accountId,
             path = "sessions.startSuggestion",
@@ -531,8 +617,16 @@ class SessionsApi @Inject constructor(
         )
     }
 
-    /** EXP-1323: Start all — every open item of a suggestions card. */
+    /** EXP-1323: Start all — every open item of a suggestions card (sealed: one Start each, in card order). */
     suspend fun startAllSuggestions(accountId: String, messageId: String) {
+        val tap = cardTap(accountId, messageId, CardItemAction.StartAll)
+        if (tap != null) {
+            val card = tap.opened ?: throw TrpcException(LOCKED_CARD)
+            for (itemId in CardItemWire.openIds(card, CardItemWire::suggestionOpen)) {
+                sealedStart(accountId, tap, messageId, tap.item(itemId), null)
+            }
+            return
+        }
         trpc.mutationUnit(
             accountId,
             path = "sessions.startAllSuggestions",
@@ -541,25 +635,40 @@ class SessionsApi @Inject constructor(
         )
     }
 
-    /** EXP-1323: × / Dismiss one suggested task. */
-    suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) =
+    /** EXP-1323: × / Dismiss one suggested task (sealed: the server stamps it). */
+    suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) {
+        cardTap(accountId, messageId, CardItemAction.Dismiss)
         suggestionItem(accountId, "sessions.dismissSuggestion", messageId, itemId)
+    }
 
-    /** EXP-1323: File as issue — the item becomes an issue of the chat. */
-    suspend fun fileSuggestion(accountId: String, messageId: String, itemId: String) =
-        suggestionItem(accountId, "sessions.fileSuggestion", messageId, itemId)
+    /** EXP-1323: File as issue — the item becomes an issue of the chat (sealed: its title + text named). */
+    suspend fun fileSuggestion(accountId: String, messageId: String, itemId: String) {
+        val item = cardTap(accountId, messageId, CardItemAction.File)?.item(itemId)
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.fileSuggestion",
+            input = FileSuggestionInput(messageId, itemId, item?.text("title"), item?.text("text")),
+            inputSerializer = FileSuggestionInput.serializer(),
+        )
+    }
 
-    /** EXP-1211: one quick reply = the session's next message (at once). */
-    suspend fun sendReply(accountId: String, messageId: String, itemId: String) =
-        suggestionItem(accountId, "sessions.sendReply", messageId, itemId)
+    /** EXP-1211: one quick reply = the session's next message (at once; sealed: sent by [send]). */
+    suspend fun sendReply(accountId: String, messageId: String, itemId: String) {
+        val tap = cardTap(accountId, messageId, CardItemAction.Reply)
+            ?: return suggestionItem(accountId, "sessions.sendReply", messageId, itemId)
+        val text = tap.item(itemId).text("text").takeIf { it.isNotBlank() } ?: throw TrpcException(ITEM_GONE)
+        send(accountId, SessionsSendInput(sessionId = tap.target(), text = text, cardItem = CardItemRef(messageId, itemId)))
+    }
 
-    /** EXP-1211: dismiss the quick-reply row (the whole card). */
+    /** EXP-1211: dismiss the quick-reply row (the whole card; sealed: every open reply id). */
     suspend fun dismissReplies(accountId: String, messageId: String) {
+        val tap = cardTap(accountId, messageId, CardItemAction.DismissReplies)
+        val itemIds = tap?.opened?.let { CardItemWire.openIds(it, CardItemWire::replyOpen) }
         trpc.mutationUnit(
             accountId,
             path = "sessions.dismissReplies",
-            input = MessageIdInput(messageId),
-            inputSerializer = MessageIdInput.serializer(),
+            input = DismissRepliesInput(messageId, itemIds?.takeIf { it.isNotEmpty() }),
+            inputSerializer = DismissRepliesInput.serializer(),
         )
     }
 
