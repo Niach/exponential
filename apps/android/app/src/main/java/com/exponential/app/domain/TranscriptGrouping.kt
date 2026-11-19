@@ -361,10 +361,32 @@ object TranscriptGrouping {
         var index = 0
         while (index < text.length) {
             val point = text.codePointAt(index)
-            if (point !in BLANK_SET) return false
-            index += Character.charCount(point)
+            if (point in BLANK_SET) {
+                index += Character.charCount(point)
+                continue
+            }
+            // #FEED-255: an entity genUI's markdown decodes to an invisible character.
+            if (point != '&'.code) return false
+            index = blankReferenceEnd(text, index) ?: return false
         }
         return true
+    }
+
+    /** #FEED-255 (`blank.$comment`): the index after the character reference
+     *  at [at] when it decodes to a blank code point
+     *  (`&#8203;`, `&#x200B;`, `&nbsp;`), else null. */
+    private fun blankReferenceEnd(text: String, at: Int): Int? {
+        if (text.startsWith("&nbsp;", at)) return at + 6
+        if (text.getOrNull(at + 1) != '#') return null
+        val hex = text.getOrNull(at + 2).let { it == 'x' || it == 'X' }
+        val start = at + if (hex) 3 else 2
+        val digits = if (hex) "0123456789abcdefABCDEF" else "0123456789"
+        var end = start
+        while (end < text.length && text[end] in digits) end += 1
+        val count = end - start
+        if (count < 1 || count > (if (hex) 6 else 7) || text.getOrNull(end) != ';') return null
+        val code = text.substring(start, end).toInt(if (hex) 16 else 10)
+        return if (code in 1..0x10FFFF && code in BLANK_SET) end + 1 else null
     }
 
     /** #EXP-1873 `checkInSpecimen`: an agent chat's feed row (kind, `HH:mm`, text). */

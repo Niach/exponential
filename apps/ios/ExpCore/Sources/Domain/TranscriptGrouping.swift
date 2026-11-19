@@ -513,7 +513,39 @@ public enum TranscriptGrouping {
     /// `blankCodePoints` is no message: no client draws it. Never
     /// `trimmingCharacters`: it disagrees on U+200B, U+FEFF and U+00A0.
     public static func isBlankText(_ text: String?) -> Bool {
-        (text ?? "").unicodeScalars.allSatisfy { blankCodePoints.contains($0.value) }
+        let scalars = Array((text ?? "").unicodeScalars)
+        var index = 0
+        while index < scalars.count {
+            if blankCodePoints.contains(scalars[index].value) {
+                index += 1
+                continue
+            }
+            // #FEED-255: an entity genUI's markdown decodes to an invisible character.
+            guard scalars[index] == "&", let end = blankReferenceEnd(scalars, index) else { return false }
+            index = end
+        }
+        return true
+    }
+
+    /// #FEED-255 (`blank.$comment`): the index after the character reference
+    /// at `at` when it decodes to a blank code point
+    /// (`&#8203;`, `&#x200B;`, `&nbsp;`), else nil.
+    static func blankReferenceEnd(_ scalars: [Unicode.Scalar], _ at: Int) -> Int? {
+        let nbsp = Array("&nbsp;".unicodeScalars)
+        if at + nbsp.count <= scalars.count, Array(scalars[at..<(at + nbsp.count)]) == nbsp { return at + nbsp.count }
+        guard at + 1 < scalars.count, scalars[at + 1] == "#" else { return nil }
+        let hex = at + 2 < scalars.count && (scalars[at + 2] == "x" || scalars[at + 2] == "X")
+        let start = at + (hex ? 3 : 2)
+        let digits = hex ? "0123456789abcdefABCDEF" : "0123456789"
+        var end = start
+        while end < scalars.count, digits.unicodeScalars.contains(scalars[end]) { end += 1 }
+        let count = end - start
+        guard count >= 1, count <= (hex ? 6 : 7), end < scalars.count, scalars[end] == ";" else { return nil }
+        var number = ""
+        number.unicodeScalars.append(contentsOf: scalars[start..<end])
+        guard let code = UInt32(number, radix: hex ? 16 : 10), code > 0, code <= 0x10FFFF,
+              blankCodePoints.contains(code) else { return nil }
+        return end + 1
     }
 
     /// #EXP-1873 fixture `checkInSpecimen`: an agent chat's feed the
