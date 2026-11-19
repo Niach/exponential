@@ -306,14 +306,6 @@ fn wheel_notches(dx: i32, dy: i32) -> Vec<(MOUSE_EVENT_FLAGS, i32)> {
     vertical.chain(horizontal).collect()
 }
 
-fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity(bgra.len());
-    for pixel in bgra.chunks_exact(4) {
-        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-    }
-    rgba
-}
-
 fn rect_size(rect: &RECT) -> (u32, u32) {
     ((rect.right - rect.left).max(0) as u32, (rect.bottom - rect.top).max(0) as u32)
 }
@@ -581,7 +573,8 @@ impl Backend for Win32 {
         // SAFETY: the DIB holds width × height 32-bit pixels at `bits`, alive
         // until `_bitmap` drops, after this borrow ends.
         let bgra = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), len) };
-        Ok(Image { width: display.width, height: display.height, rgba: bgra_to_rgba(bgra) })
+        // A 32-bit DIB's rows are packed.
+        Image::from_bgra(bgra, display.width, display.height, display.width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -1508,11 +1501,6 @@ mod tests {
         assert!(!lost(&[u32::from(CF_BITMAP), dib, dibv5, u32::from(CF_PALETTE)]), "a copied picture: Windows makes the bitmap again from the DIB");
         assert!(lost(&[u32::from(CF_ENHMETAFILE), unicode]), "a metafile is gone");
         assert!(lost(&[unicode, 0x250]), "a private handle is gone");
-    }
-
-    #[test]
-    fn bgra_becomes_opaque_rgba() {
-        assert_eq!(bgra_to_rgba(&[1, 2, 3, 0, 10, 20, 30, 7]), vec![3, 2, 1, 255, 30, 20, 10, 255]);
     }
 
     #[test]

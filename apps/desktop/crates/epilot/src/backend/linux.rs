@@ -598,16 +598,14 @@ impl Backend for X11 {
             // Widen a narrow channel (a 565 screen) to 8 bits.
             (if width >= 8 { value >> (width - 8) } else { value << (8 - width) }) as u8
         };
+        // The common screen (32-bit BGRX, little-endian, packed rows): a
+        // straight copy instead of the mask arithmetic, on fifteen million
+        // pixels.
+        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
+            return Image::from_bgra(&shot.data, width, height, width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string());
+        }
         let count = (width as usize) * (height as usize);
         let mut rgba = Vec::with_capacity(count * 4);
-        // The common screen (32-bit BGRX, little-endian): a straight copy
-        // instead of the mask arithmetic, on fifteen million pixels.
-        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
-            for pixel in shot.data.chunks_exact(4).take(count) {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-            }
-            return finish(width, height, rgba, count);
-        }
         for pixel in shot.data.chunks_exact(bytes).take(count) {
             let value = match (bytes, little) {
                 (4, true) => u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]),
