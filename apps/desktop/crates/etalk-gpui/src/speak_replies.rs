@@ -13,7 +13,8 @@
 //! and the voice prepared, so the first reply does not wait for the
 //! download (~2-3 GB: the CrispASR runtime and Qwen3-TTS, NEW-74), and what
 //! is spoken is a VOICE TURN's reply only (voice.json `voiceTurn`): the
-//! running call's conversation, or the reply to a push-to-talk / wake turn
+//! running call's conversation (#EXP-1992: found here, said by the call,
+//! `voice_call::reply`), or the reply to a push-to-talk / wake turn
 //! ([`voice_turn`]); a typed message is never read aloud. NEW-74: which languages are
 //! spoken is what the worker reports (`etalk::Event::Voices`): none without a
 //! usable GPU, so a reply there is shown, never spoken.
@@ -30,7 +31,7 @@ use std::time::Duration;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
 
-use etalk::voice::{VoiceContext, VoiceMessage, VOICE};
+use etalk::voice::{reply_to_speak, VoiceContext, VoiceMessage, VOICE};
 
 use crate::host::{self, Notice, TalkMessage};
 
@@ -492,6 +493,11 @@ pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
     if matches!(event, etalk::Event::Voices { .. }) {
         crate::voice_call::voice_prepared(cx);
     }
+    // #EXP-1992: what the call was to say and could not (an opening line
+    // that cannot be said fails the call); Speak replies clears it too.
+    if let etalk::Event::Failed { id, .. } = &event {
+        crate::voice_call::not_spoken(id.clone(), cx);
+    }
     // NEW-55: a running call's events (its microphone, its
     // streamed reply audio) go to the call first.
     // S-3: the call repaints only its own surfaces.
@@ -660,11 +666,33 @@ pub fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
             return false;
         }
         client.speak(id.clone(), text.clone());
-        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), title: text });
+        let title = etalk::voice::first_sentence(&text).to_string();
+        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), title });
         cx.notify();
         true
     });
     spoken
+}
+
+/// #EXP-1992: the running call says the agent's reply `id` of `session_id`
+/// (the call's own session, or the chat) in `agent_id`'s own voice, tracked
+/// like any reply (the Dock's Speaking banner, its `Finished`). False =
+/// nothing here can speak it.
+pub(crate) fn speak_reply(id: String, text: String, session_id: String, agent_id: &str, cx: &mut App) -> bool {
+    let Some(entity) = global(cx) else { return false };
+    entity.update(cx, |this, cx| {
+        let _ = this.ensure_voice(Some(agent_id), cx);
+        let Some(client) = this.client.as_ref() else { return false };
+        client.speak(id.clone(), text.clone());
+        // A push-to-talk turn into the same conversation got its reply too.
+        if this.voice_turn.as_ref().is_some_and(|turn| turn.session_id == session_id) {
+            this.voice_turn = None;
+        }
+        let title = etalk::voice::first_sentence(&text).to_string();
+        this.speaking = Some(Speaking { message_id: id, session_id, title });
+        cx.notify();
+        true
+    })
 }
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
@@ -728,8 +756,11 @@ pub fn session_account(cx: &App) -> Option<String> {
 
 /// The host's messages changed.
 pub(crate) fn on_messages(cx: &mut App) {
-    if let Some(entity) = global(cx) {
-        entity.update(cx, |this, cx| this.on_messages(cx));
+    let Some(entity) = global(cx) else { return };
+    // #EXP-1992: a call's reply goes to the call AFTER this update: its
+    // pickup (or the call itself) says it through this speaker.
+    if let Some((id, text)) = entity.update(cx, |this, cx| this.on_messages(cx)) {
+        crate::voice_call::reply(id, text, cx);
     }
 }
 
@@ -862,106 +893,76 @@ impl SpeakReplies {
         cx.notify();
     }
 
-    fn on_messages(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = host::host(cx) else { return };
+    /// The new rows: a reply to say. A call whose speech runs here reads
+    /// its own conversation, and its reply is handed back (the call says it
+    /// after this update, [`on_messages`]).
+    fn on_messages(&mut self, cx: &mut Context<Self>) -> Option<(String, String)> {
+        let host = host::host(cx)?;
         let fresh = self.gate.observe(|since, visit| host.messages_since(since, cx, visit));
-        if fresh.is_empty() {
-            return;
-        }
-        if self.download == Download::Unavailable {
-            return;
+        if fresh.is_empty() || self.download == Download::Unavailable {
+            return None;
         }
         let voice = self.own_voice(cx);
-        // #EXP-1961: a ringing call's own session: its first reply is the
-        // agent's opening line, held for the pickup (never spoken now: a
-        // Speak would end the ring).
-        if let Some((session, agent_id)) = crate::voice_call::ringing_session(cx) {
-            let language = self.voice_for(Some(&agent_id), cx).language;
-            let opening = fresh.iter().rev().find(|row| {
-                let message = row.message();
-                message.session_id == Some(session.as_str())
-                    && message.author_kind == Some("agent")
-                    && !message.has_card
-                    && message.author_session_id.is_none()
-            });
-            if let Some(row) = opening {
-                let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
-                if !spoken.is_empty() {
-                    // #EXP-1992: after this update: a pickup it lets go
-                    // says the line through this speaker.
-                    let id = row.id.clone();
-                    cx.defer(move |cx| crate::voice_call::opening(id, spoken, cx));
-                }
+        if !voice.active() {
+            return None;
+        }
+        let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
+        let rows = || fresh.iter().map(|row| (row.id.as_str(), row.message()));
+        // #NEW-57: nothing is read aloud mid-meeting. #EXP-1936: a meeting
+        // HERE (on the voice device); a call that fell back to this desktop
+        // because of it speaks.
+        let meeting = self.settings.meeting() && self.settings.voice_device_id == host::device_id(cx);
+        // NEW-55: while a call runs here, ITS conversation is spoken
+        // (#EXP-1961: the call's own session when it has one; while it
+        // rings, only that session's opening line).
+        if let Some(call) = crate::voice_call::replies(cx) {
+            // #EXP-1981: while the call's own session is asked, nothing of
+            // the chat is the call's (a first call's chat answering its brief).
+            if call.pending {
+                return None;
             }
-            return;
+            let conversation = call.session.or_else(|| host::conversation(&call.agent_id, cx))?;
+            // #EXP-1847: the speaking agent's own voice (its language too).
+            let language = self.voice_for(Some(&call.agent_id), cx).language;
+            let context = VoiceContext {
+                agent_session_id: Some(conversation.as_str()),
+                is_voice_device: true,
+                voice_turn: true,
+                language: &language,
+                voices: &voices,
+                armed_at: self.gate.armed_at(),
+                meeting,
+            };
+            return reply_to_speak(rows(), &context);
         }
-        // NEW-55: while a call runs, ITS agent's conversation is spoken
-        // (#EXP-1961: the call's own session when it has one).
-        let call_agent = crate::voice_call::agent_id(cx);
-        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.active()) else {
-            return;
-        };
-        // #EXP-1981: while the call's own session is asked, nothing of the
-        // chat is the call's (a first call's chat answering its brief).
-        if call_agent.is_some() && crate::voice_call::session_pending(cx) {
-            return;
-        }
-        let call_session = call_agent.as_ref().and_then(|_| crate::voice_call::session(cx));
-        let Some(conversation) = call_session.clone().or_else(|| host::conversation(agent_id, cx)) else { return };
-        // S-3: only a voice turn's reply: the call's conversation, or the
-        // conversation a push-to-talk / wake turn went to.
+        let agent_id = voice.agent_id.clone()?;
+        let conversation = host::conversation(&agent_id, cx)?;
+        // S-3: only a voice turn's reply: the conversation a push-to-talk /
+        // wake turn went to.
         if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
             self.voice_turn = None;
         }
         let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation);
-        let voice_turn = call_agent.is_some() || turn;
-        // #EXP-1847: the speaking agent's own voice (its language too).
-        let agent_id = agent_id.to_string();
         let language = self.voice_for(Some(&agent_id), cx).language;
-        let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
         let context = VoiceContext {
             agent_session_id: Some(conversation.as_str()),
             is_voice_device: true,
-            voice_turn,
+            voice_turn: turn,
             language: &language,
             voices: &voices,
             armed_at: self.gate.armed_at(),
-            // #NEW-57: nothing is read aloud mid-meeting. #EXP-1936: a
-            // meeting HERE (on the voice device); a call that fell back to
-            // this desktop because of it speaks.
-            meeting: self.settings.meeting() && self.settings.voice_device_id == host::device_id(cx),
+            meeting,
         };
         // A burst (a reconnect) speaks only its newest reply.
-        let Some(row) = fresh
-            .iter()
-            .filter(|row| etalk::voice::should_speak(&row.message(), &context))
-            .max_by_key(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant).unwrap_or(0))
-        else {
-            return;
-        };
-        let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
-        if spoken.is_empty() {
-            return;
-        }
-        let row = row.clone();
-        // #EXP-1961: the opening that came after a silent pickup stays unsaid.
-        if call_session.is_some() && crate::voice_call::drops_late_opening(cx) {
-            log::info!("[voice] call: the opening line came after the pickup: not spoken");
-            return;
-        }
+        let (id, spoken) = reply_to_speak(rows(), &context)?;
         let _ = self.ensure_voice(Some(&agent_id), cx);
-        let Some(client) = self.client.as_ref() else { return };
-        client.speak(row.id.clone(), spoken.clone());
+        let client = self.client.as_ref()?;
+        client.speak(id.clone(), spoken.clone());
         // The turn got its reply.
-        if turn {
-            self.voice_turn = None;
-        }
-        self.speaking = Some(Speaking {
-            message_id: row.id.clone(),
-            session_id: conversation.clone(),
-            title: etalk::voice::first_sentence(&spoken).to_string(),
-        });
+        self.voice_turn = None;
+        self.speaking = Some(Speaking { message_id: id, session_id: conversation, title: etalk::voice::first_sentence(&spoken).to_string() });
         cx.notify();
+        None
     }
 
     fn on_event(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
