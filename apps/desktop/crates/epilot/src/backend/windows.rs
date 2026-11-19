@@ -505,14 +505,7 @@ impl Backend for Win32 {
                 connector: None,
             });
         }
-        if displays.is_empty() {
-            return Err("Windows reports no display.".to_string());
-        }
-        if !displays.iter().any(|display| display.primary) {
-            displays[0].primary = true;
-        }
-        crate::backend::finish_ids(&mut displays, &connectors);
-        Ok(displays)
+        crate::backend::finish_displays(displays, &connectors).ok_or_else(|| "Windows reports no display.".to_string())
     }
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {

@@ -623,13 +623,13 @@ pub(super) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) 
 
 fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
     let ids = CGDisplay::active_displays().map_err(|err| format!("displays: CGError {err}"))?;
-    let mut displays: Vec<(CGDirectDisplayID, DisplayInfo)> = ids
-        .into_iter()
+    let infos: Vec<DisplayInfo> = ids
+        .iter()
         .enumerate()
-        .map(|(index, id)| {
+        .map(|(index, &id)| {
             let display = CGDisplay::new(id);
             let bounds = display.bounds();
-            let info = DisplayInfo {
+            DisplayInfo {
                 id: display_uuid(id),
                 x: bounds.origin.x.round() as i32,
                 y: bounds.origin.y.round() as i32,
@@ -638,25 +638,14 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
                 primary: display.is_main(),
                 name: format!("Display {}", index + 1),
                 connector: None,
-            };
-            (id, info)
+            }
         })
         .collect();
-    if displays.is_empty() {
-        return Err("macOS reports no active display.".to_string());
-    }
-    if !displays.iter().any(|(_, info)| info.primary) {
-        displays[0].1.primary = true;
-    }
-    let mut infos: Vec<DisplayInfo> = displays.iter().map(|(_, info)| info.clone()).collect();
     // #FEED-164: twins are told apart by their unit number (the framebuffer
     // they hang off), never by the OS's order.
-    let connectors: Vec<Option<String>> = displays.iter().map(|(id, _)| Some(CGDisplay::new(*id).unit_number().to_string())).collect();
-    crate::backend::finish_ids(&mut infos, &connectors);
-    for ((_, info), finished) in displays.iter_mut().zip(infos) {
-        info.id = finished.id;
-    }
-    Ok(displays)
+    let connectors: Vec<Option<String>> = ids.iter().map(|&id| Some(CGDisplay::new(id).unit_number().to_string())).collect();
+    let infos = crate::backend::finish_displays(infos, &connectors).ok_or("macOS reports no active display.")?;
+    Ok(ids.into_iter().zip(infos).collect())
 }
 
 fn same_rect(a: &DisplayInfo, b: &DisplayInfo) -> bool {

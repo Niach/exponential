@@ -101,6 +101,21 @@ pub(crate) fn twin_id(base: &str, connector: &str) -> String {
     format!("{}{suffix}", base.chars().take(room).collect::<String>())
 }
 
+/// #EXP-1994: the tail of every backend's [`Backend::displays`]: nobody
+/// marked primary makes the first one primary, then [`finish_ids`] with
+/// `connectors[i]` beside `displays[i]`. `None` = no display, which each
+/// backend answers its own way (an error; X11 the whole root).
+pub(crate) fn finish_displays(mut displays: Vec<DisplayInfo>, connectors: &[Option<String>]) -> Option<Vec<DisplayInfo>> {
+    if displays.is_empty() {
+        return None;
+    }
+    if !displays.iter().any(|display| display.primary) {
+        displays[0].primary = true;
+    }
+    finish_ids(&mut displays, connectors);
+    Some(displays)
+}
+
 /// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn stable_hash(bytes: &[u8]) -> u64 {
@@ -576,6 +591,20 @@ mod tests {
         let mut after = [display("uuid"), display("uuid")];
         finish_ids(&mut after, &[Some("2".into()), Some("1".into())]);
         assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
+    }
+
+    /// #EXP-1994: every backend's display list ends the same way: none is
+    /// `None`, the OS's primary stays, nobody primary makes the first one,
+    /// and twins carry their connector.
+    #[test]
+    fn every_display_list_ends_alike() {
+        assert_eq!(finish_displays(Vec::new(), &[]), None);
+        let primary = |displays: &[DisplayInfo]| displays.iter().map(|display| display.primary).collect::<Vec<_>>();
+        let second = vec![display("a"), DisplayInfo { primary: true, ..display("b") }];
+        assert_eq!(primary(&finish_displays(second, &[]).unwrap()), [false, true], "the OS's primary stays");
+        let twins = finish_displays(vec![display("uuid"), display("uuid")], &[Some("1".into()), Some("2".into())]).unwrap();
+        assert_eq!(primary(&twins), [true, false], "nobody primary: the first");
+        assert_eq!(twins.iter().map(|display| (display.id.as_str(), display.connector.as_deref())).collect::<Vec<_>>(), [("uuid@1", Some("1")), ("uuid@2", Some("2"))]);
     }
 
     #[test]
