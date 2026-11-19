@@ -363,9 +363,13 @@ headless outputs resize. A connector that changes while connected (udev's
 hotplug: a VM window resized, a monitor re-reading its EDID) follows its
 new preferred mode unless `[[outputs]]` pins a mode it still offers; the
 scan runs 150 ms after the last change (VBoxDRMClient pushes a layout
-every 250 ms while the window is dragged), then the outputs without a
-configured position close ranks, layers re-arrange and tiled windows
-follow. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
+every 250 ms while the window is dragged). After any change (`set_output`,
+such a resize, an unplug) the outputs without a configured or
+`set_output` position close ranks, layers re-arrange and every window
+stays on its output (#EDE-139): it goes along as the output moves, tiled
+and fullscreen windows fill it again, one it no longer holds comes back
+inside it, and the windows of an output that went away reopen on the
+first one (a fullscreen one fullscreen there). Nothing is raised. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
 (the `virtualbox-guest-utils` system service, no session service needed)
 pushes the window size to `vmwgfx`, which lists it as the preferred mode. Every surface hears its output's preferred scale
 (fractional through wp-fractional-scale-v1; integer clients keep
