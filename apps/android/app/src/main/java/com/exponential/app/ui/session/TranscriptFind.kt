@@ -347,11 +347,13 @@ internal fun rememberTranscriptFind(
     LaunchedEffect(current == null, shown, rowsCounted, target, stops, storeIn) {
         if (current != null || !rowsCounted) return@LaunchedEffect
         if (target != null && find != null) {
-            val at = SearchList.globalChatStart(stops, target)
-            val found = at != null && stops[at].key == target.key && stops[at].output == target.output
+            // No stops yet (the feed or its synced tail still on its way):
+            // nothing to land on, the target waits.
+            val at = SearchList.globalChatStart(stops, target) ?: return@LaunchedEffect
+            val found = stops[at].key == target.key && stops[at].output == target.output
             if (!found && !storeIn) return@LaunchedEffect
             find.dropTarget()
-            if (at != null) land(stops[at])
+            land(stops[at])
             return@LaunchedEffect
         }
         if (shown != null) land(shown)
