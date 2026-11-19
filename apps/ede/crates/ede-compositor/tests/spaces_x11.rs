@@ -233,7 +233,7 @@ fn a_spaces_x11_apps_get_a_display_and_a_desk_of_their_own() {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let (person_ok, space_ok, wrong) = h.with(move |state| {
-            use smithay::wayland::seat::WaylandFocus;
+            use smithay::{reexports::wayland_server::Resource, wayland::seat::WaylandFocus};
             let space_client = state.spaces.get(desk).unwrap().x11().unwrap().0.clone();
             let client_of = |w: &smithay::desktop::Window| w.wl_surface().and_then(|s| s.client());
             let person: Vec<_> = state.desk.space.elements().filter(|w| w.x11_surface().is_some()).filter_map(client_of).collect();
