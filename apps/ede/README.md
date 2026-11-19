@@ -137,7 +137,7 @@ and brightness keys** change the level (WirePlumber's `wpctl`, sysfs or
 With no shell listening (dead, not started) the compositor falls back:
 Alt+Tab cycles focus itself, most recent first, and the media keys reach
 the app. `exponential-ctl key <code> --bindings` sends a key as the person's (the
-root grant only), which is how the goldens and an agent in the VM drive
+root grant only, on the person's desk alone), which is how the goldens and an agent in the VM drive
 them.
 
 ```bash
@@ -912,7 +912,9 @@ the shell with `EDE_UI_DIR`, commits hand edits, refuses broken ones, and
 expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 (`exponential-ui digest FILE`, the content digest) on stdout once it drew a document.
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
-panel.json, rolled back`); the shell dying counts as a crash, it restarts
+panel.json, rolled back`), unless another process undid or replaced it
+meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
+and what replaced it is an edit of its own; the shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never

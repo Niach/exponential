@@ -358,11 +358,18 @@ impl Runtime {
     }
 
     /// Revert `commit` as a new commit (a rollback the person can undo
-    /// again) and reload.
-    pub fn revert_commit(&mut self, commit: &str, summary: &str) -> io::Result<(String, Vec<Change>)> {
-        let id = self.repo.revert(commit, summary)?;
+    /// again) and reload. `None` = nothing to revert (its change is
+    /// already undone): nothing changes.
+    pub fn revert_commit(&mut self, commit: &str, summary: &str) -> io::Result<Option<(String, Vec<Change>)>> {
+        let Some(id) = self.repo.revert(commit, summary)? else { return Ok(None) };
         let changes = self.reload()?;
-        Ok((id, changes))
+        Ok(Some((id, changes)))
+    }
+
+    /// The digest of `name` as commit `id` (`HEAD`: the newest) holds it,
+    /// whatever the file on disk says; `None` when that commit has none.
+    pub fn digest_at(&self, id: &str, name: &str) -> io::Result<Option<String>> {
+        Ok(self.repo.show_at(id, &file_of(name))?.map(|bytes| digest(&bytes)))
     }
 
     /// The last good version of `name`.
@@ -574,7 +581,7 @@ impl Runtime {
                 return Err(io::Error::other(format!("{file} has an uncommitted edit; discard it first")));
             }
         }
-        let id = self.repo.revert(&last.id, &last.summary)?;
+        let Some(id) = self.repo.revert(&last.id, &last.summary)? else { return Ok(None) };
         let changes = self.reload()?;
         let commit = self.repo.log(1)?.into_iter().next().unwrap_or(Commit { id, summary: String::new(), time: 0 });
         Ok(Some((commit, changes)))

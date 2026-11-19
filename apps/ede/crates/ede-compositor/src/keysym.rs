@@ -101,6 +101,8 @@ impl Ede {
     /// the person's path (the root grant), otherwise an agent's, refused on
     /// protected surfaces and the lock like any driven key.
     pub fn drive_keysym(&mut self, desk: DeskId, keysym: u32, pressed: bool, bindings: bool, time: u32) -> Result<bool, Refused> {
+        // #EDE-136: `ipc_input` refuses the bindings on any other desk.
+        debug_assert!(!bindings || desk == DeskId::PERSON, "the bindings are the person's desk alone");
         let Some((key, mods, layout)) = self.key_for_keysym(desk, keysym) else { return Ok(false) };
         let send = |ede: &mut Ede, keycode: Keycode, state: KeyState| -> Result<(), Refused> {
             if bindings {
