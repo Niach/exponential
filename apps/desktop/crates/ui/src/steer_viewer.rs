@@ -826,6 +826,15 @@ pub(crate) struct SteerSessionView {
     /// were read at (rows, feed epoch, feed generation, unreachable).
     synced_tail: Vec<SyncedTailRow>,
     synced_tail_key: Option<(usize, u64, u64, bool)>,
+    /// #EXP-1998 (find-in-chat.json): every message the tail would draw
+    /// with no cap (find in chat counts them), oldest first.
+    pub(crate) synced_tail_all: Vec<String>,
+    /// #EXP-1998: find in chat landed on an older synced message: the tail
+    /// (or the sent inputs) draw every drawable one from it on.
+    pub(crate) find_widen: Option<String>,
+    /// #EXP-1998: the no-transcript placeholder's bubbles (the sent inputs,
+    /// the own tail) scroll, so find in chat can centre one.
+    pub(crate) no_feed_scroll: gpui::ScrollHandle,
     /// #FEED-260 (OFFLINE LINE): THE inline marker that ends a not-live
     /// transcript (`noFeedAway.title`), a synthetic row after the own tail.
     offline_line: Option<String>,
@@ -1137,6 +1146,9 @@ impl SteerSessionView {
             own_tail_timer: None,
             synced_tail: Vec::new(),
             synced_tail_key: None,
+            synced_tail_all: Vec::new(),
+            find_widen: None,
+            no_feed_scroll: gpui::ScrollHandle::new(),
             offline_line: None,
             conv_memo: None,
             queue_from: None,
@@ -6038,9 +6050,7 @@ impl SteerSessionView {
             // Android 0.14.134 (steer-enet.json SENT INPUTS): what was sent
             // shows at once as the viewer's own bubbles above the copy, the
             // brief a claim consumed included, until the feed lands.
-            let inputs = (!self.row_ended())
-                .then(|| self.render_no_feed_inputs(window, cx))
-                .flatten();
+            let inputs = if self.row_ended() { Vec::new() } else { self.render_no_feed_inputs(window, cx) };
             // #FEED-237 (message-delivery.json ORDER): ONE own-bubble
             // mechanism: with no feed the consumed inputs above stand in for
             // the transcript (`read`), then the own tail (the unconsumed rows,
@@ -6051,7 +6061,7 @@ impl SteerSessionView {
             // counted here (the document's push does it otherwise).
             let _ = self.find_frame(cx);
             // #FEED-239: the tail continues the inputs' own group.
-            let lead = inputs.is_none();
+            let lead = inputs.is_empty();
             let own: Vec<AnyElement> = self
                 .own_tail
                 .clone()
@@ -6062,18 +6072,24 @@ impl SteerSessionView {
                     self.render_own_bubble(row_id, bubble, lead && index == 0, window, cx)
                 })
                 .collect();
-            let inputs = match (inputs, own.is_empty()) {
-                (inputs, true) => inputs,
-                (inputs, false) => Some(
-                    v_flex()
-                        .w_full()
-                        .flex_shrink_0()
-                        .gap_2()
-                        .children(inputs)
-                        .child(v_flex().w_full().px_4().gap_2().children(own))
-                        .into_any_element(),
-                ),
-            };
+            // #EXP-1998 (find-in-chat.json): ONE scrolling column (the sent
+            // inputs, then the own tail), so find in chat centres a bubble
+            // (by its index here) when they outgrow the pane.
+            let inputs = (!inputs.is_empty() || !own.is_empty()).then(|| {
+                v_flex()
+                    .id("steer-no-feed-rows")
+                    .w_full()
+                    .flex_shrink()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.no_feed_scroll)
+                    .px_4()
+                    .when(!lead, |column| column.pt_2())
+                    .gap_2()
+                    .children(inputs)
+                    .children(own)
+                    .into_any_element()
+            });
             if waiting.is_empty() && inputs.is_none() {
                 return div().flex_1().min_h_0().child(body).into_any_element();
             }
@@ -6109,10 +6125,15 @@ impl SteerSessionView {
     /// The consumed person inputs a placeholder shows (`id`, text, `HH:mm`),
     /// oldest first: what [`Self::render_no_feed_inputs`] draws and find
     /// in chat counts (#EXP-1975).
-    fn no_feed_input_rows(&self, cx: &App) -> Vec<(String, String, String)> {
+    pub(crate) fn no_feed_input_rows(&self, cx: &App) -> Vec<(String, String, String)> {
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-        no_feed_inputs(&messages)
-            .into_iter()
+        // #EXP-1998: the newest `NO_FEED_INPUTS_MAX`, or every one from the
+        // message find in chat landed on.
+        let all = no_feed_inputs(&messages, usize::MAX);
+        let ids: Vec<&str> = all.iter().map(|message| message.id.as_str()).collect();
+        let skip = crate::chat_find::widened_skip(&ids, steer::enet_steer::NO_FEED_INPUTS_MAX, self.find_widen.as_deref());
+        all.into_iter()
+            .skip(skip)
             .filter_map(|message| {
                 let text = match message.locked() {
                     Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
@@ -6125,13 +6146,12 @@ impl SteerSessionView {
             .collect()
     }
 
-    fn render_no_feed_inputs(&self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    /// #EXP-1998: one element per bubble (the placeholder's scrolling
+    /// column holds them with the own tail, find in chat centres by index).
+    fn render_no_feed_inputs(&self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
         let inputs = self.no_feed_input_rows(cx);
-        if inputs.is_empty() {
-            return None;
-        }
         let count = inputs.len() as FeedItemId;
-        let mut column = v_flex().w_full().flex_shrink_0().px_4().pt_2().gap_2();
+        let mut column = Vec::with_capacity(inputs.len());
         for (index, (id, text, time)) in inputs.into_iter().enumerate() {
             // A synthetic item id just below the synthetic rows' (the feed
             // is empty while these show).
@@ -6157,9 +6177,9 @@ impl SteerSessionView {
                 cx,
             );
             // #FEED-239: one own group, the viewer's avatar on its first.
-            column = column.child(crate::session_chat::own_row(index == 0, bubble, cx));
+            column.push(crate::session_chat::own_row(index == 0, bubble, cx).into_any_element());
         }
-        Some(column.into_any_element())
+        column
     }
 
     /// EXP-1228 — the transcript's right-click menu: the composer's own
@@ -6332,6 +6352,7 @@ impl SteerSessionView {
         let live = self.phase == ViewerPhase::Live;
         if !main || live {
             self.synced_tail.clear();
+            self.synced_tail_all.clear();
             self.synced_tail_key = None;
             return;
         }
@@ -6343,7 +6364,13 @@ impl SteerSessionView {
         if self.synced_tail_key == Some(key) {
             return;
         }
-        self.synced_tail = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
+        // #EXP-1998: every drawable one (find in chat counts them), then the
+        // newest `SYNCED_TAIL_MAX` or every one from find's landing on.
+        let mut all = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
+        self.synced_tail_all = all.iter().map(|row| row.id.clone()).collect();
+        let ids: Vec<&str> = self.synced_tail_all.iter().map(String::as_str).collect();
+        let skip = crate::chat_find::widened_skip(&ids, steer::enet_steer::SYNCED_TAIL_MAX, self.find_widen.as_deref());
+        self.synced_tail = all.split_off(skip);
         self.synced_tail_key = Some(key);
     }
 
@@ -10739,8 +10766,8 @@ fn wake_row(row: &domain::rows::SessionRow) -> steer::enet_steer::WakeRow {
 /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
 /// card-less person inputs a no-feed placeholder shows, oldest first, the
 /// newest [`steer::enet_steer::NO_FEED_INPUTS_MAX`].
-fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::MessageRow> {
-    steer::enet_steer::no_feed_inputs(messages, steer::enet_steer::NO_FEED_INPUTS_MAX, |m| {
+pub(crate) fn no_feed_inputs(messages: &[domain::rows::MessageRow], max: usize) -> Vec<&domain::rows::MessageRow> {
+    steer::enet_steer::no_feed_inputs(messages, max, |m| {
         steer::enet_steer::NoFeedInputRow {
             id: &m.id,
             author_kind: m.author_kind.as_deref().unwrap_or_default(),
@@ -10755,9 +10782,10 @@ fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::M
 /// synced messages a not-live transcript draws after `feed`, read off its
 /// MAIN-lane rows (a narration's text + first fragment's `at`, an input's,
 /// a settled tool's time), each body opened (a sealed one it cannot open
-/// reads the sealed placeholder).
+/// reads the sealed placeholder). #EXP-1998: every one (no cap; the
+/// caller cuts the shown stretch).
 fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
-    use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow, SYNCED_TAIL_MAX};
+    use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow};
     if live {
         return Vec::new();
     }
@@ -10784,7 +10812,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
     };
     let bodies: Vec<String> = messages.iter().map(body).collect();
     let indexed: Vec<usize> = (0..messages.len()).collect();
-    synced_tail(live, &rows, &indexed, SYNCED_TAIL_MAX, unreachable, |&i| {
+    synced_tail(live, &rows, &indexed, usize::MAX, unreachable, |&i| {
         let m = &messages[i];
         Row {
             id: &m.id,
