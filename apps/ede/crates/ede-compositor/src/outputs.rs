@@ -152,15 +152,22 @@ impl Ede {
             }
         }
         // Parked (another workspace) and minimized windows keep their place
-        // on their output as it moves.
+        // on their output as it moves; a tiled or fullscreen one waits at
+        // its output's corner and fills it as it comes back
+        // ([`Ede::map_parked`]). On an output that went away they have no
+        // place: they reopen on the first one.
         for w in self.desk.workspaces.parked.iter().chain(&self.desk.minimized).cloned().collect::<Vec<_>>() {
             let mut st = window_state(&w);
             let Some(at) = st.parked_at else { continue };
             let was = Rectangle::new(at, w.geometry().size);
-            let Some((output, delta)) = self.output_before(before, was) else { continue };
-            st.restore = st.restore.map(|r| self.place_after(&w, r, before, &output));
-            st.fullscreen = st.fullscreen.map(|r| self.place_after(&w, r, before, &output));
-            st.parked_at = Some(self.moved_along(&w, was, delta, &output).loc);
+            st.parked_at = self.output_before(before, was).and_then(|(output, delta)| {
+                st.restore = st.restore.map(|r| self.place_after(&w, r, before, &output));
+                st.fullscreen = st.fullscreen.map(|r| self.place_after(&w, r, before, &output));
+                if st.tile.is_some() || st.fullscreen.is_some() {
+                    return self.desk.space.output_geometry(&output).map(|g| g.loc);
+                }
+                Some(self.moved_along(&w, was, delta, &output).loc)
+            });
             set_window_state(&w, st);
         }
         self.rehome_lost_windows(&lost);

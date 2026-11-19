@@ -58,8 +58,7 @@ impl Ede {
         let arriving: Vec<Window> = self.desk.workspaces.parked.iter().filter(|w| window_state(w).workspace == index).cloned().collect();
         self.desk.workspaces.parked.retain(|w| window_state(w).workspace != index);
         for w in &arriving {
-            let at = window_state(w).parked_at.unwrap_or_default();
-            self.desk.space.map_element(w.clone(), at, false);
+            self.map_parked(w, false);
         }
         let top = arriving.last().cloned();
         self.focus(DeskId::PERSON, top);
@@ -104,11 +103,36 @@ impl Ede {
         } else {
             set_window_state(window, st);
             self.desk.workspaces.parked.retain(|w| w != window);
-            let at = st.parked_at.unwrap_or_default();
-            self.desk.space.map_element(window.clone(), at, true);
+            self.map_parked(window, true);
             self.focus(DeskId::PERSON, Some(window.clone()));
         }
         self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
+    }
+
+    /// Maps a parked or minimized `window` back at its place (#EDE-139): a
+    /// tiled or fullscreen one fills its output as it is now (its scale,
+    /// mode or panel may have changed meanwhile); one whose place is on no
+    /// output any more (it went away) opens on the first one.
+    pub(crate) fn map_parked(&mut self, window: &Window, activate: bool) {
+        let st = window_state(window);
+        let fills = st.tile.is_some() || st.fullscreen.is_some();
+        let output = st.parked_at.and_then(|at| {
+            // A tiled or fullscreen one: the output its corner is on (its
+            // size is the old output's until it is fitted again).
+            let probe = if fills { at.to_f64() } else { at.to_f64() + window.geometry().size.to_f64().to_point().downscale(2.0) };
+            self.desk.space.output_under(probe).next().cloned().map(|o| (at, o))
+        });
+        let Some((at, output)) = output else {
+            self.desk.space.map_element(window.clone(), (0, 0), activate);
+            self.rehome_lost_windows(&[window.clone()]);
+            return;
+        };
+        self.desk.space.map_element(window.clone(), at, activate);
+        if st.fullscreen.is_some() {
+            self.fit_fullscreen(window, &output);
+        } else if let Some(tile) = st.tile {
+            self.tile_on(window, tile, &output);
+        }
     }
 
     /// A window that closed while parked.
