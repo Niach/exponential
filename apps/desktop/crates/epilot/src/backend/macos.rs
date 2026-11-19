@@ -147,7 +147,11 @@ extern "C" {
     static _dispatch_main_q: DispatchQueue;
     fn dispatch_async_f(queue: *const DispatchQueue, context: *mut c_void, work: extern "C" fn(*mut c_void));
     fn pthread_main_np() -> i32;
+    fn dlsym(handle: *mut c_void, symbol: *const std::ffi::c_char) -> *mut c_void;
 }
+
+/// dlsym's "every loaded image" handle (`<dlfcn.h>`).
+const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 
 #[link(name = "ColorSync", kind = "framework")]
 extern "C" {
@@ -367,8 +371,13 @@ impl Backend for Mac {
                 app.activateWithOptions(options)
             })
         });
+        // #EXP-1979: the window itself, not just its app: a raise that
+        // missed leaves another of the app's windows in front.
         let front = u32::try_from(pid).ok();
-        settle_activation(id, activated, ACTIVATE_WAIT, || frontmost_pid() == front)
+        settle_activation(id, activated, ACTIVATE_WAIT, || {
+            let named = ax_front_windows(pid);
+            window_in_front(id, frontmost_pid() == front, named.as_deref(), || self.list_windows().ok().and_then(|windows| front_window(&windows)))
+        })
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -676,12 +685,13 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
             .is_some_and(bool::from)
 }
 
-/// How long an accepted activation may take to put the app in front.
+/// How long an accepted activation may take to put the window in front.
 const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
 
 /// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
-/// one that did not put the window's app in front within `wait`, is an
-/// error (the agent's keys would go to the app in front).
+/// one that did not put the window in front within `wait` (`in_front`;
+/// #EXP-1979: the window, not just its app), is an error (the agent's keys
+/// would go to the window in front).
 fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
     let refused = || Err(format!("macOS did not activate window {id}."));
     if !activated {
@@ -697,6 +707,21 @@ fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: imp
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// #EXP-1979: the window in front of a [`Backend::list_windows`] answer:
+/// the focused app's first window (the one marked active).
+fn front_window(windows: &[WindowInfo]) -> Option<u64> {
+    windows.iter().find(|window| window.active).map(|window| window.id)
+}
+
+/// #EXP-1979: whether window `id` is in front: its app has the focus, and
+/// it is the app's main or focused window as Accessibility names them
+/// (`named`), so a sheet or a bubble listed above it is still its. Where
+/// Accessibility names none (our own process), the window list's front
+/// window (`listed`).
+fn window_in_front(id: u64, app_in_front: bool, named: Option<&[u64]>, listed: impl FnOnce() -> Option<u64>) -> bool {
+    app_in_front && named.map_or_else(|| listed() == Some(id), |named| named.contains(&id))
 }
 
 /// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
@@ -810,11 +835,54 @@ fn ax_reachable(pid: Pid) -> bool {
     u32::try_from(pid).ok() != Some(std::process::id())
 }
 
-/// The Accessibility window of `pid` whose frame matches the window
-/// server's `window`; each miss logged. `None` for our own process.
-fn ax_window(pid: Pid, window: &WindowInfo) -> Option<CFType> {
+/// One of an app's Accessibility windows, as [`pick_ax_window`] weighs it.
+#[derive(Clone, Debug)]
+struct AxCandidate {
+    /// Its window number ([`ax_window_number`]), when macOS tells.
+    number: Option<u64>,
+    /// Its frame is the window server's, within [`FRAME_SLACK`].
+    frame: bool,
+    title: Option<String>,
+}
+
+/// #EXP-1979: which of an app's Accessibility windows is `window`: the one
+/// with its window number; else, of those whose frame matches (and whose
+/// number is unknown), the only one, or the one with its title (two
+/// zoomed windows share one frame), or the first.
+fn pick_ax_window(candidates: &[AxCandidate], window: &WindowInfo) -> Option<usize> {
+    if let Some(index) = candidates.iter().position(|candidate| candidate.number == Some(window.id)) {
+        return Some(index);
+    }
+    let framed: Vec<usize> = (0..candidates.len()).filter(|&index| candidates[index].frame && candidates[index].number.is_none()).collect();
+    match framed.as_slice() {
+        [] => None,
+        [only] => Some(*only),
+        several => several.iter().copied().find(|&index| candidates[index].title.as_deref() == Some(window.title.as_str())).or(Some(several[0])),
+    }
+}
+
+/// An Accessibility window's window number, through HIServices' private
+/// `_AXUIElementGetWindow` (the same for a decade; yabai, Hammerspoon and
+/// AltTab use it), looked up at run time: `None` when macOS has none.
+fn ax_window_number(element: &CFType) -> Option<u64> {
+    type GetWindow = unsafe extern "C" fn(CFTypeRef, *mut u32) -> i32;
+    static GET: std::sync::OnceLock<Option<GetWindow>> = std::sync::OnceLock::new();
+    let get = (*GET.get_or_init(|| {
+        // SAFETY: a symbol lookup in the loaded images (ApplicationServices
+        // is linked); a hit is `AXError _AXUIElementGetWindow(AXUIElementRef,
+        // CGWindowID *)`.
+        let symbol = unsafe { dlsym(RTLD_DEFAULT, c"_AXUIElementGetWindow".as_ptr()) };
+        (!symbol.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, GetWindow>(symbol) })
+    }))?;
+    let mut number = 0u32;
+    // SAFETY: `element` is a live AXUIElement; `number` receives its id.
+    let err = unsafe { get(element.as_CFTypeRef(), &mut number) };
+    (err == 0 && number != 0).then_some(u64::from(number))
+}
+
+/// The Accessibility element of app `pid`; `None` for our own process.
+fn ax_app(pid: Pid) -> Option<CFType> {
     if !ax_reachable(pid) {
-        log::debug!("[computer] window {} is ours: no Accessibility off the main thread", window.id);
         return None;
     }
     // SAFETY: returns a new AXUIElement (create rule) for any pid.
@@ -824,22 +892,48 @@ fn ax_window(pid: Pid, window: &WindowInfo) -> Option<CFType> {
         return None;
     }
     // SAFETY: non-null and ours (create rule).
-    let app = unsafe { CFType::wrap_under_create_rule(app) };
+    Some(unsafe { CFType::wrap_under_create_rule(app) })
+}
+
+/// #EXP-1979: the window numbers of `pid`'s main and focused windows over
+/// Accessibility; `None` when it names none (our own process).
+fn ax_front_windows(pid: Pid) -> Option<Vec<u64>> {
+    let app = ax_app(pid)?;
+    let named: Vec<u64> = ["AXMainWindow", "AXFocusedWindow"].into_iter().filter_map(|attribute| ax_copy(&app, attribute)).filter_map(|window| ax_window_number(&window)).collect();
+    (!named.is_empty()).then_some(named)
+}
+
+/// The Accessibility window of `pid` that is the window server's `window`
+/// ([`pick_ax_window`]); each miss logged. `None` for our own process.
+fn ax_window(pid: Pid, window: &WindowInfo) -> Option<CFType> {
+    let Some(app) = ax_app(pid) else {
+        log::debug!("[computer] window {} is ours or has no Accessibility element", window.id);
+        return None;
+    };
     let Some(list) = ax_copy(&app, "AXWindows").and_then(|list| list.downcast::<CFArray>()) else {
         log::debug!("[computer] pid {pid} lists no Accessibility windows");
         return None;
     };
-    let found = list.iter().find_map(|item| {
-        // SAFETY: AXWindows holds AXUIElements, alive as long as `list`.
-        let element = unsafe { CFType::wrap_under_get_rule(*item) };
-        let (origin, size) = (ax_point(&element)?, ax_size(&element)?);
-        let close = |a: f64, b: i64| (a - b as f64).abs() <= FRAME_SLACK;
-        let same = close(origin.x, i64::from(window.x))
-            && close(origin.y, i64::from(window.y))
-            && close(size.width, i64::from(window.width))
-            && close(size.height, i64::from(window.height));
-        same.then_some(element)
-    });
+    let close = |a: f64, b: i32| (a - f64::from(b)).abs() <= FRAME_SLACK;
+    let same_frame = |element: &CFType| match (ax_point(element), ax_size(element)) {
+        (Some(origin), Some(size)) => {
+            close(origin.x, window.x) && close(origin.y, window.y) && close(size.width, window.width as i32) && close(size.height, window.height as i32)
+        }
+        _ => false,
+    };
+    // SAFETY: AXWindows holds AXUIElements, alive as long as `list`.
+    let mut elements: Vec<CFType> = list.iter().map(|item| unsafe { CFType::wrap_under_get_rule(*item) }).collect();
+    let candidates: Vec<AxCandidate> = elements
+        .iter()
+        .map(|element| {
+            // The number decides; the frame and title only stand in for it.
+            let number = ax_window_number(element);
+            let unknown = number.is_none();
+            let title = || ax_copy(element, "AXTitle").and_then(|title| title.downcast::<CFString>()).map(|title| title.to_string());
+            AxCandidate { number, frame: unknown && same_frame(element), title: unknown.then(title).flatten() }
+        })
+        .collect();
+    let found = pick_ax_window(&candidates, window).map(|index| elements.swap_remove(index));
     if found.is_none() {
         log::debug!("[computer] no Accessibility window matches window {}", window.id);
     }
@@ -1312,26 +1406,41 @@ enum Verdict {
 /// The tap's decision on one event of `kind` (its keycode and mouse
 /// button number read whatever the kind).
 /// `held` = what the person held when the tap went in: each one's release
-/// passes, once (a modifier's next FlagsChanged is its release).
+/// passes, once (a modifier's next FlagsChanged is its release), unless
+/// ours pressed or released it first (#EXP-1979).
 fn tap_verdict(ours: bool, kind: u32, keycode: i64, button: i64, held: &mut HeldAtEngage<TAP_HELD>) -> Verdict {
+    let pressed = tap_index(kind, keycode, button);
     if ours {
+        if let Some((index, _)) = pressed {
+            held.ours(index);
+        }
         return Verdict::Pass;
     }
     if kind == CGEventType::KeyDown as u32 && keycode == i64::from(ESCAPE) {
         return Verdict::Esc;
     }
-    let index = |value: i64, base: usize| usize::try_from(value).ok().map(|value| base + value);
-    let released = match kind {
-        k if k == CGEventType::KeyUp as u32 || k == CGEventType::FlagsChanged as u32 => index(keycode, 0).filter(|&key| key < TAP_BUTTONS),
-        k if k == CGEventType::LeftMouseUp as u32 => Some(TAP_BUTTONS),
-        k if k == CGEventType::RightMouseUp as u32 => Some(TAP_BUTTONS + 1),
-        k if k == CGEventType::OtherMouseUp as u32 => index(button, TAP_BUTTONS),
+    match pressed {
+        Some((index, down)) if held.passes(index, down) => Verdict::Pass,
+        _ => Verdict::Swallow,
+    }
+}
+
+/// The [`TAP_HELD`] index an event of `kind` presses or releases, and
+/// whether it is the press (a FlagsChanged counts as a release).
+fn tap_index(kind: u32, keycode: i64, button: i64) -> Option<(usize, bool)> {
+    let index = |value: i64, base: usize, room: usize| usize::try_from(value).ok().filter(|&value| value < room).map(|value| base + value);
+    let key = || index(keycode, 0, TAP_BUTTONS);
+    let pointer = |number: i64| index(number, TAP_BUTTONS, TAP_HELD - TAP_BUTTONS);
+    match kind {
+        k if k == CGEventType::KeyDown as u32 => key().map(|index| (index, true)),
+        k if k == CGEventType::KeyUp as u32 || k == CGEventType::FlagsChanged as u32 => key().map(|index| (index, false)),
+        k if k == CGEventType::LeftMouseDown as u32 => pointer(0).map(|index| (index, true)),
+        k if k == CGEventType::LeftMouseUp as u32 => pointer(0).map(|index| (index, false)),
+        k if k == CGEventType::RightMouseDown as u32 => pointer(1).map(|index| (index, true)),
+        k if k == CGEventType::RightMouseUp as u32 => pointer(1).map(|index| (index, false)),
+        k if k == CGEventType::OtherMouseDown as u32 => pointer(button).map(|index| (index, true)),
+        k if k == CGEventType::OtherMouseUp as u32 => pointer(button).map(|index| (index, false)),
         _ => None,
-    };
-    if released.is_some_and(|index| held.passes(index, false)) {
-        Verdict::Pass
-    } else {
-        Verdict::Swallow
     }
 }
 
@@ -1400,6 +1509,21 @@ mod tests {
         let _ = held_now();
     }
 
+    /// #EXP-1979: once the agent itself pressed or released a button or key
+    /// the person held at engage, the person's later release is swallowed:
+    /// it would cut into the agent's own drag or combo.
+    #[test]
+    fn the_agents_own_press_of_a_held_button_disarms_its_release() {
+        let mut held = HeldAtEngage::<TAP_HELD>::NONE;
+        held.0[TAP_BUTTONS] = true; // the left button
+        held.0[56] = true; // kVK_Shift
+        assert_eq!(tap_verdict(true, CGEventType::LeftMouseDown as u32, 0, 0, &mut held), Verdict::Pass);
+        assert_eq!(tap_verdict(true, CGEventType::LeftMouseUp as u32, 0, 0, &mut held), Verdict::Pass);
+        assert_eq!(tap_verdict(false, CGEventType::LeftMouseUp as u32, 0, 0, &mut held), Verdict::Swallow);
+        assert_eq!(tap_verdict(true, CGEventType::FlagsChanged as u32, 56, 0, &mut held), Verdict::Pass);
+        assert_eq!(tap_verdict(false, CGEventType::FlagsChanged as u32, 56, 0, &mut held), Verdict::Swallow);
+    }
+
     /// The pid `lsappinfo` (Launch Services, asked fresh) says is in front.
     fn front_by_launch_services() -> Option<u32> {
         let run = |args: &[&str]| String::from_utf8(std::process::Command::new("lsappinfo").args(args).output().ok()?.stdout).ok();
@@ -1431,6 +1555,110 @@ mod tests {
         assert_eq!(now, truth);
     }
 
+    fn window(id: u64, title: &str, pid: u32, active: bool) -> WindowInfo {
+        WindowInfo { id, title: title.into(), app: "Chrome".into(), pid: Some(pid), x: 0, y: 25, width: 1440, height: 875, active, fullscreen: false }
+    }
+
+    /// #EXP-1979: the window in front is the first window of the focused
+    /// app (what list_windows marks active), not just any window of it.
+    #[test]
+    fn the_window_in_front_is_the_focused_apps_first() {
+        let after = [window(1, "Docs", 42, true), window(2, "Mail", 42, false)];
+        assert_eq!(front_window(&after), Some(1));
+        assert!(settle_activation(2, true, Duration::from_millis(60), || front_window(&after) == Some(2)).is_err(), "Chrome is in front, Mail is not");
+        assert_eq!(front_window(&[window(1, "Docs", 42, false)]), None);
+    }
+
+    /// #EXP-1979: the window is in front when its app is and Accessibility
+    /// names it the main or focused window, though a sheet of it is first
+    /// in the window list; the list decides only where Accessibility names
+    /// none (our own process).
+    #[test]
+    fn a_window_with_a_sheet_in_front_of_it_is_in_front() {
+        let sheet_first = || Some(9);
+        assert!(window_in_front(7, true, Some(&[7]), sheet_first), "its sheet is listed above it");
+        assert!(!window_in_front(2, true, Some(&[1, 1]), || Some(2)), "Docs is the main window, not Mail");
+        assert!(!window_in_front(7, false, Some(&[7]), sheet_first), "its app is not in front");
+        assert!(window_in_front(2, true, None, || Some(2)));
+        assert!(!window_in_front(2, true, None, || Some(1)));
+    }
+
+    /// #EXP-1979: of an app's Accessibility windows, `window` is the one
+    /// with its window number; without numbers, of those with its frame
+    /// the one with its title (two zoomed windows share one frame).
+    #[test]
+    fn same_frame_windows_are_told_apart() {
+        let mail = window(2, "Mail", 42, false);
+        let docs = AxCandidate { number: None, frame: true, title: Some("Docs".into()) };
+        let mail_ax = AxCandidate { number: None, frame: true, title: Some("Mail".into()) };
+        assert_eq!(pick_ax_window(&[docs.clone(), mail_ax.clone()], &mail), Some(1));
+        let numbered = [AxCandidate { number: Some(1), ..docs.clone() }, AxCandidate { number: Some(2), frame: false, ..mail_ax.clone() }];
+        assert_eq!(pick_ax_window(&numbered, &mail), Some(1), "the number wins over the frame");
+        let off = AxCandidate { frame: false, ..mail_ax };
+        assert_eq!(pick_ax_window(&[docs.clone(), off], &mail), Some(0), "the only frame match");
+        assert_eq!(pick_ax_window(&[AxCandidate { frame: false, ..docs }], &mail), None);
+    }
+
+    /// Two windows of its own on one frame, in front for five seconds (JXA;
+    /// finishLaunching = it answers Accessibility).
+    const TWO_WINDOWS: &str = "ObjC.import('Cocoa'); var app = $.NSApplication.sharedApplication; app.setActivationPolicy(0); app.finishLaunching; \
+        function make(title) { var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(240, 240, 360, 140), 1, 2, false); \
+        w.title = title; w.makeKeyAndOrderFront(null); return w; } \
+        var a = make('epilot A'); var b = make('epilot B'); app.activateIgnoringOtherApps(true); \
+        $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(5));";
+
+    /// #EXP-1979, LIVE (`--ignored`): shows two windows of its own on one
+    /// frame for five seconds, types and clicks nothing. activate_window
+    /// brings the one behind to the front, and answers so only then.
+    #[test]
+    #[ignore = "drives the real screen"]
+    fn activate_window_brings_that_window_forward_not_just_its_app() {
+        let mut script = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", TWO_WINDOWS]).spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        let mac = Mac::new().unwrap();
+        let ours = |title: &str| {
+            let windows = mac.list_windows().unwrap();
+            windows.into_iter().find(|window| window.pid == Some(script.id()) && window.title == title).map(|window| window.id)
+        };
+        let (a, b) = (ours("epilot A").expect("window A"), ours("epilot B").expect("window B"));
+        assert_eq!(front_window(&mac.list_windows().unwrap()), Some(b), "B opened last");
+        let to_a = mac.activate_window(a);
+        let front_after_a = front_window(&mac.list_windows().unwrap());
+        let to_b = mac.activate_window(b);
+        let front_after_b = front_window(&mac.list_windows().unwrap());
+        script.wait().unwrap();
+        assert_eq!((to_a, front_after_a), (Ok(()), Some(a)));
+        assert_eq!((to_b, front_after_b), (Ok(()), Some(b)));
+    }
+
+    /// Two windows of its own, the one behind with a sheet, for five
+    /// seconds (JXA).
+    const WINDOW_WITH_A_SHEET: &str = "ObjC.import('Cocoa'); var app = $.NSApplication.sharedApplication; app.setActivationPolicy(0); app.finishLaunching; \
+        function make(title) { var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(240, 240, 360, 140), 1, 2, false); \
+        w.title = title; w.makeKeyAndOrderFront(null); return w; } \
+        var a = make('epilot A'); var sheet = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(0, 0, 200, 60), 1, 2, false); \
+        a.beginSheetCompletionHandler(sheet, function (code) {}); var b = make('epilot B'); app.activateIgnoringOtherApps(true); \
+        $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(5));";
+
+    /// #EXP-1979, LIVE (`--ignored`): shows two windows of its own, one with
+    /// a sheet, for five seconds, types and clicks nothing. The window under
+    /// the sheet is activated (the sheet comes first in the window list).
+    #[test]
+    #[ignore = "drives the real screen"]
+    fn activate_window_counts_a_window_whose_sheet_is_in_front() {
+        let mut script = std::process::Command::new("osascript").args(["-l", "JavaScript", "-e", WINDOW_WITH_A_SHEET]).spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        let mac = Mac::new().unwrap();
+        let windows = mac.list_windows().unwrap();
+        let id = |title: &str| windows.iter().find(|window| window.pid == Some(script.id()) && window.title == title).map(|window| window.id);
+        let (a, b) = (id("epilot A").expect("window A"), id("epilot B").expect("window B"));
+        let answer = mac.activate_window(a);
+        let front = front_window(&mac.list_windows().unwrap());
+        script.wait().unwrap();
+        assert_eq!(answer, Ok(()));
+        assert_ne!(front, Some(b), "B is behind now");
+    }
+
     /// #EXP-1921: activate_window answers success only once the window's
     /// app is in front.
     #[test]
@@ -1439,8 +1667,9 @@ mod tests {
         assert!(settle_activation(4, false, wait, || true).is_err(), "macOS refused");
         assert!(settle_activation(4, true, wait, || false).is_err(), "never in front");
         let mut polls = 0;
+        // Room for a slow runner's sleeps: the answer comes at the third poll.
         assert_eq!(
-            settle_activation(4, true, wait, || {
+            settle_activation(4, true, Duration::from_secs(10), || {
                 polls += 1;
                 polls == 3
             }),

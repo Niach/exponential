@@ -16,9 +16,12 @@
 //! their own: everything the person does is swallowed except Esc (the
 //! abort) and the release of a key or button they held when the lock
 //! engaged (so no modifier stays stuck under our typing, no button under
-//! our moves: #EXP-1921). Windows silently drops a hook
-//! that answers slower than `LowLevelHooksTimeout`, so the hook procs only
-//! decide and post; `on_esc` runs off the message loop, hooks already gone.
+//! our moves: #EXP-1921), unless our own input pressed or released it first
+//! (#EXP-1979). Buttons are the logical ones everywhere: on a left-handed
+//! mouse the primary is the physical right button. Windows silently drops
+//! a hook that answers slower than `LowLevelHooksTimeout`, so the hook procs
+//! only decide and post; `on_esc` runs off the message loop, hooks already
+//! gone.
 //!
 //! The UIPI boundary: without elevation we can neither drive nor lock an
 //! elevated window or the secure desktop (UAC prompts, the sign-in screen).
@@ -63,17 +66,18 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
     VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR,
-    VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, VK_XBUTTON1,
-    VK_XBUTTON2,
+    VK_LBUTTON, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MBUTTON, VK_RBUTTON, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT,
+    VK_SPACE, VK_TAB, VK_UP, VK_XBUTTON1, VK_XBUTTON2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, EDD_GET_DEVICE_INTERFACE_NAME, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongW,
     GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
     IsWindowVisible, PeekMessageW, PostThreadMessageW, SetCursorPos, SetForegroundWindow, SetWindowsHookExW,
     ShowWindow, UnhookWindowsHookEx, GWL_EXSTYLE, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED,
-    MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SW_RESTORE, WHEEL_DELTA, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_APP, WM_KEYDOWN, WM_LBUTTONUP, WM_MBUTTONUP,
-    WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONUP, WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
+    MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_SWAPBUTTON, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SW_RESTORE, WHEEL_DELTA, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
 use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
@@ -232,6 +236,42 @@ fn layout_stroke(ch: char) -> Option<(VIRTUAL_KEY, bool)> {
         VkKeyScanExW(unit, GetKeyboardLayout(thread))
     };
     char_stroke(scan)
+}
+
+/// Whether the person swapped the mouse buttons (a left-handed mouse: the
+/// physical right button is the primary).
+fn buttons_swapped() -> bool {
+    // SAFETY: no pointers.
+    unsafe { GetSystemMetrics(SM_SWAPBUTTON) != 0 }
+}
+
+/// #EXP-1979: `SendInput`'s flags for the logical `button` (the left one =
+/// the primary). SendInput presses physical buttons, which Windows swaps
+/// on a left-handed mouse: there the primary is the physical right one.
+fn button_flags(button: Button, down: bool, swapped: bool) -> MOUSE_EVENT_FLAGS {
+    let physical = match (button, swapped) {
+        (Button::Left, true) => Button::Right,
+        (Button::Right, true) => Button::Left,
+        (button, _) => button,
+    };
+    match (physical, down) {
+        (Button::Left, true) => MOUSEEVENTF_LEFTDOWN,
+        (Button::Left, false) => MOUSEEVENTF_LEFTUP,
+        (Button::Middle, true) => MOUSEEVENTF_MIDDLEDOWN,
+        (Button::Middle, false) => MOUSEEVENTF_MIDDLEUP,
+        (Button::Right, true) => MOUSEEVENTF_RIGHTDOWN,
+        (Button::Right, false) => MOUSEEVENTF_RIGHTUP,
+    }
+}
+
+/// #EXP-1979: a snapshot of `GetAsyncKeyState` (physical buttons) in the
+/// hook's terms (logical: WM_LBUTTON* is the primary): on a left-handed
+/// mouse the physical right button is VK_LBUTTON's slot.
+fn logical_buttons(mut held: HeldAtEngage<256>, swapped: bool) -> HeldAtEngage<256> {
+    if swapped {
+        held.0.swap(usize::from(VK_LBUTTON), usize::from(VK_RBUTTON));
+    }
+    held
 }
 
 /// One coordinate of the virtual screen as `SendInput`'s absolute 0..=65535.
@@ -640,15 +680,7 @@ impl Backend for Win32 {
     }
 
     fn mouse_button(&self, button: Button, down: bool) -> Result<(), String> {
-        let flags = match (button, down) {
-            (Button::Left, true) => MOUSEEVENTF_LEFTDOWN,
-            (Button::Left, false) => MOUSEEVENTF_LEFTUP,
-            (Button::Middle, true) => MOUSEEVENTF_MIDDLEDOWN,
-            (Button::Middle, false) => MOUSEEVENTF_MIDDLEUP,
-            (Button::Right, true) => MOUSEEVENTF_RIGHTDOWN,
-            (Button::Right, false) => MOUSEEVENTF_RIGHTUP,
-        };
-        send(&[mouse_input(0, 0, 0, flags)])
+        send(&[mouse_input(0, 0, 0, button_flags(button, down, buttons_swapped()))])
     }
 
     fn scroll(&self, dx: i32, dy: i32) -> Result<(), String> {
@@ -719,9 +751,15 @@ enum Verdict {
 }
 
 /// The keyboard hook's decision. `held` = the keys down when the lock
-/// engaged: each one's release passes, once.
+/// engaged: each one's release passes, once, unless ours came first.
 fn judge_key(ours: bool, vk: u32, down: bool, held: &mut HeldAtEngage<256>) -> Verdict {
     if ours {
+        held.ours(vk as usize);
+        // Our Shift, Ctrl and Alt go out neutral, on the left keys' scan
+        // codes; the person's arrive sided.
+        if let Some(left) = left_of(vk) {
+            held.ours(usize::from(left));
+        }
         return Verdict::Pass;
     }
     if down && vk == u32::from(VK_ESCAPE) {
@@ -734,29 +772,52 @@ fn judge_key(ours: bool, vk: u32, down: bool, held: &mut HeldAtEngage<256>) -> V
     }
 }
 
-/// The mouse hook's decision on `message` (`mouse_data` = the
-/// MSLLHOOKSTRUCT's): the release of a button held when the lock engaged
-/// passes, once, like a key's (#EXP-1921); the rest of the person's is
-/// swallowed.
-fn judge_mouse(ours: bool, message: u32, mouse_data: u32, held: &mut HeldAtEngage<256>) -> Verdict {
-    if ours {
-        return Verdict::Pass;
+/// The left key a neutral modifier VK stands for when we send it.
+fn left_of(vk: u32) -> Option<VIRTUAL_KEY> {
+    match u16::try_from(vk).ok()? {
+        VK_SHIFT => Some(VK_LSHIFT),
+        VK_CONTROL => Some(VK_LCONTROL),
+        VK_MENU => Some(VK_LMENU),
+        _ => None,
     }
-    let released = match message {
-        WM_LBUTTONUP => Some(VK_LBUTTON),
-        WM_RBUTTONUP => Some(VK_RBUTTON),
-        WM_MBUTTONUP => Some(VK_MBUTTON),
-        WM_XBUTTONUP => match (mouse_data >> 16) as u16 {
-            XBUTTON1 => Some(VK_XBUTTON1),
-            XBUTTON2 => Some(VK_XBUTTON2),
-            _ => None,
-        },
+}
+
+/// The button a mouse `message` presses or releases (`mouse_data` = the
+/// MSLLHOOKSTRUCT's), as its VK, and whether it is the press.
+fn hooked_button(message: u32, mouse_data: u32) -> Option<(VIRTUAL_KEY, bool)> {
+    let side = || match (mouse_data >> 16) as u16 {
+        XBUTTON1 => Some(VK_XBUTTON1),
+        XBUTTON2 => Some(VK_XBUTTON2),
         _ => None,
     };
-    if released.is_some_and(|vk| held.passes(usize::from(vk), false)) {
-        Verdict::Pass
-    } else {
-        Verdict::Swallow
+    match message {
+        WM_LBUTTONDOWN => Some((VK_LBUTTON, true)),
+        WM_LBUTTONUP => Some((VK_LBUTTON, false)),
+        WM_RBUTTONDOWN => Some((VK_RBUTTON, true)),
+        WM_RBUTTONUP => Some((VK_RBUTTON, false)),
+        WM_MBUTTONDOWN => Some((VK_MBUTTON, true)),
+        WM_MBUTTONUP => Some((VK_MBUTTON, false)),
+        WM_XBUTTONDOWN => side().map(|vk| (vk, true)),
+        WM_XBUTTONUP => side().map(|vk| (vk, false)),
+        _ => None,
+    }
+}
+
+/// The mouse hook's decision on `message` (`mouse_data` = the
+/// MSLLHOOKSTRUCT's): the release of a button held when the lock engaged
+/// passes, once, like a key's (#EXP-1921), unless ours came first
+/// (#EXP-1979); the rest of the person's is swallowed.
+fn judge_mouse(ours: bool, message: u32, mouse_data: u32, held: &mut HeldAtEngage<256>) -> Verdict {
+    let button = hooked_button(message, mouse_data);
+    if ours {
+        if let Some((vk, _)) = button {
+            held.ours(usize::from(vk));
+        }
+        return Verdict::Pass;
+    }
+    match button {
+        Some((vk, down)) if held.passes(usize::from(vk), down) => Verdict::Pass,
+        _ => Verdict::Swallow,
     }
 }
 
@@ -903,14 +964,14 @@ impl Lock {
     }
 }
 
-/// Every key (and button: VK 1..6) down right now.
+/// Every key (and button: VK 1..6, the hook's logical ones) down right now.
 fn pressed_keys() -> HeldAtEngage<256> {
     let mut held = HeldAtEngage::NONE;
     for (vk, slot) in held.0.iter_mut().enumerate().skip(1) {
         // SAFETY: no pointers. The high bit = down.
         *slot = unsafe { GetAsyncKeyState(vk as i32) } < 0;
     }
-    held
+    logical_buttons(held, buttons_swapped())
 }
 
 /// Pump the lock thread's messages (the hooks run inside GetMessageW) until
@@ -1233,6 +1294,7 @@ impl Clipboard for WinClipboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_RCONTROL;
     use windows_sys::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE;
 
     #[test]
@@ -1276,6 +1338,44 @@ mod tests {
         assert_eq!(shortcut_vk('v', false), None);
         assert_eq!(shortcut_vk('ж', true), None);
         assert_eq!(shortcut_vk('-', true), None);
+    }
+
+    /// #EXP-1979: once the agent itself pressed or released a button or key
+    /// the person held at engage, the person's later release is swallowed.
+    #[test]
+    fn the_agents_own_press_of_a_held_button_disarms_its_release() {
+        let mut held = HeldAtEngage::<256>::NONE;
+        held.0[usize::from(VK_LBUTTON)] = true;
+        held.0[usize::from(VK_SHIFT)] = true;
+        assert_eq!(judge_mouse(true, WM_LBUTTONDOWN, 0, &mut held), Verdict::Pass);
+        assert_eq!(judge_mouse(true, WM_LBUTTONUP, 0, &mut held), Verdict::Pass);
+        assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Swallow);
+        assert_eq!(judge_key(true, u32::from(VK_SHIFT), true, &mut held), Verdict::Pass);
+        assert_eq!(judge_key(false, u32::from(VK_SHIFT), false, &mut held), Verdict::Swallow);
+        // Ours is neutral and on the left keys, the person's sided.
+        held.0[usize::from(VK_LCONTROL)] = true;
+        held.0[usize::from(VK_RCONTROL)] = true;
+        assert_eq!(judge_key(true, u32::from(VK_CONTROL), true, &mut held), Verdict::Pass);
+        assert_eq!(judge_key(false, u32::from(VK_LCONTROL), false, &mut held), Verdict::Swallow);
+        assert_eq!(judge_key(false, u32::from(VK_RCONTROL), false, &mut held), Verdict::Pass, "never touched by us");
+    }
+
+    /// #EXP-1979: on a left-handed mouse the primary is the physical right
+    /// button: GetAsyncKeyState names it VK_RBUTTON, the hook WM_LBUTTON*.
+    /// The snapshot and the agent's clicks speak the hook's buttons.
+    #[test]
+    fn a_left_handed_mouse_speaks_logical_buttons() {
+        let mut physical = HeldAtEngage::<256>::NONE;
+        physical.0[usize::from(VK_RBUTTON)] = true;
+        let mut held = logical_buttons(physical, true);
+        assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Pass, "the held primary's release");
+        assert_eq!(judge_mouse(false, WM_RBUTTONUP, 0, &mut held), Verdict::Swallow);
+        assert!(logical_buttons(physical, false).0[usize::from(VK_RBUTTON)]);
+        assert_eq!(button_flags(Button::Left, true, true), MOUSEEVENTF_RIGHTDOWN);
+        assert_eq!(button_flags(Button::Left, false, true), MOUSEEVENTF_RIGHTUP);
+        assert_eq!(button_flags(Button::Right, true, true), MOUSEEVENTF_LEFTDOWN);
+        assert_eq!(button_flags(Button::Middle, true, true), MOUSEEVENTF_MIDDLEDOWN);
+        assert_eq!(button_flags(Button::Left, true, false), MOUSEEVENTF_LEFTDOWN);
     }
 
     #[test]

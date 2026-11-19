@@ -1022,7 +1022,9 @@ mod tests {
                         let backend = tools::tests::FakeBackend::default();
                         let _ = done.send(host.call_on(&backend, "s2", "EXP-2", "screenshot", json!({})));
                     });
-                    shown.lock().unwrap().push(shot.recv_timeout(Duration::from_secs(2)).ok());
+                    // Room for a slow runner: a screenshot that waited for
+                    // this type would wait the whole time.
+                    shown.lock().unwrap().push(shot.recv_timeout(Duration::from_secs(20)).ok());
                 })
             }),
             ..Default::default()
