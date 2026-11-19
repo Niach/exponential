@@ -29,6 +29,8 @@ struct ShareRootView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // #EXP-1845: the composer's attachment toasts, the app's stack.
+        .toastHost(Toaster.shared)
         .task {
             payload = await ShareItemExtractor.extract(from: extensionItems)
             loading = false

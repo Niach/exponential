@@ -32,14 +32,11 @@ struct ShareChatComposerPage: View {
     let onComplete: () -> Void
 
     @State private var pick: String
-    @State private var draft: String
-    @State private var attachments: [ShareAttachment]
+    @State private var strip: ShareComposerStrip
     @State private var deviceId: String?
     @State private var showPlus = false
     @State private var sending = false
     @State private var error: String?
-    /// A share beyond a cap (inline, composer-menu.json `add-file`).
-    @State private var capNote: String?
 
     init(
         context: ShareComposerContext,
@@ -53,30 +50,7 @@ struct ShareChatComposerPage: View {
         self.onComplete = onComplete
         _pick = State(initialValue: pick)
         _deviceId = State(initialValue: context.devices.first?.deviceId)
-        var text = ShareTargets.shareChatText(
-            text: payload.text, subject: payload.subject, url: payload.url, hasImages: !payload.images.isEmpty
-        )
-        var pending: [ShareAttachment] = []
-        // The composer's own caps; each image drops its `[Image #k]` marker
-        // at the end of the draft, like a picked one.
-        for (index, image) in payload.images.prefix(AgentComposerPrompt.maxImages).enumerated() {
-            pending.append(ShareAttachment(
-                data: image.data, filename: image.filename, contentType: image.contentType, isImage: true
-            ))
-            text = SteerImageMessage.insertImageMarker(
-                text: text, caret: (text as NSString).length, index: index + 1
-            ).text
-        }
-        for file in payload.files.prefix(SteerImageMessage.maxFiles) {
-            pending.append(ShareAttachment(
-                data: file.data, filename: file.filename, contentType: file.contentType, isImage: false
-            ))
-        }
-        _draft = State(initialValue: text)
-        _attachments = State(initialValue: pending)
-        _capNote = State(initialValue: SteerImageMessage.capNote(
-            images: payload.images.count, files: payload.files.count, moreFiles: payload.moreFiles
-        ))
+        _strip = State(initialValue: ShareComposerStrip(payload: payload))
     }
 
     private var rowState: ComposerAgentRow.State<MirroredAgent> {
@@ -97,11 +71,11 @@ struct ShareChatComposerPage: View {
     }
 
     private var hasContent: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
+        !strip.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !strip.attachments.isEmpty
     }
 
     private var canSend: Bool {
-        destination != nil && hasContent && !sending && AgentComposerPrompt.withinLimit(draft)
+        destination != nil && hasContent && !sending && AgentComposerPrompt.withinLimit(strip.draft)
     }
 
     var body: some View {
@@ -134,12 +108,13 @@ struct ShareChatComposerPage: View {
         .sheet(isPresented: $showPlus) {
             ShareComposerPlusSheet(devices: context.devices, deviceId: $deviceId)
         }
+        .onAppear { strip.releaseToasts() }
     }
 
-    /// What stands under the card: the send's failure, the composer's "no
-    /// machine" note (the app's copy), a cap.
+    /// What stands under the card: the send's failure and the composer's "no
+    /// machine" note (the app's copy).
     private var notes: [String] {
-        var out = [capNote, error].compactMap(\.self)
+        var out = [error].compactMap(\.self)
         if isTemporary, context.devices.isEmpty {
             out.append("No desktop online. Open the Exponential desktop app to start a session.")
         }
@@ -148,7 +123,7 @@ struct ShareChatComposerPage: View {
 
     private var card: some View {
         GlassComposer {
-            TextField(HomeGreeting.placeholder, text: $draft, axis: .vertical)
+            TextField(HomeGreeting.placeholder, text: $strip.draft, axis: .vertical)
                 .lineLimit(3...8)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
@@ -156,8 +131,8 @@ struct ShareChatComposerPage: View {
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("agent-composer-field")
         } strip: {
-            if !attachments.isEmpty {
-                strip
+            if !strip.attachments.isEmpty {
+                thumbnails
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
@@ -182,10 +157,10 @@ struct ShareChatComposerPage: View {
         .accessibilityIdentifier("agent-composer")
     }
 
-    private var strip: some View {
+    private var thumbnails: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(attachments) { attachment in
+                ForEach(strip.attachments) { attachment in
                     tile(attachment)
                 }
             }
@@ -209,7 +184,7 @@ struct ShareChatComposerPage: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(alignment: .topTrailing) {
             Button {
-                remove(attachment)
+                strip.removeAttachment(id: attachment.id)
             } label: {
                 AppIcon(AppIcons.uiClose, size: 10)
                     .foregroundStyle(.white)
@@ -222,26 +197,91 @@ struct ShareChatComposerPage: View {
         }
     }
 
-    /// Dropping an image renumbers the markers, like the app's strip.
-    private func remove(_ attachment: ShareAttachment) {
-        let images = attachments.filter(\.isImage)
-        if let position = images.firstIndex(where: { $0.id == attachment.id }) {
-            draft = SteerImageMessage.renumberImageMarkers(draft, removedIndex: position + 1)
-        }
-        attachments.removeAll { $0.id == attachment.id }
-    }
-
     private func send() {
         guard canSend, let destination else { return }
         sending = true
         error = nil
         Task {
             do {
-                try await onSend(destination, draft, attachments)
+                try await onSend(destination, strip.draft, strip.attachments)
                 onComplete()
             } catch {
                 self.error = error.localizedDescription
                 sending = false
+            }
+        }
+    }
+}
+
+/// #EXP-1845: the share as THE composer strip (`ComposerAttachmentStaging`,
+/// composer-attachments.json): every shared image drops its `[Image #N]` at
+/// the end of the prefilled text, the caps and the rejection toast are the app
+/// composer's, and the thumbnail's X renumbers like the app's.
+@MainActor
+@Observable
+final class ShareComposerStrip: ComposerAttachmentStaging {
+    var draft: String
+    private(set) var images: [ShareAttachment] = []
+    private(set) var files: [ShareAttachment] = []
+    /// The share's toasts, held until the page is on screen.
+    @ObservationIgnored private var heldToasts: [String]? = []
+
+    var attachments: [ShareAttachment] { images + files }
+
+    init(payload: SharedPayload) {
+        draft = ShareTargets.shareChatText(
+            text: payload.text, subject: payload.subject, url: payload.url, hasImages: !payload.images.isEmpty
+        )
+        // A share is one pick: its images, its files, then what the
+        // extractor left out (unread past the file cap, over the size limit).
+        var picks: [ComposerPick<ShareAttachment>] = payload.images.map { image in
+            image.data.count > AttachmentFiles.maxImageUploadBytes ? .rejected : .image(ShareAttachment(
+                data: image.data, filename: image.filename, contentType: image.contentType, isImage: true
+            ))
+        }
+        picks += payload.files.map { file in
+            .file(ShareAttachment(data: file.data, filename: file.filename, contentType: file.contentType, isImage: false))
+        }
+        // Files the extractor left unread past the cap: one more file pick,
+        // over the cap by construction, so the file-cap toast fires.
+        if payload.moreFiles { picks.append(.file(ShareAttachment(data: Data(), filename: "", contentType: "", isImage: false))) }
+        picks += Array(repeating: .rejected, count: payload.rejected)
+        stageAttachments(picks)
+    }
+
+    func releaseToasts() {
+        guard let held = heldToasts else { return }
+        heldToasts = nil
+        showAttachmentToasts(held)
+    }
+
+    // MARK: ComposerAttachmentStaging
+
+    var stagingText: String { draft }
+    /// The plain field reports no caret: a share's markers go at the end.
+    var stagingCaret: Int? { nil }
+    func setStagingText(_ text: String, caret _: Int) { draft = text }
+    var stagedImageIds: [UUID] { images.map(\.id) }
+    var stagedFileCount: Int { files.count }
+
+    func appendStaged(_ attachment: ShareAttachment, as kind: ComposerAttachments.Kind) {
+        switch kind {
+        case .image: images.append(attachment)
+        case .file: files.append(attachment)
+        }
+    }
+
+    func removeStaged(id: UUID) {
+        images.removeAll { $0.id == id }
+        files.removeAll { $0.id == id }
+    }
+
+    func showAttachmentToasts(_ messages: [String]) {
+        if heldToasts != nil {
+            heldToasts?.append(contentsOf: messages)
+        } else {
+            for message in messages {
+                Toaster.shared.show(ToastItem(kind: .error, title: message))
             }
         }
     }

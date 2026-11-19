@@ -233,6 +233,10 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/SteerImageMessage.swift",
     // #EXP-1841: SteerImageMessage's marker edits forward to THE strip logic.
     "ExpCore/Sources/Domain/ComposerAttachments.swift",
+    // #EXP-1845: the share composer stages through the app's strip and toasts
+    // what stays out like every composer.
+    "Exponential/UI/Components/ComposerAttachmentStaging.swift",
+    "ExpCore/Sources/Domain/ToastStack.swift",
     "ExpCore/Sources/API/SessionsSendInput.swift",
     "ExpCore/Sources/API/SessionKeysApi.swift",
     "ExpCore/Sources/API/InstallsApi.swift",
@@ -254,6 +258,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpUI/Sources/ComposerAgentRowView.swift",
     "ExpUI/Sources/Feedback/FeedbackMark.swift",
     "ExpUI/Sources/Feedback/Spinner.swift",
+    "ExpUI/Sources/GlassCard.swift",
+    "ExpUI/Sources/Toast.swift",
     "ShareExtension/**",
 ]
 
