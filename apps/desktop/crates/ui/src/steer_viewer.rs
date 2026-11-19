@@ -5923,6 +5923,10 @@ impl SteerSessionView {
             // Android 0.14.134 (steer-enet.json SENT INPUTS): what was sent
             // shows at once as the viewer's own bubbles above the copy, the
             // brief a claim consumed included, until the feed lands.
+            // #EXP-1975: find in chat counts and marks these bubbles too
+            // (the document's frame, which runs it otherwise, is not up).
+            self.refresh_own_tail(true, cx);
+            let _ = self.find_frame(cx);
             let inputs = (!self.row_ended())
                 .then(|| self.render_no_feed_inputs(window, cx))
                 .flatten();
@@ -5992,10 +5996,7 @@ impl SteerSessionView {
         let inputs: Vec<(String, String, String)> = no_feed_inputs(&messages)
             .into_iter()
             .filter_map(|message| {
-                let text = match message.locked() {
-                    Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
-                    None => message.body_text().to_string(),
-                };
+                let text = no_feed_input_text(message);
                 // #FEED-237: the time the bubble wears (message-delivery.json).
                 let time = crate::session_chat::clock(message.created_at.as_deref());
                 (!domain::transcript_grouping::is_blank_text(&text)).then(|| (message.id.clone(), text, time))
@@ -6015,7 +6016,7 @@ impl SteerSessionView {
             let bubble = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
                     id: SharedString::from(format!("steer-sent-input-{id}")),
-                    body: self.render_user_message(item, &text, cx),
+                    body: self.render_user_message(item, &text, self.find_highlight(&domain::find_in_chat::message_key(&id)), cx),
                     time,
                     own: true,
                     name: None,
@@ -6256,7 +6257,7 @@ impl SteerSessionView {
         let bubble = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-synced-tail-{}", row.id)),
-                body: self.render_user_message(row_id, &row.text, cx),
+                body: self.render_user_message(row_id, &row.text, self.find_highlight(&domain::find_in_chat::message_key(&row.id)), cx),
                 time: row.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                 own: true,
                 name: None,
@@ -6303,7 +6304,7 @@ impl SteerSessionView {
         let element = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-own-bubble-{}", bubble.key)),
-                body: self.render_user_message(row_id, &bubble.text, cx),
+                body: self.render_user_message(row_id, &bubble.text, self.find_highlight(&chat_find::own_bubble_key(bubble)), cx),
                 time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                 own: true,
                 name: None,
@@ -6599,7 +6600,7 @@ impl SteerSessionView {
                         body: if relay {
                             self.render_body_folding(item.id, body, false, cx)
                         } else {
-                            self.render_user_message(item.id, body, cx)
+                            self.render_user_message(item.id, body, self.find_item_highlight(item), cx)
                         },
                         // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                         time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
@@ -6871,6 +6872,8 @@ impl SteerSessionView {
         &self,
         id: FeedItemId,
         text: &str,
+        // #EXP-1975: find in chat's marks on this own bubble.
+        highlight: Option<serde_json::Value>,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let parsed = parse_steer_message(text);
@@ -6892,7 +6895,7 @@ impl SteerSessionView {
                 .w_full()
                 .min_w_0()
                 .gap_1()
-                .when(!rest.is_empty(), |this| this.child(self.render_user_message(id, &rest, cx)))
+                .when(!rest.is_empty(), |this| this.child(self.render_user_message(id, &rest, highlight.clone(), cx)))
                 .child(chips)
                 .into_any_element();
         }
@@ -6903,7 +6906,7 @@ impl SteerSessionView {
                 .iter()
                 .any(|number| image_marker_in_range(*number, count));
         if !chips {
-            return self.render_body(id, text, cx);
+            return self.render_body_marked(id, text, false, highlight, cx);
         }
         // One row per SOURCE LINE, so a message's own line breaks survive;
         // the row wraps, so a pill sits with the words around it until the
@@ -7505,6 +7508,19 @@ impl SteerSessionView {
         fold: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        self.render_body_marked(id, text, fold, None, cx)
+    }
+
+    /// [`Self::render_body_folding`] with find in chat's `highlight`
+    /// (#EXP-1975: an own bubble's marks).
+    fn render_body_marked(
+        &self,
+        id: FeedItemId,
+        text: &str,
+        fold: bool,
+        highlight: Option<serde_json::Value>,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         // EXP-698: every body this renders is a CHAT body — the user bubble,
         // the plan card, the ask card, a stepper step — so the rhythm and the
         // code tint are set once, here.
@@ -7516,7 +7532,8 @@ impl SteerSessionView {
             .chat(true)
             .autolink(true)
             .selectable(true)
-            .images(self.images.clone()),
+            .images(self.images.clone())
+            .highlight(highlight),
             cx,
         );
         self.fold_element(id, view.into_any_element(), fold && card_clampable(text), cx)
@@ -10532,6 +10549,15 @@ fn wake_row(row: &domain::rows::SessionRow) -> steer::enet_steer::WakeRow {
 /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
 /// card-less person inputs a no-feed placeholder shows, oldest first, the
 /// newest [`steer::enet_steer::NO_FEED_INPUTS_MAX`].
+/// A sent input's bubble text (a sealed one it cannot open reads the
+/// sealed placeholder).
+fn no_feed_input_text(message: &domain::rows::MessageRow) -> String {
+    match message.locked() {
+        Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+        None => message.body_text().to_string(),
+    }
+}
+
 fn no_feed_inputs(messages: &[domain::rows::MessageRow]) -> Vec<&domain::rows::MessageRow> {
     steer::enet_steer::no_feed_inputs(messages, steer::enet_steer::NO_FEED_INPUTS_MAX, |m| {
         steer::enet_steer::NoFeedInputRow {

@@ -100,6 +100,17 @@ struct Located {
     run: Option<FeedItemId>,
 }
 
+/// #EXP-1975: a bubble painted above the placeholder (no list row).
+const NO_LIST_ROW: usize = usize::MAX;
+
+/// An own-tail bubble's key: its synced row's `m:`, else its outbox entry's.
+pub(crate) fn own_bubble_key(bubble: &crate::session_outbox::OwnBubble) -> String {
+    match bubble.message_id.as_deref() {
+        Some(id) => find::message_key(id),
+        None => format!("o:{}", bubble.key),
+    }
+}
+
 fn item_key(session_id: &str, item: &FeedItem) -> String {
     match item.seq {
         Some(seq) => find::event_key(session_id, seq as i64),
@@ -254,7 +265,7 @@ impl SteerSessionView {
     }
 
     /// The loaded rows' find facts for `query`, top to bottom.
-    fn find_located(&self, query: &str) -> Vec<Located> {
+    fn find_located(&self, query: &str, cx: &App) -> Vec<Located> {
         let items = self.feed.items();
         let agent = self.agent();
         let mut out = Vec::new();
@@ -305,14 +316,59 @@ impl SteerSessionView {
             let count = eui_gpui::paint::highlight::markdown_highlight_count(&row.text, query);
             out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: self.rows.len() + offset, run: None });
         }
+        // #EXP-1975: the own bubbles count as painted too (`m:` keys): with
+        // no feed and no synced tail, the sent inputs and the own tail above
+        // the placeholder (no list row: `ix` = none); else the own tail's
+        // list rows after the trailing cards.
+        let mut push = |key: String, text: &str, ix: usize| {
+            if out.iter().any(|located| located.row.key == key) {
+                return;
+            }
+            let count = eui_gpui::paint::highlight::markdown_highlight_count(text, query);
+            out.push(Located { row: FindRow { key, count, group: None, output_hit: false }, ix, run: None });
+        };
+        if self.feed.is_empty() && self.synced_tail.is_empty() {
+            if !self.row_ended() {
+                let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+                for message in super::no_feed_inputs(&messages) {
+                    push(find::message_key(&message.id), &super::no_feed_input_text(message), NO_LIST_ROW);
+                }
+            }
+            for bubble in &self.own_tail {
+                push(own_bubble_key(bubble), &bubble.text, NO_LIST_ROW);
+            }
+        } else {
+            let base = self.rows.len() + self.synced_tail.len() + self.orphan_workflows.len() + self.conv_tail().len();
+            for (offset, bubble) in self.own_tail.iter().enumerate() {
+                push(own_bubble_key(bubble), &bubble.text, base + offset);
+            }
+        }
         out
+    }
+
+    /// #EXP-1975: the genUI `highlight` an own bubble (a host row the view
+    /// paints, not the document) wears for find in chat: every match of the
+    /// query, the current stop's local index when it is this row's.
+    pub(crate) fn find_highlight(&self, key: &str) -> Option<serde_json::Value> {
+        let open = self.find.as_ref().filter(|open| !open.query.is_empty())?;
+        let current = open.current.as_ref().filter(|stop| stop.key == key && stop.loaded && !stop.output).map(|stop| stop.local);
+        Some(match current {
+            Some(local) => serde_json::json!({"query": open.query, "current": local}),
+            None => serde_json::json!({"query": open.query}),
+        })
+    }
+
+    /// [`Self::find_highlight`] of a feed item's row.
+    pub(crate) fn find_item_highlight(&self, item: &FeedItem) -> Option<serde_json::Value> {
+        self.find.as_ref()?;
+        self.find_highlight(&item_key(&self.session_id, item))
     }
 
     /// Recomputes the stops (the current one kept), lands a pending step,
     /// and returns the paint for the bubbles. Called each render.
     pub(crate) fn find_frame(&mut self, cx: &mut gpui::Context<Self>) -> Option<crate::chat_tab_transcript::FindPaint> {
         let query = self.find.as_ref().map(|open| open.query.clone()).filter(|query| !query.is_empty())?;
-        let located = self.find_located(&query);
+        let located = self.find_located(&query, cx);
         let rows: Vec<FindRow> = located.iter().map(|located| located.row.clone()).collect();
         let lowest = self.feed.items().iter().find_map(|item| item.seq);
         let open = self.find.as_mut()?;
@@ -360,7 +416,7 @@ impl SteerSessionView {
                         let _ = this.update(cx, |_, cx| cx.notify());
                     })
                     .detach();
-                } else if let Some(at) = located.iter().find(|located| located.row.key == stop.key) {
+                } else if let Some(at) = located.iter().find(|located| located.row.key == stop.key && located.ix != NO_LIST_ROW) {
                     if let Some(run) = at.run {
                         self.expanded_groups.insert(run);
                     }
