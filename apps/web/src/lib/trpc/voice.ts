@@ -23,7 +23,7 @@
 
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/etalk/voice"
 import { callTarget, type CallTargetDevice } from "@exp/etalk/voice-call"
@@ -39,7 +39,7 @@ import {
 } from "@exp/etalk/meeting"
 
 import type { db as Database } from "@/db/connection"
-import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
+import { agents, devices, teamMembers, teams, userVoiceSettings } from "@/db/schema"
 import { authedProcedure, generateTxId, router } from "@/lib/trpc"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-keys"
@@ -248,18 +248,26 @@ export async function stopMeetingUnlessPrivate(database: Db, userId: string): Pr
   return true
 }
 
+/** The agent's team is one of the member's: joined, or (#EXP-1984) their
+ *  personal team, where their Assistant lives. */
+function inMemberTeams(database: Db, userId: string) {
+  return or(
+    inArray(agents.teamId, database.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.userId, userId))),
+    inArray(
+      agents.teamId,
+      database.select({ id: teams.id }).from(teams).where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+    )
+  )
+}
+
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
  *  the agents a member can talk to, with its Runs on device. S-3: another
  *  member's Assistant is theirs alone (`loadAgentForUser`'s rule). */
 async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ deviceId: string | null } | null> {
-  const memberTeams = database
-    .select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, userId))
   const [agent] = await database
     .select({ role: agents.role, ownerId: agents.ownerId, deviceId: agents.deviceId })
     .from(agents)
-    .where(and(eq(agents.id, agentId), inArray(agents.teamId, memberTeams)))
+    .where(and(eq(agents.id, agentId), inMemberTeams(database, userId)))
     .limit(1)
   if (agent === undefined || (agent.role === `assistant` && agent.ownerId !== userId)) return null
   return { deviceId: agent.deviceId ?? null }
@@ -267,14 +275,10 @@ async function memberAgent(database: Db, userId: string, agentId: string): Promi
 
 /** Every agent the member may call (`memberAgent`'s rule, as a set). */
 async function memberAgentIds(database: Db, userId: string): Promise<string[]> {
-  const memberTeams = database
-    .select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, userId))
   const rows = await database
     .select({ id: agents.id, role: agents.role, ownerId: agents.ownerId })
     .from(agents)
-    .where(inArray(agents.teamId, memberTeams))
+    .where(inMemberTeams(database, userId))
   return rows.filter((agent) => !(agent.role === `assistant` && agent.ownerId !== userId)).map((agent) => agent.id)
 }
 

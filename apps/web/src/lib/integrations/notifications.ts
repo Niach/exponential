@@ -1,3 +1,4 @@
+import { teamMemberPairs } from "@/lib/auth/membership"
 import { resolveSessionHost } from "@/lib/sessions/host"
 import {
   QUESTION_PUSH_COPY,
@@ -137,16 +138,9 @@ export async function deliverableRecipients(
   userIds: string[]
 ): Promise<string[]> {
   if (userIds.length === 0) return []
-  const rows = await db
-    .select({ id: teamMembers.userId })
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.teamId, teamId),
-        inArray(teamMembers.userId, userIds)
-      )
-    )
-  const allowed = new Set(rows.map((r) => r.id))
+  // #EXP-1984: a personal team's owner (its Assistant's chat) counts.
+  const rows = await teamMemberPairs(db, [teamId], userIds)
+  const allowed = new Set(rows.map((r) => r.userId))
   return userIds.filter((id) => allowed.has(id))
 }
 

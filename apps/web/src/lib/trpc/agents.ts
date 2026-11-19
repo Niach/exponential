@@ -279,10 +279,11 @@ export const agentsRouter = router({
       return result
     }),
 
-  /** S-3: the caller's Assistant in the team, created on first use (null
-   *  while they have no device to run it on). */
-  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid })).mutation(async ({ ctx, input }) => {
-    const agent = await ensureAssistant(ctx.session.user.id, input.teamId)
+  /** S-3 / #EXP-1984: the caller's ONE Assistant (their personal team),
+   *  created on first use (null while they have no device to run it on).
+   *  `teamId` (old clients send it) is a membership check only. */
+  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid.optional() }).optional()).mutation(async ({ ctx, input }) => {
+    const agent = await ensureAssistant(ctx.session.user.id, input?.teamId ?? null)
     if (!agent) return { agent: null }
     const { triggerState: _state, ...rest } = agent
     return { agent: rest }
