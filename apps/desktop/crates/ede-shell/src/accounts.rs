@@ -48,6 +48,8 @@ pub(crate) const SHAPES: &[&str] = &[
     "messages",
     "users",
     "session_reads",
+    // #EDE-134: the team's prompts (the chat's `/` and + menus).
+    "prompts",
 ];
 
 impl Workspaces {
@@ -381,5 +383,14 @@ mod tests {
             assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape} is a synced shape");
         }
         assert!(!SHAPES.contains(&"conversations"), "#EXP-1730: never read");
+    }
+
+    /// #EDE-134: every shape the team chat reads or repaints on is synced.
+    #[test]
+    fn what_the_team_chat_reads_is_synced() {
+        for shape in crate::team_chat::SHAPES.iter().chain(crate::inbox::SHAPES).chain(&["team_members"]) {
+            assert!(SHAPES.contains(shape), "{shape}");
+            assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape} is a synced shape");
+        }
     }
 }
