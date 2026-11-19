@@ -6,17 +6,6 @@ import Foundation
 // (`sessions.send` + `cardItem`); the server only stamps the item. The TS
 // reference is `cardItemWire` in packages/domain-contract/src/sealed-content.ts.
 
-/// `sessions.send`'s tRPC-only `cardItem`: the sealed card item a send acts on.
-public struct CardItemRef: Encodable, Equatable, Sendable {
-    public let messageId: String
-    public let itemId: String
-
-    public init(messageId: String, itemId: String) {
-        self.messageId = messageId
-        self.itemId = itemId
-    }
-}
-
 public enum CardItemWire {
     public enum Action: String, Sendable, CaseIterable {
         case reply, here, start, startAll, dismiss, dismissReplies, file

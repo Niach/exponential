@@ -211,6 +211,18 @@ extension SessionsSendInput: Encodable {
     }
 }
 
+/// #EXP-1958: `sessions.send`'s tRPC-only `cardItem`: the sealed card item
+/// a send acts on (here so the share extension's writer compiles it).
+public struct CardItemRef: Encodable, Equatable, Sendable {
+    public let messageId: String
+    public let itemId: String
+
+    public init(messageId: String, itemId: String) {
+        self.messageId = messageId
+        self.itemId = itemId
+    }
+}
+
 /// `sessions.send`'s answer: the session the call started or messaged, and
 /// the `messages` row its text became (nil for a start without text).
 public struct SessionsSendResult: Decodable, Sendable, Equatable {
