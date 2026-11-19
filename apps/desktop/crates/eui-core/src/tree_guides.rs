@@ -10,6 +10,12 @@
 //! counts as 0 and ends every subtree), and the rule fills the Row's `guides`
 //! part (a TreeGuides native) with `elbowAt` / `tee` / `passThrough`. Locked
 //! by `fixtures/tree-guides.json` and the Row cases of `catalog-macros.json`.
+//! #EXP-1843: a BOUND `depth` (a templated folder tree: `{"@path": "depth"}`)
+//! cannot be computed against its siblings, so the row counts as 0 for them
+//! and its own `guides` part KEEPS the binding as its `depth` with no elbow:
+//! it resolves per item at bind time and the row indents by it, no connector
+//! (as a template item with a literal depth always did). [`tree_guide_depth`]
+//! is the value every painter is handed.
 
 use serde_json::Value;
 
@@ -79,6 +85,17 @@ fn has_depth(node: &UiNode) -> bool {
     !is_row_root(node) && node.component != "TreeGuides" && node.props.get("depth").is_some_and(Value::is_number)
 }
 
+/// #EXP-1843: a TreeGuides `depth` as every painter reads it (TS
+/// `treeGuideDepth`; a bound one resolves to whatever the data holds): a
+/// finite NUMBER floored, never below 0; anything else (a string, a boolean,
+/// nothing) = 0.
+pub fn tree_guide_depth(value: Option<&Value>) -> u64 {
+    match value.filter(|v| v.is_number()).and_then(Value::as_f64) {
+        Some(d) if d.is_finite() && d > 0.0 => d.floor() as u64,
+        _ => 0,
+    }
+}
+
 /// The filled guide as props: `{depth, elbowAt?, tee, passThrough}` (TS `guideProps`).
 fn guide_props(depth: usize, g: &TreeGuide) -> Props {
     let mut props = Props::new();
@@ -100,8 +117,17 @@ fn fill_siblings(nodes: &mut [UiNode]) {
     for (i, node) in nodes.iter_mut().enumerate() {
         let g = &guides[i];
         if is_row_root(node) {
+            // #EXP-1843: a bound depth stays a binding (indent only, no elbow).
+            let bound = node.recipe.as_ref().and_then(|r| r.props.get("depth")).filter(|v| crate::expr::is_dynamic(v)).cloned();
             if let Some(part) = guides_part(node) {
-                part.props = guide_props(depths[i], g);
+                part.props = match bound {
+                    Some(bound) => {
+                        let mut props = guide_props(0, g);
+                        props.insert("depth".into(), bound);
+                        props
+                    }
+                    None => guide_props(depths[i], g),
+                };
             }
         } else if has_depth(node) {
             let mut guide = guide_props(depths[i], g);

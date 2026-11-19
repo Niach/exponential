@@ -7,7 +7,7 @@
 use eui_core::catalog::CatalogView;
 use eui_core::json;
 use eui_core::macros::expand_macros;
-use eui_core::tree_guides::{apply_tree_guides, is_row_root, tree_guides};
+use eui_core::tree_guides::{apply_tree_guides, is_row_root, tree_guide_depth, tree_guides};
 use eui_core::UiNode;
 use serde_json::{json, Value};
 
@@ -36,6 +36,43 @@ fn tree_guides_every_case_matches_the_fixture() {
             .collect();
         assert_same(name, &got, &case["guides"]);
     }
+}
+
+/// #EXP-1843: what a bound Row `depth` resolves to → the depth drawn.
+#[test]
+fn a_resolved_depth_reads_as_the_fixture_says() {
+    let file = fixture("tree-guides.json");
+    let cases = file["resolved"].as_array().expect("resolved");
+    assert!(cases.len() >= 16);
+    for case in cases {
+        assert_eq!(Some(tree_guide_depth(Some(&case["value"]))), case["depth"].as_u64(), "{}", case["value"]);
+    }
+    assert_eq!(tree_guide_depth(None), 0);
+}
+
+/// #EXP-1843: a Row whose `depth` is bound keeps the binding on its guides
+/// part (indent only) and counts as 0 for the rows around it.
+#[test]
+fn a_bound_depth_stays_a_binding_and_ends_the_subtree() {
+    let view = CatalogView::core();
+    let input: UiNode = serde_json::from_value(json!({"id": "s", "component": "Section", "props": {"tree": true}, "children": [
+        {"id": "a", "component": "Row", "props": {"title": "A"}},
+        {"id": "b", "component": "Row", "props": {"title": "B", "depth": 1}},
+        {"id": "c", "component": "Row", "props": {"title": "C", "depth": {"@path": "/d"}}},
+        {"id": "d", "component": "Row", "props": {"title": "D", "depth": 1}}
+    ]}))
+    .unwrap();
+    let expanded = expand_macros(&input, &view).unwrap();
+    fn find<'a>(node: &'a UiNode, id: &str) -> Option<&'a UiNode> {
+        if node.id == id {
+            return Some(node);
+        }
+        node.children.iter().find_map(|c| find(c, id))
+    }
+    let props = |id: &str| Value::Object(find(&expanded, id).unwrap_or_else(|| panic!("{id}")).props.clone());
+    assert_eq!(props("b.guides"), json!({"depth": 1, "elbowAt": 0, "tee": false, "passThrough": []}), "the bound row ends b's subtree");
+    assert_eq!(props("c.guides"), json!({"depth": {"@path": "/d"}, "tee": false, "passThrough": []}));
+    assert_eq!(props("d.guides"), json!({"depth": 1, "elbowAt": 0, "tee": false, "passThrough": []}));
 }
 
 /// Reset every Row's filled guides to the template's bare `{depth}`.
