@@ -168,8 +168,13 @@ impl WlrLayerShellHandler for Ede {
         });
         if let Some((output, layer)) = found {
             let mut map = layer_map_for_output(&output);
+            let zone = map.non_exclusive_zone();
             map.unmap_layer(&layer);
+            let zone_changed = map.non_exclusive_zone() != zone;
             drop(map);
+            if zone_changed {
+                self.refit_tiles(&output);
+            }
             self.restore_focus_after_layer(&layer);
         }
     }
@@ -188,7 +193,9 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
         with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().unwrap().lock().unwrap().initial_configure_sent);
     let mut map = layer_map_for_output(&output);
     // Arrange first so the initial configure carries the size the client asked for.
+    let zone = map.non_exclusive_zone();
     map.arrange();
+    let zone_changed = map.non_exclusive_zone() != zone;
     if !initial_configure_sent {
         if let Some(layer) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
             layer.layer_surface().send_configure();
@@ -200,6 +207,12 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
     // that maps behind it takes the keyboard at unlock.
     let layer = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).cloned();
     drop(map);
+    // #EDE-139: a panel's exclusive zone came or changed (the taskbar can
+    // map after a window maximized at login, or come back after a shell
+    // restart): the tiled windows fill the new work area.
+    if zone_changed {
+        state.refit_tiles(&output);
+    }
     let Some(layer) = layer else { return };
     if !shows_exclusive(&layer) {
         return;
