@@ -77,6 +77,11 @@ impl Ede {
         }
     }
 
+    /// Space `desk`'s Xwayland runs and its window manager with it.
+    pub fn space_xwm_ready(&self, desk: DeskId) -> bool {
+        self.spaces.get(desk).and_then(|space| space.x11.as_ref()).is_some_and(|x11| x11.xwm.is_some())
+    }
+
     /// A space's window manager, or a closed space's that is still parked.
     pub(crate) fn space_xwm_state(&mut self, xwm: XwmId) -> Option<&mut X11Wm> {
         if let Some(at) = self.spaces.closing_xwms.iter().position(|wm| wm.id() == xwm) {
@@ -118,10 +123,11 @@ impl Ede {
         let ready_client = client.clone();
         let inserted = self.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, .. } => {
+                let number = display;
                 let Some(space) = state.spaces.list.iter_mut().find(|space| space.desk.id == desk && space.x11.as_ref().is_some_and(|x11| x11.display == display)) else { return };
                 match X11Wm::start_wm(state.loop_handle.clone(), &state.display_handle, x11_socket, ready_client.clone()) {
                     Ok(wm) => {
-                        tracing::info!("{}: Xwayland ready on :{display}", space.id.as_str());
+                        tracing::info!("{}: Xwayland ready on :{number}", space.id.as_str());
                         if let Some(x11) = &mut space.x11 {
                             x11.xwm = Some(wm);
                         }
@@ -130,7 +136,8 @@ impl Ede {
                 }
             }
             XWaylandEvent::Error => {
-                tracing::warn!("space Xwayland :{display} did not start");
+                let number = display;
+                tracing::warn!("space Xwayland :{number} did not start");
                 state.space_x11_gone(desk, display);
             }
         });
@@ -175,7 +182,8 @@ impl Ede {
         }
         let died = self.spaces.iter().find_map(|space| space.x11.as_ref().filter(|x11| x11.xwm.as_ref().is_some_and(|wm| wm.id() == xwm)).map(|x11| (space.desk.id, x11.display)));
         if let Some((desk, display)) = died {
-            tracing::warn!("space Xwayland :{display} ended while its space lives");
+            let number = display;
+            tracing::warn!("space Xwayland :{number} ended while its space lives");
             self.space_x11_gone(desk, display);
         }
     }
@@ -214,7 +222,8 @@ impl Ede {
     /// A space's X11 window is gone from the screen.
     pub(crate) fn space_x11_unmap(&mut self, desk: DeskId, surface: &X11Surface) {
         let Some(d) = self.try_desk_mut(desk) else { return };
-        if let Some(window) = d.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned() {
+        let window = d.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned();
+        if let Some(window) = window {
             d.space.unmap_elem(&window);
         }
         self.space_schedule(desk);
