@@ -232,6 +232,42 @@ fn undo_reverts_the_newest_edit() {
     assert_eq!(text_of(&ui, "panel"), "13:00");
 }
 
+/// #EDE-116: a revert whose change is already undone (another process's
+/// undo) has nothing to revert: no commit, no error, and no revert left in
+/// progress (git refuses the next partial commit during one).
+#[test]
+fn reverting_an_undone_commit_is_nothing_to_revert() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut ui, _) = open(tmp.path());
+    ui.write("panel", &panel("12:00"), "Clock").unwrap();
+    let clock = ui.log(1).unwrap()[0].id.clone();
+    ui.undo().unwrap().expect("an undo");
+    let before = summaries(&ui);
+    assert!(ui.revert_commit(&clock, "Clock, rolled back").unwrap().is_none());
+    assert_eq!(summaries(&ui), before);
+    assert!(!tmp.path().join(".git/REVERT_HEAD").exists(), "a revert is left in progress");
+    ui.write("panel", &panel("13:00"), "Later").expect("the next edit commits");
+    assert_eq!(summaries(&ui)[0], "Later");
+}
+
+/// Another process's git holds the index for a moment (the CLI against the
+/// supervisor's reload): a commit waits for it instead of failing, which
+/// lost the edit (the reload had already taken it in).
+#[test]
+fn a_commit_waits_for_another_git_holding_the_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut ui, _) = open(tmp.path());
+    let lock = tmp.path().join(".git/index.lock");
+    fs::write(&lock, b"").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        fs::remove_file(&lock).unwrap();
+    });
+    ui.write("panel", &panel("12:00"), "Clock").expect("the commit waits for the lock");
+    release.join().unwrap();
+    assert_eq!(summaries(&ui)[0], "Clock");
+}
+
 #[test]
 fn the_watcher_reloads_on_change() {
     let tmp = tempfile::tempdir().unwrap();

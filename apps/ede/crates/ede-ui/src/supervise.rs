@@ -77,6 +77,11 @@ pub enum Report {
     Refused { name: String },
     Drawn { name: String, commit: String },
     Reverted { name: String, from: String, commit: String },
+    /// The commit `from` was to be rolled back, but the document's newest
+    /// commit no longer holds it (another process undid or replaced it, or
+    /// a rollback of a commit it shared did, #EDE-116): nothing reverted;
+    /// what the document holds now is taken in as an edit.
+    Superseded { name: String, from: String },
     Factory { name: String, commit: String },
 }
 
@@ -277,7 +282,25 @@ impl Supervisor {
                     let git_from = self.git_of.get(from).cloned();
                     let mut ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
                     let git = match git_from {
-                        Some(git_from) => ui.revert_commit(&git_from, &format!("Edit {name}.json, rolled back"))?.0,
+                        Some(git_from) => {
+                            // #EDE-116: the newest commit no longer holds what `from` put in
+                            // (another process undid or replaced it before the watcher brought
+                            // that: `exponential-ui undo` while it waited for its frame, another
+                            // `set`; or the rollback of a commit it shared with another
+                            // document). Nothing to revert: what it holds now is taken in, an
+                            // edit like any other. Git objects on both sides, so line-ending
+                            // filters never tell them apart. An empty revert is no error.
+                            let held = ui.digest_at("HEAD", name)? == ui.digest_at(&git_from, name)?;
+                            let reverted = if held { ui.revert_commit(&git_from, &format!("Edit {name}.json, rolled back"))? } else { None };
+                            let Some((git, _)) = reverted else {
+                                drop(ui);
+                                self.pending.remove(name);
+                                (self.on_report)(Report::Superseded { name: name.clone(), from: from.clone() });
+                                self.on_changes(vec![Change::Applied { name: name.clone(), commit: None }])?;
+                                continue;
+                            };
+                            git
+                        }
                         // A revert of a commit this run never made (the factory commit): the factory copy.
                         None => {
                             ui.restore_factory(name)?;
@@ -312,5 +335,139 @@ impl Supervisor {
 impl Drop for Supervisor {
     fn drop(&mut self) {
         self.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn panel(text: &str) -> Value {
+        json!({
+            "surface": {"anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40},
+            "root": {"id": "panel", "component": "Box", "children": [{"id": "clock", "component": "Text", "props": {"text": text}}]}
+        })
+    }
+
+    /// What `exponential-ui set` or `undo` does in another process. The
+    /// supervisor's runtime is held meanwhile, so its watcher reloads only
+    /// once that process committed.
+    fn elsewhere<R>(s: &Supervisor, factory: &std::path::Path, f: impl FnOnce(&mut Runtime) -> R) -> R {
+        let held = s.ui.lock().unwrap();
+        let (mut other, _) = Runtime::open_with_factory(held.dir(), factory).unwrap();
+        f(&mut other)
+    }
+
+    fn summaries(s: &Supervisor) -> Vec<String> {
+        s.ui.lock().unwrap().log(10).unwrap().into_iter().map(|c| c.summary).collect()
+    }
+
+    /// A supervisor over a ui directory with the factory panel, which the
+    /// shell drew; it never runs the shell (the test drives it).
+    struct Fixture {
+        _tmp: tempfile::TempDir,
+        dir: std::path::PathBuf,
+        factory: std::path::PathBuf,
+        shipped: Vec<u8>,
+        reports: Arc<Mutex<Vec<Report>>>,
+    }
+
+    fn supervised() -> (Supervisor, Fixture) {
+        let tmp = tempfile::tempdir().unwrap();
+        let factory = tmp.path().join("factory");
+        std::fs::create_dir_all(&factory).unwrap();
+        let shipped = serde_json::to_vec_pretty(&panel("factory")).unwrap();
+        std::fs::write(factory.join("panel.json"), &shipped).unwrap();
+        let dir = tmp.path().join("ui");
+        let (ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let heard = reports.clone();
+        let mut s = Supervisor::new(ui, vec!["true".into()], move |r| heard.lock().unwrap().push(r)).unwrap();
+        s.on_line(&FrameLine::line("panel", &shipped)).unwrap();
+        (s, Fixture { _tmp: tmp, dir, factory, shipped, reports })
+    }
+
+    fn applied() -> Vec<Change> {
+        vec![Change::Applied { name: "panel".into(), commit: None }]
+    }
+
+    /// A tick past every deadline.
+    fn expired() -> Event {
+        Event::Tick { at: now_ms() + apply::FRAME_ACK_MS + 1 }
+    }
+
+    /// #EDE-116: an undo that lands before the edit's deadline but reaches
+    /// the supervisor after it (the watcher's debounce). The rollback finds
+    /// the edit gone and the supervisor goes on (before: the revert of the
+    /// undone commit failed and stopped it); the undo is then an edit like
+    /// any other, and the next edit is still supervised.
+    #[test]
+    fn an_undo_the_watcher_brings_after_the_deadline_is_no_rollback() {
+        let (mut s, fx) = supervised();
+        let (factory, panel_file) = (&fx.factory, fx.dir.join("panel.json"));
+        let taken = || std::mem::take(&mut *fx.reports.lock().unwrap());
+
+        // `exponential-ui set`, brought by the watcher: it waits for its frame.
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        assert!(s.state().documents["panel"].pending.is_some());
+        // `exponential-ui undo` before any frame; the wait runs out before
+        // the watcher brings it. The rollback takes the undo in: an edit,
+        // drawn already. The watcher's late change is then nothing new.
+        elsewhere(&s, factory, |ui| ui.undo().unwrap().expect("an undo"));
+        s.step(expired()).expect("the supervisor goes on");
+        s.on_changes(applied()).unwrap();
+        let heard = taken();
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Drawn { .. }]), "{heard:?}");
+        assert_eq!(summaries(&s)[..2], ["Undo: Edit panel.json", "Edit panel.json"]);
+        assert!(s.state().documents["panel"].pending.is_none());
+        assert_eq!(std::fs::read(&panel_file).unwrap(), fx.shipped);
+
+        // The next edit is still supervised: nobody draws it, it rolls back.
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("again"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        s.step(expired()).unwrap();
+        let heard = taken();
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
+        assert_eq!(std::fs::read(&panel_file).unwrap(), fx.shipped);
+    }
+
+    /// The other order: the second `set` is brought before any tick, and
+    /// its own event finds the first edit's deadline passed. The rollback
+    /// still sees the first edit replaced (the supervisor already took the
+    /// second in, so its record is no guide) and the second is supervised.
+    #[test]
+    fn a_set_that_brings_the_deadline_along_is_its_own_edit() {
+        let (mut s, fx) = supervised();
+        let factory = &fx.factory;
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        s.state.documents.get_mut("panel").unwrap().pending.as_mut().unwrap().deadline = 0;
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).expect("the supervisor goes on");
+        assert!(s.state().documents["panel"].pending.is_some(), "the second edit waits for its frame");
+        s.step(expired()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+    }
+
+    /// The same with another `set` in place of the undo: reverting the
+    /// first edit under the second would conflict (and stop the
+    /// supervisor). The second arrives as its own edit, supervised.
+    #[test]
+    fn a_set_the_watcher_brings_after_the_deadline_is_its_own_edit() {
+        let (mut s, fx) = supervised();
+        let factory = &fx.factory;
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        s.step(expired()).expect("the supervisor goes on");
+        s.on_changes(applied()).unwrap();
+        assert!(s.state().documents["panel"].pending.is_some(), "the second edit waits for its frame");
+        s.step(expired()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
     }
 }
