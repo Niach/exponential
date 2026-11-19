@@ -592,64 +592,57 @@ impl SearchSheetView {
     }
 }
 
-/// #EDE-99: a section's header (`copy.issues` / `copy.chats` with its count,
-/// the band spinner while the store answers a newer query).
+/// #EDE-99: a section's header = THE Section band (genUI `Section`, web
+/// `GlassSectionHeader`): `copy.issues` / `copy.chats`, the reload spinner
+/// while the store answers a newer query, then the muted count.
 fn section_header(id: &str, label: &str, count: usize, loading: bool, cx: &App) -> gpui::AnyElement {
-    let chrome = crate::controls::ide_chrome();
-    let theme = cx.theme();
-    h_flex()
+    let count = div().text_xs().text_color(cx.theme().muted_foreground).child(count.to_string()).into_any_element();
+    eui_gpui::controls::glass_section_band_loading(None, label.to_string(), loading, Some(count), cx)
         .id(gpui::SharedString::from(id.to_string()))
         .flex_shrink_0()
-        .w_full()
-        .h(px(SECTION_HEADER_HEIGHT - 4.))
-        .mb_1()
-        .px_3()
-        .gap_1p5()
-        .items_center()
-        .rounded(px(chrome.radius_md))
-        .bg(chrome.fill_section)
-        .child(
-            div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(theme.foreground.opacity(0.85))
-                .child(label.to_string()),
-        )
-        .child(div().text_sm().text_color(theme.muted_foreground).child(count.to_string()))
-        .child(div().flex_1())
-        .children(loading.then(|| eui_gpui::controls::band_loading_glyph(cx)))
         .into_any_element()
 }
 
-/// #EDE-99: a Chats row's body: the concept icon, the root's title over the
-/// hit's snippet (its matches marked by the genUI highlight), the date.
+/// #EDE-99: a Chats row's body = the Picker row's (web `PickerItemBody`,
+/// [`crate::picker::picker_item_body`]): the concept icon, the root's title
+/// over the hit's snippet (its matches painted by the genUI highlight,
+/// text-highlight.json: every match, no current), the muted date trailing.
 fn chat_row_body(row: &GlobalChatRow, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
+    let muted = theme.muted_foreground;
     let icon = registry::concept_by_name(&row.icon).unwrap_or(registry::SEARCH_CHAT);
     let ui_theme = eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID);
     let colors = eui_gpui::paint::highlight::MarkColors::of(ui_theme.as_deref(), eui_core::theme::Mode::Dark);
-    let marks = eui_core::text_highlight::highlight_ranges(&row.subtitle, &row.highlight).into_iter().map(|range| {
-        (range, gpui::HighlightStyle { background_color: Some(colors.fill(false)), ..Default::default() })
-    });
+    let spec = eui_core::text_highlight::HighlightSpec { query: row.highlight.clone(), current: None, before: None };
+    let marks = eui_gpui::paint::highlight::text_marks(&row.subtitle, &spec, colors);
+    let text = gpui::SharedString::from(row.subtitle.clone());
+    let styled = gpui::StyledText::new(text.clone());
+    let layout = styled.layout().clone();
+    let snippet = eui_gpui::paint::highlight::marked(styled, layout, text.len(), eui_gpui::paint::highlight::plain_fills(&marks));
     h_flex()
         .flex_1()
         .min_w_0()
         .items_center()
-        .gap_2p5()
-        .child(Icon::new(icon).size(px(16.)).flex_shrink_0().text_color(theme.muted_foreground))
+        .gap_2()
+        .child(Icon::new(icon).size(px(14.)).flex_shrink_0().text_color(muted))
         .child(
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().truncate().text_color(theme.foreground).child(row.title.clone()))
+                .child(div().w_full().whitespace_nowrap().overflow_hidden().text_ellipsis().text_color(theme.foreground).child(row.title.clone()))
                 .child(
                     div()
-                        .truncate()
-                        .text_color(theme.muted_foreground)
-                        .child(gpui::StyledText::new(row.subtitle.clone()).with_highlights(marks)),
+                        .id(gpui::SharedString::from(format!("{}-snippet", row.key)))
+                        .w_full()
+                        .text_xs()
+                        .text_color(muted)
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(snippet),
                 ),
         )
-        .child(div().flex_shrink_0().text_xs().text_color(theme.muted_foreground).child(row.trailing.clone()))
+        .child(div().flex_shrink_0().text_xs().text_color(muted).child(row.trailing.clone()))
         .into_any_element()
 }
 

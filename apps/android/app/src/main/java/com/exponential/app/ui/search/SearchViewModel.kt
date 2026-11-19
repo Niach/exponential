@@ -261,7 +261,7 @@ class SearchViewModel @Inject constructor(
         val agentNames: Map<String, String> = emptyMap(),
     )
 
-    private val teamRoots: Flow<TeamRoots> = dbAndTeam.flatMapLatest { (db, teamId) ->
+    private val teamRoots: Flow<TeamRoots> = combine(dbAndTeam, auth.userId) { dt, me -> Triple(dt.first, dt.second, me) }.flatMapLatest { (db, teamId, me) ->
         if (db == null || teamId == null) {
             flowOf(TeamRoots())
         } else {
@@ -271,10 +271,12 @@ class SearchViewModel @Inject constructor(
                 db.sessionIssueDao().observeAll(),
                 db.agentDefinitionDao().observeAll(),
             ) { sessions, teams, links, agents ->
-                val synced = teams.mapTo(HashSet()) { it.id }
+                val synced = teams.map { it.id }
+                // The chat list's team rule: the active team's roots, plus
+                // the viewer's own in no synced team (the global Assistant).
                 val roots = sessions.filter { row ->
                     row.isRoot && row.appId == null &&
-                        (row.teamId == teamId || (synced.isNotEmpty() && row.teamId !in synced))
+                        com.exponential.app.domain.AgentSettings.Assistant.inTeamOrPersonal(row.teamId, row.userId, teamId, synced, me)
                 }.associateBy { it.id }
                 TeamRoots(roots, links.filter { it.sessionId in roots }, agents.associate { it.id to it.name })
             }

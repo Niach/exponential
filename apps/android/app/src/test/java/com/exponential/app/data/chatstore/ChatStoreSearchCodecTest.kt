@@ -45,4 +45,12 @@ class ChatStoreSearchCodecTest {
         assertEquals("m3", chats[1].hit.messageId)
         assertTrue(ChatStoreCodec.parseAll("nope").isEmpty())
     }
+
+    @Test
+    fun `a synced message's Postgres-style createdAt is a time (EDE-99)`() {
+        // Electric delivers `2026-11-17 16:18:48.948+00`: an ISO-only parse
+        // would store no synced message at all (the iOS store's bug).
+        assertEquals(1794932328948L, ChatStoreCodec.epochMs("2026-11-17 16:18:48.948+00"))
+        assertEquals(1794932328948L, ChatStoreCodec.epochMs("2026-11-17T16:18:48.948Z"))
+    }
 }
