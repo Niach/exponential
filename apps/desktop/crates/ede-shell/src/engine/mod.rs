@@ -33,7 +33,7 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::ExponentialHost;
 use gpui::{
     layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions},
-    point, prelude::*, px, size, AnyWindowHandle, App, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowId, WindowKind, WindowOptions,
+    point, prelude::*, px, size, AnyWindowHandle, App, Bounds, Subscription, Task, TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowId, WindowKind, WindowOptions,
 };
 use serde_json::{json, Value};
 use uicore_data::apps;
@@ -220,6 +220,11 @@ pub struct Running {
     pub widgets: Vec<(PackageWidget, String)>,
     pub widget_windows: Vec<AnyWindowHandle>,
     _store: Option<eengine::Subscription>,
+    /// The host's handle on the context (its functions and sources reach
+    /// the app through it); emptied at shutdown (#EDE-141).
+    ctx_slot: Rc<RefCell<Option<Rc<Ctx>>>>,
+    /// The app's inbound events on the main thread; it ends with the app (#EDE-141).
+    _pump: Task<()>,
 }
 
 #[derive(Default)]
@@ -229,6 +234,8 @@ pub struct Engine {
     /// minus the sidebar, the taskbar and the panel margins); the runner's
     /// 1024×720 when it fits. The shell sets it at start and on an output change.
     pub window_max: (u32, u32),
+    /// A closed app window sends its app to the background; it ends with the engine (#EDE-141).
+    _closed: Option<Subscription>,
 }
 
 /// The default window of an exported app (the desktop runner's).
@@ -252,6 +259,13 @@ pub struct Stores {
     pub capabilities: Vec<Arc<dyn eengine::Capability>>,
     pub identity: Option<Arc<dyn eengine::Identity>>,
     pub synced: Option<Arc<synced::TeamStores>>,
+    /// An app's vault in its folder: the platform keystore, `vault.json`
+    /// beside it ([`RunnerVault::platform`]); a test's stays in memory.
+    pub vault: fn(&EngineApp, &Path) -> Arc<dyn eengine::Vault>,
+}
+
+fn platform_vault(app: &EngineApp, app_dir: &Path) -> Arc<dyn eengine::Vault> {
+    Arc::new(RunnerVault::platform(&app.id, &app.name, app_dir))
 }
 
 impl Stores {
@@ -260,7 +274,7 @@ impl Stores {
         std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
         let storage = SqliteRecordStore::open(data_dir.join("records.sqlite")).map_err(|e| e.to_string())?;
         let blobs = FsBlobStore::new(data_dir.join("files"));
-        Ok(Stores { data_dir, storage: Arc::new(storage), blobs: Arc::new(blobs), capabilities, identity: None, synced: None })
+        Ok(Stores { data_dir, storage: Arc::new(storage), blobs: Arc::new(blobs), capabilities, identity: None, synced: None, vault: platform_vault })
     }
 
     /// The same stores for a connected team: the viewer and the team's synced store.
@@ -281,7 +295,7 @@ fn widget_surface_id(widget: &PackageWidget) -> String {
 /// every widget's template applied on its own surface. A package the
 /// Engine refuses is logged and left out.
 pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine {
-    let engine: SharedEngine = Rc::new(RefCell::new(Engine { running: Vec::new(), window_max: WINDOW_SIZE }));
+    let engine: SharedEngine = Rc::new(RefCell::new(Engine { running: Vec::new(), window_max: WINDOW_SIZE, _closed: None }));
     for app in apps {
         let (tx, rx) = flume::unbounded::<Inbound>();
         let app_dir = stores.data_dir.join(&app.id);
@@ -300,7 +314,7 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
             (Some(team), Some(key)) => Some(eengine_runner::runner::Synced { store: team.store.clone(), app: key.clone(), online: team.online.clone() }),
             _ => None,
         };
-        let vault = Arc::new(RunnerVault::platform(&app.id, &app.name, &app_dir));
+        let vault = (stores.vault)(&app, &app_dir);
         // The viewer: the member on a connected team, else this device.
         let me = match &stores.identity {
             Some(identity) => eengine::providers::engine_viewer(&identity.identity()).id,
@@ -356,28 +370,31 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
         ctx.refresh();
         tracing::info!(app = %app_id, widgets = widgets.len(), "app booted");
         // The pump: every inbound event of this app on the main thread, in
-        // order; a navigation (a widget's press, a notification tap) opens the window.
-        {
-            let (ctx, engine, app_id) = (ctx.clone(), engine.clone(), app_id.clone());
+        // order; a navigation (a widget's press, a notification tap) opens the
+        // window. #EDE-141: its task is the app's ([`Running`]): the context's
+        // own sender keeps the channel open, so the loop never ends by itself.
+        let pump = {
+            let (ctx, engine, app_id) = (ctx.clone(), Rc::downgrade(&engine), app_id.clone());
             cx.spawn(async move |cx| {
                 while let Ok(event) = rx.recv_async().await {
                     let navigated = matches!(event, Inbound::Navigate { .. } | Inbound::Link(_) | Inbound::Tap(_));
                     let _ = cx.update(|cx| {
                         ctx.handle(event, cx);
-                        if navigated {
+                        if let Some(engine) = engine.upgrade().filter(|_| navigated) {
                             open_window(&engine, &app_id, cx);
                         }
                     });
                 }
             })
-            .detach();
-        }
-        engine.borrow_mut().running.push(Running { app, ctx, me, theme, window: None, widgets, widget_windows: Vec::new(), _store: Some(store) });
+        };
+        engine.borrow_mut().running.push(Running { app, ctx, me, theme, window: None, widgets, widget_windows: Vec::new(), _store: Some(store), ctx_slot, _pump: pump });
     }
-    {
-        // A closed window: the app goes to the background and may be opened again.
-        let engine = engine.clone();
+    // A closed window: the app goes to the background and may be opened
+    // again. #EDE-141: one handler per engine, gone with it.
+    let closed = {
+        let engine = Rc::downgrade(&engine);
         cx.on_window_closed(move |_, id: WindowId| {
+            let Some(engine) = engine.upgrade() else { return };
             let mut e = engine.borrow_mut();
             for r in &mut e.running {
                 if r.window.is_some_and(|h| h.window_id() == id) {
@@ -387,29 +404,35 @@ pub fn boot(apps: Vec<EngineApp>, stores: &Stores, cx: &mut App) -> SharedEngine
                 }
             }
         })
-        .detach();
-    }
+    };
+    engine.borrow_mut()._closed = Some(closed);
     engine
 }
 
 /// Every app's windows and widgets go (another desktop was picked); the
-/// instances with them.
+/// instances with them. #EDE-141: nothing of them stays: the runner (its
+/// record store, vault and synced store) leaves its context, the host lets
+/// go of the context, and the app's pump ends with its task.
 pub fn shutdown(engine: &SharedEngine, cx: &mut App) {
     let running = std::mem::take(&mut engine.borrow_mut().running);
     for r in running {
         for handle in r.window.into_iter().chain(r.widget_windows) {
             let _ = handle.update(cx, |_, window, _| window.remove_window());
         }
-        let paints = r.ctx.runner.borrow_mut().as_mut().map(Runner::terminate).unwrap_or_default();
-        r.ctx.apply(paints, cx);
+        let runner = r.ctx.runner.borrow_mut().take();
+        if let Some(mut runner) = runner {
+            let paints = runner.terminate();
+            r.ctx.apply(paints, cx);
+        }
+        r.ctx_slot.borrow_mut().take();
     }
 }
 
-/// Every running app's exposed tools for the desktop agent's hub
-/// (`exposes`), writing through each app's pump; `exponential` = the
-/// desktop's noun subset the `action` runs call.
-pub fn apps_provider(engine: &Engine, exponential: Arc<dyn emcp::server::ToolProvider>) -> exposes::AppsProvider {
-    let apps = engine
+/// Every running app's seat on the desktop agent's hub (`exposes`),
+/// writing through each app's pump (#EDE-141: [`exposes::Seats`], replaced
+/// at every boot).
+pub fn app_seats(engine: &Engine) -> Vec<Arc<exposes::AppTools>> {
+    engine
         .running
         .iter()
         .map(|r| {
@@ -420,8 +443,7 @@ pub fn apps_provider(engine: &Engine, exponential: Arc<dyn emcp::server::ToolPro
         .filter_map(|(r, storage, package)| {
             Some(Arc::new(exposes::AppTools { id: r.app.id.clone(), server: exposes::server_name(&r.app.id), package, storage: storage?, me: r.me.clone(), writes: Arc::new(exposes::PumpWrites(r.ctx.tx.clone())) }))
         })
-        .collect();
-    exposes::AppsProvider { apps, exponential }
+        .collect()
 }
 
 /// The app's window: a plain toplevel of the shell process (its app id is
@@ -634,6 +656,48 @@ mod tests {
         assert_eq!((second.width, second.height, top), (336, 160, 26 + 160 + 16));
         let (third, top, _) = widget_slot(2, &sizes);
         assert_eq!((third.width, third.height, top), (336, 336, 26 + 160 + 16 + 160 + 16));
+    }
+
+    /// #EDE-141: every switcher pick shuts the Engine down and boots
+    /// another one. Counted after three picks: none of the shut-down apps'
+    /// contexts (their runners, vaults), hosts or engines is alive, and
+    /// nothing but the test holds the record store. Before, each app's pump
+    /// held its context, whose sender kept the pump's channel open for
+    /// good, the host's options held the context, and each boot left a
+    /// window-closed handler holding its engine.
+    #[gpui::test]
+    fn a_shut_down_engine_leaves_nothing_alive(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.app.json"), SAMPLE).unwrap();
+        let apps = scan(dir.path());
+        let mut stores = Stores::open(dir.path().join("data"), Vec::new()).unwrap();
+        stores.vault = |_, _| Arc::new(eengine::MemoryVault::default());
+        let (mut contexts, mut hosts, mut engines) = (Vec::new(), Vec::new(), Vec::new());
+        // The desktop agent's seats on the apps, as the shell holds them.
+        let seats = exposes::seats(Vec::new());
+        for _pick in 0..3 {
+            let engine = cx.update(|cx| boot(apps.clone(), &stores, cx));
+            *seats.write().unwrap() = app_seats(&engine.borrow());
+            cx.run_until_parked();
+            {
+                let e = engine.borrow();
+                assert_eq!(e.running.len(), 1, "the notes app runs");
+                contexts.extend(e.running.iter().map(|r| Rc::downgrade(&r.ctx)));
+                hosts.extend(e.running.iter().map(|r| r.ctx.host.downgrade()));
+            }
+            assert_eq!(seats.read().unwrap().len(), 1, "the notes app's seat");
+            engines.push(Rc::downgrade(&engine));
+            cx.update(|cx| shutdown(&engine, cx));
+            seats.write().unwrap().clear();
+            drop(engine);
+            cx.run_until_parked();
+        }
+        let contexts_alive = contexts.iter().filter(|c| c.strong_count() > 0).count();
+        let hosts_alive = hosts.iter().filter(|h| h.upgrade().is_some()).count();
+        let engines_alive = engines.iter().filter(|e| e.strong_count() > 0).count();
+        assert_eq!((contexts_alive, hosts_alive, engines_alive), (0, 0, 0), "alive after three picks: (contexts, hosts, engines)");
+        assert_eq!(Arc::strong_count(&stores.storage), 1, "the record store's holders after three picks");
     }
 
     #[test]
