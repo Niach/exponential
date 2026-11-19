@@ -732,7 +732,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             context_layers: coding::ContextLayers::default(),
             servers: Vec::new(),
             mcp_secrets: Default::default(),
-            confine_to: None,
             skills_dir: None,
         },
         tab_title: "claude · EXP-746".to_string(),

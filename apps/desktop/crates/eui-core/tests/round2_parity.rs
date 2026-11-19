@@ -169,3 +169,52 @@ fn a_tree_section_of_rows_reserves_the_gutter_the_core_filled() {
     assert!(nodes.iter().all(|n| n.id != "a.guides"), "a root row has no guides part");
     assert_eq!(frame(&mut s, "c.guides").2, 28.0);
 }
+
+/// #EXP-1843: a templated folder tree. Each item Row binds `depth` to its
+/// item's field: the gutter is the item's depth × 14 wide (the number
+/// `tree_guide_depth` reads: floored, a string or a negative = 0), no gutter
+/// at all at depth 0, and never an elbow (a template item has no siblings).
+#[test]
+fn a_template_row_indents_by_its_bound_depth() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
+        {"id": "tree", "component": "List", "props": {"reorderable": true, "maxDepth": 3}, "template": {"component": "node", "path": "/rows", "key": "id"}},
+        {"id": "node", "component": "Row", "props": {"title": {"@path": "title"}, "depth": {"@path": "depth"}}}
+    ]}))
+    .expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions { theme: eui_core::themes::builtin_theme("neutral"), ..SurfaceOptions::default() });
+    let outcome = s.set_nested(tree);
+    assert!(outcome.issues.is_empty(), "a bound Row depth validates: {:?}", outcome.issues);
+    s.set_data(
+        "",
+        Some(json!({"rows": [
+            {"id": "a", "title": "apps", "depth": 0},
+            {"id": "b", "title": "web", "depth": 1},
+            {"id": "c", "title": "routes", "depth": 2},
+            {"id": "d", "title": "fraction", "depth": 2.9},
+            {"id": "e", "title": "text", "depth": "2"},
+            {"id": "f", "title": "below", "depth": -1},
+            {"id": "g", "title": "none"}
+        ]})),
+    )
+    .unwrap();
+    s.set_viewport(400.0, 0.0, None);
+    s.layout(&mut measure());
+    s.layout(&mut measure());
+    let nodes = s.nodes();
+    let guides = |key: &str| nodes.iter().find(|n| n.id == format!("node.guides.{key}")).map(|n| Value::Object(n.props.clone()));
+    assert_eq!(guides("a"), None, "depth 0: no gutter");
+    assert_eq!(guides("b"), Some(json!({"depth": 1, "tee": false, "passThrough": []})));
+    assert_eq!(guides("c"), Some(json!({"depth": 2, "tee": false, "passThrough": []})));
+    assert_eq!(guides("d"), Some(json!({"depth": 2, "tee": false, "passThrough": []})), "floored");
+    assert_eq!(guides("f"), None);
+    assert_eq!(guides("g"), None);
+    if let Some(text) = guides("e") {
+        assert_eq!(text["depth"], json!(0), "a string is no depth");
+    }
+    assert_eq!(frame(&mut s, "node.guides.b").2, 14.0);
+    assert_eq!(frame(&mut s, "node.guides.c").2, 28.0);
+    assert_eq!(frame(&mut s, "node.guides.d").2, 28.0);
+    let title = |key: &str, s: &mut Surface| frame(s, &format!("node.body.title.{key}")).0;
+    let (a, b, c) = (title("a", &mut s), title("b", &mut s), title("c", &mut s));
+    assert!(b > a && c - b == 14.0, "each level steps one column in: {a} {b} {c}");
+}

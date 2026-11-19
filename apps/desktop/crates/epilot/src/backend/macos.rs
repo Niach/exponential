@@ -2,10 +2,11 @@
 //!
 //! Input is CGEvents posted at the HID tap: exactly where the person's own
 //! mouse and keyboard enter, so every app takes it. A character goes to its
-//! key on the active keyboard layout (#EXP-1922), the ANSI (US) keycodes
-//! only when the layout cannot be read or for a shortcut a non-Latin layout
-//! has no key for; a character with no key is typed as a unicode string on
-//! a blank keystroke. Held modifiers ride on every event
+//! key on the active keyboard layout (#EXP-1922), a ⌘ shortcut to its key
+//! on the layout's Command level (#EXP-1980), the ANSI (US) keycodes only
+//! when the layout has no key data; a character with no key (or only a
+//! dead one) is typed as a unicode string on a blank keystroke, and a
+//! shortcut no key holds is an error. Held modifiers ride on every event
 //! as its flags, the way Cocoa and Chrome read shortcuts. Windows come
 //! from the window server's list (CGWindowListCopyWindowInfo) and are
 //! activated through AppKit, the exact window raised over Accessibility.
@@ -14,7 +15,8 @@
 //! every keyboard and pointer event passes it, ours (tagged with
 //! [`MAGIC`] in the event source's user data) go through, the person's are
 //! swallowed except the release of a key or button they held when the lock
-//! engaged (#EXP-1921); their Esc fires `on_esc`. Needs Accessibility; the screenshot
+//! engaged (#EXP-1921), and while such a button is still down the agent's
+//! pointer waits for its release (#EXP-1979); their Esc fires `on_esc`. Needs Accessibility; the screenshot
 //! needs Screen Recording. Coordinates are points of the global display
 //! space (origin top-left of the main display, y down).
 //!
@@ -58,7 +60,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -299,12 +301,10 @@ impl Backend for Mac {
         if image.bits_per_pixel() != 32 || image.bits_per_component() != 8 {
             return Err(format!("Unsupported screen format: {} bits per pixel.", image.bits_per_pixel()));
         }
-        let (width, height) = (image.width(), image.height());
+        let width = u32::try_from(image.width()).map_err(|_| "The screen capture is too wide.".to_string())?;
+        let height = u32::try_from(image.height()).map_err(|_| "The screen capture is too tall.".to_string())?;
         let data = image.data();
-        let rgba = bgra_to_rgba(data.bytes(), width, height, image.bytes_per_row()).ok_or("The screen capture came back short.")?;
-        let width = u32::try_from(width).map_err(|_| "The screen capture is too wide.".to_string())?;
-        let height = u32::try_from(height).map_err(|_| "The screen capture is too tall.".to_string())?;
-        Ok(Image { width, height, rgba })
+        Image::from_bgra(data.bytes(), width, height, image.bytes_per_row()).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -433,12 +433,22 @@ impl Backend for Mac {
                 self.held.set(if down { held | flag } else { held - flag });
             }
         }
+        if let (Key::Char(_), None) = (key, self.layout.get()) {
+            let _ = self.layout.set(current_layout()?);
+        }
         let layout = match key {
-            Key::Char(_) => self.layout.get_or_init(current_layout).as_ref(),
+            Key::Char(_) => self.layout.get().and_then(Option::as_ref),
             Key::Named(_) => None,
         };
-        let shortcut = CGEventFlags::CGEventFlagControl | CGEventFlags::CGEventFlagAlternate | CGEventFlags::CGEventFlagCommand;
-        match stroke(key, layout, self.held.get().intersects(shortcut)) {
+        let held = self.held.get();
+        let under = if held.contains(CGEventFlags::CGEventFlagCommand) {
+            Under::Command
+        } else if held.intersects(CGEventFlags::CGEventFlagControl | CGEventFlags::CGEventFlagAlternate) {
+            Under::Shortcut
+        } else {
+            Under::Nothing
+        };
+        match stroke(key, layout, under) {
             Stroke::Code(keycode, shift) => {
                 let extra = if shift { CGEventFlags::CGEventFlagShift } else { CGEventFlags::CGEventFlagNull };
                 self.post(self.keystroke(keycode, down)?, extra);
@@ -446,6 +456,7 @@ impl Backend for Mac {
             }
             Stroke::Unicode(ch) => self.unicode(&ch.to_string(), down),
             Stroke::Missing => Err(format!("{key:?} has no key on a Mac.")),
+            Stroke::Unreachable(ch) => Err(format!("{ch:?} has no key of its own on this keyboard layout, so no shortcut can hold it.")),
         }
     }
 
@@ -454,6 +465,10 @@ impl Backend for Mac {
         self.unicode(&text, true)?;
         std::thread::sleep(Duration::from_millis(6));
         self.unicode(&text, false)
+    }
+
+    fn person_holds_button(&self) -> bool {
+        person_holds_button()
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
@@ -667,15 +682,7 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
     if displays.iter().any(|display| (display.x, display.y, display.width, display.height) == rect) {
         return true;
     }
-    let below_notch = displays.iter().any(|display| {
-        let band = window.y - display.y;
-        window.x == display.x
-            && window.width == display.width
-            && band > 0
-            && band <= NOTCH_BAND
-            && window.y + window.height as i32 == display.y + display.height as i32
-    });
-    below_notch
+    below_notch(window, displays)
         && window
             .pid
             .and_then(|pid| Pid::try_from(pid).ok())
@@ -683,6 +690,20 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
             .and_then(|element| ax_copy(&element, "AXFullScreen"))
             .and_then(|value| value.downcast::<CFBoolean>())
             .is_some_and(bool::from)
+}
+
+/// The frame macOS gives a fullscreen window on a notched display: the
+/// display's width, from at most [`NOTCH_BAND`] points below its top down
+/// to its bottom.
+fn below_notch(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
+    displays.iter().any(|display| {
+        let band = window.y - display.y;
+        window.x == display.x
+            && window.width == display.width
+            && band > 0
+            && band <= NOTCH_BAND
+            && window.y + window.height as i32 == display.y + display.height as i32
+    })
 }
 
 /// How long an accepted activation may take to put the window in front.
@@ -722,20 +743,6 @@ fn front_window(windows: &[WindowInfo]) -> Option<u64> {
 /// window (`listed`).
 fn window_in_front(id: u64, app_in_front: bool, named: Option<&[u64]>, listed: impl FnOnce() -> Option<u64>) -> bool {
     app_in_front && named.map_or_else(|| listed() == Some(id), |named| named.contains(&id))
-}
-
-/// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
-/// RGBA8, opaque; `None` when `data` is short.
-fn bgra_to_rgba(data: &[u8], width: usize, height: usize, stride: usize) -> Option<Vec<u8>> {
-    let row = width.checked_mul(4)?;
-    let mut rgba = Vec::with_capacity(row.checked_mul(height)?);
-    for y in 0..height {
-        let start = y.checked_mul(stride)?;
-        for pixel in data.get(start..start.checked_add(row)?)?.chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-        }
-    }
-    Some(rgba)
 }
 
 /// The window list's keys we read.
@@ -1005,21 +1012,49 @@ enum Stroke {
     Unicode(char),
     /// A named key Macs do not have (F21 and up).
     Missing,
+    /// #EXP-1980: a character for a shortcut that no key of the layout
+    /// types (German `]` is Option+6): an error, never another key.
+    Unreachable(char),
 }
 
-/// #EXP-1922: a character goes to its key on the active `layout`. One the
-/// layout has no plain or Shift key for is typed as itself, except under
-/// Control, Option or Command (`shortcut`): macOS reads a shortcut of a
-/// non-Latin layout through its US keys, so the ANSI key stands. Without a
-/// layout to read, the ANSI keys.
-fn stroke(key: Key, layout: Option<&Layout>, shortcut: bool) -> Stroke {
-    match key {
-        Key::Named(named) => named_keycode(named).map_or(Stroke::Missing, |keycode| Stroke::Code(keycode, false)),
-        Key::Char(ch) => match (layout.and_then(|layout| layout.0.get(&ch)), char_keycode(ch)) {
-            (Some(&(keycode, shift)), _) => Stroke::Code(keycode, shift),
-            (None, Some((keycode, shift))) if shortcut || layout.is_none() => Stroke::Code(keycode, shift),
-            _ => Stroke::Unicode(ch),
-        },
+/// The modifiers held under a key, as far as they decide its keystroke.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Under {
+    /// None, or Shift alone: typing.
+    Nothing,
+    /// Control or Option, without Command.
+    Shortcut,
+    /// Command (with any other).
+    Command,
+}
+
+/// #EXP-1922: a character goes to its key on the active `layout`; one the
+/// layout has no plain or Shift key for is typed as itself. Without a
+/// layout to read, the ANSI keys. #EXP-1980: under Command the layout's
+/// Command level decides first (the key a person presses for that ⌘
+/// shortcut); a dead key under nothing is typed as itself, since alone it
+/// types nothing; a shortcut character off the plain and Shift levels is
+/// its Command level's key (a non-Latin layout's Latin letters), else an
+/// error: the ANSI key there is another character's (German `]` = `+`).
+fn stroke(key: Key, layout: Option<&Layout>, under: Under) -> Stroke {
+    let ch = match key {
+        Key::Named(named) => return named_keycode(named).map_or(Stroke::Missing, |keycode| Stroke::Code(keycode, false)),
+        Key::Char(ch) => ch,
+    };
+    let Some(layout) = layout else {
+        return char_keycode(ch).map_or(Stroke::Unicode(ch), |(keycode, shift)| Stroke::Code(keycode, shift));
+    };
+    let command = || layout.command_key(ch).map(|(keycode, shift)| Stroke::Code(keycode, shift));
+    if under == Under::Command {
+        if let Some(stroke) = command() {
+            return stroke;
+        }
+    }
+    match (layout.typed.get(&ch), under) {
+        (Some(place), _) if !place.dead || under != Under::Nothing => Stroke::Code(place.keycode, place.shift),
+        (_, Under::Nothing) => Stroke::Unicode(ch),
+        (_, Under::Shortcut) => command().unwrap_or(Stroke::Unreachable(ch)),
+        (_, Under::Command) => Stroke::Unreachable(ch),
     }
 }
 
@@ -1052,36 +1087,84 @@ fn named_keycode(named: Named) -> Option<CGKeyCode> {
 
 /// #EXP-1922: what each plain and Shift keystroke types on one keyboard
 /// layout, by character (a plain key before a Shift one, the lower keycode
-/// first; the keypad aside).
+/// first, a live key before a dead one; the keypad aside). #EXP-1980: and
+/// what each key types under Command, the level macOS reads ⌘ shortcuts
+/// on: the plain level on most layouts, the QWERTY keys on "Dvorak –
+/// QWERTY ⌘", Latin letters and the US punctuation on Russian; on such a
+/// layout also under Command+Shift (with Shift).
 #[derive(Debug, Default)]
-struct Layout(std::collections::HashMap<char, (CGKeyCode, bool)>);
+struct Layout {
+    typed: std::collections::HashMap<char, Place>,
+    command: std::collections::HashMap<char, (CGKeyCode, bool)>,
+}
+
+/// The key that types a character.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Place {
+    keycode: CGKeyCode,
+    shift: bool,
+    /// A dead key: alone it types nothing and accents the next key.
+    dead: bool,
+}
 
 /// The keypad's keycodes: its digits and operators are the main keys'.
 const KEYPAD: [CGKeyCode; 18] = [65, 67, 69, 71, 75, 76, 78, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92];
 
 impl Layout {
-    /// `translate(keycode, shift)` = the one character that keystroke types.
-    fn from(translate: impl Fn(CGKeyCode, bool) -> Option<char>) -> Layout {
-        let mut chars = std::collections::HashMap::new();
+    /// `translate(keycode, shift, command)` = the one character that
+    /// keystroke types, and whether its key is dead.
+    fn from(translate: impl Fn(CGKeyCode, bool, bool) -> Option<(char, bool)>) -> Layout {
+        let keys = || (0..128).filter(|keycode| !KEYPAD.contains(keycode));
+        let typed = |keycode, shift, command| translate(keycode, shift, command).filter(|(ch, _)| !ch.is_control());
+        let mut layout = Layout::default();
         for shift in [false, true] {
-            for keycode in (0..128).filter(|keycode| !KEYPAD.contains(keycode)) {
-                if let Some(ch) = translate(keycode, shift).filter(|ch| !ch.is_control()) {
-                    chars.entry(ch).or_insert((keycode, shift));
+            for keycode in keys() {
+                let Some((ch, dead)) = typed(keycode, shift, false) else { continue };
+                let place = Place { keycode, shift, dead };
+                let slot = layout.typed.entry(ch).or_insert(place);
+                if slot.dead && !dead {
+                    *slot = place;
                 }
             }
         }
-        Layout(chars)
+        for keycode in keys() {
+            if let Some((ch, _)) = typed(keycode, false, true) {
+                layout.command.entry(ch).or_insert((keycode, false));
+            }
+        }
+        // Where Command moves the keys, a shifted shortcut is read on the
+        // Command+Shift level; elsewhere that level carries the US base
+        // characters (German Cmd+Shift+7 = 7), and the Shift keys stand.
+        let char_of = |keycode, command| typed(keycode, false, command).map(|(ch, _)| ch);
+        if keys().any(|keycode| char_of(keycode, true) != char_of(keycode, false)) {
+            for keycode in keys() {
+                if let Some((ch, _)) = typed(keycode, true, true) {
+                    layout.command.entry(ch).or_insert((keycode, true));
+                }
+            }
+        }
+        layout
+    }
+
+    /// The key of the ⌘ shortcut `ch`, and whether it takes Shift: a capital
+    /// the Command levels lack is its letter's key with Shift.
+    fn command_key(&self, ch: char) -> Option<(CGKeyCode, bool)> {
+        match self.command.get(&ch) {
+            Some(&key) => Some(key),
+            None if ch.is_ascii_uppercase() => self.command.get(&ch.to_ascii_lowercase()).map(|&(keycode, _)| (keycode, true)),
+            None => None,
+        }
     }
 }
 
 /// The active keyboard layout (`None` = macOS names none with key data, a
-/// layout of an input method). TIS is read on the main thread when the
-/// host's main run loop runs (the IDE: AppKit's TSM asserts the main queue
-/// there), on this one when nothing runs it (the daemon, tests).
-fn current_layout() -> Option<Layout> {
+/// layout of an input method), one read at a time ([`TIS`]). `Err` = the
+/// main thread did not answer: never guess the US keys then (German cmd+z
+/// would be Cmd+Y).
+fn current_layout() -> Result<Option<Layout>, String> {
     // SAFETY: no arguments.
-    if unsafe { pthread_main_np() } != 0 || CFRunLoop::get_main().current_mode().is_none() {
-        return read_layout();
+    if read_in_place(unsafe { pthread_main_np() } != 0, app_kit_runs()) {
+        return Ok(read_layout());
     }
     extern "C" fn work(context: *mut c_void) {
         // SAFETY: the box `current_layout` handed over, taken back once.
@@ -1091,36 +1174,81 @@ fn current_layout() -> Option<Layout> {
     let (reply, answer) = std::sync::mpsc::channel::<Option<Layout>>();
     // SAFETY: the main queue is a static of libdispatch; `work` owns the box.
     unsafe { dispatch_async_f(&_dispatch_main_q, Box::into_raw(Box::new(reply)).cast(), work) };
-    answer.recv_timeout(Duration::from_secs(2)).ok().flatten()
+    answer.recv_timeout(Duration::from_secs(2)).map_err(|_| "The keyboard layout could not be read: the app is busy.".to_string())
 }
 
-/// [`current_layout`]'s read, through UCKeyTranslate.
+/// #EXP-1980: where TIS is read. Where AppKit runs (the IDE) it is the main
+/// thread's, whose TSM a read on another thread would cut into (HIToolbox
+/// aborts the process): there it goes to the main queue, whatever the main
+/// run loop is doing this instant (between two of its turns, while AppKit
+/// dispatches an event, it has no mode). Where nothing runs AppKit (the
+/// daemon, tests), on this thread.
+fn read_in_place(on_main_thread: bool, app_kit_runs: bool) -> bool {
+    on_main_thread || !app_kit_runs
+}
+
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {
+    /// The application object, nil until one is made.
+    static NSApp: *mut objc2::runtime::AnyObject;
+}
+
+/// Whether an NSApplication runs its event loop in this process.
+fn app_kit_runs() -> bool {
+    // SAFETY: AppKit's global, a pointer read; `isRunning` is a property read.
+    unsafe { NSApp.as_ref() }.is_some_and(|app| unsafe { objc2::msg_send![app, isRunning] })
+}
+
+/// #EXP-1980: HIToolbox aborts the process when two threads call TIS at
+/// once in a host without an event loop (the daemon): every TIS call here
+/// holds this.
+static TIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// [`current_layout`]'s read.
 fn read_layout() -> Option<Layout> {
-    // SAFETY: the source is ours (create rule) and released below; the
-    // layout data is the source's (get rule), alive while it is.
+    let _tis = TIS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    // SAFETY: no arguments; a source is returned under the create rule.
+    let source = unsafe { TISCopyCurrentKeyboardLayoutInputSource() };
+    if source.is_null() {
+        return None;
+    }
+    // SAFETY: non-null and ours (create rule); released before `_tis`.
+    let source = unsafe { CFType::wrap_under_create_rule(source) };
+    layout_of(&source)
+}
+
+/// The keyboard layout of the input source `source`, through UCKeyTranslate
+/// (`None` = it has no key data: an input method). The caller holds [`TIS`].
+fn layout_of(source: &CFType) -> Option<Layout> {
+    // SAFETY: `source` is a live input source; its layout data is the
+    // source's (get rule), alive while it is.
     unsafe {
-        let source = TISCopyCurrentKeyboardLayoutInputSource();
-        if source.is_null() {
-            return None;
-        }
-        let source = CFType::wrap_under_create_rule(source);
         let data = TISGetInputSourceProperty(source.as_CFTypeRef(), kTISPropertyUnicodeKeyLayoutData);
         if data.is_null() {
             return None;
         }
         let data = core_foundation::data::CFData::wrap_under_get_rule(data as core_foundation::data::CFDataRef);
         let keyboard = u32::from(LMGetKbdType());
-        Some(Layout::from(|keycode, shift| {
+        Some(Layout::from(|keycode, shift, command| {
+            const DOWN: u16 = 0; // kUCKeyActionDown
             const DISPLAY: u16 = 3; // kUCKeyActionDisplay
             const NO_DEAD_KEYS: u32 = 1; // kUCKeyTranslateNoDeadKeysMask
-            let modifiers = if shift { 2 } else { 0 }; // (shiftKey >> 8) & 0xff
-            let (mut dead, mut len, mut text) = (0u32, 0usize, [0u16; 4]);
-            let err = UCKeyTranslate(data.bytes().as_ptr(), keycode, DISPLAY, modifiers, keyboard, NO_DEAD_KEYS, &mut dead, text.len(), &mut len, text.as_mut_ptr());
-            let mut chars = char::decode_utf16(text.get(..len)?.iter().copied());
-            match (err, chars.next(), chars.next()) {
-                (0, Some(Ok(ch)), None) => Some(ch),
-                _ => None,
-            }
+            // (cmdKey >> 8) & 0xff, (shiftKey >> 8) & 0xff.
+            let modifiers = u32::from(command) | if shift { 2 } else { 0 };
+            let translate = |action, options, dead: &mut u32| {
+                let (mut len, mut text) = (0usize, [0u16; 4]);
+                let err = UCKeyTranslate(data.bytes().as_ptr(), keycode, action, modifiers, keyboard, options, dead, text.len(), &mut len, text.as_mut_ptr());
+                let mut chars = char::decode_utf16(text.get(..len)?.iter().copied());
+                match (err, chars.next(), chars.next()) {
+                    (0, Some(Ok(ch)), None) => Some(ch),
+                    _ => None,
+                }
+            };
+            let ch = translate(DISPLAY, NO_DEAD_KEYS, &mut 0)?;
+            // A dead key's press leaves a dead-key state and no text.
+            let mut state = 0;
+            let _ = translate(DOWN, 0, &mut state);
+            Some((ch, state != 0))
         }))
     }
 }
@@ -1277,6 +1405,7 @@ impl Drop for Lock {
                 let _ = thread.join();
             }
         }
+        PERSON_BUTTONS.store(0, Ordering::Release);
     }
 }
 
@@ -1338,7 +1467,9 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     unsafe { CGEventTapEnable(port_ref, true) };
     // After the tap: a release between this snapshot and the tap cannot be
     // missed. No callback runs before the run loop below.
-    state.held.set(held_now());
+    let held = held_now();
+    state.held.set(held);
+    publish_buttons(&held);
     if ready.send(Ok(run_loop.clone())).is_err() {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
@@ -1354,7 +1485,18 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
         CFMachPortInvalidate(port_ref);
     }
     run_loop.remove_source(&source, common);
+    PERSON_BUTTONS.store(0, Ordering::Release);
     log::debug!("[computer] event tap removed");
+}
+
+/// #EXP-1979: the mouse buttons of `held` the person still holds, for the
+/// pointer tools ([`PERSON_BUTTONS`]).
+fn publish_buttons(held: &HeldAtEngage<TAP_HELD>) {
+    PERSON_BUTTONS.store(held.armed(TAP_BUTTONS..TAP_HELD), Ordering::Release);
+}
+
+fn person_holds_button() -> bool {
+    PERSON_BUTTONS.load(Ordering::Acquire) != 0
 }
 
 /// The tap: ours through, the person's Esc = `on_esc`, the rest swallowed.
@@ -1378,6 +1520,7 @@ unsafe extern "C" fn tap_callback(
     let mut held = state.held.get();
     let verdict = tap_verdict(ours, kind, field(EventField::KEYBOARD_EVENT_KEYCODE), field(EventField::MOUSE_EVENT_BUTTON_NUMBER), &mut held);
     state.held.set(held);
+    publish_buttons(&held);
     match verdict {
         Verdict::Pass => return event,
         Verdict::Swallow => {}
@@ -1524,6 +1667,29 @@ mod tests {
         assert_eq!(tap_verdict(false, CGEventType::FlagsChanged as u32, 56, 0, &mut held), Verdict::Swallow);
     }
 
+    /// #EXP-1979: a button the person held when the tap went in holds the
+    /// pointer tools back until its release passes the tap, at most the
+    /// wait; a held key holds nothing back.
+    #[test]
+    fn the_pointer_waits_for_the_release_of_a_button_held_at_engage() {
+        let wait = |millis| crate::backend::wait_for_person_buttons(person_holds_button, || false, Duration::from_millis(millis));
+        let mut held = HeldAtEngage::<TAP_HELD>::NONE;
+        held.0[56] = true; // kVK_Shift
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Free, "a key never holds the pointer back");
+        held.0[TAP_BUTTONS] = true; // the left button
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Held, "the wait ran out");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(tap_verdict(false, CGEventType::LeftMouseUp as u32, 0, 0, &mut held), Verdict::Pass);
+            publish_buttons(&held);
+        });
+        assert_eq!(wait(5000), crate::backend::ButtonWait::Free, "the person let go");
+        release.join().unwrap();
+        PERSON_BUTTONS.store(0, Ordering::Release);
+    }
+
     /// The pid `lsappinfo` (Launch Services, asked fresh) says is in front.
     fn front_by_launch_services() -> Option<u32> {
         let run = |args: &[&str]| String::from_utf8(std::process::Command::new("lsappinfo").args(args).output().ok()?.stdout).ok();
@@ -1553,6 +1719,40 @@ mod tests {
         assert_eq!(truth, Some(dialog.id()), "the window came to the front");
         assert_ne!(truth, before);
         assert_eq!(now, truth);
+    }
+
+    /// #EDE-140: fullscreen by geometry (NEW-59). A window on a display's
+    /// full bounds is fullscreen, the system's own never. Below a notch (the
+    /// display's width, a band of at most [`NOTCH_BAND`] points above it,
+    /// down to the display's bottom) the frame alone does not say so: a
+    /// window filling the screen under the menu bar has it too, so
+    /// Accessibility decides, and a window with no process to ask is not
+    /// fullscreen.
+    #[test]
+    fn fullscreen_is_a_displays_bounds_and_below_a_notch_only_by_accessibility() {
+        let display = |x: i32, y: i32, width: u32, height: u32| DisplayInfo { id: format!("{x},{y}"), x, y, width, height, primary: x == 0, name: String::new(), connector: None };
+        // A notched built-in display and an external one to its left.
+        let displays = [display(0, 0, 1512, 982), display(-1920, 0, 1920, 1080)];
+        let at = |app: &str, x: i32, y: i32, width: u32, height: u32| WindowInfo { id: 1, title: String::new(), app: app.into(), pid: None, x, y, width, height, active: true, fullscreen: false };
+
+        assert!(fullscreen(&at("Keynote", 0, 0, 1512, 982), &displays));
+        assert!(fullscreen(&at("Keynote", -1920, 0, 1920, 1080), &displays), "the external display's bounds");
+        assert!(!fullscreen(&at("Dock", 0, 0, 1512, 982), &displays), "the system's own windows never");
+        assert!(!fullscreen(&at("Keynote", 0, 0, 1512, 981), &displays), "a point short of the display");
+        assert!(!fullscreen(&at("Keynote", -1920, 0, 1512, 982), &displays), "one display's size at the other's origin");
+
+        // The frame below the camera housing (32 points on this display), down to the bottom.
+        let notched = |band: i32| at("Keynote", 0, band, 1512, (982 - band) as u32);
+        assert!(below_notch(&notched(32), &displays));
+        assert!(below_notch(&notched(1), &displays) && below_notch(&notched(NOTCH_BAND), &displays));
+        assert!(!below_notch(&notched(0), &displays), "no band is the display's bounds, decided before");
+        assert!(!below_notch(&notched(NOTCH_BAND + 1), &displays), "a taller band is no notch");
+        assert!(!below_notch(&at("Keynote", 0, 32, 1511, 950), &displays), "not the display's width");
+        assert!(!below_notch(&at("Keynote", 0, 32, 1512, 949), &displays), "not down to the display's bottom");
+        assert!(!below_notch(&at("Keynote", 1, 32, 1512, 950), &displays), "not at the display's left edge");
+        assert!(below_notch(&at("Keynote", -1920, 25, 1920, 1055), &displays), "a window under the menu bar of any display has the frame");
+        // The frame alone is not fullscreen, and here is no process for Accessibility to ask.
+        assert!(!fullscreen(&notched(32), &displays));
     }
 
     fn window(id: u64, title: &str, pid: u32, active: bool) -> WindowInfo {
@@ -1681,26 +1881,140 @@ mod tests {
     /// character types that character (German QWERTZ: `z` is not keycode 6).
     #[test]
     fn every_key_types_its_character_on_the_active_layout() {
-        let Some(active) = current_layout() else { return };
+        let Some(active) = current_layout().unwrap() else { return };
         for ch in ('a'..='z').chain('0'..='9').chain(['-', '.', ',']) {
-            let Stroke::Code(keycode, shift) = stroke(Key::Char(ch), Some(&active), false) else { continue };
-            let typed = active.0.iter().find(|(_, &at)| at == (keycode, shift)).map(|(&typed, _)| typed);
+            let Stroke::Code(keycode, shift) = stroke(Key::Char(ch), Some(&active), Under::Nothing) else { continue };
+            let typed = active.typed.iter().find(|(_, place)| (place.keycode, place.shift) == (keycode, shift)).map(|(&typed, _)| typed);
             assert_eq!(typed, Some(ch), "{ch:?} pressed as keycode {keycode}");
         }
+    }
+
+    #[link(name = "Carbon", kind = "framework")]
+    extern "C" {
+        static kTISPropertyInputSourceID: CFStringRef;
+        fn TISCreateInputSourceList(properties: CFDictionaryRef, include_all_installed: u8) -> CFTypeRef;
+    }
+
+    /// Apple's own data of the installed keyboard layout `id`, read the way
+    /// the active one is; the layout is never selected (the person's input
+    /// source stays as it is).
+    fn installed(id: &str) -> Layout {
+        // SAFETY: a constant CFString of the framework.
+        let key = unsafe { CFString::wrap_under_get_rule(kTISPropertyInputSourceID) };
+        let filter = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFString::new(id).as_CFType())]);
+        let _tis = TIS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // SAFETY: `filter` is live for the call; the list is ours (create rule).
+        let list = unsafe { TISCreateInputSourceList(filter.as_concrete_TypeRef(), 1) };
+        assert!(!list.is_null(), "macOS lists no {id}");
+        // SAFETY: non-null, a CFArray of input sources, ours.
+        let list = unsafe { CFArray::<CFType>::wrap_under_create_rule(list as core_foundation::array::CFArrayRef) };
+        let source = list.get(0).unwrap_or_else(|| panic!("macOS lists no {id}"));
+        layout_of(&source).unwrap_or_else(|| panic!("{id} has no key data"))
+    }
+
+    /// #EXP-1980, on Apple's QWERTZ and AZERTY data: cmd+z stays Cmd+Z on
+    /// German, cmd+a never becomes Cmd+Q on French, a bare key types its
+    /// character.
+    #[test]
+    fn qwertz_and_azerty_press_the_key_of_the_character() {
+        let german = installed("com.apple.keylayout.German");
+        assert_eq!(stroke(Key::Char('z'), Some(&german), Under::Command), Stroke::Code(16, false));
+        assert_eq!(stroke(Key::Char('y'), Some(&german), Under::Command), Stroke::Code(6, false));
+        assert_eq!(stroke(Key::Char('Z'), Some(&german), Under::Command), Stroke::Code(16, true));
+        assert_eq!(stroke(Key::Char('-'), Some(&german), Under::Nothing), Stroke::Code(44, false));
+        assert_eq!(stroke(Key::Char('/'), Some(&german), Under::Nothing), Stroke::Code(26, true));
+        let french = installed("com.apple.keylayout.French");
+        assert_eq!(stroke(Key::Char('a'), Some(&french), Under::Command), Stroke::Code(12, false));
+        assert_eq!(stroke(Key::Char('q'), Some(&french), Under::Command), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('w'), Some(&french), Under::Command), Stroke::Code(6, false));
+        assert_eq!(stroke(Key::Char('z'), Some(&french), Under::Command), Stroke::Code(13, false));
+        assert_eq!(stroke(Key::Char('1'), Some(&french), Under::Nothing), Stroke::Code(18, true));
+    }
+
+    /// #EXP-1980: macOS reads a ⌘ shortcut on the layout's Command level:
+    /// "Dvorak – QWERTY ⌘" puts every one on its QWERTY key, Russian its
+    /// punctuation on the US keys, a shifted one on its Command+Shift key;
+    /// typing keeps the layout's own keys, and a layout whose Command level
+    /// is its typing level its Shift keys (German cmd+/ = Shift+7).
+    #[test]
+    fn a_command_shortcut_goes_to_its_key_on_the_command_level() {
+        let dvorak = installed("com.apple.keylayout.DVORAK-QWERTYCMD");
+        assert_eq!(stroke(Key::Char('z'), Some(&dvorak), Under::Command), Stroke::Code(6, false), "cmd+z, not Cmd+/");
+        assert_eq!(stroke(Key::Char('c'), Some(&dvorak), Under::Command), Stroke::Code(8, false), "cmd+c, not Cmd+I");
+        assert_eq!(stroke(Key::Char('q'), Some(&dvorak), Under::Command), Stroke::Code(12, false), "cmd+q, not Cmd+X");
+        assert_eq!(stroke(Key::Char('Z'), Some(&dvorak), Under::Command), Stroke::Code(6, true));
+        assert_eq!(stroke(Key::Char('+'), Some(&dvorak), Under::Command), Stroke::Code(24, true), "cmd+plus, not Cmd+}}");
+        assert_eq!(stroke(Key::Char('?'), Some(&dvorak), Under::Command), Stroke::Code(44, true), "cmd+?, not Cmd+{{");
+        assert_eq!(stroke(Key::Char('{'), Some(&dvorak), Under::Command), Stroke::Code(33, true));
+        assert_eq!(stroke(Key::Char('}'), Some(&dvorak), Under::Command), Stroke::Code(30, true));
+        assert_eq!(stroke(Key::Char('z'), Some(&dvorak), Under::Nothing), Stroke::Code(44, false));
+        let russian = installed("com.apple.keylayout.Russian");
+        assert_eq!(stroke(Key::Char('v'), Some(&russian), Under::Command), Stroke::Code(9, false));
+        assert_eq!(stroke(Key::Char('V'), Some(&russian), Under::Command), Stroke::Code(9, true));
+        assert_eq!(stroke(Key::Char('.'), Some(&russian), Under::Command), Stroke::Code(47, false), "cmd+., not Cmd+&");
+        assert_eq!(stroke(Key::Char('['), Some(&russian), Under::Command), Stroke::Code(33, false), "cmd+[, not Cmd+~");
+        assert_eq!(stroke(Key::Char(':'), Some(&russian), Under::Command), Stroke::Code(41, true), "cmd+:, not Cmd+Shift+5");
+        assert_eq!(stroke(Key::Char('>'), Some(&russian), Under::Command), Stroke::Code(47, true));
+        assert_eq!(stroke(Key::Char('{'), Some(&russian), Under::Command), Stroke::Code(33, true));
+        assert_eq!(stroke(Key::Char('~'), Some(&russian), Under::Command), Stroke::Code(50, true));
+        let german = installed("com.apple.keylayout.German");
+        assert_eq!(stroke(Key::Char('/'), Some(&german), Under::Command), Stroke::Code(26, true), "Shift+7, not Shift+ß");
+    }
+
+    /// #EXP-1980: a shortcut character no key of a Latin layout types alone
+    /// (German `]` is Option+6) is an error, never the ANSI key (there `+`,
+    /// Cmd++ zooms in); a non-Latin layout's goes to its Command level's key;
+    /// typed, it is the character.
+    #[test]
+    fn a_shortcut_character_off_the_layout_is_never_another_key() {
+        let german = installed("com.apple.keylayout.German");
+        assert_eq!(stroke(Key::Char(']'), Some(&german), Under::Command), Stroke::Unreachable(']'), "not Cmd++");
+        assert_eq!(stroke(Key::Char('['), Some(&german), Under::Shortcut), Stroke::Unreachable('['));
+        assert_eq!(stroke(Key::Char(']'), Some(&german), Under::Nothing), Stroke::Unicode(']'));
+        let russian = installed("com.apple.keylayout.Russian");
+        assert_eq!(stroke(Key::Char('c'), Some(&russian), Under::Shortcut), Stroke::Code(8, false), "ctrl+c");
+        assert_eq!(stroke(Key::Char(']'), Some(&russian), Under::Shortcut), Stroke::Code(50, false), "Russian types ] on its own key");
+        assert_eq!(stroke(Key::Char(']'), None, Under::Command), Stroke::Code(30, false), "no layout: the US keys");
+    }
+
+    /// #EXP-1980: in the IDE (AppKit running) TIS is read on the main queue
+    /// from every other thread; in the daemon and tests where it is called.
+    #[test]
+    fn the_layout_is_read_on_the_main_thread_wherever_app_kit_runs() {
+        assert!(!read_in_place(false, true));
+        assert!(read_in_place(true, true));
+        assert!(read_in_place(false, false));
+        assert!(!app_kit_runs(), "no NSApplication in a test");
+    }
+
+    /// #EXP-1980: a dead key types nothing alone (German ^ waits for the
+    /// next key and puts its accent on it): a bare one goes as its
+    /// character; the character of a live key stays a keystroke.
+    #[test]
+    fn a_bare_dead_key_is_typed_as_its_character() {
+        let german = installed("com.apple.keylayout.German");
+        assert_eq!(stroke(Key::Char('^'), Some(&german), Under::Nothing), Stroke::Unicode('^'));
+        assert_eq!(stroke(Key::Char('´'), Some(&german), Under::Nothing), Stroke::Unicode('´'));
+        assert_eq!(stroke(Key::Char('°'), Some(&german), Under::Nothing), Stroke::Code(10, true));
+        let french = installed("com.apple.keylayout.French");
+        assert_eq!(stroke(Key::Char('^'), Some(&french), Under::Nothing), Stroke::Unicode('^'));
+        assert_eq!(stroke(Key::Char('@'), Some(&french), Under::Nothing), Stroke::Code(10, false));
     }
 
     /// The US keys moved the way a layout moves them: `swaps` exchanges
     /// two keys' characters (both levels), `cyrillic` = no Latin letters.
     fn layout(swaps: &[(char, char)], cyrillic: bool) -> Layout {
-        Layout::from(|keycode, shift| {
+        Layout::from(|keycode, shift, command| {
             let ch = (0..=127u8).map(char::from).find(|&ch| char_keycode(ch) == Some((keycode, shift)))?;
             let lower = ch.to_ascii_lowercase();
             let moved = swaps.iter().find_map(|&(a, b)| (lower == a).then_some(b).or((lower == b).then_some(a))).unwrap_or(lower);
             let moved = if ch.is_ascii_uppercase() { moved.to_ascii_uppercase() } else { moved };
-            match cyrillic && moved.is_ascii_alphabetic() {
+            // Under Command a Cyrillic layout types the US letters.
+            match cyrillic && !command && moved.is_ascii_alphabetic() {
                 true => char::from_u32(u32::from(moved.to_ascii_lowercase()) - u32::from('a') + 0x430),
                 false => Some(moved),
             }
+            .map(|ch| (ch, false))
         })
     }
 
@@ -1710,46 +2024,34 @@ mod tests {
     #[test]
     fn characters_go_to_their_key_on_the_layout() {
         let qwertz = layout(&[('y', 'z')], false);
-        assert_eq!(stroke(Key::Char('z'), Some(&qwertz), true), Stroke::Code(16, false));
-        assert_eq!(stroke(Key::Char('y'), Some(&qwertz), true), Stroke::Code(6, false));
-        assert_eq!(stroke(Key::Char('Z'), Some(&qwertz), false), Stroke::Code(16, true));
+        assert_eq!(stroke(Key::Char('z'), Some(&qwertz), Under::Command), Stroke::Code(16, false));
+        assert_eq!(stroke(Key::Char('y'), Some(&qwertz), Under::Command), Stroke::Code(6, false));
+        assert_eq!(stroke(Key::Char('Z'), Some(&qwertz), Under::Nothing), Stroke::Code(16, true));
         let azerty = layout(&[('a', 'q'), ('z', 'w')], false);
-        assert_eq!(stroke(Key::Char('a'), Some(&azerty), true), Stroke::Code(12, false));
-        assert_eq!(stroke(Key::Char('q'), Some(&azerty), true), Stroke::Code(0, false));
-        assert_eq!(stroke(Key::Char('w'), Some(&azerty), true), Stroke::Code(6, false));
+        assert_eq!(stroke(Key::Char('a'), Some(&azerty), Under::Command), Stroke::Code(12, false));
+        assert_eq!(stroke(Key::Char('q'), Some(&azerty), Under::Command), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('w'), Some(&azerty), Under::Command), Stroke::Code(6, false));
         let cyrillic = layout(&[], true);
-        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), true), Stroke::Code(9, false));
-        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), false), Stroke::Unicode('v'));
-        assert_eq!(stroke(Key::Char('\u{0430}'), Some(&cyrillic), false), Stroke::Code(0, false));
-        assert_eq!(stroke(Key::Char('€'), Some(&qwertz), true), Stroke::Unicode('€'));
+        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), Under::Command), Stroke::Code(9, false));
+        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), Under::Shortcut), Stroke::Code(9, false));
+        assert_eq!(stroke(Key::Char('v'), Some(&cyrillic), Under::Nothing), Stroke::Unicode('v'));
+        assert_eq!(stroke(Key::Char('\u{0430}'), Some(&cyrillic), Under::Nothing), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('€'), Some(&qwertz), Under::Command), Stroke::Unreachable('€'));
     }
 
     #[test]
     fn keys_map_to_mac_virtual_keycodes() {
-        assert_eq!(stroke(Key::Named(Named::Return), None, false), Stroke::Code(36, false));
-        assert_eq!(stroke(Key::Named(Named::Escape), None, false), Stroke::Code(53, false));
-        assert_eq!(stroke(Key::Named(Named::Super), None, false), Stroke::Code(55, false));
-        assert_eq!(stroke(Key::Named(Named::F(1)), None, false), Stroke::Code(122, false));
-        assert_eq!(stroke(Key::Named(Named::F(12)), None, false), Stroke::Code(111, false));
-        assert_eq!(stroke(Key::Named(Named::F(20)), None, false), Stroke::Code(90, false));
-        assert_eq!(stroke(Key::Named(Named::F(21)), None, false), Stroke::Missing);
-        assert_eq!(stroke(Key::Char('a'), None, false), Stroke::Code(0, false));
-        assert_eq!(stroke(Key::Char('A'), None, false), Stroke::Code(0, true));
-        assert_eq!(stroke(Key::Char('0'), None, false), Stroke::Code(29, false));
-        assert_eq!(stroke(Key::Char('?'), None, false), Stroke::Code(44, true));
-        assert_eq!(stroke(Key::Char('€'), None, false), Stroke::Unicode('€'));
-    }
-
-    #[test]
-    fn bgra_rows_become_opaque_rgba_and_skip_the_row_padding() {
-        // 2x2, stride 12 (4 bytes of padding per row).
-        let data = [1, 2, 3, 0, 4, 5, 6, 9, 0xee, 0xee, 0xee, 0xee, 7, 8, 9, 0, 10, 11, 12, 0, 0xee, 0xee, 0xee, 0xee];
-        assert_eq!(
-            bgra_to_rgba(&data, 2, 2, 12),
-            Some(vec![3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255])
-        );
-        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
-        assert!(bgra_to_rgba(&data[..20], 2, 2, 12).is_some());
-        assert_eq!(bgra_to_rgba(&data[..19], 2, 2, 12), None);
+        assert_eq!(stroke(Key::Named(Named::Return), None, Under::Nothing), Stroke::Code(36, false));
+        assert_eq!(stroke(Key::Named(Named::Escape), None, Under::Nothing), Stroke::Code(53, false));
+        assert_eq!(stroke(Key::Named(Named::Super), None, Under::Nothing), Stroke::Code(55, false));
+        assert_eq!(stroke(Key::Named(Named::F(1)), None, Under::Nothing), Stroke::Code(122, false));
+        assert_eq!(stroke(Key::Named(Named::F(12)), None, Under::Nothing), Stroke::Code(111, false));
+        assert_eq!(stroke(Key::Named(Named::F(20)), None, Under::Nothing), Stroke::Code(90, false));
+        assert_eq!(stroke(Key::Named(Named::F(21)), None, Under::Nothing), Stroke::Missing);
+        assert_eq!(stroke(Key::Char('a'), None, Under::Nothing), Stroke::Code(0, false));
+        assert_eq!(stroke(Key::Char('A'), None, Under::Nothing), Stroke::Code(0, true));
+        assert_eq!(stroke(Key::Char('0'), None, Under::Nothing), Stroke::Code(29, false));
+        assert_eq!(stroke(Key::Char('?'), None, Under::Nothing), Stroke::Code(44, true));
+        assert_eq!(stroke(Key::Char('€'), None, Under::Nothing), Stroke::Unicode('€'));
     }
 }

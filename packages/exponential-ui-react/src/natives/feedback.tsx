@@ -1,7 +1,7 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx); #FEED-232: CountBadge.
 
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { countBadgeLabel, resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
+import { countBadgeLabel, resolveRecipe, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
@@ -109,7 +109,8 @@ export function SkeletonNative({ node, props, rootProps }: NativeProps) {
 export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const depth = Math.max(0, Math.floor(num(props.depth, 0)))
+  // #EXP-1843: a bound depth resolves to anything; `treeGuideDepth` is the ×5 reading.
+  const depth = treeGuideDepth(props.depth)
   // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
   const elbowAt = props.elbowAt === undefined || props.elbowAt === null ? -1 : num(props.elbowAt)
   const tee = bool(props.tee)

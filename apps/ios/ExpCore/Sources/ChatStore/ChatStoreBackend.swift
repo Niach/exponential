@@ -270,8 +270,9 @@ public enum ChatStoreWire {
         return (object["t"] as? String, object["requestId"] as? String)
     }
 
-    /// A wire stamp as epoch ms: ISO-8601 or Electric's Postgres text form
-    /// (`2026-11-17 16:18:48.948+00`, what every synced message carries).
+    /// A wire stamp as epoch ms: ISO-8601 or the Postgres text form every
+    /// synced row carries (#EXP-1998: the strict ISO parse dropped every
+    /// synced message, so the store indexed none).
     public static func isoMs(_ value: String) -> Int64? {
         guard let date = WireTimestamps.parse(value) else { return nil }
         return Int64((date.timeIntervalSince1970 * 1000).rounded())

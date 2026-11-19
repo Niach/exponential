@@ -167,6 +167,8 @@ WAYLAND_DISPLAY=wayland-1 xed        # or point a client at the socket it logs
 Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
+Photograph it only with `scripts/lanes/capture.sh :77 <out.png>` (#EXP-2022),
+which refuses the live display.
 
 ## Tier A: frames, the recovery screen, the restore hotkey (#EDE-16)
 
@@ -363,9 +365,13 @@ headless outputs resize. A connector that changes while connected (udev's
 hotplug: a VM window resized, a monitor re-reading its EDID) follows its
 new preferred mode unless `[[outputs]]` pins a mode it still offers; the
 scan runs 150 ms after the last change (VBoxDRMClient pushes a layout
-every 250 ms while the window is dragged), then the outputs without a
-configured position close ranks, layers re-arrange and tiled windows
-follow. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
+every 250 ms while the window is dragged). After any change (`set_output`,
+such a resize, an unplug) the outputs without a configured or
+`set_output` position close ranks, layers re-arrange and every window
+stays on its output (#EDE-139): it goes along as the output moves, tiled
+and fullscreen windows fill it again, one it no longer holds comes back
+inside it, and the windows of an output that went away reopen on the
+first one (a fullscreen one fullscreen there). Nothing is raised. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
 (the `virtualbox-guest-utils` system service, no session service needed)
 pushes the window size to `vmwgfx`, which lists it as the preferred mode. Every surface hears its output's preferred scale
 (fractional through wp-fractional-scale-v1; integer clients keep
@@ -510,7 +516,9 @@ maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quit
 Super+1…9 switch, Super+Shift+1…9 take the focused window along,
 Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
 workspace is parked off screen; the taskbar still lists it and focusing it
-switches back. Over ede-protocol: `list_workspaces`, `switch_workspace`,
+switches back. A parked or minimized window comes back fitted to its output
+as it is now (a tiled or fullscreen one fills it; one whose output went
+away opens on the first, #EDE-139). Over ede-protocol: `list_workspaces`, `switch_workspace`,
 `move_to_workspace`, the `workspace.switched` event.
 
 ## Run it as the session (a TTY)
@@ -663,7 +671,8 @@ and keeps it for the process; a tool call is `input` (keysyms, so the
 compositor's layout decides the key) / `capture` / `list_windows`; its lock
 is `hold_input` on a connection of its own, so the IDE's banner and Esc
 work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
-cargo test -p epilot headless_ede` (in `apps/desktop`).
+cargo test -p epilot headless_ede` (in `apps/desktop`); the gate's `ede` job
+runs it on every PR that touches eDE or ePilot (#EDE-140).
 
 ## Apps (#EDE-20, #VAPP-273)
 
@@ -921,7 +930,11 @@ expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
 panel.json, rolled back`), unless another process undid or replaced it
 meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
-and what replaced it is an edit of its own; the shell dying counts as a crash, it restarts
+and what replaced it is an edit of its own. A rollback puts back what the
+shell last drew (after two quick edits, never the first one, which did not
+draw either) and touches that document alone: another document's edit in
+the same moment stays an edit of its own, and a broken text the file holds
+meanwhile is kept beside it as `.panel.json.refused`. The shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never

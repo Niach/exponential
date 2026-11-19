@@ -19,7 +19,6 @@ pub mod claude;
 pub mod claude_wire;
 pub mod codex;
 pub mod codex_wire;
-pub use crate::confine;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -142,18 +141,6 @@ pub struct LaunchSpec {
     /// (`--fork-session`) and runs read-only
     /// ([`crate::engine::launch::ASIDE_DISALLOWED_TOOLS`]). Codex never runs one.
     pub aside: bool,
-    /// N-5 / NEW-5: a repo-less run's scratch dir (`<data>/scratch/<root>/<session>`):
-    /// file tools may not leave it. `None` = today's behaviour (full access).
-    ///
-    /// Claude: `can_use_tool` (and a `PreToolUse` hook, which fires even
-    /// under `bypassPermissions`) DENIES file tools whose path resolves
-    /// outside it, and Bash commands naming a path outside it
-    /// ([`confine::confinement_denial`]; a word it cannot resolve fails
-    /// closed, code an interpreter runs is beyond any hook); its own claude
-    /// project dir (memory, tool results) stays open (FEED-142). Codex: every turn asks the
-    /// app-server's `workspaceWrite` sandbox rooted here (network on), and
-    /// falls back to full access when the app-server rejects it.
-    pub confine_to: Option<PathBuf>,
     /// #EXP-1658: the session's team skills folder
     /// (`<data_dir>/skills/<session>`, `coding::team_skills`), holding
     /// `.claude/skills/<name>/SKILL.md`. Claude: `--add-dir <dir>` (loads

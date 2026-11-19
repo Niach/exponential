@@ -24,8 +24,7 @@
 //! while the same skill as a `--plugin-dir` plugin named `team` lists as
 //! `team:zebra-plug`. The unprefixed way won, so there is no
 //! `.claude-plugin/plugin.json`. (`--add-dir` also widens the CLI's own file
-//! access to this folder, which holds nothing but the skills; Exponential's
-//! scratch confinement is its own hook and is unaffected.)
+//! access to this folder, which holds nothing but the skills.)
 //!
 //! **Codex** (app-server, 0.156) gets `skills/extraRoots/set {extraRoots:
 //! [<dir>/.claude/skills]}` before `thread/start` / `thread/resume`; the

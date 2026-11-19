@@ -35,6 +35,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **From this device's copy**: chats are searched in the local chat store, so it works offline; a private chat's messages are found once they open on this device.`,
   },
   {
+    id: `2026-11-19-repo-less-sessions-full-access`,
+    date: `2026-11-19`,
+    title: `Chats without a repository reach your whole machine`,
+    summary: `Chats and agents without a repository, like your Assistant, now have the same access as a coding session: your files, ssh and the apps on the machine.`,
+    body: `- **Chats without a repository**: a chat, a team agent or your Assistant running without a repository is no longer kept inside its own folder. It can read and edit your files, use ssh and run the tools on the device, like a coding session in a worktree.
+- **Coding sessions**: nothing changes for sessions on a repository.`,
+  },
+  {
     id: `2026-11-19-calls-own-session-on-every-host`,
     date: `2026-11-19`,
     title: `Every call opens with the agent's own line`,

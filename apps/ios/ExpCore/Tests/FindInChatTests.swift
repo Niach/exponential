@@ -151,21 +151,37 @@ final class FindInChatTests: XCTestCase {
         }
     }
 
-    func testTheStoresAnswerKeepsTheShownSessionsEvents() {
+    func testOlderCases() throws {
+        for c in try cases("olderCases") {
+            let name = c["name"] as? String ?? ""
+            let store = try XCTUnwrap(c["store"] as? [[String: Any]], name).map { h in
+                FindInChat.StoreHit(sessionId: h["sessionId"] as? String ?? "", seq: h["seq"] as? Int, messageId: h["messageId"] as? String, kind: h["kind"] as? String ?? "")
+            }
+            let device = try XCTUnwrap(c["device"] as? [[String: Any]], name).map { h in
+                FindInChat.DeviceHit(seq: h["seq"] as? Int ?? 0, kind: h["kind"] as? String ?? "")
+            }
+            let synced = (c["synced"] as? [String: Any]).map { s in
+                FindInChat.Synced(loaded: s["loaded"] as? [String] ?? [], drawable: s["drawable"] as? [String] ?? [], more: s["more"] as? Bool ?? false)
+            }
+            let expected = try XCTUnwrap(c["expected"] as? [[String: Any]], name).map { h in
+                FindInChat.OlderHit(key: h["key"] as? String ?? "", output: h["output"] as? Bool ?? false)
+            }
+            let got = FindInChat.older(sessionId: c["sessionId"] as? String ?? "", lowestSeq: c["lowestSeq"] as? Int, store: store, device: device, synced: synced)
+            XCTAssertEqual(got, expected, name)
+        }
+    }
+
+    func testTheStoresAnswerKeepsTheShownSessionsHits() {
         let json = #"{"hits":[{"rootId":"r","sessionId":"s1","kind":"narration","at":3,"seq":12,"snippet":"x","matchStart":0,"matchLen":1},{"rootId":"r","sessionId":"s2","kind":"tool","at":2,"seq":4,"snippet":"x","matchStart":0,"matchLen":1},{"rootId":"r","sessionId":"s1","kind":"message","at":2,"messageId":"m9","snippet":"x","matchStart":0,"matchLen":1},{"rootId":"r","sessionId":"s1","kind":"tool_output","at":1,"seq":30,"snippet":"x","matchStart":0,"matchLen":1},{"rootId":"r","sessionId":"s1","kind":"later","at":1,"seq":31,"snippet":"x","matchStart":0,"matchLen":1}],"total":5}"#
         XCTAssertEqual(FindInChat.storeHits(json, sessionId: "s1"), [
-            FindInChat.OlderHit(key: "e:s1:12"),
-            FindInChat.OlderHit(key: "e:s1:30", output: true),
+            FindInChat.StoreHit(sessionId: "s1", seq: 12, kind: "narration"),
+            FindInChat.StoreHit(sessionId: "s1", messageId: "m9", kind: "message"),
+            FindInChat.StoreHit(sessionId: "s1", seq: 30, kind: "tool_output"),
         ])
         XCTAssertEqual(FindInChat.storeHits(nil, sessionId: "s1"), [])
         XCTAssertEqual(
-            FindInChat.deviceHits([(seq: 8, kind: "tool_output"), (seq: 7, kind: "narration"), (seq: 6, kind: "later")], sessionId: "s1"),
-            [FindInChat.OlderHit(key: "e:s1:8", output: true), FindInChat.OlderHit(key: "e:s1:7")]
+            FindInChat.deviceHits([(seq: 8, kind: "tool_output"), (seq: 7, kind: "narration"), (seq: 6, kind: "later")]),
+            [FindInChat.DeviceHit(seq: 8, kind: "tool_output"), FindInChat.DeviceHit(seq: 7, kind: "narration")]
         )
-        XCTAssertEqual(
-            FindInChat.below([FindInChat.OlderHit(key: "e:s1:12"), FindInChat.OlderHit(key: "e:s1:40")], lowestSeq: 20),
-            [FindInChat.OlderHit(key: "e:s1:12")]
-        )
-        XCTAssertEqual(FindInChat.below([FindInChat.OlderHit(key: "e:s1:40")], lowestSeq: nil).count, 1)
     }
 }

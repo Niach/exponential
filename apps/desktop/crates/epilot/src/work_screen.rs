@@ -49,6 +49,12 @@ pub(crate) fn is_input(tool: &str) -> bool {
     input_tools().iter().any(|input| input == tool)
 }
 
+/// #EXP-1979: whether `tool` moves or presses the pointer: an input tool
+/// that neither presses keys (`keyTools`) nor activates a window.
+pub(crate) fn is_pointer(tool: &str) -> bool {
+    is_input(tool) && !is_key(tool) && tool != "activate_window"
+}
+
 /// #EXP-1898: whether `tool` DRIVES (`inputTools`, plus the clipboard's
 /// `read_clipboard`): it takes the person's input for the call and queues
 /// with the other driving calls. Looking and waiting (`screenshot`,

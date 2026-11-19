@@ -3,7 +3,7 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { countBadgeLabel, resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
+import { countBadgeLabel, resolveRecipe, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web/motion"
 import type { Component } from "solid-js"
@@ -134,7 +134,8 @@ export function SkeletonNative(props: NativeProps): JSX.Element {
 export function TreeGuidesNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
-  const depth = () => Math.max(0, Math.floor(num(props.props.depth, 0)))
+  // #EXP-1843: a bound depth resolves to anything; `treeGuideDepth` is the ×5 reading.
+  const depth = () => treeGuideDepth(props.props.depth)
   // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
   const elbowAt = () => (props.props.elbowAt === undefined || props.props.elbowAt === null ? -1 : num(props.props.elbowAt))
   const tee = () => bool(props.props.tee)

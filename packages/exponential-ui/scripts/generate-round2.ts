@@ -297,7 +297,7 @@ const CYCLE_CASES: { name: string; nested?: NestedNode; components?: FlatCompone
 
 function templateItemsFixture() {
   return {
-    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items. VAPP-103 (\`limit-*\`, catalog/limits.json): an id placed a second time (two parents, one parent twice, or the main tree and a template) renders at its FIRST place only (\`id used twice; only its first place renders\`), a node deeper than \`maxDepth\` levels (the root = 1) is the Unknown placeholder (\`nesting deeper than N levels\`). VAPP-232 (\`macro-template-*\`): a macro's \`$template\` parts (catalog/macros.json) build template items too: lifted into \`templates\` after the authored ones, in build order.`,
+    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items. VAPP-103 (\`limit-*\`, catalog/limits.json): an id placed a second time (two parents, one parent twice, or the main tree and a template) renders at its FIRST place only (\`id used twice; only its first place renders\`), a node deeper than \`maxDepth\` levels (the root = 1) is the Unknown placeholder (\`nesting deeper than N levels\`). VAPP-232 (\`macro-template-*\`): a macro's \`$template\` parts (catalog/macros.json) build template items too: lifted into \`templates\` after the authored ones, in build order. #EXP-1843 (\`row-depth-bound\`): a template Row whose \`depth\` is BOUND keeps the binding as its \`guides\` part's \`depth\` (indent only: no elbow, no tee, no pass-through), so each item indents by its own depth.`,
     keys: KEY_CASES.map((c) => ({ ...c, expected: templateItemKeys(c.items, c.key) })),
     rowKeys: ROW_KEY_CASES.map((c) => ({ ...c, expected: tableRowKeys(c.rows, c.rowKey) })),
     instances: instanceCases(),
@@ -307,8 +307,22 @@ function templateItemsFixture() {
       ...CYCLE_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: c.nested ? reduceNested(c.nested, { catalogId: CORE_CATALOG_ID }) : reduceSurface(c.components!, { catalogId: CORE_CATALOG_ID }) })),
       ...LIMIT_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: reduceSurface(c.components, { catalogId: CORE_CATALOG_ID }) })),
       ...MACRO_TEMPLATE_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: reduceNested(c.nested, { catalogId: CORE_CATALOG_ID }) })),
+      { name: `row-depth-bound`, catalogId: CORE_CATALOG_ID, nested: FOLDER_TREE, expected: reduceNested(FOLDER_TREE, { catalogId: CORE_CATALOG_ID }) },
     ],
   }
+}
+
+/** #EXP-1843: a templated folder tree: a reorderable List whose item Row
+ *  binds `depth` to the item's field. The lifted Row keeps the binding on
+ *  its `guides` part (no elbow, `tee` false, no pass-through: a template
+ *  item has no siblings to connect to) under a `visible` that hides the
+ *  gutter at depth 0, so every item indents by its own depth at bind time. */
+const FOLDER_TREE: NestedNode = {
+  id: `tree`,
+  component: `List`,
+  props: { reorderable: true, maxDepth: 3 },
+  template: { component: `node`, path: `/rows`, key: `id` },
+  children: [{ id: `node`, component: `Row`, props: { title: { "@path": `title` }, icon: { "@path": `icon` }, depth: { "@path": `depth` }, density: `compact`, pressable: true } }],
 }
 
 /** VAPP-232 (eApps U3): a macro's `$template` parts build data-template

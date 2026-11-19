@@ -15579,8 +15579,8 @@
           "description": "URL a press opens; implies `pressable`."
         },
         "depth": {
-          "type": "number",
-          "description": "Under a tree Section (0 = root).",
+          "$ref": "common_types.json#/$defs/DynamicNumber",
+          "description": "Under a tree Section (0 = root); bound = indent only.",
           "default": 0
         },
         "open": {

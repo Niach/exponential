@@ -19,6 +19,8 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+# #EDE-140: tests/ci_filter.rs reads `cargo metadata`.
+serde_json = "1"
 
 # The installed name (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

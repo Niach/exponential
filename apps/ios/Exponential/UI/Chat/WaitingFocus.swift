@@ -86,11 +86,20 @@ private struct DeepLinkRowFrame: ViewModifier {
 private final class DeepLinkViewport {
     var top: CGFloat = 0
     var height: CGFloat?
+    /// The scroll view's whole height, its insets included (the band a
+    /// `scrollTo` anchor is a unit point of).
+    var container: CGFloat?
     var atTop = false
     var atBottom = false
     /// The target row's frame as last reported: a deferred step reads it
     /// here, never from the copy of the modifier that scheduled it.
     var target: CGRect?
+    /// #EXP-1998: the row the link last landed on, and when: the keyboard
+    /// raised by the find field resizes the list just after a FIRST landing
+    /// (it keeps its top, so the row slid under the keyboard); it is
+    /// centred again while the resize lands.
+    var landed: String?
+    var landedAt = Date.distantPast
 }
 
 /// waiting-cards.json DEEP LINKS: THE pending deep link of a transcript.
@@ -120,7 +129,7 @@ struct DeepLinkScroll: ViewModifier {
     /// #EDE-130: centres the target when it is drawn under another id (a
     /// find key's transcript row, an `Int`: the proxy matches ids by their
     /// own type); nil = `proxy.scrollTo(target)` (a card).
-    var centre: ((String) -> Void)? = nil
+    var centre: ((String, UnitPoint) -> Void)? = nil
     /// The link was taken: stop following the newest row.
     var onTake: () -> Void = {}
     /// The link settled `missing`: back to the newest rows.
@@ -130,6 +139,9 @@ struct DeepLinkScroll: ViewModifier {
     @State private var viewport = DeepLinkViewport()
     @State private var queued = false
     @State private var animatingUntil = Date.distantPast
+
+    /// #EXP-1998: how long after a landing a resized list centres it again.
+    private static let recentreWindow: TimeInterval = 1
 
     private static func nowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
 
@@ -175,17 +187,27 @@ struct DeepLinkScroll: ViewModifier {
                         geo.containerSize.height - geo.contentInsets.top - geo.contentInsets.bottom,
                         geo.contentOffset.y + geo.contentInsets.top,
                         geo.contentSize.height - geo.visibleRect.maxY,
+                        geo.containerSize.height,
                     ]
                 } action: { _, metrics in
+                    let resized = viewport.container.map { abs($0 - metrics[4]) > 0.5 } ?? false
+                    viewport.container = metrics[4]
                     viewport.top = metrics[0]
                     viewport.height = metrics[1]
                     viewport.atTop = metrics[2] <= 0.5
                     viewport.atBottom = metrics[3] <= 0.5
                     if link != nil { schedule() }
+                    if resized, link == nil, let landed = viewport.landed,
+                       Date().timeIntervalSince(viewport.landedAt) < Self.recentreWindow {
+                        Task { @MainActor in scrollToCentre(landed) }
+                    }
                 }
                 .onScrollPhaseChange { _, phase in
                     // The reader's own drag drops the link.
-                    if phase == .tracking || phase == .interacting { link = nil }
+                    if phase == .tracking || phase == .interacting {
+                        link = nil
+                        viewport.landed = nil
+                    }
                     if phase == .idle, link != nil { schedule() }
                 }
         } else {
@@ -251,6 +273,8 @@ struct DeepLinkScroll: ViewModifier {
                 schedule(afterMs: 16)
             }
         case .ring:
+            viewport.landed = target
+            viewport.landedAt = Date()
             ring(target)
         case .missing:
             onMissing()
@@ -258,7 +282,19 @@ struct DeepLinkScroll: ViewModifier {
     }
 
     private func scrollToCentre(_ target: String) {
-        if let centre { centre(target) } else { proxy.scrollTo(target, anchor: .center) }
+        let anchor = centreAnchor()
+        if let centre { centre(target, anchor) } else { proxy.scrollTo(target, anchor: anchor) }
+    }
+
+    /// #EXP-1998: `scrollTo` aligns the row's anchor point with the same
+    /// point of the WHOLE scroll view, insets included (the header band, the
+    /// keyboard, the composer), so `.center` lands it off the visible band's
+    /// centre: the anchor that puts the row's middle at that centre.
+    private func centreAnchor() -> UnitPoint {
+        guard let container = viewport.container, let height = viewport.height,
+              let row = viewport.target?.height, container > row else { return .center }
+        let y = (viewport.top + height / 2 - row / 2) / (container - row)
+        return UnitPoint(x: 0.5, y: min(max(y, 0), 1))
     }
 
     private func ring(_ id: String) {

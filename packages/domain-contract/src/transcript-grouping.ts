@@ -268,10 +268,37 @@ const BLANK_CODE_POINTS = new Set(fixture.blank.codePoints.map((hex) => parseInt
  *  whitespace or invisible (`blank.codePoints`) is no message: the driver
  *  never posts it and no client draws it. Never `trim()`: it keeps U+200B. */
 export function isBlankText(text: string | null | undefined): boolean {
-  for (const char of text ?? ``) {
-    if (!BLANK_CODE_POINTS.has(char.codePointAt(0)!)) return false
+  const s = text ?? ``
+  let i = 0
+  while (i < s.length) {
+    const point = s.codePointAt(i)!
+    if (BLANK_CODE_POINTS.has(point)) {
+      i += point > 0xffff ? 2 : 1
+      continue
+    }
+    // #FEED-255: a character reference genUI's markdown decodes to an
+    // invisible character (`&#8203;`, `&#x200B;`, `&nbsp;`) is blank too.
+    const ref = point === 0x26 ? blankReferenceEnd(s, i) : -1
+    if (ref < 0) return false
+    i = ref
   }
   return true
+}
+
+/** #FEED-255 (`blank.$comment`): the index after the character reference at
+ *  `at` when it decodes to a blank code point, else -1. */
+function blankReferenceEnd(s: string, at: number): number {
+  if (s.startsWith(`&nbsp;`, at)) return at + 6
+  if (s[at + 1] !== `#`) return -1
+  const hex = s[at + 2] === `x` || s[at + 2] === `X`
+  const start = at + (hex ? 3 : 2)
+  const digit = hex ? /[0-9a-fA-F]/ : /[0-9]/
+  let end = start
+  while (end < s.length && digit.test(s[end]!)) end++
+  const count = end - start
+  if (count < 1 || count > (hex ? 6 : 7) || s[end] !== `;`) return -1
+  const code = Number.parseInt(s.slice(start, end), hex ? 16 : 10)
+  return code > 0 && code <= 0x10ffff && BLANK_CODE_POINTS.has(code) ? end + 1 : -1
 }
 
 /** #EXP-1864 (`notices`): the label an Exponential tool row draws as THE

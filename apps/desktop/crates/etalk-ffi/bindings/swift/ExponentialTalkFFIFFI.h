@@ -372,6 +372,16 @@ RustBuffer uniffi_etalk_ffi_fn_func_call_speech_of(RustBuffer state, RustCallSta
 RustBuffer uniffi_etalk_ffi_fn_func_call_step(RustBuffer state, RustBuffer event, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TAP
+#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TAP
+RustBuffer uniffi_etalk_ffi_fn_func_call_tap(RustBuffer platform, RustBuffer reason, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TARGET
+#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TARGET
+RustBuffer uniffi_etalk_ffi_fn_func_call_target(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TIMER
 #define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_TIMER
 RustBuffer uniffi_etalk_ffi_fn_func_call_timer(uint64_t ms, RustCallStatus *_Nonnull out_status
@@ -715,6 +725,18 @@ uint16_t uniffi_etalk_ffi_checksum_func_call_speech_of(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_STEP
 #define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_STEP
 uint16_t uniffi_etalk_ffi_checksum_func_call_step(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_TAP
+#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_TAP
+uint16_t uniffi_etalk_ffi_checksum_func_call_tap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_TARGET
+#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_TARGET
+uint16_t uniffi_etalk_ffi_checksum_func_call_target(void
     
 );
 #endif

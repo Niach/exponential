@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Row `depth` bound to data (#EXP-1843), React's (`treeGuideDepth`); `list-reorder.test.tsx`.
 - `highlight` on Text and Markdown (#EDE-95), React's (`paintHighlights`); `highlight.test.tsx`.
 - Markdown chips keep their punctuation (#EXP-1882), React's (`.xui-md-glue`, `glueChips`).
 - `forcedStates` surface prop (#EXP-1781), React's (the same `data-xs`); `forced-states.test.tsx` replays `fixtures/forced-states.json`; the harness `?view=specimen` passes a specimen's `states`.
