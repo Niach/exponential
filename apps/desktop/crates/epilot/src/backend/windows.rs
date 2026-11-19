@@ -7,7 +7,8 @@
 //! through the foreground window's keyboard layout (`VkKeyScanExW`); a
 //! character the layout has no plain or Shift key for (AltGr, another
 //! script) is a `KEYEVENTF_UNICODE` stroke instead, except a letter or digit
-//! of a shortcut, which is its own VK (#EXP-1922). The process is per-monitor
+//! of a shortcut, which is its own VK (#EXP-1922), a digit without the Shift
+//! a layout types it with (#EXP-1980). The process is per-monitor
 //! DPI aware (v2), so every rect and point here is physical pixels of the
 //! virtual screen. The screen is a GDI blit of the desktop; the windows are
 //! `EnumWindows` cut down to what a person can see and switch to.
@@ -218,6 +219,19 @@ fn char_stroke(scan: i16) -> Option<(VIRTUAL_KEY, bool)> {
 /// never to a Unicode packet; anything else is typed as Unicode (`None`).
 fn shortcut_vk(ch: char, modified: bool) -> Option<VIRTUAL_KEY> {
     (modified && ch.is_ascii_alphanumeric()).then(|| VIRTUAL_KEY::from(ch.to_ascii_uppercase() as u8))
+}
+
+/// #EXP-1980: how `key` sends `ch`: a VK and whether Shift goes with it,
+/// `None` = a Unicode packet. `on_layout` = its key on the foreground layout
+/// ([`layout_stroke`]); under a shortcut (`modified`) apps bind a letter or
+/// digit to its own VK, so a digit goes without the Shift French AZERTY
+/// types it with (Ctrl+1, never Ctrl+Shift+1) and a capital the layout
+/// lacks (Russian) keeps its Shift (Ctrl+Shift+T).
+fn char_key(ch: char, on_layout: Option<(VIRTUAL_KEY, bool)>, modified: bool) -> Option<(VIRTUAL_KEY, bool)> {
+    match shortcut_vk(ch, modified) {
+        Some(vk) if ch.is_ascii_digit() || on_layout.is_none() => Some((vk, ch.is_ascii_uppercase())),
+        _ => on_layout,
+    }
 }
 
 /// Whether `vk` is down now.
@@ -697,28 +711,25 @@ impl Backend for Win32 {
                 let (vk, extended) = named_vk(named);
                 send(&[vk_input(vk, extended, !down)])
             }
-            Key::Char(ch) => match layout_stroke(ch) {
-                Some((vk, shift)) => {
-                    let mut inputs = Vec::with_capacity(2);
-                    if shift && down {
-                        inputs.push(vk_input(VK_SHIFT, false, false));
+            Key::Char(ch) => {
+                let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
+                // A release follows its press: the VK, if that is down.
+                let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
+                match char_key(ch, layout_stroke(ch), modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk)).map(|vk| (vk, ch.is_ascii_uppercase()))) {
+                    Some((vk, shift)) => {
+                        let mut inputs = Vec::with_capacity(2);
+                        if shift && down {
+                            inputs.push(vk_input(VK_SHIFT, false, false));
+                        }
+                        inputs.push(vk_input(vk, false, !down));
+                        if shift && !down {
+                            inputs.push(vk_input(VK_SHIFT, false, true));
+                        }
+                        send(&inputs)
                     }
-                    inputs.push(vk_input(vk, false, !down));
-                    if shift && !down {
-                        inputs.push(vk_input(VK_SHIFT, false, true));
-                    }
-                    send(&inputs)
+                    None => send(&unicode_inputs(ch, !down)),
                 }
-                None => {
-                    // A release follows its press: the VK, if that is down.
-                    let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
-                    let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
-                    match shortcut_vk(ch, modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk))) {
-                        Some(vk) => send(&[vk_input(vk, false, !down)]),
-                        None => send(&unicode_inputs(ch, !down)),
-                    }
-                }
-            },
+            }
         }
     }
 
@@ -1376,6 +1387,27 @@ mod tests {
         assert_eq!(button_flags(Button::Right, true, true), MOUSEEVENTF_LEFTDOWN);
         assert_eq!(button_flags(Button::Middle, true, true), MOUSEEVENTF_MIDDLEDOWN);
         assert_eq!(button_flags(Button::Left, true, false), MOUSEEVENTF_LEFTDOWN);
+    }
+
+    /// #EXP-1980, on what VkKeyScanExW answers there: under a shortcut a
+    /// digit is its own VK without the Shift French AZERTY types it with, a
+    /// capital the layout lacks keeps its Shift; typing keeps the layout's
+    /// key, or goes as Unicode.
+    #[test]
+    fn a_shortcut_letter_or_digit_is_its_own_vk_on_any_layout() {
+        // French AZERTY: '1' = Shift + VK_1, '&' = VK_1, 'a' = VK_A.
+        assert_eq!(char_key('1', char_stroke(0x0131), true), Some((0x31, false)), "ctrl+1, never ctrl+shift+1");
+        assert_eq!(char_key('1', char_stroke(0x0131), false), Some((0x31, true)));
+        assert_eq!(char_key('&', char_stroke(0x0031), true), Some((0x31, false)));
+        assert_eq!(char_key('a', char_stroke(0x0041), true), Some((0x41, false)));
+        // German QWERTZ: 'z' = VK_Z, 'Z' = Shift + VK_Z.
+        assert_eq!(char_key('z', char_stroke(0x005a), true), Some((0x5a, false)));
+        assert_eq!(char_key('Z', char_stroke(0x015a), true), Some((0x5a, true)));
+        // Russian: no Latin letters.
+        assert_eq!(char_key('v', char_stroke(-1), true), Some((0x56, false)));
+        assert_eq!(char_key('T', char_stroke(-1), true), Some((0x54, true)), "ctrl+T keeps Shift");
+        assert_eq!(char_key('v', char_stroke(-1), false), None);
+        assert_eq!(char_key('-', char_stroke(-1), true), None);
     }
 
     #[test]
