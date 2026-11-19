@@ -93,6 +93,7 @@ pub fn space_by_environment(pid: u32, spaces: &Path) -> Option<(SpaceId, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
     use std::process::{Command, Stdio};
 
     #[test]
@@ -152,7 +153,7 @@ mod tests {
         let cleared: u32 = line.trim().parse().unwrap();
         // `$!` comes before the fork has run `env`, and `env` before `sleep`.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::fs::read_to_string(format!("/proc/{cleared}/comm")).map_or(true, |comm| comm.trim() != "sleep") {
+        while !std::fs::read_to_string(format!("/proc/{cleared}/comm")).is_ok_and(|comm| comm.trim() == "sleep") {
             assert!(std::time::Instant::now() < deadline, "the cleared child never ran sleep");
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
