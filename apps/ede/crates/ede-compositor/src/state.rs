@@ -664,6 +664,20 @@ impl Ede {
         self.remap(window, rect.loc);
     }
 
+    /// `output`'s work area changed (a panel's exclusive zone came, changed
+    /// or went, #EDE-139): its tiled and maximized windows fill the new one,
+    /// in place (who is in front stays).
+    pub fn refit_tiles(&mut self, output: &Output) {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
+            let Some(tile) = window_state(&w).tile else { continue };
+            let Some(geo) = self.desk.space.element_geometry(&w) else { continue };
+            let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+            if self.desk.space.output_under(center).next() == Some(output) {
+                self.tile(&w, tile);
+            }
+        }
+    }
+
     /// `rect` minus the title bar at its top (what the window itself gets).
     pub fn without_frame(&self, window: &Window, rect: Rect) -> Rect {
         let fh = self.frame_height(window);
