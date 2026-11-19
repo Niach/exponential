@@ -16,6 +16,8 @@ import {
   SESSIONS_SEND_MAX_WAKE_ON,
   messageCardSchema,
   QUESTION_CARD_OPTIONS_MAX,
+  REPLIES_MAX,
+  suggestionInputSchema,
   questionCardOptionDescriptionsSchema,
   questionCardOptionSchema,
   sessionsConfigureInputSchema,
@@ -89,6 +91,7 @@ import {
   dismissReplies,
   dismissSuggestion,
   fileSuggestion,
+  sealedCardItemExtras,
   sendReply,
   startAllSuggestions,
   startSuggestion,
@@ -171,9 +174,15 @@ async function loadDeviceSession(
 // NEW-57: `meeting: true` rides the tRPC send alone (meeting.json
 // RESIDENCY); the shared schema (and with it the MCP tool) never has it.
 // F21: so does `clientMessageId`, the sender's idempotency key.
+// #EXP-1958: and `cardItem`, a tap on a SEALED replies / suggestions card
+// (sealed-content.json `cardStamps`): the server stamps that item.
 const sessionsSendTrpcInputSchema = z.intersection(
   sessionsSendInputSchema,
-  z.object({ meeting: z.literal(true).optional(), clientMessageId: sessionsSendClientMessageIdSchema.optional() })
+  z.object({
+    meeting: z.literal(true).optional(),
+    clientMessageId: sessionsSendClientMessageIdSchema.optional(),
+    cardItem: z.object({ messageId: uuid, itemId: z.string().min(1).max(64) }).optional(),
+  })
 )
 
 const noOpTx = (database: typeof db) => database.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
@@ -217,11 +226,12 @@ export const sessionsRouter = router({
   /** THE entrypoint. → { sessionId, messageId, txid }. */
   send: authedProcedure
     .input(sessionsSendTrpcInputSchema)
-    .mutation(({ ctx, input: { meeting, clientMessageId, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
+    .mutation(async ({ ctx, input: { meeting, clientMessageId, cardItem, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
       sendSession({
         userId: ctx.session.user.id,
         input,
         clientMessageId,
+        ...(cardItem ? { extras: await sealedCardItemExtras(ctx.session.user.id, input, cardItem) } : {}),
         // NEW-57: a meeting transcript batch (tRPC only: the MCP tool never
         // carries it; `sendSession` refuses it over MCP anyway).
         meeting: meeting === true,
@@ -390,9 +400,15 @@ export const sessionsRouter = router({
     .input(suggestionRef)
     .mutation(({ ctx, input }) => dismissSuggestion(ctx.session.user.id, input)),
 
-  /** File as issue: on the chat's board, linked to the chat. */
+  /** File as issue: on the chat's board, linked to the chat. A SEALED
+   *  card's item names its `title` + `text` (#EXP-1958). */
   fileSuggestion: authedProcedure
-    .input(suggestionRef)
+    .input(
+      suggestionRef.extend({
+        title: suggestionInputSchema.shape.title.optional(),
+        text: suggestionInputSchema.shape.text.optional(),
+      })
+    )
     .mutation(({ ctx, input }) =>
       fileSuggestion(ctx.session.user.id, input, async (args) => {
         const { issue } = await issuesRouter.createCaller(ctx).create(args)
@@ -407,9 +423,10 @@ export const sessionsRouter = router({
     .input(suggestionRef)
     .mutation(({ ctx, input }) => sendReply(ctx.session.user.id, input)),
 
+  /** `itemIds` = a SEALED card's open replies (#EXP-1958). */
   dismissReplies: authedProcedure
-    .input(z.object({ messageId: uuid }))
-    .mutation(({ ctx, input }) => dismissReplies(ctx.session.user.id, input.messageId)),
+    .input(z.object({ messageId: uuid, itemIds: z.array(z.string().min(1).max(64)).min(1).max(REPLIES_MAX).optional() }))
+    .mutation(({ ctx, input }) => dismissReplies(ctx.session.user.id, input.messageId, input.itemIds)),
 
   /** EXP-1334: change a live session's launch options mid-session (plan
    *  mode, effort, ultracode, computer use, MCP picks). Same rule as

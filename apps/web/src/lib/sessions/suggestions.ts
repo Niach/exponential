@@ -5,8 +5,10 @@ import {
   SUGGESTIONS_MAX,
   type MessageCard,
   type ReplyItem,
+  type SessionsSendInput,
   type SuggestionItem,
 } from "@exp/db-schema/domain"
+import { cardStamp, type CardStamp } from "@exp/domain-contract/sealed-content"
 import { db } from "@/db/connection"
 import { boards, issues, messages, sessionIssues, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -14,8 +16,8 @@ import { boardVisible } from "@/lib/board-visibility"
 import { assertCanSteer, isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
 import { insertMessage, messageWithSession } from "@/lib/sessions/messages"
-import { isSealedCard } from "@/lib/sessions/sealed"
-import { sendSession } from "@/lib/sessions/send"
+import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
+import { sendSession, type SendExtras } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
 import {
   patchReplies,
@@ -40,18 +42,105 @@ const sealedRefused = () => new TRPCError({ code: `BAD_REQUEST`, message: SEALED
 
 /** The card message + its session, steer-gated. */
 async function loadSuggestionCard(userId: string, messageId: string) {
-  const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, messageId)).limit(1)
-  if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
-  const session = await loadSessionForUser(userId, message.sessionId)
-  await assertCanSteer(userId, session)
-  const card = message.card as MessageCard | null
+  const loaded = await loadCardMessage(userId, messageId)
+  const card = loaded.message.card as MessageCard | null
   // EXP-1458: a sealed card's items live inside `sealed`: the server never
-  // reads (or stamps) them.
+  // reads them (#EXP-1958: it only stamps them, `sealedCard` below).
   if (isSealedCard(card)) throw sealedRefused()
   if (!card || card.kind !== `suggestions`) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `This message suggests nothing` })
   }
-  return { message, session, card }
+  return { ...loaded, card }
+}
+
+/** A card's message + its session, steer-gated (like answering a card). */
+async function loadCardMessage(userId: string, messageId: string) {
+  const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, messageId)).limit(1)
+  if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
+  const session = await loadSessionForUser(userId, message.sessionId)
+  await assertCanSteer(userId, session)
+  return { message, session }
+}
+
+// #EXP-1958 (sealed-content.json `cardStamps`): a SEALED replies /
+// suggestions card is the client's to act on. It opens the card and sends
+// the item's text sealed (`sessions.send` + `cardItem`); the server only
+// stamps the item id in the card's clear `stamps`, never reading a word.
+
+type SealedKind = `replies` | `suggestions`
+
+/** The sealed card of `messageId` (steer-gated), or null when it is not
+ *  sealed; a sealed card of another kind = BAD_REQUEST. */
+async function loadSealedCard(userId: string, messageId: string, kind: SealedKind) {
+  const loaded = await loadCardMessage(userId, messageId)
+  const card = loaded.message.card as Record<string, unknown> | null
+  if (!isSealedCard(card)) return null
+  if (card!.kind !== kind) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: kind === `replies` ? `This message offers no replies` : `This message suggests nothing`,
+    })
+  }
+  return loaded
+}
+
+/** Stamps `itemIds` of a sealed card under the message row's lock: the
+ *  clear `stamps[id]` gains `stamp`. `fresh` = a stamped item is a CONFLICT
+ *  (rolls the caller's transaction back), else it is stamped again. */
+async function stampSealedItems(
+  tx: Tx,
+  messageId: string,
+  itemIds: readonly string[],
+  stamp: CardStamp,
+  fresh: boolean
+): Promise<void> {
+  const [row] = await tx
+    .select({ card: messages.card })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .for(`update`)
+  const card = (row?.card ?? null) as Record<string, unknown> | null
+  if (!isSealedCard(card)) throw new TRPCError({ code: `CONFLICT`, message: `This card changed` })
+  const raw = card!.stamps
+  const stamps: Record<string, CardStamp> =
+    raw && typeof raw === `object` && !Array.isArray(raw) ? { ...(raw as Record<string, CardStamp>) } : {}
+  for (const id of itemIds) {
+    const prior = Object.hasOwn(stamps, id) ? cardStamp(stamps[id]) : {}
+    if (fresh && Object.keys(prior).length > 0) {
+      throw new TRPCError({ code: `CONFLICT`, message: `This was already handled` })
+    }
+    stamps[id] = { ...prior, ...stamp }
+  }
+  await tx
+    .update(messages)
+    .set({ card: { ...card, stamps } as unknown as MessageCard, updatedAt: new Date() })
+    .where(eq(messages.id, messageId))
+}
+
+/** `sessions.send`'s tRPC-only `cardItem`: a tap on a sealed card. The
+ *  send must target the card's session (a suggestions card: `parentId` =
+ *  Start too) with a SEALED text; the stamp rides its transaction. */
+export async function sealedCardItemExtras(
+  userId: string,
+  input: SessionsSendInput,
+  ref: { messageId: string; itemId: string }
+): Promise<SendExtras> {
+  const loaded = await loadCardMessage(userId, ref.messageId)
+  const card = loaded.message.card as Record<string, unknown> | null
+  const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+  if (!isSealedCard(card) || (card!.kind !== `replies` && card!.kind !== `suggestions`)) {
+    throw bad(`cardItem names a sealed replies or suggestions card`)
+  }
+  const here = input.sessionId === loaded.message.sessionId && !input.parentId
+  const start = card!.kind === `suggestions` && input.parentId === loaded.message.sessionId && !input.sessionId
+  if (!here && !start) throw bad(`cardItem sends into the card's session`)
+  if (typeof input.text !== `string` || !isSealedBody(input.text)) throw bad(`cardItem needs an encrypted text`)
+  return {
+    within: async (tx, result) => {
+      const stamp: CardStamp = start ? { sessionId: result.sessionId } : card!.kind === `replies` ? { sent: true } : { here: true }
+      await stampSealedItems(tx, ref.messageId, [ref.itemId], stamp, true)
+    },
+  }
 }
 
 function openItem(card: Extract<MessageCard, { kind: `suggestions` }>, itemId: string) {
@@ -204,8 +293,18 @@ export async function sendReply(
 
 export async function dismissReplies(
   userId: string,
-  messageId: string
+  messageId: string,
+  itemIds?: readonly string[]
 ): Promise<{ txid: number }> {
+  // #EXP-1958: a sealed card's ids are the client's (it opened the card).
+  if (await loadSealedCard(userId, messageId, `replies`)) {
+    if (!itemIds?.length) throw new TRPCError({ code: `BAD_REQUEST`, message: `Name the replies to dismiss` })
+    return db.transaction(async (tx) => {
+      const txid = await generateTxId(tx)
+      await stampSealedItems(tx, messageId, itemIds, { sent: true }, false)
+      return { txid }
+    })
+  }
   await loadRepliesCard(userId, messageId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
@@ -298,6 +397,13 @@ export async function dismissSuggestion(
   userId: string,
   input: { messageId: string; itemId: string }
 ): Promise<{ txid: number }> {
+  if (await loadSealedCard(userId, input.messageId, `suggestions`)) {
+    return db.transaction(async (tx) => {
+      const txid = await generateTxId(tx)
+      await stampSealedItems(tx, input.messageId, [input.itemId], { dismissed: true }, true)
+      return { txid }
+    })
+  }
   await loadSuggestionCard(userId, input.messageId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
@@ -349,7 +455,7 @@ export async function chatBoardId(rootId: string): Promise<string | null> {
  *  leaving an orphan issue behind a lost stamp. */
 export async function fileSuggestion(
   userId: string,
-  input: { messageId: string; itemId: string },
+  input: { messageId: string; itemId: string; title?: string; text?: string },
   createIssue: (args: {
     boardId: string
     title: string
@@ -357,8 +463,47 @@ export async function fileSuggestion(
     sessionId: string
   }) => Promise<{ issueId: string }>
 ): Promise<{ issueId: string; txid: number }> {
+  // #EXP-1958: a sealed item's title and text come from the client that
+  // opened it (an issue is clear: the person files it on the board).
+  const sealed = await loadSealedCard(userId, input.messageId, `suggestions`)
+  if (sealed) {
+    if (!input.title?.trim() || !input.text?.trim()) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Filing an encrypted suggestion needs its title and text` })
+    }
+    return fileItem(
+      sealed.session,
+      { title: input.title, text: input.text },
+      createIssue,
+      (tx, issueId) => stampSealedItems(tx, input.messageId, [input.itemId], { issueId }, true),
+      // Locked and checked open first: a lost stamp never leaves an orphan issue.
+      (tx) => stampSealedItems(tx, input.messageId, [input.itemId], {}, true)
+    )
+  }
   const { message, session, card } = await loadSuggestionCard(userId, input.messageId)
   const item = openItem(card, input.itemId)
+  return fileItem(session, item, createIssue, async (tx, issueId) => {
+    await stampItem(tx, message.id, item.id, { issueId })
+  }, async (tx) => {
+    const [locked] = await tx
+      .select({ card: messages.card })
+      .from(messages)
+      .where(eq(messages.id, message.id))
+      .for(`update`)
+    // The same open-state check the stamp makes, before anything is created.
+    const open = patchSuggestion((locked?.card ?? null) as MessageCard | null, item.id, {})
+    if (!open.ok) throw new TRPCError({ code: open.code, message: open.message })
+  })
+}
+
+/** The issue on the chat's board, then the stamp, in one transaction
+ *  (`lock` re-checks the item open under the row lock first). */
+async function fileItem(
+  session: { id: string; rootId: string },
+  item: { title: string; text: string },
+  createIssue: Parameters<typeof fileSuggestion>[2],
+  stamp: (tx: Tx, issueId: string) => Promise<void>,
+  lock?: (tx: Tx) => Promise<void>
+): Promise<{ issueId: string; txid: number }> {
   const boardId = await chatBoardId(session.rootId)
   if (!boardId) {
     throw new TRPCError({
@@ -368,21 +513,14 @@ export async function fileSuggestion(
   }
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const [locked] = await tx
-      .select({ card: messages.card })
-      .from(messages)
-      .where(eq(messages.id, message.id))
-      .for(`update`)
-    // The same open-state check the stamp makes, before anything is created.
-    const open = patchSuggestion((locked?.card ?? null) as MessageCard | null, item.id, {})
-    if (!open.ok) throw new TRPCError({ code: open.code, message: open.message })
+    await lock?.(tx)
     const { issueId } = await createIssue({
       boardId,
       title: item.title.slice(0, 500),
       description: item.text,
       sessionId: session.id,
     })
-    await stampItem(tx, message.id, item.id, { issueId })
+    await stamp(tx, issueId)
     return { issueId, txid }
   })
 }

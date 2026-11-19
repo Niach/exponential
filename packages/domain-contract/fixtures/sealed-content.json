@@ -1736,7 +1736,7 @@
     ]
   },
   "serverComposed": {
-    "$comment": "#EXP-1957 SERVER-COMPOSED LINES (the server half; replayed by apps/web server-composed.real-db.test.ts): a keyed tree refuses plaintext from every WRITER (`PLAIN_IN_SEALED_TREE_MESSAGE`), but text the SERVER composes from data it already holds in clear is a server line, legal plaintext there, like the bare issue-forward line: a reply chip or a suggestion's Do it here / Start of an UNSEALED card (the item text is clear on the card), an app's hand-off brief to a team agent (the package's prompt + the input as a data block), the `Link #A #B` wake line of a manual link. Only server code marks a send server-composed (`SendExtras.serverComposed`), never a tRPC or MCP input: the same text sent by a client or an MCP caller into the same keyed tree is still refused. A SEALED card stays refused (`SEALED_SUGGESTIONS_MESSAGE`): its items are not the server's to read (#EXP-1958, the client half). `via` = the path, `card` = the card's state where one is acted on, `landed` = the plaintext line is posted (and the card item stamped).",
+    "$comment": "#EXP-1957 SERVER-COMPOSED LINES (the server half; replayed by apps/web server-composed.real-db.test.ts): a keyed tree refuses plaintext from every WRITER (`PLAIN_IN_SEALED_TREE_MESSAGE`), but text the SERVER composes from data it already holds in clear is a server line, legal plaintext there, like the bare issue-forward line: a reply chip or a suggestion's Do it here / Start of an UNSEALED card (the item text is clear on the card), an app's hand-off brief to a team agent (the package's prompt + the input as a data block), the `Link #A #B` wake line of a manual link. Only server code marks a send server-composed (`SendExtras.serverComposed`), never a tRPC or MCP input: the same text sent by a client or an MCP caller into the same keyed tree is still refused. A SEALED card stays refused (`SEALED_SUGGESTIONS_MESSAGE`): its items are not the server's to read; the client sends them sealed (`cardStamps`, #EXP-1958). `via` = the path, `card` = the card's state where one is acted on, `landed` = the plaintext line is posted (and the card item stamped).",
     "cases": [
       {
         "name": "a reply chip of an unsealed replies card",
@@ -1789,6 +1789,441 @@
         "via": "mcpSend",
         "tree": "keyed",
         "landed": false
+      }
+    ]
+  },
+  "cardStamps": {
+    "$comment": "#EXP-1958 SEALED REPLIES / SUGGESTIONS CARDS (the client half): the server never reads a sealed card's items, so a tap is the CLIENT's: it opens the card with the tree key and sends the picked item's text SEALED through the composer's own writer (`sessions.send`); the server only STAMPS the item, in that send's transaction, never seeing any text. STAMPS: a sealed `replies` / `suggestions` card carries the clear, server-written `stamps` = {<itemId>: stamp}; a stamp holds only `fields` (`sent`, `here`, `dismissed` = true; `sessionId`, `issueId` = a string id). Writers never send `stamps` (a writer's sealed card with it is refused like any non-clear field). `openCard` (status opened) lays each item's stamp over that item (the allowed fields only, of their type; a stamp for an id no item carries is ignored) and drops `stamps` from the opened card; any other status returns the clear part (stamps included) alone; a plain card is returned as is. So every reader shows a stamped item like a clear card's handled one (sent, started, here, filed, dismissed). `openCases`: `stored` = a `card.splits` name whose envelope gets `stamps`, opened with `keys` (`tree` | `none`) to `status` and the opened `items` (or, unopened, the clear `card`). WIRE (`tapCases`, `cardItemWire({stored, opened, action})` -> `wire` + `call`): an UNSEALED card keeps the server actions (`wire: server`: sendReply, startSuggestion child|here, startAllSuggestions, dismissSuggestion, dismissReplies, fileSuggestion; the server composes the text, #EXP-1957). A SEALED card this install OPENED (`wire: sealed`, `call: sessions.send` through the sealing writer, `cardItem: {messageId, itemId}` beside it): reply = `{sessionId: the card's session, text: the reply}`; Do it here = `{sessionId: the card's session, text: the item's request (title, a blank line, text)}`; Start = `{parentId: the card's session, text: the request, name: the title (leaves as sealedName), issueIds: the item's issue ids (uuids as they are, an #IDENT the client's issue store resolves, unknown dropped), deviceId / account / model as picked}`; Start all = Start for each open item in card order, one send each. The other actions stamp (`wire: stamp`): dismiss = `sessions.dismissSuggestion {messageId, itemId}`; dismiss replies = `sessions.dismissReplies {messageId, itemIds: every open reply}`; File as issue = `sessions.fileSuggestion {messageId, itemId, title, text}` (an issue is clear by design: the person publishes the item to the board). A sealed card this install cannot open = `refused`: nothing leaves (the action toasts like a failed one). `cardItem` is tRPC only, never on the MCP tool. SERVER (`serverCases`, replayed by apps/web sealed-card-taps.real-db.test.ts on a tree started in clear, then keyed): a send with `cardItem` needs a SEALED replies / suggestions card the caller may steer (`assertCanSteer` on the card's session), a target that is the card's session (`sessionId`; on a suggestions card `parentId` too = Start; a replies card takes no Start), a SEALED text (`exp-sealed:`), and an item with no stamp yet (else CONFLICT and the send rolls back, nothing posted); the stamp (`sent` on replies, `here` on a message into the suggestions card's session, `sessionId` = the started child) is written under the message row's lock in the send's transaction. On a sealed card `sendReply`, `startSuggestion` and `startAllSuggestions` stay refused (`SEALED_SUGGESTIONS_MESSAGE`); `dismissSuggestion` stamps `dismissed`, `dismissReplies` stamps `sent` on each named id (no ids = BAD_REQUEST), `fileSuggestion` needs `title` + `text` (else BAD_REQUEST) and stamps `issueId`. `stamp` = what lands in `stamps[itemId]`, `landed` = the send / stamp happened, `code` = the refusal.",
+    "fields": [
+      "sent",
+      "here",
+      "dismissed",
+      "sessionId",
+      "issueId"
+    ],
+    "openCases": [
+      {
+        "name": "a sealed replies card with its reply sent",
+        "stored": "replies",
+        "stamps": {
+          "r1": {
+            "sent": true
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "id": "r1",
+            "sent": true,
+            "text": "Yes, ship it"
+          }
+        ]
+      },
+      {
+        "name": "a sealed suggestion started as a child",
+        "stored": "suggestions",
+        "stamps": {
+          "s1": {
+            "sessionId": "00000000-0000-4000-8000-000000000021"
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "id": "s1",
+            "issueId": "00000000-0000-4000-8000-000000000012",
+            "sessionId": "00000000-0000-4000-8000-000000000021",
+            "text": "Cover the readers rule",
+            "title": "Add tests"
+          }
+        ]
+      },
+      {
+        "name": "a sealed suggestion done here",
+        "stored": "suggestions",
+        "stamps": {
+          "s1": {
+            "here": true
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "here": true,
+            "id": "s1",
+            "issueId": "00000000-0000-4000-8000-000000000012",
+            "text": "Cover the readers rule",
+            "title": "Add tests"
+          }
+        ]
+      },
+      {
+        "name": "a sealed suggestion dismissed",
+        "stored": "suggestions",
+        "stamps": {
+          "s1": {
+            "dismissed": true
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "dismissed": true,
+            "id": "s1",
+            "issueId": "00000000-0000-4000-8000-000000000012",
+            "text": "Cover the readers rule",
+            "title": "Add tests"
+          }
+        ]
+      },
+      {
+        "name": "a stamp for an id the card does not carry is ignored",
+        "stored": "replies",
+        "stamps": {
+          "r9": {
+            "sent": true
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "id": "r1",
+            "sent": false,
+            "text": "Yes, ship it"
+          }
+        ]
+      },
+      {
+        "name": "a stamp's unknown fields and wrong types are dropped",
+        "stored": "suggestions",
+        "stamps": {
+          "s1": {
+            "title": "Rewritten",
+            "here": "yes",
+            "sessionId": 7
+          }
+        },
+        "keys": "tree",
+        "status": "opened",
+        "items": [
+          {
+            "id": "s1",
+            "issueId": "00000000-0000-4000-8000-000000000012",
+            "text": "Cover the readers rule",
+            "title": "Add tests"
+          }
+        ]
+      },
+      {
+        "name": "no key: the clear part alone, stamps included",
+        "stored": "replies",
+        "stamps": {
+          "r1": {
+            "sent": true
+          }
+        },
+        "keys": "none",
+        "status": "noKey",
+        "card": {
+          "kind": "replies",
+          "stamps": {
+            "r1": {
+              "sent": true
+            }
+          }
+        }
+      }
+    ],
+    "tapCases": [
+      {
+        "name": "a reply chip of an unsealed card",
+        "stored": "plain",
+        "opened": true,
+        "action": "reply",
+        "wire": "server",
+        "call": "sessions.sendReply"
+      },
+      {
+        "name": "Do it here on an unsealed card",
+        "stored": "plain",
+        "opened": true,
+        "action": "here",
+        "wire": "server",
+        "call": "sessions.startSuggestion"
+      },
+      {
+        "name": "Start on an unsealed card",
+        "stored": "plain",
+        "opened": true,
+        "action": "start",
+        "wire": "server",
+        "call": "sessions.startSuggestion"
+      },
+      {
+        "name": "Start all on an unsealed card",
+        "stored": "plain",
+        "opened": true,
+        "action": "startAll",
+        "wire": "server",
+        "call": "sessions.startAllSuggestions"
+      },
+      {
+        "name": "dismissing an unsealed suggestion",
+        "stored": "plain",
+        "opened": true,
+        "action": "dismiss",
+        "wire": "server",
+        "call": "sessions.dismissSuggestion"
+      },
+      {
+        "name": "dismissing unsealed replies",
+        "stored": "plain",
+        "opened": true,
+        "action": "dismissReplies",
+        "wire": "server",
+        "call": "sessions.dismissReplies"
+      },
+      {
+        "name": "filing an unsealed suggestion",
+        "stored": "plain",
+        "opened": true,
+        "action": "file",
+        "wire": "server",
+        "call": "sessions.fileSuggestion"
+      },
+      {
+        "name": "a reply chip of a sealed card",
+        "stored": "sealed",
+        "opened": true,
+        "action": "reply",
+        "wire": "sealed",
+        "call": "sessions.send"
+      },
+      {
+        "name": "Do it here on a sealed card",
+        "stored": "sealed",
+        "opened": true,
+        "action": "here",
+        "wire": "sealed",
+        "call": "sessions.send"
+      },
+      {
+        "name": "Start on a sealed card",
+        "stored": "sealed",
+        "opened": true,
+        "action": "start",
+        "wire": "sealed",
+        "call": "sessions.send"
+      },
+      {
+        "name": "Start all on a sealed card (one send per open item)",
+        "stored": "sealed",
+        "opened": true,
+        "action": "startAll",
+        "wire": "sealed",
+        "call": "sessions.send"
+      },
+      {
+        "name": "dismissing a sealed suggestion",
+        "stored": "sealed",
+        "opened": true,
+        "action": "dismiss",
+        "wire": "stamp",
+        "call": "sessions.dismissSuggestion"
+      },
+      {
+        "name": "dismissing sealed replies (their ids)",
+        "stored": "sealed",
+        "opened": true,
+        "action": "dismissReplies",
+        "wire": "stamp",
+        "call": "sessions.dismissReplies"
+      },
+      {
+        "name": "filing a sealed suggestion (its title and text)",
+        "stored": "sealed",
+        "opened": true,
+        "action": "file",
+        "wire": "stamp",
+        "call": "sessions.fileSuggestion"
+      },
+      {
+        "name": "a reply chip of a sealed card this install cannot open",
+        "stored": "sealed",
+        "opened": false,
+        "action": "reply",
+        "wire": "refused",
+        "call": null
+      },
+      {
+        "name": "Start on a sealed card this install cannot open",
+        "stored": "sealed",
+        "opened": false,
+        "action": "start",
+        "wire": "refused",
+        "call": null
+      },
+      {
+        "name": "dismissing a sealed suggestion this install cannot open",
+        "stored": "sealed",
+        "opened": false,
+        "action": "dismiss",
+        "wire": "refused",
+        "call": null
+      }
+    ],
+    "serverCases": [
+      {
+        "name": "a sealed reply lands and stamps sent",
+        "card": "replies",
+        "via": "send",
+        "target": "sessionId",
+        "text": "sealed",
+        "landed": true,
+        "stamp": {
+          "sent": true
+        }
+      },
+      {
+        "name": "Do it here lands and stamps here",
+        "card": "suggestions",
+        "via": "send",
+        "target": "sessionId",
+        "text": "sealed",
+        "landed": true,
+        "stamp": {
+          "here": true
+        }
+      },
+      {
+        "name": "Start lands a child and stamps its session",
+        "card": "suggestions",
+        "via": "send",
+        "target": "parentId",
+        "text": "sealed",
+        "landed": true,
+        "stamp": {
+          "sessionId": "started"
+        }
+      },
+      {
+        "name": "a second tap on a stamped item",
+        "card": "replies",
+        "via": "send",
+        "target": "sessionId",
+        "text": "sealed",
+        "stamped": true,
+        "landed": false,
+        "code": "CONFLICT"
+      },
+      {
+        "name": "a plaintext text beside cardItem",
+        "card": "replies",
+        "via": "send",
+        "target": "sessionId",
+        "text": "plain",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "cardItem naming an unsealed card",
+        "card": "plainReplies",
+        "via": "send",
+        "target": "sessionId",
+        "text": "sealed",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "cardItem into another session",
+        "card": "replies",
+        "via": "send",
+        "target": "other",
+        "text": "sealed",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "Start from a replies card",
+        "card": "replies",
+        "via": "send",
+        "target": "parentId",
+        "text": "sealed",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "a member who may not steer the card's session",
+        "card": "replies",
+        "via": "send",
+        "target": "sessionId",
+        "text": "sealed",
+        "steer": false,
+        "landed": false,
+        "code": "FORBIDDEN"
+      },
+      {
+        "name": "the server's own reply action on a sealed card",
+        "card": "replies",
+        "via": "sendReply",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "the server's own Start on a sealed card",
+        "card": "suggestions",
+        "via": "startSuggestion",
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "dismissing a sealed suggestion",
+        "card": "suggestions",
+        "via": "dismissSuggestion",
+        "landed": true,
+        "stamp": {
+          "dismissed": true
+        }
+      },
+      {
+        "name": "dismissing sealed replies by their ids",
+        "card": "replies",
+        "via": "dismissReplies",
+        "itemIds": true,
+        "landed": true,
+        "stamp": {
+          "sent": true
+        }
+      },
+      {
+        "name": "dismissing sealed replies without ids",
+        "card": "replies",
+        "via": "dismissReplies",
+        "itemIds": false,
+        "landed": false,
+        "code": "BAD_REQUEST"
+      },
+      {
+        "name": "filing a sealed suggestion with its title and text",
+        "card": "suggestions",
+        "via": "fileSuggestion",
+        "text": "given",
+        "landed": true,
+        "stamp": {
+          "issueId": "filed"
+        }
+      },
+      {
+        "name": "filing a sealed suggestion without its text",
+        "card": "suggestions",
+        "via": "fileSuggestion",
+        "landed": false,
+        "code": "BAD_REQUEST"
       }
     ]
   }

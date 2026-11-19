@@ -409,10 +409,82 @@ export function openCard(card: Card, keys: TreeKeys): OpenedCard {
   if (!inner || typeof inner !== `object` || Array.isArray(inner) || (inner as Card).kind !== clear.kind) {
     return { status: `refused`, epoch: opened.epoch, card: clear }
   }
-  // The clear `pictures` is a projection: the sealed ones stay whole, and
-  // only take the ids of pictures uploaded after sealing.
-  const { pictures: projected, ...over } = clear
-  return { status: `opened`, epoch: opened.epoch, card: resolveClearPictures({ ...(inner as Card), ...over }, projected) }
+  return { status: `opened`, epoch: opened.epoch, card: overlayClear(inner as Card, clear) }
+}
+
+/** The opened card: the sealed card with its clear fields laid over it.
+ *  The clear `pictures` is a projection (the sealed ones stay whole, and
+ *  only take the ids of pictures uploaded after sealing); the clear
+ *  `stamps` land on their items (`applyCardStamps`). */
+export function overlayClear(inner: Card, clear: Card): Card {
+  const { pictures: projected, stamps, ...over } = clear
+  return applyCardStamps(resolveClearPictures({ ...inner, ...over }, projected), stamps)
+}
+
+// ── stamps on a sealed replies / suggestions card (`cardStamps`, #EXP-1958) ──
+
+/** What a clear stamp may set on an item: flags (true) and ids (strings). */
+export const CARD_STAMP_FIELDS = [`sent`, `here`, `dismissed`, `sessionId`, `issueId`] as const
+export type CardStampField = (typeof CARD_STAMP_FIELDS)[number]
+export type CardStamp = { sent?: true; here?: true; dismissed?: true; sessionId?: string; issueId?: string }
+
+/** The allowed fields of one clear stamp, each of its type (others dropped). */
+export function cardStamp(raw: unknown): CardStamp {
+  const out: Record<string, unknown> = {}
+  if (!raw || typeof raw !== `object` || Array.isArray(raw)) return out
+  for (const field of CARD_STAMP_FIELDS) {
+    const value = (raw as Record<string, unknown>)[field]
+    if (field === `sessionId` || field === `issueId` ? typeof value === `string` : value === true) out[field] = value
+  }
+  return out as CardStamp
+}
+
+/** The server's clear `stamps` laid over the opened card's items (an id no
+ *  item carries is ignored); `stamps` itself never reaches the reader. */
+export function applyCardStamps(card: Card, stamps: unknown): Card {
+  if (!stamps || typeof stamps !== `object` || Array.isArray(stamps) || !Array.isArray(card.items)) return card
+  const byId = stamps as Record<string, unknown>
+  return {
+    ...card,
+    items: card.items.map((item: unknown) => {
+      const id = (item as { id?: unknown } | null)?.id
+      if (typeof id !== `string` || !Object.hasOwn(byId, id)) return item
+      return { ...(item as Card), ...cardStamp(byId[id]) }
+    }),
+  }
+}
+
+export type CardItemAction = `reply` | `here` | `start` | `startAll` | `dismiss` | `dismissReplies` | `file`
+export type CardItemWire = `server` | `sealed` | `stamp` | `refused`
+
+const SERVER_CALLS: Record<CardItemAction, string> = {
+  reply: `sessions.sendReply`,
+  here: `sessions.startSuggestion`,
+  start: `sessions.startSuggestion`,
+  startAll: `sessions.startAllSuggestions`,
+  dismiss: `sessions.dismissSuggestion`,
+  dismissReplies: `sessions.dismissReplies`,
+  file: `sessions.fileSuggestion`,
+}
+
+/** Which wire a tap on a replies / suggestions card takes (`tapCases`):
+ *  decided by the STORED card (sealed or not) and whether this install
+ *  opened it, never by the tree's key alone. */
+export function cardItemWire(input: { sealed: boolean; opened: boolean; action: CardItemAction }): {
+  wire: CardItemWire
+  call: string | null
+} {
+  if (!input.sealed) return { wire: `server`, call: SERVER_CALLS[input.action] }
+  if (!input.opened) return { wire: `refused`, call: null }
+  switch (input.action) {
+    case `reply`:
+    case `here`:
+    case `start`:
+    case `startAll`:
+      return { wire: `sealed`, call: `sessions.send` }
+    default:
+      return { wire: `stamp`, call: SERVER_CALLS[input.action] }
+  }
 }
 
 // ── a tree that moved on (fixtures/sealed-content.json `staleTree`) ────────
