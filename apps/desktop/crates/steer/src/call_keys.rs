@@ -31,11 +31,15 @@ impl Drop for CallKey {
 pub type CallKeyFuture<'a> = Pin<Box<dyn Future<Output = Result<CallKey, String>> + Send + 'a>>;
 
 pub trait CallKeySource: Send + Sync {
-    /// The key of this call, once: `caller` is the caller's hello (its root
-    /// is all zeros on a first call). `Err` = no key (its reason is logged,
-    /// never a key): the call ends `no_key`. The socket drops the future when
-    /// the call ends first: a source must stop then.
-    fn key(&self, caller: CallHello) -> CallKeyFuture<'_>;
+    /// The key of this call, once, for the OTHER end's hello. A host gets
+    /// the caller's (its root is all zeros on a first call) and answers the
+    /// root and the epoch its own hello will name. A caller gets the host's
+    /// and answers the root and the epoch its OWN `sendTarget` answer names
+    /// now (asked again once when the hello names others or a rotation was
+    /// due): `finish` holds the two against the hello. `Err` = no key (its
+    /// reason is logged, never a key): the call ends `no_key`. The socket
+    /// drops the future when the call ends first: a source must stop then.
+    fn key(&self, peer: CallHello) -> CallKeyFuture<'_>;
 }
 
 /// What a host told `seal` joins with.
@@ -44,8 +48,11 @@ pub struct CallSealing {
     /// The ring's call id and agent id, after the server vouched for both.
     pub call_id: String,
     pub agent_id: String,
-    /// This host's own steer device id.
+    /// The HOST's steer device id: a host's own, a caller's `startCall` answer.
     pub device_id: String,
+    /// CALLER ONLY: the root and the epoch its `sendTarget` answer named
+    /// before it dialled (None on a first call: its hello carries zeros).
+    pub caller_target: Option<(String, u32)>,
     pub keys: Arc<dyn CallKeySource>,
 }
 
@@ -57,7 +64,7 @@ pub struct FixedKeySource {
 }
 
 impl CallKeySource for FixedKeySource {
-    fn key(&self, _caller: CallHello) -> CallKeyFuture<'_> {
+    fn key(&self, _peer: CallHello) -> CallKeyFuture<'_> {
         Box::pin(async move {
             tokio::time::sleep(self.delay).await;
             let (root_id, epoch, secret) = self.key.clone().ok_or("no key holder")?;
