@@ -1,7 +1,8 @@
 //! #EDE-139 headless: windows after a display change. A scale or mode
 //! change, a resize under the session and an unplug leave every window on
 //! an output: the outputs close ranks and their windows go along, tiled and
-//! fullscreen windows fill their output again, and who is in front stays.
+//! fullscreen windows fill their output again, a window parked on another
+//! workspace comes back on one, and who is in front stays.
 
 mod common;
 
@@ -235,4 +236,43 @@ fn a_fullscreen_window_on_an_unplugged_output_is_fullscreen_on_the_one_left() {
     wait_for(&mut c, |_| geometry(&h, "game").size == (400, 300).into());
     let g = geometry(&h, "game");
     assert!(rect(0, 0, 1280, 800).contains_rect(g), "left fullscreen onto the unplugged output: {g:?}");
+}
+
+/// #EDE-139 (2d): a window parked on another workspace while its output
+/// went away comes back on the output left.
+#[test]
+fn a_window_parked_while_its_output_went_away_comes_back_on_an_output() {
+    let h = harness(&[(1280, 800), (1920, 1080)]);
+    let mut c = Session::connect(h.connect());
+    h.with(|ede| ede.pointer_motion_to((2000.0, 500.0).into(), 0));
+    open(&h, &mut c, "parked", BLUE);
+    assert_eq!(geometry(&h, "parked").loc, (2040, 390).into());
+    h.with(|ede| ede.switch_workspace(1));
+    h.with_backend(|ede, headless| headless.remove_output(ede, 1));
+
+    h.with(|ede| ede.switch_workspace(0));
+    let g = geometry(&h, "parked");
+    assert!(rect(0, 0, 1280, 800).contains_rect(g), "came back off screen at {g:?}");
+    assert_eq!(h.capture(0).at(g.loc.x + 200, g.loc.y + 150), BLUE);
+}
+
+/// #EDE-139 (2d): a maximized window parked on another workspace while
+/// its output's scale changed fills the output again when it comes back.
+#[test]
+fn a_maximized_window_parked_during_a_scale_change_fills_its_output_when_it_comes_back() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = open(&h, &mut c, "max", BLUE);
+    t.toplevel.set_maximized();
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 800));
+    c.draw_configured(&t, 0, 0, BLUE);
+    wait_for(&mut c, |_| geometry(&h, "max") == rect(0, 0, 1280, 800));
+    h.with(|ede| ede.switch_workspace(1));
+
+    h.ipc().set_output("HEADLESS-1", None, Some(2.0), None).unwrap();
+    h.with(|ede| ede.switch_workspace(0));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (640, 400) && c.state.toplevels[0].states.contains(&XdgState::Maximized));
+    c.draw_configured(&t, 0, 0, BLUE);
+    wait_for(&mut c, |_| geometry(&h, "max") == rect(0, 0, 640, 400));
 }

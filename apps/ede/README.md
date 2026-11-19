@@ -514,7 +514,9 @@ maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quit
 Super+1…9 switch, Super+Shift+1…9 take the focused window along,
 Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
 workspace is parked off screen; the taskbar still lists it and focusing it
-switches back. Over ede-protocol: `list_workspaces`, `switch_workspace`,
+switches back. A parked or minimized window comes back fitted to its output
+as it is now (a tiled or fullscreen one fills it; one whose output went
+away opens on the first, #EDE-139). Over ede-protocol: `list_workspaces`, `switch_workspace`,
 `move_to_workspace`, the `workspace.switched` event.
 
 ## Run it as the session (a TTY)
