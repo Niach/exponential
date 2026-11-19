@@ -22,6 +22,8 @@ import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.session.LocalFindPaint
+import com.exponential.app.ui.session.ownBubbleFindKey
 
 /**
  * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the bottom
@@ -31,6 +33,8 @@ import com.exponential.app.ui.markdown.MarkdownView
  * `HH:mm`. Keyed by message id, so a row keeps one bubble across states.
  * A long-press opens the bubble's menu (`bubbleActions`: Retry + Delete on a
  * failed one, Cancel sending on a stored one), a failed mark opens it too.
+ * #EXP-1975 (find-in-chat.json): each bubble paints find in chat's marks
+ * ([LocalFindPaint], keyed by [ownBubbleFindKey]).
  */
 @Composable
 fun OwnTailBubbles(
@@ -50,7 +54,7 @@ fun OwnTailBubbles(
     ) {
         bubbles.forEachIndexed { index, bubble ->
             androidx.compose.runtime.key(bubble.key) {
-                OwnTailBubble(bubble, onAction, clock, tail = startsGroup && index == 0)
+                OwnTailBubble(bubble, onAction, clock, tail = startsGroup && index == 0, findKey = ownBubbleFindKey(bubble))
             }
         }
     }
@@ -62,7 +66,9 @@ private fun OwnTailBubble(
     onAction: (MessageDelivery.Bubble, MessageDelivery.Action) -> Unit,
     clock: (wire: String) -> String?,
     tail: Boolean,
+    findKey: String,
 ) {
+    val highlight = LocalFindPaint.current?.highlight(findKey)
     val actions = bubble.actions
     var open by remember { mutableStateOf(false) }
     // #FEED-239: aligned with the transcript's own bubbles, the viewer's
@@ -80,7 +86,7 @@ private fun OwnTailBubble(
                 testTag = "chat-own-pending",
                 tail = tail,
             ) {
-                if (bubble.text.isNotBlank()) MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true)
+                if (bubble.text.isNotBlank()) MarkdownView(markdown = bubble.text, softBreaksAsNewlines = true, highlight = highlight)
             }
             // The menu anchors at the bubble's bottom-right corner.
             Box(Modifier.align(Alignment.BottomEnd)) {

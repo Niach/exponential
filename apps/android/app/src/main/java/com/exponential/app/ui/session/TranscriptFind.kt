@@ -25,6 +25,7 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.ExpToolDisplay
 import com.exponential.app.domain.FindInChat
+import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TraceLineModel
 import com.exponential.app.domain.Trace as TraceModels
@@ -92,14 +93,32 @@ internal val LocalFindPaint = compositionLocalOf<FindPaint?> { null }
 /** The find group key of a folded tool run (stable for the run's first call). */
 internal fun findGroupKey(items: List<AgentFeedItem>): String = "g:${items.first().id}"
 
-/** Every feed item's find key: `e:<session>:<seq>`; an item without a seq
- *  (or one repeating a seq already keyed) gets its own local key. */
+/** The synced message a SYNCED TAIL row draws (`synced:<id>`), else null. */
+private fun syncedMessageId(item: AgentFeedItem): String? {
+    val id = when (item) {
+        is AgentFeedItem.Narration -> item.messageId
+        is AgentFeedItem.UserMessage -> item.messageId
+        else -> null
+    }
+    return id?.takeIf { it.startsWith(SYNCED_PREFIX) }?.removePrefix(SYNCED_PREFIX)?.takeIf { it.isNotEmpty() }
+}
+
+private const val SYNCED_PREFIX = "synced:"
+
+/** Every feed item's find key: `e:<session>:<seq>`; #EXP-1975: a SYNCED
+ *  TAIL row = `m:<messageId>`; an item without either (or one repeating a
+ *  key already given) gets its own local key. */
 internal fun transcriptFindKeys(feed: List<AgentFeedItem>, sessionId: String): Map<Long, String> {
     val keys = HashMap<Long, String>(feed.size)
     val seen = HashSet<String>()
     for (item in feed) {
         val seq = item.seq
-        val base = if (seq != null) FindInChat.eventKey(sessionId, seq) else "i:$sessionId:${item.id}"
+        val synced = syncedMessageId(item)
+        val base = when {
+            seq != null -> FindInChat.eventKey(sessionId, seq)
+            synced != null -> FindInChat.messageKey(synced)
+            else -> "i:$sessionId:${item.id}"
+        }
         keys[item.id] = if (seen.add(base)) base else "$base#${item.id}"
     }
     return keys
@@ -129,8 +148,34 @@ internal fun findToolTitle(item: AgentFeedItem.Tool, live: Boolean): String? {
     return traceToolModel(item, live).title
 }
 
-/** One countable loaded row with the feed item landing reveals. */
-internal data class TranscriptFindRow(val row: FindInChat.Row, val itemId: Long, val outputCount: Int)
+/** One countable loaded row with the feed item landing reveals ([itemId]
+ *  null = an own bubble, drawn outside the feed rows). */
+internal data class TranscriptFindRow(val row: FindInChat.Row, val itemId: Long?, val outputCount: Int)
+
+/** #EXP-1975 (find-in-chat.json): an own bubble's find key: its synced row
+ *  (`m:<messageId>`), else its outbox entry (`o:<clientId>`). */
+internal fun ownBubbleFindKey(bubble: MessageDelivery.Bubble): String =
+    bubble.messageId?.takeIf { it.isNotEmpty() }?.let(FindInChat::messageKey)
+        ?: "o:${bubble.clientId ?: bubble.key}"
+
+/** #EXP-1975: the own bubbles' rows ([bubbles] in drawn order: the sent
+ *  inputs over a placeholder, then the own tail), each counting its text as
+ *  [OwnTailBubbles] paints it; a key already counted is skipped. */
+internal fun ownBubbleFindRows(
+    bubbles: List<MessageDelivery.Bubble>,
+    query: String,
+    seen: MutableSet<String> = HashSet(),
+    countMarkdown: (String) -> Int = { findMarkdownCount(it, query) },
+): List<TranscriptFindRow> {
+    if (query.isEmpty()) return emptyList()
+    val out = ArrayList<TranscriptFindRow>(bubbles.size)
+    for (bubble in bubbles) {
+        val key = ownBubbleFindKey(bubble)
+        if (!seen.add(key)) continue
+        out += TranscriptFindRow(FindInChat.Row(key, if (bubble.text.isBlank()) 0 else countMarkdown(bubble.text)), null, 0)
+    }
+    return out
+}
 
 /** Markdown matches as genUI's Markdown paints them (its normal form). */
 internal fun findMarkdownCount(text: String, query: String): Int {
@@ -144,7 +189,8 @@ internal fun findMarkdownCount(text: String, query: String): Int {
  * [query], top to bottom, over the WHOLE feed: a narration's and a person's
  * bubble text (as the bubbles draw it), a plain tool line's title (+ its
  * output's stop), a folded run's members (`group`); never thoughts, cards,
- * markers or a subagent's rows.
+ * markers or a subagent's rows. #EXP-1975: then every own bubble drawn
+ * after them ([ownBubbles]: the placeholder's sent inputs, the own tail).
  */
 internal fun transcriptFindRows(
     feed: List<AgentFeedItem>,
@@ -153,6 +199,7 @@ internal fun transcriptFindRows(
     workflowIds: Set<String> = emptySet(),
     liveRowId: Long? = null,
     agent: String? = null,
+    ownBubbles: List<MessageDelivery.Bubble> = emptyList(),
     countMarkdown: (String) -> Int = { findMarkdownCount(it, query) },
 ): List<TranscriptFindRow> {
     if (query.isEmpty()) return emptyList()
@@ -190,6 +237,9 @@ internal fun transcriptFindRows(
             }
             else -> Unit
         }
+    }
+    if (ownBubbles.isNotEmpty()) {
+        out += ownBubbleFindRows(ownBubbles, query, out.mapTo(HashSet()) { it.row.key }, countMarkdown)
     }
     return out
 }
@@ -251,18 +301,21 @@ internal fun rememberTranscriptFind(
     liveRowId: Long?,
     agent: String?,
     canLoadEarlier: Boolean,
+    /** #EXP-1975: the own bubbles drawn after the feed, in drawn order (the
+     *  placeholder's sent inputs, then the own tail). */
+    ownBubbles: List<MessageDelivery.Bubble> = emptyList(),
 ): TranscriptFind {
     val query = if (host != null) find?.activeQuery.orEmpty() else ""
     val sessionId = host?.sessionId.orEmpty()
 
     // ── The loaded rows, counted off the main thread ─────────────────────
     var counted by remember { mutableStateOf<Pair<String, List<TranscriptFindRow>>>("" to emptyList()) }
-    LaunchedEffect(query, feed, workflowIds, liveRowId, agent, sessionId) {
+    LaunchedEffect(query, feed, workflowIds, liveRowId, agent, sessionId, ownBubbles) {
         if (query.isEmpty()) {
             counted = "" to emptyList()
             return@LaunchedEffect
         }
-        val rows = withContext(Dispatchers.Default) { transcriptFindRows(feed, sessionId, query, workflowIds, liveRowId, agent) }
+        val rows = withContext(Dispatchers.Default) { transcriptFindRows(feed, sessionId, query, workflowIds, liveRowId, agent, ownBubbles) }
         counted = query to rows
     }
     val rows = if (counted.first == query) counted.second else emptyList()
