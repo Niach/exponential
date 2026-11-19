@@ -2892,10 +2892,8 @@ impl Mapper {
     /// the chunks only ACCUMULATE ([`Self::note_tool_output`]) and the settle
     /// publishes the tail once ([`Self::wire_tool_output`]). A chunk per event
     /// would be a live stream on the wire, which is the local card's job.
-    /// (An agent's ACP `terminal/*` output never reaches this mapper at all —
-    /// `crate::terminals` writes `LocalFeedEvent::Output` straight to the
-    /// local feed from its PTY reader, and neither first-party adapter uses
-    /// the capability: both report command output as `Content` blocks.)
+    /// (Both adapters report command output as `Content` blocks; the client
+    /// advertises no terminals, so a `Terminal` item has nothing behind it.)
     fn tool_content(
         &mut self,
         id: &str,
@@ -2943,20 +2941,9 @@ impl Mapper {
                         });
                     }
                 }
-                // EXP-750: the client DOES run terminals, so a Terminal item
-                // names the live command this call renders — for any kind,
-                // since an agent is free to embed one under a tool card that
-                // is not `Execute`. Local like everything else here: the
-                // engine binds the terminal to this call and its output
-                // streams in as `Output` chunks.
-                ToolCallContent::Terminal(terminal) => {
-                    out.local.push(LocalFeedEvent::TerminalBound {
-                        tool_call_id: id.to_string(),
-                        terminal_id: terminal.terminal_id.0.to_string(),
-                    })
-                }
                 // Everything else is a card detail the local renderer
-                // already has.
+                // already has (a `Terminal` item included: EXP-1991, the
+                // client runs none).
                 _ => {}
             }
         }

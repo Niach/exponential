@@ -76,12 +76,6 @@ pub struct CallCaller {
 }
 
 impl CallCaller {
-    /// A caller whose socket is already gone (the IDE's lifecycle tests).
-    #[doc(hidden)]
-    pub fn detached() -> Self {
-        Self { tx: flume::unbounded().0 }
-    }
-
     /// The microphone's PCM (mono [`UP_RATE`] Hz), framed and sent.
     pub fn send_audio(&self, pcm: Vec<i16>) {
         let _ = self.tx.send(Outbound::Audio(pcm));
