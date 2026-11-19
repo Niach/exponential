@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-19-desktop-cli-0-14-170-calls-find-copy-image",
+    date: "2026-11-19",
+    title: "Calls with their own opening line, find in chat, and Copy image",
+    summary: "Desktop and CLI 0.14.170: calls open with the agent's own line and show as one card with Chat and Voice tabs, find in chat, Copy image, chat messages show in full, and encryption fixes, with eDE 0.2.29.",
+    body: r##"- **Calls**: a call runs in its own session and the agent opens with its own line; each call is one card in the chat, and Chat and Voice tabs let you read and write while you talk.
+- **Find in chat**: search the chat you have open with Ctrl/Cmd+F, every match marked, with previous and next.
+- **Copy image**: right-click a picture in a chat and pick Copy image, on the desktop app, eDE and Linux. Pictures from other websites show as a link.
+- **Messages show in full**: long chat messages no longer fold behind "Show more".
+- **Encryption fixes**: a desktop whose P2P node fails to start now says so, and a message sent into a chat that hasn't synced yet asks the server for the chat's key and never goes out unencrypted.
+- **On the web**: a quick reply you tap in an encrypted chat is stored like the card's own text, which is not encrypted yet.
+- **eDE 0.2.29**: the start menu works with the keyboard, prompts show over fullscreen windows, screenshots are right on scaled screens, and a taskbar click restores a minimized window."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_330: ChangelogEntry = ChangelogEntry {
     id: "2026-11-19-call-chat-tab",
     date: "2026-11-19",
     title: "Read the chat during a call",
