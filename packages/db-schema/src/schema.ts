@@ -1112,11 +1112,13 @@ export interface DeviceLaunchDefaults {
   defaultAgent?: string
   /** EXP-1196: runs on this device get a local computer-use MCP server
    * (screen, click, type). Device-level, absent = off; a save without it
-   * keeps the stored one. */
+   * clears it, like an explicit null (every client sends the switch it
+   * shows). */
   computerUse?: boolean | null
   /** EXP-1236: the model alias the run's screen-driving subagents run on
    * (contract `computerUseModel`); absent = contract
-   * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
+   * `deviceComputerUseDefaults.model`. A save without it clears it, as for
+   * `computerUse`. */
   computerUseModel?: string | null
   /** NEW-59 / #FEED-161: the WORK SCREEN, the stable `id` of the display
    * (in the device's own `doctor.displays` list) agents drive with computer

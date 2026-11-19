@@ -74,9 +74,8 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     public let ultracode: Bool?
     public let planMode: Bool?
     /// EXP-1082 §6: the desktop's auto-rotate toggle, ECHOED from the synced
-    /// row on every whole-object save. The server keeps a stored value only
-    /// while the KEY is absent (a compat carry-forward slated for removal),
-    /// so a sender that omitted it would clear the toggle once that goes.
+    /// row on every whole-object save. The server keeps no key a save
+    /// omits, so a sender that omitted it would clear the toggle.
     /// Never invented here: absent stays absent, present rides verbatim.
     public let autoRotateAccounts: Bool?
 
@@ -105,7 +104,7 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 ///
 /// EXP-1196: `computerUse` = the DEVICE-level switch, a top-level key beside
 /// `agents`. The sheet sends what it shows (seeded from the row, explicit once
-/// toggled); nil writes no key and the server carries the stored value forward.
+/// toggled); nil writes no key, which the server stores as off.
 /// EXP-1236: `computerUseModel` rides the same way beside it (a contract
 /// `computerUseModel` alias; the server clamps unknown ones).
 /// NEW-59: `computerUseDisplayId` (the work screen) is TRI-STATE: `.keep`

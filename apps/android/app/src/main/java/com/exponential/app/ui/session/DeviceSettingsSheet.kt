@@ -145,7 +145,7 @@ fun DeviceSettingsSheet(
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
     // EXP-1196: the device-level Computer use switch. Null = never set (OFF),
-    // echoed as absent so the server keeps whatever is stored.
+    // echoed as absent, which the server stores as off too.
     var computerUse by remember { mutableStateOf(device.launchDefaults?.computerUse) }
     // EXP-1236: the alias the run's screen-driving subagents run on — the
     // picker row under the switch (only while it is on), saved beside it.
