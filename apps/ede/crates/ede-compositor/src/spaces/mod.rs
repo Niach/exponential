@@ -22,6 +22,8 @@ pub mod flatpak;
 pub mod scope;
 pub mod session;
 pub mod slice;
+#[cfg(feature = "xwayland")]
+pub mod x11;
 
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
 
@@ -90,6 +92,14 @@ pub struct Spaces {
     ended_sessions: Vec<std::process::Child>,
     /// Flatpaks being brought back into their spaces ([`flatpak`]).
     adoptions: flatpak::Adoptions,
+    /// X11 apps run in spaces, each space with an Xwayland of its own
+    /// ([`x11`], #EDE-138): set at the session's start when X11 apps run
+    /// at all (`xwayland` in `compositor.toml`, no `--no-xwayland`). Off in
+    /// the headless harness unless a test sets it.
+    pub x11: bool,
+    /// The window managers of closed spaces, until their connection is gone.
+    #[cfg(feature = "xwayland")]
+    closing_xwms: Vec<smithay::xwayland::X11Wm>,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -97,7 +107,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
@@ -144,6 +154,17 @@ pub struct AgentSpace {
     /// alone. On for every space; #EDE-162 (F7) turns it off for a space
     /// whose GPU path is ready, before its first launch.
     pub software_rendering: bool,
+    /// Its own Xwayland ([`x11`]), from its first launch.
+    #[cfg(feature = "xwayland")]
+    pub(crate) x11: Option<x11::SpaceX11>,
+}
+
+impl AgentSpace {
+    /// Its Xwayland's Wayland client and display number, while it runs.
+    #[cfg(feature = "xwayland")]
+    pub fn x11(&self) -> Option<(&Client, u32)> {
+        self.x11.as_ref().map(|x11| (x11.client(), x11.display))
+    }
 }
 
 impl AgentSpace {
@@ -311,7 +332,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, #[cfg(feature = "xwayland")] x11: None });
         Ok(id)
     }
 }

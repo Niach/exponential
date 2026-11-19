@@ -193,6 +193,11 @@ impl Ede {
         set("XDG_RUNTIME_DIR", &space.dir);
         set("TMUX_TMPDIR", &space.dir);
         set("SCREENDIR", &screens);
+        // Its own X display, never the person's.
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = &space.x11 {
+            set("DISPLAY", &format!(":{}", x11.display));
+        }
         if self.spaces.units.is_some() {
             set("DBUS_SESSION_BUS_ADDRESS", &space.session.address(&space.dir));
         }
@@ -224,9 +229,12 @@ impl Ede {
     /// otherwise, and its `profile`. The caller's `env` goes on top. With
     /// a user manager ([`Spaces::units`]) all of that starts in a scope of
     /// the space's slice.
-    pub fn space_command(&self, desk: DeskId, argv: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>, profile: Profile) -> Result<Command, Failure> {
+    /// What a launch into space `desk` is refused for: no such space, an
+    /// empty argv, a variable that is the compositor's to set, a program
+    /// or a directory that is not there. Its working directory otherwise.
+    pub(crate) fn space_launch_valid(&self, desk: DeskId, argv: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>) -> Result<PathBuf, Failure> {
         let fail = |code, message: &str| Failure::new(code, message);
-        let space = self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
+        self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
         let Some(program) = argv.first() else { return Err(fail(ErrorCode::Invalid, "argv is empty")) };
         if let Some(name) = env.keys().find(|name| DROPPED.contains(&name.as_str()) || SET.contains(&name.as_str()) || super::render::SET.contains(&name.as_str()) || PROFILE.iter().any(|(var, _)| var == name)) {
             return Err(fail(ErrorCode::Invalid, &format!("{name} is the compositor's to set")));
@@ -238,6 +246,13 @@ impl Ede {
         if !cwd.is_dir() {
             return Err(fail(ErrorCode::NotFound, &format!("no such directory: {}", cwd.display())));
         }
+        Ok(cwd)
+    }
+
+    pub fn space_command(&self, desk: DeskId, argv: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>, profile: Profile) -> Result<Command, Failure> {
+        let fail = |code, message: &str| Failure::new(code, message);
+        let cwd = self.space_launch_valid(desk, argv, env, cwd)?;
+        let space = self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
         // A space with its own session has its bus; else one per launch
         // when `dbus-run-session` is there (no user manager, as before).
         let mut inner: Vec<String> = Vec::with_capacity(argv.len() + 2);
@@ -275,6 +290,11 @@ impl Ede {
 
     /// `launch` of a space connection: starts `argv` in its space `desk`.
     pub(crate) fn space_launch(&mut self, desk: DeskId, argv: Vec<String>, env: BTreeMap<String, String>, cwd: Option<String>) -> Result<Launched, Failure> {
+        // What is refused is refused before anything starts.
+        self.space_launch_valid(desk, &argv, &env, cwd.as_deref())?;
+        // The space's Xwayland, at its first launch: the launch gets its display.
+        #[cfg(feature = "xwayland")]
+        self.space_x11(desk);
         let mut cmd = self.space_command(desk, &argv, &env, cwd.as_deref(), self.launch_profile(desk))?;
         self.space_launches_tick();
         match &self.spaces.units {
