@@ -102,10 +102,10 @@ pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     }
 }
 
-/// What the guard closes in this build (#EDE-148, #EDE-146).
-pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd";
+/// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
+pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
 /// What stays open to a space in this build.
-pub const GUARD_LEAVES: &str = "your sound servers, your Xwayland (X11)";
+pub const GUARD_LEAVES: &str = "your Xwayland (X11)";
 
 /// #EDE-146..148: what the RUNNING compositor decided about the space
 /// guard: `state` = its state file's text (`None` = no Exponential Desktop

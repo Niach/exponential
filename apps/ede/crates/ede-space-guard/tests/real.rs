@@ -2,7 +2,8 @@
 //! `ede-scope` leg): the guard, run as root, guards a space-named slice of
 //! this user when a process inside it asks; then nothing in that slice opens
 //! a sound, camera, uinput or (for writing) rfkill node, nor connects or
-//! sends to the system bus, the person's session bus or user manager (with
+//! sends to the system bus, the person's session bus, user manager or sound
+//! servers (with
 //! the NUL in the address's length, without it as libdbus connects, and the
 //! whole struct as libpulse and GLib pass it); outside it everything is as
 //! before, and the user cannot take the programs off. polkit, with the
@@ -148,7 +149,8 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     let socket = socket_dir.join("guard.sock");
     let guard = Command::new("sudo").args(["-n", GUARD, "--socket"]).arg(&socket).spawn().unwrap();
     let slice = format!("app-exponential_p{me}.slice");
-    // Stand-ins in the runtime directory: a socket of the space's own.
+    // Stand-ins in the runtime directory: one of the person's sound servers
+    // (an unused name), and a socket of the space's own.
     let runtime = PathBuf::from(format!("/run/user/{uid}"));
     let test_dir = runtime.join(format!("ede-guard-test-{me}"));
     let spaces_dir = runtime.join(format!("exponential-desktop/ede-guard-test-{me}.spaces"));
@@ -156,11 +158,11 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     let rule = PathBuf::from("/etc/polkit-1/rules.d/00-00-exponential-agent-spaces.rules");
     let action = PathBuf::from("/usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy");
     let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice, runtime_dirs: vec![test_dir.clone(), spaces_dir.clone()], polkit_files: vec![rule.clone(), action.clone()] };
-    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::create_dir_all(test_dir.join("pulse")).unwrap();
     std::fs::create_dir_all(spaces_dir.join("space-1")).unwrap();
-    let listeners: Vec<std::os::unix::net::UnixListener> = [spaces_dir.join("space-1/bus")].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
+    let listeners: Vec<std::os::unix::net::UnixListener> = [test_dir.join("pulse/native"), test_dir.join("pipewire-0"), spaces_dir.join("space-1/bus")].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
     let person = |p: &Path| p.to_string_lossy().into_owned();
-    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir))]
+    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir)), person(&test_dir.join("pulse/native")), person(&test_dir.join("pipewire-0")), format!("{}/../pulse/native", person(&test_dir))]
         .into_iter()
         .filter(|p| Path::new(p).exists() || p.contains("/../"))
         .collect();
@@ -230,9 +232,9 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     for (name, mode) in [("null", "rw"), ("rfkill", "r")] {
         assert_ne!(errno(&lines, name, mode), libc::EPERM, "{name} {mode} is closed in a space: {lines:?}");
     }
-    // The person's buses and user manager, every way of passing the
+    // The person's buses, user manager and sound servers, every way of passing the
     // address; the space's own socket and journald reachable.
-    assert!(refused.len() >= 3, "too few of the person's sockets on this machine: {refused:?}");
+    assert!(refused.len() >= 6, "too few of the person's sockets on this machine: {refused:?}");
     for path in &refused {
         for how in ["nul", "bare", "full", "send"] {
             assert_eq!(errno(&connected, path, how), libc::EPERM, "{path} ({how}) is reachable from a space: {connected:?}");
