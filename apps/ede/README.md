@@ -669,7 +669,8 @@ and keeps it for the process; a tool call is `input` (keysyms, so the
 compositor's layout decides the key) / `capture` / `list_windows`; its lock
 is `hold_input` on a connection of its own, so the IDE's banner and Esc
 work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
-cargo test -p epilot headless_ede` (in `apps/desktop`).
+cargo test -p epilot headless_ede` (in `apps/desktop`); the gate's `ede` job
+runs it on every PR that touches eDE or ePilot (#EDE-140).
 
 ## Apps (#EDE-20, #VAPP-273)
 
