@@ -1419,6 +1419,47 @@ mod tests {
         assert!(wheel_notches(0, 0).is_empty());
     }
 
+    /// #EDE-140 (#EXP-1900): what `save` keeps of the person's clipboard.
+    /// Windows lists what the program set first, then what it makes from
+    /// those, so of the text formats and of the DIBs only the first is the
+    /// program's own; a GDI, display or private handle is no memory to copy;
+    /// everything else (a registered format: HTML, a file list) is kept.
+    #[test]
+    fn save_keeps_the_first_of_a_group_and_never_a_handle() {
+        let [unicode, text, oem, dib, dibv5] = [CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT, CF_DIB, CF_DIBV5].map(u32::from);
+        const HDROP: u32 = 15;
+        const LOCALE: u32 = 16;
+        // Unicode text was set: the two after it are Windows' own.
+        assert!(keep_format(unicode, &[]));
+        assert!(!keep_format(text, &[unicode, LOCALE]));
+        assert!(!keep_format(oem, &[unicode, LOCALE, text]));
+        // An older program set CF_TEXT: that is the one to keep.
+        assert!(keep_format(text, &[]));
+        assert!(!keep_format(unicode, &[text]));
+        // A picture: the first DIB of either kind, whatever text came before.
+        assert!(keep_format(dibv5, &[unicode]));
+        assert!(!keep_format(dib, &[unicode, dibv5]));
+        assert!(keep_format(dib, &[text]));
+        // Handles: every GDI and display format, the private and GDI-object ranges.
+        for handle in HANDLE_FORMATS {
+            assert!(!keep_format(u32::from(handle), &[]), "{handle}");
+        }
+        for handle in [0x200, 0x2FF, 0x300, 0x3FF] {
+            assert!(!keep_format(handle, &[]), "{handle:#x}");
+        }
+        // Everything else stays, registered formats (0xC000 and up) included.
+        for kept in [HDROP, LOCALE, 0x1FF, 0x400, 0xC000, 0xC1A5, 0x1_0000] {
+            assert!(keep_format(kept, &[unicode, dib]), "{kept:#x}");
+        }
+
+        // What a restore cannot bring back (`partial`): a format left out that Windows does not make again.
+        let lost = |formats: &[u32]| formats.iter().enumerate().any(|(at, &format)| !keep_format(format, &formats[..at]) && !remade(format));
+        assert!(!lost(&[unicode, LOCALE, text, oem]), "copied text");
+        assert!(!lost(&[u32::from(CF_BITMAP), dib, dibv5, u32::from(CF_PALETTE)]), "a copied picture: Windows makes the bitmap again from the DIB");
+        assert!(lost(&[u32::from(CF_ENHMETAFILE), unicode]), "a metafile is gone");
+        assert!(lost(&[unicode, 0x250]), "a private handle is gone");
+    }
+
     #[test]
     fn bgra_becomes_opaque_rgba() {
         assert_eq!(bgra_to_rgba(&[1, 2, 3, 0, 10, 20, 30, 7]), vec![3, 2, 1, 255, 30, 20, 10, 255]);

@@ -679,15 +679,7 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
     if displays.iter().any(|display| (display.x, display.y, display.width, display.height) == rect) {
         return true;
     }
-    let below_notch = displays.iter().any(|display| {
-        let band = window.y - display.y;
-        window.x == display.x
-            && window.width == display.width
-            && band > 0
-            && band <= NOTCH_BAND
-            && window.y + window.height as i32 == display.y + display.height as i32
-    });
-    below_notch
+    below_notch(window, displays)
         && window
             .pid
             .and_then(|pid| Pid::try_from(pid).ok())
@@ -695,6 +687,20 @@ fn fullscreen(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
             .and_then(|element| ax_copy(&element, "AXFullScreen"))
             .and_then(|value| value.downcast::<CFBoolean>())
             .is_some_and(bool::from)
+}
+
+/// The frame macOS gives a fullscreen window on a notched display: the
+/// display's width, from at most [`NOTCH_BAND`] points below its top down
+/// to its bottom.
+fn below_notch(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
+    displays.iter().any(|display| {
+        let band = window.y - display.y;
+        window.x == display.x
+            && window.width == display.width
+            && band > 0
+            && band <= NOTCH_BAND
+            && window.y + window.height as i32 == display.y + display.height as i32
+    })
 }
 
 /// How long an accepted activation may take to put the window in front.
@@ -1686,6 +1692,40 @@ mod tests {
         assert_eq!(truth, Some(dialog.id()), "the window came to the front");
         assert_ne!(truth, before);
         assert_eq!(now, truth);
+    }
+
+    /// #EDE-140: fullscreen by geometry (NEW-59). A window on a display's
+    /// full bounds is fullscreen, the system's own never. Below a notch (the
+    /// display's width, a band of at most [`NOTCH_BAND`] points above it,
+    /// down to the display's bottom) the frame alone does not say so: a
+    /// window filling the screen under the menu bar has it too, so
+    /// Accessibility decides, and a window with no process to ask is not
+    /// fullscreen.
+    #[test]
+    fn fullscreen_is_a_displays_bounds_and_below_a_notch_only_by_accessibility() {
+        let display = |x: i32, y: i32, width: u32, height: u32| DisplayInfo { id: format!("{x},{y}"), x, y, width, height, primary: x == 0, name: String::new(), connector: None };
+        // A notched built-in display and an external one to its left.
+        let displays = [display(0, 0, 1512, 982), display(-1920, 0, 1920, 1080)];
+        let at = |app: &str, x: i32, y: i32, width: u32, height: u32| WindowInfo { id: 1, title: String::new(), app: app.into(), pid: None, x, y, width, height, active: true, fullscreen: false };
+
+        assert!(fullscreen(&at("Keynote", 0, 0, 1512, 982), &displays));
+        assert!(fullscreen(&at("Keynote", -1920, 0, 1920, 1080), &displays), "the external display's bounds");
+        assert!(!fullscreen(&at("Dock", 0, 0, 1512, 982), &displays), "the system's own windows never");
+        assert!(!fullscreen(&at("Keynote", 0, 0, 1512, 981), &displays), "a point short of the display");
+        assert!(!fullscreen(&at("Keynote", -1920, 0, 1512, 982), &displays), "one display's size at the other's origin");
+
+        // The frame below the camera housing (32 points on this display), down to the bottom.
+        let notched = |band: i32| at("Keynote", 0, band, 1512, (982 - band) as u32);
+        assert!(below_notch(&notched(32), &displays));
+        assert!(below_notch(&notched(1), &displays) && below_notch(&notched(NOTCH_BAND), &displays));
+        assert!(!below_notch(&notched(0), &displays), "no band is the display's bounds, decided before");
+        assert!(!below_notch(&notched(NOTCH_BAND + 1), &displays), "a taller band is no notch");
+        assert!(!below_notch(&at("Keynote", 0, 32, 1511, 950), &displays), "not the display's width");
+        assert!(!below_notch(&at("Keynote", 0, 32, 1512, 949), &displays), "not down to the display's bottom");
+        assert!(!below_notch(&at("Keynote", 1, 32, 1512, 950), &displays), "not at the display's left edge");
+        assert!(below_notch(&at("Keynote", -1920, 25, 1920, 1055), &displays), "a window under the menu bar of any display has the frame");
+        // The frame alone is not fullscreen, and here is no process for Accessibility to ask.
+        assert!(!fullscreen(&notched(32), &displays));
     }
 
     fn window(id: u64, title: &str, pid: u32, active: bool) -> WindowInfo {
