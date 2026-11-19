@@ -1,4 +1,6 @@
+#if !SHARE_EXTENSION
 import ExpCore
+#endif
 import SwiftUI
 import UIKit
 
@@ -265,9 +267,13 @@ public struct ToastCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The share extension links no genUI primitives; its toasts
+            // (attachment caps) never carry an action.
+            #if !SHARE_EXTENSION
             if let action = item.action {
                 GlassPill(action.label, size: .sm, mode: .action { onAction() })
             }
+            #endif
             Button(action: onDismiss) {
                 AppIcon(AppIcons.uiClose, size: 14)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -434,6 +440,12 @@ public struct ToastHost: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
+        #if SHARE_EXTENSION
+        // #EXP-1845: an extension's window is hosted by the sharing app and
+        // cannot raise a window of its own, so the stack overlays its root.
+        content
+            .overlay { ToastStackView(toaster: toaster, state: overlay.state) }
+        #else
         content
             .background(
                 WindowSceneReader { scene in
@@ -444,6 +456,7 @@ public struct ToastHost: ViewModifier {
             .onChange(of: bannerHeight, initial: true) { _, height in
                 overlay.state.bannerHeight = height
             }
+        #endif
     }
 }
 

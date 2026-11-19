@@ -90,15 +90,15 @@ data class DeviceLaunchDefaults(
     /**
      * EXP-1196: the DEVICE-level "Computer use" switch (agents may see the
      * screen, click and type), off by default. Null = never set, which reads
-     * as OFF and stays ABSENT on the wire (`explicitNulls = false`) so the
-     * server carries the stored value forward; an explicit true/false wins.
+     * as OFF and stays ABSENT on the wire (`explicitNulls = false`), which
+     * the server stores as off too; an explicit true/false wins.
      */
     @SerialName("computerUse") val computerUse: Boolean? = null,
     /**
      * EXP-1236: the model alias the run's screen-driving subagents run on
      * (contract `computerUseModel`), a top-level key beside the switch. Null
      * = never set: readers seed `DomainContract.deviceComputerUseDefaultsModel`
-     * and the key stays ABSENT on the wire so the server keeps what is stored.
+     * and the key stays ABSENT on the wire, which clears the server's copy.
      */
     @SerialName("computerUseModel") val computerUseModel: String? = null,
     /**

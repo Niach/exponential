@@ -130,11 +130,20 @@ pub fn voice_call_host_ticket_for(trpc: &TrpcClient, call_id: &str, device_id: &
     trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id, device_id: Some(device_id), agent_id: Some(agent_id) })
 }
 
+/// #EXP-1981: `callId` is the ring's server call id (a streamed call) or
+/// ABSENT (a call a desktop runs itself): the server takes no empty one.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CallSessionInput<'a> {
     agent_id: &'a str,
-    call_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    call_id: Option<&'a str>,
+}
+
+impl<'a> CallSessionInput<'a> {
+    fn new(agent_id: &'a str, call_id: Option<&'a str>) -> Self {
+        Self { agent_id, call_id: call_id.filter(|id| !id.is_empty()) }
+    }
 }
 
 /// #EXP-1961: `voice.callSession`'s answer: the call's own session (a child
@@ -148,10 +157,11 @@ pub struct CallSession {
     pub resumed: bool,
 }
 
-/// #EXP-1961: `voice.callSession` — mutation; the host asks while it rings.
+/// #EXP-1961: `voice.callSession` — mutation; the host asks while it rings
+/// (#EXP-1981: `call_id` = the ring's, None = a call run on this desktop).
 /// `None` = no call session (no chat yet, no room): the old path.
-pub fn voice_call_session(trpc: &TrpcClient, agent_id: &str, call_id: &str) -> Result<Option<CallSession>, ApiError> {
-    trpc.mutation("voice.callSession", &CallSessionInput { agent_id, call_id })
+pub fn voice_call_session(trpc: &TrpcClient, agent_id: &str, call_id: Option<&str>) -> Result<Option<CallSession>, ApiError> {
+    trpc.mutation("voice.callSession", &CallSessionInput::new(agent_id, call_id))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -311,6 +321,17 @@ mod tests {
         assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"reason":"restart"}"#);
         let update = VoiceUpdate { meeting_auto_stop_hours: Some(8), ..Default::default() };
         assert_eq!(serde_json::to_string(&update).unwrap(), r#"{"meetingAutoStopHours":8}"#);
+    }
+
+    /// #EXP-1981: the server takes `callId` absent or non-empty: a streamed
+    /// call names the ring's id, a call this desktop runs itself none, and
+    /// an empty id never goes out (it was a 400 on every IDE call).
+    #[test]
+    fn a_call_session_never_sends_an_empty_call_id() {
+        let json = |call_id| serde_json::to_string(&CallSessionInput::new("a-1", call_id)).unwrap();
+        assert_eq!(json(Some("c-1")), r#"{"agentId":"a-1","callId":"c-1"}"#);
+        assert_eq!(json(None), r#"{"agentId":"a-1"}"#);
+        assert_eq!(json(Some("")), r#"{"agentId":"a-1"}"#);
     }
 
     #[test]
