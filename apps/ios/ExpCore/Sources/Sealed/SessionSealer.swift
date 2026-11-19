@@ -71,7 +71,7 @@ public final class SessionSealer: @unchecked Sendable {
         return read(accountId) { db -> SealRoot? in
             var root: SessionEntity?
             switch input {
-            case let .message(sessionId, _, _, _), let .child(sessionId, _, _, _):
+            case let .message(sessionId, _, _, _), let .child(sessionId, _, _, _, _, _):
                 if let session = try SessionEntity.fetchOne(db, key: sessionId) {
                     root = try SessionEntity.fetchOne(db, key: session.rootId)
                 }
