@@ -213,9 +213,57 @@ pub fn voice_start_call_claiming(trpc: &TrpcClient, agent_id: &str, device_id: &
     trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id, seal })
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallConversationInput<'a> {
+    agent_id: &'a str,
+    seal: &'a crate::sessions::SendSeal,
+    call_id: &'a str,
+    device_id: &'a str,
+}
+
+/// #EXP-1941: `voice.callConversation`'s answer, what `sendTarget` answers:
+/// the root's STORED key (the caller's own seal's only when it wrote it).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallConversation {
+    pub root_id: String,
+    pub epoch: u32,
+    pub public_key: String,
+}
+
+/// #EXP-1941: `voice.callConversation` — mutation; a HOST of a sealed call
+/// creates the chat of a first call with its key before any audio (a
+/// text-less `sessions.send` is refused). It runs only inside a call the
+/// server vouched for (`call_id`: a sealed id minted for this member, this
+/// device and this agent), posts no message, and writes a key only when the
+/// root has none.
+pub fn voice_call_conversation(
+    trpc: &TrpcClient,
+    agent_id: &str,
+    call_id: &str,
+    device_id: &str,
+    seal: &crate::sessions::SendSeal,
+) -> Result<CallConversation, ApiError> {
+    trpc.mutation("voice.callConversation", &CallConversationInput { agent_id, seal, call_id, device_id })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1941: the chat of a first call.
+    #[test]
+    fn the_call_conversation_names_the_vouched_call() {
+        let seal = crate::sessions::SendSeal { install_id: "i1".into(), public_key: "k".into(), epoch: 1, wraps: Vec::new() };
+        let input = CallConversationInput { agent_id: "a1", seal: &seal, call_id: "c1", device_id: "d-mac" };
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"agentId":"a1","seal":{"installId":"i1","publicKey":"k","epoch":1,"wraps":[]},"callId":"c1","deviceId":"d-mac"}"#
+        );
+        let answer: CallConversation = serde_json::from_str(r#"{"rootId":"r1","epoch":1,"publicKey":"k"}"#).unwrap();
+        assert_eq!(answer, CallConversation { root_id: "r1".into(), epoch: 1, public_key: "k".into() });
+    }
 
     /// EXP-1857: the host ticket names the answering desktop; the caller
     /// is a desktop with its own id.

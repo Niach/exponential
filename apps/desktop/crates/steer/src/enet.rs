@@ -507,6 +507,11 @@ impl InstallNode {
         *lock(&self.inner.stored) = Some(stored);
     }
 
+    /// The allowlist passes finished so far.
+    pub fn passes(&self) -> u64 {
+        *self.inner.passes.borrow()
+    }
+
     /// [`Self::passes_at_least`] for a caller off the runtime (a CLI
     /// command): `false` when `timeout` ran out first.
     pub fn wait_passes_blocking(&self, n: u64, timeout: Duration) -> bool {

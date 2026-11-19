@@ -213,6 +213,11 @@ pub struct SendTarget {
     /// life); absent on an older server = not.
     #[serde(default)]
     pub clear_tree: bool,
+    /// #EXP-1941: the root's `seal_rotate_epoch` is set: its key is held by
+    /// readers the server dropped. No call starts on it (the host rotates
+    /// first, the caller refuses); absent on an older server = not due.
+    #[serde(default)]
+    pub rotation_due: bool,
 }
 
 #[derive(Serialize)]

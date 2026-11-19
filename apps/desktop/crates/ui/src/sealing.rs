@@ -850,6 +850,7 @@ mod tests {
                 epoch: keyed.then_some(1),
                 public_key: keyed.then(|| self.key.public_key()),
                 clear_tree: false,
+                rotation_due: false,
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}

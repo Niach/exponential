@@ -298,6 +298,102 @@ impl CallKeySource for CallerKeys {
     }
 }
 
+/// `voice.callConversation`'s refusals by what the server answers
+/// (apps/web/src/lib/sessions/tree-keys.ts): a second key for a keyed root
+/// is a CONFLICT (409); a wrap for a non-reader a BAD_REQUEST whose message
+/// says so.
+pub fn conversation_refusal(err: &api::ApiError) -> ConversationRefusal {
+    match err {
+        api::ApiError::Http { status: 409, .. } => ConversationRefusal::StaleTree,
+        api::ApiError::Http { status: 400, message } if message.contains("not a reader") => ConversationRefusal::NotReader,
+        other => ConversationRefusal::Other(other.to_string()),
+    }
+}
+
+/// How long a refused first call waits for a fresh allowlist.
+const ALLOWLIST_WAIT: Duration = Duration::from_secs(5);
+
+/// [`CallKeyOps`] of a real install: tRPC and the node's key holder. The
+/// holder is read at every call: a node that stopped has none, and the call
+/// ends `no_key`.
+pub struct InstallKeyOps {
+    pub trpc: Arc<api::TrpcClient>,
+    pub node: crate::enet::InstallNode,
+}
+
+impl InstallKeyOps {
+    fn key_holder(&self) -> Result<crate::seal_keys::KeyHolder, String> {
+        self.node.key_holder().ok_or_else(|| "no key holder".to_string())
+    }
+}
+
+impl CallKeyOps for InstallKeyOps {
+    fn holder(&self) -> bool {
+        self.node.key_holder().is_some()
+    }
+
+    fn send_target(&self, agent_id: &str) -> Result<Option<CallTarget>, String> {
+        let target = api::sessions::send_target(&self.trpc, Some(agent_id), None).map_err(|err| err.to_string())?;
+        Ok(target.root_id.map(|root_id| CallTarget { root_id, epoch: target.epoch, rotation_due: target.rotation_due }))
+    }
+
+    fn new_root_seal(&self, refresh: bool) -> Result<NewRootSeal, String> {
+        if refresh {
+            // An install on the last allowlist was revoked: read it again.
+            let passes = self.node.passes();
+            self.node.refresh();
+            if !self.node.wait_passes_blocking(passes + 1, ALLOWLIST_WAIT) {
+                return Err("the allowlist could not be read again".into());
+            }
+        }
+        self.node.new_root_seal(None)
+    }
+
+    fn call_conversation(&self, agent_id: &str, call_id: &str, device_id: &str, seal: &NewRootSeal) -> Result<StoredKey, ConversationRefusal> {
+        let wraps = seal.wraps.iter().map(|wrap| api::sessions::SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() }).collect();
+        let seal = api::sessions::SendSeal { install_id: seal.install_id.clone(), public_key: seal.public_key.clone(), epoch: seal.epoch, wraps };
+        api::voice::voice_call_conversation(&self.trpc, agent_id, call_id, device_id, &seal)
+            .map(|stored| StoredKey { root_id: stored.root_id, epoch: stored.epoch, public_key: stored.public_key })
+            .map_err(|err| conversation_refusal(&err))
+    }
+
+    fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
+        coding::sealing::adopt_new_root(root_id, seal);
+    }
+
+    fn ensure_key(&self, root_id: &str) -> Result<u32, String> {
+        use coding::sealing::SealService as _;
+        self.key_holder()?.ensure_key(root_id).map(|(epoch, _)| epoch).map_err(|err| err.to_string())
+    }
+
+    fn rotate(&self, root_id: &str, flagged: u32) -> Result<(), String> {
+        // Not this install's to rotate, or done by another holder: the
+        // second `sendTarget` tells whether the root is still due.
+        self.key_holder()?.rotate_root(root_id, flagged).map(|_| ())
+    }
+
+    fn secret(&self, root_id: &str, epoch: u32) -> Option<[u8; 32]> {
+        use coding::sealing::SealService as _;
+        self.node.key_holder()?.keyring().secret(root_id, epoch)
+    }
+
+    fn highest_held(&self, root_id: &str) -> Option<u32> {
+        use coding::sealing::SealService as _;
+        self.node.key_holder()?.keyring().epochs(root_id).into_iter().max()
+    }
+
+    fn pull(&self, root_id: &str) {
+        use coding::sealing::SealService as _;
+        if let Some(holder) = self.node.key_holder() {
+            holder.fetch_secrets(root_id);
+        }
+    }
+
+    fn answer_pending(&self, root_id: &str) -> Result<(), String> {
+        self.key_holder()?.answer_pending_for(root_id).map(|_| ()).map_err(|err| err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,6 +652,15 @@ mod tests {
         }
         // No conversation at all after the hello: no call.
         assert!(caller(&FakeOps::default(), None, &hello(ROOT, 1)).is_err());
+    }
+
+    #[test]
+    fn the_servers_two_refusals_are_told_apart() {
+        let http = |status, message: &str| api::ApiError::Http { status, message: message.into() };
+        assert_eq!(conversation_refusal(&http(409, "The tree was keyed since")), ConversationRefusal::StaleTree);
+        assert_eq!(conversation_refusal(&http(400, "A wrap names an install that is not a reader")), ConversationRefusal::NotReader);
+        assert!(matches!(conversation_refusal(&http(400, "Invalid input")), ConversationRefusal::Other(_)));
+        assert!(matches!(conversation_refusal(&http(403, "not your agent")), ConversationRefusal::Other(_)));
     }
 
     /// The sources run on the blocking pool; a call that ends drops the
