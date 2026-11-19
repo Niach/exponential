@@ -2190,6 +2190,25 @@ mod tests {
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
     }
 
+    /// #EXP-1992: the call session's opening line lands after the ring's
+    /// earliest answer, while `ready` waits for it: the pickup says it (the
+    /// app panicked here: the pickup updated the speaker from inside its
+    /// own update).
+    #[gpui::test]
+    async fn an_opening_after_the_rings_end_is_said_at_the_pickup(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        let id = rung(cx);
+        cx.run_until_parked();
+        rig.worker(etalk::Event::CallListening { id: id.clone() }, cx);
+        cx.update(|cx| global(cx).unwrap().update(cx, |this, cx| this.on_rang(&id, cx)));
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Ringing, "rang: it waits for the opening line");
+        rig.requests();
+        rig.call_message("o1", "Hi Danny, the build is green.", 1, cx);
+        assert_eq!(rig.spoken(), ["o1"]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
+    }
+
     /// #EXP-1936: while the call still rings no reply is the call's: the
     /// answer to a message typed before it is not read aloud (a Speak would
     /// end the ring tone, and the greeting would cut it off).
