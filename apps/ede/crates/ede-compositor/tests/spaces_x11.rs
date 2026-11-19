@@ -286,7 +286,13 @@ fn a_spaces_xwayland_that_dies_comes_back_and_goes_with_its_space() {
     let deadline = Instant::now() + Duration::from_secs(30);
     let gone = |pid: u32| std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'));
     while !gone(pid) || std::path::Path::new(&format!("/tmp/.X11-unix/X{again}")).exists() || std::path::Path::new(&format!("/tmp/.X{again}-lock")).exists() {
-        assert!(Instant::now() < deadline, "the closed space's Xwayland, socket or lock is still there");
+        assert!(
+            Instant::now() < deadline,
+            "the closed space's Xwayland ({}), socket ({}) or lock ({}) is still there",
+            !gone(pid),
+            std::path::Path::new(&format!("/tmp/.X11-unix/X{again}")).exists(),
+            std::path::Path::new(&format!("/tmp/.X{again}-lock")).exists()
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     common::space::spaces_settled(&h);
