@@ -209,6 +209,104 @@ object VoiceCall {
         }
     }
 
+    /**
+     * #EXP-1941 (`seal`, `seal.modeCases`, the TS `callSealStep`): the
+     * caller's half of a call the server marked sealed. [callerStep] decides
+     * WHAT happens; the call does it ([com.exponential.app.data.call.CallSealLine]).
+     * Actions, in order: `timer` the `handshakeMs` timer (never restarted) ·
+     * `hello` send the hello, again every [HELLO_EVERY_MS] · `helloStop` ·
+     * `key` resolve root, epoch and secret · `finish` once · `go` sealed ·
+     * `count` drop and count · `end:<reason>` `call_end` · `fail:<code>` the
+     * toast · `abandon` stop the key source.
+     */
+    object Seal {
+        const val CAP = "call-seal"
+        const val HELLO_EVERY_MS = 500L
+        const val HANDSHAKE_MS = 20_000L
+        const val PULL_EVERY_MS = 2_000L
+        const val MAX_OPEN_FAILURES = 50
+        const val CALLER_HELLO_BYTES = 54
+        const val HOST_HELLO_BYTES = 70
+        const val TYPE_AUDIO = 0
+        const val TYPE_HELLO = 1
+        const val ROLE_HOST = 2
+        const val END_NO_KEY = "no_key"
+        const val END_SEAL = "seal"
+        const val REQUIRED = false
+        /** A code about the caller's OWN device is never taken from the wire. */
+        val OWN_DEVICE_CODES = setOf("no_microphone", "not_granted", "unsupported")
+
+        enum class Phase(val wire: String) { Idle("idle"), Clear("clear"), Told("told"), Offered("offered"), Keying("keying"), Sealed("sealed"), Over("over") }
+
+        data class State(val phase: Phase, val failures: Int = 0)
+
+        val IDLE = State(Phase.Idle)
+
+        sealed interface Event {
+            data class Start(val seal: Boolean, val required: Boolean? = null) : Event
+            data object Ready : Event
+            /** [ok] = well-formed (length, version, role), checked before any `finish`. */
+            data class Hello(val ok: Boolean) : Event
+            data object NoKey : Event
+            data object Key : Event
+            data class Finished(val ok: Boolean) : Event
+            data class Frame(val opens: Boolean) : Event
+            data class Sealed(val opens: Boolean) : Event
+            data object Clear : Event
+            data class Failed(val code: String) : Event
+            data object Closed : Event
+            data class Timeout(val timer: String) : Event
+        }
+
+        data class Stepped(val state: State, val actions: List<String>)
+
+        fun wireCode(code: String): String = if (code in OWN_DEVICE_CODES) HangUpRules.FAILED_CODE else code
+
+        fun callerStep(state: State, event: Event): Stepped {
+            val stay = Stepped(state, emptyList())
+            fun to(phase: Phase, vararg actions: String) = Stepped(State(phase), actions.toList())
+            fun over(reason: String) = to(Phase.Over, "end:$reason", "fail:${HangUpRules.FAILED_CODE}", "abandon")
+            if (event is Event.Start) {
+                return when {
+                    state.phase != Phase.Idle -> stay
+                    event.seal -> to(Phase.Told)
+                    !(event.required ?: REQUIRED) -> to(Phase.Clear)
+                    else -> to(Phase.Over, "fail:${HangUpRules.FAILED_CODE}")
+                }
+            }
+            if (state.phase == Phase.Idle || state.phase == Phase.Clear || state.phase == Phase.Over) return stay
+            val sealed = state.phase == Phase.Sealed
+            val told = state.phase == Phase.Told
+            return when (event) {
+                is Event.Start -> stay
+                is Event.Failed -> to(Phase.Over, "fail:${wireCode(event.code)}", "abandon")
+                Event.Closed -> to(Phase.Over, "abandon")
+                is Event.Timeout -> if (sealed || event.timer != "handshake") stay else over(END_NO_KEY)
+                Event.Ready -> if (told) to(Phase.Offered, "timer", "hello") else stay
+                is Event.Hello -> when {
+                    state.phase == Phase.Offered && event.ok -> to(Phase.Keying, "helloStop", "key")
+                    state.phase == Phase.Offered -> Stepped(state, listOf("count"))
+                    else -> stay
+                }
+                Event.NoKey -> if (state.phase == Phase.Keying) over(END_NO_KEY) else stay
+                Event.Key -> if (state.phase == Phase.Keying) Stepped(state, listOf("finish")) else stay
+                is Event.Finished -> when {
+                    state.phase != Phase.Keying -> stay
+                    event.ok -> to(Phase.Sealed, "go")
+                    else -> over(END_SEAL)
+                }
+                is Event.Frame -> when {
+                    !sealed -> if (told) stay else over(END_SEAL)
+                    event.opens -> if (state.failures == 0) stay else to(Phase.Sealed)
+                    state.failures + 1 >= MAX_OPEN_FAILURES -> over(END_SEAL)
+                    else -> Stepped(State(Phase.Sealed, state.failures + 1), listOf("count"))
+                }
+                is Event.Sealed -> if ((sealed && event.opens) || told) stay else over(END_SEAL)
+                Event.Clear -> if (told) stay else over(END_SEAL)
+            }
+        }
+    }
+
     enum class Platform(val wire: String) { Desktop("desktop"), Phone("phone"), Web("web") }
 
     /** The voice device's doctor row `speech` as a caller reads it. */

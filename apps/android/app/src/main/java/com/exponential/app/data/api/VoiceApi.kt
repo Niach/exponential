@@ -15,9 +15,9 @@ import kotlinx.serialization.json.JsonObject
 @Serializable
 private object VoiceEmptyInput
 
-/** NEW-69: `voice.startCall`'s input (a phone never names a deviceId). */
+/** NEW-69: `voice.startCall`'s input (a phone never names a deviceId); #EXP-1941 [seal] = this caller can seal. */
 @Serializable
-private data class StartCallInput(val agentId: String, val platform: String)
+private data class StartCallInput(val agentId: String, val platform: String, val seal: Boolean? = null)
 
 /** NEW-57: `voice.startMeeting`'s input: the consent dialog's Start, always `true`. */
 @Serializable
@@ -36,6 +36,8 @@ data class StartCallResult(
     val device: String? = null,
     /** EXP-1857: the target is not the agent's own desktop. */
     val fallback: Boolean? = null,
+    /** #EXP-1941: the mode the server decided for both ends (absent = today's wire). */
+    val seal: Boolean? = null,
 )
 
 @Singleton
@@ -66,11 +68,11 @@ class VoiceApi @Inject constructor(private val trpc: TrpcClient) {
      * target (`fixtures/voice-call.json` `callTarget`: the agent's desktop or
      * the fallback) and refuses with its reason.
      */
-    suspend fun startCall(accountId: String, agentId: String, platform: String = "phone"): StartCallResult =
+    suspend fun startCall(accountId: String, agentId: String, platform: String = "phone", seal: Boolean = false): StartCallResult =
         trpc.mutation(
             accountId,
             path = "voice.startCall",
-            input = StartCallInput(agentId = agentId, platform = platform),
+            input = StartCallInput(agentId = agentId, platform = platform, seal = seal),
             inputSerializer = StartCallInput.serializer(),
             outputSerializer = StartCallResult.serializer(),
         )

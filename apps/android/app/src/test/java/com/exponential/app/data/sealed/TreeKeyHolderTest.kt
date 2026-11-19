@@ -37,7 +37,11 @@ class TreeKeyHolderTest {
         var pendingPairs = listOf<PendingTreeKey>()
         val wrapped = mutableListOf<PendingWrap>()
         var failMine = false
-        override suspend fun mine(installId: String): List<HeldTreeKey> = if (failMine) error("offline") else held
+        val mineAsked = mutableListOf<List<String>?>()
+        override suspend fun mine(installId: String, rootIds: List<String>?): List<HeldTreeKey> {
+            mineAsked += rootIds
+            return if (failMine) error("offline") else held.filter { rootIds == null || it.rootId in rootIds }
+        }
         override suspend fun pending(installId: String) = pendingPairs
         override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {
             wrapped += wraps
@@ -95,5 +99,24 @@ class TreeKeyHolderTest {
         assertArrayEquals(tree.secret, TreeKeyVault(slots, XorSealer).all("acct")["root-1"]!![1])
         TreeKeyVault(slots, XorSealer).forget("acct")
         assertTrue(TreeKeyVault(slots, XorSealer).all("acct").isEmpty())
+    }
+
+    @Test
+    fun aCallPullsOneRootAndMineCarriesItsRootIds() = runBlocking {
+        val tree = SealedFfi.generateTreeKey()
+        val api = FakeApi()
+        api.held = listOf(
+            HeldTreeKey("root-1", 2, SealedFfi.wrapTreeKey(installPublic, tree.secret)),
+            HeldTreeKey("root-7", 1, SealedFfi.wrapTreeKey(installPublic, tree.secret)),
+        )
+        val published = mutableListOf<TreeKeys>()
+        val holder = TreeKeyHolder("acct", "install-a", installSecret, SealedFfi, TreeKeyVault(MapSlots(), XorSealer), api) { published += it }
+
+        assertArrayEquals(tree.secret, holder.pull("root-1", 2))
+        assertEquals(listOf<List<String>?>(listOf("root-1")), api.mineAsked)
+        assertEquals(listOf(setOf("root-1")), published.map { it.keys })
+        // An epoch the pull did not bring: null, and the next pull asks again.
+        assertEquals(null, holder.pull("root-1", 3))
+        assertEquals(2, api.mineAsked.size)
     }
 }
