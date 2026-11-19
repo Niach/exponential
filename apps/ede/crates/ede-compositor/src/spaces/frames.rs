@@ -104,7 +104,9 @@ impl Ede {
         self.space_damage(id);
         let clear = self.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0]);
         let mut renderer = self.space_renderer().ok_or("no software renderer")?;
-        let frame = draw_offscreen(&mut renderer, size, clear, |renderer| self.space_elements(id, renderer));
+        // A space's output is always at scale 1 and its scene is built at 1
+        // ([`Self::space_elements`]): the tracker's scale matches (#EDE-113).
+        let frame = draw_offscreen(&mut renderer, size, 1.0, clear, |renderer| self.space_elements(id, renderer));
         self.spaces.renderer = Some(renderer);
         frame
     }
