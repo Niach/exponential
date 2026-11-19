@@ -166,6 +166,9 @@ impl Supervisor {
 
     /// Runs the shell and the machine until `stop` is set, or the shell
     /// kept dying right after starting; the shell is killed on the way out.
+    /// A failure carrying out the machine's effects (#EDE-153: a git another
+    /// process held past the wait) is said on stderr and the supervisor goes
+    /// on, so the edits after it are still supervised.
     /// The supervisor itself ends with the process that started it (the
     /// compositor), so a dead display never leaves a restart loop behind.
     pub fn run(&mut self, stop: &AtomicBool) -> io::Result<()> {
@@ -179,25 +182,27 @@ impl Supervisor {
         let mut quick_exits = 0u32;
         let mut restart_at: Option<SystemTime> = None;
         while !stop.load(Ordering::Relaxed) {
-            match self.rx.recv_timeout(TICK) {
-                Ok(Msg::Changes(changes)) => self.on_changes(changes)?,
-                Ok(Msg::Line(line)) => self.on_line(&line)?,
+            let carried = match self.rx.recv_timeout(TICK) {
+                Ok(Msg::Changes(changes)) => self.on_changes(changes),
+                Ok(Msg::Line(line)) => self.on_line(&line),
                 Ok(Msg::Exited) => {
                     if let Some(mut child) = self.child.take() {
                         let _ = child.wait();
                     }
                     (self.on_report)(Report::Crashed);
-                    self.step(Event::Crash { at: now_ms() })?;
+                    let carried = self.step(Event::Crash { at: now_ms() }).map(|_| ());
                     quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
                     if quick_exits >= MAX_QUICK_EXITS {
                         return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
                     }
                     restart_at = Some(SystemTime::now() + RESTART_DELAY);
+                    carried
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.step(Event::Tick { at: now_ms() })?;
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => self.step(Event::Tick { at: now_ms() }).map(|_| ()),
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            if let Err(e) = carried {
+                eprintln!("exponential-ui supervise: {e} (the supervisor goes on)");
             }
             if restart_at.is_some_and(|t| SystemTime::now() >= t) {
                 restart_at = None;

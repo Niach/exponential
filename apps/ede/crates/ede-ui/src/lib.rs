@@ -495,7 +495,20 @@ impl Runtime {
         if !self.commits {
             return Ok(changes);
         }
-        if let Some(id) = self.commit_tracked(&files, &message)? {
+        let committed = match self.commit_tracked(&files, &message) {
+            Ok(committed) => committed,
+            Err(e) => {
+                // #EDE-153: what could not be committed counts as unread, so
+                // the next reload takes it in again; else the edit is lost (no
+                // commit, never reported again: nobody supervises it).
+                for (_, i) in &to_commit {
+                    let name = changes[*i].name().to_string();
+                    self.seen.remove(&name);
+                }
+                return Err(e);
+            }
+        };
+        if let Some(id) = committed {
             for (_, i) in &to_commit {
                 if let Change::Applied { commit, .. } | Change::Removed { commit, .. } | Change::ThemeApplied { commit, .. } = &mut changes[*i] {
                     *commit = Some(id.clone());
