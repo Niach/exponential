@@ -112,7 +112,7 @@ program, so the IDE's "Copy image" shipped on macOS/Windows only.
   photo) is sent in `INCR` chunks (ICCCM 2.7.2, at most 1 MiB each; a
   requestor silent for 5 s is dropped). The exit handover to the clipboard
   manager finishes only once those chunks are out, waiting up to 3 s while
-  one runs (100 ms otherwise, as before). The reader waits 1 s (upstream:
+  one runs (100 ms otherwise, as before; since #EXP-1973 see below). The reader waits 1 s (upstream:
   10 ms) for another owner's next `INCR` chunk.
 - **`src/linux/x11/client.rs`:** `write_to_clipboard` and `write_to_primary`
   call `set_item`.
@@ -131,6 +131,14 @@ program, so the IDE's "Copy image" shipped on macOS/Windows only.
   (a guessed `base + pid % 500` could be another test's or another
   session's Xvfb, which failed them at random under load). The `Server`
   guard kills it when the test ends, failed or not.
+- **Exit handover waits for the manager's answer (#EXP-1973):** the clipboard
+  manager protocol (`SAVE_TARGETS`) promises a `SelectionNotify` once the
+  manager has read what it wants; upstream gave it a fixed 100 ms, so a
+  manager on a loaded machine that had not yet asked for the data got
+  nothing and the clipboard was lost at exit. The handover now waits for
+  that answer (and every `INCR` chunk), at most 3 s (`HANDOVER_MAX`), and
+  returns at once when no program owns `CLIPBOARD_MANAGER`. Tests: a slow
+  manager (500 ms) still saves the image; no manager means no wait.
 
 ## Packaging
 
