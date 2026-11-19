@@ -412,16 +412,8 @@ impl X11 {
                 holds.push(self.keymap.key_of(keysym).ok_or_else(|| format!("No {name} key in the layout."))?);
             }
         }
-        if down {
-            for &hold in &holds {
-                self.fake_key(hold, true)?;
-            }
-        }
-        self.fake_key(keycode, down)?;
-        if !down {
-            for &hold in holds.iter().rev() {
-                self.fake_key(hold, false)?;
-            }
+        for (keycode, down) in super::with_modifiers(&holds, keycode, down) {
+            self.fake_key(keycode, down)?;
         }
         Ok(())
     }

@@ -135,6 +135,21 @@ pub(crate) enum Button {
     Right,
 }
 
+/// #EXP-1994: the strokes that press (`down`) or release `key` with the
+/// modifiers its character needs held around it (X11's Shift and AltGr,
+/// Windows' Shift): a press is the modifiers in order, then the key; a
+/// release is the key, then the modifiers in reverse. eDE's compositor
+/// does the same for a keysym; macOS puts the Shift flag on the key's own
+/// event.
+#[cfg_attr(not(any(target_os = "linux", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn with_modifiers<T: Copy>(modifiers: &[T], key: T, down: bool) -> Vec<(T, bool)> {
+    if down {
+        modifiers.iter().map(|&modifier| (modifier, true)).chain([(key, true)]).collect()
+    } else {
+        [(key, false)].into_iter().chain(modifiers.iter().rev().map(|&modifier| (modifier, false))).collect()
+    }
+}
+
 /// #EXP-1921: the keys and buttons the person held when a lock engaged,
 /// by the backend's own index (Windows a VK, macOS a keycode or a button).
 /// A lock swallows all of the person's input except each one's release,
@@ -591,6 +606,16 @@ mod tests {
         held.ours(2);
         assert!(!held.passes(2, false), "the agent pressed or released it since");
         held.ours(9);
+    }
+
+    /// #EXP-1994: a shifted character's key goes inside its modifiers on
+    /// every backend: pressed after them, released before them.
+    #[test]
+    fn a_key_is_pressed_inside_its_modifiers() {
+        assert_eq!(with_modifiers(&["shift", "altgr"], "q", true), [("shift", true), ("altgr", true), ("q", true)]);
+        assert_eq!(with_modifiers(&["shift", "altgr"], "q", false), [("q", false), ("altgr", false), ("shift", false)]);
+        assert_eq!(with_modifiers(&[], 'a', true), [('a', true)]);
+        assert_eq!(with_modifiers(&[], 'a', false), [('a', false)]);
     }
 
     /// #EXP-1979: the pointer waits while the person holds a button, frees

@@ -719,14 +719,8 @@ impl Backend for Win32 {
                 let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
                 match char_key(ch, layout_stroke(ch), modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk)).map(|vk| (vk, ch.is_ascii_uppercase()))) {
                     Some((vk, shift)) => {
-                        let mut inputs = Vec::with_capacity(2);
-                        if shift && down {
-                            inputs.push(vk_input(VK_SHIFT, false, false));
-                        }
-                        inputs.push(vk_input(vk, false, !down));
-                        if shift && !down {
-                            inputs.push(vk_input(VK_SHIFT, false, true));
-                        }
+                        let shift: &[VIRTUAL_KEY] = if shift { &[VK_SHIFT] } else { &[] };
+                        let inputs: Vec<INPUT> = crate::backend::with_modifiers(shift, vk, down).into_iter().map(|(vk, down)| vk_input(vk, false, !down)).collect();
                         send(&inputs)
                     }
                     None => send(&unicode_inputs(ch, !down)),
