@@ -6,6 +6,7 @@ import {
   triggerDetail,
   agentMcpServersValue,
   agentsInTeam,
+  assistantMoveOf,
   coordinatorOf,
   coordinatorOptions,
   leadOptions,
@@ -120,6 +121,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.teamAgentsCases) {
     it(`teamAgentsCases: ${c.name}`, () => {
       expect(agentsInTeam(c.agents, c.teamId, c.teamIds, c.me).map((agent) => agent.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.move.keepCases) {
+    it(`move keepCases: ${c.name}`, () => {
+      expect(assistantMoveOf(c.assistants, c.roots)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.orderCases) {
