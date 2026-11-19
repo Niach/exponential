@@ -119,6 +119,41 @@ public struct SessionWatching: Equatable, Sendable, Identifiable {
     }
 }
 
+/// #EXP-1943: the fields of `sessions.voice_call` the UI reads (etalk
+/// voice-call.json `callSession`): non-nil on a session = a call session.
+public struct TreeVoiceCall: Equatable, Sendable {
+    public let startedAt: String
+    public let segmentStartedAt: String
+    /// nil = the call is running.
+    public let endedAt: String?
+    /// The ended segments' total (a resume adds one).
+    public let durationMs: Double
+
+    public init(startedAt: String, segmentStartedAt: String, endedAt: String?, durationMs: Double) {
+        self.startedAt = startedAt
+        self.segmentStartedAt = segmentStartedAt
+        self.endedAt = endedAt
+        self.durationMs = durationMs
+    }
+
+    /// The synced jsonb TEXT, tolerantly: nil, `null`, a non-object or one
+    /// without a string `startedAt` = not a call.
+    public static func parse(_ raw: String?) -> TreeVoiceCall? {
+        guard let object = SessionTree.jsonObject(raw) else { return nil }
+        return parse(object: object)
+    }
+
+    public static func parse(object: [String: Any]) -> TreeVoiceCall? {
+        guard let startedAt = object["startedAt"] as? String else { return nil }
+        return TreeVoiceCall(
+            startedAt: startedAt,
+            segmentStartedAt: (object["segmentStartedAt"] as? String) ?? startedAt,
+            endedAt: object["endedAt"] as? String,
+            durationMs: (object["durationMs"] as? NSNumber)?.doubleValue ?? 0
+        )
+    }
+}
+
 /// One `sessions` row (root or child).
 public struct TreeSession: Equatable, Sendable, Identifiable {
     public let id: String
@@ -156,6 +191,8 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let appId: String?
     /// #NEW-49: what it waits on (`sessions.watching`; empty = nothing).
     public let watching: [SessionWatching]
+    /// #EXP-1943: a call session's call (`sessions.voice_call`; nil = not a call).
+    public let voiceCall: TreeVoiceCall?
 
     public init(
         id: String,
@@ -179,9 +216,11 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         appId: String? = nil,
         background: Bool = false,
         startedByAgentId: String? = nil,
-        watching: [SessionWatching] = []
+        watching: [SessionWatching] = [],
+        voiceCall: TreeVoiceCall? = nil
     ) {
         self.watching = watching
+        self.voiceCall = voiceCall
         self.agentId = agentId
         self.startedByAgentId = startedByAgentId
         self.appId = appId
@@ -765,6 +804,11 @@ public struct SessionCard: Equatable, Sendable {
     public let elapsed: String?
     public let running: Bool
     public let testId: String
+    /// #EXP-1943: a call card (`SessionTree.callCard`): its tap opens the
+    /// call view. Only call cards carry `caption`.
+    public let isCall: Bool
+    /// #EXP-1943: a call card's muted second line (its summary; nil = none).
+    public let caption: String?
 
     public init(
         sessionId: String,
@@ -775,8 +819,12 @@ public struct SessionCard: Equatable, Sendable {
         tone: String,
         elapsed: String?,
         running: Bool,
-        testId: String
+        testId: String,
+        isCall: Bool = false,
+        caption: String? = nil
     ) {
+        self.isCall = isCall
+        self.caption = caption
         self.sessionId = sessionId
         self.icon = icon
         self.name = name
@@ -786,6 +834,33 @@ public struct SessionCard: Equatable, Sendable {
         self.elapsed = elapsed
         self.running = running
         self.testId = testId
+    }
+}
+
+/// #EXP-1943: THE call view (`SessionTree.callView`, session-card.json
+/// `callViewCases`): a call session's own screen.
+public struct CallView: Equatable, Sendable {
+    public let sessionId: String
+    public let title: String
+    public let subtitle: String
+    public let running: Bool
+    /// The newest summary, nil = none yet (no band).
+    public let summary: String?
+    public let summaryLabel: String
+    /// The spoken turns: `message` and `locked` rows.
+    public let rows: [SessionChatRow]
+
+    public init(
+        sessionId: String, title: String, subtitle: String, running: Bool,
+        summary: String?, summaryLabel: String, rows: [SessionChatRow]
+    ) {
+        self.sessionId = sessionId
+        self.title = title
+        self.subtitle = subtitle
+        self.running = running
+        self.summary = summary
+        self.summaryLabel = summaryLabel
+        self.rows = rows
     }
 }
 
@@ -1469,6 +1544,31 @@ public enum SessionTree {
         public static let waitingMax = 3
     }
 
+    /// #EXP-1943: fixtures/session-card.json `call` (a call in the chat).
+    public enum CallCopy {
+        public static let icon = "voice-call"
+        public static let tone = "foreground"
+        public static let running = "In a call · {timer}"
+        public static let ended = "Call ended after {duration}"
+        public static let seconds = "{count} sec"
+        public static let minutes = "{count} min"
+        public static let hours = "{hours} h {minutes} min"
+        public static let viewTitle = "Call · {duration}"
+        public static let viewRunning = "Call · {timer}"
+        public static let subtitle = "{when} · {agent}"
+        public static let when = "{day} {start} – {end}"
+        public static let whenRunning = "{day} {start}"
+        public static let today = "Today"
+        public static let summary = "Summary"
+        /// The server's lines in a call session (etalk `callSession`
+        /// request / resumeText / endedText), ONE {placeholder} each.
+        public static let prompts: [(key: String, template: String)] = [
+            ("request", "The person is calling you and the phone is ringing. Answer with ONE short opening line in your own words that fits where the chat stands, in {language}, then wait for them to speak."),
+            ("resume", "The person called back. Open again with ONE short line in {language}, then wait."),
+            ("ended", "The call ended after {minutes}. Reply with the call's summary for the main chat, nothing else: what was said and decided, what you did, and what you handed to the chat. Plain sentences, no greeting."),
+        ]
+    }
+
     /// fixtures/session-chat.json `copy` + `testIds` (titles: `SessionTitle`).
     public enum ChatCopy {
         public static let untitled = "Untitled"
@@ -1692,6 +1792,196 @@ public enum SessionTree {
             return word
         }
         return state.word
+    }
+
+    // MARK: #EXP-1943 (session-card.json `call`): a call in the chat
+
+    /// A call session (a non-nil `voiceCall`).
+    public static func isCallSession(_ session: TreeSession?) -> Bool {
+        session?.voiceCall != nil
+    }
+
+    /// The call is running: not ended, its segment open.
+    public static func callRunning(_ session: TreeSession) -> Bool {
+        session.status != "ended" && session.voiceCall != nil && session.voiceCall?.endedAt == nil
+    }
+
+    /// The call's length so far: the ended segments + the running one.
+    public static func callTotalMs(_ session: TreeSession, now: Date) -> Double {
+        guard let call = session.voiceCall else { return 0 }
+        if !callRunning(session) { return call.durationMs }
+        guard let since = ms(call.segmentStartedAt) else { return call.durationMs }
+        return call.durationMs + max(0, ms(now) - since)
+    }
+
+    /// The live timer: `02:14`, `1:02:14` past an hour (the call surface's).
+    public static func callClock(_ durationMs: Double) -> String {
+        let total = max(0, Int((durationMs / 1000).rounded(.down)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        func pad(_ value: Int) -> String { value < 10 ? "0\(value)" : "\(value)" }
+        return hours > 0 ? "\(hours):\(pad(minutes)):\(pad(seconds))" : "\(pad(minutes)):\(pad(seconds))"
+    }
+
+    /// An ended call's length: `42 sec`, `4 min`, `1 h 5 min`.
+    public static func callLength(_ durationMs: Double) -> String {
+        let safe = max(0, durationMs)
+        if safe < 60_000 {
+            return CallCopy.seconds.replacingOccurrences(of: "{count}", with: String(Int((safe / 1000).rounded(.down))))
+        }
+        let minutes = max(1, Int((safe / 60_000).rounded()))
+        if minutes < 60 { return CallCopy.minutes.replacingOccurrences(of: "{count}", with: String(minutes)) }
+        return CallCopy.hours
+            .replacingOccurrences(of: "{hours}", with: String(minutes / 60))
+            .replacingOccurrences(of: "{minutes}", with: String(minutes % 60))
+    }
+
+    /// THE session card of a call session (`callCases`).
+    public static func callCard(_ session: TreeSession, summary: String?, now: Date) -> SessionCard {
+        let running = callRunning(session)
+        let total = callTotalMs(session, now: now)
+        let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return SessionCard(
+            sessionId: session.id,
+            icon: CallCopy.icon,
+            name: running
+                ? CallCopy.running.replacingOccurrences(of: "{timer}", with: callClock(total))
+                : CallCopy.ended.replacingOccurrences(of: "{duration}", with: callLength(total)),
+            kindWord: "",
+            state: running ? .working : .done,
+            tone: CallCopy.tone,
+            elapsed: nil,
+            running: false,
+            testId: CardCopy.testId,
+            isCall: true,
+            caption: !running && !trimmed.isEmpty ? trimmed : nil
+        )
+    }
+
+    /// Which of `CallCopy.prompts` (the server's lines in a call session) a
+    /// body is, else nil: ONE {placeholder} each, matched by the text around it.
+    public static func callPrompt(_ body: String) -> String? {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        for (key, template) in CallCopy.prompts {
+            guard let open = template.firstIndex(of: "{"),
+                  let close = template[open...].firstIndex(of: "}") else { continue }
+            let before = String(template[..<open])
+            let after = String(template[template.index(after: close)...])
+            if text.count > before.count + after.count, text.hasPrefix(before), text.hasSuffix(after) {
+                return key
+            }
+        }
+        return nil
+    }
+
+    /// The live feed (`feedCases`): the call session whose REPORT this
+    /// device input relays (`Report from <name> (session <id>): …`), else nil.
+    public static func feedCallSession(_ text: String, callIds: Set<String>) -> String? {
+        guard let input = TranscriptGrouping.crossSessionInput(text), input.kind == .report,
+              callIds.contains(input.sessionId) else { return nil }
+        return input.sessionId
+    }
+
+    /// Local HH:mm of a wire timestamp at `utcOffsetMinutes`.
+    private static func callHHmm(_ iso: String, utcOffsetMinutes: Int) -> String {
+        let seconds: Double = (ms(iso) ?? 0) / 1000 + Double(utcOffsetMinutes * 60)
+        let local = Int(seconds.rounded(.down))
+        let ofDay = ((local % 86_400) + 86_400) % 86_400
+        func pad(_ value: Int) -> String { value < 10 ? "0\(value)" : "\(value)" }
+        return "\(pad(ofDay / 3600)):\(pad((ofDay % 3600) / 60))"
+    }
+
+    /// THE call view (`callViewCases`): the call session's own screen.
+    /// `agentName` = the chat's agent; `messages` = the call session's own.
+    public static func callView(
+        session: TreeSession,
+        messages: [TreeMessage],
+        agentName: String,
+        now: Date,
+        utcOffsetMinutes: Int
+    ) -> CallView {
+        let running = callRunning(session)
+        let total = callTotalMs(session, now: now)
+        let call = session.voiceCall
+        let startedAt = call?.startedAt ?? session.createdAt
+        func localDay(_ value: Double) -> Int {
+            let shifted: Double = (value + Double(utcOffsetMinutes) * 60_000) / 86_400_000
+            return Int(shifted.rounded(.down))
+        }
+        let startMs: Double = ms(startedAt) ?? 0
+        let nowMs: Double = ms(now)
+        let day: String = localDay(startMs) >= localDay(nowMs)
+            ? CallCopy.today
+            : Chats.chatTimeLabel(atMs: startMs, nowMs: nowMs, utcOffsetMinutes: utcOffsetMinutes)
+        let start: String = callHHmm(startedAt, utcOffsetMinutes: utcOffsetMinutes)
+        let when: String
+        if !running, let endedAt = call?.endedAt {
+            let end: String = callHHmm(endedAt, utcOffsetMinutes: utcOffsetMinutes)
+            when = CallCopy.when
+                .replacingOccurrences(of: "{day}", with: day)
+                .replacingOccurrences(of: "{start}", with: start)
+                .replacingOccurrences(of: "{end}", with: end)
+        } else {
+            when = CallCopy.whenRunning
+                .replacingOccurrences(of: "{day}", with: day)
+                .replacingOccurrences(of: "{start}", with: start)
+        }
+        var createdMs: [String: Double] = [:]
+        for message in messages where message.sessionId == session.id {
+            let at: Double = ms(message.createdAt) ?? 0
+            createdMs[message.id] = at
+        }
+        let own: [TreeMessage] = messages
+            .filter { $0.sessionId == session.id }
+            .sorted { (a: TreeMessage, b: TreeMessage) -> Bool in
+                let ma = createdMs[a.id] ?? 0, mb = createdMs[b.id] ?? 0
+                if ma != mb { return ma < mb }
+                return a.id < b.id
+            }
+        var rows: [SessionChatRow] = []
+        var summary: String?
+        var afterEnded = false
+        for message in own {
+            if message.card != nil { continue }
+            if let by = message.authorSessionId, !by.isEmpty, by != session.id { continue }
+            guard message.authorKind == "user" || message.authorKind == "agent" else { continue }
+            let author = message.authorKind
+            if author == "user", message.locked == nil, let prompt = callPrompt(message.body) {
+                afterEnded = prompt == "ended"
+                continue
+            }
+            if author == "agent", afterEnded {
+                afterEnded = false
+                if message.locked == nil, !TranscriptGrouping.isBlankText(message.body) {
+                    summary = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                continue
+            }
+            if let reason = message.locked {
+                rows.append(.locked(id: message.id, reason: reason, author: author))
+                continue
+            }
+            let body = messageRowBody(message.body, message.attachmentIds)
+            if TranscriptGrouping.isBlankText(body) { continue }
+            rows.append(.message(
+                id: message.id, author: author, authorId: message.authorId, body: body,
+                queued: false, authorSessionId: message.authorSessionId, xref: nil
+            ))
+        }
+        return CallView(
+            sessionId: session.id,
+            title: running
+                ? CallCopy.viewRunning.replacingOccurrences(of: "{timer}", with: callClock(total))
+                : CallCopy.viewTitle.replacingOccurrences(of: "{duration}", with: callLength(total)),
+            subtitle: CallCopy.subtitle
+                .replacingOccurrences(of: "{when}", with: when)
+                .replacingOccurrences(of: "{agent}", with: agentName),
+            running: running,
+            summary: summary,
+            summaryLabel: CallCopy.summary,
+            rows: rows
+        )
     }
 
     /// #NEW-49 (session-card.json `waitingCases`): what an IDLE session
@@ -1954,6 +2244,26 @@ public enum SessionTree {
             return kind == "question" || kind == "plan"
         }
         let conversation = asks.isEmpty ? own : (own + asks).sorted(by: chronological)
+        // #EXP-1943 (session-card.json `call`): a call's reports fold into
+        // its ONE card as the caption (the newest summary); they draw no row.
+        func callOf(_ card: TreeMessageCard?) -> TreeSession? {
+            guard let id = card?.sessionId, let target = byId[id], isCallSession(target) else { return nil }
+            return target
+        }
+        var callSummaries: [String: String] = [:]
+        for message in conversation where message.card?.kind == "report" {
+            guard let call = callOf(message.card) else { continue }
+            let given = message.card?.summary ?? ""
+            let summary = !given.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? given
+                : message.locked != nil ? "" : message.body
+            if !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { callSummaries[call.id] = summary }
+        }
+        func cardOf(_ target: TreeSession) -> SessionCard {
+            isCallSession(target)
+                ? callCard(target, summary: callSummaries[target.id], now: now)
+                : sessionCard(target, title: titles[target.id] ?? "", now: now)
+        }
         var rows: [SessionChatRow] = []
         var messagesById: [String: TreeMessage] = [:]
         for message in messages { messagesById[message.id] = message }
@@ -1961,6 +2271,8 @@ public enum SessionTree {
         var fires = Set<String>()
         for message in conversation {
             if let reason = message.locked {
+                // #EXP-1943: a call's locked report is folded into its card too.
+                if message.card?.kind == "report" || message.card?.kind == "event", callOf(message.card) != nil { continue }
                 let author = message.authorKind == "user" || message.authorKind == "agent" ? message.authorKind : "system"
                 rows.append(.locked(id: message.id, reason: reason, author: author))
                 continue
@@ -1990,10 +2302,7 @@ public enum SessionTree {
             switch card.kind {
             case "session", "thread_started":
                 guard let targetId = card.sessionId, let target = byId[targetId] else { break }
-                rows.append(.session(
-                    id: message.id,
-                    card: sessionCard(target, title: titles[target.id] ?? "", now: now)
-                ))
+                rows.append(.session(id: message.id, card: cardOf(target)))
             case "question", "plan":
                 if let row = SessionChatRow.askCard(message) { rows.append(row) }
             case "subagent":
@@ -2009,6 +2318,7 @@ public enum SessionTree {
                 ))
             case "report":
                 guard let targetId = card.sessionId, let target = byId[targetId],
+                      !isCallSession(target),
                       let link = xref(.report, target.id) else { break }
                 rows.append(.report(
                     id: message.id,
@@ -2025,6 +2335,8 @@ public enum SessionTree {
                     rows.append(row)
                 }
             case "event":
+                // #EXP-1943: a line about a call session draws nothing (its card speaks).
+                if callOf(card) != nil { break }
                 // #EXP-1772: a firing draws nothing of its own; one the agent
                 // answered is THE marker above that reply (`fires`, below).
                 if card.event == DomainContract.messageEventKindTriggerFired {

@@ -313,6 +313,11 @@ pub(crate) trait Backend: Send {
     /// window, our own input still lands; `on_esc` fires on their Esc.
     /// `Err` = the OS refused (another grab, a missing permission).
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String>;
+    /// #EDE-126: start `argv` in the run's agent space (`launch_app`): its
+    /// pid. The desktop decides the environment. Only a space backend can.
+    fn launch(&self, _argv: &[String], _cwd: Option<&str>) -> Result<u32, String> {
+        Err("Only a run in an agent space starts programs.".to_string())
+    }
     /// The clipboard (`paste_text`, `copy_selection`, `read_clipboard`).
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
         Err("This desktop has no clipboard computer use can drive.".to_string())

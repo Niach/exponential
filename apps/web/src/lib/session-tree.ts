@@ -81,6 +81,15 @@ export function toTreeSession(row: SessionRow): TreeSession {
     blocked: row.blocked ?? null,
     // #NEW-49: what it waits on (tolerant: anything but a list = nothing).
     watching: Array.isArray(row.watching) ? row.watching : null,
+    // #EXP-1943: a call session's call (session-card.json `call`).
+    voiceCall: row.voiceCall
+      ? {
+          startedAt: row.voiceCall.startedAt,
+          segmentStartedAt: row.voiceCall.segmentStartedAt,
+          endedAt: row.voiceCall.endedAt ?? null,
+          durationMs: row.voiceCall.durationMs ?? 0,
+        }
+      : null,
     shared: row.shared,
     // EXP-1459: a sealed title this install opens wins; else the neutral one.
     title: openTitleWith(row.sealedTitle, row.rootId ?? row.id, currentKeySource()) ?? row.title,

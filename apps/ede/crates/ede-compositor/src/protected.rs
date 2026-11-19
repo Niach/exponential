@@ -21,7 +21,7 @@ use smithay::{
     input::{keyboard::Keycode, pointer::AxisFrame},
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource},
     utils::{Logical, Point},
-    wayland::compositor::get_parent,
+    wayland::{compositor::get_parent, seat::WaylandFocus},
 };
 
 use crate::{desk::DeskId, state::Ede};
@@ -116,7 +116,9 @@ impl Ede {
             return true;
         }
         let root = self.toplevel_root(surface);
-        self.is_lock_surface(&root) || self.window_for_surface(&root).is_some_and(|w| self.is_protected_window(&w))
+        // A space's protected windows count too: black in its capture, never driven.
+        let in_a_space = || self.spaces.iter().flat_map(|s| s.desk.space.elements()).any(|w| w.wl_surface().is_some_and(|s| *s == root) && self.is_protected_window(w));
+        self.is_lock_surface(&root) || self.window_for_surface(&root).is_some_and(|w| self.is_protected_window(&w)) || in_a_space()
     }
 
     /// The toplevel a surface belongs to, through subsurfaces and popups.
@@ -158,7 +160,7 @@ impl Ede {
     /// person being active. The release of a key it has down always lands.
     pub fn drive_key(&mut self, desk: DeskId, keycode: Keycode, state: KeyState, time: u32, bindings: bool) -> Result<(), Refused> {
         if state == KeyState::Released && self.desk(desk).driven.has_key(keycode) {
-            self.key(keycode, state, time, bindings);
+            self.key_on(desk, keycode, state, time, bindings);
             return Ok(());
         }
         if self.desk_locked(desk) {
@@ -167,13 +169,13 @@ impl Ede {
         if self.keyboard_focus_protected(desk) {
             return Err(Refused::Protected);
         }
-        self.key(keycode, state, time, bindings);
+        self.key_on(desk, keycode, state, time, bindings);
         Ok(())
     }
 
     pub fn drive_pointer_motion(&mut self, desk: DeskId, pos: Point<f64, Logical>, time: u32) -> Result<(), Refused> {
         self.may_drive_at(desk, pos)?;
-        self.pointer_motion_to(pos, time);
+        self.pointer_motion_on(desk, pos, time);
         Ok(())
     }
 
@@ -182,7 +184,7 @@ impl Ede {
         if state == ButtonState::Pressed || !self.desk(desk).driven.buttons.iter().any(|(_, b)| *b == button) {
             self.may_drive_at(desk, pos)?;
         }
-        self.pointer_button(button, state, time);
+        self.pointer_button_on(desk, button, state, time);
         Ok(())
     }
 
@@ -209,13 +211,13 @@ impl Ede {
         self.desk_mut(desk).driven.buttons = kept;
         let down = self.desk(desk).seat.get_keyboard().unwrap().pressed_keys();
         for (_, key) in keys.iter().rev().filter(|(_, k)| down.contains(k)) {
-            self.key(*key, KeyState::Released, time, false);
+            self.key_on(desk, *key, KeyState::Released, time, false);
         }
         if let Some(layout) = self.desk_mut(desk).keysyms.forget(&keys) {
             self.swap_layout(desk, layout);
         }
         for (_, button) in buttons {
-            self.pointer_button(button, ButtonState::Released, time);
+            self.pointer_button_on(desk, button, ButtonState::Released, time);
         }
     }
 
@@ -243,7 +245,7 @@ impl Ede {
         if self.desk_locked(desk) {
             return Err(Refused::Locked);
         }
-        match self.surface_under(pos) {
+        match self.surface_under_on(desk, pos) {
             Some((s, _)) if self.is_protected_surface(&s) => Err(Refused::Protected),
             _ => Ok(()),
         }

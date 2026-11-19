@@ -15,7 +15,9 @@ use wayland_client::{
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
 use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1};
 use wayland_protocols::{
+    ext::idle_notify::v1::client::{ext_idle_notification_v1, ext_idle_notifier_v1},
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
+    wp::fractional_scale::v1::client::{wp_fractional_scale_manager_v1, wp_fractional_scale_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
     xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base},
 };
@@ -53,6 +55,19 @@ pub struct Client {
     /// The surface our keyboard is on, and the keys it received (evdev codes).
     pub keyboard_focus: Option<wl_surface::WlSurface>,
     pub keys: Vec<u32>,
+    /// The keys it was told were let go, and how often it was sent a keymap.
+    pub key_releases: Vec<u32>,
+    pub keymaps: u32,
+    /// The depressed modifiers of every `modifiers` event (Shift = 1).
+    pub modifiers: Vec<u32>,
+    /// What our pointer heard: enters, motions, and each button with its state.
+    pub pointer_enters: u32,
+    pub pointer_motions: u32,
+    pub buttons: Vec<(u32, bool)>,
+    pub idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
+    /// `idled` and `resumed` on our idle notifications.
+    pub idled: u32,
+    pub resumed: u32,
     /// The keymap the compositor sent (format, fd, size), for a virtual
     /// keyboard to upload.
     pub keymap: Option<(u32, std::os::fd::OwnedFd, u32)>,
@@ -60,9 +75,15 @@ pub struct Client {
     /// The serial of the last button press our pointer received (what a
     /// client-side title bar hands back with `move` and `resize`).
     pub press_serial: Option<u32>,
+    /// Where the pointer is on the surface under it (enter, motion) and
+    /// where it was at the last button press, surface-local.
+    pub pointer_at: Option<(f64, f64)>,
+    pub press_at: Option<(f64, f64)>,
     pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
     /// Every offer the data device announced, with its types.
     pub offers: Vec<(wl_data_offer::WlDataOffer, Vec<String>)>,
+    /// How often a drag entered one of our surfaces.
+    pub drag_enters: u32,
     /// The offer the data device last named the selection (`None` = cleared).
     pub selection: Option<wl_data_offer::WlDataOffer>,
     /// What our own source serves per type; a type missing here is never
@@ -70,6 +91,11 @@ pub struct Client {
     pub source_data: Vec<(String, Vec<u8>)>,
     pub held: Vec<std::os::fd::OwnedFd>,
     pub source_cancelled: bool,
+    pub fractional_scale_manager: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
+    /// Every preferred scale a surface of ours was told, in 120ths.
+    pub preferred_scales: Vec<u32>,
+    /// Every popup configure: x, y (in its parent's geometry), width, height.
+    pub popup_configures: Vec<(i32, i32, i32, i32)>,
     /// Frame callbacks received through [`Session::count_frames`].
     pub frames: u32,
     /// The callback [`Session::count_frames`] waits on (another surface's
@@ -390,9 +416,26 @@ impl Session {
         inhibitor
     }
 
+    /// Like [`Session::draw`], with `rect` (x, y, w, h, buffer pixels) in
+    /// `fg`: a button on its window.
+    pub fn draw_with_rect(&mut self, t: &Toplevel, (w, h): (i32, i32), bg: u32, rect: (i32, i32, i32, i32), fg: u32) {
+        if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
+            t.xdg_surface.ack_configure(serial);
+        }
+        let buffer = self.buffer_with(w, h, |x, y| if (rect.0..rect.0 + rect.2).contains(&x) && (rect.1..rect.1 + rect.3).contains(&y) { fg } else { bg });
+        t.surface.attach(Some(&buffer), 0, 0);
+        t.surface.damage_buffer(0, 0, w, h);
+        t.surface.commit();
+        self.roundtrip();
+    }
+
     fn buffer(&mut self, w: i32, h: i32, argb: u32) -> wl_buffer::WlBuffer {
+        self.buffer_with(w, h, |_, _| argb)
+    }
+
+    fn buffer_with(&mut self, w: i32, h: i32, argb: impl Fn(i32, i32) -> u32) -> wl_buffer::WlBuffer {
         let mut file = tempfile::tempfile().expect("shm file");
-        let bytes: Vec<u8> = std::iter::repeat_n(argb.to_le_bytes(), (w * h) as usize).flatten().collect();
+        let bytes: Vec<u8> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| argb(x, y).to_le_bytes()).collect();
         file.write_all(&bytes).unwrap();
         let pool = self.state.shm.as_ref().unwrap().create_pool(file.as_fd(), w * h * 4, &self.qh, ());
         let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Argb8888, &self.qh, ());
@@ -413,6 +456,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "ext_session_lock_manager_v1" => state.lock_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_idle_inhibit_manager_v1" => state.idle_inhibit_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_virtual_keyboard_manager_v1" => state.virtual_keyboard_manager = Some(registry.bind(name, 1, qh, ())),
+                "ext_idle_notifier_v1" => state.idle_notifier = Some(registry.bind(name, 1, qh, ())),
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), qh, ())),
                 "wl_compositor" => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
@@ -421,6 +465,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
                 "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
+                "wp_fractional_scale_manager_v1" => state.fractional_scale_manager = Some(registry.bind(name, 1, qh, ())),
                 _ => {}
             }
         }
@@ -541,10 +586,15 @@ impl Dispatch<wl_output::WlOutput, ()> for Client {
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
-            wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => state.keymap = Some((format as u32, fd, size)),
+            wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => {
+                state.keymaps += 1;
+                state.keymap = Some((format as u32, fd, size));
+            }
+            wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Released), .. } => state.key_releases.push(key),
             wl_keyboard::Event::Enter { surface, .. } => state.keyboard_focus = Some(surface),
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),
+            wl_keyboard::Event::Modifiers { mods_depressed, .. } => state.modifiers.push(mods_depressed),
             _ => {}
         }
     }
@@ -552,8 +602,25 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Client {
     fn event(state: &mut Self, _: &wl_pointer::WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_pointer::Event::Button { serial, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } = event {
-            state.press_serial = Some(serial);
+        match event {
+            wl_pointer::Event::Enter { surface_x, surface_y, .. } => {
+                state.pointer_enters += 1;
+                state.pointer_at = Some((surface_x, surface_y));
+            }
+            wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
+                state.pointer_motions += 1;
+                state.pointer_at = Some((surface_x, surface_y));
+            }
+            wl_pointer::Event::Leave { .. } => state.pointer_at = None,
+            wl_pointer::Event::Button { serial, button, state: WEnum::Value(pressed), .. } => {
+                let pressed = pressed == wl_pointer::ButtonState::Pressed;
+                state.buttons.push((button, pressed));
+                if pressed {
+                    state.press_serial = Some(serial);
+                    state.press_at = state.pointer_at;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -566,6 +633,23 @@ impl Session {
         let device = self.state.data_device_manager.as_ref().expect("data device manager advertised").get_data_device(&seat, &self.qh, ());
         self.roundtrip();
         device
+    }
+
+    /// Starts a drag of one text type from `origin` with the last press.
+    pub fn start_drag(&mut self, device: &wl_data_device::WlDataDevice, origin: &wl_surface::WlSurface) -> wl_data_source::WlDataSource {
+        let source = self.state.data_device_manager.as_ref().unwrap().create_data_source(&self.qh, ());
+        source.offer("text/plain".into());
+        device.start_drag(Some(&source), origin, None, self.state.press_serial.expect("a press"));
+        self.roundtrip();
+        source
+    }
+
+    /// An idle notification on our seat after `ms` without input.
+    pub fn idle_notification(&mut self, ms: u32) -> ext_idle_notification_v1::ExtIdleNotificationV1 {
+        let seat = self.state.seat.clone().expect("seat advertised");
+        let notification = self.state.idle_notifier.as_ref().expect("idle notify advertised").get_idle_notification(ms, &seat, &self.qh, ());
+        self.roundtrip();
+        notification
     }
 
     /// Sets the clipboard to a source offering `types` (`None` data = never answered).
@@ -610,6 +694,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
         match event {
             wl_data_device::Event::DataOffer { id } => state.offers.push((id, Vec::new())),
             wl_data_device::Event::Selection { id } => state.selection = id,
+            wl_data_device::Event::Enter { .. } => state.drag_enters += 1,
             _ => {}
         }
     }
@@ -644,6 +729,16 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
     }
 }
 
+impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Client {
+    fn event(state: &mut Self, _: &ext_idle_notification_v1::ExtIdleNotificationV1, event: ext_idle_notification_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            ext_idle_notification_v1::Event::Idled => state.idled += 1,
+            ext_idle_notification_v1::Event::Resumed => state.resumed += 1,
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<wl_callback::WlCallback, ()> for Client {
     fn event(state: &mut Self, callback: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if matches!(event, wl_callback::Event::Done { .. }) && state.frame_pending.as_ref() == Some(callback) {
@@ -654,6 +749,7 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
+delegate_noop!(Client: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
@@ -667,5 +763,66 @@ delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(Client: xdg_positioner::XdgPositioner);
-delegate_noop!(Client: ignore xdg_popup::XdgPopup);
+delegate_noop!(Client: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
+
+impl Dispatch<wp_fractional_scale_v1::WpFractionalScaleV1, ()> for Client {
+    fn event(state: &mut Self, _: &wp_fractional_scale_v1::WpFractionalScaleV1, event: wp_fractional_scale_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
+            state.preferred_scales.push(scale);
+        }
+    }
+}
+
+impl Dispatch<xdg_popup::XdgPopup, ()> for Client {
+    fn event(state: &mut Self, _: &xdg_popup::XdgPopup, event: xdg_popup::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_popup::Event::Configure { x, y, width, height } = event {
+            state.popup_configures.push((x, y, width, height));
+        }
+    }
+}
+
+impl Session {
+    /// The preferred scale of `surface` (in 120ths), as the compositor says it now.
+    pub fn preferred_scale(&mut self, surface: &wl_surface::WlSurface) -> Option<u32> {
+        let told = self.state.preferred_scales.len();
+        let scale = self.state.fractional_scale_manager.as_ref().expect("fractional scale advertised").get_fractional_scale(surface, &self.qh, ());
+        self.roundtrip();
+        scale.destroy();
+        self.state.preferred_scales[told..].last().copied()
+    }
+
+    /// A drawn `w`x`h` `xdg_popup` of the window `parent`, its top left
+    /// corner asked for at `at` in the window (the compositor may slide
+    /// it); `grab` = it asks for the grab. Its configure, when one came,
+    /// is the last of [`Client::popup_configures`].
+    pub fn window_popup(&mut self, parent: &Toplevel, at: (i32, i32), (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let index = self.state.toplevels.len();
+        self.state.toplevels.push(ToplevelState::default());
+        let wm_base = self.state.wm_base.clone().unwrap();
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
+        let positioner = wm_base.create_positioner(&self.qh, ());
+        positioner.set_size(w, h);
+        positioner.set_anchor_rect(at.0, at.1, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+        positioner.set_constraint_adjustment(xdg_positioner::ConstraintAdjustment::SlideX | xdg_positioner::ConstraintAdjustment::SlideY);
+        let popup = xdg_surface.get_popup(Some(&parent.xdg_surface), &positioner, &self.qh, ());
+        positioner.destroy();
+        if grab {
+            popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
+        }
+        surface.commit();
+        self.roundtrip();
+        if let Some(serial) = self.state.toplevels[index].pending_serial.take() {
+            xdg_surface.ack_configure(serial);
+            let buffer = self.buffer(w, h, argb);
+            surface.attach(Some(&buffer), 0, 0);
+            surface.damage_buffer(0, 0, w, h);
+            surface.commit();
+            self.roundtrip();
+        }
+        Popup { surface, xdg_surface, popup }
+    }
+}
 

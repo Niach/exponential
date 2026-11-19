@@ -730,6 +730,8 @@ pub struct Call {
     /// The absolute sample count at the last partial decode.
     partial_at: usize,
     last_partial: String,
+    /// #EXP-1941: the audio lost on the way inside the open utterance.
+    lost_ms: u32,
 }
 
 /// NEW-55: dropped audio is drained in steps of at least this many samples
@@ -757,7 +759,25 @@ impl Call {
             spoken_at_start: None,
             partial_at: 0,
             last_partial: String::new(),
+            lost_ms: 0,
         }
+    }
+
+    /// #EXP-1941 (question 9): `ms` of the call's audio were lost before the
+    /// samples fed next. An utterance that lost more than
+    /// [`etalk::CALL_MAX_LOST_MS`] in total is heard to its end and then
+    /// dropped whole, as a sound that was no speech: never transcribed,
+    /// never said, no partial of it from then on. A host never joins speech
+    /// across a gap. A loss between two utterances counts for neither.
+    pub fn lost(&mut self, ms: u32) {
+        if self.segmenter.open_start().is_some() {
+            self.lost_ms = self.lost_ms.saturating_add(ms);
+        }
+    }
+
+    /// The open utterance lost too much on the way.
+    fn cut(&self) -> bool {
+        self.lost_ms > etalk::CALL_MAX_LOST_MS
     }
 
     /// #NEW-92: what the echo canceller says about the samples fed next.
@@ -831,7 +851,9 @@ impl Call {
                 self.last_partial.clear();
                 // #NEW-92: heard over a reply and never cleared the gate =
                 // the reply's echo: never transcribed, never said.
-                if !self.over_reply || self.announced {
+                if self.cut() {
+                    eprintln!("voice: dropped an utterance that lost {} ms of audio on the way", self.lost_ms);
+                } else if !self.over_reply || self.announced {
                     let text = normalize_transcript(&self.transcribe(segment.start, segment.end, transcriber)?);
                     if self.echo_text(&text) {
                         self.echo_dropped += 1;
@@ -848,6 +870,7 @@ impl Call {
             // Every frame: the echo floor learns from the reply's silences too.
             let counts = self.gate.frame(probability, level, self.echo, utterance);
             if utterance.is_none() {
+                self.lost_ms = 0;
                 self.announced = false;
                 self.barging = 0;
                 self.over_reply = false;
@@ -868,7 +891,7 @@ impl Call {
         }
         // #NEW-92: no partial of what may still be the reply's echo.
         let echo_only = self.over_reply && !self.announced;
-        if transcriber.partials() && end - self.partial_at >= PARTIAL_EVERY && !echo_only {
+        if transcriber.partials() && end - self.partial_at >= PARTIAL_EVERY && !echo_only && !self.cut() {
             if let Some(start) = self.segmenter.open_start() {
                 self.partial_at = end;
                 let text = normalize_transcript(&self.transcribe(start, usize::MAX, transcriber)?);

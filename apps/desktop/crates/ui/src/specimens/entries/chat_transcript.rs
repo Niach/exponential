@@ -266,6 +266,115 @@ fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1943 (session-card.json `call`): a call in the agent chat = ONE
+// session card (an ended call with its summary, a running one), from the
+// session-chat.json case's input through `build_session_chat`, and THE call
+// view (`callViewCases[0]` through `call_view`), on top of the specimen.
+// ---------------------------------------------------------------------------
+
+const SESSION_CHAT_JSON: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/session-chat.json");
+const SESSION_CARD_JSON: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/session-card.json");
+
+/// A fixture row (camelCase keys) as the synced row (snake_case).
+fn fixture_row<T: serde::de::DeserializeOwned>(value: &serde_json::Value) -> Option<T> {
+    let mut out = serde_json::Map::new();
+    for (key, cell) in value.as_object()? {
+        let mut snake = String::new();
+        for ch in key.chars() {
+            if ch.is_ascii_uppercase() {
+                snake.push('_');
+                snake.push(ch.to_ascii_lowercase());
+            } else {
+                snake.push(ch);
+            }
+        }
+        out.insert(snake, cell.clone());
+    }
+    serde_json::from_value(serde_json::Value::Object(out)).ok()
+}
+
+fn fixture_messages(value: &serde_json::Value) -> Vec<domain::rows::MessageRow> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let session_id = item["sessionId"].as_str().unwrap_or_default().to_string();
+            let mut item = item.clone();
+            let object = item.as_object_mut()?;
+            object.entry("conversationId").or_insert_with(|| json!(format!("c-{session_id}")));
+            let locked = object.remove("locked").is_some();
+            let mut message: domain::rows::MessageRow = fixture_row(&item)?;
+            message.session_id = session_id;
+            if locked {
+                message.seal = Some(domain::sealed::SealState::Locked);
+            }
+            Some(message)
+        })
+        .collect()
+}
+
+fn instant(value: &serde_json::Value) -> i64 {
+    value.as_str().and_then(domain::instant::parse_instant).unwrap_or_default()
+}
+
+/// The call specimen's rows: the chat (its call cards) then the call view.
+fn call_rows(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Vec<AnyElement> {
+    let mut out = Vec::new();
+    let chat: serde_json::Value = serde_json::from_str(SESSION_CHAT_JSON).unwrap_or_default();
+    let case = chat["cases"].as_array().into_iter().flatten().find(|case| case["name"].as_str().is_some_and(|name| name.starts_with("#EXP-1943")));
+    if let Some(input) = case.map(|case| &case["input"]) {
+        let sessions: Vec<domain::rows::SessionRow> = input["sessions"].as_array().into_iter().flatten().filter_map(fixture_row).collect();
+        let messages = fixture_messages(&input["messages"]);
+        if let Some(root) = fixture_row::<domain::rows::SessionRow>(&input["root"]) {
+            let session_refs: Vec<&domain::rows::SessionRow> = sessions.iter().collect();
+            let message_refs: Vec<&domain::rows::MessageRow> = messages.iter().collect();
+            let view = domain::session_tree::build_session_chat(
+                domain::session_tree::SessionChatInput {
+                    root: &root,
+                    sessions: &session_refs,
+                    session_issues: &[],
+                    issues: &[],
+                    messages: &message_refs,
+                    pull_requests: &[],
+                    now_ms: instant(&input["now"]),
+                },
+                None,
+            );
+            for row in &view.rows {
+                let time = messages
+                    .iter()
+                    .find(|message| message.id == row.id())
+                    .map(|message| crate::session_chat::clock(message.created_at.as_deref()))
+                    .unwrap_or_default();
+                out.push(paint(row, &time, images, window, cx));
+            }
+        }
+    }
+    let card: serde_json::Value = serde_json::from_str(SESSION_CARD_JSON).unwrap_or_default();
+    let input = &card["callViewCases"][0]["input"];
+    if let Some(session) = fixture_row::<domain::rows::SessionRow>(&input["session"]) {
+        let messages = fixture_messages(&input["messages"]);
+        let refs: Vec<&domain::rows::MessageRow> = messages.iter().collect();
+        let view = domain::session_tree::call_view(
+            &session,
+            &refs,
+            input["agentName"].as_str().unwrap_or_default(),
+            instant(&input["now"]),
+            input["utcOffsetMinutes"].as_i64().unwrap_or_default() as i32,
+        );
+        let times: std::collections::HashMap<String, String> = messages
+            .iter()
+            .map(|message| (message.id.clone(), crate::session_chat::clock(message.created_at.as_deref())))
+            .collect();
+        let time = move |id: &str| times.get(id).cloned().unwrap_or_default();
+        let agent = crate::call_view::CallAgent { icon: None, color: None };
+        out.push(div().pt_4().child(crate::call_view::call_view_body(&view, true, &agent, &time, images, cx)).into_any_element());
+    }
+    out
+}
+
 fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
     rows()
 }
@@ -273,7 +382,9 @@ fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
     // #EXP-1873: the check-ins lead the specimen (web's order), in frame.
-    let mut rows: Vec<AnyElement> = check_in_rows(&images, cx);
+    // #EXP-1943: the call cards and the call view lead it.
+    let mut rows: Vec<AnyElement> = call_rows(&images, window, cx);
+    rows.extend(check_in_rows(&images, cx));
     for (row, time) in rows_list() {
         rows.push(paint(&row, time, &images, window, cx));
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {

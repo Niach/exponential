@@ -69,8 +69,7 @@ class VoiceCallTest {
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
-        assertEquals(copy.keys - setOf("reasons", "failed", "greeting"), flat.keys)
-        assertEquals(copy.getValue("greeting").jsonObject.strings(), c.greeting)
+        assertEquals(copy.keys - setOf("reasons", "failed"), flat.keys)
         flat.forEach { (key, value) -> assertEquals(key, copy.str(key), value) }
         val reasons = mapOf(
             "noAgent" to VoiceCall.Copy.Reasons.NO_AGENT,
@@ -108,6 +107,18 @@ class VoiceCallTest {
         assertEquals(
             obj("icons").strings(),
             mapOf("call" to i.CALL, "mute" to i.MUTE, "unmute" to i.UNMUTE, "speaker" to i.SPEAKER, "speakerOff" to i.SPEAKER_OFF, "end" to i.END, "minimize" to i.MINIMIZE),
+        )
+        // FEED-272: the tabs.
+        val tabs = obj("tabs")
+        assertEquals(tabs.getValue("order").jsonArray.map { it.jsonPrimitive.content }, VoiceCall.Tabs.ORDER.map { it.wire })
+        assertEquals(tabs.getValue("initial").jsonPrimitive.content, VoiceCall.Tabs.INITIAL.wire)
+        assertEquals(
+            tabs.getValue("copy").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            VoiceCall.Tab.entries.associate { it.wire to VoiceCall.Tabs.label(it) },
+        )
+        assertEquals(
+            tabs.getValue("testIds").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            mapOf("tabs" to VoiceCall.Tabs.TABS_ID) + VoiceCall.Tab.entries.associate { it.wire to VoiceCall.Tabs.testId(it) },
         )
         val pill = obj("pill")
         assertEquals(
@@ -318,13 +329,6 @@ class VoiceCallTest {
         }
     }
 
-    @Test
-    fun `the greeting falls back to English`() {
-        assertEquals("Hallo?", VoiceCall.callGreeting("de"))
-        assertEquals("Hello?", VoiceCall.callGreeting(null))
-        assertEquals("Hello?", VoiceCall.callGreeting("fr"))
-    }
-
     /** A code the fixture has no copy for (the relay's `no_such_call`) reads "dropped". */
     @Test
     fun `an unknown failure code reads dropped`() {
@@ -468,5 +472,65 @@ class VoiceCallTest {
             val expected = case.str("expected")?.let { e -> VoiceCall.Speech.entries.single { it.wire == e } }
             assertEquals(case.str("name"), expected, VoiceCall.callSpeechOf(case.str("state")))
         }
+    }
+
+    // #EXP-1941: the caller rows of `seal.modeCases` (the phone is a caller only).
+    private fun sealEvent(json: JsonObject): VoiceCall.Seal.Event = when (json.str("t")) {
+        "start" -> VoiceCall.Seal.Event.Start(json.getValue("seal").jsonPrimitive.boolean, json["required"]?.jsonPrimitive?.boolean)
+        "ready" -> VoiceCall.Seal.Event.Ready
+        "hello" -> VoiceCall.Seal.Event.Hello(json.getValue("ok").jsonPrimitive.boolean)
+        "noKey" -> VoiceCall.Seal.Event.NoKey
+        "key" -> VoiceCall.Seal.Event.Key
+        "finished" -> VoiceCall.Seal.Event.Finished(json.getValue("ok").jsonPrimitive.boolean)
+        "frame" -> VoiceCall.Seal.Event.Frame(json.getValue("opens").jsonPrimitive.boolean)
+        "sealed" -> VoiceCall.Seal.Event.Sealed(json.getValue("opens").jsonPrimitive.boolean)
+        "clear" -> VoiceCall.Seal.Event.Clear
+        "failed" -> VoiceCall.Seal.Event.Failed(json.str("code")!!)
+        "closed" -> VoiceCall.Seal.Event.Closed
+        "timeout" -> VoiceCall.Seal.Event.Timeout(json.str("timer")!!)
+        else -> error("unknown seal event ${json.str("t")}")
+    }
+
+    @Test
+    fun `EXP-1941 the caller rows of seal modeCases`() {
+        val rows = obj("seal").getValue("modeCases").jsonArray.map { it.jsonObject }.filter { it.str("role") == "caller" }
+        assertTrue(rows.size >= 15)
+        for (case in rows) {
+            var state = VoiceCall.Seal.IDLE
+            val actions = case.getValue("events").jsonArray.map { event ->
+                val stepped = VoiceCall.Seal.callerStep(state, sealEvent(event.jsonObject))
+                state = stepped.state
+                stepped.actions
+            }
+            val expected = case.getValue("actions").jsonArray.map { row -> row.jsonArray.map { it.jsonPrimitive.content } }
+            assertEquals(case.str("name"), expected, actions)
+            assertEquals(case.str("name"), case.str("phase"), state.phase.wire)
+        }
+    }
+
+    @Test
+    fun `EXP-1941 seal constants and maxOpenFailures in a row end a sealed call`() {
+        val seal = obj("seal")
+        val s = VoiceCall.Seal
+        assertEquals(seal.str("cap"), s.CAP)
+        assertEquals(seal.getValue("helloEveryMs").jsonPrimitive.long, s.HELLO_EVERY_MS)
+        assertEquals(seal.getValue("handshakeMs").jsonPrimitive.long, s.HANDSHAKE_MS)
+        assertEquals(seal.getValue("pullEveryMs").jsonPrimitive.long, s.PULL_EVERY_MS)
+        assertEquals(seal.getValue("maxOpenFailures").jsonPrimitive.int, s.MAX_OPEN_FAILURES)
+        assertEquals(seal.getValue("required").jsonPrimitive.boolean, s.REQUIRED)
+        val hello = seal.getValue("helloBytes").jsonObject
+        assertEquals(hello.getValue("caller").jsonPrimitive.int to hello.getValue("host").jsonPrimitive.int, s.CALLER_HELLO_BYTES to s.HOST_HELLO_BYTES)
+        assertEquals(seal.getValue("frameTypes").jsonObject.getValue("hello").jsonPrimitive.int, s.TYPE_HELLO)
+        assertEquals(seal.getValue("roles").jsonObject.getValue("host").jsonPrimitive.int, s.ROLE_HOST)
+        val reasons = seal.getValue("endReasons").jsonObject
+        assertEquals(reasons.str("noKey") to reasons.str("seal"), s.END_NO_KEY to s.END_SEAL)
+        val own = seal.getValue("ownDeviceCodes").jsonArray.map { it.jsonPrimitive.content }
+        for (code in own) assertEquals("dropped", s.wireCode(code))
+        assertEquals("busy", s.wireCode("busy"))
+        var state = VoiceCall.Seal.State(VoiceCall.Seal.Phase.Sealed)
+        repeat(s.MAX_OPEN_FAILURES - 1) { state = s.callerStep(state, VoiceCall.Seal.Event.Frame(false)).state }
+        assertEquals(VoiceCall.Seal.State(VoiceCall.Seal.Phase.Sealed, s.MAX_OPEN_FAILURES - 1), state)
+        val last = s.callerStep(state, VoiceCall.Seal.Event.Frame(false))
+        assertEquals(VoiceCall.Seal.Phase.Over to listOf("end:seal", "fail:dropped", "abandon"), last.state.phase to last.actions)
     }
 }

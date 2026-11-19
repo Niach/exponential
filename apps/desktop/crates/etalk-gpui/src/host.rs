@@ -125,6 +125,9 @@ pub struct SendError {
     /// The receiver refused it for good (Exponential: a 4xx other than 401,
     /// 408, 429): a meeting batch is dropped, never retried.
     pub refused: bool,
+    /// #EXP-1982: refused while this desktop has no key holder: nothing it
+    /// sends can be stored in that (encrypted) chat, so a call ends.
+    pub unstorable: bool,
 }
 
 impl std::fmt::Display for SendError {
@@ -201,6 +204,9 @@ pub enum CallLinkEvent {
     Ready,
     /// The caller's audio: mono 16-bit PCM.
     Audio(Vec<i16>),
+    /// #EXP-1941: this many ms of the caller's audio were lost before the
+    /// next audio (a sealed call's socket counts it).
+    Lost { ms: u32 },
     Mute(bool),
     /// The caller (or the relay) hung up, with its reason.
     Ended { reason: Option<String> },
@@ -224,6 +230,10 @@ pub trait CallLink: 'static {
 pub struct CallConnection {
     pub link: Box<dyn CallLink>,
     pub events: flume::Receiver<CallLinkEvent>,
+    /// #EXP-1982: the host joined only to fail the call with this code (a
+    /// clear call into an encrypted chat it has no key holder for): it never
+    /// begins, the caller gets `failed {code}` once it is on the line.
+    pub refuse: Option<&'static str>,
 }
 
 /// EXP-1857: what the desktop a DIALLED call streams to sends back (the
@@ -339,8 +349,15 @@ pub trait TalkHost: 'static {
     fn write(&self, write: VoiceWrite, done: Box<dyn FnOnce(&mut App)>, cx: &mut App) -> bool;
     /// Answer a streamed call ringing here (None = no relay or not signed
     /// in; Err = refused). EXP-1857: the host names THIS device in its
-    /// ticket (any of the member's desktops may be rung).
-    fn connect_call(&self, call_id: &str, cx: &mut App) -> Option<Task<Result<CallConnection, String>>>;
+    /// ticket (any of the member's desktops may be rung). #EXP-1941: and the
+    /// ring's `agent_id`: the relay writes the ring, the server's ticket
+    /// vouches for its call id and its agent, and tells the call's mode. A
+    /// host told `seal` joins with a key source. `refuse_only` = it joins
+    /// only to fail the call (`busy`, `meeting`): without a key source, a
+    /// clear `failed` works before any key exists. #EXP-1982: a clear call
+    /// into an encrypted chat on a desktop with no key holder answers with
+    /// [`CallConnection::refuse`] set.
+    fn connect_call(&self, call_id: &str, agent_id: &str, refuse_only: bool, cx: &mut App) -> Option<Task<Result<CallConnection, String>>>;
     /// EXP-1857: dial `agent_id` on ANOTHER of the member's desktops (the
     /// server picks the same target the telephone did): None = no relay,
     /// no server or not signed in.

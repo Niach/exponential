@@ -191,6 +191,20 @@ class EnetNodeManager @Inject constructor(
     /** #EDE-114: the user id [accountId] is signed in as (null = not signed in here). */
     fun userId(accountId: String): String? = accounts[accountId]
 
+    /**
+     * #EXP-1941: [accountId]'s tree-key holder, waiting up to [timeoutMs] for
+     * one still starting (a call's claim). Null = none in time.
+     */
+    suspend fun awaitHolder(accountId: String, timeoutMs: Long): TreeKeyHolder? {
+        holders[accountId]?.let { return it }
+        wake.trySend(Unit)
+        return com.exponential.app.data.sealed.awaitWithin(timeoutMs, HOLDER_POLL_MS) { holders[accountId] }
+    }
+
+    /** #EXP-1941: a call's unthrottled pull of ONE root: the secret of ([rootId], [epoch]), or null. */
+    suspend fun pullTreeKey(accountId: String, rootId: String, epoch: Int): ByteArray? =
+        holders[accountId]?.pull(rootId, epoch)
+
     /** Runs a holder pass now (a key was just created, or a screen lacks one). */
     fun wakeHolders() {
         holderWake.trySend(Unit)
@@ -274,8 +288,8 @@ class EnetNodeManager @Inject constructor(
             crypto = SealedFfi,
             vault = treeKeys.vault,
             api = object : HolderApi {
-                override suspend fun mine(installId: String) =
-                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId) } ?: error("mine timed out")
+                override suspend fun mine(installId: String, rootIds: List<String>?) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId, rootIds) } ?: error("mine timed out")
                 override suspend fun pending(installId: String) =
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.pending(accountId, installId) } ?: error("pending timed out")
                 override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {

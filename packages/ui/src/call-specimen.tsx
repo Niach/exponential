@@ -8,7 +8,8 @@ import { CallButton, CallControls, VoiceCallPill } from "./call-controls"
 import { ExponentialLogo } from "./exponential-logo"
 import { Pill } from "./pill"
 import { VoiceWave, type VoiceWaveActivity } from "./voice-wave"
-import { VoiceCallSurface } from "./voice-call-card"
+import { ChatTranscriptSpecimen } from "./chat-specimens"
+import { CallTabs, VoiceCallSurface } from "./voice-call-card"
 
 // S-3: the call specimens (voice-call.json `surfaceSpecimens`), ONE source
 // for the styleguide entries `voice-call`, `voice-call-overlay` (the pill)
@@ -65,6 +66,67 @@ export function VoiceCallSpecimen({
           <figcaption className="text-center text-xs text-muted-foreground">{row.name}</figcaption>
         </figure>
       ))}
+    </div>
+  )
+}
+
+/** FEED-272: the call's two tabs side by side ("in call, speaking"): Chat =
+ *  the tabs, the pill's row docked, the agent chat under it; Voice = the
+ *  tabs over the call surface. */
+export function VoiceCallTabsSpecimen({
+  platform = `phone`,
+  frameClassName = `h-[600px] w-[300px]`,
+  className = `flex flex-wrap items-start gap-4`,
+}: {
+  platform?: CallPlatform
+  frameClassName?: string
+  className?: string
+}) {
+  const row = onPlatform(CALL_SPECIMENS.find((one) => one.name === `in call, speaking`)!, platform)
+  const noop = () => {}
+  return (
+    <div className={className} data-testid="voice-call-tabs-specimen">
+      <figure className="grid min-w-0 gap-2">
+        <div className={`flex flex-col overflow-hidden rounded-[28px] border border-glass-stroke-card bg-background ${frameClassName}`}>
+          <div className="flex shrink-0 flex-col gap-3 px-3 pt-3">
+            <CallTabs tab="chat" onTab={noop} />
+            <VoiceCallPill
+              docked
+              agent={row.agent}
+              avatar={assistant}
+              status={row.timer ?? ``}
+              activity={row.activity}
+              level={row.level}
+              bands={row.bands}
+              muted={row.muted}
+              buttons={row.buttons}
+              end={row.end}
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pt-3">
+            <ChatTranscriptSpecimen single />
+          </div>
+        </div>
+        <figcaption className="text-center text-xs text-muted-foreground">Chat tab</figcaption>
+      </figure>
+      <figure className="grid min-w-0 gap-2">
+        <div className={`flex flex-col overflow-hidden rounded-[28px] border border-glass-stroke-card bg-background ${frameClassName}`}>
+          <div className="shrink-0 px-3 pt-3">
+            <CallTabs tab="voice" onTab={noop} />
+          </div>
+          <div className="flex min-h-0 flex-1">
+            <VoiceCallSurface
+              agent={row.agent}
+              avatar={assistant}
+              view={row}
+              timer={row.timer ?? ``}
+              level={row.level}
+              bands={row.bands}
+            />
+          </div>
+        </div>
+        <figcaption className="text-center text-xs text-muted-foreground">Voice tab</figcaption>
+      </figure>
     </div>
   )
 }

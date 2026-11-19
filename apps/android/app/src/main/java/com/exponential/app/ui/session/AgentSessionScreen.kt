@@ -509,6 +509,12 @@ fun AgentSessionScreen(
     ) { factory -> factory.create(sessionId) }
     val session by viewModel.session.collectAsStateWithLifecycle()
     val header by viewModel.header.collectAsStateWithLifecycle()
+    // #EXP-1943: a call session opens as THE call view.
+    val isCall by viewModel.isCall.collectAsStateWithLifecycle()
+    if (isCall) {
+        CallViewPage(viewModel, onBack)
+        return
+    }
     val row = session
     // S-3: no Stop/End in the header (the composer's stop-turn is the one).
     val rootId = row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id
@@ -777,6 +783,11 @@ private fun RunFaceContent(
                 },
             )
         }
+    }
+    // #EXP-1943: the tree's call sessions; a tap opens the call's view.
+    val treeCalls by viewModel.treeCalls.collectAsStateWithLifecycle()
+    val feedCalls = remember(treeCalls, onOpenOrigin) {
+        if (treeCalls.isEmpty()) FeedCalls.None else FeedCalls(treeCalls, onOpenOrigin?.let { open -> { id: String -> open(id, false) } })
     }
     val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
         EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
@@ -1364,6 +1375,7 @@ private fun RunFaceContent(
                     },
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
+                    calls = feedCalls,
                     ownTail = ownTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
@@ -1894,6 +1906,8 @@ private fun ActivityFeed(
     /** #FEED-237: the viewer's own pending bubbles at the very bottom. */
     ownTail: List<com.exponential.app.domain.MessageDelivery.Bubble> = emptyList(),
     onOwnAction: (com.exponential.app.domain.MessageDelivery.Bubble, com.exponential.app.domain.MessageDelivery.Action) -> Unit = { _, _ -> },
+    /** #EXP-1943: the tree's call sessions (their reports draw as their cards). */
+    calls: FeedCalls = FeedCalls.None,
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1938,17 +1952,45 @@ private fun ActivityFeed(
                 .filterNot { docked != null && isSameAskRow(it, docked) },
         )
     }
-    val rows = shownRows.rows
+    // #EXP-1943 (session-card.json THE LIVE CHAT): a call's FIRST report
+    // relay = its call card, every later one of the same call nothing.
+    val callFeed = remember(feed, calls) { feedCallFold(feed, calls.ids) }
+    val rows = if (callFeed.hidden.isEmpty()) {
+        shownRows.rows
+    } else {
+        shownRows.rows.filterNot { it is AgentFeedRow.Single && it.item.id in callFeed.hidden }
+    }
+    // The call cards' clock: ticks every second while a call runs.
+    val callsRunning = calls.sessions.any { SessionTree.callRunning(it) }
+    val callNow = androidx.compose.runtime.produceState(SessionTree.nowIso(), callsRunning) {
+        value = SessionTree.nowIso()
+        while (callsRunning) {
+            delay(1_000)
+            value = SessionTree.nowIso()
+        }
+    }
+    val callCard: @Composable (String) -> Unit = { callId ->
+        calls.sessions.firstOrNull { it.id == callId }?.let { call ->
+            com.exponential.app.ui.chat.SessionCard(
+                SessionTree.callCard(call, callFeed.summaries[callId], callNow.value),
+                onClick = calls.onOpen?.let { open -> { open(callId) } },
+                chevron = calls.onOpen != null,
+            )
+        }
+    }
     // #EXP-1736 (transcript-grouping.json): the main stream's senders and
     // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
     // ONE origin rule (data first): the feed's first prompt is the origin's
     // while the window holds the feed's start (nothing earlier on the device).
     val fromStart = windowStart == 0 && !onCanLoadEarlier()
-    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds) {
+    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds, callFeed) {
         if (senders == null) {
             emptyMap()
         } else {
-            feedTranscriptLayout(rows, sessionCards, senders, agent, fromStart = fromStart, workflowIds = workflowIds)
+            feedTranscriptLayout(
+                rows, sessionCards, senders, agent, fromStart = fromStart, workflowIds = workflowIds,
+                callRows = callFeed.first.keys,
+            )
         }
     }
     // Cards whose tool row this window does not hold (see the tail items).
@@ -2389,7 +2431,10 @@ private fun ActivityFeed(
                                 // #EXP-1873: a quiet check-in (or a run of
                                 // them) = ONE marker line.
                                 val checkIns = shownRows.checkIns[row.id]
+                                val callId = callFeed.first[item.id]
                                 when {
+                                    // #EXP-1943: a call's report relay = THE call card.
+                                    callId != null -> callCard(callId)
                                     checkIns != null -> FeedMarkerRow(TranscriptGrouping.checkInLabel(checkIns, time))
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
@@ -2473,6 +2518,14 @@ private fun ActivityFeed(
                             },
                         )
                     }
+                }
+            }
+            // #EXP-1943: a RUNNING call with no report in the loaded feed
+            // draws its card after the feed's last row.
+            val pendingCalls = calls.sessions.filter { SessionTree.callRunning(it) && it.id !in callFeed.reported }
+            if (pendingCalls.isNotEmpty()) {
+                items(pendingCalls, key = { "call-card-${it.id}" }, contentType = { "session-card" }) { call ->
+                    TranscriptRow(TranscriptGap.Block) { callCard(call.id) }
                 }
             }
             // EXP-389: the agent-is-busy footer under the newest event (iOS
@@ -2567,6 +2620,45 @@ internal data class FeedSenders(
     val onOpen: ((sessionId: String) -> Unit)?,
 )
 
+/** #EXP-1943: the tree's call sessions a feed draws as cards; [onOpen]
+ *  opens one (its call view), null = inert. */
+internal class FeedCalls(val sessions: List<SessionTree.Session>, val onOpen: ((sessionId: String) -> Unit)?) {
+    val ids: Set<String> = sessions.mapTo(HashSet()) { it.id }
+
+    companion object {
+        val None = FeedCalls(emptyList(), null)
+    }
+}
+
+/** #EXP-1943 (session-card.json THE LIVE CHAT): the feed's call report
+ *  relays ([SessionTree.feedCallSession]): [first] = the row drawing each
+ *  call's card (its FIRST report), [hidden] = every later report,
+ *  [summaries] = each call's newest report body, [reported] = the calls
+ *  with a report in the feed. */
+internal data class FeedCallFold(
+    val first: Map<Long, String>,
+    val hidden: Set<Long>,
+    val summaries: Map<String, String>,
+) {
+    val reported: Set<String> get() = summaries.keys + first.values
+}
+
+internal fun feedCallFold(feed: List<AgentFeedItem>, callIds: Set<String>): FeedCallFold {
+    if (callIds.isEmpty()) return FeedCallFold(emptyMap(), emptySet(), emptyMap())
+    val first = LinkedHashMap<Long, String>()
+    val hidden = HashSet<Long>()
+    val summaries = HashMap<String, String>()
+    val seen = HashSet<String>()
+    for (item in feed) {
+        val text = (item as? AgentFeedItem.UserMessage)?.text ?: continue
+        val callId = SessionTree.feedCallSession(text, callIds) ?: continue
+        if (seen.add(callId)) first[item.id] = callId else hidden += item.id
+        val body = TranscriptGrouping.crossSessionInput(text)?.body?.trim().orEmpty()
+        if (body.isNotEmpty()) summaries[callId] = body
+    }
+    return FeedCallFold(first, hidden, summaries)
+}
+
 /** A main-stream row's layout; [groupGap] = it and the row above it are
  *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
 internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
@@ -2648,6 +2740,8 @@ internal fun feedTranscriptLayout(
     fromStart: Boolean,
     /** EXP-850 (S3): a `Workflow` call draws as its card (a full row). */
     workflowIds: Set<String> = emptySet(),
+    /** #EXP-1943: the rows drawn as a call's card (full rows). */
+    callRows: Set<Long> = emptySet(),
 ): Map<Long, FeedRowLayout> {
     val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
     senders.origin?.let { sessions[it.sessionId] = TranscriptGrouping.SessionRef(it.sessionId, it.name, it.agentId) }
@@ -2668,6 +2762,7 @@ internal fun feedTranscriptLayout(
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 }
                 is AgentFeedItem.UserMessage -> if (
+                    row.id in callRows ||
                     Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)

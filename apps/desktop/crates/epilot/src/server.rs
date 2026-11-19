@@ -17,6 +17,15 @@ pub(crate) trait ToolHost: Send + Sync {
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value;
     /// The run ended.
     fn end(&self, session_id: &str);
+    /// #EDE-126: the tools of ONE run (a space run's differ); the default
+    /// is [`Self::tools`].
+    fn tools_for(&self, _session_id: &str) -> Result<Value, String> {
+        self.tools()
+    }
+    /// What ONE run reads at `initialize`; `None` = [`INSTRUCTIONS`].
+    fn instructions_for(&self, _session_id: &str) -> Option<String> {
+        None
+    }
 }
 
 /// The config key and server name the agents see (`mcp__computer__click`).
@@ -33,6 +42,14 @@ impl emcp::ToolProvider for Provider {
         self.0.call(caller.session_id.as_str(), &caller.label, name, arguments)
     }
 
+    fn tools_for(&self, caller: &emcp::Caller) -> Result<Vec<Value>, String> {
+        self.0.tools_for(caller.session_id.as_str()).map(|tools| tools.as_array().cloned().unwrap_or_default())
+    }
+
+    fn instructions_for(&self, caller: &emcp::Caller) -> Option<String> {
+        self.0.instructions_for(caller.session_id.as_str())
+    }
+
     fn ended(&self, session_id: &emcp::SessionId) {
         self.0.end(session_id.as_str());
     }
@@ -47,6 +64,10 @@ every call until they speak again. Take a screenshot, act on what it shows (ever
 the screenshot's pixels), take another to verify; an unverified effect is not success. Say in your \
 reply that you are taking the screen before the first action. Enter text with paste_text (sensitive: true \
 for any secret, best from a file), not type.";
+
+/// #EDE-126: what a run in an agent space reads instead: nothing of the
+/// person's is taken, held or aborted there.
+pub(crate) const SPACE_INSTRUCTIONS: &str = "An agent space on this computer: a desktop of your own (one screen, its own pointer, keyboard and clipboard), apart from the person's. Nothing you do here reaches their screen or input, they do not see it, and nothing of theirs is in it. It starts empty: start programs with launch_app. Take a screenshot, act on what it shows (every coordinate is in the screenshot's pixels), take another to verify; an unverified effect is not success. Enter text with paste_text (sensitive: true for any secret, best from a file), not type. When a call says the space is new and empty, what ran in it is gone: start it again.";
 
 /// Bind loopback and serve `host`; grants and revokes go through the
 /// returned server.
@@ -101,6 +122,40 @@ mod tests {
             headers: vec![("Authorization".into(), emcp::ecore::bearer_header(token))],
         };
         emcp::Client::connect(&upstream, "test", T)
+    }
+
+    /// A raw `initialize` (the client keeps no instructions): the result.
+    fn initialize(url: &str, token: &str) -> Value {
+        use std::io::{Read, Write};
+        let (host, path) = url.strip_prefix("http://").unwrap().split_once('/').unwrap();
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "raw", "version": "1" } } }).to_string();
+        let mut stream = std::net::TcpStream::connect(host).unwrap();
+        stream.set_read_timeout(Some(T)).unwrap();
+        write!(stream, "POST /{path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        let json = &answer[answer.find("{\"jsonrpc\"").unwrap_or_else(|| panic!("no JSON-RPC answer in {answer}"))..];
+        serde_json::from_str::<Value>(json[..=json.rfind('}').unwrap()].trim()).unwrap()["result"].clone()
+    }
+
+    /// #EDE-126: a space run's `initialize` and tools are the space's; a
+    /// person run reads today's text, byte for byte, and today's tools.
+    #[test]
+    fn a_space_run_reads_the_space_text_and_tools_a_person_run_the_old_ones() {
+        let hosts = Arc::new(crate::host::Hosts::default());
+        let server = serve(hosts.clone()).unwrap();
+        hosts.admit("p1", crate::backend::Target::Person);
+        hosts.admit_space("s1");
+        let (person, space) = (server.grant(&id("p1"), "EXP-1"), server.grant(&id("s1"), "EXP-2"));
+        assert_eq!(initialize(server.url(), person.as_str())["instructions"], INSTRUCTIONS);
+        let told = initialize(server.url(), space.as_str())["instructions"].as_str().unwrap().to_string();
+        assert_eq!(told, SPACE_INSTRUCTIONS);
+        assert!(!told.contains("locked") && !told.contains("Esc") && told.contains("launch_app"), "{told}");
+        let names = |token: &emcp::Token| -> Vec<String> {
+            client(&server, token.as_str()).unwrap().list_tools(T).unwrap().iter().map(|tool| tool["name"].as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(names(&person), crate::tools::names());
+        assert!(!names(&person).contains(&"launch_app".to_string()) && names(&space).contains(&"launch_app".to_string()));
     }
 
     #[test]

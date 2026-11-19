@@ -87,6 +87,7 @@ mod settings;
 mod settings_pages;
 mod share;
 mod sealed;
+mod start_menu;
 mod system;
 mod team_chat;
 mod thumbs;
@@ -194,14 +195,15 @@ impl Notifications {
         !self.toasts.is_empty() || !self.inbox_toasts.is_empty()
     }
 
-    /// Expired toasts leave the stack (they stay in the history); the ids
-    /// that left (an inbox toast's leave quietly, `true` when one did).
-    fn expire(&mut self, now: Instant) -> (Vec<u32>, bool) {
+    /// Expired toasts leave the stack; `true` when one did. Their rows stay
+    /// in the bell with their actions, so their ids stay alive: the app hears
+    /// NotificationClosed only when the row goes (#EDE-135).
+    fn expire(&mut self, now: Instant) -> bool {
         let gone: Vec<u32> = self.list.iter().filter(|n| self.toasts.contains(&n.id) && n.expires_at.is_some_and(|t| now >= t)).map(|n| n.id).collect();
         self.toasts.retain(|id| !gone.contains(id));
         let before = self.inbox_toasts.len();
         self.inbox_toasts.retain(|(_, until)| now < *until);
-        (gone, before != self.inbox_toasts.len())
+        !gone.is_empty() || before != self.inbox_toasts.len()
     }
 
     /// #EDE-65: the inbox as it stands now; what is new since the shell
@@ -231,12 +233,16 @@ impl Notifications {
         Some(item)
     }
 
-    fn push(&mut self, n: dbus::Notification) {
+    /// The ids the 100-row cut removed (their NotificationClosed is due).
+    fn push(&mut self, n: dbus::Notification) -> Vec<u32> {
         self.list.retain(|x| x.id != n.id);
         self.toasts.retain(|id| *id != n.id);
         self.toasts.insert(0, n.id);
         self.list.insert(0, n);
+        let cut: Vec<u32> = self.list.iter().skip(100).map(|x| x.id).collect();
         self.list.truncate(100);
+        self.toasts.retain(|id| !cut.contains(id));
+        cut
     }
 
     /// Removes it everywhere; `true` if it was there.
@@ -365,6 +371,8 @@ struct Shell {
     issue_index: Arc<Vec<issues::Indexed>>,
     issue_hits: Vec<uicore_model::StartMenuIssue>,
     issue_search: u64,
+    /// #EDE-92: the search's selected result (Up, Down; Enter runs it).
+    menu_selection: start_menu::Selection,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -741,7 +749,7 @@ impl HostPlugin for Host {
             }
             "ede_tray" => {
                 if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
-                    cx.defer(move |cx| tray_press(&shell, &service, cx));
+                    cx.defer(move |_| tray_press(&shell, &service));
                 }
             }
             "ede_open_document" | "ede_close_document" => {
@@ -805,6 +813,7 @@ impl HostPlugin for Host {
                 let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
                 if let (Some(service), Some(id)) = (service, id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        // On the tray thread (#EDE-135).
                         d.tray_menu_event(&service, id as i32);
                     }
                     cx.defer(move |cx| close(&shell, "tray-menu", cx));
@@ -955,6 +964,18 @@ impl HostPlugin for Host {
             }
             "ede_start_menu" => {
                 let args = args.clone();
+                // #EDE-92: Enter in the search box runs the selected row as a press on it does
+                // (after the box's text, which is deferred just before).
+                if args.get("activate").and_then(Value::as_bool) == Some(true) {
+                    let (host, event) = (self.clone(), event.clone());
+                    cx.defer(move |cx| {
+                        let selected = host.shell.borrow().feed.get("/shell").and_then(|shell| start_menu::activation(&shell["startMenu"]));
+                        if let Some((name, args)) = selected {
+                            host.on_function_call(&FunctionCallEvent { name: name.to_string(), args, ..event }, cx);
+                        }
+                    });
+                    return;
+                }
                 cx.defer(move |cx| {
                     if args.get("toggle").and_then(Value::as_bool) == Some(true) {
                         start_menu_toggle(&shell, cx);
@@ -1002,7 +1023,7 @@ impl HostPlugin for Host {
                         }
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
-                        Some("stop") => {}
+                        Some("stop") => chat_stop(&shell, cx),
                         // EXP-1513: the empty state's Set up Claude Code / Open sign-in.
                         Some("setup") => chat_setup_start(&shell, cx),
                         Some("signIn") => {
@@ -1528,6 +1549,7 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
     };
     value["startMenu"]["favourites"] = Value::Array(favourites);
     value["startMenu"]["issues"] = json!(uicore_model::start_menu_issues(&shell.model, &shell.issue_hits));
+    start_menu::mark(&mut value["startMenu"], &shell.menu_selection);
     value
 }
 
@@ -1769,7 +1791,11 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
 fn dispatch(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
     {
         let mut s = shell.borrow_mut();
+        let before = s.model.start_menu.query.clone();
         s.model = reduce(&s.model, &event);
+        // #EDE-92: an open, a close or new text = the first result again.
+        let open = s.model.start_menu.open;
+        s.menu_selection.follow(&event, &before, open);
     }
     model_changed(shell, cx);
 }
@@ -2304,7 +2330,10 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 /// through `sessions.send` (the IDE's path): the open session, else the
 /// picked agent; the chat then shows the session the server names.
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    // #EDE-134: the composer emptied its field at the press (composer-send.json):
+    // every exit that did not send hands the text back.
     if shell.borrow().chat_uploading {
+        chat_keep_draft(shell, text, cx);
         return;
     }
     if chat_local(shell) {
@@ -2322,6 +2351,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             Err((landed, e)) => {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(shell, "upload", "the attachment", &e, cx);
+                chat_keep_draft(shell, text, cx);
                 return;
             }
         };
@@ -2334,24 +2364,35 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
                 chat_files_sent(shell, &resolved, cx);
                 chat_clear_draft(shell, cx);
             }
-            Err(e) => failed_action(shell, "send", "the message", &e, cx),
+            Err(e) => {
+                failed_action(shell, "send", "the message", &e, cx);
+                chat_keep_draft(shell, text, cx);
+            }
         }
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else {
+        chat_keep_draft(shell, text, cx);
         launch_app(shell, "at.exponential");
         return;
     };
     let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
     let jobs = shell.borrow().chat_files.jobs();
-    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else { return };
+    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else {
+        chat_keep_draft(shell, text, cx);
+        return;
+    };
     let tree = team_chat::send_tree(&rows.account, &input);
-    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else {
+        chat_keep_draft(shell, text, cx);
+        return;
+    };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let transport = shell.borrow().workspaces.attachments(&account);
     let team_id = chat.team_id.clone();
     shell.borrow_mut().chat_uploading = !jobs.is_empty();
     let shell = shell.clone();
+    let typed = text.to_string();
     use api::attachment_upload::{AttachmentTransport as _, UploadSendError};
     cx.spawn(async move |cx| {
         // #EDE-65 lane L: the IDE's path: the staged files upload into the
@@ -2359,17 +2400,23 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
         let sent = cx
             .background_executor()
             .spawn(async move {
-                // #EDE-131: sealed (or refused) before anything uploads.
-                if let Some(text) = input.text.take() {
-                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
-                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
-                        UploadSendError::Send(Vec::new(), no_key())
-                    })?;
-                    input.text = Some(wire);
-                }
+                let refused = |why: String| {
+                    tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                    UploadSendError::Send(Vec::new(), no_key())
+                };
+                // #EDE-131: a tree this shell cannot seal for refuses before anything uploads.
+                let wire = team_chat::wire_for(&team_chat::Server(&trpc), &tree).map_err(refused)?;
                 let resolved = api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| transport.upload_team_session_file(&team_id, filename, content_type, bytes))
                     .map_err(|(landed, e)| UploadSendError::Upload(landed, e))?;
-                input.attachment_ids = Some(chat_files::attachment_ids(&resolved)).filter(|ids| !ids.is_empty());
+                let ids = chat_files::attachment_ids(&resolved);
+                // #EDE-134: sealed with the attachments' lines inside it.
+                if let Some(text) = input.text.take() {
+                    input.text = Some(wire.text(&text, &ids).map_err(|why| match refused(why) {
+                        UploadSendError::Send(_, e) => UploadSendError::Send(resolved.clone(), e),
+                        other => other,
+                    })?);
+                }
+                input.attachment_ids = Some(ids).filter(|ids| !ids.is_empty());
                 match api::sessions::send(&trpc, &input) {
                     Ok(out) => Ok((out, resolved)),
                     Err(e) => Err(UploadSendError::Send(resolved, e)),
@@ -2378,7 +2425,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             .await;
         shell.borrow_mut().chat_uploading = false;
         match sent {
-            // The draft goes once the server took it; a failure keeps it.
+            // The draft goes once the server took it; a failure hands it back.
             Ok((out, resolved)) => {
                 if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
                     open.session_id = Some(out.session_id);
@@ -2392,10 +2439,12 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             Err(UploadSendError::Upload(landed, e)) => cx.update(|cx| {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(&shell, "upload", "the attachment", &e, cx);
+                chat_keep_draft(&shell, &typed, cx);
             }),
             Err(UploadSendError::Send(landed, e)) => cx.update(|cx| {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(&shell, "send", "the message", &e.user_message(), cx);
+                chat_keep_draft(&shell, &typed, cx);
             }),
         }
     })
@@ -2541,7 +2590,13 @@ fn no_key() -> api::ApiError {
 /// the shell's own notifications (the IDE's toast on this desktop).
 fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx: &mut App) {
     tracing::warn!("{verb} {thing}: {message}");
-    shell.borrow_mut().notifications.push(failed_toast(verb, thing, message, now_ms()));
+    notification_push(shell, failed_toast(verb, thing, message, now_ms()), cx);
+}
+
+/// A toast of the shell's own (`summary`, `body` may be empty).
+fn toast(shell: &SharedShell, summary: &str, body: &str, cx: &mut App) {
+    tracing::warn!("{summary} {body}");
+    shell.borrow_mut().notifications.push(own_toast(summary.to_string(), body.to_string(), now_ms()));
     notifications_changed(shell, cx);
 }
 
@@ -2550,11 +2605,15 @@ static OWN_NOTIFICATION: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomi
 
 /// [`failed_action`]'s toast.
 fn failed_toast(verb: &str, thing: &str, message: &str, received_ms: i64) -> dbus::Notification {
+    own_toast(domain::action_error::title(verb, thing), domain::action_error::description_of(message).unwrap_or_default(), received_ms)
+}
+
+fn own_toast(summary: String, body: String, received_ms: i64) -> dbus::Notification {
     dbus::Notification {
         id: OWN_NOTIFICATION.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
         app: "Exponential".into(),
-        summary: domain::action_error::title(verb, thing),
-        body: domain::action_error::description_of(message).unwrap_or_default(),
+        summary,
+        body,
         icon: String::new(),
         actions: Vec::new(),
         urgency: 1,
@@ -2598,6 +2657,58 @@ fn chat_set_draft(shell: &SharedShell, text: &str, cx: &mut App) {
     shell.borrow_mut().feed.set("/chat", json!({"draft": text}));
     refresh(shell, cx);
     shell.borrow_mut().feed.remove("/chat");
+}
+
+/// #EDE-134: a send that did not go hands its text back to the composer,
+/// once its own emptying has landed; a field typed in since keeps what it
+/// holds (composer-send.json `failed`).
+fn chat_keep_draft(shell: &SharedShell, text: &str, cx: &mut App) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (shell, text) = (shell.clone(), text.to_string());
+    cx.defer(move |cx| {
+        if shell.borrow().chat_draft.trim().is_empty() {
+            chat_set_draft(&shell, &text, cx);
+        }
+    });
+}
+
+/// #EDE-134: the busy composer's Stop (chat.json: submit becomes stop):
+/// the open session's turn stops; on a Local desktop its run here, on a
+/// team `sessions.stop` (the IDE's `stop_session`).
+fn chat_stop(shell: &SharedShell, cx: &mut App) {
+    if chat_local(shell) {
+        let stopped = shell.borrow().chat_local.as_ref().and_then(|c| c.stop_session());
+        if let Some((summary, body)) = stopped.and_then(|delivered| stop_toast(Ok(delivered))) {
+            toast(shell, &summary, &body, cx);
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some((chat, _)) = team_chat(shell) else { return };
+    let Some(session_id) = chat.session_id else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let stopped = cx.background_executor().spawn(async move { api::sessions::stop(&trpc, &session_id) }).await;
+        if let Some((summary, body)) = stop_toast(stopped.map(|out| !out.not_delivered()).map_err(|e| e.user_message())) {
+            cx.update(|cx| toast(&shell, &summary, &body, cx));
+        }
+    })
+    .detach();
+}
+
+/// [`chat_stop`]'s toast (chats.json `copy.stopTurn`, the IDE's): a
+/// refusal = `failed` with the reason, a stop no run got = `notDelivered`.
+fn stop_toast(outcome: Result<bool, String>) -> Option<(String, String)> {
+    let copy = &domain::chats::CHATS.copy.stop_turn;
+    match outcome {
+        Ok(true) => None,
+        Ok(false) => Some((copy.not_delivered.clone(), String::new())),
+        Err(message) => Some((copy.failed.clone(), domain::action_error::description_of(&message).unwrap_or_default())),
+    }
 }
 
 /// THE `/` menu over the composer's draft (`/chatMenu`); shut for the
@@ -2726,12 +2837,49 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
     shell.borrow().surfaces.focus_component(name, "search", cx);
 }
 
+/// #EDE-92: Up or Down pressed in `window`: in the start menu with results
+/// of a search, the selection moves (and its row scrolls into view) and the
+/// key is the menu's; anywhere else, or with nothing to select, it is not.
+fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64, cx: &mut App) -> bool {
+    let moved = {
+        let Ok(mut s) = shell.try_borrow_mut() else { return false };
+        let Some(name) = ["start-menu", "menu"].into_iter().find(|name| s.surfaces.region(name).is_some_and(|r| gpui::AnyWindowHandle::from(r.handle) == window)) else { return false };
+        let Some(menu) = s.feed.get("/shell").map(|shell| shell["startMenu"].clone()) else { return false };
+        let query = menu["query"].as_str().unwrap_or_default().to_string();
+        let Some(row) = s.menu_selection.step(&query, start_menu::rows(&menu), step) else { return false };
+        let apps = menu["apps"].as_array().map_or(0, Vec::len);
+        (name, row, if row < apps { ("apps", row) } else { ("issues", row - apps) })
+    };
+    // The key is still being dispatched in that window: its view redraws after it.
+    let shell = shell.clone();
+    cx.defer(move |cx| {
+        model_changed(&shell, cx);
+        let (name, row, (list, index)) = moved;
+        // The results' ScrollArea: a list that cannot scroll is left alone (its rows would go blank).
+        // #EDE-133: the first row = the results' top, its group heading included.
+        if row == 0 {
+            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
+        } else {
+            shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, index, cx);
+        }
+    });
+    true
+}
+
 /// #EDE-65: the start menu's query: the apps at once, the issues once the
 /// keys rest (the debounce) and ranked off the main loop.
 const ISSUE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
+    let changed = shell.borrow().model.start_menu.query != query;
     dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
+    // #EDE-92: new text = the results start at their top, on the first row
+    // (Enter's flush of the same text keeps the place).
+    if changed {
+        for name in ["start-menu", "menu"] {
+            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
+        }
+    }
     issues_search(shell, cx);
 }
 
@@ -3107,15 +3255,31 @@ fn dbus_event(shell: &SharedShell, event: dbus::Event, cx: &mut App) {
     match event {
         dbus::Event::Notified(n) => {
             tracing::info!(id = n.id, app = %n.app, summary = %n.summary, "notification");
-            shell.borrow_mut().notifications.push(n);
-            notifications_changed(shell, cx);
+            notification_push(shell, n, cx);
         }
         dbus::Event::CloseRequested(id) => notification_close(shell, id, 3, cx),
-        dbus::Event::TrayChanged => {
-            tray_refresh(shell);
+        dbus::Event::TrayChanged => tray_refresh(shell),
+        dbus::Event::TrayItems(items) => {
+            {
+                let mut s = shell.borrow_mut();
+                s.feed.set("/tray", Value::Array(items.iter().map(dbus::TrayItem::to_json).collect()));
+                s.tray = items;
+            }
             refresh(shell, cx);
         }
+        dbus::Event::TrayMenu { service, entries } => tray_menu_show(shell, &service, &entries, cx),
     }
+}
+
+/// A new row and its toast; a row the 100-row cut removes closes (#EDE-135).
+fn notification_push(shell: &SharedShell, n: dbus::Notification, cx: &mut App) {
+    let cut = shell.borrow_mut().notifications.push(n);
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        for id in cut {
+            d.notification_closed(id, 1);
+        }
+    }
+    notifications_changed(shell, cx);
 }
 
 /// A notification leaves (reason: 1 expired, 2 dismissed, 3 the app closed it).
@@ -3203,43 +3367,45 @@ fn outputs_refresh(shell: &SharedShell) {
     shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
-/// Reads the tray items again (a short blocking round on the bus).
+/// Reads the tray items again, on the tray thread: [`dbus::Event::TrayItems`]
+/// (#EDE-135: a hung tray app never holds up the shell).
 fn tray_refresh(shell: &SharedShell) {
-    let items = shell.borrow().dbus.as_ref().map(|d| d.tray_items()).unwrap_or_default();
-    let mut s = shell.borrow_mut();
-    s.feed.set("/tray", Value::Array(items.iter().map(dbus::TrayItem::to_json).collect()));
-    s.tray = items;
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        d.tray_refresh();
+    }
 }
 
-/// A tray item pressed: its menu as a popup, else `Activate`.
-fn tray_press(shell: &SharedShell, service: &str, cx: &mut App) {
-    let (has_menu, title) = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| (i.has_menu, i.title.clone())).unwrap_or((false, String::new()));
-    let menu = if has_menu { shell.borrow().dbus.as_ref().and_then(|d| d.tray_menu(service)) } else { None };
-    match menu {
-        Some(entries) if !entries.is_empty() => {
-            let items: Vec<Value> = entries
-                .iter()
-                .map(|e| {
-                    let mut v = e.to_json();
-                    if e.depth > 0 {
-                        v["label"] = json!(format!("    {}", e.label));
-                    }
-                    v
-                })
-                .collect();
-            shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
-            if shell.borrow().surfaces.is_open("tray-menu") {
-                close(shell, "tray-menu", cx);
-            }
-            toggle_popup(shell, "tray-menu", cx);
-            refresh(shell, cx);
-        }
-        _ => {
-            if let Some(d) = shell.borrow().dbus.as_ref() {
-                d.tray_activate(service, 0, 0);
-            }
+/// A tray item pressed: its menu ([`dbus::Event::TrayMenu`]), else `Activate`.
+fn tray_press(shell: &SharedShell, service: &str) {
+    let has_menu = shell.borrow().tray.iter().find(|i| i.service == service).is_some_and(|i| i.has_menu);
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        if has_menu {
+            d.tray_menu(service);
+        } else {
+            d.tray_activate(service);
         }
     }
+}
+
+/// A pressed item's menu as a popup.
+fn tray_menu_show(shell: &SharedShell, service: &str, entries: &[dbus::MenuEntry], cx: &mut App) {
+    let title = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| i.title.clone()).unwrap_or_default();
+    let items: Vec<Value> = entries
+        .iter()
+        .map(|e| {
+            let mut v = e.to_json();
+            if e.depth > 0 {
+                v["label"] = json!(format!("    {}", e.label));
+            }
+            v
+        })
+        .collect();
+    shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
+    if shell.borrow().surfaces.is_open("tray-menu") {
+        close(shell, "tray-menu", cx);
+    }
+    toggle_popup(shell, "tray-menu", cx);
+    refresh(shell, cx);
 }
 
 /// The taskbar's pins, kept in the shell's own file.
@@ -3364,14 +3530,16 @@ fn main() {
                     tracing::info!("no exponential-services socket: /services stays empty");
                     return;
                 };
+                // Subscribed first (#EDE-135): a change during the gets waits
+                // on the stream instead of reaching nobody.
+                if client.subscribe().is_err() {
+                    return;
+                }
                 let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
                 for d in &domains {
                     if let Ok(snapshot) = client.get(d) {
                         let _ = services_tx.send((d.clone(), snapshot));
                     }
-                }
-                if client.subscribe().is_err() {
-                    return;
                 }
                 while let Ok(event) = client.next_event() {
                     if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {
@@ -3598,8 +3766,20 @@ fn main() {
             issue_index: Arc::new(Vec::new()),
             issue_hits: Vec::new(),
             issue_search: 0,
+            menu_selection: start_menu::Selection::default(),
             _watcher: watcher,
         }));
+        // #EDE-92: Up and Down in the start menu's search move its selection.
+        {
+            let s = shell.clone();
+            cx.intercept_keystrokes(move |event, window, cx| {
+                let Some(step) = start_menu::key_step(&event.keystroke.key, event.keystroke.modifiers.modified()) else { return };
+                if start_menu_step(&s, window.window_handle(), step, cx) {
+                    cx.stop_propagation();
+                }
+            })
+            .detach();
+        }
         *shell_cell.borrow_mut() = Some(shell.clone());
         chats_refresh(&shell, cx);
         history_refresh(&shell);
@@ -3786,20 +3966,14 @@ fn main() {
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
                 }
+                // #EDE-134: the other app's runner wrote (a reply, a status): the rail too.
+                chats_changed |= chat_changed;
                 chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
                 if chats_changed {
                     cx.update(|cx| chats_refresh(&s, cx));
                 }
-                let (expired, inbox_expired) = s.borrow_mut().notifications.expire(Instant::now());
-                if inbox_expired && expired.is_empty() {
-                    cx.update(|cx| notifications_changed(&s, cx));
-                }
-                if !expired.is_empty() {
-                    for id in &expired {
-                        if let Some(d) = s.borrow().dbus.as_ref() {
-                            d.notification_closed(*id, 1);
-                        }
-                    }
+                let expired = s.borrow_mut().notifications.expire(Instant::now());
+                if expired {
                     cx.update(|cx| notifications_changed(&s, cx));
                 }
                 let osd_over = s.borrow().osd_until.is_some_and(|t| Instant::now() >= t);
@@ -3867,6 +4041,40 @@ fn main() {
 }
 
 #[cfg(test)]
+mod notification_lifetime {
+    use super::*;
+
+    fn toast(id: u32) -> dbus::Notification {
+        dbus::Notification { id, expires_at: Some(Instant::now()), ..failed_toast("send", "message", "", 0) }
+    }
+
+    /// #EDE-135: the toast leaves, the row stays in the bell with its
+    /// actions, so its id stays alive (no NotificationClosed yet).
+    #[test]
+    fn a_toast_that_expires_keeps_its_notification_while_the_bell_lists_it() {
+        let mut n = Notifications::default();
+        n.push(toast(7));
+        assert!(n.expire(Instant::now() + Duration::from_secs(1)), "the toast left");
+        assert!(n.toasts.is_empty());
+        assert!(n.list.iter().any(|x| x.id == 7), "the bell keeps the row");
+        // The id stays alive: a press on the row later still reaches the app.
+        assert!(n.remove(7), "the row's dismiss is what closes it");
+    }
+
+    /// The 101st notification pushes the oldest row out: that one closes.
+    #[test]
+    fn the_hundred_row_cut_closes_what_it_removes() {
+        let mut n = Notifications::default();
+        for id in 1..=100 {
+            assert!(n.push(toast(id)).is_empty());
+        }
+        assert_eq!(n.push(toast(101)), vec![1]);
+        assert_eq!(n.list.len(), 100);
+        assert!(!n.toasts.contains(&1));
+    }
+}
+
+#[cfg(test)]
 mod function_names {
     /// Every host function a factory document's header allows is one this
     /// shell matches by that exact (flat, A2UI 1.0) name; `set` is genUI's
@@ -3888,6 +4096,39 @@ mod function_names {
             }
         }
         assert!(checked > 40, "the headers were read ({checked})");
+    }
+
+    /// #EDE-93: a press opens the popups whose anchor is the pressed
+    /// component's id (`popups_of`), so every factory popup's anchor names a
+    /// component of its parent document. #VAPP-289 renamed the taskbar's
+    /// `applet-sound` to `applet_sound` while the popup kept the old anchor,
+    /// so a click on the sound applet opened nothing.
+    #[test]
+    fn every_factory_popup_anchors_at_a_component_of_its_parent() {
+        fn ids(node: &serde_json::Value, out: &mut Vec<String>) {
+            match node {
+                serde_json::Value::Object(map) => {
+                    if let Some(id) = map.get("id").and_then(serde_json::Value::as_str) {
+                        out.push(id.to_string());
+                    }
+                    map.values().for_each(|v| ids(v, out));
+                }
+                serde_json::Value::Array(items) => items.iter().for_each(|v| ids(v, out)),
+                _ => {}
+            }
+        }
+        let docs: Vec<(&str, serde_json::Value)> = uicore_docs::DOCS.iter().map(|d| (d.name, serde_json::from_str(d.source).expect(d.name))).collect();
+        let mut checked = Vec::new();
+        for (name, doc) in &docs {
+            let popup = &doc["surface"]["popup"];
+            let (Some(parent), Some(anchor)) = (popup["parent"].as_str(), popup["anchor"].as_str()) else { continue };
+            let (_, parent_doc) = docs.iter().find(|(n, _)| *n == parent).unwrap_or_else(|| panic!("{name}: no parent document {parent}"));
+            let mut parent_ids = Vec::new();
+            ids(&parent_doc["root"], &mut parent_ids);
+            assert!(parent_ids.iter().any(|id| id == anchor), "{name}: {parent} has no component {anchor}");
+            checked.push(*name);
+        }
+        assert!(checked.contains(&"applet-sound"), "the sound applet is a popup ({checked:?})");
     }
 }
 
@@ -4097,6 +4338,27 @@ mod layer_sizes {
         }
         assert_eq!((composers, rows), (2, 2));
     }
+
+    /// #EDE-134: a busy composer's submit is `stop` (chat.json), routed to
+    /// `ede_chat {action: stop}`; its toasts are chats.json's `stopTurn`.
+    #[test]
+    fn the_busy_composers_stop_reaches_the_shell_and_says_what_failed() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("chat").unwrap().source).unwrap();
+        let mut stops = 0;
+        let mut walk = vec![&doc["root"]];
+        while let Some(node) = walk.pop() {
+            // The home's composer is never busy (no turn runs there yet).
+            if node["id"] == json!("chat_composer") {
+                assert_eq!(node["on"]["stop"], json!({"functionCall": {"@call": "ede_chat", "args": {"action": "stop"}}}));
+                stops += 1;
+            }
+            walk.extend(node["children"].as_array().into_iter().flatten());
+        }
+        assert_eq!(stops, 1);
+        assert_eq!(super::stop_toast(Ok(true)), None);
+        assert_eq!(super::stop_toast(Ok(false)), Some(("The device didn't get the stop".into(), String::new())));
+        assert_eq!(super::stop_toast(Err(" The session ended. ".into())), Some(("Couldn't stop the turn".into(), "The session ended.".into())));
+    }
 }
 
 #[cfg(test)]
@@ -4241,6 +4503,26 @@ mod start_menu_document {
         assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
         let (f, args) = call(node(scroll, "issue").unwrap());
         assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
+    }
+
+    /// #EDE-92: the result rows draw the shell's selection with the Row's
+    /// selected state, and Enter in the search box asks the shell to run it;
+    /// the footer's buttons keep their own presses.
+    #[test]
+    fn the_start_menu_selects_a_result_and_enter_runs_it() {
+        let source = uicore_docs::doc("start-menu").expect("the start menu").source;
+        let doc: Value = serde_json::from_str(source).unwrap();
+        let root = &doc["root"];
+        for id in ["app", "issue"] {
+            assert_eq!(node(root, id).expect(id)["props"]["selected"], serde_json::json!({"@path": "selected"}), "{id}");
+        }
+        let submit = &node(root, "search").expect("the search box")["on"]["submit"]["functionCall"];
+        assert_eq!((submit["@call"].as_str(), &submit["args"]), (Some("ede_start_menu"), &serde_json::json!({"activate": true})));
+        assert!(doc["$comment"].as_str().unwrap().contains("#EDE-92"), "the document says what the keys do");
+        for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_launch"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
+            assert_eq!(call(node(root, id).expect(id)).0, f, "{id}");
+        }
+        assert_eq!(source.matches("\"activate\"").count(), 1, "only the search box runs the selection");
     }
 }
 

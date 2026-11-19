@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use etalk::call::CallVoice;
 use etalk::meeting::{AudioApp, DesktopAudioCapability};
@@ -213,8 +214,12 @@ fn refused(err: &api::ApiError) -> bool {
     matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
 }
 
-fn send_error(err: api::ApiError) -> SendError {
-    SendError { refused: refused(&err), message: err.to_string() }
+/// `settled` = the send's tree was known here (an unsynced one's 400 may be
+/// its lookup failing: the next send decides).
+fn send_error(err: api::ApiError, settled: bool) -> SendError {
+    let refused = refused(&err);
+    // #EXP-1982: no key holder here: a refusal is for every word of a call.
+    SendError { refused, unstorable: refused && settled && coding::sealing::key_holder_missing(), message: err.to_string() }
 }
 
 /// `outgoing` as `sessions.send`'s input.
@@ -335,11 +340,41 @@ fn own_devices(rows: &[&domain::rows::DeviceRow], me: &str, now_ms: i64, kind: i
         .collect()
 }
 
+/// #EXP-1941: how a rung desktop joins the call socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostJoin {
+    /// Today's wire: the server did not mark the call sealed, or this
+    /// desktop joins only to refuse (a clear `failed` works before any key).
+    Clear,
+    /// Told `seal`: with this install's key holder as the key source.
+    Sealed,
+    /// Told `seal` and no node here: the call ends `no_key`. Never clear.
+    SealedNoKey,
+}
+
+fn host_join(told_seal: bool, refuse_only: bool, has_node: bool) -> HostJoin {
+    if told_seal && !refuse_only {
+        return if has_node { HostJoin::Sealed } else { HostJoin::SealedNoKey };
+    }
+    HostJoin::Clear
+}
+
+/// #EXP-1982: a clear call this desktop answers (not one it joins only to
+/// refuse) into a chat it can store none of its words in while it has no
+/// key holder (`unstorable`, asked only then) is refused at the ring with
+/// `unavailable` ("{device} couldn't get its voice ready"), never heard.
+/// This desktop seals every send outside a clear tree (`sealing::plan_send`,
+/// a Local account aside): a keyed chat, a keyless one and no chat yet alike.
+fn clear_refusal(join: HostJoin, refuse_only: bool, holder_missing: bool, unstorable: impl FnOnce() -> bool) -> Option<&'static str> {
+    (join == HostJoin::Clear && !refuse_only && holder_missing && unstorable()).then_some("unavailable")
+}
+
 fn link_event(event: steer::call_host::CallHostEvent) -> CallLinkEvent {
     use steer::call_host::CallHostEvent;
     match event {
         CallHostEvent::Ready => CallLinkEvent::Ready,
         CallHostEvent::Audio(pcm) => CallLinkEvent::Audio(pcm),
+        CallHostEvent::Lost { ms } => CallLinkEvent::Lost { ms },
         CallHostEvent::Mute(muted) => CallLinkEvent::Mute(muted),
         CallHostEvent::Ended { reason } => CallLinkEvent::Ended { reason },
         CallHostEvent::Dropped(reason) => CallLinkEvent::Dropped(reason),
@@ -460,17 +495,19 @@ impl TalkHost for ExponentialHost {
         let trpc = crate::queries::trpc_client(cx)?;
         let input = send_input(outgoing);
         let plan = crate::sealing::plan_send(&input, cx);
+        let settled = !matches!(plan.target, crate::sealing::SealTarget::Unsynced(_));
         Some(Box::new(move || {
             crate::sealing::send_blocking(&trpc, &input, &plan)
                 .map(|output| Sent { session_id: output.session_id, message_id: output.message_id })
-                .map_err(send_error)
+                .map_err(|err| send_error(err, settled))
         }))
     }
 
     fn call_session(&self, agent_id: &str, call_id: Option<&str>, cx: &App) -> Option<etalk_gpui::CallSessionJob> {
         let trpc = crate::queries::trpc_client(cx)?;
-        let (agent_id, call_id) = (agent_id.to_string(), call_id.unwrap_or_default().to_string());
-        Some(Box::new(move || match api::voice::voice_call_session(&trpc, &agent_id, &call_id) {
+        // #EXP-1981: a streamed call names the ring's id; one run here, none.
+        let (agent_id, call_id) = (agent_id.to_string(), call_id.map(str::to_string));
+        Some(Box::new(move || match api::voice::voice_call_session(&trpc, &agent_id, call_id.as_deref()) {
             Ok(session) => session.map(|session| session.session_id),
             Err(err) => {
                 log::info!("[voice] no call session ({err}): the chat takes the call");
@@ -524,41 +561,109 @@ impl TalkHost for ExponentialHost {
         true
     }
 
-    fn connect_call(&self, call_id: &str, cx: &mut App) -> Option<Task<Result<CallConnection, String>>> {
-        let trpc = crate::queries::trpc_client(cx)?;
+    fn connect_call(&self, call_id: &str, agent_id: &str, refuse_only: bool, cx: &mut App) -> Option<Task<Result<CallConnection, String>>> {
+        let trpc = Arc::new(crate::queries::trpc_client(cx)?);
         let runtime = crate::steer_wiring::runtime(cx)?;
-        let call_id = call_id.to_string();
-        // EXP-1857: the ticket names THIS desktop (any of the member's may be rung).
+        let (call_id, agent_id) = (call_id.to_string(), agent_id.to_string());
+        // EXP-1857: the ticket names THIS desktop (any of the member's may be
+        // rung). #EXP-1941: and the ring's agent: the ticket vouches for both.
         let device_id = self.device_id();
+        let node = self.account(cx).and_then(|account| crate::enet_wiring::node(&account, cx));
+        // #EXP-1982: a Local desktop's trees are clear by nature.
+        let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
         Some(cx.spawn(async move |cx| {
+            let (asking, ids) = (Arc::clone(&trpc), (call_id.clone(), device_id.clone(), agent_id.clone()));
             let ticket = cx
                 .background_executor()
-                .spawn(async move { api::voice::voice_call_host_ticket(&trpc, &call_id, Some(&device_id)) })
+                .spawn(async move { api::voice::voice_call_host_ticket_for(&asking, &ids.0, &ids.1, &ids.2) })
                 .await
                 .map_err(|err| err.to_string())?;
+            let join = host_join(ticket.seal, refuse_only, node.is_some());
+            let asking = Arc::clone(&trpc);
+            let agent = agent_id.clone();
+            let refuse = cx
+                .background_executor()
+                .spawn(async move {
+                    clear_refusal(join, refuse_only, !local && coding::sealing::key_holder_missing(), || {
+                        // Plaintext lands only in a clear tree; anything else
+                        // (keyed, keyless, no chat yet) wants a key here.
+                        api::sessions::send_target(&asking, Some(&agent), None).is_ok_and(|target| !(target.clear_tree && target.root_id.is_some()))
+                    })
+                })
+                .await;
+            let sealing = match join {
+                HostJoin::Clear => None,
+                // Told `seal` without a node: no key holder, the call ends `no_key`. Never clear.
+                join => {
+                    let keys: Arc<dyn steer::call_keys::CallKeySource> = match node.filter(|_| join == HostJoin::Sealed) {
+                        Some(node) => Arc::new(steer::call_keys::HostKeys {
+                            ops: Arc::new(steer::call_keys::InstallKeyOps { trpc, node }),
+                            call_id: call_id.clone(),
+                            agent_id: agent_id.clone(),
+                            device_id: device_id.clone(),
+                            // The IDE's send asks the server where an agent
+                            // send lands (#FEED-250): the adopted root is its answer.
+                            adopted: None,
+                        }),
+                        None => Arc::new(steer::call_keys::FixedKeySource { key: None, delay: std::time::Duration::ZERO }),
+                    };
+                    Some(steer::call_keys::CallSealing { call_id, agent_id, device_id, caller_target: None, keys })
+                }
+            };
             let (tx, events) = flume::unbounded::<CallLinkEvent>();
-            let host = steer::call_host::connect(&runtime, ticket.url, move |event| {
+            let host = steer::call_host::connect_sealed(&runtime, ticket.url, sealing, move |event| {
                 let _ = tx.send(link_event(event));
             });
-            Ok(CallConnection { link: Box::new(SteerLink(host)), events })
+            Ok(CallConnection { link: Box::new(SteerLink(host)), events, refuse })
         }))
     }
 
     /// EXP-1857: `voice.startCall` as a desktop (this one the first
     /// fallback), then the relay's caller socket.
     fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
-        let trpc = crate::queries::trpc_client(cx)?;
+        let trpc = Arc::new(crate::queries::trpc_client(cx)?);
         let runtime = crate::steer_wiring::runtime(cx)?;
         let (agent_id, device_id) = (agent_id.to_string(), self.device_id());
+        let node = self.account(cx).and_then(|account| crate::enet_wiring::node(&account, cx));
         Some(cx.spawn(async move |cx| {
-            let started = cx
+            let (asking, agent) = (Arc::clone(&trpc), agent_id.clone());
+            let has_node = node.is_some();
+            let (started, before) = cx
                 .background_executor()
-                .spawn(async move { api::voice::voice_start_call(&trpc, &agent_id, &device_id) })
+                .spawn(async move {
+                    // #EXP-1941: a caller that can seal claims it. A key holder
+                    // that is still starting is waited for first (bounded, the
+                    // wait the chat's writers use); only a desktop that can
+                    // never hold keys dials without the claim.
+                    let claim = has_node && coding::sealing::sealer().is_ok();
+                    // Its own answer on root and epoch, before it dials.
+                    let before = claim.then(|| api::sessions::send_target(&asking, Some(&agent), None).ok()).flatten();
+                    let started = api::voice::voice_start_call_claiming(&asking, &agent, &device_id, claim)?;
+                    Ok::<_, api::ApiError>((started, before))
+                })
                 .await
                 .map_err(dial_error)?;
-            log::info!("[voice] call {}: dialling {} (fallback {})", started.call_id, started.device, started.fallback);
+            log::info!("[voice] call {}: dialling {} (fallback {}, sealed {})", started.call_id, started.device, started.fallback, started.seal);
+            // The server's one boolean: the claim AND the target's cap.
+            let sealing = started.seal.then(|| {
+                let before = before.and_then(|target| {
+                    Some(steer::call_keys::CallTarget { root_id: target.root_id?, epoch: target.epoch, rotation_due: target.rotation_due })
+                });
+                let keys: Arc<dyn steer::call_keys::CallKeySource> = match node {
+                    Some(node) => Arc::new(steer::call_keys::CallerKeys { ops: Arc::new(steer::call_keys::InstallKeyOps { trpc, node }), agent_id: agent_id.clone(), before: before.clone() }),
+                    None => Arc::new(steer::call_keys::FixedKeySource { key: None, delay: std::time::Duration::ZERO }),
+                };
+                steer::call_keys::CallSealing {
+                    call_id: started.call_id.clone(),
+                    agent_id: agent_id.clone(),
+                    // The HOST's device, as the server answered it.
+                    device_id: started.device_id.clone(),
+                    caller_target: before.and_then(|target| Some((target.root_id, target.epoch?))),
+                    keys,
+                }
+            });
             let (tx, events) = flume::unbounded::<DialLinkEvent>();
-            let caller = steer::call_caller::connect(&runtime, started.url, move |event| {
+            let caller = steer::call_caller::connect_sealed(&runtime, started.url, sealing, move |event| {
                 let _ = tx.send(dial_event(event));
             });
             Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
@@ -634,6 +739,29 @@ impl TalkHost for ExponentialHost {
 mod tests {
     use super::*;
 
+    /// #EXP-1941: a host told `seal` joins with a key source; a refusal
+    /// joins without one, whatever the ticket says; a call the server did
+    /// not mark sealed is today's; told `seal` without a node is never clear.
+    #[test]
+    fn a_host_told_seal_joins_with_a_key_source_and_a_refusal_without() {
+        assert_eq!(host_join(true, false, true), HostJoin::Sealed);
+        assert_eq!(host_join(true, true, true), HostJoin::Clear, "refuse only: a clear `failed`");
+        assert_eq!(host_join(false, false, true), HostJoin::Clear);
+        assert_eq!(host_join(true, false, false), HostJoin::SealedNoKey, "no key holder: no_key, never clear");
+    }
+
+    /// #EXP-1982: only a clear call this desktop answers, into a chat it
+    /// cannot write in clear, while no key holder runs or comes, is refused
+    /// `unavailable`; the chat is asked about only then.
+    #[test]
+    fn a_clear_call_into_an_encrypted_chat_without_a_key_holder_is_refused() {
+        assert_eq!(clear_refusal(HostJoin::Clear, false, true, || true), Some("unavailable"));
+        assert_eq!(clear_refusal(HostJoin::Clear, false, true, || false), None, "a clear tree takes plaintext");
+        assert_eq!(clear_refusal(HostJoin::Clear, false, false, || panic!("not asked")), None, "a key holder seals");
+        assert_eq!(clear_refusal(HostJoin::Clear, true, true, || panic!("not asked")), None, "already refused busy or meeting");
+        assert_eq!(clear_refusal(HostJoin::Sealed, false, true, || panic!("not asked")), None, "a sealed call keeps its own path");
+    }
+
     /// #EXP-1847: a resolved voice → the worker's prepare inputs: the clip's
     /// cached file with its transcript, the built-in voice while it is not
     /// here, a member path as is.
@@ -706,7 +834,9 @@ mod tests {
         assert!(!refused(&http(408)) && !refused(&http(429)) && !refused(&http(500)) && !refused(&http(503)));
         assert!(!refused(&http(401)) && !refused(&api::ApiError::Unauthorized), "an expired token retries");
         assert!(!refused(&api::ApiError::Transport { message: "down".into(), offline: true }));
-        assert!(send_error(http(413)).refused && !send_error(http(503)).refused);
+        assert!(send_error(http(413), true).refused && !send_error(http(503), true).refused);
+        // #EXP-1982: never unstorable for an unsynced tree or a retry.
+        assert!(!send_error(http(400), false).unstorable && !send_error(http(503), true).unstorable);
     }
 
     /// F21: every meeting part names its `clientMessageId`.

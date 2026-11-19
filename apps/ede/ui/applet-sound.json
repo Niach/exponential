@@ -3,7 +3,7 @@
   "surface": {
     "popup": {
       "parent": "taskbar",
-      "anchor": "applet-sound",
+      "anchor": "applet_sound",
       "placement": "top-end",
       "size": {
         "width": 380,

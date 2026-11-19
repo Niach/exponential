@@ -71,6 +71,9 @@ enum AppRoute: Hashable {
     /// steer view) — a session card's tap, a blocked-session push. A pushed
     /// destination (EXP-221), so it gets the native back + swipe-back.
     case agentSession(accountId: String, sessionId: String)
+    /// #EXP-1943 (session-card.json `callView`): a call card's tap = THE
+    /// call view of that call session (its summary, then its spoken turns).
+    case callView(accountId: String, sessionId: String)
     /// EXP-1291: a CHAT = a root session (`chatId` = its id): a chat,
     /// or a team agent's channel — `ChatScreen`, its strip as the pager.
     /// `child` opens it on one page (nil = the Conversation; #EXP-1662
@@ -391,10 +394,23 @@ struct AppNavigator: View {
         // NEW-69: THE call surface (voice-call.json), full screen above every
         // screen so a call outlives the chat that started it; EXP-1681: a
         // minimized call is the floating pill over every screen instead.
+        // FEED-272: the cover is the Voice tab; the Chat tab is the agent's
+        // chat itself (its header = the call's bar), opened once the cover
+        // is gone when none shows.
         .background {
-            let shown = voiceCall.view != nil && !voiceCall.minimized
+            let shown = voiceCall.view != nil && !voiceCall.minimized && voiceCall.tab == .voice
             Color.clear
-                .fullScreenCover(isPresented: Binding(get: { shown }, set: { if !$0 { voiceCall.minimize() } })) {
+                .fullScreenCover(
+                    isPresented: Binding(get: { shown }, set: { if !$0, voiceCall.tab == .voice { voiceCall.minimize() } }),
+                    onDismiss: {
+                        Task { @MainActor in
+                            await Task.yield()
+                            if voiceCall.chatMissing, let agentId = voiceCall.agentId {
+                                deps.deepLinkBus.navigateToLaunch(.shortcut(.agent(agentId)))
+                            }
+                        }
+                    }
+                ) {
                     VoiceCallScreen(client: voiceCall)
                 }
         }
@@ -1458,6 +1474,10 @@ extension MainNavigator {
         case let .appRun(accountId, appId, screen):
             AppRunScreen(appId: appId, screen: screen)
                 .id(appId)
+                .environment(\.accountId, accountId)
+        case let .callView(accountId, sessionId):
+            CallViewScreen(sessionId: sessionId)
+                .id(sessionId)
                 .environment(\.accountId, accountId)
         case let .ciRun(accountId, runId, job):
             CiRunScreen(runId: runId, requestedJob: job)

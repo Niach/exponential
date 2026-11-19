@@ -4631,18 +4631,23 @@ impl Render for SessionChatScreenView {
         drop(queue_span);
         inner.update(cx, |inner, _| inner.set_queue_from(queue_from));
         let chat = session_pane(&self.root_view, cx);
-        // EXP-1686: the call panel covers an agent chat's body while it runs.
+        // EXP-1686: the call panel covers an agent chat's body while it runs;
+        // FEED-272: on its Chat tab it sits docked ABOVE the chat instead.
         let chat = match agent_chat {
-            Some(_) => div()
-                .relative()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .child(chat)
-                .child(self.call_panel.clone())
-                .into_any_element(),
+            Some(_) => {
+                let docked = self.call_panel.read(cx).docked(cx);
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .when(docked, |d| d.child(self.call_panel.clone()))
+                    .child(chat)
+                    .when(!docked, |d| d.child(self.call_panel.clone()))
+                    .into_any_element()
+            }
             None => chat,
         };
         // #EXP-1732 (session-screen.json LAYOUT): wide = the beside rule.

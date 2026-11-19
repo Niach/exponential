@@ -743,7 +743,12 @@ export function useSessionChat(
   )
   // #EXP-1380 (chats.json PERF): the cards' clocks tick each second only
   // while a session of the tree works; a settled chat rebuilds per minute.
-  const ticking = tree.some((session) => session.status !== `ended` && (session.busy || session.status === `running` || session.status === `queued`))
+  // #EXP-1943: a running call's card ticks its timer too.
+  const ticking = tree.some(
+    (session) =>
+      session.status !== `ended` &&
+      (session.busy || session.status === `running` || session.status === `queued` || (session.voiceCall != null && session.voiceCall.endedAt == null))
+  )
   const now = useNow(ticking ? 1_000 : 60_000)
   // S-3: the sessions OUTSIDE the tree an xref names (another session's
   // line, the agent conversation that started the root), with titles.

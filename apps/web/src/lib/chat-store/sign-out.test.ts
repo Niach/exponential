@@ -99,12 +99,14 @@ describe(`deleteChatStoreFiles`, () => {
 
 class FakeWorker {
   static all: FakeWorker[] = []
+  posted: { op: string; args?: unknown[] }[] = []
   terminated = false
   onmessage: ((event: MessageEvent) => void) | null = null
   constructor() {
     FakeWorker.all.push(this)
   }
-  postMessage(message: { id: number; op: string }) {
+  postMessage(message: { id: number; op: string; args?: unknown[] }) {
+    this.posted.push({ op: message.op, args: message.args })
     queueMicrotask(() => this.onmessage?.({ data: { id: message.id, result: true } } as MessageEvent))
   }
   terminate() {
@@ -166,5 +168,27 @@ describe(`the sign-out broadcast`, () => {
     expect(FakeWorker.all[0]!.terminated).toBe(true)
     expect(heard).toEqual([])
     tab.close()
+  })
+
+  // A chat's first rows arrive before its layout's effect starts the store
+  // (a child's effects run first): they are kept and stored at the start.
+  it(`messages a chat loaded before the start are stored once it starts`, async () => {
+    const client = await import(`./client`)
+    client.recordMessages([{ id: `m1`, sessionId: `s1`, rootId: `r1`, authorKind: `agent`, body: `hello`, createdAt: `2026-11-18T10:00:00Z` }])
+    client.startChatStore(`u1`)
+    await flush()
+    const put = FakeWorker.all[0]!.posted.find((entry) => entry.op === `putMessages`)
+    expect(put?.args?.[0]).toEqual([{ id: `m1`, rootId: `r1`, sessionId: `s1`, authorKind: `agent`, body: `hello`, createdAt: Date.parse(`2026-11-18T10:00:00Z`) }])
+    client.stopChatStore()
+  })
+
+  it(`a stop forgets the rows kept before a start`, async () => {
+    const client = await import(`./client`)
+    client.recordMessages([{ id: `m1`, sessionId: `s1`, rootId: `r1`, authorKind: `agent`, body: `hello`, createdAt: `2026-11-18T10:00:00Z` }])
+    client.stopChatStore()
+    client.startChatStore(`u2`)
+    await client.chatStoreCall(`meta`, `k`)
+    expect(FakeWorker.all[0]!.posted.some((entry) => entry.op === `putMessages`)).toBe(false)
+    client.stopChatStore()
   })
 })

@@ -174,7 +174,6 @@ fun main(args: Array<String>) {
     repeat(50) { val r = callRingRandom(); check(r >= 0.0 && r < 1.0) { "random $r" } }
     val k = callConstants()
     check(k.minRingMs == num(obj(fixture["constants"])["minRingMs"])!!.toLong().toULong()) { "constants" }
-    check(callGreeting("de") == "Hallo?" && callGreeting(null) == "Hello?") { "greeting" }
     check(callWireEvent(TalkCallEvent.Mute) == null) { "mute stays local" }
 
     // the codec: a 440 Hz tone, one packet lost and recovered by the uplink's FEC

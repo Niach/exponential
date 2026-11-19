@@ -186,7 +186,7 @@ where
 pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer, state: &mut Ede, output: &Output, shared: bool) -> Result<headless::Frame, String> {
     let mode = output.current_mode().ok_or("output has no mode")?;
     let size = (mode.size.w, mode.size.h);
-    draw_offscreen(renderer, size, state.clear_color(), |renderer| {
+    draw_offscreen(renderer, size, output_scale(output), state.clear_color(), |renderer| {
         if shared {
             capture_elements(state, output, renderer)
         } else {
@@ -195,9 +195,22 @@ pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRend
     })
 }
 
-fn draw_offscreen(
+/// The scale an output's capture is drawn at: the output's own, as its
+/// monitor draws it ([`OutputDamageTracker::from_output`]). The scene places
+/// elements in physical pixels at this scale and the damage tracker sizes
+/// them with it, so drawing at 1 left every surface at 1/scale of its size
+/// at the right origin (#EDE-113).
+fn output_scale(output: &Output) -> f64 {
+    output.current_scale().fractional_scale()
+}
+
+/// A window capture is the window at its own (logical) size: scale 1.
+const WINDOW_SCALE: f64 = 1.0;
+
+pub(crate) fn draw_offscreen(
     renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer,
     (w, h): (i32, i32),
+    scale: f64,
     clear: [f32; 4],
     elements: impl FnOnce(&mut smithay::backend::renderer::pixman::PixmanRenderer) -> Vec<OutputElements<smithay::backend::renderer::pixman::PixmanRenderer>>,
 ) -> Result<headless::Frame, String> {
@@ -213,7 +226,7 @@ fn draw_offscreen(
     {
         let elements = elements(renderer);
         let mut fb = renderer.bind(&mut image).map_err(|e| e.to_string())?;
-        let mut damage_tracker = OutputDamageTracker::new(Rectangle::<i32, Physical>::from_size((w, h).into()).size, 1.0, Transform::Normal);
+        let mut damage_tracker = OutputDamageTracker::new(Rectangle::<i32, Physical>::from_size((w, h).into()).size, scale, Transform::Normal);
         damage_tracker.render_output(renderer, &mut fb, 0, &elements, clear).map_err(|e| format!("{e:?}"))?;
     }
     let stride = image.stride() / 4;
@@ -259,7 +272,7 @@ pub fn capture_window(state: &mut Ede, window: &smithay::desktop::Window) -> Res
     }
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
     let (size, at) = window_capture_place(window);
-    draw_offscreen(&mut renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+    draw_offscreen(&mut renderer, size, WINDOW_SCALE, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
 }
 
 /// A window capture's size and where the window goes in it.
@@ -291,11 +304,11 @@ pub fn capture_on_gles(renderer: &mut smithay::backend::renderer::gles::GlesRend
         CaptureOf::Output(output) => {
             let mode = output.current_mode().ok_or("output has no mode")?;
             let clear = state.clear_color();
-            draw_offscreen_gles(renderer, (mode.size.w, mode.size.h), clear, |renderer| capture_elements(state, output, renderer))
+            draw_offscreen_gles(renderer, (mode.size.w, mode.size.h), output_scale(output), clear, |renderer| capture_elements(state, output, renderer))
         }
         CaptureOf::Window(window) => {
             let (size, at) = window_capture_place(window);
-            draw_offscreen_gles(renderer, size, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
+            draw_offscreen_gles(renderer, size, WINDOW_SCALE, [0.0, 0.0, 0.0, 0.0], |renderer| window_capture_elements(window, renderer, at))
         }
     }
 }
@@ -303,6 +316,7 @@ pub fn capture_on_gles(renderer: &mut smithay::backend::renderer::gles::GlesRend
 fn draw_offscreen_gles(
     renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
     (w, h): (i32, i32),
+    scale: f64,
     clear: [f32; 4],
     elements: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> Vec<OutputElements<smithay::backend::renderer::gles::GlesRenderer>>,
 ) -> Result<headless::Frame, String> {
@@ -318,7 +332,7 @@ fn draw_offscreen_gles(
     let mut buffer: GlesRenderbuffer = Offscreen::<GlesRenderbuffer>::create_buffer(renderer, Fourcc::Abgr8888, size).map_err(|e| e.to_string())?;
     let elements = elements(renderer);
     let mut fb = renderer.bind(&mut buffer).map_err(|e| e.to_string())?;
-    let mut damage_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+    let mut damage_tracker = OutputDamageTracker::new((w, h), scale, Transform::Normal);
     damage_tracker.render_output(renderer, &mut fb, 0, &elements, clear).map_err(|e| format!("{e:?}"))?;
     let mapping = renderer.copy_framebuffer(&fb, Rectangle::from_size(size), Fourcc::Abgr8888).map_err(|e| e.to_string())?;
     let bytes = renderer.map_texture(&mapping).map_err(|e| e.to_string())?;

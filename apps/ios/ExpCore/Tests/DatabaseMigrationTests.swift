@@ -148,7 +148,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree"]
+             "v111_session_clear_tree", "v112_session_voice_call"]
         )
     }
 
@@ -218,7 +218,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree"]
+             "v111_session_clear_tree", "v112_session_voice_call"]
         )
     }
 
@@ -760,7 +760,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree"]
+             "v111_session_clear_tree", "v112_session_voice_call"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -878,7 +878,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree"]
+             "v111_session_clear_tree", "v112_session_voice_call"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1926,7 +1926,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
              "seal_public_key", "seal_epoch", "sealed_title", "via_app_id", "scope_team_ids", "digest",
-             "watching", "clear_tree"]
+             "watching", "clear_tree", "voice_call"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).

@@ -141,6 +141,43 @@ pub struct SessionCardSpec {
     pub banner_device: String,
     /// #NEW-49: how many labels [`session_waiting`] names before ` +N`.
     pub waiting_max: usize,
+    /// #EXP-1943: a call in the chat ([`call_card`], [`call_view`]).
+    pub call: CallCopy,
+}
+
+/// #EXP-1943: `session-card.json` `call` (the call card's and the call
+/// view's copy).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CallCopy {
+    /// Icon CONCEPT (`voice-call`).
+    pub icon: String,
+    pub tone: String,
+    /// `In a call · {timer}`.
+    pub running: String,
+    /// `Call ended after {duration}`.
+    pub ended: String,
+    pub seconds: String,
+    pub minutes: String,
+    pub hours: String,
+    pub view_title: String,
+    pub view_running: String,
+    pub subtitle: String,
+    pub when: String,
+    pub when_running: String,
+    pub today: String,
+    /// The call view's summary band label.
+    pub summary: String,
+    /// The server's lines in a call session (one `{placeholder}` each).
+    pub prompts: CallPrompts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallPrompts {
+    pub request: String,
+    pub resume: String,
+    pub ended: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -630,6 +667,18 @@ pub struct SessionCard {
     pub elapsed: Option<String>,
     pub running: bool,
     pub test_id: String,
+    /// #EXP-1943: a call card's muted second line (its summary). Only call
+    /// cards carry the key (`Some(None)` = a call card without one); read
+    /// through [`SessionCard::caption`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<Option<String>>,
+}
+
+impl SessionCard {
+    /// #EXP-1943: the muted second line, if any.
+    pub fn caption(&self) -> Option<&str> {
+        self.caption.as_ref()?.as_deref()
+    }
 }
 
 /// NEW-1: the `blocked.kind` of a blocked session (`None` when it carries
@@ -813,6 +862,246 @@ pub fn session_card_waiting(session: &SessionRow, title: &str, now_ms: i64, wait
         elapsed,
         running: state.running(),
         test_id: SESSION_CARD.test_ids.card.clone(),
+        caption: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1943 (session-card.json `call`): a call in the chat
+// ---------------------------------------------------------------------------
+
+/// A call session (a non-null `voice_call`).
+pub fn is_call_session(session: &SessionRow) -> bool {
+    session.voice_call.is_some()
+}
+
+/// The call is running: not ended, its segment open.
+pub fn call_running(session: &SessionRow) -> bool {
+    !status_is(session, SESSION_STATUS_ENDED)
+        && session.voice_call.as_ref().is_some_and(|call| call.ended_at.is_none())
+}
+
+/// The call's length so far: the ended segments + the running one.
+pub fn call_total_ms(session: &SessionRow, now_ms: i64) -> i64 {
+    let Some(call) = session.voice_call.as_ref() else {
+        return 0;
+    };
+    let ended = call.duration_ms as i64;
+    if !call_running(session) {
+        return ended;
+    }
+    ended + ms(Some(call.segment_started_at.as_str())).map_or(0, |since| (now_ms - since).max(0))
+}
+
+/// The live timer: `02:14`, `1:02:14` past an hour.
+pub fn call_clock(duration_ms: i64) -> String {
+    let total = duration_ms.max(0) / 1000;
+    let (hours, minutes, seconds) = (total / 3600, (total % 3600) / 60, total % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    }
+}
+
+/// An ended call's length: `42 sec`, `4 min`, `1 h 5 min`.
+pub fn call_length(duration_ms: i64) -> String {
+    let copy = &SESSION_CARD.call;
+    let safe = duration_ms.max(0);
+    if safe < 60_000 {
+        return copy.seconds.replacen("{count}", &(safe / 1000).to_string(), 1);
+    }
+    // JS Math.round on a positive value.
+    let minutes = ((safe + 30_000) / 60_000).max(1);
+    if minutes < 60 {
+        return copy.minutes.replacen("{count}", &minutes.to_string(), 1);
+    }
+    copy.hours
+        .replacen("{hours}", &(minutes / 60).to_string(), 1)
+        .replacen("{minutes}", &(minutes % 60).to_string(), 1)
+}
+
+/// THE session card of a call session (`callCases`); `summary` = the
+/// newest summary of that call.
+pub fn call_card(session: &SessionRow, summary: Option<&str>, now_ms: i64) -> SessionCard {
+    let copy = &SESSION_CARD.call;
+    let running = call_running(session);
+    let total = call_total_ms(session, now_ms);
+    let caption = summary
+        .map(str::trim)
+        .filter(|summary| !running && !summary.is_empty())
+        .map(str::to_string);
+    SessionCard {
+        session_id: session.id.clone(),
+        icon: copy.icon.clone(),
+        name: if running {
+            copy.running.replacen("{timer}", &call_clock(total), 1)
+        } else {
+            copy.ended.replacen("{duration}", &call_length(total), 1)
+        },
+        kind_word: String::new(),
+        state: if running { SessionState::Working } else { SessionState::Done },
+        tone: copy.tone.clone(),
+        elapsed: None,
+        running: false,
+        test_id: SESSION_CARD.test_ids.card.clone(),
+        caption: Some(caption),
+    }
+}
+
+/// Which of `call.prompts` (the server's lines in a call session) a body
+/// is: ONE `{placeholder}` each, matched by the text around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallPrompt {
+    Request,
+    Resume,
+    Ended,
+}
+
+pub fn call_prompt(body: &str) -> Option<CallPrompt> {
+    let text = body.trim();
+    let prompts = &SESSION_CARD.call.prompts;
+    for (key, template) in [
+        (CallPrompt::Request, &prompts.request),
+        (CallPrompt::Resume, &prompts.resume),
+        (CallPrompt::Ended, &prompts.ended),
+    ] {
+        let Some(open) = template.find('{') else { continue };
+        let Some(close) = template[open..].find('}').map(|at| open + at) else { continue };
+        let (before, after) = (&template[..open], &template[close + 1..]);
+        if text.len() > before.len() + after.len() && text.starts_with(before) && text.ends_with(after) {
+            return Some(key);
+        }
+    }
+    None
+}
+
+/// The live feed (`feedCases`): the call session whose REPORT this device
+/// input relays (`Report from <name> (session <id>): …`), else `None`;
+/// `call_ids` = the tree's call sessions.
+pub fn feed_call_session<'a, S: AsRef<str>>(text: &str, call_ids: impl IntoIterator<Item = &'a S>) -> Option<String>
+where
+    S: 'a,
+{
+    let input = crate::transcript_grouping::cross_session_input(text)?;
+    if input.kind != crate::transcript_grouping::CrossSessionKind::Report {
+        return None;
+    }
+    call_ids.into_iter().any(|id| id.as_ref() == input.session_id).then_some(input.session_id)
+}
+
+/// THE call view (`callViewCases`): the call session's own screen.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallView {
+    pub session_id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub running: bool,
+    /// The newest summary, `None` = none yet (no band).
+    pub summary: Option<String>,
+    pub summary_label: String,
+    /// The spoken turns: `message` and `locked` rows.
+    pub rows: Vec<SessionChatRow>,
+}
+
+/// The call view of `session`: `messages` = its own stored messages (others
+/// are ignored), `agent_name` = the chat's agent, the viewer's local day by
+/// `utc_offset_minutes`.
+pub fn call_view(
+    session: &SessionRow,
+    messages: &[&MessageRow],
+    agent_name: &str,
+    now_ms: i64,
+    utc_offset_minutes: i32,
+) -> CallView {
+    const DAY: i64 = 86_400_000;
+    let copy = &SESSION_CARD.call;
+    let running = call_running(session);
+    let total = call_total_ms(session, now_ms);
+    let call = session.voice_call.as_ref();
+    let shift = i64::from(utc_offset_minutes) * 60_000;
+    let started = ms(call.map(|call| call.started_at.as_str()).or(session.created_at.as_deref())).unwrap_or(0);
+    let hhmm = |at: i64| {
+        let minutes = (at + shift).rem_euclid(DAY) / 60_000;
+        format!("{:02}:{:02}", minutes / 60, minutes % 60)
+    };
+    let day = if (started + shift).div_euclid(DAY) >= (now_ms + shift).div_euclid(DAY) {
+        copy.today.clone()
+    } else {
+        crate::chats::chat_time_label_ms(started, now_ms, utc_offset_minutes)
+    };
+    let ended_at = call.and_then(|call| call.ended_at.as_deref()).filter(|_| !running);
+    let when = match ended_at {
+        Some(end) => copy
+            .when
+            .replacen("{day}", &day, 1)
+            .replacen("{start}", &hhmm(started), 1)
+            .replacen("{end}", &hhmm(ms(Some(end)).unwrap_or(0)), 1),
+        None => copy.when_running.replacen("{day}", &day, 1).replacen("{start}", &hhmm(started), 1),
+    };
+    let mut own: Vec<&MessageRow> =
+        messages.iter().copied().filter(|message| message.session_id == session.id).collect();
+    oldest_first(&mut own);
+    let mut rows: Vec<SessionChatRow> = Vec::new();
+    let mut summary: Option<String> = None;
+    let mut after_ended = false;
+    for message in own {
+        if message.card.is_some() {
+            continue;
+        }
+        if message.author_session_id.as_deref().is_some_and(|id| !id.is_empty() && id != session.id) {
+            continue;
+        }
+        let author = match message.author_kind.as_deref() {
+            Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+            Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+            _ => continue,
+        };
+        let locked = message.locked();
+        if author == MESSAGE_AUTHOR_KIND_USER && locked.is_none() {
+            if let Some(prompt) = call_prompt(message.body_text()) {
+                after_ended = prompt == CallPrompt::Ended;
+                continue;
+            }
+        }
+        if author == MESSAGE_AUTHOR_KIND_AGENT && after_ended {
+            after_ended = false;
+            if locked.is_none() && !crate::transcript_grouping::is_blank_text(message.body_text()) {
+                summary = Some(message.body_text().trim().to_string());
+            }
+            continue;
+        }
+        if let Some(reason) = locked {
+            rows.push(SessionChatRow::Locked { id: message.id.clone(), reason, author: author.to_string() });
+            continue;
+        }
+        let body = message_row_body(message.body_text(), &message.attachment_ids);
+        if crate::transcript_grouping::is_blank_text(&body) {
+            continue;
+        }
+        rows.push(SessionChatRow::Message {
+            id: message.id.clone(),
+            author: author.to_string(),
+            author_id: message.author_id.clone(),
+            body,
+            queued: false,
+            author_session_id: message.author_session_id.clone(),
+            xref: None,
+        });
+    }
+    CallView {
+        session_id: session.id.clone(),
+        title: if running {
+            copy.view_running.replacen("{timer}", &call_clock(total), 1)
+        } else {
+            copy.view_title.replacen("{duration}", &call_length(total), 1)
+        },
+        subtitle: copy.subtitle.replacen("{when}", &when, 1).replacen("{agent}", agent_name, 1),
+        running,
+        summary,
+        summary_label: copy.summary.clone(),
+        rows,
     }
 }
 
@@ -1920,6 +2209,28 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
             })
     }));
     oldest_first(&mut conversation);
+    // #EXP-1943 (session-card.json `call`): a call's reports fold into its
+    // ONE card as the caption (the newest summary); they draw no row.
+    let call_of = |card: Option<&Value>| -> Option<&SessionRow> {
+        let target = by_id.get(card_str(card?, "sessionId")?).copied()?;
+        is_call_session(target).then_some(target)
+    };
+    let mut call_summaries: HashMap<&str, String> = HashMap::new();
+    for message in &conversation {
+        let card = message.card.as_ref();
+        if card.and_then(|card| card_str(card, "kind")) != Some(MESSAGE_CARD_KIND_REPORT) {
+            continue;
+        }
+        let Some(call) = call_of(card) else { continue };
+        let summary = match card.and_then(|card| card_str(card, "summary")).filter(|summary| !summary.trim().is_empty()) {
+            Some(summary) => summary.to_string(),
+            None if message.locked().is_some() => String::new(),
+            None => message.body_text().to_string(),
+        };
+        if !summary.trim().is_empty() {
+            call_summaries.insert(call.id.as_str(), summary);
+        }
+    }
     let mut rows: Vec<SessionChatRow> = Vec::new();
     let messages_by_id: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
@@ -1927,6 +2238,12 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
     let mut fires: HashSet<&str> = HashSet::new();
     for message in conversation {
         if let Some(reason) = message.locked() {
+            // #EXP-1943: a call's locked report is folded into its card too.
+            if matches!(message.card_kind(), Some(MESSAGE_CARD_KIND_REPORT) | Some(MESSAGE_CARD_KIND_EVENT))
+                && call_of(message.card.as_ref()).is_some()
+            {
+                continue;
+            }
             let author = match message.author_kind.as_deref() {
                 Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
                 Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
@@ -1949,10 +2266,12 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
                     continue;
                 };
-                rows.push(SessionChatRow::Session {
-                    id: message.id.clone(),
-                    card: session_card(target, title_of(&titles, &target.id), now),
-                });
+                let card = if is_call_session(target) {
+                    call_card(target, call_summaries.get(target.id.as_str()).map(String::as_str), now)
+                } else {
+                    session_card(target, title_of(&titles, &target.id), now)
+                };
+                rows.push(SessionChatRow::Session { id: message.id.clone(), card });
             }
             Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN) => {
                 rows.extend(ask_card_row(message));
@@ -1978,6 +2297,9 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
                     continue;
                 };
+                if is_call_session(target) {
+                    continue;
+                }
                 let name = session_card(target, title_of(&titles, &target.id), now).name;
                 rows.push(SessionChatRow::Report {
                     id: message.id.clone(),
@@ -1994,6 +2316,10 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 }
             }
             Some(MESSAGE_CARD_KIND_EVENT) => {
+                // #EXP-1943: a line about a call session draws nothing (its card speaks).
+                if call_of(Some(card)).is_some() {
+                    continue;
+                }
                 // #EXP-1772: a firing draws nothing of its own; one the agent
                 // answered is THE marker above that reply (`fires`, below).
                 if card_str(card, "event") == Some("trigger_fired") {
@@ -2865,8 +3191,15 @@ mod tests {
                         if let Some(object) = item.as_object_mut() {
                             object.entry("conversationId").or_insert_with(|| json!(format!("c-{session_id}")));
                         }
+                        // #EXP-1943: a fixture's `locked` reason = the row's seal state.
+                        let locked = item.as_object_mut().and_then(|object| object.remove("locked"));
                         let mut message: MessageRow = row(&item, &format!("row-{index}"));
                         message.session_id = session_id;
+                        match locked.as_ref().and_then(Value::as_str) {
+                            Some("noKey") => message.seal = Some(crate::sealed::SealState::Locked),
+                            Some(_) => message.seal = Some(crate::sealed::SealState::Unreadable),
+                            None => {}
+                        }
                         message
                     })
                     .collect()
@@ -3135,6 +3468,75 @@ mod tests {
             // #EXP-1703: `deviceName` (absent / null = unknown).
             let banner = session_banner_on(&session, case["deviceName"].as_str());
             assert_whole(banner, &case["expected"], name);
+        }
+    }
+
+    /// #EXP-1943: `session-card.json` `callCases`, whole objects.
+    #[test]
+    fn call_card_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["callCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let session: SessionRow = row(&input["session"], "s");
+            assert!(is_call_session(&session), "{name}: the voiceCall hydrates");
+            assert_whole(call_card(&session, input["summary"].as_str(), now(&input["now"])), &case["expected"], name);
+        }
+    }
+
+    /// #EXP-1943: `session-card.json` `callViewCases`, whole objects.
+    #[test]
+    fn call_view_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["callViewCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let session: SessionRow = row(&input["session"], "s");
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let view = call_view(
+                &session,
+                &messages,
+                input["agentName"].as_str().unwrap(),
+                now(&input["now"]),
+                input["utcOffsetMinutes"].as_i64().unwrap() as i32,
+            );
+            assert_whole(&view, &case["expected"], name);
+        }
+    }
+
+    /// #EXP-1943: `session-card.json` `feedCases`.
+    #[test]
+    fn feed_call_session_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["feedCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let calls: Vec<String> = serde_json::from_value(case["calls"].clone()).unwrap();
+            assert_eq!(
+                feed_call_session(case["text"].as_str().unwrap(), &calls).as_deref(),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    /// #EXP-1943: a TEXT cell (the SQLite store) and garbage alike.
+    #[test]
+    fn voice_call_reads_every_wire_form() {
+        let call = json!({"callId": "c", "startedAt": "2026-11-18T09:08:00.000Z", "segmentStartedAt": "2026-11-18T09:08:00.000Z", "endedAt": null, "durationMs": 0, "summaryPending": false});
+        for cell in [call.clone(), Value::String(call.to_string())] {
+            let row: SessionRow = serde_json::from_value(json!({"id": "s", "voice_call": cell})).unwrap();
+            assert!(is_call_session(&row));
+        }
+        for cell in [Value::Null, json!("nope"), json!({"durationMs": 1})] {
+            let row: SessionRow = serde_json::from_value(json!({"id": "s", "voice_call": cell})).unwrap();
+            assert!(!is_call_session(&row));
         }
     }
 

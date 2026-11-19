@@ -2109,8 +2109,8 @@
         "file": "shots/ede-applet-battery/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 6252,
-        "sha256": "6effaedfadf1c168f9a3bb1ee6dce40bbb645f77fe424c18c865272cca4a3f9f"
+        "bytes": 9206,
+        "sha256": "3c17fdaaa1096f542b2bd62dadefb47060dd51d50735b409353dc4d09c680071"
       }
     },
     "ede-applet-bluetooth": {
@@ -2118,8 +2118,8 @@
         "file": "shots/ede-applet-bluetooth/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 6454,
-        "sha256": "dd87c4646cddac3e62c20d30c5ad0ebf98b2612f58545140c8c12f982674eedb"
+        "bytes": 11548,
+        "sha256": "af2e653d1e674752f532ce039187d871c5197d9944d36c81ce5786a8c645bf55"
       }
     },
     "ede-applet-calendar": {
@@ -2136,8 +2136,8 @@
         "file": "shots/ede-applet-network/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7148,
-        "sha256": "93066da270dccf3e4a3dc09d54d0c3651c75b45fd7e34dd3f295594dc32175c5"
+        "bytes": 12368,
+        "sha256": "1b080bb8e1262bc4743d008751c02a99d80a0f15cfec8253130edce16094c7f8"
       }
     },
     "ede-applet-sound": {
@@ -2145,8 +2145,8 @@
         "file": "shots/ede-applet-sound/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7140,
-        "sha256": "c9d3a3987f0305a892b10f52d25b38ebe864d10aa1f8dabd084ea320348dc47c"
+        "bytes": 14138,
+        "sha256": "55be34a260fc2f921f180430e8ba93a2b0ccb4bf408d10716c5de45d2fc2f756"
       }
     },
     "ede-chat": {
@@ -8028,8 +8028,8 @@
         "file": "shots/voice-call/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 23978,
-        "sha256": "ec2ef45bec4bdbe3798ff80c69857840649628ff7d66bc2d6c1904a8410055a6"
+        "bytes": 50940,
+        "sha256": "a09b4e75490431e650991b838e18315a72c0dc8068678c26c0f05e01caff9b8d"
       },
       "web": {
         "file": "shots/voice-call/web.webp",

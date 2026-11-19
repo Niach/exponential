@@ -200,6 +200,16 @@ where
     })
 }
 
+/// #EXP-1943: `sessions.voice_call` (jsonb, or a SQLite TEXT cell); null,
+/// absent or unparsable = not a call.
+pub fn tolerant_voice_call<'de, D>(deserializer: D) -> Result<Option<crate::rows::VoiceCall>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = tolerant_opt_json(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value::<crate::rows::VoiceCall>(value).ok()))
+}
+
 fn value_to_id_list(value: &Value) -> Vec<String> {
     let clean = |raw: &str| {
         let id = raw.trim().trim_matches('"').trim();

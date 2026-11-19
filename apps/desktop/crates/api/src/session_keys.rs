@@ -94,6 +94,10 @@ struct MineInput<'a> {
 struct PendingInput<'a> {
     install_id: &'a str,
     limit: usize,
+    /// #EXP-1941: only these roots (a call answers the wraps of ITS root:
+    /// one pass over all roots is capped and sorted by root id).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_ids: Option<&'a [String]>,
 }
 
 #[derive(Serialize)]
@@ -127,8 +131,8 @@ pub fn mine(trpc: &TrpcClient, install_id: &str, root_ids: Option<&[String]>) ->
 
 /// `sessionKeys.pending`: readers without the current epoch's wrap on trees
 /// this install holds. Automatic: answer every pair with [`wrap`].
-pub fn pending(trpc: &TrpcClient, install_id: &str) -> Result<Vec<PendingWrap>, ApiError> {
-    trpc.query_with_input("sessionKeys.pending", &PendingInput { install_id, limit: PENDING_MAX })
+pub fn pending(trpc: &TrpcClient, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+    trpc.query_with_input("sessionKeys.pending", &PendingInput { install_id, limit: PENDING_MAX, root_ids })
 }
 
 /// `sessionKeys.wrap`: only pairs `pending` lists.
@@ -193,6 +197,12 @@ mod tests {
     fn mine_skips_absent_roots_and_pending_decodes() {
         let json = serde_json::to_value(MineInput { install_id: "i", root_ids: None }).unwrap();
         assert_eq!(json, serde_json::json!({"installId":"i"}));
+        // #EXP-1941: `pending` by root; without roots the input is today's.
+        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: None }).unwrap();
+        assert_eq!(json, serde_json::json!({"installId":"i","limit":200}));
+        let roots = ["r".to_string()];
+        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: Some(&roots) }).unwrap();
+        assert_eq!(json, serde_json::json!({"installId":"i","limit":200,"rootIds":["r"]}));
         let rows: Vec<PendingWrap> = serde_json::from_str(
             r#"[{"rootId":"r","epoch":2,"publicKey":"k","targetInstallId":"t","targetX25519Public":"x"}]"#,
         )

@@ -53,7 +53,7 @@ pub const WAKE_SPACING: Duration = Duration::from_secs(5);
 pub trait KeyApi: Send + Sync + 'static {
     fn create(&self, input: &CreateKey) -> Result<(), ApiError>;
     fn mine(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError>;
-    fn pending(&self, install_id: &str) -> Result<Vec<PendingWrap>, ApiError>;
+    fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError>;
     fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError>;
     fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError>;
     /// #EXP-1960: `sessionKeys.requestKey` (default: no answer).
@@ -69,8 +69,8 @@ impl KeyApi for api::TrpcClient {
     fn mine(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
         api::session_keys::mine(self, install_id, root_ids)
     }
-    fn pending(&self, install_id: &str) -> Result<Vec<PendingWrap>, ApiError> {
-        api::session_keys::pending(self, install_id)
+    fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+        api::session_keys::pending(self, install_id, root_ids)
     }
     fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
         api::session_keys::wrap(self, install_id, wraps).map(|_| ())
@@ -178,7 +178,32 @@ impl KeyHolder {
     /// Answers every pending reader with a wrap. Returns how many pairs
     /// were sent. BLOCKING.
     pub fn answer_pending(&self) -> Result<usize, ApiError> {
-        let pending = self.inner.api.pending(&self.inner.install_id)?;
+        self.answer(None)
+    }
+
+    /// #EXP-1941: [`Self::answer_pending`] for ONE root: a call answers the
+    /// wrap of the caller's new install before its hello, and one pass over
+    /// every root is capped (`PENDING_MAX` pairs, sorted by root id), so
+    /// that pair may not be in it. BLOCKING.
+    pub fn answer_pending_for(&self, root_id: &str) -> Result<usize, ApiError> {
+        self.answer(Some(&[root_id.to_string()]))
+    }
+
+    /// #EXP-1941: one rotation of THIS root past `flagged`, now: a call does
+    /// not start on a key the server marked as held by readers it dropped,
+    /// and [`Self::rotate_due`] rotates every flagged tree of the install.
+    /// The root's key is read from the server first (the synced rows lag).
+    /// `Ok(false)` = not this install's to rotate, or another holder did.
+    pub fn rotate_root(&self, root_id: &str, flagged: u32) -> Result<bool, String> {
+        if lock(&self.inner.refused).contains(&(root_id.to_string(), flagged)) {
+            return Ok(false);
+        }
+        self.lookup(root_id)?;
+        self.rotate(root_id, flagged)
+    }
+
+    fn answer(&self, root_ids: Option<&[String]>) -> Result<usize, ApiError> {
+        let pending = self.inner.api.pending(&self.inner.install_id, root_ids)?;
         let mut wraps = Vec::new();
         for pair in pending {
             let Some(secret) = self.inner.keyring.secret(&pair.root_id, pair.epoch) else {
@@ -550,7 +575,7 @@ mod tests {
                 .map(|(root, epoch, _, wrapped)| HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: wrapped.clone() })
                 .collect())
         }
-        fn pending(&self, install_id: &str) -> Result<Vec<PendingWrap>, ApiError> {
+        fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
             // Snapshots, one lock at a time: `create` holds `roots` while it
             // takes `wraps`, and `create_key` runs this `pending` on its own
             // thread, so nesting `wraps` → `roots` here deadlocked a test
@@ -559,6 +584,9 @@ mod tests {
             let roots = self.roots.lock().unwrap().clone();
             let readers = self.readers.lock().unwrap().clone();
             let mut out = Vec::new();
+            // Like the server: sorted by root id, at most PENDING_MAX pairs.
+            let mut roots: Vec<_> = roots.into_iter().filter(|(root, _)| root_ids.is_none_or(|ids| ids.contains(root))).collect();
+            roots.sort();
             for (root, (epoch, public)) in roots.iter() {
                 if !wraps.iter().any(|(r, e, i, _)| r == root && e == epoch && i == install_id) {
                     continue;
@@ -575,6 +603,7 @@ mod tests {
                     }
                 }
             }
+            out.truncate(api::session_keys::PENDING_MAX);
             Ok(out)
         }
         fn wrap(&self, _install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
@@ -658,7 +687,7 @@ mod tests {
         let opened = enet_core::sealed::open_body(&body, &|e| reader.keyring().secret("root", e));
         assert_eq!(opened.text.as_deref(), Some("for every reader"));
         // Nothing left pending.
-        assert!(api.pending("device").unwrap().is_empty());
+        assert!(api.pending("device", None).unwrap().is_empty());
     }
 
     #[test]
@@ -777,6 +806,58 @@ mod tests {
         assert!(device.keyring().rotations_due().is_empty());
         device.pass();
         assert_eq!(api.creates.lock().unwrap().iter().filter(|(_, e, _)| *e == 2).count(), 1);
+    }
+
+    /// #EXP-1941: a call rotates ITS root, now, and no other flagged tree;
+    /// it reads the root's key from the server first.
+    #[test]
+    fn a_calls_root_rotates_alone() {
+        let (api, keys, _) = turned_private();
+        let device = holder(&api, "device", &keys[0]);
+        // Another tree of this install is flagged at the same time.
+        device.ensure_key("other").unwrap();
+        device.keyring().note_sessions(&[domain::rows::SessionRow { id: "other".into(), ..root_row(&api, Some(1)) }]);
+        assert_eq!(device.keyring().rotations_due().len(), 2);
+        assert_eq!(device.rotate_root("root", 1), Ok(true));
+        assert_eq!(api.roots.lock().unwrap()["root"].0, 2);
+        assert_eq!(api.roots.lock().unwrap()["other"].0, 1, "the other flagged tree is not this call's");
+        assert_eq!(device.keyring().rotations_due(), vec![("other".to_string(), 1)]);
+        assert!(device.keyring().secret("root", 2).is_some());
+        // Done already (another ring, another holder): nothing to do.
+        assert_eq!(device.rotate_root("root", 1), Ok(false));
+        // An install whose synced rows have not arrived: it reads the key itself.
+        let (api, keys, _) = turned_private();
+        let fresh = KeyHolder::new("phone".into(), &keys[1], api.clone(), Keyring::in_memory());
+        fresh.pull(None).unwrap();
+        assert_eq!(fresh.rotate_root("root", 1), Ok(true));
+        // Not a rotator: refused by the server, never an error loop.
+        let (api, keys, _) = turned_private();
+        api.readers.lock().unwrap().push(("mate".into(), keys[2].public()));
+        let mate = KeyHolder::new("mate".into(), &keys[2], api.clone(), Keyring::in_memory());
+        mate.keyring().insert_secret("root", 1, [1; 32]);
+        assert_eq!(mate.rotate_root("root", 1), Ok(false));
+        assert_eq!(api.roots.lock().unwrap()["root"].0, 1);
+    }
+
+    /// #EXP-1941: one pass answers at most `PENDING_MAX` pairs sorted by
+    /// root id; a call's root behind that backlog is answered by its own pass.
+    #[test]
+    fn a_calls_root_is_answered_behind_a_backlog() {
+        let keys = [PushKeypair::generate(), PushKeypair::generate()];
+        let api = Arc::new(FakeKeys::with_readers(vec![("device".into(), keys[0].public()), ("phone".into(), keys[1].public())]));
+        let device = KeyHolder::new("device".into(), &keys[0], api.clone(), Keyring::in_memory());
+        // 201 keyed roots the phone has no wrap for; the call's root sorts last.
+        let roots: Vec<String> = (0..api::session_keys::PENDING_MAX).map(|n| format!("a-{n:03}")).chain(["z-call".to_string()]).collect();
+        for root in &roots {
+            api.roots.lock().unwrap().insert(root.clone(), (1, "k".into()));
+            api.wraps.lock().unwrap().push((root.clone(), 1, "device".into(), "w".into()));
+            device.keyring().insert_secret(root, 1, [3; 32]);
+        }
+        let phone_has = |root: &str| api.wraps.lock().unwrap().iter().any(|(r, _, install, _)| r == root && install == "phone");
+        assert_eq!(device.answer_pending().unwrap(), api::session_keys::PENDING_MAX);
+        assert!(!phone_has("z-call"), "one pass does not reach it");
+        assert_eq!(device.answer_pending_for("z-call").unwrap(), 1);
+        assert!(phone_has("z-call"));
     }
 
     #[test]

@@ -64,22 +64,33 @@ impl SelectionHandler for Ede {
 
     /// A Wayland client set (or cleared) the clipboard: the serial moves
     /// and Xwayland's CLIPBOARD follows.
-    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
+    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, seat: Seat<Self>) {
         if ty != SelectionTarget::Clipboard {
             return;
         }
         let mimes = source.map(|s| s.mime_types());
+        // #EDE-126: a space's copy is the space's: the person's serial,
+        // owner and Xwayland stay (nobody's once its space is gone).
+        if let Some(id) = crate::spaces::space_of_seat(&seat) {
+            if let Some(desk) = self.try_desk_mut(id) {
+                desk.clipboard.changed(mimes.map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+            }
+            return;
+        }
         self.desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
         self.xwm_selection(mimes);
     }
 
     /// A Wayland client reads a compositor-side selection.
-    fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: std::os::fd::OwnedFd, _seat: Seat<Self>, user_data: &Self::SelectionUserData) {
+    fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: std::os::fd::OwnedFd, seat: Seat<Self>, user_data: &Self::SelectionUserData) {
         if ty != SelectionTarget::Clipboard {
             return;
         }
+        let space = crate::spaces::space_of_seat(&seat);
         match user_data {
-            crate::clipboard::Selection::Ours(owned) => self.serve_owned(owned, &mime_type, fd),
+            crate::clipboard::Selection::Ours(owned) => self.serve_owned(space.unwrap_or(crate::desk::DeskId::PERSON), owned, &mime_type, fd),
+            // Xwayland's selection is the person's: no space's seat holds it.
+            crate::clipboard::Selection::X11 if space.is_some() => drop(fd),
             #[cfg(feature = "xwayland")]
             crate::clipboard::Selection::X11 => {
                 if let Some(xwm) = self.xwm.as_mut() {

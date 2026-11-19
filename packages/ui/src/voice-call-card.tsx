@@ -1,8 +1,9 @@
 import type { HTMLAttributes, ReactNode } from "react"
-import { VOICE_CALL_TEST_IDS, type CallView } from "@exp/etalk/voice-call"
+import { VOICE_CALL_TABS, VOICE_CALL_TEST_IDS, type CallTab, type CallView } from "@exp/etalk/voice-call"
 
 import { CallAvatar, CallControls } from "./call-controls"
 import { cn } from "./cn"
+import { SegmentedControl } from "./segmented-control"
 
 // S-3 (voice-call.json PHONE-CALL UI, the `voice-call` styleguide entry):
 // THE call surface, WhatsApp / Teams style, the same on web (a full-height
@@ -85,6 +86,32 @@ export function VoiceCallSurface({
         onMute={onMute}
         onSpeaker={onSpeaker}
         onEnd={onEnd}
+      />
+    </div>
+  )
+}
+
+/** FEED-272: THE Chat | Voice tabs on top of a call surface: the filled
+ *  SegmentedControl (the genUI `Tabs`, `fill`), voice-call.json `tabs`. */
+export function CallTabs({
+  tab,
+  onTab,
+  className,
+}: {
+  tab: CallTab
+  onTab: (tab: CallTab) => void
+  className?: string
+}) {
+  return (
+    <div data-testid={VOICE_CALL_TABS.testIds.tabs} className={cn(`w-full`, className)}>
+      <SegmentedControl
+        fill
+        value={tab}
+        onValueChange={onTab}
+        options={VOICE_CALL_TABS.order.map((id) => ({
+          value: id,
+          label: <span data-testid={VOICE_CALL_TABS.testIds[id]}>{VOICE_CALL_TABS.copy[id]}</span>,
+        }))}
       />
     </div>
   )

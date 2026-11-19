@@ -87,6 +87,7 @@ import com.exponential.app.ui.chat.ChatHeader
 import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatRowMeta
+import com.exponential.app.ui.chat.ChatAgent
 import com.exponential.app.ui.chat.FeedMarkerRow
 import com.exponential.app.ui.chat.MessageBubble
 import com.exponential.app.ui.chat.TranscriptBubbleRow
@@ -715,7 +716,21 @@ private fun CheckInSpecimen(modifier: Modifier = Modifier) {
 @Composable
 fun ChatTranscriptSpecimenScreen() {
     AppBackground {
-        Column(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
+        ChatTranscriptSpecimenBody(
+            Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId),
+            // #EXP-1943: the shot carries the call on top (web parity).
+            withCall = true,
+        )
+    }
+}
+
+/** The transcript alone (FEED-272: the call's Chat tab specimen draws it too). */
+@Composable
+fun ChatTranscriptSpecimenBody(modifier: Modifier = Modifier, withCall: Boolean = false) {
+    run {
+        Column(if (withCall) modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()) else modifier) {
+            // #EXP-1943: the call card + the call view on top (the shot's first screen).
+            if (withCall) CallSpecimen()
             // #EXP-1873: an agent chat's quiet check-ins, one line per run
             // (web's CheckInSpecimen); above the transcript so the shot shows it.
             CheckInSpecimen(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
@@ -728,7 +743,7 @@ fun ChatTranscriptSpecimenScreen() {
                 onDecidePlan = { _, _, _ -> },
                 canUnqueue = { false },
                 onUnqueue = {},
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth().then(if (withCall) Modifier.height(900.dp) else Modifier.weight(1f)),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                 onSurfaceReply = {},
                 onOpenXref = {},
@@ -936,3 +951,117 @@ fun SealedLockedSpecimenScreen() {
         }
     }
 }
+
+// ── #EXP-1943: a call in the chat (session-card.json `call`) ────────────────
+// The fixtures' own data: session-chat.json's last case (the agent chat's
+// rows: an ended call's card with its summary, a running call's card) and
+// session-card.json `callViewCases[0]` (THE call view of the ended call).
+
+private const val CALL_VIEWER = "u-dana"
+private const val CALL_CHAT_NOW = "2026-11-18T09:22:44.000Z"
+
+private val CALL_AGENT = ChatAgent(name = "Assistant", icon = null, color = null, assistant = true)
+private val CALL_CHAT = com.exponential.app.domain.TranscriptGrouping.Chat(
+    sessionId = "r1",
+    title = "Assistant",
+    agentId = "ag1",
+    originSessionId = null,
+)
+
+private fun callSpecimenSession(id: String, status: String, busy: Boolean, call: SessionTree.TreeVoiceCall) = SessionTree.Session(
+    id = id, teamId = "t-team-1", parentId = "r1", rootId = "r1", userId = CALL_VIEWER,
+    status = status, busy = busy, needsInput = false, blocked = null, shared = true,
+    title = "Call", guide = null, startedAt = call.startedAt, endedAt = null,
+    createdAt = call.startedAt, updatedAt = "2026-11-18T09:12:00.000Z", voiceCall = call,
+)
+
+private val CALL_ENDED = callSpecimenSession(
+    "call1", "idle", false,
+    SessionTree.TreeVoiceCall("2026-11-18T09:08:00.000Z", "2026-11-18T09:08:00.000Z", "2026-11-18T09:12:12.000Z", 252_000L),
+)
+private val CALL_RUNNING = callSpecimenSession(
+    "call2", "running", true,
+    SessionTree.TreeVoiceCall("2026-11-18T09:20:30.000Z", "2026-11-18T09:20:30.000Z", null, 0L),
+)
+
+private fun callRow(id: String, author: String, body: String) = SessionTree.SessionChatRow.MessageRow(
+    id = id, author = author, authorId = if (author == "user") CALL_VIEWER else null, body = body, queued = false,
+)
+
+/** session-chat.json's last case `expected.rows`. */
+private val CALL_CHAT_ROWS: List<SessionTree.SessionChatRow> = listOf(
+    callRow("c1", "user", "Can you check what's left for tomorrow's release?"),
+    callRow("c2", "agent", "Three PRs are green and queued; #EXP-1942 still waits for the Android pictures."),
+    SessionTree.SessionChatRow.SessionRow(
+        "c3",
+        SessionTree.callCard(CALL_ENDED, "Ship 0.14.140 tomorrow; the Android mic fix goes first.", CALL_CHAT_NOW),
+    ),
+    callRow("c6", "agent", "From the call: I filed #EXP-1950 for the mic fix and started a session on it."),
+    callRow("c7", "user", "Thanks. Calling you again about the changelog."),
+    SessionTree.SessionChatRow.SessionRow("c8", SessionTree.callCard(CALL_RUNNING, null, CALL_CHAT_NOW)),
+)
+
+private fun callMessage(id: String, author: String, body: String, at: String, authorSessionId: String? = null) = SessionTree.Message(
+    id = id, sessionId = "call1", authorKind = author,
+    authorId = if (author == "user") CALL_VIEWER else null,
+    body = body, card = null, answeredAt = null, consumedAt = at, createdAt = at, authorSessionId = authorSessionId,
+)
+
+/** session-card.json `callViewCases[0].input.messages`. */
+private val CALL_MESSAGES = listOf(
+    callMessage("v1", "user", SessionTree.CallCopy.PROMPTS.getValue("request").replace("{language}", "English"), "2026-11-18T09:08:00.000Z"),
+    callMessage("v2", "agent", "Hi Dana, the release is close.", "2026-11-18T09:08:03.000Z"),
+    callMessage("v3", "user", "Hey, where are we with the release?", "2026-11-18T09:08:20.000Z"),
+    callMessage("v4", "agent", "Message from Assistant (session r1): typed in the chat", "2026-11-18T09:08:30.000Z", "r1"),
+    callMessage("v5", "agent", "Three PRs are queued. One open thing: the Android microphone drop.", "2026-11-18T09:08:40.000Z"),
+    callMessage("v6", "user", "Okay, that one has to go in first. Can you file it?", "2026-11-18T09:09:10.000Z"),
+    callMessage("v9", "user", SessionTree.CallCopy.PROMPTS.getValue("ended").replace("{minutes}", "04:12"), "2026-11-18T09:12:12.000Z"),
+    callMessage("v10", "agent", "Ship 0.14.140 tomorrow at 09:00. The Android mic fix goes first.", "2026-11-18T09:12:20.000Z"),
+)
+
+private val CALL_TIMES: Map<String, String> = mapOf(
+    "c1" to "2026-11-18T09:02:00.000Z", "c2" to "2026-11-18T09:03:00.000Z",
+    "c6" to "2026-11-18T09:13:00.000Z", "c7" to "2026-11-18T09:20:00.000Z",
+) + CALL_MESSAGES.associate { it.id to it.createdAt }
+
+/** The call on top of the transcript specimen (web `CallSpecimen`): the agent
+ *  chat's rows with the call cards, then THE call view (heading, Summary band,
+ *  the spoken turns). */
+@Composable
+private fun CallSpecimen() {
+    val view = SessionTree.callView(CALL_ENDED, CALL_MESSAGES, CALL_AGENT.name, "2026-11-18T10:00:00.000Z", 0)
+    val time: (String) -> String? = { id -> CALL_TIMES[id]?.let(::specimenClock) }
+    Column(Modifier.fillMaxWidth().testTag("chat-call-specimen"), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        ChatConversation(
+            rows = CALL_CHAT_ROWS,
+            rootId = "r1",
+            meta = { row -> ChatRowMeta(authorName = if (row.author == "agent") CALL_AGENT.name else "Dana Reyes", time = time(row.id).orEmpty()) },
+            onOpenCard = {},
+            onAnswer = { _, _, _ -> },
+            onDecidePlan = { _, _, _ -> },
+            canUnqueue = { false },
+            onUnqueue = {},
+            modifier = Modifier.fillMaxWidth().height(CALL_CHAT_HEIGHT),
+            agent = CALL_AGENT,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp),
+            clock = ::specimenClock,
+            chat = CALL_CHAT,
+            viewerId = CALL_VIEWER,
+            startAtTop = true,
+        )
+        com.exponential.app.ui.session.CallViewBody(
+            view = view,
+            heading = true,
+            agent = CALL_AGENT,
+            agentId = "ag1",
+            viewerId = CALL_VIEWER,
+            time = time,
+            transcriptModifier = { Modifier.height(CALL_VIEW_TURNS_HEIGHT) },
+            startAtTop = true,
+        )
+    }
+}
+
+/** The specimen's fixed slots (each a lazy transcript inside a scrolling page). */
+private val CALL_CHAT_HEIGHT = 520.dp
+private val CALL_VIEW_TURNS_HEIGHT = 380.dp

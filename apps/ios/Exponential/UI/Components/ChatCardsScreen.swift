@@ -924,7 +924,8 @@ private struct PlanCardSpecimens: View {
 /// phone-call surface the live call screen draws (`VoiceCallSurface`), all
 /// five rows stacked full width in one column (web-mobile), each in a
 /// phone-shaped frame with its `name` captioned under it, static (rings at
-/// their rest phase).
+/// their rest phase). FEED-272: then the call's two tabs LAST (the shot
+/// shows the end): Voice, then Chat (the bar over the chat transcript).
 private struct VoiceCallSpecimens: View {
     /// The frame's height (web `h-[600px]`).
     private static let height: CGFloat = 600
@@ -932,28 +933,58 @@ private struct VoiceCallSpecimens: View {
     var body: some View {
         VStack(spacing: 16) {
             ForEach(Array(VoiceCall.surfaceSpecimens.enumerated()), id: \.offset) { _, specimen in
-                VStack(spacing: 8) {
-                    VoiceCallSurface(
-                        view: specimen.view,
-                        callee: VoiceCallCallee(name: specimen.agent),
-                        timer: .fixed(specimen.timer),
-                        level: specimen.level,
-                        bands: specimen.bands,
-                        animated: false,
-                        onMinimize: {}
-                    )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: Self.height)
-                    .background(DesignTokens.Palette.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 1))
-                    Text(specimen.name)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                frame(specimen.name) { surface(specimen) }
+            }
+            if let specimen = VoiceCall.surfaceSpecimens.first(where: { $0.name == "in call, speaking" }) {
+                frame("Voice tab") { surface(specimen) }
+                frame("Chat tab") {
+                    VStack(spacing: 0) {
+                        CallChatBarContent(
+                            view: specimen.view,
+                            callee: VoiceCallCallee(name: specimen.agent),
+                            timer: .fixed(specimen.timer),
+                            level: specimen.level,
+                            animated: false
+                        )
+                        // The transcript is taller than the frame: it fills
+                        // what is left under the bar, cut at the bottom.
+                        Color.clear
+                            .overlay(alignment: .top) { ChatTranscriptSpecimens() }
+                            .clipped()
+                            // A still frame: the shot's scroll drags never press a bubble.
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func surface(_ specimen: VoiceCall.Specimen) -> some View {
+        VoiceCallSurface(
+            view: specimen.view,
+            callee: VoiceCallCallee(name: specimen.agent),
+            timer: .fixed(specimen.timer),
+            level: specimen.level,
+            bands: specimen.bands,
+            animated: false,
+            onMinimize: {},
+            onTab: { _ in }
+        )
+    }
+
+    private func frame(_ caption: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(spacing: 8) {
+            content()
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.height)
+                .background(DesignTokens.Palette.background)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 1))
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Palette.mutedForeground)
+        }
     }
 }
 

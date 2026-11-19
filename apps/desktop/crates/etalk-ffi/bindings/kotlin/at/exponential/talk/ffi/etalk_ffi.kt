@@ -682,8 +682,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_event_of_wire(
     ): Int
-    external fun uniffi_etalk_ffi_checksum_func_call_greeting(
-    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_idle(
     ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_ring_ms(
@@ -781,8 +779,6 @@ internal object UniffiLib {
     external fun uniffi_etalk_ffi_fn_func_call_constants(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_etalk_ffi_fn_func_call_event_of_wire(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_etalk_ffi_fn_func_call_greeting(`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_etalk_ffi_fn_func_call_idle(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -2560,11 +2556,6 @@ data class TalkCallState (
     var `device`: kotlin.String
     , 
     /**
-     * The greeting the device says once answered.
-     */
-    var `greeting`: kotlin.String
-    , 
-    /**
      * The ring's earliest answer passed.
      */
     var `rang`: kotlin.Boolean
@@ -2610,7 +2601,6 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
@@ -2625,7 +2615,6 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.allocationSize(value.`muted`) +
             FfiConverterBoolean.allocationSize(value.`speaker`) +
             FfiConverterString.allocationSize(value.`device`) +
-            FfiConverterString.allocationSize(value.`greeting`) +
             FfiConverterBoolean.allocationSize(value.`rang`) +
             FfiConverterBoolean.allocationSize(value.`ready`) +
             FfiConverterBoolean.allocationSize(value.`noSound`) +
@@ -2639,7 +2628,6 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.write(value.`muted`, buf)
             FfiConverterBoolean.write(value.`speaker`, buf)
             FfiConverterString.write(value.`device`, buf)
-            FfiConverterString.write(value.`greeting`, buf)
             FfiConverterBoolean.write(value.`rang`, buf)
             FfiConverterBoolean.write(value.`ready`, buf)
             FfiConverterBoolean.write(value.`noSound`, buf)
@@ -3609,20 +3597,6 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     
         
         FfiConverterString.lower(`json`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * What the device says once answered (English for an unknown language).
-         */ fun `callGreeting`(`language`: kotlin.String?): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_etalk_ffi_fn_func_call_greeting(
-    
-        
-        FfiConverterOptionalString.lower(`language`),_status)
 }
     )
     }

@@ -35,6 +35,60 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **From this device's copy**: chats are searched in the local chat store, so it works offline; a private chat's messages are found once they open on this device.`,
   },
   {
+    id: `2026-11-19-calls-own-session-on-every-host`,
+    date: `2026-11-19`,
+    title: `Every call opens with the agent's own line`,
+    summary: `Calls the desktop app answers or runs, and encrypted calls on the CLI, get their own session again: the agent's opening line and the summary in the chat. A device that can't write into an encrypted chat no longer listens without answering.`,
+    body: `- **Desktop app calls**: a call the desktop app answers or runs itself gets its own session again, so the agent opens with its own line and the summary lands in the chat when you hang up.
+- **Encrypted calls**: a call whose audio is end-to-end encrypted gets its own session too, on the desktop app and the CLI.
+- **A device without its keys**: a desktop or CLI whose key holder isn't running no longer takes a call into an encrypted chat and swallows every word; the call ends at once and says the device couldn't get its voice ready.`,
+  },
+  {
+    id: `2026-11-19-desktop-cli-0-14-170-calls-find-copy-image`,
+    date: `2026-11-19`,
+    title: `Calls with their own opening line, find in chat, and Copy image`,
+    summary: `Desktop and CLI 0.14.170: calls open with the agent's own line and show as one card with Chat and Voice tabs, find in chat, Copy image, chat messages show in full, and encryption fixes, with eDE 0.2.29.`,
+    body: `- **Calls**: a call runs in its own session and the agent opens with its own line; each call is one card in the chat, and Chat and Voice tabs let you read and write while you talk.
+- **Find in chat**: search the chat you have open with Ctrl/Cmd+F, every match marked, with previous and next.
+- **Copy image**: right-click a picture in a chat and pick Copy image, on the desktop app, eDE and Linux. Pictures from other websites show as a link.
+- **Messages show in full**: long chat messages no longer fold behind "Show more".
+- **Encryption fixes**: a desktop whose P2P node fails to start now says so, and a message sent into a chat that hasn't synced yet asks the server for the chat's key and never goes out unencrypted.
+- **On the web**: a quick reply you tap in an encrypted chat is stored like the card's own text, which is not encrypted yet.
+- **eDE 0.2.29**: the start menu works with the keyboard, prompts show over fullscreen windows, screenshots are right on scaled screens, and a taskbar click restores a minimized window.`,
+  },
+  {
+    id: `2026-11-19-phones-calls-find-in-chat`,
+    date: `2026-11-19`,
+    title: `Calls, find in chat and full messages on phones`,
+    summary: `Android 0.14.151 and iOS 0.14.139: calls open with the agent's own words, a call is one card in the chat with Chat and Voice tabs, find in chat, and long messages show in full.`,
+    body: `- **Calls**: a call opens with the agent's own words in its own voice and runs in its own session; when you hang up, a summary lands in the chat.
+- **One card per call**: the call shows as one card in the chat; during the call, Chat and Voice tabs let you read and write while you talk.
+- **Find in chat**: search the chat you have open, “2/7” with up and down.
+- **Long messages show in full**: no more Show more.
+- **Agent chats**: the header has no tabs.
+- **Chats kept on the phone**: every chat is stored on the phone, older messages included.
+- **Sending into an older chat** no longer waits and fails.`,
+  },
+  {
+    id: `2026-11-19-call-chat-tab`,
+    date: `2026-11-19`,
+    title: `Read the chat during a call`,
+    summary: `A call now has Chat and Voice tabs at the top: switch to Chat to read and write in the agent's chat while you keep talking.`,
+    body: `- **Chat and Voice**: a call opens on Voice as before; Chat shows the agent's chat with the call on top, mute and hang up one tap away.
+- **Type while you talk**: what you write goes to the chat, the call reads it before its next answer.
+- **The call keeps going**: switching tabs never mutes or ends it.`,
+  },
+  {
+    id: `2026-11-18-call-card`,
+    date: `2026-11-18`,
+    title: `A call is one card in the chat`,
+    summary: `Each call shows as one card in the agent chat, “In a call · 02:14” while it runs and “Call ended after 4 min” with its summary afterwards; a tap opens the call: its summary on top, then what was said.`,
+    body: `- **One card per call**: the spoken turns stay out of the chat; the card ticks while the call runs, and a call you pick up again within ten minutes updates the same card.
+- **The summary as its caption**: once the call ends, its summary reads under “Call ended after 4 min” instead of a separate report bubble.
+- **The call's own view**: “Call · 4 min”, the date and time range with the agent's name, the summary under its band, then every spoken turn as bubbles.
+- **On web, desktop, iOS and Android**.`,
+  },
+  {
     id: `2026-11-18-find-in-chat`,
     date: `2026-11-18`,
     title: `Find in a chat`,

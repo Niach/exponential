@@ -4,6 +4,7 @@ import card from "../fixtures/session-card.json" with { type: "json" }
 import chat from "../fixtures/session-chat.json" with { type: "json" }
 import list from "../fixtures/chat-list.json" with { type: "json" }
 import mergeTrain from "../fixtures/merge-train.json" with { type: "json" }
+import voiceCall from "../../etalk/fixtures/voice-call.json" with { type: "json" }
 import {
   buildSessionChat,
   composerReplies,
@@ -17,6 +18,10 @@ import {
   railChats,
   sessionBanner,
   sessionCard,
+  callCard,
+  callPrompt,
+  callView,
+  feedCallSession,
   chatInStack,
   chatRowLeadPr,
   chatRowMarkState,
@@ -36,6 +41,31 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(sessionCard(session, title, now, waiting ?? null)).toEqual(entry.expected as never)
     })
   }
+  // #EXP-1943: a call in the chat (session-card.json `call`).
+  for (const entry of card.callCases) {
+    test(`call card: ${entry.name}`, () => {
+      const { session, summary, now } = entry.input as never as { session: never; summary: string | null; now: string }
+      expect(callCard(session, summary, now)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of card.callViewCases) {
+    test(`call view: ${entry.name}`, () => {
+      expect(callView(entry.input as never)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of card.feedCases) {
+    test(`call in the live feed: ${entry.name}`, () => {
+      expect(feedCallSession(entry.text, entry.calls)).toBe(entry.expected as never)
+    })
+  }
+  test(`call prompts = the etalk callSession lines (drift)`, () => {
+    const lines = voiceCall.callSession
+    expect(card.call.prompts).toEqual({ request: lines.request, resume: lines.resumeText, ended: lines.endedText })
+    expect(callPrompt(lines.endedText.replace(`{minutes}`, `04:12`))).toBe(`ended`)
+    expect(callPrompt(lines.endedText)).toBe(`ended`)
+    expect(callPrompt(`The call ended after.`)).toBeNull()
+    expect(callPrompt(`Hey, where are we?`)).toBeNull()
+  })
   for (const entry of card.waitingCases) {
     test(`session waiting (#NEW-49): ${entry.name}`, () => {
       expect(sessionWaiting(entry.input.watching as never, entry.input.children)).toBe(entry.expected as never)

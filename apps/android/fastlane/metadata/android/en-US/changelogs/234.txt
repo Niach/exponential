@@ -1,0 +1,7 @@
+- A call opens with the agent's own words in its own voice; when you hang up, a summary lands in the chat
+- Each call is one card in the chat; during a call, Chat and Voice tabs let you read and write while you talk
+- Find in chat: search the chat you have open
+- Long messages always show in full
+- An agent's chat header has no tabs
+- Your chats are kept on the phone, older messages included
+- Sending into an older chat no longer waits and fails

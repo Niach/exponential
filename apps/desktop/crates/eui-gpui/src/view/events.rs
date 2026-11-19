@@ -245,7 +245,10 @@ impl SurfaceView {
         }
         let Some(n) = self.cache.node(index).cloned() else { return };
         if let Some(target) = n.trigger_for.clone() {
-            if self.just_dismissed.take().as_deref() == Some(target.as_str()) {
+            // #EDE-124: a hover-opened card is no toggle of its trigger: a
+            // dismissal (the host's, heard after the click's release) never
+            // eats the trigger's own press (the taskbar button's).
+            if self.just_dismissed.take().as_deref() == Some(target.as_str()) && !self.opens_on_hover(&target) {
                 cx.notify();
                 return;
             }

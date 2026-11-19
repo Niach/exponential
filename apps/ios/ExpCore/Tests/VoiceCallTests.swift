@@ -31,7 +31,6 @@ final class VoiceCallTests: XCTestCase {
         var copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
         let reasons = try XCTUnwrap(copy.removeValue(forKey: "reasons") as? [String: String])
         let failed = try XCTUnwrap(copy.removeValue(forKey: "failed") as? [String: String])
-        let greeting = try XCTUnwrap(copy.removeValue(forKey: "greeting") as? [String: String])
         XCTAssertEqual(copy as? [String: String], [
             "call": VoiceCall.Copy.call,
             "calling": VoiceCall.Copy.calling,
@@ -51,10 +50,6 @@ final class VoiceCallTests: XCTestCase {
             "queued": VoiceCall.Copy.queued,
             "via": VoiceCall.Copy.via,
         ])
-        XCTAssertEqual(greeting, VoiceCall.Copy.greeting)
-        XCTAssertEqual(VoiceCall.callGreeting("de"), "Hallo?")
-        XCTAssertEqual(VoiceCall.callGreeting("fr"), "Hello?")
-        XCTAssertEqual(VoiceCall.callGreeting(nil), "Hello?")
         XCTAssertEqual(reasons, [
             "noAgent": VoiceCall.Copy.Reasons.noAgent,
             "noVoiceDevice": VoiceCall.Copy.Reasons.noVoiceDevice,
@@ -94,6 +89,19 @@ final class VoiceCallTests: XCTestCase {
             "end": VoiceCall.Icons.end,
             "minimize": VoiceCall.Icons.minimize,
         ])
+        // FEED-272: the tabs.
+        let tabs = try XCTUnwrap(fixture["tabs"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(tabs["order"] as? [String]), VoiceCall.Tabs.order.map(\.rawValue))
+        XCTAssertEqual(try XCTUnwrap(tabs["initial"] as? String), VoiceCall.Tabs.initial.rawValue)
+        XCTAssertEqual(
+            try XCTUnwrap(tabs["copy"] as? [String: String]),
+            Dictionary(uniqueKeysWithValues: VoiceCall.Tab.allCases.map { ($0.rawValue, VoiceCall.Tabs.label($0)) })
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(tabs["testIds"] as? [String: String]),
+            Dictionary(uniqueKeysWithValues: VoiceCall.Tab.allCases.map { ($0.rawValue, VoiceCall.Tabs.testId($0)) })
+                .merging(["tabs": VoiceCall.Tabs.tabsId]) { a, _ in a }
+        )
         XCTAssertEqual(try XCTUnwrap(fixture["pill"] as? [String: Int]), [
             "width": VoiceCall.Pill.width,
             "height": VoiceCall.Pill.height,
@@ -465,6 +473,66 @@ final class VoiceCallTests: XCTestCase {
         let picked = Data(#"{"callId":"c1","ticket":"t1","url":"u","relayUrl":"r","deviceId":"d-mac","device":"macbook","fallback":true}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(VoiceCall.Ticket.self, from: picked),
                        VoiceCall.Ticket(callId: "c1", ticket: "t1", url: "u", deviceId: "d-mac", device: "macbook", fallback: true))
+        // #EXP-1941: the mode the server decided for both ends.
+        let sealed = Data(#"{"callId":"c1","ticket":"t1","url":"u","deviceId":"d-mac","seal":true}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(VoiceCall.Ticket.self, from: sealed).seal, true)
+    }
+
+    // #EXP-1941: what a caller reads of `seal`.
+    func testSealMatchesTheFixture() throws {
+        let seal = try XCTUnwrap(try fixture()["seal"] as? [String: Any])
+        XCTAssertEqual(seal["cap"] as? String, VoiceCall.Seal.cap)
+        XCTAssertEqual(seal["version"] as? Int, Int(VoiceCall.Seal.version))
+        XCTAssertEqual(seal["roles"] as? [String: Int], ["caller": Int(VoiceCall.Seal.roleCaller), "host": Int(VoiceCall.Seal.roleHost)])
+        XCTAssertEqual(seal["frameTypes"] as? [String: Int], ["audio": 0, "hello": Int(VoiceCall.Seal.typeHello)])
+        XCTAssertEqual(seal["helloBytes"] as? [String: Int], ["caller": VoiceCall.Seal.callerHelloBytes, "host": VoiceCall.Seal.hostHelloBytes])
+        XCTAssertEqual(seal["helloEveryMs"] as? Int, VoiceCall.Seal.helloEveryMs)
+        XCTAssertEqual(seal["handshakeMs"] as? Int, VoiceCall.Seal.handshakeMs)
+        XCTAssertEqual(seal["pullEveryMs"] as? Int, VoiceCall.Seal.pullEveryMs)
+        XCTAssertEqual(seal["maxOpenFailures"] as? Int, VoiceCall.Seal.maxOpenFailures)
+        XCTAssertEqual(seal["ownDeviceCodes"] as? [String], VoiceCall.Seal.ownDeviceCodes)
+        XCTAssertEqual(seal["endReasons"] as? [String: String], ["noKey": VoiceCall.Seal.noKey, "seal": VoiceCall.Seal.sealReason])
+        XCTAssertEqual(seal["required"] as? Bool, VoiceCall.Seal.required)
+    }
+
+    // #EXP-1941: the CALLER rows of `seal.modeCases` (TS `callSealStep`).
+    func testSealModeCasesCallerRows() throws {
+        let seal = try XCTUnwrap(try fixture()["seal"] as? [String: Any])
+        let cases = try XCTUnwrap(seal["modeCases"] as? [[String: Any]]).filter { $0["role"] as? String == "caller" }
+        XCTAssertEqual(cases.count, 18)
+        for row in cases {
+            let name = row["name"] as? String ?? "?"
+            let events = try XCTUnwrap(row["events"] as? [[String: Any]], name)
+            let actions = try XCTUnwrap(row["actions"] as? [[String]], name)
+            var state = VoiceCall.SealState.idle
+            for (index, json) in events.enumerated() {
+                let stepped = VoiceCall.sealStep(state, try XCTUnwrap(Self.sealEvent(json), "\(name) #\(index)"))
+                XCTAssertEqual(stepped.actions, actions[index], "\(name) #\(index)")
+                state = stepped.state
+            }
+            XCTAssertEqual(state.phase.rawValue, row["phase"] as? String, name)
+        }
+        // A wire code about the caller's own device reads `dropped`; others stay.
+        XCTAssertEqual(VoiceCall.Seal.wireCode("no_microphone"), "dropped")
+        XCTAssertEqual(VoiceCall.Seal.wireCode("busy"), "busy")
+    }
+
+    private static func sealEvent(_ json: [String: Any]) -> VoiceCall.SealEvent? {
+        switch json["t"] as? String {
+        case "start": .start(seal: json["seal"] as? Bool ?? false, required: json["required"] as? Bool)
+        case "ready": .ready
+        case "hello": (json["ok"] as? Bool).map { .hello(ok: $0) }
+        case "noKey": .noKey
+        case "key": .key
+        case "finished": (json["ok"] as? Bool).map { .finished(ok: $0) }
+        case "frame": (json["opens"] as? Bool).map { .frame(opens: $0) }
+        case "sealed": (json["opens"] as? Bool).map { .sealed(opens: $0) }
+        case "clear": .clear
+        case "failed": (json["code"] as? String).map { .failed(code: $0) }
+        case "closed": .closed
+        case "timeout": (json["timer"] as? String).map { .timeout(handshake: $0 == "handshake") }
+        default: nil
+        }
     }
 
     // #NEW-89: a late `wasSuspended` began never drops a running call.

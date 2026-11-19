@@ -31,7 +31,7 @@ import {
   viewById,
   type Platform,
 } from "@exp/view-catalog"
-import { encodeShot, imageSize, toRawRgba } from "./encode.ts"
+import { encodeShot, imageSize, toRawRgba, type EncodedShot } from "./encode.ts"
 import { indexFileField, indexPath, storeDir, storeShotPath } from "./paths.ts"
 
 export { repoRoot, storeDir, rawDir, rawShotPath, storeShotPath, indexPath } from "./paths.ts"
@@ -179,6 +179,7 @@ export async function writeShot(
   const candidate = await encodeShot(rawPng)
   const file = storeShotPath(viewId, platform)
   const existing = readIfExists(file)
+  if (existing) await refuseEmptyDesktop(viewId, platform, candidate, existing)
 
   if (!existing) {
     if (!opts.dryRun) writeFile(file, candidate.buf)
@@ -232,6 +233,50 @@ export async function writeShot(
     bytes: existing.byteLength,
     changedRatio,
   }
+}
+
+/** #EDE-106: the eDE view whose picture IS the empty desktop (the ground and the taskbar). */
+const EMPTY_DESKTOP_VIEW = `ede-panel`
+
+/**
+ * #EDE-106: an eDE view captured before the shell drew it (a loaded runner) is
+ * the empty desktop. It never replaces the view's golden: where the golden
+ * draws the view (its pixels apart from ede-panel's), such a capture shows
+ * the empty desktop, and nothing new anywhere else (a view that moved does).
+ * Measured on mint: an empty capture keeps under 2 % of the view's pixels, a
+ * drawn one over 60 %; the rail's late icons are under 0.2 % of the frame.
+ */
+async function refuseEmptyDesktop(
+  viewId: string,
+  platform: Platform,
+  candidate: EncodedShot,
+  existing: Buffer
+): Promise<void> {
+  if (platform !== `ede` || viewId === EMPTY_DESKTOP_VIEW) return
+  const bareFile = readIfExists(storeShotPath(EMPTY_DESKTOP_VIEW, `ede`))
+  if (!bareFile) return
+  const [bare, golden, drawn] = await Promise.all([toRawRgba(bareFile), toRawRgba(existing), toRawRgba(candidate.buf)])
+  const { width, height } = bare
+  if ([golden, drawn].some((image) => image.width !== width || image.height !== height)) return
+  const apart = (image: { data: Uint8Array }): Uint8Array => {
+    const mask = new Uint8Array(width * height * 4)
+    pixelmatch(bare.data, image.data, mask, width, height, { ...PIXELMATCH_OPTIONS, diffMask: true })
+    return mask
+  }
+  const [view, now] = [apart(golden), apart(drawn)]
+  let area = 0
+  let kept = 0
+  let elsewhere = 0
+  for (let alpha = 3; alpha < view.length; alpha += 4) {
+    if (view[alpha]) {
+      area++
+      if (now[alpha]) kept++
+    } else if (now[alpha]) elsewhere++
+  }
+  if (area < 100 || kept / area >= 0.2 || elsewhere / (width * height) > 0.005) return
+  throw new Error(
+    `the capture is the empty desktop (${EMPTY_DESKTOP_VIEW}'s picture where the view should be): not drawn, the golden stays`
+  )
 }
 
 export interface IndexEntry {

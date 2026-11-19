@@ -10,7 +10,8 @@ use common::{
     Session,
 };
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
-use ede_protocol::{ErrorCode, SessionId};
+use ede_protocol::{Capability, CaptureTarget, Error, ErrorCode, InputEvent, Request, SessionId, SpaceId};
+use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
 const PERSONS_GLOBALS: [&str; 19] = [
@@ -58,6 +59,9 @@ const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
 const KEY_A: u32 = 30;
 const KEY_B: u32 = 48;
+const KEY_G: u32 = 34;
+const KEY_LEFTSHIFT: u32 = 42;
+const BTN_LEFT: u32 = 0x110;
 
 /// A client of the person with one focused window, its keyboard bound.
 fn person_with_a_window(h: &Harness) -> Session {
@@ -169,6 +173,16 @@ fn a_closed_space_leaves_nothing() {
     let window = b.toplevel("b");
     b.draw_configured(&window, 64, 64, RED);
     wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
+    // And with a key and a button down, in the middle of a drag.
+    b.pointer();
+    let device = b.data_device();
+    h.with(move |state| {
+        state.drive_pointer_motion(desk, (10.0, 10.0).into(), 0).unwrap();
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Pressed, 0, false).unwrap();
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Pressed, 0).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.press_serial.is_some() && b.state.keys == [KEY_G]);
+    b.start_drag(&device, &window.surface);
 
     assert!(h.with(move |state| state.close_space(desk)));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -285,4 +299,353 @@ fn a_window_fills_its_space_and_takes_its_keyboard() {
     assert_person_untouched(&h, &before);
     assert_eq!(shell.windows().unwrap().len(), 1);
     assert_eq!(events_until_mark(&h, &mut shell, "test.end"), Vec::<String>::new());
+}
+
+/// A space has a clock of its own: a commit arms one tick, slow while
+/// nobody uses the space and fast after a capture, and an idle space arms
+/// none. Its capture shows the space alone, the person's shows none of
+/// it, and the person's lock changes neither.
+#[test]
+fn a_space_has_its_own_frames_and_capture() {
+    use ede_compositor::spaces::frames::{FAST, SLOW};
+    use std::time::Duration;
+    const GREEN: u32 = 0xff00_ff00;
+
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut a = person_with_a_window(&h);
+    let before = person_snapshot(&h);
+    let (desk, _socket, mut b) = space_with_a_client(&h);
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    let clock = move |h: &Harness| h.with(move |state| state.spaces.get(desk).map(|s| (s.scheduled, s.pace, s.ticks, s.serial)).unwrap());
+    let settled = |h: &Harness| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while clock(h).0 {
+            assert!(std::time::Instant::now() < deadline, "the space's clock never rests");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        clock(h)
+    };
+
+    // The window's commits armed the clock, slowly: nobody uses the space.
+    let (_, pace, ticks, serial) = settled(&h);
+    assert!(ticks > 0 && serial > 0 && pace == SLOW, "{ticks} ticks, serial {serial}, {pace:?}");
+    // Idle: nothing is armed and nothing ticks.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(clock(&h), (false, SLOW, ticks, serial));
+
+    // A client that animates gets its callbacks, ten a second at most.
+    person_key(&h, KEY_A);
+    let slow = b.count_frames(&window.surface, Duration::from_millis(600));
+    assert!((1..=7).contains(&slow), "{slow} callbacks in 600 ms on the slow clock");
+    assert_eq!(settled(&h).3, serial, "a commit without a new buffer changes nothing");
+
+    // The capture shows the space alone, and makes the clock fast.
+    let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
+    assert_eq!((frame.width, frame.height, frame.at(320, 240)), (640, 480, RED));
+    assert!(!frame.pixels.contains(&BLUE), "nothing of the person's desk");
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+    assert_eq!(settled(&h).1, FAST);
+    // A new buffer moves the serial, once, whoever looks first.
+    b.draw_configured(&window, 64, 64, GREEN);
+    let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
+    assert_eq!(frame.at(320, 240), GREEN);
+    assert_eq!(settled(&h).3, serial + 1);
+
+    // The person's capture has their window and nothing of the space.
+    let persons = h.capture_shared(0);
+    assert!(persons.pixels.contains(&BLUE) && !persons.pixels.contains(&GREEN));
+    wait_for(&mut a, |a| a.state.keys == [KEY_A]);
+    assert_person_untouched(&h, &before);
+
+    // Locked: the person's capture is black, the space draws and ticks on.
+    let mut locker = Session::connect(h.connect());
+    let _lock = locker.lock();
+    assert!(h.with(|state| state.is_locked()));
+    assert!(h.capture_shared(0).pixels.iter().all(|p| *p == 0xff00_0000));
+    assert_eq!(h.with(move |state| state.capture_space(desk)).expect("a capture").at(320, 240), GREEN);
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+}
+
+/// What an agent drives lands in its space and nowhere else: its keys
+/// never carry the Shift the person holds, its click neither reaches the
+/// person's client nor closes the shell's menu, its seat's idle
+/// notification resumes while the person's idle clock stands still.
+#[test]
+fn driven_input_lands_on_its_desk() {
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    const SHIFT: u32 = 1;
+
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    shell.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+    let mut a = person_with_a_window(&h);
+    a.pointer();
+    // The shell's menu is open: a press of the person outside it would dismiss it.
+    let panel = a.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    a.draw_layer(&panel, BLUE);
+    let _menu = a.layer_popup(&panel, (100, 100), false, BLUE);
+    assert!(h.with(|state| state.layer_popups_open()));
+
+    let (desk, _socket, mut b) = space_with_a_client(&h);
+    b.keyboard();
+    b.pointer();
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.as_ref() == Some(&window.surface));
+    let _idle = b.idle_notification(50);
+    wait_for(&mut b, |b| b.state.idled == 1);
+
+    // The person holds Shift through everything the agent does.
+    h.with(|state| state.keyboard_key((KEY_LEFTSHIFT + 8).into(), KeyState::Pressed, 0));
+    wait_for(&mut a, |a| a.state.modifiers.last() == Some(&SHIFT));
+    events_until_mark(&h, &mut shell, "test.start");
+    let before = person_snapshot(&h);
+    let active = h.with(|state| state.idle.last_activity);
+    let heard = |a: &Session| (a.state.keys.len(), a.state.modifiers.len(), a.state.pointer_enters, a.state.pointer_motions, a.state.buttons.len());
+    let persons = heard(&a);
+
+    // A key: the space's client gets a plain g, and its user is back.
+    h.with(move |state| {
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Pressed, 0, false).unwrap();
+        state.drive_key(desk, (KEY_G + 8).into(), KeyState::Released, 0, false).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.keys == [KEY_G] && b.state.resumed == 1);
+    assert!(b.state.modifiers.iter().all(|m| *m == 0), "the person's Shift is not the space's: {:?}", b.state.modifiers);
+    // A keysym that needs Shift holds the space's own.
+    h.with(move |state| {
+        assert!(state.drive_keysym(desk, 0x47, true, false, 0).unwrap());
+        assert!(state.drive_keysym(desk, 0x47, false, false, 0).unwrap());
+    });
+    wait_for(&mut b, |b| b.state.keys == [KEY_G, KEY_LEFTSHIFT, KEY_G] && b.state.modifiers.contains(&SHIFT) && b.state.modifiers.last() == Some(&0));
+    // The pointer stays inside the space's output; a click reaches its client.
+    h.with(move |state| {
+        state.drive_pointer_motion(desk, (5000.0, 100.0).into(), 0).unwrap();
+        assert_eq!(state.desk(desk).seat.get_pointer().unwrap().current_location(), (639.0, 100.0).into());
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Pressed, 0).unwrap();
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Released, 0).unwrap();
+    });
+    wait_for(&mut b, |b| b.state.pointer_enters == 1 && b.state.buttons == [(BTN_LEFT, true), (BTN_LEFT, false)]);
+
+    // The person's client heard none of it, their idle clock did not move,
+    // their desk is as it was and the shell was told nothing: the menu stays.
+    a.roundtrip();
+    assert_eq!(heard(&a), persons);
+    assert_eq!(h.with(|state| state.idle.last_activity), active);
+    assert_person_untouched(&h, &before);
+    assert_eq!(events_until_mark(&h, &mut shell, "test.end"), Vec::<String>::new());
+    assert!(h.with(|state| state.layer_popups_open()));
+    h.with(|state| state.keyboard_key((KEY_LEFTSHIFT + 8).into(), KeyState::Released, 0));
+    wait_for(&mut a, |a| a.state.modifiers.last() == Some(&0));
+}
+
+fn code<T: std::fmt::Debug>(reply: Result<T, Error>) -> ErrorCode {
+    match reply {
+        Err(Error::Failed(f)) => f.code,
+        other => panic!("expected a failure, got {other:?}"),
+    }
+}
+
+/// A `[space]` grant for `session`, living `ms` from now (`None` = for
+/// good), and a connection that said hello with it.
+fn space_grant(h: &Harness, session: &str, ms: Option<i64>) -> (ede_protocol::Grant, ede_protocol::Client) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let grant = h.ipc().mint(owner(session), vec![Capability::Space], ms.map(|ms| now + ms)).unwrap();
+    (grant.clone(), h.ipc_with(grant.token).unwrap())
+}
+
+/// A space grant makes its session's one space; the fifth session finds
+/// no room; a dropped connection closes nothing; the owner or `system`
+/// destroys it, another session cannot.
+#[test]
+fn a_space_grant_creates_its_one_space() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let (_, mut agent) = space_grant(&h, "run-1", None);
+    assert_eq!(agent.spaces().unwrap(), []);
+    let space = agent.create_space(640, 480).unwrap();
+    let socket = dir.path().join("wayland-test.spaces/space-1/wayland-0");
+    assert_eq!((space.id.as_str(), space.session_id.as_str(), space.output.as_str(), space.width, space.height), ("space-1", "run-1", "space-1", 640, 480));
+    assert_eq!(space.wayland_display, socket.to_string_lossy());
+    Session::connect(UnixStream::connect(&space.wayland_display).expect("the space's socket"));
+    // Again is the same space, whatever size is asked for, also on a new connection.
+    assert_eq!(agent.create_space(800, 600).unwrap(), space);
+    assert_eq!(code(agent.create_space(1, 1)), ErrorCode::Invalid);
+    drop(agent);
+    let (_, mut agent) = space_grant(&h, "run-1", None);
+    assert_eq!(agent.create_space(640, 480).unwrap(), space);
+    assert_eq!(agent.spaces().unwrap(), [space.clone()]);
+
+    // Four spaces at most; each session lists its own, `system` lists all.
+    let mut others: Vec<_> = (2..=4).map(|n| space_grant(&h, &format!("run-{n}"), None).1).collect();
+    for other in &mut others {
+        other.create_space(320, 240).unwrap();
+    }
+    assert_eq!(others[0].spaces().unwrap().iter().map(|s| s.id.as_str().to_string()).collect::<Vec<_>>(), ["space-2"]);
+    assert_eq!(root.spaces().unwrap().len(), 4);
+    let (_, mut fifth) = space_grant(&h, "run-5", None);
+    assert_eq!(code(fifth.create_space(320, 240)), ErrorCode::Limit);
+
+    // Another session cannot destroy it; its owner can, and so can `system`.
+    assert_eq!(code(others[0].destroy_space(space.id.clone())), ErrorCode::Forbidden);
+    assert_eq!(code(others[0].destroy_space(SpaceId::new("space-9").unwrap())), ErrorCode::NotFound);
+    agent.destroy_space(space.id.clone()).unwrap();
+    assert!(!socket.exists());
+    assert_eq!(agent.spaces().unwrap(), []);
+    root.destroy_space(SpaceId::new("space-2").unwrap()).unwrap();
+    assert_eq!(root.spaces().unwrap().len(), 2);
+    fifth.create_space(320, 240).expect("room again");
+    spaces_settled(&h);
+}
+
+/// A space ends with its grant: at once when the session's last space
+/// grant is revoked, and when it expired, after the grace, unless the
+/// session was granted anew meanwhile.
+#[test]
+fn a_space_ends_with_its_grant() {
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    h.with(|state| state.spaces.expiry_grace = 3);
+    let mut root = h.ipc();
+    let listed = |root: &mut ede_protocol::Client| root.spaces().unwrap().iter().map(|s| s.session_id.as_str().to_string()).collect::<Vec<_>>();
+    let tick = |n: u32| h.with(move |state| (0..n).for_each(|_| state.spaces_tick()));
+
+    // Revoked: with a second grant of the session alive the space stays,
+    // with the last one gone it closes at once.
+    let (first, mut agent) = space_grant(&h, "run-1", None);
+    let (second, _) = space_grant(&h, "run-1", None);
+    let space = agent.create_space(640, 480).unwrap();
+    let mut b = Session::connect(UnixStream::connect(&space.wayland_display).unwrap());
+    root.call(Request::RevokeGrant { token: first.token }).unwrap();
+    assert_eq!(listed(&mut root), ["run-1"]);
+    root.call(Request::RevokeGrant { token: second.token }).unwrap();
+    assert_eq!(listed(&mut root), Vec::<String>::new());
+    assert!(!std::path::Path::new(&space.wayland_display).exists());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while b.queue.roundtrip(&mut b.state).is_ok() {
+        assert!(std::time::Instant::now() < deadline, "the space's client is still connected");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    // Expired: the space outlives its grant by the grace, counted in the
+    // compositor's own ticks, and no longer.
+    let (_, mut agent) = space_grant(&h, "run-2", Some(150));
+    agent.create_space(640, 480).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(code(agent.spaces()), ErrorCode::Unauthorized);
+    tick(1);
+    assert_eq!(listed(&mut root), ["run-2"]);
+    // A new grant for the session inside the grace keeps it, and the count starts over.
+    let (_, mut renewed) = space_grant(&h, "run-2", Some(60_000));
+    tick(5);
+    assert_eq!(renewed.spaces().unwrap().len(), 1);
+    // A connection that goes closes nothing.
+    drop((agent, renewed));
+    tick(5);
+    assert_eq!(listed(&mut root), ["run-2"]);
+
+    let (_, mut short) = space_grant(&h, "run-3", Some(150));
+    short.create_space(640, 480).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    tick(1);
+    assert_eq!(listed(&mut root), ["run-2", "run-3"]);
+    tick(3);
+    assert_eq!(listed(&mut root), ["run-2"]);
+    spaces_settled(&h);
+}
+
+/// Two agents, each with a space. Each sees, captures and drives its own
+/// and nothing else: not the other's, not the person's. The person's
+/// lists and captures show neither.
+#[test]
+fn a_space_grant_sees_and_drives_only_its_space() {
+    const GREEN: u32 = 0xff00_ff00;
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let mut a = person_with_a_window(&h);
+    let persons_window = root.windows().unwrap()[0].id.clone();
+    let before = person_snapshot(&h);
+
+    let open = |session: &str, colour: u32| {
+        let (_, mut agent) = space_grant(&h, session, None);
+        let space = agent.create_space(640, 480).unwrap();
+        let mut client = Session::connect(UnixStream::connect(&space.wayland_display).unwrap());
+        client.keyboard();
+        client.pointer();
+        let window = client.toplevel(session);
+        client.draw_configured(&window, 64, 64, colour);
+        wait_for(&mut client, |c| c.state.keyboard_focus.is_some());
+        (agent, space, client)
+    };
+    let (mut one, space1, mut b1) = open("run-1", RED);
+    let (mut two, space2, mut b2) = open("run-2", GREEN);
+
+    // Lists: its own window on its own output, and nothing else.
+    let windows = one.windows().unwrap();
+    assert_eq!(windows.len(), 1);
+    let own = windows[0].clone();
+    assert_eq!((own.title.as_deref(), own.space.as_ref(), own.focused, own.x, own.y, own.width, own.height), (Some("run-1"), Some(&space1.id), true, 0, 0, 640, 480));
+    let outputs = one.outputs().unwrap();
+    assert_eq!(outputs.iter().map(|o| (o.name.as_str(), o.width, o.height, o.space.as_ref())).collect::<Vec<_>>(), [("space-1", 640, 480, Some(&space1.id))]);
+    let others = two.windows().unwrap();
+    assert!(others.len() == 1 && others[0].id != own.id);
+    // The person's lists know of no space.
+    assert_eq!(root.windows().unwrap().iter().map(|w| (w.id.clone(), w.space.clone())).collect::<Vec<_>>(), [(persons_window.clone(), None)]);
+    assert_eq!(root.outputs().unwrap().iter().map(|o| o.name.clone()).collect::<Vec<_>>(), ["HEADLESS-1"]);
+
+    // Captures: by its output's name or by its id; `since` its own serial.
+    let by_output = one.capture(CaptureTarget::Output { name: "space-1".into() }).unwrap();
+    assert_eq!((by_output.info.width, by_output.info.height, by_output.at(320, 240)), (640, 480, RED));
+    let by_id = one.capture(CaptureTarget::Space { space: space1.id.clone() }).unwrap();
+    assert_eq!((by_id.at(320, 240), by_id.info.serial), (RED, by_output.info.serial));
+    assert!(one.capture_since(CaptureTarget::Space { space: space1.id.clone() }, Some(by_id.info.serial)).unwrap().is_none());
+    assert_eq!(code(one.capture(CaptureTarget::Output { name: "HEADLESS-1".into() })), ErrorCode::NotFound);
+    assert_eq!(code(one.capture(CaptureTarget::Output { name: "space-2".into() })), ErrorCode::NotFound);
+    assert_eq!(code(one.capture(CaptureTarget::Space { space: space2.id.clone() })), ErrorCode::Forbidden);
+    // `system` captures any space; the person's output shows none.
+    assert_eq!(root.capture(CaptureTarget::Space { space: space2.id.clone() }).unwrap().at(320, 240), GREEN);
+    assert_eq!(code(root.capture(CaptureTarget::Space { space: SpaceId::new("space-9").unwrap() })), ErrorCode::NotFound);
+    let persons = root.capture(CaptureTarget::Output { name: "HEADLESS-1".into() }).unwrap();
+    let pixels: Vec<u32> = persons.pixels.chunks_exact(4).map(|p| u32::from_le_bytes(p.try_into().unwrap())).collect();
+    assert!(pixels.contains(&BLUE) && !pixels.contains(&RED) && !pixels.contains(&GREEN));
+
+    // Windows of another desk are not found, whoever's they are.
+    for foreign in [persons_window.clone(), others[0].id.clone()] {
+        assert_eq!(code(one.focus(foreign.clone())), ErrorCode::NotFound);
+        assert_eq!(code(one.close_window(foreign)), ErrorCode::NotFound);
+    }
+    one.focus(own.id.clone()).unwrap();
+
+    // Input lands in its own space; the bindings are the shell's alone.
+    one.input(InputEvent::Key { key: KEY_G, pressed: true }).unwrap();
+    one.input(InputEvent::Key { key: KEY_G, pressed: false }).unwrap();
+    one.input(InputEvent::PointerMotion { x: 100.0, y: 100.0 }).unwrap();
+    one.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: true }).unwrap();
+    one.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: false }).unwrap();
+    assert_eq!(one.pointer().map(|p| (p.x, p.y)).unwrap(), (100.0, 100.0));
+    assert_eq!(code(one.input_as_person(InputEvent::Key { key: KEY_G, pressed: true })), ErrorCode::Forbidden);
+    wait_for(&mut b1, |b| b.state.keys == [KEY_G] && b.state.buttons == [(BTN_LEFT, true), (BTN_LEFT, false)]);
+    b2.roundtrip();
+    a.roundtrip();
+    assert!(b2.state.keys.is_empty() && b2.state.buttons.is_empty() && a.state.keys.is_empty());
+    assert_eq!(two.pointer().map(|p| (p.x, p.y)).unwrap(), (0.0, 0.0));
+
+    // A connection that goes lets go of what it held down, in its space.
+    one.input(InputEvent::Key { key: KEY_G, pressed: true }).unwrap();
+    drop(one);
+    let held = |h: &Harness, session: &'static str| h.with(move |state| state.spaces.iter().find(|s| s.owner.as_str() == session).map(|s| s.desk.seat.get_keyboard().unwrap().pressed_keys().len()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while held(&h, "run-1") != Some(0) {
+        assert!(std::time::Instant::now() < deadline, "the key outlived its connection");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Its own close reaches its window; a space closed with a button down leaves nothing.
+    let (_, mut one) = space_grant(&h, "run-1", None);
+    one.close_window(own.id).unwrap();
+    wait_for(&mut b1, |b| b.state.toplevels[0].closed);
+    two.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: true }).unwrap();
+    root.destroy_space(space2.id).unwrap();
+    assert_eq!(code(two.windows()), ErrorCode::NotFound);
+    spaces_settled(&h);
+    assert_person_untouched(&h, &before);
 }

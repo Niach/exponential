@@ -109,8 +109,6 @@ fn the_ring_and_timer_match_the_fixture() {
     let constants = call_constants();
     assert_eq!(constants.min_ring_ms, fixture["constants"]["minRingMs"].as_u64().unwrap());
     assert_eq!(constants.kind_down, 2);
-    assert_eq!(call_greeting(Some("de".into())), "Hallo?");
-    assert_eq!(call_greeting(None), "Hello?");
 }
 
 #[test]

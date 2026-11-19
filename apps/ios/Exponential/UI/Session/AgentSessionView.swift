@@ -198,6 +198,9 @@ struct AgentSessionView: View {
     /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
     /// plan / question cards above plus its `surface` cards), oldest first.
     @State private var sessionCards: [AskDock.SessionCard] = []
+    /// #EXP-1943: the tree's call sessions (`sessions.voice_call` set): a
+    /// call's report relay draws its call card (`FeedCalls`).
+    @State private var callSessions: [SessionEntity] = []
     /// #EXP-1562: the chat header's waiting pick and the card it lit.
     @Environment(\.waitingFocus) private var waitingFocus
     @State private var highlightId: String?
@@ -452,6 +455,7 @@ struct AgentSessionView: View {
         content
             .task(id: session.id) { await observeToolAsks() }
             .task(id: session.id) { await observeNoFeedInputs() }
+            .task(id: session.id) { await observeCallSessions() }
             // #EXP-1380: a widened message limit (Load earlier) re-reads.
             .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
             .onReceive(NotificationCenter.default.publisher(for: Chats.MessageLimits.changed)) { note in
@@ -969,7 +973,12 @@ struct AgentSessionView: View {
                             // S-3 (dock.json): a waiting plan or question
                             // stays inline, answerable, never a DockCard.
                             // #EXP-1625: the model's immutable row snapshots.
-                            let entries = model.transcript
+                            // #EXP-1943: a call's later reports draw nothing
+                            // (its ONE card sits at the first).
+                            let feedCalls = FeedCalls.place(model.transcript, calls: callSessions)
+                            let entries = feedCalls.hidden.isEmpty
+                                ? model.transcript
+                                : model.transcript.filter { !feedCalls.hidden.contains($0.id) }
                             let lastId = entries.last?.id
                             // EXP-1398 (ask-dock.json `anchorCases`): EVERY
                             // session card draws inline after the call that
@@ -998,6 +1007,12 @@ struct AgentSessionView: View {
                                 let layout = grouping.layouts[entry.id]
                                 // The EXP-787 ladder between rows; the
                                 // grouping's 3 / 12 between two bubbles.
+                                if let callId = feedCalls.anchors[entry.id] {
+                                    // #EXP-1943: a call's report relay = THE call card.
+                                    TranscriptRow(side: .full, gap: Self.gapPoints(entry.gap), avatar: nil) {
+                                        feedCallCard(callId, caption: feedCalls.captions[callId])
+                                    }
+                                } else {
                                 TranscriptRow(
                                     side: layout?.side ?? .full,
                                     gap: grouping.bubbleGaps[entry.id] ?? Self.gapPoints(entry.gap),
@@ -1016,10 +1031,18 @@ struct AgentSessionView: View {
                                     .equatable()
                                 }
                                 .deepLinkRow(entry.id == findEntry, frame: $findFrame)
+                                }
                                 inlineToolCards(
                                     Self.rowItemIds(entry.row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
                                     model: model
                                 )
+                            }
+                            // #EXP-1943: a running call with no report in the
+                            // loaded feed: its card after the feed's last row.
+                            ForEach(feedCalls.trailing, id: \.self) { callId in
+                                TranscriptRow(side: .full, gap: Self.gapPoints(.turn), avatar: nil) {
+                                    feedCallCard(callId, caption: nil)
+                                }
                             }
                             // EXP-1323 / #EXP-1732: the root's suggested
                             // tasks with nothing open left (or for a reader).
@@ -1516,6 +1539,8 @@ struct AgentSessionView: View {
                         break
                     }
                     if case .marker = TranscriptGrouping.feedInput(text) { break }
+                    // #EXP-1943: a call's report relay = its card, a full row.
+                    if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
                     if let input = TranscriptGrouping.crossSessionInput(text) {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
@@ -1931,6 +1956,31 @@ struct AgentSessionView: View {
                 if !cardsLoaded { cardsLoaded = true }
             }
         } catch {}
+    }
+
+    /// #EXP-1943: the tree's call sessions, kept for the feed's call cards.
+    private func observeCallSessions() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let rootId = session.rootId.isEmpty ? session.id : session.rootId
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.tree(db: db, rootId: rootId).filter { $0.voiceCall != nil }
+        }
+        do {
+            for try await calls in observation.values(in: pool) where calls != callSessions {
+                callSessions = calls
+            }
+        } catch {}
+    }
+
+    /// #EXP-1943: THE call card of one call session; its tap opens the call view.
+    @ViewBuilder
+    private func feedCallCard(_ callId: String, caption: String?) -> some View {
+        if let call = callSessions.first(where: { $0.id == callId }) {
+            FeedCallCard(session: call, caption: caption) {
+                pushRoute(.callView(accountId: accountId, sessionId: callId))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed

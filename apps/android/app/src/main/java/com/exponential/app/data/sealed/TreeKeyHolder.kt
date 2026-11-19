@@ -7,7 +7,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** What a holder pass needs from tRPC `sessionKeys` (the API in the app, a fake in tests). */
 interface HolderApi {
-    suspend fun mine(installId: String): List<HeldTreeKey>
+    /** [rootIds] = only these trees (#EXP-1941: a call pulls its one root). */
+    suspend fun mine(installId: String, rootIds: List<String>? = null): List<HeldTreeKey>
     suspend fun pending(installId: String): List<PendingTreeKey>
     suspend fun wrap(installId: String, wraps: List<PendingWrap>)
 }
@@ -38,11 +39,22 @@ class TreeKeyHolder(
         return fetched && wrapped
     }
 
+    /**
+     * #EXP-1941: a call's pull of ONE root, not throttled (the call waits on
+     * it, and `mine` nudges the devices that hold the key): the secret of
+     * ([rootId], [epoch]), null while no wrap for it opened.
+     */
+    suspend fun pull(rootId: String, epoch: Int): ByteArray? {
+        vault.all(accountId)[rootId]?.get(epoch)?.let { return it }
+        fetchMine(listOf(rootId))
+        return vault.all(accountId)[rootId]?.get(epoch)
+    }
+
     /** Unwraps what `mine` lists and this install does not hold yet. */
-    internal suspend fun fetchMine() {
+    internal suspend fun fetchMine(rootIds: List<String>? = null) {
         val held = vault.all(accountId)
         val fresh = mutableMapOf<String, MutableMap<Int, ByteArray>>()
-        for (wrap in api.mine(installId)) {
+        for (wrap in api.mine(installId, rootIds)) {
             if (held[wrap.rootId]?.containsKey(wrap.epoch) == true) continue
             // A wrap that does not open (another identity's, tampered) is skipped.
             val secret = runCatching { crypto.unwrapTreeKey(installSecret, wrap.wrapped) }.getOrNull() ?: continue

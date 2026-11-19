@@ -224,6 +224,8 @@ internal fun sessionCardIcon(concept: String): ImageVector = when (concept) {
     // EXP-1374: interrupted + background.
     "run-pause" -> ExpIcons.runPause
     "trace-background" -> ExpIcons.traceBackground
+    // #EXP-1943: a call card (session-card.json `call.icon`).
+    "voice-call" -> ExpIcons.voiceCall
     else -> ExpIcons.codingAssistant
 }
 
@@ -262,6 +264,19 @@ fun SessionCard(
             .testTag(card.testId),
     ) {
         SessionCardHeader(card, chevron, expanded)
+        // #EXP-1943: a call card's summary, the muted second line.
+        card.caption?.let { caption ->
+            Text(
+                caption,
+                style = chatCardTextStyle(),
+                color = Muted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 34.dp, end = 12.dp, bottom = 10.dp)
+                    .testTag("session-card-caption"),
+            )
+        }
     }
 }
 
@@ -289,7 +304,8 @@ private fun SessionCardHeader(card: SessionTree.SessionCard, chevron: Boolean, e
             style = style.copy(fontWeight = FontWeight.Medium),
             color = MaterialTheme.colorScheme.onSurface,
         ) {
-            Text(
+            // #EXP-1943: a call card carries no kind word.
+            if (card.kindWord.isNotEmpty()) Text(
                 card.kindWord,
                 style = style,
                 // #EXP-1466 session-card.json: the word stays muted unless

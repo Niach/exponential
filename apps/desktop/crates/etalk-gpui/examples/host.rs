@@ -132,7 +132,7 @@ impl TalkHost for LocalHost {
         true
     }
 
-    fn connect_call(&self, _call_id: &str, _cx: &mut App) -> Option<Task<Result<CallConnection, String>>> {
+    fn connect_call(&self, _call_id: &str, _agent_id: &str, _refuse_only: bool, _cx: &mut App) -> Option<Task<Result<CallConnection, String>>> {
         // No relay: nobody calls in from elsewhere.
         None
     }

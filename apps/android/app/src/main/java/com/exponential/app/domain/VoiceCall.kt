@@ -38,9 +38,6 @@ object VoiceCall {
         const val VIA = "Voice on {device}"
         const val QUEUED = "{count} queued · {text}"
 
-        /** What the device says once answered, by language (`en` the fallback). */
-        val greeting: Map<String, String> = linkedMapOf("en" to "Hello?", "de" to "Hallo?")
-
         object Reasons {
             /** NEW-99: the member has no voice Assistant yet. */
             const val NO_AGENT = "Set up your Assistant in Settings → Agents"
@@ -145,6 +142,21 @@ object VoiceCall {
         const val SERVER_IDLE_MS = 600_000
     }
 
+    /** FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface. */
+    enum class Tab(val wire: String) { Chat("chat"), Voice("voice") }
+
+    object Tabs {
+        val ORDER = listOf(Tab.Chat, Tab.Voice)
+        /** A call opens on Voice. */
+        val INITIAL = Tab.Voice
+        const val TABS_ID = "voice-call-tabs"
+        fun label(tab: Tab): String = when (tab) {
+            Tab.Chat -> "Chat"
+            Tab.Voice -> "Voice"
+        }
+        fun testId(tab: Tab): String = "voice-call-tab-${tab.wire}"
+    }
+
     /** The floating call pill (`pill`): the desktop's, EXP-1681 the phones' minimized call. */
     object Pill {
         const val WIDTH = 320
@@ -194,6 +206,104 @@ object VoiceCall {
             out[2] = (seq and 0xff).toByte()
             packet.copyInto(out, destinationOffset = 3)
             return out
+        }
+    }
+
+    /**
+     * #EXP-1941 (`seal`, `seal.modeCases`, the TS `callSealStep`): the
+     * caller's half of a call the server marked sealed. [callerStep] decides
+     * WHAT happens; the call does it ([com.exponential.app.data.call.CallSealLine]).
+     * Actions, in order: `timer` the `handshakeMs` timer (never restarted) ·
+     * `hello` send the hello, again every [HELLO_EVERY_MS] · `helloStop` ·
+     * `key` resolve root, epoch and secret · `finish` once · `go` sealed ·
+     * `count` drop and count · `end:<reason>` `call_end` · `fail:<code>` the
+     * toast · `abandon` stop the key source.
+     */
+    object Seal {
+        const val CAP = "call-seal"
+        const val HELLO_EVERY_MS = 500L
+        const val HANDSHAKE_MS = 20_000L
+        const val PULL_EVERY_MS = 2_000L
+        const val MAX_OPEN_FAILURES = 50
+        const val CALLER_HELLO_BYTES = 54
+        const val HOST_HELLO_BYTES = 70
+        const val TYPE_AUDIO = 0
+        const val TYPE_HELLO = 1
+        const val ROLE_HOST = 2
+        const val END_NO_KEY = "no_key"
+        const val END_SEAL = "seal"
+        const val REQUIRED = false
+        /** A code about the caller's OWN device is never taken from the wire. */
+        val OWN_DEVICE_CODES = setOf("no_microphone", "not_granted", "unsupported")
+
+        enum class Phase(val wire: String) { Idle("idle"), Clear("clear"), Told("told"), Offered("offered"), Keying("keying"), Sealed("sealed"), Over("over") }
+
+        data class State(val phase: Phase, val failures: Int = 0)
+
+        val IDLE = State(Phase.Idle)
+
+        sealed interface Event {
+            data class Start(val seal: Boolean, val required: Boolean? = null) : Event
+            data object Ready : Event
+            /** [ok] = well-formed (length, version, role), checked before any `finish`. */
+            data class Hello(val ok: Boolean) : Event
+            data object NoKey : Event
+            data object Key : Event
+            data class Finished(val ok: Boolean) : Event
+            data class Frame(val opens: Boolean) : Event
+            data class Sealed(val opens: Boolean) : Event
+            data object Clear : Event
+            data class Failed(val code: String) : Event
+            data object Closed : Event
+            data class Timeout(val timer: String) : Event
+        }
+
+        data class Stepped(val state: State, val actions: List<String>)
+
+        fun wireCode(code: String): String = if (code in OWN_DEVICE_CODES) HangUpRules.FAILED_CODE else code
+
+        fun callerStep(state: State, event: Event): Stepped {
+            val stay = Stepped(state, emptyList())
+            fun to(phase: Phase, vararg actions: String) = Stepped(State(phase), actions.toList())
+            fun over(reason: String) = to(Phase.Over, "end:$reason", "fail:${HangUpRules.FAILED_CODE}", "abandon")
+            if (event is Event.Start) {
+                return when {
+                    state.phase != Phase.Idle -> stay
+                    event.seal -> to(Phase.Told)
+                    !(event.required ?: REQUIRED) -> to(Phase.Clear)
+                    else -> to(Phase.Over, "fail:${HangUpRules.FAILED_CODE}")
+                }
+            }
+            if (state.phase == Phase.Idle || state.phase == Phase.Clear || state.phase == Phase.Over) return stay
+            val sealed = state.phase == Phase.Sealed
+            val told = state.phase == Phase.Told
+            return when (event) {
+                is Event.Start -> stay
+                is Event.Failed -> to(Phase.Over, "fail:${wireCode(event.code)}", "abandon")
+                Event.Closed -> to(Phase.Over, "abandon")
+                is Event.Timeout -> if (sealed || event.timer != "handshake") stay else over(END_NO_KEY)
+                Event.Ready -> if (told) to(Phase.Offered, "timer", "hello") else stay
+                is Event.Hello -> when {
+                    state.phase == Phase.Offered && event.ok -> to(Phase.Keying, "helloStop", "key")
+                    state.phase == Phase.Offered -> Stepped(state, listOf("count"))
+                    else -> stay
+                }
+                Event.NoKey -> if (state.phase == Phase.Keying) over(END_NO_KEY) else stay
+                Event.Key -> if (state.phase == Phase.Keying) Stepped(state, listOf("finish")) else stay
+                is Event.Finished -> when {
+                    state.phase != Phase.Keying -> stay
+                    event.ok -> to(Phase.Sealed, "go")
+                    else -> over(END_SEAL)
+                }
+                is Event.Frame -> when {
+                    !sealed -> if (told) stay else over(END_SEAL)
+                    event.opens -> if (state.failures == 0) stay else to(Phase.Sealed)
+                    state.failures + 1 >= MAX_OPEN_FAILURES -> over(END_SEAL)
+                    else -> Stepped(State(Phase.Sealed, state.failures + 1), listOf("count"))
+                }
+                is Event.Sealed -> if ((sealed && event.opens) || told) stay else over(END_SEAL)
+                Event.Clear -> if (told) stay else over(END_SEAL)
+            }
         }
     }
 
@@ -364,8 +474,6 @@ object VoiceCall {
         val device: String,
         /** EXP-1857: the device is not the agent's own ([Copy.VIA] shows it). */
         val fallback: Boolean,
-        /** The greeting the device says once answered. */
-        val greeting: String,
         /** The ring's earliest answer ([callRingMs]) passed. */
         val rang: Boolean,
         /** The worker confirmed it listens (`CallListening`). */
@@ -384,7 +492,6 @@ object VoiceCall {
         speaker = true,
         device = "",
         fallback = false,
-        greeting = "",
         rang = false,
         ready = false,
         noSound = false,
@@ -392,10 +499,6 @@ object VoiceCall {
         line = "",
         toast = null,
     )
-
-    /** The greeting in [language] (English for an unknown one). */
-    fun callGreeting(language: String?): String =
-        Copy.greeting[language ?: "en"] ?: Copy.greeting.getValue("en")
 
     /** One `flowCases` event (`t` on the wire). */
     sealed interface Event {
@@ -462,9 +565,12 @@ object VoiceCall {
 
     private fun quoted(text: String): String = "“$text”"
 
-    /** Rang and ready: the device speaks its greeting (not an agent turn). */
+    /**
+     * Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+     * own opening line, if any, arrives as its first reply).
+     */
     private fun answered(state: State): State =
-        state.copy(phase = Phase.Speaking, line = state.greeting, toast = null)
+        state.copy(phase = Phase.Listening, line = "", toast = null)
 
     /** One step of the call (the same machine on the voice device and a caller). */
     fun callStep(state: State, event: Event): State {
@@ -475,7 +581,6 @@ object VoiceCall {
                 phase = Phase.Ringing,
                 device = event.device,
                 fallback = event.fallback,
-                greeting = callGreeting(event.language),
             )
         }
         if (state.phase == Phase.Hidden) return state

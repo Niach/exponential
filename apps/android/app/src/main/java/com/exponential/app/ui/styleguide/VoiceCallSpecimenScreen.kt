@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.VoiceCall
+import com.exponential.app.ui.call.CallChatBarContent
 import com.exponential.app.ui.call.VoiceCallSpecimen
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.DesignTokens
@@ -73,7 +74,51 @@ fun VoiceCallSpecimenScreen() {
                         )
                     }
                 }
+                // FEED-272: the call's two tabs LAST (the shot shows the end): Voice, then Chat.
+                VoiceCall.surfaceSpecimens.firstOrNull { it.name == "in call, speaking" }?.let { specimen ->
+                    SpecimenFrame("Voice tab") { VoiceCallSpecimen(specimen, Modifier.fillMaxSize()) }
+                    SpecimenFrame("Chat tab") {
+                        Column(Modifier.fillMaxSize()) {
+                            CallChatBarContent(
+                                agent = specimen.agent,
+                                agentIcon = null,
+                                agentColor = null,
+                                view = specimen.view,
+                                timer = specimen.timer,
+                                level = specimen.level.toFloat(),
+                                onTab = {},
+                                onMute = {},
+                                onEnd = {},
+                                still = true,
+                            )
+                            ChatTranscriptSpecimenBody(Modifier.fillMaxWidth().weight(1f))
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SpecimenFrame(caption: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(FRAME_HEIGHT)
+                .clip(FRAME_SHAPE)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, FRAME_SHAPE),
+        ) {
+            content()
+        }
+        Text(
+            caption,
+            style = MaterialTheme.typography.labelSmall,
+            color = DesignTokens.Palette.MutedForeground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 1,
+        )
     }
 }

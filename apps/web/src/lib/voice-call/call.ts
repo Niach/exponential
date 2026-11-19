@@ -160,7 +160,7 @@ export class VoiceCall {
   }
 
   /** Dial `agentId` on the desktop called `device`; `language` = the
-   *  agent's voice language (the greeting the caption shows); EXP-1857:
+   *  agent's voice language; EXP-1857:
    *  `fallback` = that desktop is not the agent's own (`via` shows it). */
   async start(agentId: string, device: string, language?: string, fallback = false): Promise<void> {
     if (this.active) return

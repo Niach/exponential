@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 /// The first commit of a fresh ui directory (never reverted).
 pub const INITIAL_MESSAGE: &str = "exponential-ui: history starts";
 
+/// How long a git command waits for another one's `index.lock`: 40 × 50 ms.
+const INDEX_LOCK_TRIES: u32 = 40;
+const INDEX_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commit {
     pub id: String,
@@ -44,8 +48,8 @@ impl Repo {
     }
 
     fn git(&self, args: &[&str]) -> io::Result<Output> {
-        Command::new("git")
-            .arg("-C")
+        let mut git = Command::new("git");
+        git.arg("-C")
             .arg(&self.dir)
             // Commits work without a global identity, and a person's
             // signing or hooks setup never blocks a shell edit.
@@ -54,8 +58,19 @@ impl Repo {
             .env("GIT_TERMINAL_PROMPT", "0")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .output()
+            .env_remove("GIT_INDEX_FILE");
+        // Another process's git holds the index for a moment (`exponential-ui
+        // set` or `undo` against the supervisor's reload): wait for it. A
+        // reload whose commit failed here lost the edit (#EDE-116).
+        let mut tries = 0;
+        loop {
+            let out = git.output()?;
+            if out.status.success() || tries == INDEX_LOCK_TRIES || !String::from_utf8_lossy(&out.stderr).contains("index.lock") {
+                return Ok(out);
+            }
+            tries += 1;
+            std::thread::sleep(INDEX_LOCK_WAIT);
+        }
     }
 
     fn ok(&self, args: &[&str], what: &str) -> io::Result<Output> {
@@ -69,7 +84,12 @@ impl Repo {
 
     /// `HEAD:<file>`, `None` when HEAD does not have it.
     pub fn show_head(&self, file: &str) -> io::Result<Option<Vec<u8>>> {
-        let out = self.git(&["show", &format!("HEAD:{file}")])?;
+        self.show_at("HEAD", file)
+    }
+
+    /// `<id>:<file>`, `None` when that commit does not have it.
+    pub fn show_at(&self, id: &str, file: &str) -> io::Result<Option<Vec<u8>>> {
+        let out = self.git(&["show", &format!("{id}:{file}")])?;
         Ok(out.status.success().then_some(out.stdout))
     }
 
@@ -144,15 +164,25 @@ impl Repo {
     }
 
     /// Revert `id` as a new commit, message `Undo: <summary>`. Refused (and
-    /// nothing changes) when it does not apply cleanly.
-    pub fn revert(&self, id: &str, summary: &str) -> io::Result<String> {
+    /// nothing changes) when it does not apply cleanly. `None` = nothing to
+    /// revert: its change is already undone (#EDE-116), no commit is made
+    /// and no revert is left in progress.
+    pub fn revert(&self, id: &str, summary: &str) -> io::Result<Option<String>> {
         let out = self.git(&["revert", "--no-commit", id])?;
         if !out.status.success() {
             let _ = self.git(&["revert", "--abort"]);
             return Err(failed("revert", &out));
         }
-        self.ok(&["commit", "--quiet", "-m", &format!("Undo: {summary}")], "commit")?;
-        self.head()
+        if self.git(&["diff", "--cached", "--quiet", "HEAD"])?.status.success() {
+            self.ok(&["revert", "--quit"], "revert --quit")?;
+            return Ok(None);
+        }
+        let out = self.git(&["commit", "--quiet", "-m", &format!("Undo: {summary}")])?;
+        if !out.status.success() {
+            let _ = self.git(&["revert", "--abort"]);
+            return Err(failed("commit", &out));
+        }
+        self.head().map(Some)
     }
 
     /// Put `file` back to HEAD's version (gone when HEAD does not have it).

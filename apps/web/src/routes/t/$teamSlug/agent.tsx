@@ -25,6 +25,7 @@ import {
   CallControlsSpecimen,
   VoiceCallPillSpecimen,
   VoiceCallSpecimen,
+  VoiceCallTabsSpecimen,
   VoiceOverlayCapsuleSpecimen,
   MentionPillSpecimen,
   SchedulePickerSpecimen,
@@ -229,12 +230,20 @@ function AgentRoute() {
           // five on web (EXP-1857: the fallback's device line in place of
           // "getting ready", the ring's other status), all six in one
           // full-width column on phones.
-          <VoiceCallSpecimen
-            platform="web"
-            names={isMobile ? undefined : WEB_CALL_SPECIMENS}
-            className={isMobile ? `grid grid-cols-1 gap-4` : `grid grid-cols-5 items-start gap-3`}
-            frameClassName={isMobile ? `h-[640px] w-full` : `h-[704px] w-full`}
-          />
+          <div className="grid gap-6">
+            <VoiceCallSpecimen
+              platform="web"
+              names={isMobile ? undefined : WEB_CALL_SPECIMENS}
+              className={isMobile ? `grid grid-cols-1 gap-4` : `grid grid-cols-5 items-start gap-3`}
+              frameClassName={isMobile ? `h-[640px] w-full` : `h-[704px] w-full`}
+            />
+            {/* FEED-272: the call's Chat and Voice tabs. */}
+            <VoiceCallTabsSpecimen
+              platform="web"
+              className={isMobile ? `grid grid-cols-1 gap-4` : `grid grid-cols-2 items-start gap-3`}
+              frameClassName={isMobile ? `h-[640px] w-full` : `h-[704px] w-full`}
+            />
+          </div>
         ) : dev === `voice-call-overlay` ? (
           // voice-call-overlay: the push-to-talk capsules, then the pills.
           <div className="grid gap-4">

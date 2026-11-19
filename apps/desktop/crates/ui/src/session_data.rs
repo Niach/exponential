@@ -257,6 +257,20 @@ pub(crate) fn session_card_of(session_id: &str, now_ms: i64, cx: &App) -> Option
     Some(domain::session_tree::session_card_waiting(&row, &title, now_ms, waiting.as_deref()))
 }
 
+/// #EXP-1943 (session-card.json `call`): the call sessions under
+/// `session_id` (its children with a `voice_call`), oldest first.
+pub(crate) fn call_children_of(session_id: &str, cx: &App) -> Vec<SessionRow> {
+    let Some(store) = Store::try_global(cx) else { return Vec::new() };
+    let sessions = store.collections().sessions.read(cx);
+    let mut calls: Vec<SessionRow> = sessions
+        .iter()
+        .filter(|session| session.parent_id.as_deref() == Some(session_id) && domain::session_tree::is_call_session(session))
+        .cloned()
+        .collect();
+    calls.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    calls
+}
+
 /// #NEW-49 (session-card.json `waitingCases`): what `session_id` waits on:
 /// its live CHILD sessions by their card title (tree order), then its
 /// synced `watching`; `None` = nothing (or not synced).

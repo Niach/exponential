@@ -692,6 +692,7 @@ fun ChatScreen(
                 menuGroups = chatMenu.drop(1) + listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
                 headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name, agentIcon = if (a.assistant) null else a.icon, agentColor = a.color) } },
+                callAgentId = rootRow?.agentId?.takeIf { agent != null },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
                     { ChatHeaderMerge(pullRequests = pullRequests, teamPullRequests = teamPullRequests, checksItem = guideChecksItem, member = isMember) }
@@ -961,6 +962,8 @@ fun ChatContent(
     issueTitle: (String) -> String? = { null },
     /** NEW-69: the agent chat's telephone in the header (null = none). */
     headerCall: (@Composable () -> Unit)? = null,
+    /** FEED-272: the agent this chat calls: its call's Chat tab replaces the header. */
+    callAgentId: String? = null,
     /** S-3: the header's action slot left of `…` (the chat's Merge). */
     headerAction: (@Composable () -> Unit)? = null,
     /** #FEED-239: the kind's settings item (`open: settings`), its own
@@ -1127,9 +1130,11 @@ fun ChatContent(
         modifier = modifier,
         containerColor = Color.Transparent,
         topBar = {
+            if (com.exponential.app.ui.call.rememberCallDocked(callAgentId)) {
+                com.exponential.app.ui.call.CallChatBar()
             // #EDE-130 (find-in-chat.json COMPACT): the bar REPLACES the
             // chat header while open (the Chat tab only).
-            if (find != null && find.open && screen.active == SessionScreen.Tab.Chat) {
+            } else if (find != null && find.open && screen.active == SessionScreen.Tab.Chat) {
                 FindInChatHeader(find)
             } else ChatHeader(
                 title = agent?.name ?: view?.title ?: rootTitle.orEmpty(),

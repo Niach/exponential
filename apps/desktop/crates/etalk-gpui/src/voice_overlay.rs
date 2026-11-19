@@ -14,9 +14,9 @@
 //! (`pttCopy`, `overlaySpecimens`).
 
 use eui_core::voice_wave::Activity;
-use etalk::call::{CallButton, CallView, SurfaceSpecimen, VOICE_CALL};
+use etalk::call::{CallButton, CallTab, CallView, SurfaceSpecimen, VOICE_CALL};
 use eui_gpui::controls::{
-    call_button, glass_bar, glass_pill, glass_pill_button_primary, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild,
+    call_button, glass_bar, glass_pill, glass_pill_button_primary, segmented, segmented_item, voice_wave, CallSize, CallTone, PillMode, PillSize, VoiceWaveChild,
     VoiceWaveColors,
 };
 use gpui::{
@@ -466,7 +466,38 @@ const AVATAR_SM: f32 = 28.;
 /// fixed: a drag handle, the avatar small, the name over the timer (both
 /// truncate), the VoiceWave sm, the mute and end buttons.
 pub fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
-    let id: ElementId = id.into();
+    pill_row(id.into(), face, actions, false, cx)
+}
+
+/// FEED-272: the pill's row DOCKED on the call's Chat tab (testId `pill`):
+/// the chat column's width, no drag handle, a card's corners.
+pub fn call_pill_docked(id: impl Into<ElementId>, face: &CallFace, actions: &CallActions, cx: &App) -> Stateful<Div> {
+    pill_row(id.into(), face, actions, true, cx)
+}
+
+/// What a tab press does.
+pub type TabClick = std::rc::Rc<dyn Fn(CallTab, &mut App)>;
+
+/// FEED-272: THE Chat | Voice tabs on top of the call surface (testId
+/// `tabs.testIds.tabs`): the filled segmented capsule, equal segments.
+pub fn call_tabs(active: CallTab, on_tab: TabClick, cx: &App) -> Stateful<Div> {
+    let tabs = &VOICE_CALL.tabs;
+    segmented(cx)
+        .id(SharedString::from(tabs.test_ids.tabs.clone()))
+        .debug_selector(|| VOICE_CALL.tabs.test_ids.tabs.clone())
+        .children(tabs.order.iter().map(|&tab| {
+            let on_tab = on_tab.clone();
+            segmented_item(active == tab, cx)
+                .id(SharedString::from(tabs.test_id(tab).to_string()))
+                .debug_selector(move || VOICE_CALL.tabs.test_id(tab).to_string())
+                .role(gpui::Role::Tab)
+                .aria_selected(active == tab)
+                .on_click(move |_, _, cx| on_tab(tab, cx))
+                .child(SharedString::from(tabs.label(tab).to_string()))
+        }))
+}
+
+fn pill_row(id: ElementId, face: &CallFace, actions: &CallActions, docked: bool, cx: &App) -> Stateful<Div> {
     let theme = cx.theme();
     let activity = face.activity();
     let pill = &VOICE_CALL.pill;
@@ -496,15 +527,12 @@ pub fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallAction
     ));
     glass_bar(cx)
         .id(id.clone())
-        .w(px(pill.width))
+        .map(|row| if docked { row.w_full().rounded(px(12.)).pl(px(12.)) } else { row.w(px(pill.width)).rounded_full().pl(px(8.)).cursor_grab() })
         .h(px(pill.height))
         .flex_none()
-        .rounded_full()
         .gap(px(8.))
-        .pl(px(8.))
         .pr(px(12.))
-        .cursor_grab()
-        .child(grip(theme.muted_foreground))
+        .when(!docked, |row| row.child(grip(theme.muted_foreground)))
         .child(avatar)
         .child(
             v_flex()
