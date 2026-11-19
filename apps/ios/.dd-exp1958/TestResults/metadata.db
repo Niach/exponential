@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>FormatVersion</key>
+	<integer>1</integer>
+	<key>Store</key>
+	<dict>
+		<key>ExponentialUITests</key>
+		<dict>
+			<key>Exp1958SealedTap</key>
+			<dict>
+				<key>testSealedCardTaps</key>
+				<dict>
+					<key>mrnet</key>
+					<real>106.1940530538559</real>
+				</dict>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>
