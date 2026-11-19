@@ -598,16 +598,14 @@ impl Backend for X11 {
             // Widen a narrow channel (a 565 screen) to 8 bits.
             (if width >= 8 { value >> (width - 8) } else { value << (8 - width) }) as u8
         };
+        // The common screen (32-bit BGRX, little-endian, packed rows): a
+        // straight copy instead of the mask arithmetic, on fifteen million
+        // pixels.
+        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
+            return Image::from_bgra(&shot.data, width, height, width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string());
+        }
         let count = (width as usize) * (height as usize);
         let mut rgba = Vec::with_capacity(count * 4);
-        // The common screen (32-bit BGRX, little-endian): a straight copy
-        // instead of the mask arithmetic, on fifteen million pixels.
-        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
-            for pixel in shot.data.chunks_exact(4).take(count) {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-            }
-            return finish(width, height, rgba, count);
-        }
         for pixel in shot.data.chunks_exact(bytes).take(count) {
             let value = match (bytes, little) {
                 (4, true) => u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]),
@@ -860,6 +858,10 @@ impl Drop for Lock {
 /// the stand-in when a keymap names no Escape keysym at all.
 const EVDEV_ESCAPE_KEYCODE: u8 = 9;
 
+/// #ERR-29: the lock's two ways of losing its hold, their errors' text.
+const DEVICE_ESCAPED: &str = "[computer] a new input device escaped the input lock";
+const CONNECTION_BROKE: &str = "[computer] the input lock's X connection broke";
+
 /// #EXP-1906: the ids of `devices` a hierarchy event says the server removed
 /// are no longer grabbed ones. X.Org hands a removed device's id to the next
 /// one, the same keyboard back from a KVM switch or a Bluetooth sleep: left
@@ -940,7 +942,9 @@ impl Grabs {
 
     /// Watch the grabbed devices until `stop`, or until Esc or the loss of
     /// the connection (then `on_esc` runs on this thread and the grabs go).
+    /// #ERR-29: a device it cannot grab and a lost connection are errors.
     fn hold(mut self, stop: &AtomicBool, on_esc: &(dyn Fn() + Send + Sync)) {
+        let mut escaped = false;
         while !stop.load(Ordering::Acquire) {
             match self.conn.poll_for_event() {
                 Ok(Some(Event::XinputKeyPress(key))) if Some(key.detail as u8) == self.escape => {
@@ -958,7 +962,15 @@ impl Grabs {
                 Ok(Some(Event::XinputHierarchy(event))) => {
                     forget_gone(&mut self.devices, &event.infos);
                     if let Err(reason) = self.grab_new() {
-                        log::warn!("[computer] a new input device escaped the lock: {reason}");
+                        // The reason names the device, the person's: the
+                        // local debug log's alone. An error once per hold
+                        // (every later hierarchy event tries it again).
+                        log::debug!("{DEVICE_ESCAPED}: {reason}");
+                        if std::mem::replace(&mut escaped, true) {
+                            log::warn!("{DEVICE_ESCAPED}");
+                        } else {
+                            log::error!("{DEVICE_ESCAPED}");
+                        }
                     }
                 }
                 Ok(Some(_)) => {}
@@ -972,7 +984,7 @@ impl Grabs {
                 // it hears an abort (#EXP-1906), unless the stop was ours.
                 Err(err) => {
                     if !stop.load(Ordering::Acquire) {
-                        log::error!("[computer] the lock's connection broke: {err}");
+                        super::lock_lost(CONNECTION_BROKE, &err);
                         on_esc();
                     }
                     return;
@@ -1206,8 +1218,11 @@ mod tests {
         let (on_esc, escaped) = escapes();
         let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
         assert!(escaped.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        crate::log_capture::start();
         xvfb.stop();
         escaped.recv_timeout(Duration::from_secs(5)).expect("the broken lock reaches on_esc");
+        // #ERR-29: and an error, the level GlitchTip sends.
+        assert!(crate::log_capture::error_logged_anywhere(CONNECTION_BROKE), "{:?}", crate::log_capture::records());
         drop(lock);
     }
 

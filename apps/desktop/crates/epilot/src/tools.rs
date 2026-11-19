@@ -567,6 +567,23 @@ enum Press {
     Button(Button),
 }
 
+/// #ERR-29: the error of a release that failed twice.
+const STAYS_PRESSED: &str = "[computer] a key or button stays pressed after its release retries";
+/// #ERR-29: the error of a paste or copy that left the agent's text (a
+/// secret, after a sensitive paste) on the person's clipboard.
+const CLIPBOARD_NOT_BACK: &str = "[computer] the person's clipboard was not put back";
+
+/// Put the person's clipboard back; a failure is an error (#ERR-29), never
+/// with the clipboard's text.
+fn restore_clipboard(clipboard: &dyn crate::backend::Clipboard, saved: crate::backend::SavedClipboard) -> Result<(), String> {
+    let restored = clipboard.restore(saved);
+    if let Err(err) = &restored {
+        log::warn!("[computer] clipboard restore: {err}");
+        log::error!("{CLIPBOARD_NOT_BACK}");
+    }
+    restored
+}
+
 /// What a tool holds down on the person's seat (#EXP-1895): released in
 /// reverse on EVERY exit path, a failed step's early return included, so
 /// no button or modifier stays pressed. A release that fails is tried once
@@ -602,7 +619,17 @@ impl<'a> Held<'a> {
             Press::Key(key) => self.backend.key(key, false),
             Press::Button(button) => self.backend.mouse_button(button, false),
         };
-        release().or_else(|_| release())
+        let released = release().or_else(|_| release());
+        if let Err(err) = &released {
+            // #ERR-29: still down after the retries: the person's key or
+            // button stays pressed. An error (a GlitchTip event), its text
+            // fixed so they group; the backend's words in the warning.
+            log::warn!("[computer] a release failed after its retry ({err})");
+            if !self.backend.lets_go_itself() {
+                log::error!("{STAYS_PRESSED}");
+            }
+        }
+        released
     }
 
     /// Release everything, last press first; the first failure is the answer.
@@ -769,7 +796,7 @@ fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys
         }
         Ok(pasted)
     })();
-    let restored = clipboard.restore(saved);
+    let restored = restore_clipboard(&*clipboard, saved);
     let pasted = pasted?;
     let note = match &restored {
         Ok(()) => "the clipboard is as it was".to_string(),
@@ -804,7 +831,7 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
         }
         clipboard.text()
     })();
-    let restored = clipboard.restore(saved);
+    let restored = restore_clipboard(&*clipboard, saved);
     let Some(text) = copied? else {
         return Err("Nothing was copied: the selection is empty, not text, or the window ignored the shortcut.".to_string());
     };
@@ -908,11 +935,18 @@ pub(crate) mod tests {
         pub no_launch: Option<String>,
         /// The person holds a mouse button they held at engage (#EXP-1979).
         pub holding: AtomicBool,
+        /// #ERR-29: every release fails (a key that stays down).
+        pub fail_ups: bool,
+        /// #ERR-29: the compositor releases what it holds (eDE).
+        pub lets_go: bool,
     }
 
     impl FakeBackend {
         /// One input step: logged, or failed when it is `fail_step`.
         fn step(&self, line: String) -> Result<(), String> {
+            if self.fail_ups && line.ends_with(" up") {
+                return Err(format!("`{line}` stays pressed."));
+            }
             if self.fail_step == Some(self.steps.fetch_add(1, Ordering::SeqCst)) {
                 return Err(format!("the compositor refused `{line}`"));
             }
@@ -931,6 +965,8 @@ pub(crate) mod tests {
         pub refuses_paste: bool,
         /// It also holds something `save` cannot keep (a large image).
         pub partial: bool,
+        /// #ERR-29: putting the saved clipboard back fails.
+        pub fails_restore: bool,
     }
 
     struct FakeClipboard<'a>(&'a FakeBackend);
@@ -967,6 +1003,9 @@ pub(crate) mod tests {
         fn restore(&self, saved: crate::backend::SavedClipboard) -> Result<(), String> {
             self.log(format!("clip restore {}", saved.formats.len()));
             let mut clip = self.0.clip.lock().unwrap();
+            if clip.fails_restore {
+                return Err("the clipboard's new owner went away".to_string());
+            }
             clip.text = saved.formats.into_iter().next().map(|(_, bytes)| String::from_utf8(bytes).unwrap());
             clip.count += 1;
             Ok(())
@@ -982,6 +1021,9 @@ pub(crate) mod tests {
         }
         fn target(&self) -> crate::backend::Target {
             self.space.map_or(crate::backend::Target::Person, crate::backend::Target::Space)
+        }
+        fn lets_go_itself(&self) -> bool {
+            self.lets_go
         }
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
@@ -1273,6 +1315,41 @@ pub(crate) mod tests {
                 return;
             }
         }
+    }
+
+    /// #ERR-29: a release that fails after its retry is an error, the
+    /// level GlitchTip sends (the person's key or button stays down).
+    #[test]
+    fn a_release_that_keeps_failing_is_an_error() {
+        crate::log_capture::start();
+        let backend = FakeBackend { fail_ups: true, ..Default::default() };
+        let reply = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert!(crate::log_capture::error_logged(STAYS_PRESSED), "{:?}", crate::log_capture::records());
+    }
+
+    /// #ERR-29: on eDE the compositor releases what a run drove (and refuses
+    /// a release after the person's Esc): a refused release is no stuck key.
+    #[test]
+    fn a_refused_release_is_no_error_where_the_compositor_lets_go() {
+        crate::log_capture::start();
+        let backend = FakeBackend { fail_ups: true, lets_go: true, ..Default::default() };
+        let reply = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert!(!crate::log_capture::error_logged(STAYS_PRESSED), "{:?}", crate::log_capture::records());
+    }
+
+    /// #ERR-29: a clipboard that was not put back is an error, without its text.
+    #[test]
+    fn a_clipboard_not_put_back_is_an_error() {
+        crate::log_capture::start();
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "the person's");
+        backend.clip.lock().unwrap().fails_restore = true;
+        let reply = one(&backend, "paste_text", json!({ "text": "hunter2", "sensitive": true }));
+        assert!(reply.to_string().contains("could not be put back"), "{reply}");
+        assert!(crate::log_capture::error_logged(CLIPBOARD_NOT_BACK), "{:?}", crate::log_capture::records());
+        assert!(!crate::log_capture::records().iter().any(|(_, text)| text.contains("hunter2")), "never the text");
     }
 
     #[test]

@@ -132,7 +132,7 @@ export async function pixelStep(repoRoot: string, outDir: string, keys: string[]
   const web = spawnSync(`bun`, [`scripts/conformance-web.ts`, `--keys`, keys.join(`,`), `--shots`, dir, `--out`, join(dir, `web-shots.json`)], { cwd: join(repoRoot, `packages/exponential-ui-react`), stdio: [`ignore`, `inherit`, `inherit`] })
   const desktopDump = join(outDir, `desktop.json`)
   const heights = existsSync(desktopDump) ? (JSON.parse(readFileSync(desktopDump, `utf8`)) as Dump).cases : {}
-  const missing = [`xvfb-run`, `xdotool`, `import`].filter((c) => !has(c))
+  const missing = [`xvfb-run`, `xdotool`, `import`, `identify`, `xdpyinfo`, `xwininfo`].filter((c) => !has(c))
   const canDesktop = (process.platform === `linux` || process.platform === `freebsd`) && missing.length === 0
   let built = false
   if (canDesktop) built = spawnSync(`cargo`, [`build`, `-q`, `-p`, `eui-gpui`, `--example`, `conformance_dump`], { cwd: join(repoRoot, `apps/desktop`), stdio: [`ignore`, `inherit`, `inherit`] }).status === 0
@@ -162,7 +162,9 @@ export async function pixelStep(repoRoot: string, outDir: string, keys: string[]
       `cargo run -q -p eui-gpui --example conformance_dump -- --window '${key}' --height ${height} & P=$!`,
       `for i in $(seq 1 240); do W=$(xdotool search --name '^xui-conformance$' 2>/dev/null | head -1); [ -n "$W" ] && break; sleep 0.5; done`,
       `sleep 3; xdotool mousemove ${width + 5} 5; sleep 1; xdotool mousemove ${width + 6} 6; sleep 2`,
-      `[ -n "$W" ] && import -window "$W" '${deskPng}'`,
+      // #EXP-2022: through the capture guard, with the inherited display unset
+      // (xvfb-run's private Xvfb is named explicitly).
+      `D=$DISPLAY; [ -n "$W" ] && env -u DISPLAY -u WAYLAND_DISPLAY sh '${join(repoRoot, `scripts/lanes/capture.sh`)}' --window "$W" "$D" '${deskPng}'`,
       `kill $P`,
     ].join(`\n`)
     const r = spawnSync(`xvfb-run`, [`-a`, `-s`, `-screen 0 ${width + 16}x${height + 16}x24 +extension RENDER +extension Composite`, `sh`, `-c`, script], { cwd: join(repoRoot, `apps/desktop`), env: { ...process.env, FONTCONFIG_FILE: conf }, encoding: `utf8`, timeout: 300_000 })
