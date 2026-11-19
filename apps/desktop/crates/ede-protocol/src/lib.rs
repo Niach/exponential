@@ -30,6 +30,8 @@ use std::{collections::VecDeque, os::unix::net::UnixStream};
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
 use serde::{Deserialize, Serialize};
 
+pub mod process;
+
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Largest frame either side accepts (an 8K capture fits).
 pub const MAX_FRAME: usize = 160 << 20;
@@ -70,6 +72,13 @@ pub fn socket_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
 
 pub fn token_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
     runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.token"))
+}
+
+/// Where the compositor serving `wayland_display` keeps its agent spaces'
+/// directories, each `space-n` (#EDE-125): a launch into a space has its
+/// directory as `XDG_RUNTIME_DIR` ([`process::space_in`]).
+pub fn spaces_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
+    runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.spaces"))
 }
 
 /// A call: `{"id": 1, "op": "list_windows", …}`.
@@ -221,6 +230,11 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
     },
+    /// The agent space process `pid` belongs to (#EDE-127):
+    /// `Option<`[`ProcessSpace`]`>`, `null` = the person's (or nobody's).
+    /// eDE's polkit agent asks before it shows the person a prompt, and
+    /// refuses a request from a space. `system` only.
+    SpaceOfProcess { pid: u32 },
 }
 
 /// In [`Hello::features`]: this compositor makes agent spaces.
@@ -238,6 +252,30 @@ pub struct SpaceInfo {
     pub height: i32,
     /// The absolute path of its Wayland socket (a `WAYLAND_DISPLAY`).
     pub wayland_display: String,
+}
+
+/// What ties a process to an agent space ([`ProcessSpace::by`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Membership {
+    /// It was launched into the space ([`Request::Launch`]).
+    Launch,
+    /// It is in the process group of a launch (also after its parent died).
+    Group,
+    /// It is connected to the space's socket.
+    Client,
+    /// Its environment names the space's directory (`XDG_RUNTIME_DIR` or
+    /// `WAYLAND_DISPLAY`), as every launch's does.
+    Environment,
+}
+
+/// A [`Request::SpaceOfProcess`] reply: the asked process, or the process
+/// `pid` it descends from, is tied to `space` `by` that.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessSpace {
+    pub space: SpaceId,
+    pub by: Membership,
+    pub pid: u32,
 }
 
 /// A [`Request::Launch`] reply.
@@ -417,7 +455,7 @@ impl Request {
             }
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
             Request::CreateSpace { .. } | Request::Launch { .. } => Some(Capability::Space),
-            Request::DestroySpace { .. } | Request::ListSpaces => Some(Capability::System),
+            Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
         }
     }
 
@@ -436,6 +474,7 @@ impl Request {
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
+            Request::SpaceOfProcess { .. } => false,
         }
     }
 }
@@ -1005,6 +1044,11 @@ impl Client {
         self.call_as::<Launched>(Request::Launch { argv, env, cwd }).map(|l| l.pid)
     }
 
+    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to, `None` = the person's.
+    pub fn space_of_process(&mut self, pid: u32) -> Result<Option<ProcessSpace>, Error> {
+        self.call_as(Request::SpaceOfProcess { pid })
+    }
+
     /// [`Request::LaunchToken`]: for the environment of a launch the person made.
     pub fn launch_token(&mut self) -> Result<String, Error> {
         self.call_as::<LaunchToken>(Request::LaunchToken).map(|t| t.token)
@@ -1258,6 +1302,23 @@ mod tests {
         assert_eq!(serde_json::to_value(Launched { pid: 7 }).unwrap(), serde_json::json!({"pid": 7}));
     }
 
+    /// #EDE-127: `space_of_process` and its answer on the wire; `null` is the person's.
+    #[test]
+    fn space_of_process_is_flat_json_and_round_trips() {
+        let call = Call { id: 1, request: Request::SpaceOfProcess { pid: 4242 } };
+        let json = serde_json::json!({"id": 1, "op": "space_of_process", "pid": 4242});
+        assert_eq!(serde_json::to_value(&call).unwrap(), json);
+        assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        let tied = Some(ProcessSpace { space: SpaceId::new("space-2").unwrap(), by: Membership::Environment, pid: 4241 });
+        let wire = serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241});
+        assert_eq!(serde_json::to_value(&tied).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(wire).unwrap(), tied);
+        assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(serde_json::Value::Null).unwrap(), None);
+        for (by, name) in [(Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
+            assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
+        }
+    }
+
     /// `Hello` as it was before `features`: what an old client parses a reply into.
     #[derive(Deserialize)]
     #[allow(dead_code)]
@@ -1329,18 +1390,20 @@ mod tests {
             (Request::DestroySpace { space: space() }, true),
             (Request::ListSpaces, true),
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
+            (Request::SpaceOfProcess { pid: 42 }, false),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 36, "one row per variant at least");
+        assert_eq!(seen.len(), 37, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
         assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
         assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
+        assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), Some(Capability::System));
     }
 
     /// The op's name; no wildcard, so a new variant fails to compile here
@@ -1383,6 +1446,7 @@ mod tests {
             Request::DestroySpace { .. } => "destroy_space",
             Request::ListSpaces => "list_spaces",
             Request::Launch { .. } => "launch",
+            Request::SpaceOfProcess { .. } => "space_of_process",
         }
     }
 

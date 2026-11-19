@@ -30,6 +30,11 @@ impl DeskId {
     pub(crate) const fn numbered(n: u32) -> DeskId {
         DeskId(n)
     }
+
+    /// Its number: 0 for the person's, n for space-n.
+    pub(crate) const fn number(self) -> u32 {
+        self.0
+    }
 }
 
 /// The desk something belongs to, kept where a lookup would come too late

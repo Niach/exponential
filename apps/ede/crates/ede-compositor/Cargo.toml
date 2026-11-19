@@ -52,6 +52,9 @@ wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
 tempfile = "3"
 x11rb = "0.13"
+# #EDE-127: polkitd's side of the real polkit agent in `tests/sealed_client.rs`
+# (the version ede-services already resolves).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 # The installed name (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

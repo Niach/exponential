@@ -164,3 +164,107 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     assert_eq!(code(h.ipc_with(unbound.token).unwrap().launch(sleep(), Default::default(), None)), ErrorCode::NotFound);
     drop(h);
 }
+
+const CLIENT_SOCKET: &str = "EDE_TEST_SPACE_SOCKET";
+
+/// A client of a space that the compositor did not launch and whose
+/// environment does not name the space: this test binary again, connected
+/// to the socket it was given under another name. It stays until the
+/// compositor is gone.
+#[test]
+fn foreign_space_client() {
+    let Ok(socket) = std::env::var(CLIENT_SOCKET) else { return };
+    let ready = std::env::var(DUMP).unwrap();
+    let mut c = Session::connect(UnixStream::connect(socket).unwrap());
+    let t = c.toplevel("foreign");
+    c.draw(&t, 200, 100, BLUE);
+    std::fs::write(&ready, std::process::id().to_string()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline && c.queue.roundtrip(&mut c.state).is_ok() {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// `pid`'s parent is not in the process group `group` (it was reparented).
+fn parent_outside(pid: u32, group: u32) -> bool {
+    let field = |pid: u32, n: usize| std::fs::read_to_string(format!("/proc/{pid}/stat")).ok().and_then(|stat| stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(n).and_then(|f| f.parse::<u32>().ok())));
+    field(pid, 1).is_some_and(|parent| field(parent, 2) != Some(group))
+}
+
+fn pid_in(file: &Path) -> u32 {
+    until(&format!("{} was never written", file.display()), || file.exists());
+    std::fs::read_to_string(file).unwrap().trim().parse().unwrap()
+}
+
+/// #EDE-127: the compositor answers which space a process belongs to (the
+/// polkit agent asks before it shows the person a prompt): a launch, what
+/// it started (also after leaving its group, or after its parent died),
+/// what connected to the space's socket; the person's processes belong to
+/// none. Only `system` may ask.
+#[test]
+fn the_compositor_knows_which_processes_are_a_spaces() {
+    use ede_protocol::{Membership, ProcessSpace};
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let mut root = h.ipc();
+    let of = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap();
+
+    // The person's: this process (the compositor's own) and a child of it.
+    let person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    assert_eq!(of(&mut root, std::process::id()), None);
+    assert_eq!(of(&mut root, person.id()), None);
+    assert_eq!(of(&mut root, 1), None);
+    assert_eq!(of(&mut root, u32::MAX), None, "no such process");
+
+    // A shell in the space that starts three processes: a child, one that
+    // cleared its environment and lost its parent (still in the launch's
+    // process group), and one in a session of its own that lost its parent
+    // (still with the space's runtime directory).
+    let d = dir.path().join("pids");
+    std::fs::create_dir(&d).unwrap();
+    let script = r#"
+        ( env -i sleep 60 & echo $! > "$D/group.tmp"; mv "$D/group.tmp" "$D/group" )
+        ( setsid sleep 60 & echo $! > "$D/env.tmp"; mv "$D/env.tmp" "$D/env" )
+        sleep 60 & echo $! > "$D/child.tmp"; mv "$D/child.tmp" "$D/child"
+        wait"#;
+    let head = agent.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), d.to_string_lossy().into_owned())].into(), None).unwrap();
+    let (child, group, env) = (pid_in(&d.join("child")), pid_in(&d.join("group")), pid_in(&d.join("env")));
+    let ours = |pid: u32| of(&mut h.ipc(), pid).unwrap_or_else(|| panic!("process {pid} is not known as the space's"));
+    assert_eq!(ours(head), ProcessSpace { space: space.id.clone(), by: Membership::Launch, pid: head });
+    assert_eq!(ours(child).space, space.id);
+    // `$!` comes before the fork has run `env` and `setsid`, and they before `sleep`.
+    until("the subshells' children never ran sleep", || [child, group, env].into_iter().all(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| comm.trim() == "sleep")));
+    until("the subshells' children never lost their parent", || [group, env].into_iter().all(|pid| parent_outside(pid, head)));
+    let by_group = ours(group);
+    assert_eq!((by_group.space, by_group.by), (space.id.clone(), Membership::Group), "an orphan with no environment, in the launch's group");
+    let by_env = ours(env);
+    assert_eq!((by_env.space, by_env.by, by_env.pid), (space.id.clone(), Membership::Environment, env), "an orphan in its own session, with the space's runtime directory");
+
+    // A client of the space's socket that was not launched there and whose
+    // environment does not name it.
+    let ready = dir.path().join("foreign.ready");
+    let mut foreign = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "foreign_space_client", "--nocapture"])
+        .env(CLIENT_SOCKET, &space.wayland_display)
+        .env(DUMP, &ready)
+        .env_remove("WAYLAND_DISPLAY")
+        .spawn()
+        .unwrap();
+    let pid = pid_in(&ready);
+    assert_eq!(ours(pid), ProcessSpace { space: space.id.clone(), by: Membership::Client, pid });
+    assert_eq!(of(&mut root, person.id()), None, "the person's process is still the person's");
+
+    // Only `system` asks: a space grant and a `ui` grant are refused.
+    assert_eq!(code(agent.space_of_process(head)), ErrorCode::Forbidden);
+    let ui = root.mint(SessionId::new("ui-only").unwrap(), vec![Capability::Ui], None).unwrap();
+    assert_eq!(code(h.ipc_with(ui.token).unwrap().space_of_process(head)), ErrorCode::Forbidden);
+
+    let _ = foreign.kill();
+    let _ = foreign.wait();
+    let mut person = person;
+    let _ = person.kill();
+    let _ = person.wait();
+    for pid in [group, env] {
+        let _ = smithay::reexports::rustix::process::kill_process(smithay::reexports::rustix::process::Pid::from_raw(pid as i32).unwrap(), smithay::reexports::rustix::process::Signal::KILL);
+    }
+}
