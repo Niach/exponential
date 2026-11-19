@@ -9,6 +9,10 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
+/// #EXP-1992: the host side of a call (`hostCases`): the one machine the
+/// desktop app and the CLI daemon run their calls on.
+pub mod host;
+
 pub const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
 
 #[derive(Debug, Clone, Deserialize)]
@@ -319,7 +323,8 @@ pub struct HostVoice {
 }
 
 /// FEED-276 (`hostVoice`): the agent's own voice on the call's host.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum CallVoice {
     /// The agent has no clip: the built-in voice IS its voice.
     #[default]
