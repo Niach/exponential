@@ -255,6 +255,12 @@ pub struct CallSealSpec {
     pub pull_every_ms: u64,
     /// Once sealed: this many audio frames in a row that do not open end the call.
     pub max_open_failures: u32,
+    /// Question 9: an utterance that lost more than this on the way is not
+    /// sent (`etalk::CALL_MAX_LOST_MS`). A starting value, to be set from a
+    /// measurement on real calls before sealing is switched on.
+    pub max_lost_ms: u32,
+    /// The codes about the caller's OWN device: never taken from the wire.
+    pub own_device_codes: Vec<String>,
     pub end_reasons: CallSealEndReasons,
     pub required: bool,
 }
@@ -361,6 +367,191 @@ pub fn call_voice_ready(voice: CallVoice, waited_ms: u64) -> CallVoiceReady {
 
 pub static VOICE_CALL: LazyLock<VoiceCallSpec> =
     LazyLock::new(|| serde_json::from_str(VOICE_CALL_JSON).expect("voice-call.json parses"));
+
+// --- #EXP-1941: the call seal's handshake steps (`seal.modeCases`) ----------
+//
+// One pure step for both ends of a call the server marked sealed (TS:
+// `callSealStep`). It decides WHAT happens; the end does it: the key source,
+// `finish` and the frames live in `steer::call_host` and `steer::call_caller`
+// (the sealer is `enet_core::call_seal`). The order is Noise NNpsk2's: the
+// caller's hello, the host's hello with its tag (opened inside the caller's
+// `finish`), then the caller's first frame that opens.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealRole {
+    Caller,
+    Host,
+}
+
+/// `Clear` = a call the server did not mark sealed: today's wire, not stepped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealPhase {
+    Idle,
+    Clear,
+    Told,
+    Offered,
+    Keying,
+    Sealed,
+    Over,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallSealState {
+    pub phase: CallSealPhase,
+    /// Sealed audio frames in a row that did not open.
+    pub failures: u32,
+}
+
+pub const CALL_SEAL_IDLE: CallSealState = CallSealState { phase: CallSealPhase::Idle, failures: 0 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealTimer {
+    Handshake,
+    MaxCall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum CallSealEvent {
+    /// What the server told this end; the host's socket opens here.
+    Start {
+        seal: bool,
+        #[serde(default)]
+        required: Option<bool>,
+    },
+    Ready,
+    /// A hello of the other end; `ok` = well-formed, checked before any `finish`.
+    Hello { ok: bool },
+    /// The key source gave up.
+    NoKey,
+    Key,
+    Finished { ok: bool },
+    /// A binary frame; `opens` = the sealer opened it.
+    Frame { opens: bool },
+    /// A `sealed` event; `opens` = the sealer opened it.
+    Sealed { opens: bool },
+    /// Clear content: a `call_event` that is neither `hello`, `sealed` nor
+    /// `failed`, or a `call_mute`.
+    Clear,
+    /// A clear `failed {code}`, or the code of the relay's `error` / `bye`.
+    Failed { code: String },
+    /// The socket closed, or `call_end`, `bye`, `error`.
+    Closed,
+    Timeout { timer: CallSealTimer },
+}
+
+/// A wire code about the caller's OWN device reads `dropped`.
+pub fn call_seal_wire_code(code: &str) -> String {
+    if VOICE_CALL.seal.own_device_codes.iter().any(|own| own == code) { VOICE_CALL.hang_up_rules.failed_code.clone() } else { code.to_string() }
+}
+
+/// The next state and what the end does now, in order: `timer`, `hello`,
+/// `helloStop`, `key`, `finish`, `go`, `count`, `end` / `end:<reason>`,
+/// `fail:<code>`, `abandon` (voice-call.ts names each).
+pub fn call_seal_step(role: CallSealRole, state: CallSealState, event: &CallSealEvent) -> (CallSealState, Vec<String>) {
+    use CallSealEvent as E;
+    use CallSealPhase as P;
+    let spec = &VOICE_CALL.seal;
+    let (no_key, seal) = (spec.end_reasons.no_key.as_str(), spec.end_reasons.seal.as_str());
+    let dropped = VOICE_CALL.hang_up_rules.failed_code.as_str();
+    let caller = role == CallSealRole::Caller;
+    let phase = state.phase;
+    let stay = || (state, Vec::new());
+    let to = |phase: P, actions: &[&str]| (CallSealState { phase, failures: 0 }, actions.iter().map(|action| action.to_string()).collect::<Vec<_>>());
+    // Every seal failure reads `dropped` on the caller; the host just ends.
+    let over = |reason: &str| {
+        let fail = format!("fail:{dropped}");
+        let end = format!("end:{reason}");
+        if caller { to(P::Over, &[&end, &fail, "abandon"]) } else { to(P::Over, &[&end, "abandon"]) }
+    };
+    let count = || (state, vec!["count".to_string()]);
+
+    if let E::Start { seal, required } = event {
+        if phase != P::Idle {
+            return stay();
+        }
+        if *seal {
+            return to(P::Told, if caller { &[] } else { &["timer"] });
+        }
+        if !required.unwrap_or(spec.required) {
+            return to(P::Clear, &[]);
+        }
+        return if caller { to(P::Over, &[&format!("fail:{dropped}")]) } else { to(P::Over, &["end"]) };
+    }
+    // The host ends a call it answered at `maxCallMs` itself, sealed or clear.
+    if matches!(event, E::Timeout { timer: CallSealTimer::MaxCall }) {
+        return if !caller && !matches!(phase, P::Idle | P::Over) { to(P::Over, &["end", "abandon"]) } else { stay() };
+    }
+    if matches!(phase, P::Idle | P::Clear | P::Over) {
+        return stay();
+    }
+    let sealed = phase == P::Sealed;
+    match event {
+        E::Start { .. } => unreachable!("handled above"),
+        E::Failed { code } => {
+            let code = if caller { call_seal_wire_code(code) } else { code.clone() };
+            to(P::Over, &[&format!("fail:{code}"), "abandon"])
+        }
+        E::Closed => to(P::Over, &["abandon"]),
+        E::Timeout { .. } => if sealed { stay() } else { over(no_key) },
+        E::Ready => if caller && phase == P::Told { to(P::Offered, &["timer", "hello"]) } else { stay() },
+        E::Hello { ok } => {
+            // The first well-formed hello is taken on arrival, once; another changes nothing.
+            let waiting = phase == if caller { P::Offered } else { P::Told };
+            if waiting && *ok {
+                return if caller { to(P::Keying, &["helloStop", "key"]) } else { to(P::Keying, &["key"]) };
+            }
+            if !*ok && !sealed && (waiting || !caller) { count() } else { stay() }
+        }
+        E::NoKey => if phase == P::Keying { over(no_key) } else { stay() },
+        E::Key => if phase == P::Keying { (state, vec!["finish".to_string()]) } else { stay() },
+        E::Finished { ok } => {
+            if phase != P::Keying {
+                return stay();
+            }
+            if !*ok {
+                return over(if caller { seal } else { no_key });
+            }
+            if caller { to(P::Sealed, &["go"]) } else { to(P::Offered, &["hello"]) }
+        }
+        E::Frame { opens } => {
+            if sealed {
+                if *opens {
+                    return if state.failures == 0 { stay() } else { to(P::Sealed, &[]) };
+                }
+                let failures = state.failures + 1;
+                return if failures >= spec.max_open_failures { over(seal) } else { (CallSealState { phase: P::Sealed, failures }, vec!["count".to_string()]) };
+            }
+            // A caller gets no binary frame before it is sealed; a host's
+            // first frame that opens is the caller's proof.
+            if caller {
+                return if phase == P::Told { stay() } else { over(seal) };
+            }
+            if phase == P::Offered && *opens { to(P::Sealed, &["go"]) } else { count() }
+        }
+        E::Sealed { opens } => {
+            if !caller {
+                return stay();
+            }
+            if sealed {
+                return if *opens { stay() } else { over(seal) };
+            }
+            if phase == P::Told { stay() } else { over(seal) }
+        }
+        E::Clear => {
+            if sealed {
+                return over(seal);
+            }
+            if caller {
+                return if phase == P::Told { stay() } else { over(seal) };
+            }
+            count()
+        }
+    }
+}
 
 /// Where the telephone is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -858,6 +1049,29 @@ pub fn call_timer(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1941: every row of `seal.modeCases`, phase and actions.
+    #[test]
+    fn the_call_seal_steps_replay_the_mode_cases() {
+        let cases = fixture()["seal"]["modeCases"].as_array().unwrap().clone();
+        assert!(cases.len() >= 30);
+        for case in cases {
+            let role: CallSealRole = serde_json::from_value(case["role"].clone()).unwrap();
+            let mut state = CALL_SEAL_IDLE;
+            let mut actions = Vec::new();
+            for event in case["events"].as_array().unwrap() {
+                let event: CallSealEvent = serde_json::from_value(event.clone()).unwrap_or_else(|err| panic!("{}: {err}", case["name"]));
+                let (next, did) = call_seal_step(role, state, &event);
+                state = next;
+                actions.push(did);
+            }
+            assert_eq!(serde_json::json!(actions), case["actions"], "{}", case["name"]);
+            assert_eq!(state.phase, serde_json::from_value::<CallSealPhase>(case["phase"].clone()).unwrap(), "{}", case["name"]);
+        }
+        assert_eq!(call_seal_wire_code("not_granted"), "dropped");
+        assert_eq!(call_seal_wire_code("busy"), "busy");
+        assert_eq!(VOICE_CALL.seal.max_lost_ms, crate::CALL_MAX_LOST_MS);
+    }
     use serde_json::Value;
 
     fn fixture() -> Value {

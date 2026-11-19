@@ -103,9 +103,9 @@ pub const CALL_MIN_SILENCE_MS: usize = 700;
 /// #EXP-1941 (question 9): a streamed call's utterance in which MORE than
 /// this much audio was lost on the way is not sent: a host never joins
 /// speech across what a relay cut out or held back. `voice-call.json`
-/// `seal.maxLostMs` once the fixture names it; until then this constant of
-/// the same value. A STARTING value: it is set from a measurement on real
-/// calls before sealing is switched on (nothing reports a loss before that).
+/// `seal.maxLostMs` (`call`'s tests hold the two together). A STARTING
+/// value: it is set from a measurement on real calls before sealing is
+/// switched on (nothing reports a loss before that).
 pub const CALL_MAX_LOST_MS: u32 = 300;
 /// NEW-55: speech this long in the open utterance is a barge-in
 /// ([`Event::SpeechStarted`]); `voice-call.json` `bargeInMs`.
