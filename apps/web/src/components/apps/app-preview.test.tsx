@@ -40,7 +40,7 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({ options, useParams: () => params }),
 }))
 
-import { SidebarProvider } from "@exp/ui"
+import { FAB_FOOT_CLASS, SidebarProvider } from "@exp/ui"
 import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION, upgradePackageBody09 } from "@exponential_app/eui"
 import fixture from "@/lib/apps/a2ui10-migrate.fixture.json"
 import { AppPreview } from "./app-preview"
@@ -106,6 +106,20 @@ describe(`AppPreview on a refused package`, () => {
     expect(document.body.textContent).toContain(APPS_COPY.previewEmpty)
     view.rerender(<AppPreview pkg={usable(`Painted`)} />)
     await waitFor(() => expect(document.body.textContent).toContain(`Painted`))
+  })
+})
+
+describe(`AppPreview's Phone frame beside the Assistant FAB (#EXP-1874)`, () => {
+  it(`the Phone frame's row is THE pinned foot; the Desktop frame and the run view are not`, async () => {
+    const view = render(<AppPreview pkg={usable(`Painted`)} frame="phone" />)
+    await waitFor(() => expect(document.body.textContent).toContain(`Painted`))
+    const row = screen.getByTestId(APPS_TEST_IDS.preview).parentElement!
+    expect(row.classList.contains(FAB_FOOT_CLASS)).toBe(true)
+    expect(row.classList.contains(`justify-center`)).toBe(true)
+    view.rerender(<AppPreview pkg={usable(`Painted`)} frame="desktop" />)
+    expect(document.querySelector(`.${FAB_FOOT_CLASS}`)).toBeNull()
+    view.rerender(<AppPreview pkg={usable(`Painted`)} frame="phone" variant="run" />)
+    expect(document.querySelector(`.${FAB_FOOT_CLASS}`)).toBeNull()
   })
 })
 

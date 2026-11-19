@@ -653,6 +653,49 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// #EXP-1889: the Windows link is a real JUNCTION made by `mklink /J`
+    /// (a reparse point, no privilege needed), read and listed through, also
+    /// under a path with a space; a moved data dir leaves its absolute
+    /// target dangling and the next `link_store` re-points it.
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_junction_reads_through_and_is_repointed_after_a_move() {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+        let root = temp_root("junction dir");
+        let profile = root.join("aaaaaaaa");
+        fs::create_dir_all(&profile).unwrap();
+        link_store(&profile).unwrap();
+        let link = profile.join("projects");
+        let meta = fs::symlink_metadata(&link).unwrap();
+        assert_ne!(meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT, 0, "a reparse point");
+        assert!(meta.file_type().is_symlink(), "std reads a junction as a link");
+        assert_eq!(
+            fs::canonicalize(&link).unwrap(),
+            fs::canonicalize(store_entry(&root, "projects")).unwrap()
+        );
+        // Written in the store, read and listed through the junction.
+        write(&store_entry(&root, "projects").join(PROJECT).join("s1.jsonl"), "through\n");
+        assert_eq!(fs::read_to_string(link.join(PROJECT).join("s1.jsonl")).unwrap(), "through\n");
+        let listed: Vec<_> = fs::read_dir(&link).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(listed, [std::ffi::OsString::from(PROJECT)]);
+
+        let moved = root.with_file_name(format!("{} moved", root.file_name().unwrap().to_str().unwrap()));
+        fs::rename(&root, &moved).unwrap();
+        let profile = moved.join("aaaaaaaa");
+        let link = profile.join("projects");
+        assert!(is_linked(&profile, "projects"));
+        assert!(!link.is_dir(), "the junction still names the old place");
+        link_store(&profile).unwrap();
+        assert_eq!(fs::read_to_string(link.join(PROJECT).join("s1.jsonl")).unwrap(), "through\n");
+        assert_eq!(
+            fs::canonicalize(&link).unwrap(),
+            fs::canonicalize(store_entry(&moved, "projects")).unwrap()
+        );
+        let _ = fs::remove_dir_all(&moved);
+    }
+
     /// The store survives a `remove_dir_all` of a linked profile — on every
     /// OS, the Windows junction included (this test runs there too).
     #[test]

@@ -1994,7 +1994,10 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
         .ceil()
 }
 
-/// Min-content width: the widest word (code blocks never wrap).
+/// Min-content width (code blocks never wrap). #EXP-1962: prose wraps
+/// ANYWHERE (web's Markdown root `overflow-wrap: anywhere`), so a word wider
+/// than the box (a base64 payload, a URL) breaks instead of widening the
+/// leaf past its container: its min-content is one em at most.
 pub fn min_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) -> f32 {
     blocks
         .iter()
@@ -2003,10 +2006,10 @@ pub fn min_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
             match &b.kind {
                 BlockKind::CodeBlock => max_content_width(std::slice::from_ref(b), s, text),
                 BlockKind::Table { header, .. } => header.len().max(1) as f32 * (2.0 * s.cell_pad_h + 16.0),
-                BlockKind::ListItem { depth, .. } => text.widest_word(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
+                BlockKind::ListItem { depth, .. } => text.widest_word(&b.inlines, spec).min(spec.size) + s.list_indent * (*depth as f32 + 1.0),
                 BlockKind::Image { .. } | BlockKind::Attachment { .. } => 1.0,
-                BlockKind::Quote => text.widest_word(&b.inlines, spec) + s.quote_border + s.quote_pad,
-                _ => text.widest_word(&b.inlines, spec),
+                BlockKind::Quote => text.widest_word(&b.inlines, spec).min(spec.size) + s.quote_border + s.quote_pad,
+                _ => text.widest_word(&b.inlines, spec).min(spec.size),
             }
         })
         .fold(0.0, f32::max)
@@ -3608,7 +3611,11 @@ mod tests {
         // Code blocks are padded and never wrap.
         let c = layout(&parse("```\na\nb\n```"), &s, 10.0, &mut Fixed);
         assert_eq!(c.height, 2.0 * s.code.line_height + 2.0 * s.code_pad);
-        assert_eq!(min_content_width(&parse("short loooooong"), &s, &mut Fixed), 72.0);
+        // #EXP-1962: a word wider than one em breaks anywhere.
+        assert_eq!(min_content_width(&parse("short loooooong"), &s, &mut Fixed), s.body.size.ceil());
+        let token = "H4sIAAAA+1d63LbOJbuz1bNO".repeat(28);
+        assert_eq!(min_content_width(&parse(&format!("The trace:\n{token}")), &s, &mut Fixed), s.body.size.ceil());
+        assert_eq!(min_content_width(&parse(&format!("- {token}")), &s, &mut Fixed), (s.body.size + s.list_indent).ceil());
         assert_eq!(max_content_width(&parse("- ab"), &s, &mut Fixed), 16.0 + s.list_indent);
     }
 

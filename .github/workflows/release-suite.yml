@@ -581,6 +581,14 @@ jobs:
       - name: Cargo tests (ePilot, Windows)
         working-directory: apps/desktop
         run: cargo test --locked -p epilot --lib
+      # #EXP-1889: the two Windows paths that shipped unrun (#VAPP-166's
+      # variable-font weights on DirectWrite, #EXP-1794's store junctions).
+      - name: Cargo tests (variable-font weights, DirectWrite)
+        working-directory: apps/desktop
+        run: cargo test --locked -p gpui-pre-windows --lib -- exponential_variable_font_tests
+      - name: Cargo tests (one claude store, junctions)
+        working-directory: apps/desktop
+        run: cargo test --locked -p eagent --lib claude_store
 
   desktop-fuzz:
     needs: dedupe

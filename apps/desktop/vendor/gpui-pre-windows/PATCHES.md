@@ -49,10 +49,18 @@ Each is marked `Exponential patch (#ERR-…)` in the source.
   in `vendor/gpui-pre-linux` (#EXP-1915); macOS is the `ui` crate's
   `macos_window::ignore_mouse`.
 
+- **#VAPP-166 / #EXP-1889, `src/direct_write.rs`, tests only:**
+  `exponential_variable_font_tests` loads `Nunito[wght]` from the genUI
+  conformance fonts and checks that DirectWrite lays out and paints it at
+  the requested weight (400 to 800 against the static instances). No
+  source change: upstream's `GetMatchingFonts` already picks the variable
+  font's named instance.
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `system_notifications::tests` and
-`util::exponential_patch_tests` (Windows only; `check-desktop-windows.yml`
+`.cargo-ok`. Tests: `system_notifications::tests`,
+`util::exponential_patch_tests` and
+`direct_write::exponential_variable_font_tests` (Windows only; `check-desktop-windows.yml`
 runs them on pull requests touching this directory).
