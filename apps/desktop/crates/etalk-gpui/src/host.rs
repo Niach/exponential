@@ -342,8 +342,13 @@ pub trait TalkHost: 'static {
     fn write(&self, write: VoiceWrite, done: Box<dyn FnOnce(&mut App)>, cx: &mut App) -> bool;
     /// Answer a streamed call ringing here (None = no relay or not signed
     /// in; Err = refused). EXP-1857: the host names THIS device in its
-    /// ticket (any of the member's desktops may be rung).
-    fn connect_call(&self, call_id: &str, cx: &mut App) -> Option<Task<Result<CallConnection, String>>>;
+    /// ticket (any of the member's desktops may be rung). #EXP-1941: and the
+    /// ring's `agent_id`: the relay writes the ring, the server's ticket
+    /// vouches for its call id and its agent, and tells the call's mode. A
+    /// host told `seal` joins with a key source. `refuse_only` = it joins
+    /// only to fail the call (`busy`, `meeting`): without a key source, a
+    /// clear `failed` works before any key exists.
+    fn connect_call(&self, call_id: &str, agent_id: &str, refuse_only: bool, cx: &mut App) -> Option<Task<Result<CallConnection, String>>>;
     /// EXP-1857: dial `agent_id` on ANOTHER of the member's desktops (the
     /// server picks the same target the telephone did): None = no relay,
     /// no server or not signed in.

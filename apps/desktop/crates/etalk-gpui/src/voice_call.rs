@@ -138,6 +138,9 @@ pub struct VoiceCall {
     /// The pill is open (no IDE window focused).
     pill: bool,
     counter: u64,
+    /// #EXP-1941: a call id is answered once (the ids this process got a
+    /// ticket for, for five minutes).
+    answered: etalk::call::AnsweredCalls,
     /// The toasts raised (the lifecycle tests read them).
     #[cfg(test)]
     toasts: Vec<String>,
@@ -165,6 +168,7 @@ pub(crate) fn install(cx: &mut App) {
             live,
             pill: false,
             counter: 0,
+            answered: etalk::call::AnsweredCalls::default(),
             #[cfg(test)]
             toasts: Vec::new(),
         }
@@ -426,12 +430,18 @@ pub(crate) fn ring_answer(meeting_here: bool, busy: bool, speech: Option<SpeechS
 /// The relay rang this device (`call_ring` on the control socket): a phone,
 /// web or another desktop streams a call to `agent_id`.
 pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
+    // #EXP-1941: a vouched call id is answered once. An honest relay never
+    // rings an id twice and a redial mints a new one.
+    if global(cx).is_some_and(|entity| entity.read(cx).answered.answered(&call_id, process_ms())) {
+        log::warn!("[voice] call {call_id}: this call id was answered before; the ring is dropped");
+        return;
+    }
     let settings = crate::speak_replies::settings(cx);
     let here = host::device_id(cx);
     let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
     match ring_answer(meeting_here, active(cx), crate::speak_replies::speech_state(cx)) {
-        RingAnswer::RefuseMeeting => return refuse(call_id, "meeting", cx),
-        RingAnswer::RefuseBusy => return refuse(call_id, "busy", cx),
+        RingAnswer::RefuseMeeting => return refuse(call_id, agent_id, "meeting", cx),
+        RingAnswer::RefuseBusy => return refuse(call_id, agent_id, "busy", cx),
         RingAnswer::Ignore => {
             log::info!("[voice] call {call_id}: not answered here");
             return;
@@ -439,12 +449,16 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
         RingAnswer::Answer => {}
     }
     let Some(entity) = global(cx) else { return };
-    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
+    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, &agent_id, false, cx)) else { return };
     let weak = entity.downgrade();
     let device = own_name(cx);
     cx.spawn(async move |cx| {
         let (host, rx) = match connecting.await {
-            Ok(connection) => (connection.link, connection.events),
+            Ok(connection) => {
+                // It got its ticket: this call id is not answered again.
+                let _ = weak.update(cx, |this, _| this.answered.note(&call_id, process_ms()));
+                (connection.link, connection.events)
+            }
             Err(err) => {
                 log::warn!("[voice] the call host ticket was refused: {err}");
                 return;
@@ -475,6 +489,12 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     .detach();
 }
 
+/// This process's clock for [`etalk::call::AnsweredCalls`].
+fn process_ms() -> u64 {
+    static BORN: std::sync::LazyLock<std::time::Instant> = std::sync::LazyLock::new(std::time::Instant::now);
+    BORN.elapsed().as_millis() as u64
+}
+
 /// EXP-1929: the call starts here only once the relay admitted this
 /// device (`call_ready`); a ring cancelled before (the caller hung up, the
 /// ring timed out: the relay answers `no_such_call`) ends without a call,
@@ -497,9 +517,11 @@ fn host_failed_event(code: &str) -> serde_json::Value {
 
 /// #NEW-57: join the call only to fail it as `code` (a `failed` flow event
 /// the caller steps: `meeting`, #EXP-1936 `busy`), then hang up.
-fn refuse(call_id: String, code: &'static str, cx: &mut App) {
+fn refuse(call_id: String, agent_id: String, code: &'static str, cx: &mut App) {
     log::info!("[voice] call {call_id}: refused ({code})");
-    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, cx)) else { return };
+    // #EXP-1941: refuse only: no key source. The clear `failed` ends a
+    // sealing caller's call with its toast in every state.
+    let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, &agent_id, true, cx)) else { return };
     cx.spawn(async move |cx| {
         let Ok(connection) = connecting.await else { return };
         let (host, rx) = (connection.link, connection.events);
@@ -2141,6 +2163,36 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(*link.borrow(), [format!("event {}", host_failed_event("busy")), "end".to_string()]);
         cx.update(|cx| assert!(active(cx) && phase(cx) == CallPhase::Ringing, "the call here goes on"));
+    }
+
+    /// #EXP-1941: the ring names its agent to the host (the ticket vouches
+    /// for it), a refusal joins refuse-only (no key source), and a call id
+    /// that got its ticket is not answered again.
+    #[gpui::test]
+    async fn a_ring_names_its_agent_and_a_call_id_is_answered_once(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let (caller, link) = rig.incoming_call();
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        assert_eq!(rig.connects(), [("c-1".to_string(), AGENT.to_string(), false)]);
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| assert!(active(cx), "the rung call began"));
+        // A ring during it is refused, refuse-only.
+        rig.incoming_call();
+        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        assert_eq!(rig.connects(), [("c-2".to_string(), AGENT.to_string(), true)]);
+        // The caller hangs up; the relay rings the same vouched id again.
+        caller.send(CallLinkEvent::Ended { reason: None }).unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| assert!(!active(cx)));
+        assert!(link.borrow().iter().all(|line| line != "end"), "the caller ended it");
+        rig.incoming_call();
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        assert!(rig.connects().is_empty(), "no ticket is asked for a call id answered before");
+        cx.update(|cx| assert!(!active(cx)));
     }
 
     /// #EXP-1936 (voice-call.json `wire.control.call_event`): the dialling
