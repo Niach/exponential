@@ -1,6 +1,6 @@
 // NEW-53: exponentialTalk's voice settings and spoken-reply rules. Pure and
 // byte-locked by `fixtures/voice.json`; the desktop mirror
-// `domain::voice` replays the same cases, the phones mirror `copy`.
+// `etalk::voice` replays the same cases, the phones mirror `copy`.
 
 import fixture from "../fixtures/voice.json" with { type: "json" }
 import screenMemoryFixture from "@exp/domain-contract/fixtures/screen-memory.json" with { type: "json" }
@@ -563,7 +563,7 @@ function downloadSize(bytes: number, down: boolean): string {
   return `${Math.floor(tenths / 10)}.${tenths % 10} GB`
 }
 
-/** The Speak replies row's detail while the voice downloads; a total of 0
+/** The voice download's row detail (S-3: the Language row); a total of 0
  *  (unknown) reads `copy.downloading`. */
 export function downloadProgress(received: number, total: number): string {
   if (total <= 0) return fixture.copy.downloading
