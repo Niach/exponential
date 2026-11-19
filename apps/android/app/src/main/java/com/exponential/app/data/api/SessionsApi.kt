@@ -385,6 +385,8 @@ class SessionsApi @Inject constructor(
         // refuses as stale re-resolves the tree from the server and goes again once.
         StaleTree.sendOnce { fresh ->
             val prepared = sealer.get().prepareSend(accountId, input, fresh)
+            // #EXP-1958 (`cardStamps`): a sealed card's opened text leaves sealed or not at all.
+            if (!CardItemWire.leavesSealed(prepared.input)) throw TrpcException(com.exponential.app.data.sealed.NO_KEY_REFUSAL)
             val result = trpc.mutation(
                 accountId,
                 path = "sessions.send",
@@ -637,7 +639,8 @@ class SessionsApi @Inject constructor(
 
     /** EXP-1323: × / Dismiss one suggested task (sealed: the server stamps it). */
     suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) {
-        cardTap(accountId, messageId, CardItemAction.Dismiss)
+        // A sealed card's item this install no longer reads fails here, never a stamp for nothing.
+        cardTap(accountId, messageId, CardItemAction.Dismiss)?.item(itemId)
         suggestionItem(accountId, "sessions.dismissSuggestion", messageId, itemId)
     }
 

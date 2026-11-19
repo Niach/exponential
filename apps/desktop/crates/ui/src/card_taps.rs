@@ -64,18 +64,33 @@ fn suggestion_open(item: &serde_json::Map<String, Value>) -> bool {
     !item.contains_key("sessionId") && !flag(item, "here") && !item.contains_key("issueId") && !flag(item, "dismissed")
 }
 
-/// The item's issue ids `sessions.send` takes (uuids; anything else drops).
-fn issue_ids(item: &serde_json::Map<String, Value>) -> Vec<String> {
-    let ids = item.get("issueIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
-    ids.filter(|id| uuid::Uuid::parse_str(id).is_ok()).map(str::to_string).collect()
+/// An `#IDENT` of the card's team as the issue store knows it (uppercased
+/// identifier -> id).
+pub(crate) type Idents = std::collections::HashMap<String, String>;
+
+/// The item's issue ids `sessions.send` takes (`cardStamps` WIRE: uuids as
+/// they are, an `#IDENT` the issue store resolves, unknown dropped).
+fn issue_ids(item: &serde_json::Map<String, Value>, idents: &Idents) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in item.get("issueIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+        let id = if uuid::Uuid::parse_str(raw).is_ok() {
+            Some(raw.to_string())
+        } else {
+            idents.get(&raw.trim_start_matches('#').to_uppercase()).cloned()
+        };
+        if let Some(id) = id.filter(|id| !out.contains(id)) {
+            out.push(id);
+        }
+    }
+    out
 }
 
-fn start_send(card_session: &str, message_id: &str, item: &serde_json::Map<String, Value>, picks: &Picks) -> SendInput {
+fn start_send(card_session: &str, message_id: &str, item: &serde_json::Map<String, Value>, picks: &Picks, idents: &Idents) -> SendInput {
     let item_id = str_of(item, "id");
     SendInput {
         device_id: picks.device_id.clone(),
         model: picks.model.clone(),
-        ..SendInput::card_start(card_session, message_id, item_id, str_of(item, "title"), str_of(item, "text"), issue_ids(item))
+        ..SendInput::card_start(card_session, message_id, item_id, str_of(item, "title"), str_of(item, "text"), issue_ids(item, idents))
     }
 }
 
@@ -89,6 +104,7 @@ pub(crate) fn card_sends(
     action: CardItemAction,
     item_id: &str,
     picks: &Picks,
+    idents: &Idents,
 ) -> Vec<SendInput> {
     match action {
         CardItemAction::Reply => item(card, item_id)
@@ -106,11 +122,11 @@ pub(crate) fn card_sends(
             .collect(),
         CardItemAction::Start => item(card, item_id)
             .filter(|item| suggestion_open(item))
-            .map(|item| start_send(card_session, message_id, item, picks))
+            .map(|item| start_send(card_session, message_id, item, picks, idents))
             .into_iter()
             .collect(),
         CardItemAction::StartAll => {
-            items(card).filter(|item| suggestion_open(item)).map(|item| start_send(card_session, message_id, item, picks)).collect()
+            items(card).filter(|item| suggestion_open(item)).map(|item| start_send(card_session, message_id, item, picks, idents)).collect()
         }
         CardItemAction::Dismiss | CardItemAction::DismissReplies | CardItemAction::File => Vec::new(),
     }
@@ -119,6 +135,17 @@ pub(crate) fn card_sends(
 /// Every open reply of an opened replies card (`dismissReplies` `itemIds`).
 pub(crate) fn open_reply_ids(card: &Value) -> Vec<String> {
     items(card).filter(|item| !flag(item, "sent")).map(|item| str_of(item, "id").to_string()).filter(|id| !id.is_empty()).collect()
+}
+
+/// The issues of the card session's team by identifier (Start's `#IDENT`
+/// refs; web / Android read their issue stores the same way).
+fn team_idents(session_id: &str, cx: &App) -> Idents {
+    let Some(store) = sync::Store::try_global(cx) else { return Idents::new() };
+    let collections = store.collections();
+    let Some(team_id) = collections.sessions.read(cx).get(session_id).and_then(|row| row.team_id.clone()) else {
+        return Idents::new();
+    };
+    collections.issue_refs_in_team(&team_id, cx).into_iter().map(|issue| (issue.identifier.to_uppercase(), issue.id.clone())).collect()
 }
 
 /// The tap on `message_id`'s item `item_id` (`None` for Start all / the
@@ -134,6 +161,10 @@ pub(crate) fn tap(message_id: &str, item_id: Option<&str>, action: CardItemActio
             let item_id = item_id.unwrap_or_default().to_string();
             match action {
                 CardItemAction::Dismiss => {
+                    // An item the opened card no longer carries fails, never a stamp for nothing.
+                    if item(&card, &item_id).is_none() {
+                        return Tap::Refused;
+                    }
                     Tap::Call(Box::new(move |trpc| api::sessions::dismiss_suggestion(trpc, &message_id, &item_id)))
                 }
                 CardItemAction::DismissReplies => {
@@ -153,7 +184,8 @@ pub(crate) fn tap(message_id: &str, item_id: Option<&str>, action: CardItemActio
         CardItemWire::Sealed => {
             let Some(row) = row else { return Tap::Refused };
             let card = row.card.unwrap_or_default();
-            let sends = card_sends(&card, &row.session_id, message_id, action, item_id.unwrap_or_default(), &picks);
+            let idents = team_idents(&row.session_id, cx);
+            let sends = card_sends(&card, &row.session_id, message_id, action, item_id.unwrap_or_default(), &picks, &idents);
             if sends.is_empty() {
                 return Tap::Refused;
             }
@@ -206,9 +238,9 @@ mod tests {
     #[test]
     fn sealed_sends_carry_the_opened_text_and_the_item() {
         let replies = json!({"kind": "replies", "items": [{"id": "r1", "text": "Yes"}, {"id": "r2", "text": "No", "sent": true}]});
-        let sends = card_sends(&replies, "s-1", "m-1", CardItemAction::Reply, "r1", &Picks::default());
+        let sends = card_sends(&replies, "s-1", "m-1", CardItemAction::Reply, "r1", &Picks::default(), &Idents::new());
         assert_eq!(sends, vec![SendInput::card_message("s-1", "m-1", "r1", "Yes")]);
-        assert!(card_sends(&replies, "s-1", "m-1", CardItemAction::Reply, "r2", &Picks::default()).is_empty());
+        assert!(card_sends(&replies, "s-1", "m-1", CardItemAction::Reply, "r2", &Picks::default(), &Idents::new()).is_empty());
         assert_eq!(open_reply_ids(&replies), vec!["r1".to_string()]);
 
         let issue = "00000000-0000-4000-8000-000000000012";
@@ -217,18 +249,27 @@ mod tests {
             {"id": "s2", "title": "Done", "text": "x", "here": true},
             {"id": "s3", "title": "Docs", "text": "Write them"},
         ]});
-        let here = card_sends(&suggestions, "s-1", "m-1", CardItemAction::Here, "s1", &Picks::default());
+        let here = card_sends(&suggestions, "s-1", "m-1", CardItemAction::Here, "s1", &Picks::default(), &Idents::new());
         assert_eq!(here, vec![SendInput::card_message("s-1", "m-1", "s1", "Add tests\n\nCover it")]);
         let picks = Picks { device_id: Some("dev-1".into()), model: Some("opus".into()) };
-        let start = card_sends(&suggestions, "s-1", "m-1", CardItemAction::Start, "s1", &picks);
+        let start = card_sends(&suggestions, "s-1", "m-1", CardItemAction::Start, "s1", &picks, &Idents::new());
         assert_eq!(start.len(), 1);
         assert_eq!(start[0].parent_id.as_deref(), Some("s-1"));
         assert_eq!(start[0].text.as_deref(), Some("Add tests\n\nCover it"));
         assert_eq!(start[0].name.as_deref(), Some("Add tests"));
         assert_eq!(start[0].issue_ids, Some(vec![issue.to_string()]));
         assert_eq!((start[0].device_id.as_deref(), start[0].model.as_deref()), (Some("dev-1"), Some("opus")));
-        assert!(card_sends(&suggestions, "s-1", "m-1", CardItemAction::Start, "s2", &picks).is_empty());
-        let all = card_sends(&suggestions, "s-1", "m-1", CardItemAction::StartAll, "", &Picks::default());
+        // An `#IDENT` the issue store knows resolves (with or without `#`,
+        // any case), once; an unknown one drops.
+        let known = "00000000-0000-4000-8000-000000000034";
+        let idents: Idents = [("EXP-9".to_string(), known.to_string())].into();
+        let refs = json!({"kind": "suggestions", "items": [
+            {"id": "s1", "title": "Add tests", "text": "Cover it", "issueIds": ["#exp-9", issue, "EXP-9", "#EXP-404", 7]},
+        ]});
+        let start = card_sends(&refs, "s-1", "m-1", CardItemAction::Start, "s1", &picks, &idents);
+        assert_eq!(start[0].issue_ids, Some(vec![known.to_string(), issue.to_string()]));
+        assert!(card_sends(&suggestions, "s-1", "m-1", CardItemAction::Start, "s2", &picks, &Idents::new()).is_empty());
+        let all = card_sends(&suggestions, "s-1", "m-1", CardItemAction::StartAll, "", &Picks::default(), &Idents::new());
         let ids: Vec<_> = all.iter().map(|send| send.card_item.as_ref().unwrap().item_id.as_str()).collect();
         assert_eq!(ids, ["s1", "s3"]);
     }

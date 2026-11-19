@@ -88,6 +88,15 @@ object CardItemWire {
         return ids.mapNotNull { id -> if (uuid.matches(id)) id else resolved[id.removePrefix("#")] }.distinct()
     }
 
+    /**
+     * `cardStamps` NEVER IN CLEAR: a sealed card's tap hands OPENED text to
+     * the writer, so what it prepared leaves only as an `exp-sealed:`
+     * envelope with no clear `name` beside it (a `clearTree` target is
+     * refused locally). A send that is no card tap is not this rule's.
+     */
+    fun leavesSealed(prepared: com.exponential.app.data.api.SessionsSendInput): Boolean =
+        prepared.cardItem == null || (SealedContent.isSealedBody(prepared.text) && prepared.name == null)
+
     fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     /** JS `String(x ?? "")` for a card field. */

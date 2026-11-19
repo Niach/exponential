@@ -432,11 +432,28 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     // #EDE-97: plaintext only where it is the legal wire (a clear tree, a
     // Local desktop) or nothing is sealed (an attachment-only send).
     if plan.clear || plan.target == SealTarget::None {
+        card_tap_leaves_sealed(&input)?;
         return api::sessions::send(trpc, &input);
     }
     let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
     // A key holder still coming up is waited for (`clearTree.holderWaitMs`).
     deliver(&writer, &input, &plan.target, sealing::sealer().is_ok(), &mut |input| api::sessions::send(trpc, input))
+}
+
+/// #EXP-1958 (`cardStamps` NEVER IN CLEAR): a sealed card's tap hands OPENED
+/// text to the writer, so its wire is an `exp-sealed:` envelope with no
+/// clear `name` beside it, or it is refused here like a failed action (a
+/// `clearTree` target, nothing sealed): no opened word leaves in clear.
+fn card_tap_leaves_sealed(wire: &SendInput) -> Result<(), api::ApiError> {
+    if wire.card_item.is_none() {
+        return Ok(());
+    }
+    let sealed = wire.text.as_deref().is_some_and(|text| text.starts_with(enet_core::sealed::SEALED_BODY_PREFIX));
+    if sealed && wire.name.is_none() {
+        return Ok(());
+    }
+    log::warn!("[sealing] a sealed card's tap not sent: its text could not be sealed");
+    Err(no_key(sealing::NO_KEY_REFUSAL.to_string()))
 }
 
 /// #EXP-1960: an [`SealTarget::Unsynced`] session's tree as the server has
@@ -468,6 +485,11 @@ fn deliver(
     holder: bool,
     send: &mut dyn FnMut(&SendInput) -> Result<SendOutput, api::ApiError>,
 ) -> Result<SendOutput, api::ApiError> {
+    // #EXP-1958: whatever wire this takes, a card tap leaves sealed or not at all.
+    let send: &mut dyn FnMut(&SendInput) -> Result<SendOutput, api::ApiError> = &mut |wire| {
+        card_tap_leaves_sealed(wire)?;
+        send(wire)
+    };
     let target = match target {
         SealTarget::Unsynced(session_id) => match resolve_unsynced(writer, session_id) {
             Ok(None) => return send(input),
@@ -1077,6 +1099,40 @@ mod tests {
 
     fn unsynced(_: &str) -> Option<String> {
         None
+    }
+
+    /// #EXP-1958 (`cardStamps` NEVER IN CLEAR): a sealed card's tap hands
+    /// OPENED text to the writer; into a clear tree it is refused before any
+    /// request, into a keyed one it leaves as an envelope with its item.
+    #[test]
+    fn a_sealed_card_tap_never_leaves_in_clear() {
+        let tap = SendInput::card_message(CHILD, "0b6f4a8e-51c3-4d27-9e1a-7c2d3f4a5b6c", "c2a9e7d4-18f3-4b65-a0c7-9e4d2b1f6a83", "Yes, ship it");
+        // Its own root: a clear tree is noted process-wide (`note_clear_tree`).
+        let mut clear = ServerTree::new(true, false, true);
+        clear.facts.as_mut().unwrap().root_id = "d41f7b92-6a3e-4c58-b1d0-2e9f8a7c6b35".into();
+        let (out, sent) = deliver_to(&clear, &tap, &unsynced);
+        assert!(is_no_key_refusal(&out), "{out:?}");
+        assert!(sent.is_empty(), "the opened reply left in clear: {sent:?}");
+        // The same tree still takes an ordinary message as given.
+        let (out, sent) = deliver_to(&clear, &SendInput::message(CHILD, "hi", Vec::new()), &unsynced);
+        assert!(out.is_ok());
+        assert_eq!(sent.len(), 1);
+
+        let keyed = ServerTree::new(false, true, true);
+        let (out, sent) = deliver_to(&keyed, &tap, &unsynced);
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].text.as_deref().unwrap().starts_with(contract::SEALED_BODY_PREFIX));
+        assert_eq!(sent[0].card_item, tap.card_item);
+
+        // The guard alone: an envelope passes, a clear `name` beside it or a
+        // clear text does not; a send that is no card tap is never its business.
+        let envelope = SendInput { text: Some(format!("{}x", contract::SEALED_BODY_PREFIX)), ..tap.clone() };
+        assert!(card_tap_leaves_sealed(&envelope).is_ok());
+        assert!(card_tap_leaves_sealed(&SendInput { name: Some("Add tests".into()), ..envelope.clone() }).is_err());
+        assert!(card_tap_leaves_sealed(&tap).is_err());
+        assert!(card_tap_leaves_sealed(&SendInput { text: None, ..tap.clone() }).is_err());
+        assert!(card_tap_leaves_sealed(&SendInput::message(CHILD, "hi", Vec::new())).is_ok());
     }
 
     fn is_no_key_refusal(out: &Result<SendOutput, api::ApiError>) -> bool {

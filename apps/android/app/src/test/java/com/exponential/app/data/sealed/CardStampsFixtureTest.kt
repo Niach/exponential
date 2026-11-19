@@ -13,6 +13,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -107,6 +108,23 @@ class CardStampsFixtureTest {
             wanted.filter { it == "EXP-12" }.associateWith { "00000000-0000-4000-8000-000000000013" }
         }
         assertEquals(listOf(uuid, "00000000-0000-4000-8000-000000000013"), ids)
+    }
+
+    /** `cardStamps` NEVER IN CLEAR: what the writer could not seal (a `clearTree` target) is refused before any request. */
+    @Test
+    fun aCardTapLeavesSealedOrNotAtAll() {
+        val item = com.exponential.app.data.api.CardItemRef("0b6f4a8e-51c3-4d27-9e1a-7c2d3f4a5b6c", "c2a9e7d4-18f3-4b65-a0c7-9e4d2b1f6a83")
+        val tap = com.exponential.app.data.api.SessionsSendInput(sessionId = root, text = "Yes, ship it", cardItem = item)
+        // The writer found a clear tree: the opened reply is still plaintext.
+        assertFalse(CardItemWire.leavesSealed(tap))
+        assertFalse(CardItemWire.leavesSealed(tap.copy(text = null)))
+        val envelope = tap.copy(text = SealedContent.BODY_PREFIX + "1.abc")
+        assertTrue(CardItemWire.leavesSealed(envelope))
+        // A Start whose title was not moved into `sealedName`.
+        assertFalse(CardItemWire.leavesSealed(envelope.copy(name = "Add tests")))
+        assertTrue(CardItemWire.leavesSealed(envelope.copy(sealedName = SealedContent.BODY_PREFIX + "1.def")))
+        // A send that is no card tap keeps the composer's rules (a clear tree takes plaintext).
+        assertTrue(CardItemWire.leavesSealed(tap.copy(cardItem = null)))
     }
 
     private fun String.hex(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
