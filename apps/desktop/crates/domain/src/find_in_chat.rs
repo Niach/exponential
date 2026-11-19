@@ -134,6 +134,67 @@ pub struct FindOlderHit {
     pub output: bool,
 }
 
+/// #EXP-1998: a store hit as [`older`] reads it (an event's carries its
+/// `seq`, a synced message's its `message_id`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindStoreHit {
+    pub session_id: String,
+    #[serde(default)]
+    pub seq: Option<i64>,
+    #[serde(default)]
+    pub message_id: Option<String>,
+    pub kind: String,
+}
+
+/// #EXP-1998: a device's hit (always the shown session's event).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct FindDeviceHit {
+    pub seq: i64,
+    pub kind: String,
+}
+
+/// #EXP-1998: the synced messages the host draws as bubbles (`None` = a
+/// live transcript, which holds them as its own rows): `loaded` = every
+/// loaded synced message of the session, `drawable` = those it would draw
+/// with no cap, `more` = older ones exist unloaded.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct FindSynced {
+    pub loaded: Vec<String>,
+    pub drawable: Vec<String>,
+    pub more: bool,
+}
+
+/// #EXP-1998 (`olderCases`): the store's and the device's hits OLDER than
+/// the loaded rows, store first, first key wins.
+pub fn older(session_id: &str, lowest_seq: Option<i64>, store: &[FindStoreHit], device: &[FindDeviceHit], synced: Option<&FindSynced>) -> Vec<FindOlderHit> {
+    let loaded: HashSet<&str> = synced.map(|s| s.loaded.iter().map(String::as_str).collect()).unwrap_or_default();
+    let drawable: HashSet<&str> = synced.map(|s| s.drawable.iter().map(String::as_str).collect()).unwrap_or_default();
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    let mut push = |key: String, output: bool| {
+        if seen.insert(key.clone()) {
+            out.push(FindOlderHit { key, output });
+        }
+    };
+    let below = |seq: i64| lowest_seq.is_none_or(|lowest| seq < lowest);
+    for hit in store.iter().filter(|hit| hit.session_id == session_id) {
+        if let Some(seq) = hit.seq {
+            if below(seq) {
+                push(event_key(session_id, seq), hit.kind == "tool_output");
+            }
+        } else if let (Some(id), Some(synced)) = (hit.message_id.as_deref(), synced) {
+            if if loaded.contains(id) { drawable.contains(id) } else { synced.more } {
+                push(message_key(id), false);
+            }
+        }
+    }
+    for hit in device.iter().filter(|hit| below(hit.seq)) {
+        push(event_key(session_id, hit.seq), hit.kind == "tool_output");
+    }
+    out
+}
+
 /// One stop of the counter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindStop {
@@ -393,6 +454,18 @@ mod tests {
             let rows: Vec<FindRow> = serde_json::from_value(case["rows"].clone()).unwrap();
             let older: Vec<FindOlderHit> = serde_json::from_value(case["older"].clone()).unwrap();
             assert_eq!(stops(&rows, &older), stops_of(&case["expected"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn older_cases() {
+        for case in cases("olderCases") {
+            let store: Vec<FindStoreHit> = serde_json::from_value(case["store"].clone()).unwrap();
+            let device: Vec<FindDeviceHit> = serde_json::from_value(case["device"].clone()).unwrap();
+            let synced: Option<FindSynced> = serde_json::from_value(case["synced"].clone()).unwrap();
+            let expected: Vec<FindOlderHit> = serde_json::from_value(case["expected"].clone()).unwrap();
+            let got = older(case["sessionId"].as_str().unwrap(), case["lowestSeq"].as_i64(), &store, &device, synced.as_ref());
+            assert_eq!(got, expected, "{}", case["name"]);
         }
     }
 

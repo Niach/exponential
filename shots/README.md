@@ -293,6 +293,10 @@ scripts/lanes/lane.sh heavy <owner> -- sh -c 'CARGO_TARGET_DIR=/tmp/<x> bun run 
   source); copy it out of the shared cargo target before the run. The
   repo-backed views (`source-control`, `files`) read a fixture repo the run
   builds at `/Users/Shared/Exponential/shots` unless `--repos-root` is given.
+- **Linux captures** (eUI conformance pixels, eDE under Xvfb, any by-hand
+  shot): only `scripts/lanes/capture.sh <display> <out> [<WxH>]` (#EXP-2022),
+  which refuses `:0`, `wayland-*` and the inherited display, captures a
+  private Xvfb only and deletes a picture of the wrong size unviewed.
 
 ## Per-platform lanes
 

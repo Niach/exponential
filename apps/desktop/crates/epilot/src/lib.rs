@@ -23,6 +23,57 @@ mod tools;
 pub mod work_screen;
 pub mod visible;
 
+/// #ERR-29: every `log` record of a test binary (one logger per process):
+/// only an `error!` becomes a GlitchTip event, so the tests of a dead end
+/// look for one (here and in epilot-screen's).
+#[cfg(any(test, feature = "test-support"))]
+pub mod log_capture {
+    use std::sync::{Mutex, Once};
+    use std::thread::ThreadId;
+
+    static RECORDS: Mutex<Vec<(ThreadId, log::Level, String)>> = Mutex::new(Vec::new());
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            RECORDS.lock().unwrap_or_else(|e| e.into_inner()).push((std::thread::current().id(), record.level(), record.args().to_string()));
+        }
+
+        fn flush(&self) {}
+    }
+
+    pub fn start() {
+        static START: Once = Once::new();
+        START.call_once(|| {
+            let _ = log::set_logger(&Capture);
+            log::set_max_level(log::LevelFilter::Trace);
+        });
+    }
+
+    /// Every record so far, of every thread (and test) of the binary.
+    pub fn records() -> Vec<(log::Level, String)> {
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, level, text)| (*level, text.clone())).collect()
+    }
+
+    /// Whether THIS thread logged an error with exactly this text (tests
+    /// run as threads of one binary: another test's record never counts).
+    pub fn error_logged(message: &str) -> bool {
+        let here = std::thread::current().id();
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(thread, level, text)| *thread == here && *level == log::Level::Error && text == message)
+    }
+
+    /// [`error_logged`] for an error another thread logs (a reader, a lock
+    /// thread): any thread's, so its text must be the test's alone.
+    pub fn error_logged_anywhere(message: &str) -> bool {
+        records().iter().any(|(level, text)| *level == log::Level::Error && text == message)
+    }
+}
+
 use std::sync::{Arc, OnceLock};
 
 pub use server::SERVER_NAME;

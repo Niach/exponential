@@ -24,7 +24,9 @@ pub struct TeamChat {
     pub session_id: Option<String>,
 }
 
-/// What the chat reads off the account's store.
+/// What the chat reads off the account's store (#EDE-141: held by
+/// [`crate::chat_rows::ChatRows`], moved by the sync's deltas).
+#[derive(Clone)]
 pub struct TeamRows {
     pub account: AccountRows,
     pub messages: Vec<MessageRow>,

@@ -357,7 +357,7 @@ fn run(
             .add_local_listener_with_user_data(slot.clone())
             .state_changed(move |_, slot, _old, new| {
                 if let StreamState::Error(reason) = &new {
-                    log::warn!("[screen] screen stream {} failed: {reason}", index + 1);
+                    crate::capture::stream_failed(index + 1, reason);
                 }
                 slot.borrow_mut().ended = matches!(new, StreamState::Error(_) | StreamState::Unconnected);
             })

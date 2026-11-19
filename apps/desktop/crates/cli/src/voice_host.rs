@@ -21,10 +21,11 @@
 //! (`Call`, remote) to the caller's stream; every `Said` goes into the
 //! member's conversation with the agent (`sessions.send`, sealed with the
 //! conversation's key); the agent's replies (the daemon's synced messages)
-//! are spoken (`Speak`) and stream back (`SpeechAudio`). The flow events
-//! (`rang`, `ready`, `noSound`, `partial`, `said`, `queued`, `replyStarted`,
-//! `replyFinished`, `speechStarted`, `failed`) step `etalk::call`'s machine
-//! here and go to the caller as the IDE's do.
+//! are spoken (`Speak`) and stream back (`SpeechAudio`). #EXP-1992: the call
+//! itself runs on `etalk::call::host` (`hostCases`), the desktop app's call
+//! host too: this file hands it the worker's, the link's and the server's
+//! events and does what it answers; the rings, the probe, the idle exit, the
+//! reply watch's reads and the network are this daemon's.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -33,8 +34,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use coding::device_doctor::SpeechState;
-use etalk::call::{call_ring_ms, call_ring_random, call_step, call_wire_event, CallEvent, CallPhase, CallState, VOICE_CALL};
-use etalk::voice::{VoiceContext, VoiceMessage, VOICE};
+use etalk::call::host::{CallHost, HostEffect, HostInput, HostStart};
+use etalk::call::{call_ring_random, VOICE_CALL};
+use etalk::voice::{reply_to_speak, VoiceContext, VoiceMessage};
 
 /// Crashes in a row before the voice is given up (the desktop's rule).
 const MAX_CRASHES: u32 = 3;
@@ -42,8 +44,6 @@ const MAX_CRASHES: u32 = 3;
 const AGENTS_EVERY: Duration = Duration::from_secs(60);
 /// The loop's tick (timers, the reply poll).
 const TICK: Duration = Duration::from_millis(100);
-/// The mic check listens at least this long after `CallListening`.
-const MIC_CHECK_MIN: Duration = Duration::from_millis(1500);
 /// The probe's call: it only fetches and loads the recognizer.
 const PROBE_CALL: &str = "probe";
 /// How often a running call looks for the agent's reply.
@@ -229,46 +229,15 @@ fn speech_row(hosting: bool, download: &Download, voices: Option<&[String]>) -> 
     Some(if voices?.is_empty() { SpeechState::NoGpu } else { SpeechState::Ready })
 }
 
-/// The running call.
+/// The running call: the call host and this daemon's share of it.
 struct Call {
     call_id: String,
-    /// The worker's call id.
-    id: String,
     agent: HostedAgent,
     link: Box<dyn Link>,
     language: String,
-    /// #EXP-1941: the worker's call started (at `Ready`, never before: a
-    /// sealed caller is on the line only once its first frame opened).
-    listening: bool,
+    /// #EXP-1992: the call itself (the worker's call id is its `id`).
+    host: CallHost,
     root: Option<String>,
-    /// #EXP-1961: the call's own session (see [`Answered::session`]).
-    session: Option<String>,
-    /// #EXP-1981: a sealed call's session is being asked (since its root
-    /// came): `ready` waits for it as for a known one, nothing is spoken.
-    session_pending: bool,
-    /// #EXP-1981: utterances said while it was asked (a pickup that could
-    /// wait no longer): sent once it answered, where its replies are read.
-    held: Vec<String>,
-    /// #EXP-1961: the voice is in (`CallListening`); `ready` waits for the
-    /// agent's opening line (`call_opening`).
-    voice_ready_at: Option<Instant>,
-    /// #EXP-1961: the opening line (its row id, spoken text) and when it came.
-    opening: Option<(Instant, String, String)>,
-    /// #EXP-1961: the pickup was silent: a late opening is never spoken.
-    late_opening_dropped: bool,
-    /// #EXP-1961: an utterance went out (a later reply is no opening).
-    sent: bool,
-    state: CallState,
-    started: Instant,
-    ring: Duration,
-    rang: bool,
-    listening_at: Option<Instant>,
-    heard: bool,
-    mic_checked: bool,
-    greeting_id: String,
-    /// The reply (or greeting) being spoken.
-    speaking: Option<String>,
-    queued: usize,
     /// Rows already looked at, and the instant older ones are history.
     seen: HashSet<String>,
     armed_at: String,
@@ -380,7 +349,7 @@ impl Host {
                 log::info!("[voice] call {call_id}: not answered here");
                 self.answering.take_if(|answering| *answering == call_id);
             }
-            Input::Root { call_id, root } => self.on_root(&call_id, root),
+            Input::Root { call_id, root } => self.on_root(&call_id, root, now),
             Input::Session { call_id, session } => self.on_session(&call_id, session, now),
             Input::Worker(event) => self.on_worker(event, now),
             Input::Link { call_id, event } => self.on_link(&call_id, event, now),
@@ -393,7 +362,7 @@ impl Host {
                 if let Some((refused, _)) = self.refusing.take() {
                     refused.link.end();
                 }
-                self.fail("dropped", now);
+                self.call_input(HostInput::Fail { code: "dropped".into() }, now);
                 self.speech.shutdown();
                 self.up = false;
             }
@@ -412,7 +381,7 @@ impl Host {
         }
         self.agents = agents;
         if !self.hosting() {
-            self.fail("unavailable", now);
+            self.call_input(HostInput::Fail { code: "unavailable".into() }, now);
             self.speech.shutdown();
             self.up = false;
             self.probed = false;
@@ -477,7 +446,7 @@ impl Host {
     /// #EXP-1941: the root a sealed call adopted, before anything is said.
     /// #EXP-1981: from here on the chat exists (a first call's too): the
     /// call's own session is asked as a clear call asks it at the answer.
-    fn on_root(&mut self, call_id: &str, root: String) {
+    fn on_root(&mut self, call_id: &str, root: String, now: Instant) {
         if self.call.is_none() && self.answering.as_deref() == Some(call_id) {
             // Adopted before the answer was in: the call takes it then.
             self.early_root = Some((call_id.to_string(), root));
@@ -487,14 +456,16 @@ impl Host {
             return;
         }
         let (seen, armed_at) = self.history(&root);
+        let at = self.ms(now);
         let Some(call) = self.call.as_mut() else { return };
         call.seen.extend(seen);
         if let Some(armed_at) = armed_at {
             call.armed_at = armed_at;
         }
         call.root = Some(root);
-        if call.session.is_none() && !call.session_pending {
-            call.session_pending = true;
+        if call.host.session().is_none() && !call.host.session_pending() {
+            // Nothing to do yet: the answer comes as `Input::Session`.
+            let _ = call.host.handle(HostInput::SessionAsked, at);
             let (call_id, agent_id) = (call.call_id.clone(), call.agent.id.clone());
             self.net.ask_call_session(call_id, agent_id);
         }
@@ -506,31 +477,26 @@ impl Host {
     /// ended meanwhile tells its session the hang-up.
     fn on_session(&mut self, call_id: &str, session: Option<String>, now: Instant) {
         if !self.call.as_ref().is_some_and(|call| call.call_id == call_id) {
-            if let Some(session) = session {
-                log::info!("[voice] call {call_id}: its session {session} came after the hang-up");
-                self.net.call_ended(session);
+            for effect in CallHost::session_after_end(call_id, session) {
+                if let HostEffect::CallEnded { session } = effect {
+                    self.net.call_ended(session);
+                }
             }
             return;
         }
-        let history = session.as_deref().map(|session| self.history(session));
-        let Some(call) = self.call.as_mut().filter(|call| call.session_pending) else { return };
-        call.session_pending = false;
-        match (session, history) {
-            (Some(session), Some((seen, armed_at))) => {
-                log::info!("[voice] call {call_id}: sealed, in its own session {session}");
+        if !self.call.as_ref().is_some_and(|call| call.host.session_pending()) {
+            return;
+        }
+        if let Some((seen, armed_at)) = session.as_deref().map(|session| self.history(session)) {
+            if let Some(call) = self.call.as_mut() {
                 call.seen.extend(seen);
                 if let Some(armed_at) = armed_at {
                     call.armed_at = armed_at;
                 }
-                call.session = Some(session);
             }
-            _ => call.late_opening_dropped = false,
         }
         // What was said meanwhile goes where its answer is read.
-        for text in std::mem::take(&mut call.held) {
-            self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), call.session.clone(), text);
-        }
-        self.opening_due(now);
+        self.call_input(HostInput::Session { session }, now);
     }
 
     /// #EXP-1982: a ring joined only to fail it: nothing warms up or
@@ -565,8 +531,7 @@ impl Host {
     /// #EXP-1982: an utterance that can never be stored ends the call.
     fn on_unstored(&mut self, call_id: &str, now: Instant) {
         if self.call.as_ref().is_some_and(|call| call.call_id == call_id) {
-            log::warn!("[voice] call {call_id}: an utterance could not be stored in the encrypted chat: the call ends");
-            self.fail("dropped", now);
+            self.call_input(HostInput::Unstorable, now);
         }
     }
 
@@ -587,104 +552,68 @@ impl Host {
         self.up = true;
         self.speech.prepare(etalk::VoiceChoice { language: language.clone(), ..answered.voice });
         let (seen, armed_at) = answered.session.as_deref().or(answered.root.as_deref()).map(|root| self.history(root)).unwrap_or_default();
-        let state = call_step(&CallState::default(), &CallEvent::Start { device: String::new(), language: Some(language.clone()), fallback: false });
+        // FEED-276: its clip was fetched before the answer (`clip_file`): the voice is in.
+        let host = CallHost::new(HostStart {
+            id,
+            call_id: Some(answered.call_id.clone()),
+            language: language.clone(),
+            remote: true,
+            random: call_ring_random(),
+            device: String::new(),
+            fallback: false,
+            session: answered.session,
+            voice: etalk::call::CallVoice::None,
+        });
         log::info!("[voice] call {}: answered for agent {} ({language})", answered.call_id, answered.agent.id);
         self.call = Some(Call {
             call_id: answered.call_id,
-            greeting_id: format!("{id}-greeting"),
-            id,
             agent: answered.agent,
             link: answered.link,
             language,
-            listening: false,
+            host,
             root: answered.root,
-            session: answered.session,
-            session_pending: false,
-            held: Vec::new(),
-            voice_ready_at: None,
-            opening: None,
-            late_opening_dropped: false,
-            sent: false,
-            state,
-            started: now,
-            ring: Duration::from_millis(call_ring_ms(call_ring_random())),
-            rang: false,
-            listening_at: None,
-            heard: false,
-            mic_checked: false,
-            speaking: None,
-            queued: 0,
             seen,
             armed_at: armed_at.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string()),
             polled: now,
         });
         self.last_used = now;
         if let Some((call_id, root)) = self.early_root.take() {
-            self.on_root(&call_id, root);
+            self.on_root(&call_id, root, now);
         }
     }
 
-    /// One flow step: the caller hears it, the machine follows; rang and
-    /// ready answered = Listening (#EXP-1966), then the opening or silence.
-    fn step(&mut self, event: CallEvent) {
+    /// #EXP-1992: one input to the running call's host, and what it answers.
+    fn call_input(&mut self, input: HostInput, now: Instant) {
+        let at = self.ms(now);
         let Some(call) = self.call.as_mut() else { return };
-        if let Some(wire) = call_wire_event(&event) {
-            call.link.send_event(wire);
-        }
-        let before = call.state.phase;
-        call.state = call_step(&call.state, &event);
-        call.state.toast = None;
-        if before == CallPhase::Ringing && call.state.phase == CallPhase::Listening {
-            // #EXP-1961 (#FEED-275): the agent's own opening line, or silence
-            // (no fixed greeting any more, a call without its session too).
-            match call.opening.clone() {
-                Some((_, id, spoken)) if call.session.is_some() => {
-                    call.greeting_id = id.clone();
-                    call.speaking = Some(id.clone());
-                    self.speech.speak(&id, &spoken);
-                    self.step(CallEvent::ReplyStarted(etalk::voice::first_sentence(&spoken).to_string()));
-                }
-                _ => {
-                    call.late_opening_dropped = call.session.is_some() || call.session_pending;
-                    self.step(CallEvent::ReplyFinished);
-                }
-            }
-            return;
-        }
+        let effects = call.host.handle(input, at);
+        self.apply(effects, now);
     }
 
-    /// End the call on the worker (and the caller when `tell`), then step.
-    fn close(&mut self, tell: bool, event: CallEvent, now: Instant) {
+    /// What the call's host answered, done here in order: the worker, the
+    /// caller's link, the server. An ended call is gone.
+    fn apply(&mut self, effects: Vec<HostEffect>, now: Instant) {
         let Some(call) = self.call.as_ref() else { return };
-        self.speech.hangup(&call.id);
-        if call.speaking.is_some() {
-            self.speech.stop();
-        }
-        if tell {
-            call.link.end();
-        }
-        if let Some(session) = call.session.clone() {
-            self.net.call_ended(session);
-        }
-        // #EXP-1981: ended while its session was asked: what it held goes
-        // into the chat (the old path), never lost.
-        if let Some(call) = self.call.as_mut() {
-            for text in std::mem::take(&mut call.held) {
-                self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), None, text);
+        for effect in effects {
+            match effect {
+                HostEffect::Event { event } => call.link.send_event(event),
+                HostEffect::Flush => call.link.flush(),
+                HostEffect::Listen { id, language, .. } => self.speech.call(&id, &language),
+                HostEffect::Mute { id, muted } => self.speech.call_mute(&id, muted),
+                HostEffect::Speak { id, text } => self.speech.speak(&id, &text),
+                HostEffect::Stop => self.speech.stop(),
+                HostEffect::Hangup { id } => self.speech.hangup(&id),
+                HostEffect::End => call.link.end(),
+                HostEffect::Send { text, session } => self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text),
+                HostEffect::CallEnded { session } => self.net.call_ended(session),
+                // A server has no screen: the caller got the code.
+                HostEffect::Toast { .. } => {}
             }
         }
-        self.step(event);
-        log::info!("[voice] call {}: ended", call_id(&self.call));
-        self.call = None;
-        self.last_used = now;
-    }
-
-    /// Fail the call with `code` (the caller's toast), then hang up.
-    fn fail(&mut self, code: &str, now: Instant) {
-        let Some(call) = self.call.as_ref() else { return };
-        log::warn!("[voice] call {}: failed {code}", call.call_id);
-        call.link.send_event(serde_json::json!({ "t": "failed", "code": code }));
-        self.close(true, CallEvent::Failed(code.to_string()), now);
+        if call.host.ended() {
+            self.call = None;
+            self.last_used = now;
+        }
     }
 
     fn on_link(&mut self, call_id: &str, event: steer::call_host::CallHostEvent, now: Instant) {
@@ -692,34 +621,27 @@ impl Host {
         if self.refusing.as_ref().is_some_and(|(refused, _)| refused.call_id == call_id) {
             return self.on_refusing_link(event);
         }
-        let Some(id) = self.call.as_ref().filter(|call| call.call_id == call_id).map(|call| call.id.clone()) else { return };
+        let Some(id) = self.call.as_ref().filter(|call| call.call_id == call_id).map(|call| call.host.id().to_string()) else { return };
         match event {
             CallHostEvent::Ready => {
                 log::info!("[voice] call {call_id}: the caller is on the line");
-                let Some(call) = self.call.as_mut().filter(|call| !call.listening) else { return };
-                call.listening = true;
-                call.started = now;
-                let language = call.language.clone();
-                self.speech.call(&id, &language);
+                self.call_input(HostInput::Begin, now);
             }
             CallHostEvent::Audio(pcm) => self.speech.call_audio(&id, &pcm),
             // Question 9: the worker knows where an utterance begins and ends.
             CallHostEvent::Lost { ms } => self.speech.call_lost(&id, ms),
-            CallHostEvent::Mute(muted) => {
-                self.speech.call_mute(&id, muted);
-                self.step(if muted { CallEvent::Mute } else { CallEvent::Unmute });
-            }
-            CallHostEvent::Ended { reason } => self.close(false, CallEvent::HungUp(reason), now),
+            CallHostEvent::Mute(muted) => self.call_input(HostInput::Mute { muted }, now),
+            CallHostEvent::Ended { reason } => self.call_input(HostInput::HungUp { reason }, now),
             CallHostEvent::Dropped(reason) => {
                 log::warn!("[voice] call {call_id}: the stream dropped: {reason}");
-                self.fail("dropped", now);
+                self.call_input(HostInput::Fail { code: "dropped".into() }, now);
             }
         }
     }
 
     fn on_worker(&mut self, event: etalk::Event, now: Instant) {
         let before = self.speech_state();
-        let current = self.call.as_ref().map(|call| call.id.clone());
+        let current = self.call.as_ref().map(|call| call.host.id().to_string());
         let call_owns = |id: &str| current.as_deref() == Some(id);
         match event {
             etalk::Event::Downloading { .. } => self.download = Download::Running,
@@ -742,10 +664,10 @@ impl Host {
                 // it is not "no GPU".
                 let failed = matches!(self.download, Download::Failed | Download::Slow) && voices.is_empty();
                 // EXP-1930: a call whose voice did not come up is unavailable,
-                // never a mute call.
+                // never a mute call (a server loads its voice for the call).
                 if voices.is_empty() && self.call.is_some() {
                     log::warn!("[voice] the voice did not load for the call");
-                    self.fail("unavailable", now);
+                    self.call_input(HostInput::Fail { code: "unavailable".into() }, now);
                 }
                 if !failed {
                     self.download = Download::Idle;
@@ -795,38 +717,17 @@ impl Host {
                 }
             }
             etalk::Event::CallListening { id } if call_owns(&id) => {
-                let mut holds = false;
-                if let Some(call) = self.call.as_mut() {
-                    call.listening_at = Some(now);
-                    // #EXP-1961: ready waits for the agent's opening (tick);
-                    // #EXP-1981: a sealed call's session still asked, too.
-                    if (call.session.is_some() || call.session_pending) && call.voice_ready_at.is_none() {
-                        call.voice_ready_at = Some(now);
-                        holds = true;
-                    }
-                }
-                if holds {
+                self.call_input(HostInput::Listening, now);
+                // #EXP-1961: `ready` waits for the agent's opening line;
+                // #EXP-1981: a sealed call's session still asked, too.
+                if self.call.as_ref().is_some_and(|call| call.host.awaits_opening()) {
                     self.watch_replies(now);
-                    self.opening_due(now);
-                } else {
-                    self.step(CallEvent::Ready);
                 }
             }
-            etalk::Event::Level { id, level, .. } if call_owns(&id) => {
-                if let Some(call) = self.call.as_mut() {
-                    if call.listening_at.is_some() && level >= VOICE_CALL.constants.no_sound_level {
-                        call.heard = true;
-                    }
-                }
-            }
-            etalk::Event::Partial { id, text } if call_owns(&id) => self.step(CallEvent::Partial(text)),
-            etalk::Event::SpeechStarted { id } if call_owns(&id) => {
-                if let Some(call) = self.call.as_ref() {
-                    call.link.flush();
-                }
-                self.step(CallEvent::SpeechStarted);
-            }
-            etalk::Event::Said { id, text } if call_owns(&id) => self.said(text),
+            etalk::Event::Level { id, level, .. } if call_owns(&id) => self.call_input(HostInput::Level { level }, now),
+            etalk::Event::Partial { id, text } if call_owns(&id) => self.call_input(HostInput::Partial { text }, now),
+            etalk::Event::SpeechStarted { id } if call_owns(&id) => self.call_input(HostInput::SpeechStarted, now),
+            etalk::Event::Said { id, text } if call_owns(&id) => self.call_input(HostInput::Said { text }, now),
             etalk::Event::SpeechAudio { pcm, rate, .. } => {
                 let Some(call) = self.call.as_ref() else { return };
                 if let Ok(samples) = etalk::decode_pcm(&pcm) {
@@ -837,24 +738,17 @@ impl Host {
                 if !stopped {
                     self.crashes = 0;
                 }
-                self.reply_done(&id);
+                self.call_input(HostInput::Spoken { id }, now);
             }
             etalk::Event::Failed { id, error } => {
                 log::warn!("[voice] not spoken: {error}");
-                // EXP-1930: a greeting that cannot be spoken: nothing will be.
-                if self.call.as_ref().is_some_and(|call| call.greeting_id == id) {
-                    return self.fail("unavailable", now);
-                }
-                self.reply_done(&id);
+                // EXP-1930: an opening line that cannot be spoken fails the call.
+                self.call_input(HostInput::NotSpoken { id }, now);
             }
             etalk::Event::ListenFailed { reason: etalk::ListenFailure::Downloading, .. } => {}
             etalk::Event::ListenFailed { id, reason, detail } if call_owns(&id) => {
                 log::warn!("[voice] the call could not listen: {detail}");
-                let code = match reason {
-                    etalk::ListenFailure::Unavailable => "unavailable",
-                    _ => "dropped",
-                };
-                self.fail(code, now);
+                self.call_input(HostInput::ListenFailed { reason }, now);
             }
             etalk::Event::Exited { code, signal } => {
                 self.up = false;
@@ -868,7 +762,7 @@ impl Host {
                     } else {
                         log::warn!("[voice] the speech worker exited during a call");
                     }
-                    self.fail("dropped", now);
+                    self.call_input(HostInput::Fail { code: "dropped".into() }, now);
                 }
                 if self.download == Download::Running {
                     self.download = Download::Idle;
@@ -890,49 +784,8 @@ impl Host {
         }
     }
 
-    /// A reply (or the greeting) ended: the call listens again.
-    fn reply_done(&mut self, id: &str) {
-        let Some(call) = self.call.as_mut() else { return };
-        if call.speaking.as_deref() != Some(id) {
-            return;
-        }
-        call.speaking = None;
-        if call.state.phase == CallPhase::Speaking {
-            self.step(CallEvent::ReplyFinished);
-        }
-    }
-
-    /// A finished utterance: a plain message to the agent.
-    fn said(&mut self, text: String) {
-        let Some(call) = self.call.as_mut() else { return };
-        if text.trim().is_empty() {
-            return;
-        }
-        // Words during the ring are not the call's (EXP-1857).
-        if call.state.phase == CallPhase::Ringing {
-            log::info!("[voice] call {}: an utterance during the ring was dropped", call.call_id);
-            return;
-        }
-        let busy = matches!(call.state.phase, CallPhase::Thinking | CallPhase::Speaking);
-        if busy {
-            call.queued += 1;
-        }
-        call.sent = true;
-        let (call_id, agent, root, session, queued) = (call.call_id.clone(), call.agent.clone(), call.root.clone(), call.session.clone(), call.queued);
-        let pending = call.session_pending;
-        self.step(if busy { CallEvent::Queued { count: queued, text: text.clone() } } else { CallEvent::Said(text.clone()) });
-        if pending {
-            // #EXP-1981: its answer is read where the session says: held.
-            if let Some(call) = self.call.as_mut() {
-                call.held.push(text);
-            }
-            return;
-        }
-        self.net.send(call_id, agent, root, session, text);
-    }
-
-    /// The loop's tick: the ring, the give-up, the mic check, the reply
-    /// watch and the idle exit.
+    /// The loop's tick: the call's timers (the ring, the give-up, the mic
+    /// check, the opening wait), the reply watch and the idle exit.
     pub fn tick(&mut self, now: Instant) {
         if self.refusing.as_ref().is_some_and(|(_, until)| now >= *until) {
             if let Some((refused, _)) = self.refusing.take() {
@@ -945,85 +798,38 @@ impl Host {
             self.download = Download::Idle;
             self.probe(now);
         }
-        if self.call.is_none() {
+        let Some(call) = self.call.as_ref() else {
             if self.up && self.voices.is_some() && self.download != Download::Running && now.duration_since(self.last_used) >= self.idle_after {
                 log::info!("[voice] idle for {} s: the speech worker exits", self.idle_after.as_secs());
                 self.speech.shutdown();
                 self.up = false;
             }
             return;
-        }
-        let Some(call) = self.call.as_ref() else { return };
+        };
         // #EXP-1941: the ring's clock starts when the caller is on the line
         // (`Ready`). Before it nothing may leave: a `rang` stepped then would
         // never reach a sealing caller, which would ring for ever.
-        if !call.listening {
+        if !call.host.begun() {
             return;
         }
-        let elapsed = now.duration_since(call.started);
-        if !call.rang && elapsed >= call.ring {
-            if let Some(call) = self.call.as_mut() {
-                call.rang = true;
-            }
-            self.step(CallEvent::Rang);
-        }
-        let Some(call) = self.call.as_ref() else { return };
-        if call.state.phase == CallPhase::Ringing && !call.state.ready && elapsed >= Duration::from_millis(VOICE_CALL.constants.max_ring_ms) {
-            log::warn!("[voice] call {}: the voice was not ready after the longest ring", call.call_id);
-            return self.fail("unavailable", now);
-        }
-        if let Some(listening) = call.listening_at.filter(|_| !call.mic_checked) {
-            let until = (call.started + call.ring).max(listening + MIC_CHECK_MIN);
-            if now >= until {
-                let silent = !call.heard;
-                if let Some(call) = self.call.as_mut() {
-                    call.mic_checked = true;
-                }
-                if silent {
-                    self.step(CallEvent::NoSound);
-                }
-            }
-        }
+        self.call_input(HostInput::Tick, now);
         if self.call.as_ref().is_some_and(|call| now.duration_since(call.polled) >= REPLY_POLL) {
             self.watch_replies(now);
         }
-        self.opening_due(now);
         self.last_used = now;
     }
 
-    /// #EXP-1961 (`callSession.openingCases`): a held `ready` goes once the
-    /// opening line is in, or `openingWaitMs` after the voice was.
-    fn opening_due(&mut self, now: Instant) {
-        let Some(call) = self.call.as_ref() else { return };
-        if call.state.ready || call.state.phase != CallPhase::Ringing {
-            return;
-        }
-        let Some(ready) = call.voice_ready_at else { return };
-        // #EXP-1981: a held `ready` whose session did not come: the chat
-        // takes the call, at once (a pending one waits as for its opening).
-        if call.session.is_none() && !call.session_pending {
-            return self.step(CallEvent::Ready);
-        }
-        let ms = |at: Instant| at.duration_since(call.started).as_millis() as u64;
-        let opening = etalk::call::call_opening(Some(ms(ready)), call.opening.as_ref().map(|(at, _, _)| ms(*at)), ms(now));
-        if opening != etalk::call::CallOpening::Wait {
-            if opening == etalk::call::CallOpening::Listen {
-                log::info!("[voice] call {}: no opening line in time: picked up silently", call.call_id);
-            }
-            self.step(CallEvent::Ready);
-        }
-    }
-
-    /// The agent's newest new reply in the call's conversation is spoken.
+    /// The agent's newest new reply in the call's conversation goes to the
+    /// call's host (said, or during the ring its opening line).
     fn watch_replies(&mut self, now: Instant) {
         let Some(call) = self.call.as_mut() else { return };
         call.polled = now;
         // #EXP-1981: while its session is asked, the chat's rows are not the
         // call's (a first call's chat answering its own brief).
-        if call.session_pending {
+        if call.host.session_pending() {
             return;
         }
-        let Some(root) = call.session.clone().or_else(|| call.root.clone()) else { return };
+        let Some(root) = call.host.session().map(str::to_string).or_else(|| call.root.clone()) else { return };
         // EXP-1930: only the call's own rows, never the whole conversation.
         let rows = self.net.messages(&root, Some(&call.armed_at));
         let fresh: Vec<domain::rows::MessageRow> = rows.into_iter().filter(|row| call.seen.insert(row.id.clone())).collect();
@@ -1040,35 +846,8 @@ impl Host {
             armed_at: &call.armed_at,
             meeting: false,
         };
-        let Some(row) = fresh
-            .iter()
-            .filter(|row| etalk::voice::should_speak(&message(row), &context))
-            .max_by_key(|row| row.created_at.as_deref().and_then(etalk::voice::parse_instant).unwrap_or(0))
-        else {
-            return;
-        };
-        let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &call.language);
-        if spoken.is_empty() {
-            return;
-        }
-        let id = row.id.clone();
-        if call.session.is_some() && call.state.phase == CallPhase::Ringing {
-            // #EXP-1961: the opening line, said at the pickup (`opening_due`).
-            if call.opening.is_none() {
-                call.opening = Some((now, id, spoken));
-            }
-            return;
-        }
-        if std::mem::take(&mut call.late_opening_dropped) && !call.sent {
-            log::info!("[voice] call {}: the opening line came after the pickup: not spoken", call.call_id);
-            return;
-        }
-        call.late_opening_dropped = false;
-        self.speech.speak(&id, &spoken);
-        call.speaking = Some(id);
-        // The agent took the queued lines in with this turn.
-        call.queued = 0;
-        self.step(CallEvent::ReplyStarted(etalk::voice::first_sentence(&spoken).to_string()));
+        let Some((id, text)) = reply_to_speak(fresh.iter().map(|row| (row.id.as_str(), message(row))), &context) else { return };
+        self.call_input(HostInput::Reply { id, text }, now);
     }
 }
 
@@ -1082,10 +861,6 @@ fn message(row: &domain::rows::MessageRow) -> VoiceMessage<'_> {
         session_id: Some(row.session_id.as_str()),
         created_at: row.created_at.as_deref(),
     }
-}
-
-fn call_id(call: &Option<Call>) -> &str {
-    call.as_ref().map_or("", |call| call.call_id.as_str())
 }
 
 // ---------------------------------------------------------------------------
@@ -2181,6 +1956,24 @@ mod tests {
         rig.rows.lock().unwrap().push(call_row("r2", "Noch etwas?", "2099-01-01T00:00:01Z"));
         rig.advance(REPLY_POLL);
         assert_eq!(rig.speech.take(), ["speak r2 Noch etwas?"]);
+    }
+
+    /// #EXP-1992 (#EXP-1936): a reply that lands while a call without its
+    /// own session still rings is not the call's: never said into the ring,
+    /// nor after the pickup (it was said here before).
+    #[test]
+    fn a_reply_during_the_ring_is_not_the_calls() {
+        let mut rig = Rig::ready();
+        rig.answered();
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        rig.speech.take();
+        rig.link.take();
+        rig.rows.lock().unwrap().push(row("r1", "agent", "The answer to what you typed. More.", "2099-01-01T00:00:00Z"));
+        rig.advance(REPLY_POLL);
+        assert!(rig.speech.take().iter().all(|line| !line.starts_with("speak")), "never said into the ring");
+        assert!(rig.link.take().is_empty(), "no replyStarted while it rings");
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
+        assert!(rig.speech.take().iter().all(|line| !line.starts_with("speak")), "nor after the pickup");
     }
 
     #[test]

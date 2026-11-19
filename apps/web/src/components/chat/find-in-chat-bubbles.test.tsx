@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { findInChatStops } from "@exp/domain-contract/find-in-chat"
 import type { SessionChatRow } from "@exp/domain-contract/session-tree"
 import { ChatConversation, TooltipProvider } from "@exp/ui"
-import { chatScreenFindRows, wrapFindRow } from "@/components/agent-session"
+import { chatScreenFindRows, widenedIds, wrapFindRow } from "@/components/agent-session"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { FindPaintContext, FindRow, type FindPaint } from "@/components/chat/find-in-chat"
 import type { FeedItem } from "@/lib/steer-session-store"
@@ -116,5 +116,16 @@ describe(`#EXP-1975 the bubbles paint their marks`, () => {
   it(`no query = no marks`, () => {
     const { container } = draw(null)
     expect(highlightOf(container, `Keep the cache`)).toBe(``)
+  })
+})
+
+// #EXP-1998: landing on an older synced message widens the drawn messages.
+describe(`widenedIds`, () => {
+  const all = [`m1`, `m2`, `m3`, `m4`, `m5`]
+  it(`draws the newest max`, () => expect([...widenedIds(all, 2, null)]).toEqual([`m4`, `m5`]))
+  it(`widens back to an older message`, () => expect([...widenedIds(all, 2, `m2`)]).toEqual([`m2`, `m3`, `m4`, `m5`]))
+  it(`a shown or unknown one keeps the cap`, () => {
+    expect([...widenedIds(all, 2, `m5`)]).toEqual([`m4`, `m5`])
+    expect([...widenedIds(all, 2, `x`)]).toEqual([`m4`, `m5`])
   })
 })

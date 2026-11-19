@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.exponential.app.BuildConfig
 import com.exponential.app.data.api.STEER_CLIENT
+import com.exponential.app.data.api.StartCallResult
 import com.exponential.app.data.api.VoiceApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.SessionsApi
@@ -31,14 +32,10 @@ import io.ktor.websocket.readText
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,12 +47,6 @@ import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
 
 /**
  * NEW-69 (voice V5): THE phone's call — one at a time, app-wide, so it
@@ -86,6 +77,10 @@ import kotlinx.serialization.json.put
  * `CallSeal`, which exists only after the host's tag opened. Every seal
  * failure reads "The call dropped"; a code about this phone's own device is
  * never taken from the wire.
+ *
+ * #EXP-1993: all of that is [VoiceCallDriver] (on [VoiceCall.Caller],
+ * voice-call.json `caller`, replayed with iOS's); this class is its Android
+ * glue: the grant, [VoiceCallAudio], [VoiceCallService], ktor, the toast.
  */
 @Singleton
 class VoiceCallController @Inject constructor(
@@ -126,47 +121,35 @@ class VoiceCallController @Inject constructor(
     private val _level = MutableStateFlow(0f)
     val level: StateFlow<Float> = _level.asStateFlow()
 
-    /** One running call; every callback checks it is still [current]. */
-    private inner class Run(val agentId: String, val accountId: String?) {
-        var job: Job? = null
-        /** S-3: fails a ring that outlasts `maxRingMs`. */
-        var ringJob: Job? = null
-        var session: DefaultClientWebSocketSession? = null
-        var audio: VoiceCallAudio? = null
-        /** call_end / error arrived, or End call was pressed: a close is no drop. */
-        @Volatile var settled = false
-        /** EXP-1929: the relay beats (`call_alive`), and when it last sent anything. */
-        @Volatile var alive = false
-        @Volatile var heardAt = SystemClock.elapsedRealtime()
-        var liveJob: Job? = null
-        /** #EXP-1941: the sealed line of a call the server marked sealed, else null (today's wire). */
-        @Volatile var line: CallSealLine? = null
-    }
+    /** Who calls, set by [start] / [permissionDenied] for the hold and the ticket. */
+    private class Calling(val agentName: String, val accountId: String?, val denied: Boolean = false)
 
-    @Volatile private var current: Run? = null
+    @Volatile private var calling: Calling? = null
+    /** The call's audio: made by the hold (the ring and the routing first), released by every end. */
+    @Volatile private var audio: VoiceCallAudio? = null
+
+    /** #EXP-1993: WHAT happens is [VoiceCallDriver] on [VoiceCall.Caller]; this class is its Android glue. */
+    private val driver = VoiceCallDriver(AndroidCallPlatform(), scope).also { it.onState = ::stepped }
 
     init {
         // A call belongs to the account that started it: sign-out or an
         // account switch ends it.
         scope.launch {
             auth.activeAccountId.collect { id ->
-                val run = current ?: return@collect
-                if (run.accountId != id) end()
+                if (driver.caller.stage != VoiceCall.Caller.Stage.Idle && calling?.accountId != id) end()
             }
         }
     }
 
-    private fun step(event: VoiceCall.Event) {
-        val ui = _ui.updateAndGet { ui ->
-            val next = VoiceCall.callStep(ui.state, event)
-            val answeredAt = when (next.phase) {
+    /** Every state the driver steps to: the surface's, with the timer's zero. */
+    private fun stepped(state: VoiceCall.Caller.State) {
+        _ui.update { ui ->
+            val answeredAt = when (state.call.phase) {
                 VoiceCall.Phase.Hidden, VoiceCall.Phase.Ringing -> null
                 else -> ui.answeredAt ?: SystemClock.elapsedRealtime()
             }
-            ui.copy(state = next, toast = next.toast ?: ui.toast, answeredAt = answeredAt)
+            ui.copy(state = state.call, answeredAt = answeredAt)
         }
-        // The ringback lasts while the call rings (answered, ended or failed stops it).
-        if (ui.state.phase != VoiceCall.Phase.Ringing) current?.audio?.stopRing()
     }
 
     fun consumeToast() {
@@ -178,9 +161,9 @@ class VoiceCallController @Inject constructor(
 
     /** The RECORD_AUDIO request was refused: the call ends at once (`not_granted`). */
     fun permissionDenied(device: String, language: String? = null) {
-        if (current != null) return
-        step(VoiceCall.Event.Start(device, language))
-        step(VoiceCall.Event.Failed("not_granted"))
+        if (driver.caller.stage != VoiceCall.Caller.Stage.Idle) return
+        calling = Calling(agentName = "", accountId = auth.activeAccountId.value, denied = true)
+        driver.start("", device, language, fallback = false)
     }
 
     /**
@@ -198,52 +181,15 @@ class VoiceCallController @Inject constructor(
         agentColor: String? = null,
         fallback: Boolean = false,
     ) {
-        if (current != null || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
+        if (driver.caller.stage != VoiceCall.Caller.Stage.Idle || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
         // A new call always opens full screen.
         _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null, minimized = false, tab = VoiceCall.Tabs.INITIAL, agentId = agentId) }
-        step(VoiceCall.Event.Start(device, language, fallback))
-        if (!hasMicPermission()) return step(VoiceCall.Event.Failed("not_granted"))
-        // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
-        if (!VoiceCallAudio.isSupported(context)) return step(VoiceCall.Event.Failed("no_microphone"))
-        val run = Run(agentId, auth.activeAccountId.value)
-        current = run
-        // S-3: the caller rings at once, on the call's own routing (focus
-        // refused = another call holds the audio = dropped).
-        val audio = newAudio(run)
-        run.audio = audio
-        audio.speaker = _ui.value.state.speaker
-        if (!audio.prepare()) return fail(run, "dropped")
-        // #EXP-1942: the microphone service is held from the tap, the one
-        // moment the app is surely in front, so the host may answer while
-        // another app is. A start Android refuses fails the call (#EXP-1940).
-        val begun = beginCall(
-            hold = {
-                VoiceCallService.start(context, VoiceCall.Copy.call(agentName)) {
-                    scope.launch { if (current === run) fail(run, "dropped") }
-                }
-            },
-            ring = audio::ring,
-            dial = { run.job = scope.launch { connect(run) } },
-        )
-        if (!begun) return fail(run, "dropped")
-        scope.launch { pumpLevel(run) }
-        run.ringJob = scope.launch { ringTimeout(run) }
-    }
-
-    /** A voice still not ready after `maxRingMs` fails the call `unavailable`. */
-    private suspend fun ringTimeout(run: Run) {
-        delay(VoiceCall.Constants.MAX_RING_MS.toLong())
-        if (current === run && _ui.value.state.phase == VoiceCall.Phase.Ringing) fail(run, "unavailable")
+        calling = Calling(agentName, auth.activeAccountId.value)
+        driver.start(agentId, device, language, fallback)
     }
 
     /** End call: `call_end` to the relay, then close. */
-    fun end() {
-        val run = current ?: return step(VoiceCall.Event.End)
-        run.settled = true
-        run.session?.outgoing?.trySend(Frame.Text(controlFrame("call_end")))
-        step(VoiceCall.Event.End)
-        finish(run)
-    }
+    fun end() = driver.end()
 
     /** EXP-1681: Minimize (the chevron, back): the screen goes, the floating pill shows, the call goes on. */
     fun minimize() {
@@ -277,180 +223,176 @@ class VoiceCallController @Inject constructor(
     }
 
     /** Mute / unmute: the uplink carries silence (the relay's idle keep-alive), replies still play. */
-    fun toggleMute() {
-        val run = current ?: return
-        val muted = !_ui.value.state.muted
-        run.audio?.muted = muted
-        // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
-        if (run.line == null) run.session?.outgoing?.trySend(Frame.Text(controlFrame("call_mute") { put("muted", muted) }))
-        step(if (muted) VoiceCall.Event.Mute else VoiceCall.Event.Unmute)
-    }
+    fun toggleMute() = driver.toggleMute()
 
     /** S-3: the loudspeaker vs the earpiece, device-local (the host never hears of it). */
-    fun toggleSpeaker() {
-        val on = !_ui.value.state.speaker
-        current?.audio?.speaker = on
-        step(VoiceCall.Event.Speaker(on))
+    fun toggleSpeaker() = driver.toggleSpeaker()
+
+    /** [VoiceCallDriver]'s ports on Android. */
+    private inner class AndroidCallPlatform : CallPlatform {
+        override fun hold(speaker: Boolean, report: (code: String) -> Unit, answer: (ok: Boolean, code: String?) -> Unit) {
+            val call = calling ?: return answer(false, "dropped")
+            if (call.denied || !hasMicPermission()) return answer(false, "not_granted")
+            // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
+            if (!VoiceCallAudio.isSupported(context)) return answer(false, "no_microphone")
+            // S-3: the caller rings at once, on the call's own routing (focus
+            // refused = another call holds the audio = dropped).
+            val audio = VoiceCallAudio(
+                context = context,
+                // The capture thread's ONE gate: a sealed call's frame leaves only through the sealer.
+                onUplink = driver::uplink,
+                onFailure = { code -> scope.launch { report(code) } },
+            )
+            this@VoiceCallController.audio = audio
+            audio.speaker = speaker
+            if (!audio.prepare()) return answer(false, "dropped")
+            // #EXP-1942: the microphone service is held from the tap, the one
+            // moment the app is surely in front, so the host may answer while
+            // another app is. A start Android refuses fails the call (#EXP-1940).
+            if (!VoiceCallService.start(context, VoiceCall.Copy.call(call.agentName)) { scope.launch { report("dropped") } }) {
+                return answer(false, "dropped")
+            }
+            scope.launch { pumpLevel(audio) }
+            answer(true, null)
+        }
+
+        override fun ring() {
+            audio?.ring()
+        }
+
+        override fun stopRing() {
+            audio?.stopRing()
+        }
+
+        override fun setSpeaker(on: Boolean) {
+            audio?.speaker = on
+        }
+
+        override fun setMuted(muted: Boolean) {
+            audio?.muted = muted
+        }
+
+        override fun flush() {
+            audio?.flushPlayback()
+        }
+
+        override fun startAudio(muted: Boolean, speaker: Boolean) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+            // The pair is up; the flow keeps ringing until the host's `rang` +
+            // `ready` answer it. The microphone opens now (the host's mic check
+            // reads its level during the ring), under the microphone service
+            // held since the tap (#EXP-1942), whichever app is in front.
+            val audio = audio ?: return
+            audio.speaker = speaker
+            audio.muted = muted
+            audio.sending = true
+            audio.start()
+        }
+
+        override fun play(packet: ByteArray) {
+            audio?.pushDownlink(packet)
+        }
+
+        override fun toast(text: String) {
+            _ui.update { it.copy(toast = text) }
+        }
+
+        override fun release() {
+            audio?.release()
+            audio = null
+            _level.value = 0f
+            VoiceCallService.stop()
+        }
+
+        override suspend fun keysReady(): Boolean = keys()?.ready() ?: false
+
+        override suspend fun keyTarget(agentId: String): CallKeyTarget = keys()?.target(agentId) ?: CallKeyTarget(null, null)
+
+        override suspend fun startCall(agentId: String, seal: Boolean): StartCallResult {
+            val accountId = calling?.accountId ?: error("no account")
+            return voiceApi.startCall(accountId, agentId, seal = seal)
+        }
+
+        override fun refusal(error: Throwable): String = trpcErrorMessage(error, VoiceCall.Copy.Failed.DROPPED)
+
+        override suspend fun dial(url: String, wanted: () -> Boolean): CallSocket? =
+            dialCall({ client.webSocketSession(urlString = dialUrl(url)) }, wanted) { it.close() }?.let { KtorCallSocket(it) }
+
+        override fun makeSeal(ticket: StartCallResult, agentId: String, target: CallKeyTarget, socket: CallSocket, end: (String) -> Unit, fail: (String) -> Unit): CallSeal? {
+            val keys = keys() ?: return null
+            val line = CallSealLine(
+                callId = ticket.callId, agentId = agentId, deviceId = ticket.deviceId ?: return null, keys = keys, target = target, scope = scope,
+                sendBinary = socket::sendBinary, end = end, fail = fail,
+            )
+            return object : CallSeal {
+                override fun ready() = line.ready()
+                override fun event(t: String?, data: String?): String? = line.event(t, data)
+                override fun frame(bytes: ByteArray): ByteArray? = line.frame(bytes)?.packet
+                override fun uplink(frame: ByteArray, muted: Boolean): ByteArray? = uplinkFrame(line, frame, muted)
+                override fun close() = line.close()
+            }
+        }
+
+        override fun after(ms: Long, body: () -> Unit): CallTimer {
+            val job = scope.launch {
+                delay(ms)
+                body()
+            }
+            return CallTimer { job.cancel() }
+        }
+
+        override fun every(ms: Long, body: () -> Unit): CallTimer {
+            val job = scope.launch {
+                while (isActive) {
+                    delay(ms)
+                    body()
+                }
+            }
+            return CallTimer { job.cancel() }
+        }
+
+        override fun nowMs(): Long = SystemClock.elapsedRealtime()
+
+        override fun log(message: String) {
+            Log.i(TAG, message)
+        }
     }
 
-    private suspend fun connect(run: Run) {
-        val accountId = run.accountId ?: return fail(run, "dropped")
-        val keys = callKeys(accountId)
-        var target = CallKeyTarget(null, null)
-        val ticket = try {
-            // A key holder still starting is waited for, then the caller claims.
-            val claim = runCatching { keys.ready() }.getOrDefault(false)
-            if (current !== run) return
-            coroutineScope {
-                val asked = async { if (claim) runCatching { keys.target(run.agentId) }.getOrDefault(target) else target }
-                voiceApi.startCall(accountId, run.agentId, seal = claim).also {
-                    target = asked.await()
-                    // Told sealed without the claim or the ids: no clear call instead.
-                    if (it.seal == true && (!claim || it.deviceId == null)) error("a sealed call this caller cannot seal")
-                }
-            }
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            // A refusal names its reason (the availability copy): toast it as-is.
-            if (current !== run) return
-            _ui.update { it.copy(state = VoiceCall.CALL_IDLE, toast = trpcErrorMessage(t, VoiceCall.Copy.Failed.DROPPED)) }
-            return finish(run)
+    /** One call's ktor WebSocket session. */
+    private inner class KtorCallSocket(private val session: DefaultClientWebSocketSession) : CallSocket {
+        override fun send(text: String) {
+            session.outgoing.trySend(Frame.Text(text))
         }
-        // EXP-1857: the server picked the target itself; its answer names it
-        // (an older server answers neither field: keep ours).
-        if (current === run && (ticket.device != null || ticket.fallback != null)) {
-            _ui.update { ui ->
-                if (ui.state.phase == VoiceCall.Phase.Hidden) {
-                    ui
-                } else {
-                    ui.copy(state = ui.state.copy(device = ticket.device ?: ui.state.device, fallback = ticket.fallback ?: ui.state.fallback))
-                }
-            }
+
+        override fun sendLast(text: String) {
+            send(text)
+            close()
         }
-        if (current !== run) return
-        val session = try {
-            dialCall({ client.webSocketSession(urlString = dialUrl(ticket.url)) }, { current === run }) { it.close() }
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            Log.w(TAG, "call dial failed: ${t.javaClass.simpleName}")
-            return fail(run, "dropped")
-        } ?: return
-        run.session = session
-        if (ticket.seal == true) {
-            run.line = try {
-                CallSealLine(
-                    callId = ticket.callId, agentId = run.agentId, deviceId = ticket.deviceId!!, keys = keys, target = target, scope = scope,
-                    sendBinary = { frame -> if (current === run) session.outgoing.trySend(Frame.Binary(true, frame)) },
-                    end = { reason -> session.outgoing.trySend(Frame.Text(controlFrame("call_end") { put("reason", reason) })) },
-                    fail = { code -> if (current === run) fail(run, code, tell = false) },
-                )
-            } catch (t: Throwable) {
-                return fail(run, "dropped")
-            }
+
+        override fun sendBinary(frame: ByteArray) {
+            session.outgoing.trySend(Frame.Binary(true, frame))
         }
-        run.heardAt = SystemClock.elapsedRealtime()
-        run.liveJob = scope.launch { watchLiveness(run) }
-        try {
+
+        override suspend fun receive(onText: (String) -> Unit, onBinary: (ByteArray) -> Unit, onOther: () -> Unit) {
             for (frame in session.incoming) {
-                if (current !== run) break
-                run.heardAt = SystemClock.elapsedRealtime()
                 when (frame) {
-                    is Frame.Text -> if (!onText(run, frame.readText())) break
-                    is Frame.Binary -> {
-                        val data = frame.readBytes()
-                        val line = run.line
-                        if (line != null) {
-                            // Opened here, in arrival order; a frame with no packet reaches no decoder.
-                            line.frame(data)?.packet?.takeIf { it.isNotEmpty() }?.let { run.audio?.pushDownlink(it) }
-                        } else if (data.size > 3 && data[0].toInt() == VoiceCall.Wire.KIND_DOWN) {
-                            run.audio?.pushDownlink(data.copyOfRange(3, data.size))
-                        }
-                    }
-                    else -> Unit
+                    is Frame.Text -> onText(frame.readText())
+                    is Frame.Binary -> onBinary(frame.readBytes())
+                    else -> onOther()
                 }
             }
-        } catch (t: Throwable) {
-            if (t is CancellationException && !run.settled) throw t
         }
-        // The socket closed or failed without call_end / error: dropped.
-        if (current === run && !run.settled) fail(run, "dropped") else if (current === run) finish(run)
-    }
 
-    /** EXP-1929: once the relay beat, a path that carries nothing for `idleTimeoutMs` is dead: dropped. */
-    private suspend fun watchLiveness(run: Run) {
-        while (current === run) {
-            delay(LIVENESS_TICK_MS)
-            if (current === run && VoiceCall.callPathDead(run.alive, SystemClock.elapsedRealtime() - run.heardAt)) {
-                Log.i(TAG, "call path went silent")
-                return fail(run, "dropped")
+        override fun close() {
+            scope.launch {
+                withContext(NonCancellable) { runCatching { session.close() } }
+                session.cancel()
             }
         }
     }
 
-    /** One control frame; false = the call is over (stop reading). */
-    private fun onText(run: Run, text: String): Boolean {
-        val msg = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return true
-        when (msg.str("t")) {
-            "call_ready" -> {
-                // S-3: the pair is up; the flow keeps ringing until the
-                // host's `rang` + `ready` answer it. The microphone opens
-                // now (the host's mic check reads its level during the ring),
-                // under the microphone service held since the tap
-                // (#EXP-1942), whichever app is in front.
-                startAudio(run)
-                run.line?.ready()
-            }
-            "call_event" -> {
-                val raw = msg["event"] as? JsonObject ?: return true
-                val line = run.line
-                if (line != null && raw.str("t") != "failed") {
-                    // A sealed call: the host's hello, or ONE control frame of today sealed; clear content ends it.
-                    val inner = line.event(raw.str("t"), raw.str("data")) ?: return current === run
-                    val opened = runCatching { Json.parseToJsonElement(inner).jsonObject }.getOrNull()
-                    if (opened?.str("t") != "call_event") return true
-                    return hostEvent(run, opened["event"] as? JsonObject ?: return true)
-                }
-                return hostEvent(run, raw)
-            }
-            "call_end" -> {
-                // hangUpRules: a reason drops the call with its toast, none ends it.
-                run.settled = true
-                step(VoiceCall.Event.HungUp(msg.str("reason")))
-                finish(run)
-                return false
-            }
-            "error" -> {
-                run.settled = true
-                fail(run, VoiceCall.Seal.wireCode(msg.str("code") ?: "dropped"))
-                return false
-            }
-            "call_alive" -> run.alive = true
-            // The room closed without a `call_end` first.
-            "bye" -> {
-                fail(run, VoiceCall.Seal.wireCode(msg.str("outcome") ?: "dropped"))
-                return false
-            }
-        }
-        return true
-    }
-
-    /** One flow event of the host (clear in today's call, opened in a sealed one); false = the call is over. */
-    private fun hostEvent(run: Run, raw: JsonObject): Boolean {
-        val event = VoiceCall.Event.of(raw) ?: return true
-        // Only the host's flow events; the call's own lifecycle stays local.
-        if (!event.isHostEvent) return true
-        // The host could not get the call ready: it fails the call
-        // with its code before its `call_end` (ignored: the run is over).
-        if (event is VoiceCall.Event.Failed) {
-            run.settled = true
-            step(VoiceCall.Event.Failed(VoiceCall.Seal.wireCode(event.code)))
-            finish(run)
-            return false
-        }
-        if (event == VoiceCall.Event.SpeechStarted) run.audio?.flushPlayback()
-        step(event)
-        return true
-    }
+    /** #EXP-1941: the chat's key of a sealed call, from this install's key holder for the caller's account. */
+    private fun keys(): CallKeySource? = calling?.accountId?.let(::callKeys)
 
     /** #EXP-1941: the chat's key of a sealed call, from this install's key holder for [accountId]. */
     private fun callKeys(accountId: String) = object : CallKeySource {
@@ -471,66 +413,12 @@ class VoiceCallController @Inject constructor(
         override fun highestEpoch(rootId: String): Int? = SealedKeys.of(rootId).keys.maxOrNull()
     }
 
-    private fun newAudio(run: Run) = VoiceCallAudio(
-        context = context,
-        // The capture thread's ONE gate: a sealed call's frame leaves only through the sealer.
-        onUplink = { frame ->
-            if (current === run) uplinkFrame(run.line, frame, _ui.value.state.muted)?.let { run.session?.outgoing?.trySend(Frame.Binary(true, it)) }
-        },
-        onFailure = { code -> scope.launch { if (current === run) fail(run, code) } },
-    )
-
-    private fun startAudio(run: Run) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val audio = run.audio ?: newAudio(run).also { run.audio = it }
-        audio.speaker = _ui.value.state.speaker
-        audio.muted = _ui.value.state.muted
-        audio.sending = true
-        try {
-            audio.start()
-        } catch (t: Throwable) {
-            Log.w(TAG, "call audio did not start", t)
-            fail(run, "dropped")
-        }
-    }
-
-    private fun fail(run: Run, code: String, tell: Boolean = true) {
-        if (current !== run) return
-        run.settled = true
-        // Tell the host, best-effort: the relay closes the room either way.
-        if (tell) run.session?.outgoing?.trySend(Frame.Text(controlFrame("call_end") { put("reason", "dropped") }))
-        step(VoiceCall.Event.Failed(code))
-        finish(run)
-    }
-
-    /** Release the run: audio, socket, the foreground service. */
-    private fun finish(run: Run) {
-        if (current !== run) return
-        current = null
-        run.line?.close()
-        run.line = null
-        run.audio?.release()
-        run.audio = null
-        _level.value = 0f
-        val session = run.session
-        run.session = null
-        scope.launch {
-            withContext(NonCancellable) { runCatching { session?.close() } }
-            session?.cancel()
-            run.job?.cancel()
-        }
-        run.ringJob?.cancel()
-        run.liveJob?.cancel()
-        VoiceCallService.stop()
-    }
-
-    /** The wave's level at ~30 fps while [run] lasts. */
-    private suspend fun pumpLevel(run: Run) {
-        while (scope.isActive && current === run) {
-            val audio = run.audio
+    /** The wave's level at ~30 fps while [audio] is the call's. */
+    private suspend fun pumpLevel(audio: VoiceCallAudio) {
+        while (scope.isActive && this.audio === audio) {
             _level.value = when (_ui.value.view?.activity) {
-                VoiceCall.Activity.Listening -> audio?.micLevel ?: 0f
-                VoiceCall.Activity.Speaking -> audio?.playLevel ?: 0f
+                VoiceCall.Activity.Listening -> audio.micLevel
+                VoiceCall.Activity.Speaking -> audio.playLevel
                 else -> 0f
             }
             delay(LEVEL_TICK_MS)
@@ -547,14 +435,6 @@ class VoiceCallController @Inject constructor(
     private companion object {
         const val TAG = "VoiceCall"
         const val LEVEL_TICK_MS = 33L
-        const val LIVENESS_TICK_MS = 1_000L
-        fun controlFrame(t: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}): String =
-            buildJsonObject {
-                put("t", t)
-                extra()
-            }.toString()
-
-        fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
     }
 }
 
@@ -575,15 +455,3 @@ internal suspend fun <S : Any> dialCall(dial: suspend () -> S, wanted: () -> Boo
             null
         }
     }
-
-/**
- * #EXP-1942: a call's start, in order: the microphone service is held
- * BEFORE the call rings and dials; false = Android refused it, nothing rang
- * and nothing was dialled (the caller fails the call `dropped`).
- */
-internal fun beginCall(hold: () -> Boolean, ring: () -> Unit, dial: () -> Unit): Boolean {
-    if (!hold()) return false
-    ring()
-    dial()
-    return true
-}

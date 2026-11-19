@@ -167,6 +167,8 @@ WAYLAND_DISPLAY=wayland-1 xed        # or point a client at the socket it logs
 Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
+Photograph it only with `scripts/lanes/capture.sh :77 <out.png>` (#EXP-2022),
+which refuses the live display.
 
 ## Tier A: frames, the recovery screen, the restore hotkey (#EDE-16)
 
@@ -669,7 +671,8 @@ and keeps it for the process; a tool call is `input` (keysyms, so the
 compositor's layout decides the key) / `capture` / `list_windows`; its lock
 is `hold_input` on a connection of its own, so the IDE's banner and Esc
 work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
-cargo test -p epilot headless_ede` (in `apps/desktop`).
+cargo test -p epilot headless_ede` (in `apps/desktop`); the gate's `ede` job
+runs it on every PR that touches eDE or ePilot (#EDE-140).
 
 ## Apps (#EDE-20, #VAPP-273)
 
@@ -927,7 +930,11 @@ expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
 panel.json, rolled back`), unless another process undid or replaced it
 meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
-and what replaced it is an edit of its own; the shell dying counts as a crash, it restarts
+and what replaced it is an edit of its own. A rollback puts back what the
+shell last drew (after two quick edits, never the first one, which did not
+draw either) and touches that document alone: another document's edit in
+the same moment stays an edit of its own, and a broken text the file holds
+meanwhile is kept beside it as `.panel.json.refused`. The shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never
