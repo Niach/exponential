@@ -77,6 +77,14 @@ jobs:
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli
+      # #3024: the chat store (ChatStoreManagerTest) and the Engine facade
+      # load their host builds the same way (parity with release-suite.yml).
+      - name: Build the Engine facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p eengine-ffi --release --features cli
+      - name: Build the chat store facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p chat-store-ffi --release
 
       - name: Cache Gradle packages
         if: runner.environment == 'github-hosted'
