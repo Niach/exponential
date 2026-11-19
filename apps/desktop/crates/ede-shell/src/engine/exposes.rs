@@ -294,18 +294,37 @@ fn row_json(row: &eui_core::host::RecordRow) -> Value {
     json!({"id": row.id, "kind": row.kind, "data": row.data, "createdBy": row.created_by, "authorId": row.author_id, "createdAt": row.created_at, "updatedAt": row.updated_at})
 }
 
+/// The running apps' seats on the hub. #EDE-141: shared with the shell,
+/// which replaces them at every Engine boot and empties them at a
+/// shutdown: a chat that outlives an Engine (the same desktop picked
+/// again) reaches the running apps, never a shut-down instance, and holds
+/// none of its stores.
+pub type Seats = Arc<std::sync::RwLock<Vec<Arc<AppTools>>>>;
+
+pub fn seats(apps: Vec<Arc<AppTools>>) -> Seats {
+    Arc::new(std::sync::RwLock::new(apps))
+}
+
 /// Every running app's exposed tools on one provider.
 pub struct AppsProvider {
-    pub apps: Vec<Arc<AppTools>>,
+    pub apps: Seats,
     /// Exponential's own tools on this desktop (the noun subset), for `action` runs.
     pub exponential: Arc<dyn ToolProvider>,
+}
+
+impl AppsProvider {
+    /// The apps that run now.
+    fn seated(&self) -> Vec<Arc<AppTools>> {
+        self.apps.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
 }
 
 impl ToolProvider for AppsProvider {
     fn tools(&self) -> Result<Vec<Value>, String> {
         let mut out = Vec::new();
         let mut taken = std::collections::HashSet::new();
-        let mut apps: Vec<&Arc<AppTools>> = self.apps.iter().collect();
+        let seated = self.seated();
+        let mut apps: Vec<&Arc<AppTools>> = seated.iter().collect();
         apps.sort_by(|a, b| a.server.cmp(&b.server));
         for app in apps {
             for tool in app.tools_of() {
@@ -320,7 +339,7 @@ impl ToolProvider for AppsProvider {
     }
 
     fn call(&self, caller: &Caller, name: &str, arguments: Value) -> Value {
-        for app in &self.apps {
+        for app in &self.seated() {
             if let Some(expose) = app.expose(name) {
                 return app.call_tool(caller, &expose, &arguments, &self.exponential);
             }
@@ -417,7 +436,7 @@ mod tests {
     #[test]
     fn the_sample_lists_its_read_and_write_tools_with_provenance() {
         let (app, _) = app();
-        let provider = AppsProvider { apps: vec![app], exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) };
+        let provider = AppsProvider { apps: seats(vec![app]), exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) };
         let tools = provider.tools().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["at-exponential-notes__list_notes", "at-exponential-notes__find_notes", "at-exponential-notes__add_note"]);
@@ -430,7 +449,7 @@ mod tests {
     #[test]
     fn a_records_upsert_then_list_round_trip() {
         let (app, _) = app();
-        let provider = AppsProvider { apps: vec![app], exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) };
+        let provider = AppsProvider { apps: seats(vec![app]), exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) };
         let missing = provider.call(&caller(), "at-exponential-notes__add_note", json!({}));
         assert_eq!(missing["isError"], json!(true));
         assert!(missing["content"][0]["text"].as_str().unwrap().starts_with("invalidArguments: text is required"));
@@ -455,7 +474,7 @@ mod tests {
         let nouns = Arc::new(Nouns(Mutex::new(Vec::new())));
         let mut tools = AppTools { id: app.id.clone(), server: app.server.clone(), package: app.package.clone(), storage: app.storage.clone(), me: app.me.clone(), writes: app.writes.clone() };
         tools.package["exposes"].as_array_mut().unwrap().push(json!({"name": "open_issues", "title": "Open issues", "description": "The open issues.", "input": {"type": "object", "properties": {"q": {"type": "string"}}}, "access": "read", "run": {"action": "exponential_issues_list", "args": {"search": "${input.q}"}}}));
-        let provider = AppsProvider { apps: vec![Arc::new(tools)], exponential: nouns.clone() };
+        let provider = AppsProvider { apps: seats(vec![Arc::new(tools)]), exponential: nouns.clone() };
         let out = provider.call(&caller(), "at-exponential-notes__open_issues", json!({"q": "printer"}));
         assert_eq!(out["_meta"]["at.exponential/via"], json!("action"), "{out}");
         let calls = nouns.0.lock().unwrap();
@@ -463,10 +482,30 @@ mod tests {
         assert_eq!(calls[0].1, json!({"op": "list", "search": "printer"}));
     }
 
+    /// #EDE-141: the seats follow the Engine: after another boot the tools
+    /// reach the running app, and nothing holds the shut-down one's seat
+    /// (its record store's handle, its pump's sender).
+    #[test]
+    fn a_chat_that_outlives_an_engine_reaches_the_running_apps() {
+        let (first, _) = app();
+        let held = seats(vec![first.clone()]);
+        let provider = AppsProvider { apps: held.clone(), exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) };
+        let added = provider.call(&caller(), "at-exponential-notes__add_note", json!({"text": "On the first"}));
+        assert_eq!(added["structuredContent"]["created"], json!(true), "{added}");
+        // The Engine shuts down and boots again (a switcher pick).
+        held.write().unwrap().clear();
+        assert_eq!(provider.call(&caller(), "at-exponential-notes__list_notes", json!({}))["isError"], json!(true), "no app between the two");
+        let (second, _) = app();
+        *held.write().unwrap() = vec![second];
+        let listed = provider.call(&caller(), "at-exponential-notes__list_notes", json!({}));
+        assert_eq!(listed["structuredContent"]["count"], json!(0), "the running app's own records: {listed}");
+        assert_eq!(Arc::strong_count(&first), 1, "nothing holds the shut-down app's seat");
+    }
+
     #[test]
     fn several_providers_share_the_hub_seat() {
         let (app, _) = app();
-        let p = Providers(vec![Arc::new(crate::engine::shell_edit::ShellEdit::with(std::path::PathBuf::from("/tmp"), Arc::new(|_, _| false), Arc::new(|_, _, _| Ok(())))), Arc::new(AppsProvider { apps: vec![app], exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) })]);
+        let p = Providers(vec![Arc::new(crate::engine::shell_edit::ShellEdit::with(std::path::PathBuf::from("/tmp"), Arc::new(|_, _| false), Arc::new(|_, _, _| Ok(())))), Arc::new(AppsProvider { apps: seats(vec![app]), exponential: Arc::new(Nouns(Mutex::new(Vec::new()))) })]);
         let names: Vec<String> = p.tools().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
         assert_eq!(names, ["shell_edit", "at-exponential-notes__list_notes", "at-exponential-notes__find_notes", "at-exponential-notes__add_note"]);
         assert_eq!(p.call(&caller(), "at-exponential-notes__list_notes", json!({}))["structuredContent"]["count"], json!(0));

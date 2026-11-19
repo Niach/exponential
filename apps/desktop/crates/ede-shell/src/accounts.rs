@@ -198,16 +198,14 @@ impl Workspaces {
         self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
     }
 
-    /// #EDE-65: every signed-in account's rows the tray reads (the inbox, Needs you).
-    pub fn tray_rows(&self) -> Vec<crate::inbox::AccountRows> {
+    /// #EDE-65: every signed-in account's store the tray reads (the inbox,
+    /// Needs you), with the account's id and user. #EDE-141: the stores,
+    /// not their rows: the tray reads them off the main loop.
+    pub fn tray_sources(&self) -> Vec<(String, String, Arc<sync::store::ShapeStore>)> {
         if self.demo {
             return Vec::new();
         }
-        self.auth
-            .signed_in_accounts()
-            .into_iter()
-            .filter_map(|a| Some(crate::inbox::AccountRows::read(&a.id, &a.user_id, self.sync.store(&a.id)?.as_ref())))
-            .collect()
+        self.auth.signed_in_accounts().into_iter().filter_map(|a| Some((a.id.clone(), a.user_id.clone(), self.sync.store(&a.id)?))).collect()
     }
 
     /// #EDE-65: `notifications.markRead` on the account's instance, one call
