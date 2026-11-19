@@ -9,7 +9,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as ZValue};
 
-use super::{prop, set_prop, system_bus};
+use super::{polled_system_bus, prop, set_prop, system_bus};
 use crate::{unavailable, ActionSpec, Service};
 
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -123,7 +123,7 @@ impl Service for Network {
     }
 
     fn snapshot(&self) -> Value {
-        let Ok(conn) = system_bus() else { return unavailable("no system bus") };
+        let Ok(conn) = polled_system_bus() else { return unavailable("no system bus") };
         let Some(state) = prop::<u32>(&conn, NM, NM_PATH, NM, "State") else { return unavailable("NetworkManager is not running") };
         let wifi_enabled = prop::<bool>(&conn, NM, NM_PATH, NM, "WirelessEnabled").unwrap_or(false);
         let primary_type = prop::<String>(&conn, NM, NM_PATH, NM, "PrimaryConnectionType").unwrap_or_default();

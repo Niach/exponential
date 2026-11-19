@@ -3421,14 +3421,16 @@ fn main() {
                     tracing::info!("no exponential-services socket: /services stays empty");
                     return;
                 };
+                // Subscribed first (#EDE-135): a change during the gets waits
+                // on the stream instead of reaching nobody.
+                if client.subscribe().is_err() {
+                    return;
+                }
                 let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
                 for d in &domains {
                     if let Ok(snapshot) = client.get(d) {
                         let _ = services_tx.send((d.clone(), snapshot));
                     }
-                }
-                if client.subscribe().is_err() {
-                    return;
                 }
                 while let Ok(event) = client.next_event() {
                     if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {

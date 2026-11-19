@@ -6,7 +6,8 @@
 //!
 //! - the **data source** ([`socket`]): `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`,
 //!   ede-protocol framing, `get`, `call`, `subscribe` (a `services.changed`
-//!   event per domain whose snapshot moved; polled every 2 s);
+//!   event per domain whose snapshot moved; each domain polled on its own
+//!   thread at its own [`Service::interval`], only while someone subscribes);
 //! - the **MCP face** ([`mcp`]): eMCP's loopback server with one tool per
 //!   action plus `<domain>_get`, grants per agent session with the
 //!   capabilities they may use, and an `mcp_calls`-shaped audit row per
@@ -20,7 +21,11 @@ pub mod domains;
 pub mod mcp;
 pub mod socket;
 
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Mutex,
+    time::Duration,
+};
 
 use ede_protocol::Capability;
 use serde_json::{json, Value};
@@ -51,12 +56,20 @@ pub trait Service: Send + Sync {
     fn snapshot(&self) -> Value;
     fn actions(&self) -> Vec<ActionSpec>;
     fn call(&self, action: &str, args: &Value) -> Result<Value, String>;
+    /// How often the poll looks (an action makes it look at once).
+    fn interval(&self) -> Duration {
+        Duration::from_secs(2)
+    }
 }
 
-/// Every domain, and the last snapshot of each.
+/// Every domain, and the last snapshot the poll broadcast of each.
 pub struct Registry {
     services: Vec<Box<dyn Service>>,
+    /// The poll's baseline: only the poll writes it (#EDE-135: a `get`
+    /// that stored its look here ate the change the poll would have sent).
     snapshots: Mutex<BTreeMap<String, Value>>,
+    /// Domains an action ran on since their last look.
+    nudged: Mutex<BTreeSet<String>>,
 }
 
 impl Default for Registry {
@@ -67,7 +80,7 @@ impl Default for Registry {
 
 impl Registry {
     pub fn new(services: Vec<Box<dyn Service>>) -> Self {
-        Self { services, snapshots: Mutex::new(BTreeMap::new()) }
+        Self { services, snapshots: Mutex::new(BTreeMap::new()), nudged: Mutex::new(BTreeSet::new()) }
     }
 
     pub fn names(&self) -> Vec<&'static str> {
@@ -78,26 +91,34 @@ impl Registry {
         self.services.iter().find(|s| s.name() == name).map(|s| s.as_ref())
     }
 
-    /// A fresh snapshot of `name`, remembered.
+    /// A fresh snapshot of `name` (the poll's baseline stays as it is).
     pub fn snapshot(&self, name: &str) -> Option<Value> {
-        let s = self.service(name)?;
-        let value = s.snapshot();
-        self.snapshots.lock().unwrap_or_else(|p| p.into_inner()).insert(name.to_string(), value.clone());
-        Some(value)
+        Some(self.service(name)?.snapshot())
     }
 
-    /// Refreshes every domain; the names whose snapshot changed.
+    /// The poll's look at `name`: its snapshot when it moved since the last look.
+    pub fn refresh_one(&self, name: &str) -> Option<Value> {
+        let value = self.service(name)?.snapshot();
+        let mut snaps = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
+        (snaps.get(name) != Some(&value)).then(|| {
+            snaps.insert(name.to_string(), value.clone());
+            value
+        })
+    }
+
+    /// Refreshes every domain in turn; the names whose snapshot changed.
     pub fn refresh(&self) -> Vec<(String, Value)> {
-        let mut changed = Vec::new();
-        for s in &self.services {
-            let value = s.snapshot();
-            let mut snaps = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
-            if snaps.get(s.name()) != Some(&value) {
-                snaps.insert(s.name().to_string(), value.clone());
-                changed.push((s.name().to_string(), value));
-            }
-        }
-        changed
+        self.names().into_iter().filter_map(|name| Some((name.to_string(), self.refresh_one(name)?))).collect()
+    }
+
+    /// The poll interval of `name`.
+    pub fn interval(&self, name: &str) -> Option<Duration> {
+        Some(self.service(name)?.interval())
+    }
+
+    /// Whether an action ran on `name` since this was last asked.
+    pub fn take_nudge(&self, name: &str) -> bool {
+        self.nudged.lock().unwrap_or_else(|p| p.into_inner()).remove(name)
     }
 
     pub fn last(&self, name: &str) -> Option<Value> {
@@ -116,7 +137,10 @@ impl Registry {
         if let Some(missing) = required_missing(&spec.schema, args) {
             return Err(CallError::Invalid(format!("missing argument {missing}")));
         }
-        s.call(action, args).map_err(CallError::Failed)
+        let result = s.call(action, args).map_err(CallError::Failed);
+        // Whatever it did shows at the domain's next look, not its interval's end.
+        self.nudged.lock().unwrap_or_else(|p| p.into_inner()).insert(domain.to_string());
+        result
     }
 }
 
@@ -186,5 +210,6 @@ mod tests {
         assert_eq!(r.refresh().len(), 1, "the first refresh reports every domain");
         assert!(r.refresh().is_empty(), "nothing moved");
         assert_eq!(r.last("echo").unwrap()["n"], 1);
+        assert!(r.take_nudge("echo") && !r.take_nudge("echo"), "the calls nudged the poll once");
     }
 }

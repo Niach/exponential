@@ -5,7 +5,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::zvariant::{OwnedValue, Value as ZValue};
 
-use super::{prop, set_prop, system_bus};
+use super::{polled_system_bus, prop, set_prop, system_bus};
 use crate::{unavailable, ActionSpec, Service};
 
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -69,7 +69,7 @@ impl Service for Power {
     }
 
     fn snapshot(&self) -> Value {
-        let Ok(conn) = system_bus() else { return unavailable("no system bus") };
+        let Ok(conn) = polled_system_bus() else { return unavailable("no system bus") };
         let present = prop::<bool>(&conn, UPOWER, DISPLAY, DEVICE, "IsPresent");
         let (battery, battery_text) = match present {
             Some(true) => {
