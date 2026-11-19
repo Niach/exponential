@@ -53,6 +53,10 @@ struct State {
     /// #EXP-1961: the sends' targets and the hang-ups told.
     sends: Vec<String>,
     ended: Vec<String>,
+    /// #EXP-1981: what `voice.callSession` was asked: (agent id, call id).
+    session_asks: Vec<(String, Option<String>)>,
+    /// #EXP-1982: every send fails with this.
+    send_fails: Option<crate::host::SendError>,
 }
 
 /// A streamed call's link that writes down what the host did with it.
@@ -113,7 +117,8 @@ impl TalkHost for TestHost {
         }
         true
     }
-    fn call_session(&self, _: &str, _: Option<&str>, _: &App) -> Option<crate::host::CallSessionJob> {
+    fn call_session(&self, agent_id: &str, call_id: Option<&str>, _: &App) -> Option<crate::host::CallSessionJob> {
+        self.state.borrow_mut().session_asks.push((agent_id.to_string(), call_id.map(str::to_string)));
         let session = self.state.borrow().call_session?;
         Some(Box::new(move || Some(session.to_string())))
     }
@@ -123,6 +128,9 @@ impl TalkHost for TestHost {
     fn send(&self, outgoing: Outgoing, _: &App) -> Option<SendJob> {
         if let etalk::voice::UtteranceTarget::Session { session_id, .. } = &outgoing.target {
             self.state.borrow_mut().sends.push(session_id.clone());
+        }
+        if let Some(err) = self.state.borrow().send_fails.clone() {
+            return Some(Box::new(move || Err(err)));
         }
         Some(Box::new(|| Ok(Sent { session_id: CONVERSATION.into(), message_id: Some(SENT.into()) })))
     }
@@ -212,6 +220,16 @@ impl Rig {
         self.row(Row { id: id.into(), author_kind: "agent", body: body.into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id }, cx);
     }
 
+    /// #EXP-1982: every send from now on fails with `err`.
+    pub(crate) fn fail_sends(&self, err: crate::host::SendError) {
+        self.state.borrow_mut().send_fails = Some(err);
+    }
+
+    /// #EXP-1981: what `voice.callSession` was asked since the last look.
+    pub(crate) fn session_asks(&self) -> Vec<(String, Option<String>)> {
+        std::mem::take(&mut self.state.borrow_mut().session_asks)
+    }
+
     /// #EXP-1961: the sends' session targets and the hang-ups told, since the last look.
     pub(crate) fn call_log(&self) -> (Vec<String>, Vec<String>) {
         let mut state = self.state.borrow_mut();
@@ -239,7 +257,17 @@ impl Rig {
     pub(crate) fn incoming_call(&self) -> (flume::Sender<CallLinkEvent>, Rc<RefCell<Vec<String>>>) {
         let (tx, events) = flume::unbounded();
         let log = Rc::new(RefCell::new(Vec::new()));
-        self.state.borrow_mut().call = Some(CallConnection { link: Box::new(LinkLog(log.clone())), events });
+        self.state.borrow_mut().call = Some(CallConnection { link: Box::new(LinkLog(log.clone())), events, refuse: None });
+        (tx, log)
+    }
+
+    /// #EXP-1982: the relay rings this desktop next and the host joins only
+    /// to fail it with `code`.
+    pub(crate) fn incoming_refused_call(&self, code: &'static str) -> (flume::Sender<CallLinkEvent>, Rc<RefCell<Vec<String>>>) {
+        let (tx, log) = self.incoming_call();
+        if let Some(call) = self.state.borrow_mut().call.as_mut() {
+            call.refuse = Some(code);
+        }
         (tx, log)
     }
 
