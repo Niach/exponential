@@ -149,7 +149,7 @@ struct AddSecretSheet: View {
                         Text(RepoCi.Copy.Secrets.name)
                             .foregroundStyle(.white)
                             .fixedSize()
-                        GlassTextField("NPM_TOKEN", text: $name, bordered: false, accessibilityIdentifier: "repo-ci-secret-name")
+                        GlassTextField("NPM_TOKEN", text: $name, bordered: false, accessibilityIdentifier: "repo-ci-secret-name", foreground: .white.opacity(TextOpacity.secondary))
                             .font(.expMono(.body))
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.characters)
@@ -164,7 +164,7 @@ struct AddSecretSheet: View {
                         Text(RepoCi.Copy.Secrets.value)
                             .foregroundStyle(.white)
                             .fixedSize()
-                        GlassTextField("", text: $value, isSecure: true, bordered: false, accessibilityIdentifier: "repo-ci-secret-value")
+                        GlassTextField("", text: $value, isSecure: true, bordered: false, accessibilityIdentifier: "repo-ci-secret-value", foreground: .white.opacity(TextOpacity.secondary))
                             .multilineTextAlignment(.trailing)
                             .onSubmit { save() }
                     }
