@@ -171,7 +171,8 @@ impl EventSink for Sink {
     }
 }
 
-/// What the host hears: something about a session changed in the store.
+/// What the host hears: something about a session changed in the store
+/// (an empty id = any of them: the other app's runner wrote).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Changed {
     pub session_id: String,
@@ -339,6 +340,8 @@ impl LocalRuns {
             runs.reconcile();
         } else {
             log::info!("[elocal] desktop {}: another app runs its agents, standing by", runs.desktop.entry.id);
+            // The files as they are now: a later move is the runner's write.
+            runs.store_moved();
         }
         let worker = runs.clone();
         std::thread::Builder::new()
@@ -368,6 +371,12 @@ impl LocalRuns {
         self.store_moved();
         if let Err(e) = self.hydrate() {
             log::warn!("[elocal] hydrate: {e}");
+        }
+        // A runner that went away mid-turn (a crash) left its sessions busy:
+        // no run of theirs is live now, so they idle.
+        let busy: Vec<String> = self.hub.lock().expect("hub").sessions.values().filter(|s| s.busy).map(|s| s.id.clone()).collect();
+        for id in busy {
+            self.report_idle(&id);
         }
         true
     }
@@ -431,8 +440,14 @@ impl LocalRuns {
                         return;
                     }
                     let was = self.is_runner();
-                    if self.take_over() && (!was || self.store_moved()) {
-                        self.reconcile();
+                    if self.take_over() {
+                        if !was || self.store_moved() {
+                            self.reconcile();
+                        }
+                    } else if self.store_moved() {
+                        // Standing by: the other app's runner wrote (a reply,
+                        // a status); the host repaints what it shows.
+                        let _ = self.changes.0.send(Changed { session_id: String::new() });
                     }
                 }
             }
@@ -955,18 +970,37 @@ impl LocalRuns {
             self.keep_native(&id, live.run.as_ref());
             // #FEED-237: the session idles; its next message starts the run
             // again (`take_pending`), as a cloud device resumes one.
-            let device_id = self.desktop.executor.device_id();
-            self.step("device.report", json!({"sessionId": id, "deviceId": device_id, "status": "idle", "busy": false}));
+            self.report_idle(&id);
         }
     }
 
-    /// Stops every run (the host is going away).
+    /// The session goes idle on the hub and in the store (a run that went
+    /// away, or was stopped mid-turn, is never left `busy`).
+    fn report_idle(&self, session_id: &str) {
+        let device_id = self.desktop.executor.device_id();
+        self.step("device.report", json!({"sessionId": session_id, "deviceId": device_id, "status": "idle", "busy": false}));
+    }
+
+    /// The chat's Stop: the session's live run stops and the session idles;
+    /// its next message starts it again, resumed. `false` = this process runs
+    /// no turn of it (the other app holds the desktop's runs).
+    pub fn stop_session(&self, session_id: &str) -> bool {
+        let Some(live) = self.live.lock().expect("live").remove(session_id) else { return false };
+        live.run.stop();
+        self.keep_native(session_id, live.run.as_ref());
+        self.report_idle(session_id);
+        true
+    }
+
     /// Stops every run and gives the desktop's run lock up for good (the
-    /// other app, or the next runner, takes over).
+    /// other app, or the next runner, takes over); what was mid-turn idles.
     pub fn stop_all(&self) {
         self.stopped.store(true, Ordering::Relaxed);
-        for (_, live) in self.live.lock().expect("live").drain() {
+        let drained: Vec<(String, Live)> = self.live.lock().expect("live").drain().collect();
+        for (id, live) in drained {
             live.run.stop();
+            self.keep_native(&id, live.run.as_ref());
+            self.report_idle(&id);
         }
         self.server.revoke_all();
         *self.lock.lock().expect("lock") = None;
@@ -1149,6 +1183,12 @@ mod tests {
             if text.contains("[seed-only]") {
                 // The engine's seed before any prompt: no turn ran.
                 self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                return;
+            }
+            if text.contains("[hang]") {
+                // A turn that runs until it is stopped.
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Started, started_at: None, tokens: None, at: None, writing: None });
+                self.sink.send(ActivityEvent::Narration { text: "Working".into(), before_question_id: None, message_id: Some("h1".into()), subagent_id: None, at: None });
                 return;
             }
             if text.contains("[two-blocks]") {
@@ -1465,6 +1505,53 @@ mod tests {
         runs.stop_all();
     }
 
+    /// #EDE-134: a run stopped mid-turn (the chat's Stop, the host going
+    /// away, a crash) never leaves its session `busy`.
+    #[test]
+    fn a_run_stopped_mid_turn_leaves_its_session_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let runner = Arc::new(FakeRunner::default());
+        let busy = |session: &str| desktop.store.row("sessions", session).unwrap().unwrap()["busy"] == json!(true);
+        let start = |text: &str| {
+            let mut send = api::sessions::SendInput::default();
+            send.team_id = Some(desktop.executor.team_id().to_string());
+            send.text = Some(text.into());
+            api::sessions::send(&desktop.client(), &send).unwrap().session_id
+        };
+
+        // The chat's Stop.
+        let runs = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let session = start("[hang] one");
+        wait_for(&changes, || busy(&session));
+        assert!(runs.stop_session(&session));
+        assert!(!runs.is_running(&session));
+        assert!(!busy(&session));
+        assert!(!runs.stop_session(&session), "no live run: nothing stopped");
+
+        // The host goes away mid-turn.
+        let second = start("[hang] two");
+        wait_for(&changes, || busy(&second));
+        runs.stop_all();
+        assert!(!busy(&second));
+
+        // A crash: the next runner finds the session busy with no run of it.
+        let runs = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let third = start("[hang] three");
+        wait_for(&changes, || busy(&third));
+        std::mem::forget(runs.live.lock().unwrap().drain().collect::<Vec<_>>());
+        *runs.lock.lock().unwrap() = None;
+        runs.stopped.store(true, Ordering::Relaxed);
+        assert!(busy(&third));
+        let after = LocalRuns::start(desktop.clone(), runner.clone(), dir.path().to_path_buf()).unwrap();
+        assert!(after.is_runner());
+        assert!(!busy(&third));
+        after.stop_all();
+    }
+
     #[test]
     fn the_tools_read_and_write_the_store() {
         let dir = tempfile::tempdir().unwrap();
@@ -1513,6 +1600,9 @@ mod tests {
         wait_for(&ide_runs.changes(), || ide.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
         assert_eq!(ide_prompts.lock().unwrap().as_slice(), ["From the shell"]);
         assert!(ede_prompts.lock().unwrap().is_empty());
+        // #EDE-134: the standby hears the runner's writes (the reply), so its host repaints.
+        let heard = ede_runs.changes().recv_timeout(Duration::from_secs(30)).unwrap();
+        assert_eq!(heard.session_id, "", "any session: the other app wrote");
 
         // The IDE leaves the desktop: eDE takes over, never re-running what was answered.
         ide_runs.stop_all();

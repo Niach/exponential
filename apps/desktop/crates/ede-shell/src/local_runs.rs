@@ -206,6 +206,13 @@ impl LocalChat {
         }
     }
 
+    /// #EDE-134: the composer's Stop on the open session; `Some(false)` =
+    /// no run of it here took it (none, or the other app runs them).
+    pub fn stop_session(&self) -> Option<bool> {
+        let session = self.session_id.as_deref()?;
+        Some(self.runs.as_ref().is_some_and(|runs| runs.stop_session(session)))
+    }
+
     pub fn stop(&self) {
         if let Some(runs) = &self.runs {
             runs.stop_all();

@@ -355,27 +355,55 @@ impl TreeServer for Server<'_> {
 /// names none) goes as the server's own start, keyed and re-sealed at its
 /// device's claim (`startCases`). BLOCKING (off the UI thread).
 pub fn wire_text(server: &dyn TreeServer, tree: &SendTree, text: &str) -> Result<String, String> {
-    let sealed = |root_id: &str, epoch: u32, public: &[u8; 32]| enet_core::sealed::seal_body(public, epoch, text).map_err(|err| format!("{root_id}: {err}"));
+    wire_for(server, tree)?.text(text, &[])
+}
+
+/// #EDE-134: how a send's text leaves, settled BEFORE anything uploads
+/// ([`wire_text`]'s rule: a tree this shell cannot seal for refuses first).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wire {
+    Clear,
+    Sealed { root_id: String, epoch: u32, public: [u8; 32] },
+}
+
+impl Wire {
+    /// The text that leaves; a sealed one names its attachments inside it
+    /// (`sealed-content.json` `attachmentEmbedCases`: the server never
+    /// appends to a sealed body, so the writer does before sealing).
+    pub fn text(&self, text: &str, attachment_ids: &[String]) -> Result<String, String> {
+        match self {
+            Wire::Clear => Ok(text.to_string()),
+            Wire::Sealed { root_id, epoch, public } => {
+                let text = domain::sealed::with_attachment_embeds(text, attachment_ids, domain::sealed::recorded_upload);
+                enet_core::sealed::seal_body(public, *epoch, &text).map_err(|err| format!("{root_id}: {err}"))
+            }
+        }
+    }
+}
+
+/// [`wire_text`]'s tree resolved to its [`Wire`] (BLOCKING).
+pub fn wire_for(server: &dyn TreeServer, tree: &SendTree) -> Result<Wire, String> {
+    let sealed = |root_id: &str, epoch: u32, public: [u8; 32]| Wire::Sealed { root_id: root_id.to_string(), epoch, public };
     let by_key = |root_id: &str| match server.key_of(root_id)? {
-        Some((epoch, public)) => sealed(root_id, epoch, &public),
+        Some((epoch, public)) => Ok(sealed(root_id, epoch, public)),
         None => Err(format!("{root_id}: keyless")),
     };
     match tree {
-        SendTree::None | SendTree::Clear => Ok(text.to_string()),
-        SendTree::Keyed { root_id, epoch, public } => sealed(root_id, *epoch, public),
+        SendTree::None | SendTree::Clear => Ok(Wire::Clear),
+        SendTree::Keyed { root_id, epoch, public } => Ok(sealed(root_id, *epoch, *public)),
         SendTree::Keyless(root_id) => by_key(root_id),
         SendTree::Unsynced(session_id) => match server.tree_of(session_id)? {
-            (_, true) => Ok(text.to_string()),
+            (_, true) => Ok(Wire::Clear),
             (root_id, false) => by_key(&root_id),
         },
         SendTree::Agent(agent_id) => {
             let target = server.send_target(agent_id)?;
             match (target.root_id, target.epoch, target.public_key) {
-                (None, ..) => Ok(text.to_string()),
-                (Some(_), ..) if target.clear_tree => Ok(text.to_string()),
+                (None, ..) => Ok(Wire::Clear),
+                (Some(_), ..) if target.clear_tree => Ok(Wire::Clear),
                 (Some(root_id), Some(epoch), Some(public)) => {
                     let public = enet_core::sealed::public_key_from_b64(&public).map_err(|err| format!("{root_id}: {err}"))?;
-                    sealed(&root_id, epoch, &public)
+                    Ok(sealed(&root_id, epoch, public))
                 }
                 (Some(root_id), ..) => by_key(&root_id),
             }
@@ -651,6 +679,20 @@ mod tests {
         // No text (attachments only): nothing to seal.
         let files = api::sessions::SendInput { text: None, ..into(ROOT) };
         assert_eq!(send_tree(&r.account, &files), SendTree::None);
+    }
+
+    /// #EDE-134 (`sealed-content.json` `attachmentEmbedCases`): a sealed
+    /// send's files are named INSIDE the sealed text; a clear one's the
+    /// server appends.
+    #[test]
+    fn a_sealed_send_carries_its_attachment_lines_inside_the_seal() {
+        let key = enet_core::sealed::generate_tree_key();
+        let public = enet_core::sealed::public_key_from_b64(&key.public_key()).unwrap();
+        domain::sealed::remember_upload("f1", "spec.pdf", "application/pdf");
+        let wire = Wire::Sealed { root_id: ROOT.into(), epoch: 2, public };
+        let sealed = wire.text("see attached", &["f1".into()]).unwrap();
+        assert_eq!(opens(&key, 2, &sealed).as_deref(), Some("see attached\n\n[spec.pdf](/api/attachments/f1)"));
+        assert_eq!(Wire::Clear.text("see attached", &["f1".into()]).as_deref(), Ok("see attached"));
     }
 
     /// #EDE-131: a pre-#EDE-97 keyless root (or a bad key on the row) asks
