@@ -121,6 +121,19 @@ pub struct SendInput {
     /// null), `None` = omitted (any other recipient).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope_team_ids: Option<Option<Vec<String>>>,
+    /// #EXP-1958 (`sealed-content.json` `cardStamps`): this send is a tap on
+    /// a SEALED replies / suggestions card's item; the server stamps it in
+    /// the send's transaction (tRPC only, never the MCP tool).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card_item: Option<CardItem>,
+}
+
+/// #EXP-1958: the item a sealed card tap names (`sessions.send` `cardItem`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardItem {
+    pub message_id: String,
+    pub item_id: String,
 }
 
 /// EXP-1458 `sessions.send` `seal`: the new tree's key, wrapped for every
@@ -163,6 +176,32 @@ impl SendInput {
         self
     }
 
+    /// #EXP-1958 (`cardStamps` WIRE): a quick reply / Do it here on a SEALED
+    /// card = the opened text as a message to the card's session, the item
+    /// named in `cardItem` (the composer's sealing writer seals `text`).
+    pub fn card_message(card_session_id: &str, message_id: &str, item_id: &str, text: &str) -> Self {
+        Self {
+            session_id: Some(card_session_id.to_string()),
+            text: Some(text.to_string()),
+            card_item: Some(CardItem { message_id: message_id.to_string(), item_id: item_id.to_string() }),
+            ..Self::default()
+        }
+    }
+
+    /// #EXP-1958: Start on a SEALED suggestions card = a child of the card's
+    /// session: the item's request (`title`, a blank line, `text`), named
+    /// by its title (sealed by the writer as `sealedName`), its `issue_ids`.
+    pub fn card_start(card_session_id: &str, message_id: &str, item_id: &str, title: &str, text: &str, issue_ids: Vec<String>) -> Self {
+        Self {
+            parent_id: Some(card_session_id.to_string()),
+            text: Some(suggestion_request(title, text)),
+            name: Some(title.to_string()).filter(|title| !title.trim().is_empty()),
+            issue_ids: Some(issue_ids).filter(|ids| !ids.is_empty()),
+            card_item: Some(CardItem { message_id: message_id.to_string(), item_id: item_id.to_string() }),
+            ..Self::default()
+        }
+    }
+
     /// A child session under `parent_id` on `device_id`.
     pub fn child(parent_id: &str, device_id: &str, text: &str) -> Self {
         Self {
@@ -172,6 +211,12 @@ impl SendInput {
             ..Self::default()
         }
     }
+}
+
+/// The request a suggested task carries (web `suggestionRequest`): its
+/// title, a blank line, its text.
+pub fn suggestion_request(title: &str, text: &str) -> String {
+    format!("{title}\n\n{text}")
 }
 
 /// `sessions.send` output.
@@ -538,9 +583,28 @@ pub fn dismiss_suggestion(trpc: &TrpcClient, message_id: &str, item_id: &str) ->
     trpc.mutation("sessions.dismissSuggestion", &SuggestionItemInput { message_id, item_id })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileSuggestionInput<'a> {
+    message_id: &'a str,
+    item_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'a str>,
+}
+
 /// EXP-1323: file one suggested task as an issue (Options → File as issue).
-pub fn file_suggestion(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
-    trpc.mutation("sessions.fileSuggestion", &SuggestionItemInput { message_id, item_id })
+/// #EXP-1958: a SEALED card's item names its opened `(title, text)` (the
+/// issue is clear by design); an unsealed card's passes `None`.
+pub fn file_suggestion(
+    trpc: &TrpcClient,
+    message_id: &str,
+    item_id: &str,
+    opened: Option<(&str, &str)>,
+) -> Result<serde::de::IgnoredAny, ApiError> {
+    let (title, text) = opened.map_or((None, None), |(title, text)| (Some(title), Some(text)));
+    trpc.mutation("sessions.fileSuggestion", &FileSuggestionInput { message_id, item_id, title, text })
 }
 
 /// EXP-1211: send one quick reply as the viewer's message to the card's
@@ -549,9 +613,18 @@ pub fn send_reply(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Result<
     trpc.mutation("sessions.sendReply", &SuggestionItemInput { message_id, item_id })
 }
 
-/// EXP-1211: drop a quick replies card (the row's ×).
-pub fn dismiss_replies(trpc: &TrpcClient, message_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
-    trpc.mutation("sessions.dismissReplies", &MessageIdInput { message_id })
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DismissRepliesInput<'a> {
+    message_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_ids: Option<&'a [String]>,
+}
+
+/// EXP-1211: drop a quick replies card (the row's ×). #EXP-1958: a SEALED
+/// card names every open reply (`item_ids`); an unsealed card's passes `None`.
+pub fn dismiss_replies(trpc: &TrpcClient, message_id: &str, item_ids: Option<&[String]>) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.dismissReplies", &DismissRepliesInput { message_id, item_ids })
 }
 
 /// `pullRequests.merge` output: `queued` = a merge queue took it, `error` =
@@ -806,7 +879,7 @@ mod tests {
                 "sessions.dismissSuggestion",
                 dismiss_suggestion as fn(&TrpcClient, &str, &str) -> Result<serde::de::IgnoredAny, ApiError>,
             ),
-            ("sessions.fileSuggestion", file_suggestion),
+            ("sessions.fileSuggestion", |trpc, message, item| file_suggestion(trpc, message, item, None)),
             ("sessions.sendReply", send_reply),
         ] {
             let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":3}}}"#);
@@ -823,10 +896,40 @@ mod tests {
         assert!(text.ends_with(r#"{"messageId":"m-1"}"#), "{text}");
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":4}}}"#);
-        dismiss_replies(&client(&base), "m-1").unwrap();
+        dismiss_replies(&client(&base), "m-1", None).unwrap();
         let text = request(&captured);
         assert!(text.starts_with("POST /api/trpc/sessions.dismissReplies HTTP/1.1"), "{text}");
         assert!(text.ends_with(r#"{"messageId":"m-1"}"#), "{text}");
+    }
+
+    /// #EXP-1958 (`cardStamps`): the stamp wires of a sealed card name the
+    /// opened ids / text; the sealed sends carry `cardItem`.
+    #[test]
+    fn sealed_card_taps_post_their_inputs() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
+        dismiss_replies(&client(&base), "m-1", Some(&["r1".to_string(), "r2".to_string()])).unwrap();
+        assert!(request(&captured).ends_with(r#"{"messageId":"m-1","itemIds":["r1","r2"]}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":6}}}"#);
+        file_suggestion(&client(&base), "m-1", "s1", Some(("Add tests", "Cover it"))).unwrap();
+        assert!(request(&captured).ends_with(r#"{"messageId":"m-1","itemId":"s1","title":"Add tests","text":"Cover it"}"#));
+
+        let reply = SendInput::card_message("s-1", "m-1", "r1", "Yes");
+        assert_eq!(
+            serde_json::to_value(&reply).unwrap(),
+            serde_json::json!({"sessionId": "s-1", "text": "Yes", "cardItem": {"messageId": "m-1", "itemId": "r1"}})
+        );
+        let start = SendInput::card_start("s-1", "m-1", "s1", "Add tests", "Cover it", vec!["i-1".into()]);
+        assert_eq!(
+            serde_json::to_value(&start).unwrap(),
+            serde_json::json!({
+                "parentId": "s-1",
+                "text": "Add tests\n\nCover it",
+                "name": "Add tests",
+                "issueIds": ["i-1"],
+                "cardItem": {"messageId": "m-1", "itemId": "s1"},
+            })
+        );
     }
 
     #[test]
