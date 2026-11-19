@@ -123,4 +123,58 @@ final class SessionsApiSealingTests: XCTestCase {
         XCTAssertEqual(keys.creates.value, ["keyless"], "the keyless root is keyed before the send")
         XCTAssertEqual(sent.map { $0["clientMessageId"] as? String }, ["c1", "c2"])
     }
+
+    /// #EXP-1958 (sealed-content.json `cardStamps`): a tap on a sealed card
+    /// goes through the same writer: the text sealed, a Start's `name` as
+    /// `sealedName` (no clear `name`), `cardItem` passed through untouched.
+    func testASealedCardTapLeavesSealedWithItsCardItem() async throws {
+        let auth = AuthRepository(accountStore: AccountStore(keychain: FakeKeychain()))
+        auth.setInstanceUrl("https://exp.example.com")
+        auth.setToken("t", email: "u@x.com", userId: "u", onboardingKnown: true)
+        let accountId = ServerAccount.makeId(instanceUrl: "https://exp.example.com", userId: "u")
+        let db = DatabaseManager()
+        defer {
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
+        let pool = try db.pool(forAccountId: accountId)
+        try DatabaseManager.runMigrations(on: pool)
+        let row = #"{"id":"keyed","team_id":"t","user_id":"u","device_id":"d","seal_public_key":"tree-key","seal_epoch":2,"created_at":"x","updated_at":"x"}"#
+        try await pool.write { conn in
+            try JSONDecoder().decode(SessionEntity.self, from: Data(row.utf8)).save(conn)
+        }
+        let crypto = StubCrypto()
+        let api = SessionsApi(trpc: TrpcClient(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth))
+        api.sealing.sealer = SessionSealer(
+            holder: TreeKeyHolder(
+                keys: Keys(), installs: nil, crypto: crypto, ring: SealedKeyRing(persistence: .memory),
+                identity: { Data(repeating: 3, count: 32) }, installId: { _ in "install-me" }
+            ),
+            opener: SealedOpener(crypto: crypto, ring: SealedKeyRing(persistence: .memory)),
+            db: db,
+            userId: { _ in "u" }
+        )
+        Server.bodies.mutate { $0 = [] }
+        let issue = "00000000-0000-4000-8000-000000000012"
+
+        try await api.send(
+            accountId: accountId, CardItemWire.message(sessionId: "keyed", text: "Yes, ship it"),
+            cardItem: CardItemRef(messageId: "m-1", itemId: "r1")
+        )
+        try await api.send(
+            accountId: accountId,
+            CardItemWire.start(parentId: "keyed", title: "Add tests", text: "Cover it", issueIds: [issue, "EXP-9"], model: "opus"),
+            cardItem: CardItemRef(messageId: "m-2", itemId: "s1")
+        )
+
+        let sent = Server.bodies.value
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent[0]["text"] as? String, "exp-sealed:tree-key:2:Yes, ship it")
+        XCTAssertEqual(sent[0]["cardItem"] as? [String: String], ["messageId": "m-1", "itemId": "r1"])
+        XCTAssertEqual(sent[1].keys.sorted(), ["cardItem", "issueIds", "model", "parentId", "sealedName", "text"])
+        XCTAssertEqual(sent[1]["text"] as? String, "exp-sealed:tree-key:2:Add tests\n\nCover it")
+        XCTAssertEqual(sent[1]["sealedName"] as? String, "exp-sealed:tree-key:2:Add tests")
+        XCTAssertEqual(sent[1]["issueIds"] as? [String], [issue])
+        XCTAssertEqual(sent[1]["cardItem"] as? [String: String], ["messageId": "m-2", "itemId": "s1"])
+    }
 }

@@ -191,6 +191,20 @@ private struct SuggestionItemInput: Encodable {
     let itemId: String
 }
 
+/// #EXP-1958: a sealed card's open replies (nil = an unsealed card's all).
+struct DismissRepliesInput: Encodable {
+    let messageId: String
+    let itemIds: [String]?
+}
+
+/// #EXP-1958: a sealed card's item names what the issue says.
+struct FileSuggestionInput: Encodable {
+    let messageId: String
+    let itemId: String
+    let title: String?
+    let text: String?
+}
+
 // MARK: - API
 
 public final class SessionsApi: Sendable {
@@ -210,15 +224,22 @@ public final class SessionsApi: Sendable {
     /// #FEED-237: `clientMessageId` = the outbox entry's clientId (F21: a
     /// resend naming it returns the row the server already stored).
     @discardableResult
-    public func send(accountId: String, _ input: SessionsSendInput, clientMessageId: String? = nil) async throws -> SessionsSendResult {
+    /// #EXP-1958: `cardItem` = the SEALED card item this send acts on (a
+    /// reply, Do it here, Start), passed through the writer untouched.
+    public func send(
+        accountId: String,
+        _ input: SessionsSendInput,
+        clientMessageId: String? = nil,
+        cardItem: CardItemRef? = nil
+    ) async throws -> SessionsSendResult {
         // EXP-1459: the text leaves sealed to the tree's key (+ mentions).
         guard let sealer else {
-            guard let clientMessageId else {
+            guard clientMessageId != nil || cardItem != nil else {
                 return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
             }
             return try await trpc.mutation(
                 accountId: accountId, path: "sessions.send",
-                input: SealedSendInput(input: input, clientMessageId: clientMessageId)
+                input: SealedSendInput(input: input, clientMessageId: clientMessageId, cardItem: cardItem)
             )
         }
         // #FEED-250: a tree that moved on behind this store is re-resolved
@@ -226,6 +247,7 @@ public final class SessionsApi: Sendable {
         return try await StaleTreeResend.send { fresh in
             var prepared = try await sealer.prepare(accountId: accountId, input, fresh: fresh)
             if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
+            prepared.input.cardItem = cardItem
             let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
             await sealer.completed(prepared, result: result)
             return result
@@ -441,19 +463,23 @@ public final class SessionsApi: Sendable {
     }
 
     /// EXP-1211: dismiss the session's quick replies (the whole card).
-    public func dismissReplies(accountId: String, messageId: String) async throws {
+    /// #EXP-1958: a SEALED card names its open replies (`itemIds`).
+    public func dismissReplies(accountId: String, messageId: String, itemIds: [String]? = nil) async throws {
         try await trpc.mutationVoid(
-            accountId: accountId, path: "sessions.dismissReplies", input: MessageIdInput(messageId: messageId)
+            accountId: accountId, path: "sessions.dismissReplies",
+            input: DismissRepliesInput(messageId: messageId, itemIds: itemIds)
         )
     }
 
     /// EXP-1323: File as issue — the item becomes an issue linked to the
-    /// chat.
-    public func fileSuggestion(accountId: String, messageId: String, itemId: String) async throws {
+    /// chat. #EXP-1958: a SEALED card's item names its `title` + `text`.
+    public func fileSuggestion(
+        accountId: String, messageId: String, itemId: String, title: String? = nil, text: String? = nil
+    ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "sessions.fileSuggestion",
-            input: SuggestionItemInput(messageId: messageId, itemId: itemId)
+            input: FileSuggestionInput(messageId: messageId, itemId: itemId, title: title, text: text)
         )
     }
 }

@@ -133,6 +133,12 @@ final class SessionsApiWireTests: XCTestCase {
     func testChildAndMessageFormsCarryOnlyTheirKeys() throws {
         let child = try json(SessionsSendInput.child(parentId: "s-1", deviceId: "dev-2", text: "Part two"))
         XCTAssertEqual(child.keys.sorted(), ["deviceId", "parentId", "text"])
+        // #EXP-1958: a sealed suggestion's Start: no device = the parent's,
+        // its name and issues.
+        let named = try json(SessionsSendInput.child(
+            parentId: "s-1", deviceId: nil, text: "Add tests", name: "Add tests", issueIds: ["i-1"]
+        ))
+        XCTAssertEqual(named.keys.sorted(), ["issueIds", "name", "parentId", "text"])
 
         let message = try json(SessionsSendInput.message(sessionId: "s-1", text: "Ship it"))
         XCTAssertEqual(message.keys.sorted(), ["sessionId", "text"])
@@ -158,6 +164,24 @@ final class SessionsApiWireTests: XCTestCase {
             messageId: "m", itemId: "i", where: .child, deviceId: "dev", account: nil, model: "opus"
         ))
         XCTAssertEqual(picked.keys.sorted(), ["deviceId", "itemId", "messageId", "model", "where"])
+    }
+
+    /// #EXP-1958: a sealed card's dismiss / file name what the server
+    /// cannot read; an unsealed card's omit it; `cardItem` rides the send.
+    func testSealedCardStampsCarryTheirItems() throws {
+        let unsealed = try json(DismissRepliesInput(messageId: "m", itemIds: nil))
+        XCTAssertEqual(unsealed.keys.sorted(), ["messageId"])
+        let sealed = try json(DismissRepliesInput(messageId: "m", itemIds: ["r1", "r2"]))
+        XCTAssertEqual(sealed["itemIds"] as? [String], ["r1", "r2"])
+        let file = try json(FileSuggestionInput(messageId: "m", itemId: "s1", title: "Add tests", text: "Cover it"))
+        XCTAssertEqual(file.keys.sorted(), ["itemId", "messageId", "text", "title"])
+        let bareFile = try json(FileSuggestionInput(messageId: "m", itemId: "s1", title: nil, text: nil))
+        XCTAssertEqual(bareFile.keys.sorted(), ["itemId", "messageId"])
+        let send = try json(SealedSendInput(
+            input: .message(sessionId: "s-1", text: "exp-sealed:x"), cardItem: CardItemRef(messageId: "m", itemId: "r1")
+        ))
+        XCTAssertEqual(send.keys.sorted(), ["cardItem", "sessionId", "text"])
+        XCTAssertEqual(send["cardItem"] as? [String: String], ["messageId": "m", "itemId": "r1"])
     }
 
     func testAccountSwitchSendsOnlySessionIdAndAccount() throws {

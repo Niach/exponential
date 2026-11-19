@@ -48,6 +48,9 @@ struct ComposerRepliesRow: View {
 /// The live row for one session: observes its synced `messages`, shows
 /// `composerReplies` (nothing when none is left), and runs
 /// `sessions.sendReply` / `sessions.dismissReplies`; a refusal toasts.
+/// #EXP-1958: a SEALED card's reply leaves sealed through the composer's
+/// writer (`sessions.send` + `cardItem`), its dismiss names the open replies;
+/// one this install cannot open sends nothing (`CardItemWire`).
 struct SessionComposerReplies: View {
     let sessionId: String
 
@@ -66,7 +69,12 @@ struct SessionComposerReplies: View {
               replies.messageId != dismissedId
         else { return nil }
         let items = replies.items.filter { !sentIds.contains("\(replies.messageId)/\($0.id)") }
-        return items.isEmpty ? nil : ComposerReplies(messageId: replies.messageId, items: items)
+        return items.isEmpty
+            ? nil
+            : ComposerReplies(
+                messageId: replies.messageId, items: items,
+                sessionId: replies.sessionId, cardSealStatus: replies.cardSealStatus
+            )
     }
 
     var body: some View {
@@ -77,8 +85,8 @@ struct SessionComposerReplies: View {
                 ComposerRepliesRow(
                     replies: replies,
                     disabled: inFlight,
-                    onSend: { send(replies.messageId, $0) },
-                    onDismiss: { dismiss(replies.messageId) }
+                    onSend: { send(replies, $0) },
+                    onDismiss: { dismiss(replies) }
                 )
                 .transition(.opacity)
             }
@@ -100,14 +108,26 @@ struct SessionComposerReplies: View {
         }
     }
 
-    private func send(_ messageId: String, _ item: ComposerReply) {
+    private func send(_ replies: ComposerReplies, _ item: ComposerReply) {
         guard !inFlight else { return }
         inFlight = true
         let api = deps.sessionsApi
         let accountId = accountId
+        let messageId = replies.messageId
+        let target = replies.sessionId ?? sessionId
         Task {
             do {
-                try await api.sendReply(accountId: accountId, messageId: messageId, itemId: item.id)
+                switch CardItemWire.wire(replies.cardSealStatus, action: .reply) {
+                case .server, .stamp:
+                    try await api.sendReply(accountId: accountId, messageId: messageId, itemId: item.id)
+                case .sealed:
+                    try await api.send(
+                        accountId: accountId, CardItemWire.message(sessionId: target, text: item.text),
+                        cardItem: CardItemRef(messageId: messageId, itemId: item.id)
+                    )
+                case .refused:
+                    throw SealRefusal()
+                }
                 sentIds.insert("\(messageId)/\(item.id)")
             } catch {
                 toaster.error(
@@ -119,14 +139,22 @@ struct SessionComposerReplies: View {
         }
     }
 
-    private func dismiss(_ messageId: String) {
+    private func dismiss(_ replies: ComposerReplies) {
         guard !inFlight else { return }
         inFlight = true
         let api = deps.sessionsApi
         let accountId = accountId
+        let messageId = replies.messageId
         Task {
             do {
-                try await api.dismissReplies(accountId: accountId, messageId: messageId)
+                switch CardItemWire.wire(replies.cardSealStatus, action: .dismissReplies) {
+                case .server, .sealed:
+                    try await api.dismissReplies(accountId: accountId, messageId: messageId)
+                case .stamp:
+                    try await api.dismissReplies(accountId: accountId, messageId: messageId, itemIds: replies.items.map(\.id))
+                case .refused:
+                    throw SealRefusal()
+                }
                 dismissedId = messageId
             } catch {
                 toaster.error(
