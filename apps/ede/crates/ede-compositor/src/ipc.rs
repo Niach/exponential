@@ -537,60 +537,7 @@ impl Ede {
                 Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
             }
             Request::Input { event, bindings } => {
-                if bindings && grant.session_id.as_str() != ROOT_SESSION {
-                    return Err(fail(ErrorCode::Forbidden, "only the shell's grant drives the bindings"));
-                }
-                // `bindings` = the person's own input (the harness): it
-                // reaches the lock screen and protected surfaces like a
-                // real keyboard; the agent path refuses those.
-                let before = (!bindings).then(|| self.desk(desk).seat.get_keyboard().unwrap().pressed_keys());
-                let refused = match (event, bindings) {
-                    (InputEvent::Key { key, pressed }, true) => {
-                        self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
-                        Ok(())
-                    }
-                    (InputEvent::PointerMotion { x, y }, true) => {
-                        self.person_pointer_motion_to((x, y).into(), now as u32);
-                        Ok(())
-                    }
-                    (InputEvent::PointerButton { button, pressed }, true) => {
-                        self.person_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
-                        Ok(())
-                    }
-                    (InputEvent::Key { key, pressed }, false) => {
-                        self.drive_key(desk, (key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
-                    }
-                    (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
-                        let pos = self.desk(desk).seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
-                        if bindings {
-                            self.person_pointer_motion_to(pos, now as u32);
-                            Ok(())
-                        } else {
-                            self.drive_pointer_motion(desk, pos, now as u32)
-                        }
-                    }
-                    (InputEvent::Keysym { keysym, pressed }, bindings) => match self.drive_keysym(desk, keysym, pressed, bindings, now as u32) {
-                        Ok(false) => return Err(fail(ErrorCode::NotFound, &format!("no key makes keysym {keysym:#x} on this layout"))),
-                        other => other.map(|_| ()),
-                    },
-                    (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis(desk, (dx, dy), None, now as u32),
-                    (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis(desk, (dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
-                    (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion(desk, (x, y).into(), now as u32),
-                    (InputEvent::PointerButton { button, pressed }, false) => {
-                        let driven = self.drive_pointer_button(desk, button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
-                        if driven.is_ok() {
-                            self.desk_mut(desk).driven.buttons.retain(|(_, b)| *b != button);
-                            if pressed {
-                                self.desk_mut(desk).driven.buttons.push((id, button));
-                            }
-                        }
-                        driven
-                    }
-                };
-                if let Some(before) = before {
-                    self.note_driven(desk, id, &before);
-                }
-                refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
+                self.ipc_input(id, desk, &grant, event, bindings, now)?;
                 json(serde_json::Value::Null)
             }
             Request::PointerPosition => {
@@ -711,6 +658,72 @@ impl Ede {
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
         }
+    }
+
+    /// `Request::Input` on `desk`, the desk the call resolved to, for the
+    /// connection `conn` holding `grant`. `bindings` = the person's own
+    /// input (the harness): only the shell's grant, only the person's desk.
+    pub fn ipc_input(&mut self, conn: u64, desk: DeskId, grant: &Grant, event: InputEvent, bindings: bool, now: i64) -> Result<(), Failure> {
+        if bindings && grant.session_id.as_str() != ROOT_SESSION {
+            return Err(fail(ErrorCode::Forbidden, "only the shell's grant drives the bindings"));
+        }
+        // #EDE-136: the bindings arms below call the person's own paths
+        // (their keyboard, their pointer), so they never take another desk:
+        // a space's desk mixed with them would type into the person's focus.
+        if bindings && desk != DeskId::PERSON {
+            return Err(fail(ErrorCode::Forbidden, "the bindings drive the person's desk alone"));
+        }
+        // `bindings` = the person's own input (the harness): it
+        // reaches the lock screen and protected surfaces like a
+        // real keyboard; the agent path refuses those.
+        let before = (!bindings).then(|| self.desk(desk).seat.get_keyboard().unwrap().pressed_keys());
+        let refused = match (event, bindings) {
+            (InputEvent::Key { key, pressed }, true) => {
+                self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
+                Ok(())
+            }
+            (InputEvent::PointerMotion { x, y }, true) => {
+                self.person_pointer_motion_to((x, y).into(), now as u32);
+                Ok(())
+            }
+            (InputEvent::PointerButton { button, pressed }, true) => {
+                self.person_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                Ok(())
+            }
+            (InputEvent::Key { key, pressed }, false) => {
+                self.drive_key(desk, (key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
+            }
+            (InputEvent::PointerMotionRelative { dx, dy }, bindings) => {
+                let pos = self.desk(desk).seat.get_pointer().unwrap().current_location() + smithay::utils::Point::<f64, smithay::utils::Logical>::from((dx, dy));
+                if bindings {
+                    self.person_pointer_motion_to(pos, now as u32);
+                    Ok(())
+                } else {
+                    self.drive_pointer_motion(desk, pos, now as u32)
+                }
+            }
+            (InputEvent::Keysym { keysym, pressed }, bindings) => match self.drive_keysym(desk, keysym, pressed, bindings, now as u32) {
+                Ok(false) => return Err(fail(ErrorCode::NotFound, &format!("no key makes keysym {keysym:#x} on this layout"))),
+                other => other.map(|_| ()),
+            },
+            (InputEvent::PointerAxis { dx, dy }, _) => self.drive_pointer_axis(desk, (dx, dy), None, now as u32),
+            (InputEvent::PointerAxisDiscrete { dx, dy }, _) => self.drive_pointer_axis(desk, (dx as f64 * 15.0, dy as f64 * 15.0), Some((dx * 120, dy * 120)), now as u32),
+            (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion(desk, (x, y).into(), now as u32),
+            (InputEvent::PointerButton { button, pressed }, false) => {
+                let driven = self.drive_pointer_button(desk, button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                if driven.is_ok() {
+                    self.desk_mut(desk).driven.buttons.retain(|(_, b)| *b != button);
+                    if pressed {
+                        self.desk_mut(desk).driven.buttons.push((conn, button));
+                    }
+                }
+                driven
+            }
+        };
+        if let Some(before) = before {
+            self.note_driven(desk, conn, &before);
+        }
+        refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))
     }
 
     fn window_by_id(&self, id: &WindowId) -> Result<Window, Failure> {

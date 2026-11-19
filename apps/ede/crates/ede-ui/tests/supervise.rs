@@ -272,3 +272,50 @@ fn an_unchanged_factory_document_from_an_earlier_run_is_no_suspect() {
     let supervisor = Supervisor::new(ui, vec!["true".into()], |_| {}).unwrap();
     assert!(supervisor.state().documents["panel"].from_factory);
 }
+
+/// `exponential-ui --dir <dir> undo`: Version history's undo, another process.
+fn cli_undo(dir: &Path, factory: &Path) {
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_exponential-ui"))
+        .arg("--dir")
+        .arg(dir)
+        .arg("undo")
+        .env("EDE_FACTORY_DIR", factory)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+/// #EDE-116 end to end: an edit undone through the CLI before its frame is
+/// no rollback, the supervisor runs on, and the next edit is still
+/// supervised. Here the watcher brings the undo before the deadline; the
+/// order that stopped the supervisor (the deadline first) is pinned by
+/// the unit tests in `src/supervise.rs`.
+#[test]
+fn an_edit_undone_before_its_frame_is_no_rollback() {
+    let (_tmp, dir, factory) = setup();
+    let run = Run::start(&dir, &factory);
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    cli_set(&dir, &factory, &panel("silent"));
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Edit { name, .. } if name == "panel"));
+    let edited = Instant::now();
+    cli_undo(&dir, &factory);
+    if edited.elapsed() > Duration::from_millis(1500) {
+        // A machine too loaded to undo within the 2 s wait: not this case.
+        eprintln!("skipped: the undo took {:?}", edited.elapsed());
+        return;
+    }
+    std::thread::sleep(Duration::from_millis(2600));
+    let seen: Vec<Report> = run.reports.try_iter().collect();
+    assert!(!seen.iter().any(|r| matches!(r, Report::Reverted { .. })), "the undone edit was rolled back: {seen:?}");
+    assert_eq!(text(&dir), "factory");
+    assert!(!log(&dir).iter().any(|s| s.ends_with("rolled back")), "{:?}", log(&dir));
+    // Another silent edit: still supervised, so rolled back.
+    let mut again = panel("silent");
+    again["root"]["children"][0]["id"] = json!("clock-2");
+    cli_set(&dir, &factory, &again);
+    run.wait(Duration::from_secs(8), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(text(&dir), "factory");
+    assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+}
