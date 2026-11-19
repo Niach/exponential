@@ -15,7 +15,8 @@
 //! every keyboard and pointer event passes it, ours (tagged with
 //! [`MAGIC`] in the event source's user data) go through, the person's are
 //! swallowed except the release of a key or button they held when the lock
-//! engaged (#EXP-1921); their Esc fires `on_esc`. Needs Accessibility; the screenshot
+//! engaged (#EXP-1921), and while such a button is still down the agent's
+//! pointer waits for its release (#EXP-1979); their Esc fires `on_esc`. Needs Accessibility; the screenshot
 //! needs Screen Recording. Coordinates are points of the global display
 //! space (origin top-left of the main display, y down).
 //!
@@ -59,7 +60,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -466,6 +467,10 @@ impl Backend for Mac {
         self.unicode(&text, true)?;
         std::thread::sleep(Duration::from_millis(6));
         self.unicode(&text, false)
+    }
+
+    fn person_holds_button(&self) -> bool {
+        person_holds_button()
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
@@ -1416,6 +1421,7 @@ impl Drop for Lock {
                 let _ = thread.join();
             }
         }
+        PERSON_BUTTONS.store(0, Ordering::Release);
     }
 }
 
@@ -1477,7 +1483,9 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     unsafe { CGEventTapEnable(port_ref, true) };
     // After the tap: a release between this snapshot and the tap cannot be
     // missed. No callback runs before the run loop below.
-    state.held.set(held_now());
+    let held = held_now();
+    state.held.set(held);
+    publish_buttons(&held);
     if ready.send(Ok(run_loop.clone())).is_err() {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
@@ -1493,7 +1501,18 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
         CFMachPortInvalidate(port_ref);
     }
     run_loop.remove_source(&source, common);
+    PERSON_BUTTONS.store(0, Ordering::Release);
     log::debug!("[computer] event tap removed");
+}
+
+/// #EXP-1979: the mouse buttons of `held` the person still holds, for the
+/// pointer tools ([`PERSON_BUTTONS`]).
+fn publish_buttons(held: &HeldAtEngage<TAP_HELD>) {
+    PERSON_BUTTONS.store(held.armed(TAP_BUTTONS..TAP_HELD), Ordering::Release);
+}
+
+fn person_holds_button() -> bool {
+    PERSON_BUTTONS.load(Ordering::Acquire) != 0
 }
 
 /// The tap: ours through, the person's Esc = `on_esc`, the rest swallowed.
@@ -1517,6 +1536,7 @@ unsafe extern "C" fn tap_callback(
     let mut held = state.held.get();
     let verdict = tap_verdict(ours, kind, field(EventField::KEYBOARD_EVENT_KEYCODE), field(EventField::MOUSE_EVENT_BUTTON_NUMBER), &mut held);
     state.held.set(held);
+    publish_buttons(&held);
     match verdict {
         Verdict::Pass => return event,
         Verdict::Swallow => {}
@@ -1661,6 +1681,29 @@ mod tests {
         assert_eq!(tap_verdict(false, CGEventType::LeftMouseUp as u32, 0, 0, &mut held), Verdict::Swallow);
         assert_eq!(tap_verdict(true, CGEventType::FlagsChanged as u32, 56, 0, &mut held), Verdict::Pass);
         assert_eq!(tap_verdict(false, CGEventType::FlagsChanged as u32, 56, 0, &mut held), Verdict::Swallow);
+    }
+
+    /// #EXP-1979: a button the person held when the tap went in holds the
+    /// pointer tools back until its release passes the tap, at most the
+    /// wait; a held key holds nothing back.
+    #[test]
+    fn the_pointer_waits_for_the_release_of_a_button_held_at_engage() {
+        let wait = |millis| crate::backend::wait_for_person_buttons(person_holds_button, || false, Duration::from_millis(millis));
+        let mut held = HeldAtEngage::<TAP_HELD>::NONE;
+        held.0[56] = true; // kVK_Shift
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Free, "a key never holds the pointer back");
+        held.0[TAP_BUTTONS] = true; // the left button
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Held, "the wait ran out");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(tap_verdict(false, CGEventType::LeftMouseUp as u32, 0, 0, &mut held), Verdict::Pass);
+            publish_buttons(&held);
+        });
+        assert_eq!(wait(5000), crate::backend::ButtonWait::Free, "the person let go");
+        release.join().unwrap();
+        PERSON_BUTTONS.store(0, Ordering::Release);
     }
 
     /// The pid `lsappinfo` (Launch Services, asked fresh) says is in front.

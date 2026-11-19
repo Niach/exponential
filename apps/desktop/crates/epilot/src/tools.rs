@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, Pasted, Target, WindowInfo};
+use crate::backend::{Backend, Button, ButtonWait, DisplayInfo, Image, Pasted, Target, WindowInfo};
 use crate::keys::{parse_combo, Key, Named};
 use crate::work_screen;
 
@@ -372,6 +372,15 @@ fn dispatch(
     }
     // Every other tool passed the gate, so a work display exists.
     let current = current.ok_or("No work screen.")?;
+    // #EXP-1979: the pointer never moves while the person still holds a
+    // button they held when the hold engaged: it would drag what they hold.
+    if work_screen::is_pointer(name) {
+        match crate::backend::wait_for_person_buttons(|| backend.person_holds_button(), interrupted, crate::backend::PERSON_BUTTON_WAIT) {
+            ButtonWait::Free => {}
+            ButtonWait::Interrupted => return Err(ABORTED.to_string()),
+            ButtonWait::Held => return Err(PERSON_HOLDS_A_BUTTON.to_string()),
+        }
+    }
     let displays = &screen.displays;
     let frame = Frame::fit(&displays[current]);
     match name {
@@ -804,6 +813,9 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
 }
 
 /// What a call answers once the person pressed Esc.
+/// #EXP-1979: a pointer tool whose wait for the person's button ran out.
+pub(crate) const PERSON_HOLDS_A_BUTTON: &str = "The person is holding a mouse button, so nothing was moved or clicked. Try again once they let go.";
+
 pub(crate) const ABORTED: &str = "The person pressed Esc: computer use is aborted. Stop driving the screen and say so in your reply; drive again only when they ask.";
 
 fn press(backend: &dyn Backend, key: Key) -> Result<(), String> {
@@ -894,6 +906,8 @@ pub(crate) mod tests {
         pub space: Option<u32>,
         /// `launch` fails with this (the compositor's refusal).
         pub no_launch: Option<String>,
+        /// The person holds a mouse button they held at engage (#EXP-1979).
+        pub holding: AtomicBool,
     }
 
     impl FakeBackend {
@@ -963,6 +977,9 @@ pub(crate) mod tests {
     }
 
     impl Backend for FakeBackend {
+        fn person_holds_button(&self) -> bool {
+            self.holding.load(Ordering::SeqCst)
+        }
         fn target(&self) -> crate::backend::Target {
             self.space.map_or(crate::backend::Target::Person, crate::backend::Target::Space)
         }
@@ -1414,6 +1431,36 @@ pub(crate) mod tests {
         let mut clip = backend.clip.lock().unwrap();
         clip.text = Some(text.to_string());
         clip.count = 10;
+    }
+
+    /// #EXP-1979: while the person holds a mouse button they held when the
+    /// hold engaged, a pointer tool waits for its release (then acts); keys
+    /// and screenshots never wait; Esc meanwhile aborts.
+    #[test]
+    fn the_pointer_waits_while_the_person_holds_a_button() {
+        assert!(["mouse_move", "left_click", "right_click", "middle_click", "double_click", "drag", "scroll"].into_iter().all(work_screen::is_pointer));
+        assert!(!["type", "key", "paste_text", "copy_selection", "activate_window", "screenshot", "wait"].into_iter().any(work_screen::is_pointer));
+        let backend = FakeBackend::default();
+        backend.holding.store(true, Ordering::SeqCst);
+        let shot = one(&backend, "screenshot", json!({}));
+        assert_eq!(shot["isError"], Value::Null, "{shot}");
+        let key = one(&backend, "key", json!({ "combo": "Return" }));
+        assert_eq!(key["isError"], Value::Null, "{key}");
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(150));
+                assert!(backend.log.lock().unwrap().iter().all(|line| !line.starts_with("move")), "nothing moved while held");
+                backend.holding.store(false, Ordering::SeqCst);
+            });
+            let clicked = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+            assert_eq!(clicked["isError"], Value::Null, "{clicked}");
+        });
+        assert!(backend.log.lock().unwrap().iter().any(|line| line.starts_with("move")));
+        backend.holding.store(true, Ordering::SeqCst);
+        let mut display = None;
+        let aborted = call(&backend, "mouse_move", &json!({ "x": 1, "y": 1 }), &mut CallContext { interrupted: &|| true, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged });
+        assert_eq!(aborted["isError"], true);
+        assert_eq!(aborted["content"][0]["text"], ABORTED);
     }
 
     #[test]
