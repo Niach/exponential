@@ -3,8 +3,8 @@
 //!
 //! - [`server`]: a loopback Streamable HTTP server (`127.0.0.1:<port>/mcp`,
 //!   stateless, JSON answers) behind the [`server::ToolProvider`] trait, each
-//!   run admitted by its own bearer token. codemode serves its tools
-//!   through it (ePilot and ePilot screen next, through the release tag).
+//!   run admitted by its own bearer token. codemode, `epilot` and
+//!   `epilot-screen` serve their tools through it.
 //! - [`client`]: a blocking client (headers resolved by the host) for the
 //!   hosts' upstream calls: codemode's scripts, the CLI's and the IDE's
 //!   calls into the instance's own `/api/mcp`.

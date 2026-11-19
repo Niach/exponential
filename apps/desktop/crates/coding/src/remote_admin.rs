@@ -54,12 +54,13 @@ pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
     /// EXP-1196: `Settings.computer_use`, device-level. The device always
-    /// sends it; a client's save that omits it keeps the stored value (the
-    /// server carries it forward), and an absent key here changes nothing.
+    /// sends it; a client's save that omits it clears the server's copy
+    /// (absent = off, every client sends the switch it shows), and an
+    /// absent key here changes nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use: Option<bool>,
     /// EXP-1236: `Settings.computer_use_model`, device-level beside the
-    /// switch; same carry-forward contract as `computer_use`.
+    /// switch; the same contract as `computer_use`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_model: Option<String>,
     /// NEW-59 / #FEED-161: `Settings.computer_use_display_id`, the Work
