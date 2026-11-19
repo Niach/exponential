@@ -142,11 +142,27 @@ fn a_space_has_its_own_user_manager_and_one_bus() {
     assert!(names.iter().all(|name| matches!(name.as_str(), "dbus.service" | "dbus.socket")), "the space's manager loaded {names:?}");
     assert!(names.contains(&"dbus.service".to_string()));
 
+    // What `flatpak run` does: its own scope through the PERSON's user
+    // manager, at its socket's path whatever the environment says; it
+    // lands in the person's app.slice and is brought into the space.
+    let flatpak_pid = out("flatpak.pid");
+    let no_expand = if units.version >= 254 { "--expand-environment=no" } else { "" };
+    let script = format!(
+        "XDG_RUNTIME_DIR={} systemd-run --user --scope --collect --quiet {no_expand} --unit=app-flatpak-at.exponential.Test-{me}.scope -- sh -c 'echo $$ > {0}.tmp && mv {0}.tmp {0}; exec sleep 300'",
+        units.runtime.display(),
+        flatpak_pid.display()
+    );
+    agent.launch(staying(script), Default::default(), None).unwrap();
+    let flatpak: u32 = written(&flatpak_pid).trim().parse().unwrap();
+    let in_space = format!("/{}/{}/", spaces_slice(me), space_slice(me, 1));
+    until("the Flatpak was never brought into its space", || cgroup(flatpak).is_some_and(|c| c.contains(&in_space)));
+    assert!(cgroup(flatpak).unwrap().contains(&format!("{in_session}flatpak-")), "{:?}", cgroup(flatpak));
+
     // The close: the manager, its bus and all they started are gone.
     let bus_pids: Vec<u32> = std::fs::read_to_string(session_scope.join("app.slice/dbus.service/cgroup.procs")).unwrap().lines().filter_map(|pid| pid.parse().ok()).collect();
     assert!(!bus_pids.is_empty());
     agent.destroy_space(space.id.clone()).unwrap();
-    until("the space's manager or bus outlived it", || !alive(manager) && bus_pids.iter().all(|pid| !alive(*pid)) && !alive(first) && !alive(second));
+    until("the space's manager or bus outlived it", || !alive(manager) && bus_pids.iter().all(|pid| !alive(*pid)) && !alive(first) && !alive(second) && !alive(flatpak));
     until("the space's directory and its bus socket outlived it", || !space_dir.exists());
     until("the space's slice outlived it", || !units.space_cgroup(1).exists());
     until("the closed space was never done with", || h.with(|state| state.spaces.settled()));
