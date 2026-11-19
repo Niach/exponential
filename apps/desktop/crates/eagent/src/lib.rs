@@ -19,7 +19,7 @@
 //!
 //! Extraction so far: the pure leaves both hosts already shared (atomic config
 //! writes, the lock file, the claude/codex trust seeders, the codex session
-//! index, the confinement check, the command head, the Linux run scope and the
+//! index, the command head, the Linux run scope and the
 //! background `Command` constructor). The old paths (`coding::lockfile`,
 //! `engine::run_scope`, `api::atomic_file`, `terminal::process`, …) re-export
 //! these modules, so no caller changed.
@@ -35,8 +35,6 @@ pub mod codex_sessions;
 pub mod codex_trust;
 // EXP-1206: the human-readable head of a command line (`git status`). Pure.
 pub mod command_head;
-// The cwd-confinement check the adapters answer file/terminal requests with.
-pub mod confine;
 // EXP-1426 part 4: the ACP engine core (transport, child exit, event sink,
 // local feed, run policies), moved out of `engine`.
 pub mod engine;

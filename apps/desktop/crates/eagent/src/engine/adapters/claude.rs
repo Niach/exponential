@@ -67,7 +67,7 @@ use agent_client_protocol::v1::ConnectionTo;
 use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
-use super::{confine, LaunchSpec};
+use super::LaunchSpec;
 use crate::engine::launch::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
 use crate::engine::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
 use crate::engine::launch::{EngineError, ResumeHandle};
@@ -1314,16 +1314,6 @@ impl ClaudeSession {
         &self.spec.cwd
     }
 
-    /// N-5 / NEW-5: the deny message when a confined run's tool call leaves
-    /// its scratch dir. FEED-142: the run's own claude project dir (memory,
-    /// tool results) stays open.
-    fn confinement_denial(&self, tool: &str, input: &Value) -> Option<String> {
-        let root = self.spec.confine_to.as_deref()?;
-        let config = claude_config_dir(&self.spec.spawn.env);
-        let harness = confine::claude_harness_dirs(config.as_deref(), &[self.cwd(), root]);
-        confine::confinement_denial(tool, input, self.cwd(), &confine::Confinement { root, harness: &harness })
-    }
-
     /// EXP-784: the `_meta` naming claude's own session id, for the
     /// `session/new` / `session/load` response — what the run record's
     /// `agent_native_session_id` is written from. Empty when nothing is
@@ -1461,7 +1451,7 @@ impl ClaudeSession {
             // all is the wedge above.
             match self
                 .control_request_within(
-                    wire::initialize(wire::initialize_hooks_for(self.spec.confine_to.is_some())),
+                    wire::initialize(wire::initialize_hooks()),
                     timeout,
                 )
                 .await
@@ -4508,13 +4498,7 @@ impl ClaudeSession {
         request: wire::ControlReq,
     ) {
         let tool_use_id = request.tool_use_id.clone().unwrap_or_else(|| request_id.clone());
-        let denial = self.confinement_denial(&request.tool_name, &request.input);
-        let answer = if let Some(message) = denial {
-            // N-5 / NEW-5: a plain deny (no interrupt) reaches the model as
-            // the tool's error, so it can self-correct inside the scratch dir.
-            log::info!("engine: claude denied {} outside the confined dir", request.tool_name);
-            wire::permission_deny(&tool_use_id, &message, false)
-        } else if request.is_ask_user_question() {
+        let answer = if request.is_ask_user_question() {
             self.ask_user_question(cx, &request, &tool_use_id).await
         } else {
             // EXP-772: permissions are bypassed in EVERY mode, so the only
@@ -4598,31 +4582,6 @@ impl ClaudeSession {
         request: wire::ControlReq,
     ) {
         let callback = request.callback_id.clone().unwrap_or_default();
-        if callback == wire::HOOK_PRE_TOOL_USE_CONFINE {
-            // N-5 / NEW-5: decided synchronously, so answering first still holds.
-            // Wave review of #1254..#1285: the hook FAILS CLOSED — a payload
-            // it cannot read, or one naming no tool, is denied, never
-            // answered `{continue: true}` with an empty tool name.
-            let denial = match confine_hook_call(&request.input) {
-                Ok(input) => {
-                    let denial = self.confinement_denial(&input.tool_name, &input.tool_input);
-                    if denial.is_some() {
-                        log::info!("engine: claude PreToolUse denied {} outside the confined dir", input.tool_name);
-                    }
-                    denial
-                }
-                Err(err) => {
-                    log::warn!("engine: claude PreToolUse payload unreadable ({err}); denied");
-                    let root = self.spec.confine_to.as_deref().unwrap_or_else(|| self.cwd());
-                    Some(confine::unreadable_call_denial(root))
-                }
-            };
-            let _ = self.send(wire::control_response_success(
-                &request_id,
-                wire::pre_tool_use_answer(denial.as_deref()),
-            ));
-            return;
-        }
         let _ = self.send(wire::control_response_success(&request_id, json!({ "continue": true })));
         let input: wire::HookInput =
             serde_json::from_value(request.input.clone()).unwrap_or_default();
@@ -5981,38 +5940,9 @@ fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
     tools
 }
 
-/// The tool call a confine-hook payload names, or why it cannot be read
-/// (not the hook's object shape, a tool name that is not a string, no tool
-/// name at all): the hook fails CLOSED on an `Err`.
-fn confine_hook_call(payload: &Value) -> Result<wire::HookInput, String> {
-    let input: wire::HookInput =
-        serde_json::from_value(payload.clone()).map_err(|err| format!("unreadable payload: {err}"))?;
-    if input.tool_name.trim().is_empty() {
-        return Err("no tool name".to_string());
-    }
-    Ok(input)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Wave review of #1254..#1285: the confine hook fails closed — a
-    /// payload it cannot parse or one without a tool name is an `Err`
-    /// (denied), a readable one names its tool.
-    #[test]
-    fn a_confine_hook_payload_is_read_or_refused() {
-        assert!(confine_hook_call(&json!("not an object")).unwrap_err().starts_with("unreadable payload"));
-        assert!(confine_hook_call(&json!({ "tool_name": 5, "tool_input": {} })).unwrap_err().starts_with("unreadable payload"));
-        assert_eq!(confine_hook_call(&json!({ "tool_input": { "file_path": "/etc/passwd" } })).unwrap_err(), "no tool name");
-        assert_eq!(confine_hook_call(&json!({ "tool_name": "  " })).unwrap_err(), "no tool name");
-        let input = confine_hook_call(&json!({ "tool_name": "Read", "tool_input": { "file_path": "a.md" } })).unwrap();
-        assert_eq!(input.tool_name, "Read");
-        assert_eq!(input.tool_input["file_path"], "a.md");
-        // The denial the hook answers with on an `Err`.
-        let reason = confine::unreadable_call_denial(Path::new("/scratch/s1"));
-        assert!(reason.contains("/scratch/s1") && reason.contains("could not read"), "{reason}");
-    }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.
     #[test]
@@ -7088,22 +7018,5 @@ mod tests {
         assert_eq!(prefix_tokens(&Value::Null), 0);
         assert_eq!(prefix_tokens(&json!({})), 0);
         assert_eq!(prefix_tokens(&json!({ "output_tokens": 900 })), 0);
-    }
-
-    // -----------------------------------------------------------------------
-    // N-5 / NEW-5: confinement
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn a_confined_run_registers_the_pre_tool_use_gate_and_an_open_one_does_not() {
-        assert_eq!(wire::initialize_hooks_for(false), wire::initialize_hooks());
-        let hooks = wire::initialize_hooks_for(true);
-        assert_eq!(
-            hooks["PreToolUse"][0]["hookCallbackIds"],
-            json!([wire::HOOK_PRE_TOOL_USE_CONFINE])
-        );
-        let deny = wire::pre_tool_use_answer(Some("no"));
-        assert_eq!(deny["hookSpecificOutput"]["permissionDecision"], json!("deny"));
-        assert_eq!(wire::pre_tool_use_answer(None), json!({ "continue": true }));
     }
 }
