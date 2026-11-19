@@ -169,6 +169,53 @@ impl<const N: usize> HeldAtEngage<N> {
             *slot = false;
         }
     }
+
+    /// Of the slots `indexes` (the mouse buttons), the ones still held, as
+    /// bits in that order ([`PERSON_BUTTONS`]).
+    pub(crate) fn armed(&self, indexes: impl IntoIterator<Item = usize>) -> u32 {
+        indexes.into_iter().take(32).enumerate().filter(|&(_, index)| self.0.get(index).copied().unwrap_or(false)).fold(0, |bits, (bit, _)| bits | 1 << bit)
+    }
+}
+
+/// #EXP-1979: the mouse buttons the person held when their lock engaged and
+/// has not let go of yet ([`HeldAtEngage::armed`]; 0 = none, or no lock).
+/// The lock keeps it; while it is set the agent's pointer waits
+/// ([`wait_for_person_buttons`]): moving or clicking would drag what the
+/// person holds, and a release of ours would drop it.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+pub(crate) static PERSON_BUTTONS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// How long the agent's pointer waits for the person to let go.
+pub(crate) const PERSON_BUTTON_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What a wait for the person's buttons ended with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ButtonWait {
+    /// None held (any more): the pointer may act.
+    Free,
+    /// The run was interrupted (Esc, Stop) meanwhile.
+    Interrupted,
+    /// Still held after the wait.
+    Held,
+}
+
+/// #EXP-1979: before the agent's pointer acts: wait while `held` (the
+/// person still holds a button they held when the lock engaged), at most
+/// `wait`, unless `interrupted`.
+pub(crate) fn wait_for_person_buttons(held: impl Fn() -> bool, interrupted: impl Fn() -> bool, wait: std::time::Duration) -> ButtonWait {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        if interrupted() {
+            return ButtonWait::Interrupted;
+        }
+        if !held() {
+            return ButtonWait::Free;
+        }
+        if std::time::Instant::now() >= until {
+            return ButtonWait::Held;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 /// #EXP-1921: the start of a lock on its own thread, both ends. `take`
@@ -319,6 +366,11 @@ pub(crate) trait Backend: Send {
     fn key(&self, key: Key, down: bool) -> Result<(), String>;
     /// Type one character (press + release), whatever the layout.
     fn type_char(&self, ch: char) -> Result<(), String>;
+    /// #EXP-1979: whether the person still holds a mouse button they held
+    /// when the lock engaged ([`PERSON_BUTTONS`]).
+    fn person_holds_button(&self) -> bool {
+        false
+    }
     /// Take the person's keyboard and pointer: nothing they do reaches any
     /// window, our own input still lands; `on_esc` fires on their Esc.
     /// `Err` = the OS refused (another grab, a missing permission).
@@ -539,6 +591,28 @@ mod tests {
         held.ours(2);
         assert!(!held.passes(2, false), "the agent pressed or released it since");
         held.ours(9);
+    }
+
+    /// #EXP-1979: the pointer waits while the person holds a button, frees
+    /// on its release, gives up after the wait, and an interrupt ends it.
+    #[test]
+    fn the_pointer_waits_for_the_persons_buttons_at_most_the_wait() {
+        let mut held = HeldAtEngage::<8>::NONE;
+        held.0[1] = true;
+        held.0[5] = true;
+        assert_eq!(held.armed([1, 2, 5]), 0b101);
+        held.ours(5);
+        assert_eq!(held.armed([1, 2, 5]), 0b001);
+        let short = std::time::Duration::from_millis(60);
+        assert_eq!(wait_for_person_buttons(|| true, || false, short), ButtonWait::Held);
+        assert_eq!(wait_for_person_buttons(|| false, || false, short), ButtonWait::Free);
+        assert_eq!(wait_for_person_buttons(|| true, || true, short), ButtonWait::Interrupted);
+        let polls = std::cell::Cell::new(0);
+        let held_twice = || {
+            polls.set(polls.get() + 1);
+            polls.get() <= 2
+        };
+        assert_eq!(wait_for_person_buttons(held_twice, || false, std::time::Duration::from_secs(5)), ButtonWait::Free);
     }
 
     /// #EXP-1921: a lock thread that answers after `take` gave up hears so

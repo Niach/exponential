@@ -17,11 +17,12 @@
 //! abort) and the release of a key or button they held when the lock
 //! engaged (so no modifier stays stuck under our typing, no button under
 //! our moves: #EXP-1921), unless our own input pressed or released it first
-//! (#EXP-1979). Buttons are the logical ones everywhere: on a left-handed
-//! mouse the primary is the physical right button. Windows silently drops
-//! a hook that answers slower than `LowLevelHooksTimeout`, so the hook procs
-//! only decide and post; `on_esc` runs off the message loop, hooks already
-//! gone.
+//! (#EXP-1979); while such a button is still down the agent's pointer
+//! waits for its release ([`PERSON_BUTTONS`]). Buttons are the logical ones
+//! everywhere: on a left-handed mouse the primary is the physical right
+//! button. Windows silently drops a hook that answers slower than
+//! `LowLevelHooksTimeout`, so the hook procs only decide and post; `on_esc`
+//! runs off the message loop, hooks already gone.
 //!
 //! The UIPI boundary: without elevation we can neither drive nor lock an
 //! elevated window or the secure desktop (UAC prompts, the sign-in screen).
@@ -34,6 +35,7 @@ use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::path::Path;
 use std::ptr::{null, null_mut};
+use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Once};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -80,7 +82,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 
 /// Our tag on every INPUT ("EXP1"): the lock's hooks let these through.
@@ -728,6 +730,10 @@ impl Backend for Win32 {
         send(&unicode_inputs(ch, true))
     }
 
+    fn person_holds_button(&self) -> bool {
+        person_holds_button()
+    }
+
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
         Ok(Box::new(Lock::take(on_esc)?))
     }
@@ -872,6 +878,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             let mut buttons = held.get();
             let verdict = judge_mouse(ours, wparam as u32, event.mouseData, &mut buttons);
             held.set(buttons);
+            publish_buttons(&buttons);
             verdict
         });
         if verdict != Verdict::Pass {
@@ -934,15 +941,19 @@ impl Lock {
                 // After the hooks: a key released between this snapshot
                 // and the hooks cannot be missed. No hook runs before the
                 // loop below pumps.
-                HELD.with(|held| held.set(pressed_keys()));
+                let held = pressed_keys();
+                HELD.with(|slot| slot.set(held));
+                publish_buttons(&held);
                 // SAFETY: no pointers.
                 if !ready.send(Ok(unsafe { GetCurrentThreadId() })) {
                     // #EXP-1921: `take` gave up waiting; nobody would ever
                     // release these hooks.
                     log::warn!("[computer] the input hooks started after the lock gave up: removed");
+                    PERSON_BUTTONS.store(0, Ordering::Release);
                     return;
                 }
                 hold(hooks, &*on_esc, &mut msg);
+                PERSON_BUTTONS.store(0, Ordering::Release);
             })
             .map_err(|err| format!("lock thread: {err}"))?;
         // A start that answered just as the wait gave up is ended here.
@@ -962,6 +973,19 @@ impl Lock {
             Err(mpsc::RecvTimeoutError::Timeout) => Err("The input hooks did not start.".to_string()),
         }
     }
+}
+
+/// The mouse buttons' VKs, in [`PERSON_BUTTONS`]' bit order.
+const BUTTON_VKS: [VIRTUAL_KEY; 5] = [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2];
+
+/// #EXP-1979: the mouse buttons of `held` the person still holds, for the
+/// pointer tools ([`PERSON_BUTTONS`]).
+fn publish_buttons(held: &HeldAtEngage<256>) {
+    PERSON_BUTTONS.store(held.armed(BUTTON_VKS.map(usize::from)), Ordering::Release);
+}
+
+fn person_holds_button() -> bool {
+    PERSON_BUTTONS.load(Ordering::Acquire) != 0
 }
 
 /// Every key (and button: VK 1..6, the hook's logical ones) down right now.
@@ -990,6 +1014,8 @@ fn hold(hooks: (Hook, Hook), on_esc: &(dyn Fn() + Send + Sync), msg: &mut MSG) {
                 drop(hooks);
                 log::info!("[computer] Esc: the input lock is released");
                 on_esc();
+                // The hooks are gone: the person's release is theirs again.
+                PERSON_BUTTONS.store(0, Ordering::Release);
             }
         }
     }
@@ -999,6 +1025,7 @@ impl LockGuard for Lock {}
 
 impl Drop for Lock {
     fn drop(&mut self) {
+        PERSON_BUTTONS.store(0, Ordering::Release);
         let Some(thread) = self.thread.take() else { return };
         // SAFETY: no pointers; the id names the lock thread, which lives
         // until it takes this WM_QUIT.
@@ -1358,6 +1385,29 @@ mod tests {
         assert_eq!(judge_key(true, u32::from(VK_CONTROL), true, &mut held), Verdict::Pass);
         assert_eq!(judge_key(false, u32::from(VK_LCONTROL), false, &mut held), Verdict::Swallow);
         assert_eq!(judge_key(false, u32::from(VK_RCONTROL), false, &mut held), Verdict::Pass, "never touched by us");
+    }
+
+    /// #EXP-1979: a button the person held when the hooks went in holds the
+    /// pointer tools back until its release passes the hook, at most the
+    /// wait; a held key holds nothing back.
+    #[test]
+    fn the_pointer_waits_for_the_release_of_a_button_held_at_engage() {
+        let wait = |millis| crate::backend::wait_for_person_buttons(person_holds_button, || false, Duration::from_millis(millis));
+        let mut held = HeldAtEngage::<256>::NONE;
+        held.0[usize::from(VK_SHIFT)] = true;
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Free, "a key never holds the pointer back");
+        held.0[usize::from(VK_LBUTTON)] = true;
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Held, "the wait ran out");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Pass);
+            publish_buttons(&held);
+        });
+        assert_eq!(wait(5000), crate::backend::ButtonWait::Free, "the person let go");
+        release.join().unwrap();
+        PERSON_BUTTONS.store(0, Ordering::Release);
     }
 
     /// #EXP-1979: on a left-handed mouse the primary is the physical right
