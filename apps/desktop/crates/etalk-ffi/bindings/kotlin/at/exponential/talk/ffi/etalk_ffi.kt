@@ -696,6 +696,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_step(
     ): Int
+    external fun uniffi_etalk_ffi_checksum_func_call_tap(
+    ): Int
+    external fun uniffi_etalk_ffi_checksum_func_call_target(
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_timer(
     ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_unavailable(
@@ -793,6 +797,10 @@ internal object UniffiLib {
     external fun uniffi_etalk_ffi_fn_func_call_speech_of(`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_etalk_ffi_fn_func_call_step(`state`: RustBuffer.ByValue,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_etalk_ffi_fn_func_call_tap(`platform`: RustBuffer.ByValue,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_etalk_ffi_fn_func_call_target(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_etalk_ffi_fn_func_call_timer(`ms`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -2527,6 +2535,11 @@ data class TalkCallState (
     var `device`: kotlin.String
     , 
     /**
+     * EXP-1857: the device is not the agent's own (the view's `via`).
+     */
+    var `fallback`: kotlin.Boolean = false 
+    , 
+    /**
      * The ring's earliest answer passed.
      */
     var `rang`: kotlin.Boolean
@@ -2575,6 +2588,7 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
@@ -2586,6 +2600,7 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.allocationSize(value.`muted`) +
             FfiConverterBoolean.allocationSize(value.`speaker`) +
             FfiConverterString.allocationSize(value.`device`) +
+            FfiConverterBoolean.allocationSize(value.`fallback`) +
             FfiConverterBoolean.allocationSize(value.`rang`) +
             FfiConverterBoolean.allocationSize(value.`ready`) +
             FfiConverterBoolean.allocationSize(value.`noSound`) +
@@ -2599,12 +2614,264 @@ public object FfiConverterTypeTalkCallState: FfiConverterRustBuffer<TalkCallStat
             FfiConverterBoolean.write(value.`muted`, buf)
             FfiConverterBoolean.write(value.`speaker`, buf)
             FfiConverterString.write(value.`device`, buf)
+            FfiConverterBoolean.write(value.`fallback`, buf)
             FfiConverterBoolean.write(value.`rang`, buf)
             FfiConverterBoolean.write(value.`ready`, buf)
             FfiConverterBoolean.write(value.`noSound`, buf)
             FfiConverterString.write(value.`said`, buf)
             FfiConverterString.write(value.`line`, buf)
             FfiConverterOptionalString.write(value.`toast`, buf)
+    }
+}
+
+
+
+/**
+ * What a press on the telephone does (`tapCases`).
+ */
+data class TalkCallTap (
+    var `call`: kotlin.Boolean
+    , 
+    /**
+     * A phone's tap on a disabled telephone toasts its reason.
+     */
+    var `toast`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTalkCallTap: FfiConverterRustBuffer<TalkCallTap> {
+    override fun read(buf: ByteBuffer): TalkCallTap {
+        return TalkCallTap(
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TalkCallTap) = (
+            FfiConverterBoolean.allocationSize(value.`call`) +
+            FfiConverterOptionalString.allocationSize(value.`toast`)
+    )
+
+    override fun write(value: TalkCallTap, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`call`, buf)
+            FfiConverterOptionalString.write(value.`toast`, buf)
+    }
+}
+
+
+
+/**
+ * Where a call's speech runs; `device` None = the telephone is disabled
+ * with `reason`.
+ */
+data class TalkCallTarget (
+    var `enabled`: kotlin.Boolean
+    , 
+    var `reason`: kotlin.String?
+    , 
+    /**
+     * The target's id and name.
+     */
+    var `device`: kotlin.String?
+    , 
+    var `name`: kotlin.String?
+    , 
+    /**
+     * The target is not the agent's own device: the call starts with
+     * `fallback` (the view's `via`).
+     */
+    var `fallback`: kotlin.Boolean
+    , 
+    /**
+     * The target is this client's own desktop: it runs the call itself.
+     */
+    var `local`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTalkCallTarget: FfiConverterRustBuffer<TalkCallTarget> {
+    override fun read(buf: ByteBuffer): TalkCallTarget {
+        return TalkCallTarget(
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TalkCallTarget) = (
+            FfiConverterBoolean.allocationSize(value.`enabled`) +
+            FfiConverterOptionalString.allocationSize(value.`reason`) +
+            FfiConverterOptionalString.allocationSize(value.`device`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterBoolean.allocationSize(value.`fallback`) +
+            FfiConverterBoolean.allocationSize(value.`local`)
+    )
+
+    override fun write(value: TalkCallTarget, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`enabled`, buf)
+            FfiConverterOptionalString.write(value.`reason`, buf)
+            FfiConverterOptionalString.write(value.`device`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterBoolean.write(value.`fallback`, buf)
+            FfiConverterBoolean.write(value.`local`, buf)
+    }
+}
+
+
+
+/**
+ * EXP-1857: one of the member's own desktops (EXP-1858: or servers) as
+ * [`call_target`] reads it.
+ */
+data class TalkCallTargetDevice (
+    var `id`: kotlin.String
+    , 
+    var `name`: kotlin.String
+    , 
+    var `online`: kotlin.Boolean
+    , 
+    /**
+     * Its doctor row `speech` through [`call_speech_of`] (None = none yet).
+     */
+    var `speech`: TalkCallSpeech?
+    , 
+    /**
+     * A meeting runs on it.
+     */
+    var `meeting`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTalkCallTargetDevice: FfiConverterRustBuffer<TalkCallTargetDevice> {
+    override fun read(buf: ByteBuffer): TalkCallTargetDevice {
+        return TalkCallTargetDevice(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalTypeTalkCallSpeech.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TalkCallTargetDevice) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterBoolean.allocationSize(value.`online`) +
+            FfiConverterOptionalTypeTalkCallSpeech.allocationSize(value.`speech`) +
+            FfiConverterBoolean.allocationSize(value.`meeting`)
+    )
+
+    override fun write(value: TalkCallTargetDevice, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterBoolean.write(value.`online`, buf)
+            FfiConverterOptionalTypeTalkCallSpeech.write(value.`speech`, buf)
+            FfiConverterBoolean.write(value.`meeting`, buf)
+    }
+}
+
+
+
+/**
+ * `targetCases` input.
+ */
+data class TalkCallTargetInput (
+    /**
+     * THIS client's own desktop (None on phones and web).
+     */
+    var `here`: kotlin.String?
+    , 
+    /**
+     * The called agent's Runs on device.
+     */
+    var `agentDevice`: kotlin.String?
+    , 
+    /**
+     * The member's own desktops, newest `lastSeenAt` first.
+     */
+    var `desktops`: List<TalkCallTargetDevice>
+    , 
+    /**
+     * EXP-1858: the member's own servers (CLI daemons): a candidate only as
+     * the agent's device, never here nor a fallback.
+     */
+    var `servers`: List<TalkCallTargetDevice>
+    , 
+    /**
+     * A call this client does not run already runs on the target.
+     */
+    var `busy`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTalkCallTargetInput: FfiConverterRustBuffer<TalkCallTargetInput> {
+    override fun read(buf: ByteBuffer): TalkCallTargetInput {
+        return TalkCallTargetInput(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceTypeTalkCallTargetDevice.read(buf),
+            FfiConverterSequenceTypeTalkCallTargetDevice.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TalkCallTargetInput) = (
+            FfiConverterOptionalString.allocationSize(value.`here`) +
+            FfiConverterOptionalString.allocationSize(value.`agentDevice`) +
+            FfiConverterSequenceTypeTalkCallTargetDevice.allocationSize(value.`desktops`) +
+            FfiConverterSequenceTypeTalkCallTargetDevice.allocationSize(value.`servers`) +
+            FfiConverterBoolean.allocationSize(value.`busy`)
+    )
+
+    override fun write(value: TalkCallTargetInput, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`here`, buf)
+            FfiConverterOptionalString.write(value.`agentDevice`, buf)
+            FfiConverterSequenceTypeTalkCallTargetDevice.write(value.`desktops`, buf)
+            FfiConverterSequenceTypeTalkCallTargetDevice.write(value.`servers`, buf)
+            FfiConverterBoolean.write(value.`busy`, buf)
     }
 }
 
@@ -2623,6 +2890,12 @@ data class TalkCallView (
      * The line under the name; None = the call's timer ([`call_timer`]).
      */
     var `status`: kotlin.String?
+    , 
+    /**
+     * EXP-1857: `Voice on {device}` while the call falls back (a second
+     * status line); None otherwise.
+     */
+    var `via`: kotlin.String?
     , 
     var `caption`: kotlin.String
     , 
@@ -2654,6 +2927,7 @@ public object FfiConverterTypeTalkCallView: FfiConverterRustBuffer<TalkCallView>
         return TalkCallView(
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
@@ -2665,6 +2939,7 @@ public object FfiConverterTypeTalkCallView: FfiConverterRustBuffer<TalkCallView>
     override fun allocationSize(value: TalkCallView) = (
             FfiConverterString.allocationSize(value.`activity`) +
             FfiConverterOptionalString.allocationSize(value.`status`) +
+            FfiConverterOptionalString.allocationSize(value.`via`) +
             FfiConverterString.allocationSize(value.`caption`) +
             FfiConverterBoolean.allocationSize(value.`muted`) +
             FfiConverterBoolean.allocationSize(value.`speaker`) +
@@ -2675,6 +2950,7 @@ public object FfiConverterTypeTalkCallView: FfiConverterRustBuffer<TalkCallView>
     override fun write(value: TalkCallView, buf: ByteBuffer) {
             FfiConverterString.write(value.`activity`, buf)
             FfiConverterOptionalString.write(value.`status`, buf)
+            FfiConverterOptionalString.write(value.`via`, buf)
             FfiConverterString.write(value.`caption`, buf)
             FfiConverterBoolean.write(value.`muted`, buf)
             FfiConverterBoolean.write(value.`speaker`, buf)
@@ -2728,9 +3004,14 @@ public object FfiConverterTypeTalkCallButton: FfiConverterRustBuffer<TalkCallBut
  */
 sealed class TalkCallEvent {
     
+    /**
+     * EXP-1857: `fallback` = the device is not the agent's own
+     * ([`TalkCallTarget::fallback`]).
+     */
     data class Start(
         val `device`: kotlin.String, 
-        val `language`: kotlin.String?) : TalkCallEvent()
+        val `language`: kotlin.String?, 
+        val `fallback`: kotlin.Boolean = false ) : TalkCallEvent()
         
     {
         
@@ -2857,6 +3138,7 @@ public object FfiConverterTypeTalkCallEvent : FfiConverterRustBuffer<TalkCallEve
             1 -> TalkCallEvent.Start(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalString.read(buf),
+                FfiConverterBoolean.read(buf),
                 )
             2 -> TalkCallEvent.Rang
             3 -> TalkCallEvent.Ready
@@ -2899,6 +3181,7 @@ public object FfiConverterTypeTalkCallEvent : FfiConverterRustBuffer<TalkCallEve
                 4UL
                 + FfiConverterString.allocationSize(value.`device`)
                 + FfiConverterOptionalString.allocationSize(value.`language`)
+                + FfiConverterBoolean.allocationSize(value.`fallback`)
             )
         }
         is TalkCallEvent.Rang -> {
@@ -3007,6 +3290,7 @@ public object FfiConverterTypeTalkCallEvent : FfiConverterRustBuffer<TalkCallEve
                 buf.putInt(1)
                 FfiConverterString.write(value.`device`, buf)
                 FfiConverterOptionalString.write(value.`language`, buf)
+                FfiConverterBoolean.write(value.`fallback`, buf)
                 Unit
             }
             is TalkCallEvent.Rang -> {
@@ -3512,6 +3796,34 @@ public object FfiConverterSequenceShort: FfiConverterRustBuffer<List<kotlin.Shor
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeTalkCallTargetDevice: FfiConverterRustBuffer<List<TalkCallTargetDevice>> {
+    override fun read(buf: ByteBuffer): List<TalkCallTargetDevice> {
+        val len = buf.getInt()
+        return List<TalkCallTargetDevice>(len) {
+            FfiConverterTypeTalkCallTargetDevice.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TalkCallTargetDevice>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTalkCallTargetDevice.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TalkCallTargetDevice>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTalkCallTargetDevice.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<List<TalkCallButton>> {
     override fun read(buf: ByteBuffer): List<TalkCallButton> {
         val len = buf.getInt()
@@ -3665,6 +3977,41 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
         
         FfiConverterTypeTalkCallState.lower(`state`),
         FfiConverterTypeTalkCallEvent.lower(`event`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * #EXP-1878 (`tapCases`): a press on the telephone whose `reason` is
+         * [`call_target`]'s (None = enabled): it calls, or (a phone's tap on a
+         * disabled one) toasts the reason; web and desktop show it as the disabled
+         * control's tooltip.
+         */ fun `callTap`(`platform`: TalkCallPlatform, `reason`: kotlin.String?): TalkCallTap {
+            return FfiConverterTypeTalkCallTap.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_etalk_ffi_fn_func_call_tap(
+    
+        
+        FfiConverterTypeTalkCallPlatform.lower(`platform`),
+        FfiConverterOptionalString.lower(`reason`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * EXP-1857 (`targetCases`): where a call's speech runs: the first that
+         * speaks of the agent's device (EXP-1858: a desktop or a server of the
+         * member's), the desktop you're at, the other desktops newest first. None
+         * speaks = disabled with the first candidate's reason.
+         */ fun `callTarget`(`input`: TalkCallTargetInput): TalkCallTarget {
+            return FfiConverterTypeTalkCallTarget.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_etalk_ffi_fn_func_call_target(
+    
+        
+        FfiConverterTypeTalkCallTargetInput.lower(`input`),_status)
 }
     )
     }
