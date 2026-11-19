@@ -298,6 +298,7 @@ impl Ede {
 
     /// Starts Xwayland if enabled, then the autostart commands.
     pub fn start_session(&mut self) {
+        self.start_space_units();
         #[cfg(feature = "xwayland")]
         if self.config.xwayland {
             // Autostart runs from the Ready/Error event.
