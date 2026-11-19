@@ -195,14 +195,15 @@ impl Notifications {
         !self.toasts.is_empty() || !self.inbox_toasts.is_empty()
     }
 
-    /// Expired toasts leave the stack (they stay in the history); the ids
-    /// that left (an inbox toast's leave quietly, `true` when one did).
-    fn expire(&mut self, now: Instant) -> (Vec<u32>, bool) {
+    /// Expired toasts leave the stack; `true` when one did. Their rows stay
+    /// in the bell with their actions, so their ids stay alive: the app hears
+    /// NotificationClosed only when the row goes (#EDE-135).
+    fn expire(&mut self, now: Instant) -> bool {
         let gone: Vec<u32> = self.list.iter().filter(|n| self.toasts.contains(&n.id) && n.expires_at.is_some_and(|t| now >= t)).map(|n| n.id).collect();
         self.toasts.retain(|id| !gone.contains(id));
         let before = self.inbox_toasts.len();
         self.inbox_toasts.retain(|(_, until)| now < *until);
-        (gone, before != self.inbox_toasts.len())
+        !gone.is_empty() || before != self.inbox_toasts.len()
     }
 
     /// #EDE-65: the inbox as it stands now; what is new since the shell
@@ -232,12 +233,16 @@ impl Notifications {
         Some(item)
     }
 
-    fn push(&mut self, n: dbus::Notification) {
+    /// The ids the 100-row cut removed (their NotificationClosed is due).
+    fn push(&mut self, n: dbus::Notification) -> Vec<u32> {
         self.list.retain(|x| x.id != n.id);
         self.toasts.retain(|id| *id != n.id);
         self.toasts.insert(0, n.id);
         self.list.insert(0, n);
+        let cut: Vec<u32> = self.list.iter().skip(100).map(|x| x.id).collect();
         self.list.truncate(100);
+        self.toasts.retain(|id| !cut.contains(id));
+        cut
     }
 
     /// Removes it everywhere; `true` if it was there.
@@ -744,7 +749,7 @@ impl HostPlugin for Host {
             }
             "ede_tray" => {
                 if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
-                    cx.defer(move |cx| tray_press(&shell, &service, cx));
+                    cx.defer(move |_| tray_press(&shell, &service));
                 }
             }
             "ede_open_document" | "ede_close_document" => {
@@ -808,6 +813,7 @@ impl HostPlugin for Host {
                 let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
                 if let (Some(service), Some(id)) = (service, id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        // On the tray thread (#EDE-135).
                         d.tray_menu_event(&service, id as i32);
                     }
                     cx.defer(move |cx| close(&shell, "tray-menu", cx));
@@ -2561,8 +2567,7 @@ fn no_key() -> api::ApiError {
 /// the shell's own notifications (the IDE's toast on this desktop).
 fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx: &mut App) {
     tracing::warn!("{verb} {thing}: {message}");
-    shell.borrow_mut().notifications.push(failed_toast(verb, thing, message, now_ms()));
-    notifications_changed(shell, cx);
+    notification_push(shell, failed_toast(verb, thing, message, now_ms()), cx);
 }
 
 /// The shell's own ids count down from the top, clear of the bus's.
@@ -3164,15 +3169,31 @@ fn dbus_event(shell: &SharedShell, event: dbus::Event, cx: &mut App) {
     match event {
         dbus::Event::Notified(n) => {
             tracing::info!(id = n.id, app = %n.app, summary = %n.summary, "notification");
-            shell.borrow_mut().notifications.push(n);
-            notifications_changed(shell, cx);
+            notification_push(shell, n, cx);
         }
         dbus::Event::CloseRequested(id) => notification_close(shell, id, 3, cx),
-        dbus::Event::TrayChanged => {
-            tray_refresh(shell);
+        dbus::Event::TrayChanged => tray_refresh(shell),
+        dbus::Event::TrayItems(items) => {
+            {
+                let mut s = shell.borrow_mut();
+                s.feed.set("/tray", Value::Array(items.iter().map(dbus::TrayItem::to_json).collect()));
+                s.tray = items;
+            }
             refresh(shell, cx);
         }
+        dbus::Event::TrayMenu { service, entries } => tray_menu_show(shell, &service, &entries, cx),
     }
+}
+
+/// A new row and its toast; a row the 100-row cut removes closes (#EDE-135).
+fn notification_push(shell: &SharedShell, n: dbus::Notification, cx: &mut App) {
+    let cut = shell.borrow_mut().notifications.push(n);
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        for id in cut {
+            d.notification_closed(id, 1);
+        }
+    }
+    notifications_changed(shell, cx);
 }
 
 /// A notification leaves (reason: 1 expired, 2 dismissed, 3 the app closed it).
@@ -3260,43 +3281,45 @@ fn outputs_refresh(shell: &SharedShell) {
     shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
-/// Reads the tray items again (a short blocking round on the bus).
+/// Reads the tray items again, on the tray thread: [`dbus::Event::TrayItems`]
+/// (#EDE-135: a hung tray app never holds up the shell).
 fn tray_refresh(shell: &SharedShell) {
-    let items = shell.borrow().dbus.as_ref().map(|d| d.tray_items()).unwrap_or_default();
-    let mut s = shell.borrow_mut();
-    s.feed.set("/tray", Value::Array(items.iter().map(dbus::TrayItem::to_json).collect()));
-    s.tray = items;
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        d.tray_refresh();
+    }
 }
 
-/// A tray item pressed: its menu as a popup, else `Activate`.
-fn tray_press(shell: &SharedShell, service: &str, cx: &mut App) {
-    let (has_menu, title) = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| (i.has_menu, i.title.clone())).unwrap_or((false, String::new()));
-    let menu = if has_menu { shell.borrow().dbus.as_ref().and_then(|d| d.tray_menu(service)) } else { None };
-    match menu {
-        Some(entries) if !entries.is_empty() => {
-            let items: Vec<Value> = entries
-                .iter()
-                .map(|e| {
-                    let mut v = e.to_json();
-                    if e.depth > 0 {
-                        v["label"] = json!(format!("    {}", e.label));
-                    }
-                    v
-                })
-                .collect();
-            shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
-            if shell.borrow().surfaces.is_open("tray-menu") {
-                close(shell, "tray-menu", cx);
-            }
-            toggle_popup(shell, "tray-menu", cx);
-            refresh(shell, cx);
-        }
-        _ => {
-            if let Some(d) = shell.borrow().dbus.as_ref() {
-                d.tray_activate(service, 0, 0);
-            }
+/// A tray item pressed: its menu ([`dbus::Event::TrayMenu`]), else `Activate`.
+fn tray_press(shell: &SharedShell, service: &str) {
+    let has_menu = shell.borrow().tray.iter().find(|i| i.service == service).is_some_and(|i| i.has_menu);
+    if let Some(d) = shell.borrow().dbus.as_ref() {
+        if has_menu {
+            d.tray_menu(service);
+        } else {
+            d.tray_activate(service);
         }
     }
+}
+
+/// A pressed item's menu as a popup.
+fn tray_menu_show(shell: &SharedShell, service: &str, entries: &[dbus::MenuEntry], cx: &mut App) {
+    let title = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| i.title.clone()).unwrap_or_default();
+    let items: Vec<Value> = entries
+        .iter()
+        .map(|e| {
+            let mut v = e.to_json();
+            if e.depth > 0 {
+                v["label"] = json!(format!("    {}", e.label));
+            }
+            v
+        })
+        .collect();
+    shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
+    if shell.borrow().surfaces.is_open("tray-menu") {
+        close(shell, "tray-menu", cx);
+    }
+    toggle_popup(shell, "tray-menu", cx);
+    refresh(shell, cx);
 }
 
 /// The taskbar's pins, kept in the shell's own file.
@@ -3861,16 +3884,8 @@ fn main() {
                 if chats_changed {
                     cx.update(|cx| chats_refresh(&s, cx));
                 }
-                let (expired, inbox_expired) = s.borrow_mut().notifications.expire(Instant::now());
-                if inbox_expired && expired.is_empty() {
-                    cx.update(|cx| notifications_changed(&s, cx));
-                }
-                if !expired.is_empty() {
-                    for id in &expired {
-                        if let Some(d) = s.borrow().dbus.as_ref() {
-                            d.notification_closed(*id, 1);
-                        }
-                    }
+                let expired = s.borrow_mut().notifications.expire(Instant::now());
+                if expired {
                     cx.update(|cx| notifications_changed(&s, cx));
                 }
                 let osd_over = s.borrow().osd_until.is_some_and(|t| Instant::now() >= t);
@@ -3935,6 +3950,40 @@ fn main() {
             .detach();
         }
     });
+}
+
+#[cfg(test)]
+mod notification_lifetime {
+    use super::*;
+
+    fn toast(id: u32) -> dbus::Notification {
+        dbus::Notification { id, expires_at: Some(Instant::now()), ..failed_toast("send", "message", "", 0) }
+    }
+
+    /// #EDE-135: the toast leaves, the row stays in the bell with its
+    /// actions, so its id stays alive (no NotificationClosed yet).
+    #[test]
+    fn a_toast_that_expires_keeps_its_notification_while_the_bell_lists_it() {
+        let mut n = Notifications::default();
+        n.push(toast(7));
+        assert!(n.expire(Instant::now() + Duration::from_secs(1)), "the toast left");
+        assert!(n.toasts.is_empty());
+        assert!(n.list.iter().any(|x| x.id == 7), "the bell keeps the row");
+        // The id stays alive: a press on the row later still reaches the app.
+        assert!(n.remove(7), "the row's dismiss is what closes it");
+    }
+
+    /// The 101st notification pushes the oldest row out: that one closes.
+    #[test]
+    fn the_hundred_row_cut_closes_what_it_removes() {
+        let mut n = Notifications::default();
+        for id in 1..=100 {
+            assert!(n.push(toast(id)).is_empty());
+        }
+        assert_eq!(n.push(toast(101)), vec![1]);
+        assert_eq!(n.list.len(), 100);
+        assert!(!n.toasts.contains(&1));
+    }
 }
 
 #[cfg(test)]

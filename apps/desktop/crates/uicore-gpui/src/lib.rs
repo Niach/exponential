@@ -52,12 +52,60 @@ pub struct SurfaceRoot {
     pub view: Entity<SurfaceView>,
     /// `Some(owner)` = the hosted Popover / Menu `owner` of `view`.
     pub hosted: Option<String>,
+    /// `Some` = the window takes input only where its root's children are
+    /// ([`clips_input`]); the input region it was last given.
+    pub input: Option<InputRegion>,
+}
+
+/// The input region a window was last given.
+pub type InputRegion = Rc<RefCell<Option<Vec<Bounds<Pixels>>>>>;
+
+/// #EDE-135: a layer document whose root paints nothing (the toasts' stack
+/// in a fixed box) takes input only where its root's children are drawn:
+/// the rest of the box belongs to whatever is under it.
+pub fn clips_input(doc: &Document) -> bool {
+    let SurfaceHeader::Layer { .. } = doc.surface else { return false };
+    let ede_ui::Body::Nested(root) = &doc.body else { return false };
+    !root.style.as_ref().is_some_and(|s| ["backgroundColor", "background", "backgroundImage", "borderWidth"].iter().any(|k| s.contains_key(*k)))
+}
+
+/// The window rects of the root's children, as last laid out.
+pub fn children_region(view: &SurfaceView) -> Vec<Bounds<Pixels>> {
+    let nodes = view.placed_nodes();
+    let Some(root) = nodes.iter().find(|n| n.parent.is_none() && !n.hidden) else { return Vec::new() };
+    let origin = view.origin();
+    root.children
+        .iter()
+        .filter(|&&i| nodes.get(i as usize).is_some_and(|n| !n.hidden))
+        .filter_map(|&i| view.frame(i))
+        .filter(|f| f.w > 0.0 && f.h > 0.0)
+        .map(|f| Bounds { origin: point(origin.x + px(f.x), origin.y + px(f.y)), size: size(px(f.w), px(f.h)) })
+        .collect()
 }
 
 impl Render for SurfaceRoot {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         match self.hosted.clone() {
-            None => div().size_full().child(self.view.clone()),
+            None => {
+                let root = div().size_full().child(self.view.clone());
+                let Some(input) = self.input.clone() else { return root };
+                // After the view's pass: the region follows this frame's cards.
+                let view = self.view.clone();
+                root.child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        move |_, _, window, cx| {
+                            let rects = children_region(view.read(cx));
+                            if input.borrow().as_ref() != Some(&rects) {
+                                window.set_input_region(Some(&rects));
+                                *input.borrow_mut() = Some(rects);
+                            }
+                        },
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+            }
             Some(owner) => {
                 let el = self.view.update(cx, |v, cx| v.hosted_popup_element(&owner, window, cx));
                 div().size_full().children(el)
@@ -74,6 +122,8 @@ pub struct Region {
     pub view: Entity<SurfaceView>,
     /// What the view was last given of the feed.
     pushed: Rc<RefCell<Pushed>>,
+    /// The input region its window was last given ([`clips_input`]).
+    pub input: Option<InputRegion>,
 }
 
 /// What one view was last given of the feed (#EDE-65): the data roots its
@@ -374,6 +424,8 @@ impl Surfaces {
         let (source, feed_now) = (doc.source.clone(), feed.clone());
         let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
         let out = view_out.clone();
+        let input: Option<InputRegion> = clips_input(&doc).then(Default::default);
+        let window_input = input.clone();
         let opened = cx.open_window(
             WindowOptions {
                 kind: placed.kind,
@@ -401,14 +453,14 @@ impl Surfaces {
                     // one starts; the eDE goldens wait for this line, not for time.
                     window.on_next_frame(move |_, _| tracing::info!(document = %n, "drawn"));
                 });
-                cx.new(|_| SurfaceRoot { view, hosted: None })
+                cx.new(|_| SurfaceRoot { view, hosted: None, input: window_input })
             },
         );
         match opened {
             Ok(handle) => view_out.borrow().clone().map(|view| {
                 let mut pushed = Pushed::for_source(&source);
                 pushed.given_all(&feed_now);
-                Region { name: doc_name, handle, view, pushed: Rc::new(RefCell::new(pushed)) }
+                Region { name: doc_name, handle, view, pushed: Rc::new(RefCell::new(pushed)), input }
             }),
             Err(e) => {
                 tracing::warn!(document = %doc_name, "window: {e}");
@@ -522,7 +574,7 @@ impl Surfaces {
             let owner = layer.owner.clone();
             let opened = cx.open_window(
                 WindowOptions { kind: placed.kind, window_bounds: Some(WindowBounds::Windowed(placed.bounds)), titlebar: None, app_id: Some(self.app_id.clone()), focus: false, is_resizable: false, window_background: WindowBackgroundAppearance::Transparent, ..Default::default() },
-                move |_, cx| cx.new(|_| SurfaceRoot { view, hosted: Some(owner) }),
+                move |_, cx| cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None }),
             );
             match opened {
                 Ok(handle) => {
