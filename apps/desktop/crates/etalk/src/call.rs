@@ -553,6 +553,33 @@ pub fn call_seal_step(role: CallSealRole, state: CallSealState, event: &CallSeal
     }
 }
 
+/// #EXP-1941: a host answers one call id ONCE. The server's check of a call
+/// id keeps no state, so a vouched id could be rung again for as long as it
+/// lives (two to three minutes): by the relay alone after a clear call, and
+/// after a sealed one by the relay with anyone who holds the chat's key. A
+/// host remembers the ids it got a ticket for longer than an id lives and
+/// drops a ring that names one. An honest relay never rings an id twice and
+/// a redial mints a new id, so this refuses nothing real. It is in the host
+/// process: a restart forgets it.
+pub const CALL_ANSWERED_ONCE_MS: u64 = 5 * 60 * 1000;
+
+/// The call ids a host process answered, by its own clock in ms.
+#[derive(Debug, Clone, Default)]
+pub struct AnsweredCalls(Vec<(String, u64)>);
+
+impl AnsweredCalls {
+    /// `call_id` got its ticket at `now_ms`.
+    pub fn note(&mut self, call_id: &str, now_ms: u64) {
+        self.0.retain(|(_, at)| now_ms.saturating_sub(*at) < CALL_ANSWERED_ONCE_MS);
+        self.0.push((call_id.to_string(), now_ms));
+    }
+
+    /// A ring for `call_id` at `now_ms` names a call answered before.
+    pub fn answered(&self, call_id: &str, now_ms: u64) -> bool {
+        self.0.iter().any(|(id, at)| id == call_id && now_ms.saturating_sub(*at) < CALL_ANSWERED_ONCE_MS)
+    }
+}
+
 /// Where the telephone is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallPlatform {
@@ -1049,6 +1076,19 @@ pub fn call_timer(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1941: one call id is answered once, for five minutes.
+    #[test]
+    fn a_call_id_is_answered_once() {
+        let mut answered = AnsweredCalls::default();
+        assert!(!answered.answered("c1", 0));
+        answered.note("c1", 1_000);
+        assert!(answered.answered("c1", 1_000) && answered.answered("c1", 1_000 + CALL_ANSWERED_ONCE_MS - 1));
+        assert!(!answered.answered("c2", 2_000), "another id is another call");
+        assert!(!answered.answered("c1", 1_000 + CALL_ANSWERED_ONCE_MS), "longer than an id lives");
+        answered.note("c2", 1_000 + CALL_ANSWERED_ONCE_MS);
+        assert_eq!(answered.0.len(), 1, "old ids are forgotten");
+    }
 
     /// #EXP-1941: every row of `seal.modeCases`, phase and actions.
     #[test]

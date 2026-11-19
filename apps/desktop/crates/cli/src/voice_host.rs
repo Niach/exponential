@@ -132,7 +132,9 @@ pub struct Answered {
     pub link: Box<dyn Link>,
     /// The agent's own voice (its language, a local clip and its transcript).
     pub voice: etalk::VoiceChoice,
-    /// The member's conversation with the agent (None = the first send makes it).
+    /// The member's conversation with the agent (None = the first send makes
+    /// it; #EXP-1941: a sealed call's key source resolves it, and may create
+    /// it: [`Input::Root`] brings it).
     pub root: Option<String>,
     /// #EXP-1961: the call's own session (a child of `root`): utterances go
     /// there and its replies are spoken; None = the old path (the chat).
@@ -151,6 +153,9 @@ pub enum Input {
     Link { call_id: String, event: steer::call_host::CallHostEvent },
     /// A send answered: the conversation it went to.
     Sent { call_id: String, session_id: String },
+    /// #EXP-1941: a sealed call's key source adopted this root (a first
+    /// call's chat exists from here on): the first utterance goes into it.
+    Root { call_id: String, root: String },
     Stop,
 }
 
@@ -205,6 +210,9 @@ struct Call {
     agent: HostedAgent,
     link: Box<dyn Link>,
     language: String,
+    /// #EXP-1941: the worker's call started (at `Ready`, never before: a
+    /// sealed caller is on the line only once its first frame opened).
+    listening: bool,
     root: Option<String>,
     /// #EXP-1961: the call's own session (see [`Answered::session`]).
     session: Option<String>,
@@ -256,6 +264,12 @@ pub struct Host {
     retries: u32,
     last_used: Instant,
     call: Option<Call>,
+    /// #EXP-1941: the ring in work (one at a time: a forged ring costs
+    /// nothing while a real one is answered).
+    answering: Option<String>,
+    /// #EXP-1941: a call id is answered once.
+    answered: etalk::call::AnsweredCalls,
+    born: Instant,
     counter: u64,
     idle_after: Duration,
 }
@@ -277,6 +291,9 @@ impl Host {
             retries: 0,
             last_used: now,
             call: None,
+            answering: None,
+            answered: etalk::call::AnsweredCalls::default(),
+            born: now,
             counter: 0,
             idle_after: Duration::from_millis(VOICE_CALL.constants.server_idle_ms),
         }
@@ -315,9 +332,13 @@ impl Host {
         match input {
             Input::Agents(agents) => self.on_agents(agents, now),
             Input::Settings(settings) => self.settings = settings,
-            Input::Ring { call_id, agent_id } => self.on_ring(call_id, agent_id),
+            Input::Ring { call_id, agent_id } => self.on_ring(call_id, agent_id, now),
             Input::Answered(answered) => self.on_answered(answered, now),
-            Input::Unanswered { call_id } => log::info!("[voice] call {call_id}: not answered here"),
+            Input::Unanswered { call_id } => {
+                log::info!("[voice] call {call_id}: not answered here");
+                self.answering.take_if(|answering| *answering == call_id);
+            }
+            Input::Root { call_id, root } => self.on_root(&call_id, root),
             Input::Worker(event) => self.on_worker(event, now),
             Input::Link { call_id, event } => self.on_link(&call_id, event, now),
             Input::Sent { call_id, session_id } => {
@@ -364,11 +385,21 @@ impl Host {
         }
     }
 
-    fn on_ring(&mut self, call_id: String, agent_id: String) {
+    fn on_ring(&mut self, call_id: String, agent_id: String, now: Instant) {
         if self.call.is_some() || !self.answers() {
             log::info!("[voice] call {call_id}: not answered here (busy or no voice)");
             return;
         }
+        // #EXP-1941: one ring in work at a time, and one call id once.
+        if let Some(answering) = self.answering.as_deref() {
+            log::info!("[voice] call {call_id}: not answered here ({answering} is being answered)");
+            return;
+        }
+        if self.answered.answered(&call_id, self.ms(now)) {
+            log::warn!("[voice] call {call_id}: this call id was answered before; the ring is dropped");
+            return;
+        }
+        self.answering = Some(call_id.clone());
         if !self.agents.iter().any(|agent| agent.id == agent_id) {
             // The list lags a Runs on move by up to a minute: the network
             // side re-reads the agent and refuses one that runs elsewhere.
@@ -377,7 +408,44 @@ impl Host {
         self.net.answer(call_id, agent_id);
     }
 
+    fn ms(&self, now: Instant) -> u64 {
+        now.saturating_duration_since(self.born).as_millis() as u64
+    }
+
+    /// The rows of `root` there now are history: the newest one's instant
+    /// arms the reply watch (the server's clock, never this machine's).
+    fn history(&self, root: &str) -> (HashSet<String>, Option<String>) {
+        let mut seen = HashSet::new();
+        let mut armed_at: Option<(i64, String)> = None;
+        for row in self.net.messages(root, None) {
+            if let Some(at) = row.created_at.as_deref().and_then(|at| etalk::voice::parse_instant(at).map(|ms| (ms, at.to_string()))) {
+                if armed_at.as_ref().is_none_or(|(mark, _)| at.0 > *mark) {
+                    armed_at = Some(at);
+                }
+            }
+            seen.insert(row.id);
+        }
+        (seen, armed_at.map(|(_, at)| at))
+    }
+
+    /// #EXP-1941: the root a sealed call adopted, before anything is said.
+    fn on_root(&mut self, call_id: &str, root: String) {
+        if !self.call.as_ref().is_some_and(|call| call.call_id == call_id && call.root.is_none()) {
+            return;
+        }
+        let (seen, armed_at) = self.history(&root);
+        let Some(call) = self.call.as_mut() else { return };
+        call.seen.extend(seen);
+        if let Some(armed_at) = armed_at {
+            call.armed_at = armed_at;
+        }
+        call.root = Some(root);
+    }
+
     fn on_answered(&mut self, answered: Answered, now: Instant) {
+        self.answering.take_if(|answering| *answering == answered.call_id);
+        // It got its ticket: this call id is not answered again.
+        self.answered.note(&answered.call_id, self.ms(now));
         if self.call.is_some() {
             answered.link.end();
             return;
@@ -385,25 +453,12 @@ impl Host {
         self.counter += 1;
         let id = format!("call-{}", self.counter);
         let language = if answered.voice.language.is_empty() { self.settings.language().to_string() } else { answered.voice.language.clone() };
-        // The agent's own voice first, then the call (the worker warms up
-        // and answers `CallListening`).
+        // The agent's own voice at once (the warm-up). #EXP-1941: the
+        // worker's CALL starts at `Ready` (`on_link`), when the caller is on
+        // the line: nothing is heard or said before both ends proved the key.
         self.up = true;
         self.speech.prepare(etalk::VoiceChoice { language: language.clone(), ..answered.voice });
-        self.speech.call(&id, &language);
-        // The rows there now are history: the newest one's instant arms the
-        // watch (the server's clock, never this machine's).
-        let mut seen = HashSet::new();
-        let mut armed_at: Option<(i64, String)> = None;
-        if let Some(root) = answered.session.as_deref().or(answered.root.as_deref()) {
-            for row in self.net.messages(root, None) {
-                if let Some(at) = row.created_at.as_deref().and_then(|at| etalk::voice::parse_instant(at).map(|ms| (ms, at.to_string()))) {
-                    if armed_at.as_ref().is_none_or(|(mark, _)| at.0 > *mark) {
-                        armed_at = Some(at);
-                    }
-                }
-                seen.insert(row.id);
-            }
-        }
+        let (seen, armed_at) = answered.session.as_deref().or(answered.root.as_deref()).map(|root| self.history(root)).unwrap_or_default();
         let state = call_step(&CallState::default(), &CallEvent::Start { device: String::new(), language: Some(language.clone()), fallback: false });
         log::info!("[voice] call {}: answered for agent {} ({language})", answered.call_id, answered.agent.id);
         self.call = Some(Call {
@@ -413,6 +468,7 @@ impl Host {
             agent: answered.agent,
             link: answered.link,
             language,
+            listening: false,
             root: answered.root,
             session: answered.session,
             voice_ready_at: None,
@@ -429,7 +485,7 @@ impl Host {
             speaking: None,
             queued: 0,
             seen,
-            armed_at: armed_at.map_or_else(|| "1970-01-01T00:00:00Z".to_string(), |(_, at)| at),
+            armed_at: armed_at.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string()),
             polled: now,
         });
         self.last_used = now;
@@ -495,7 +551,14 @@ impl Host {
         use steer::call_host::CallHostEvent;
         let Some(id) = self.call.as_ref().filter(|call| call.call_id == call_id).map(|call| call.id.clone()) else { return };
         match event {
-            CallHostEvent::Ready => log::info!("[voice] call {call_id}: the caller is on the line"),
+            CallHostEvent::Ready => {
+                log::info!("[voice] call {call_id}: the caller is on the line");
+                let Some(call) = self.call.as_mut().filter(|call| !call.listening) else { return };
+                call.listening = true;
+                call.started = now;
+                let language = call.language.clone();
+                self.speech.call(&id, &language);
+            }
             CallHostEvent::Audio(pcm) => self.speech.call_audio(&id, &pcm),
             // Question 9: the worker knows where an utterance begins and ends.
             CallHostEvent::Lost { ms } => self.speech.call_lost(&id, ms),
@@ -724,6 +787,12 @@ impl Host {
             return;
         }
         let Some(call) = self.call.as_ref() else { return };
+        // #EXP-1941: the ring's clock starts when the caller is on the line
+        // (`Ready`). Before it nothing may leave: a `rang` stepped then would
+        // never reach a sealing caller, which would ring for ever.
+        if !call.listening {
+            return;
+        }
         let elapsed = now.duration_since(call.started);
         if !call.rang && elapsed >= call.ring {
             if let Some(call) = self.call.as_mut() {
@@ -858,6 +927,9 @@ pub struct Deps {
     pub messages: Arc<dyn Fn(&str, Option<&str>) -> Vec<domain::rows::MessageRow> + Send + Sync>,
     /// Raised when the `speech` row changed (the next beat carries it).
     pub beat_soon: Arc<AtomicBool>,
+    /// #EXP-1941: this install's node: its key holder gives a sealed call
+    /// its key (None = no P2P here: such a daemon advertises no `call-seal`).
+    pub node: Option<steer::enet::InstallNode>,
 }
 
 /// The handle the daemon keeps: ring, settings, the doctor row, stop.
@@ -913,9 +985,9 @@ fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> R
 
 impl Net for DaemonNet {
     fn answer(&self, call_id: String, agent_id: String) {
-        let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
+        let (ring, tx) = (DaemonNet { deps: Arc::clone(&self.deps), tx: self.tx.clone() }, self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-answer".into()).spawn(move || {
-            match answer(&deps, &tx, &call_id, &agent_id) {
+            match answer(&ring, &call_id, &agent_id) {
                 Ok(answered) => {
                     let _ = tx.send(Input::Answered(answered));
                 }
@@ -965,46 +1037,108 @@ impl Net for DaemonNet {
     }
 }
 
-/// The ring's network half: the agent (it must run HERE), its voice and
-/// clip, its conversation, the host ticket and the socket.
-fn answer(
-    deps: &Arc<Deps>,
-    tx: &flume::Sender<Input>,
-    call_id: &str,
-    agent_id: &str,
-) -> Result<Answered, String> {
-    let agent = api::agents::get(&deps.trpc, agent_id).map_err(|err| format!("the agent could not be read: {err}"))?;
-    if agent.device_id.as_deref() != Some(deps.device_id.as_str()) {
+/// What a ring asks of the server and the relay, in the order it is asked.
+trait Ring {
+    fn device_id(&self) -> &str;
+    /// `voice.callHostTicket`, naming this device and the ring's agent.
+    fn ticket(&self, call_id: &str, agent_id: &str) -> Result<api::voice::CallTicket, String>;
+    fn agent(&self, agent_id: &str) -> Result<api::agents::Agent, String>;
+    fn voice(&self, agent: &api::agents::Agent) -> etalk::VoiceChoice;
+    /// The member's conversation with the agent (a clear call).
+    fn root(&self, agent_id: &str) -> Result<Option<String>, String>;
+    /// #EXP-1961: the call's own session (None = the chat takes the call).
+    fn call_session(&self, agent_id: &str, call_id: &str) -> Option<String>;
+    /// The call host socket, in the mode the ticket names.
+    fn connect(&self, call_id: &str, agent_id: &str, ticket: api::voice::CallTicket) -> Box<dyn Link>;
+}
+
+/// The ring's network half. #EXP-1941: the host ticket FIRST, naming this
+/// device and the ring's agent: the relay writes the ring, and only the
+/// server's answer vouches for its call id and its agent. A ring the server
+/// refuses reads nothing more (no agent, no voice clip, no conversation).
+/// Then the agent (it must run HERE), its voice, and the socket in the mode
+/// the ticket names. A sealed call's conversation is its key source's.
+fn answer(ring: &dyn Ring, call_id: &str, agent_id: &str) -> Result<Answered, String> {
+    let ticket = ring.ticket(call_id, agent_id)?;
+    let agent = ring.agent(agent_id)?;
+    if agent.device_id.as_deref() != Some(ring.device_id()) {
         return Err(format!("{agent_id} does not run here"));
     }
-    let voice = agent_voice(deps, &agent);
-    let target = api::sessions::send_target(&deps.trpc, Some(agent_id), None).map_err(|err| format!("the conversation could not be read: {err}"))?;
-    let ticket = api::voice::voice_call_host_ticket(&deps.trpc, call_id, Some(&deps.device_id)).map_err(|err| format!("the call host ticket was refused: {err}"))?;
-    // #EXP-1961: the call's own session, started while it rings; a server
-    // without it (or no chat yet) = the old path.
-    let session = match target.root_id.as_deref() {
-        Some(_) => match api::voice::voice_call_session(&deps.trpc, agent_id, call_id) {
+    let voice = ring.voice(&agent);
+    // A sealed call's conversation is its key source's (it may create it).
+    let root = if ticket.seal { None } else { ring.root(agent_id)? };
+    // #EXP-1961: the call's own session, started while it rings; no chat yet
+    // (and, until it adopts one, a sealed call) = the old path.
+    let session = match root.as_deref() {
+        Some(_) => ring.call_session(agent_id, call_id),
+        None => None,
+    };
+    Ok(Answered {
+        call_id: call_id.to_string(),
+        agent: HostedAgent { id: agent.id.clone(), team_id: agent.team_id.clone() },
+        link: ring.connect(call_id, agent_id, ticket),
+        voice,
+        root,
+        session,
+    })
+}
+
+impl Ring for DaemonNet {
+    fn device_id(&self) -> &str {
+        &self.deps.device_id
+    }
+
+    fn ticket(&self, call_id: &str, agent_id: &str) -> Result<api::voice::CallTicket, String> {
+        api::voice::voice_call_host_ticket_for(&self.deps.trpc, call_id, &self.deps.device_id, agent_id).map_err(|err| format!("the call host ticket was refused: {err}"))
+    }
+
+    fn agent(&self, agent_id: &str) -> Result<api::agents::Agent, String> {
+        api::agents::get(&self.deps.trpc, agent_id).map_err(|err| format!("the agent could not be read: {err}"))
+    }
+
+    fn voice(&self, agent: &api::agents::Agent) -> etalk::VoiceChoice {
+        agent_voice(&self.deps, agent)
+    }
+
+    fn root(&self, agent_id: &str) -> Result<Option<String>, String> {
+        let target = api::sessions::send_target(&self.deps.trpc, Some(agent_id), None).map_err(|err| format!("the conversation could not be read: {err}"))?;
+        Ok(target.root_id)
+    }
+
+    fn call_session(&self, agent_id: &str, call_id: &str) -> Option<String> {
+        match api::voice::voice_call_session(&self.deps.trpc, agent_id, call_id) {
             Ok(session) => session.map(|session| session.session_id),
             Err(err) => {
                 log::info!("[voice] call {call_id}: no call session ({err}): the chat takes the call");
                 None
             }
-        },
-        None => None,
-    };
-    let events = tx.clone();
-    let id = call_id.to_string();
-    let link = steer::call_host::connect(&deps.runtime, ticket.url, move |event| {
-        let _ = events.send(Input::Link { call_id: id.clone(), event });
-    });
-    Ok(Answered {
-        call_id: call_id.to_string(),
-        agent: HostedAgent { id: agent.id.clone(), team_id: agent.team_id.clone() },
-        link: Box::new(link),
-        voice,
-        root: target.root_id,
-        session,
-    })
+        }
+    }
+
+    fn connect(&self, call_id: &str, agent_id: &str, ticket: api::voice::CallTicket) -> Box<dyn Link> {
+        let (events, id) = (self.tx.clone(), call_id.to_string());
+        // Told `seal`: the sealed wire only. Its key source is this install's
+        // key holder; without a node there is none and the call ends `no_key`.
+        let sealing = ticket.seal.then(|| {
+            let (roots, root_call) = (self.tx.clone(), call_id.to_string());
+            let keys: Arc<dyn steer::call_keys::CallKeySource> = match self.deps.node.clone() {
+                Some(node) => Arc::new(steer::call_keys::HostKeys {
+                    ops: Arc::new(steer::call_keys::InstallKeyOps { trpc: Arc::clone(&self.deps.trpc), node }),
+                    call_id: call_id.to_string(),
+                    agent_id: agent_id.to_string(),
+                    device_id: self.deps.device_id.clone(),
+                    adopted: Some(Arc::new(move |root| {
+                        let _ = roots.send(Input::Root { call_id: root_call.clone(), root });
+                    })),
+                }),
+                None => Arc::new(steer::call_keys::FixedKeySource { key: None, delay: Duration::ZERO }),
+            };
+            steer::call_keys::CallSealing { call_id: call_id.to_string(), agent_id: agent_id.to_string(), device_id: self.deps.device_id.clone(), caller_target: None, keys }
+        });
+        Box::new(steer::call_host::connect_sealed(&self.deps.runtime, ticket.url, sealing, move |event| {
+            let _ = events.send(Input::Link { call_id: id.clone(), event });
+        }))
+    }
 }
 
 /// #EXP-1847: the agent's own voice here: its language, its uploaded clip
@@ -1285,6 +1419,8 @@ mod tests {
                 root: Some("root-1".into()),
                 session: None,
             }));
+            // The caller is on the line: the worker's call starts.
+            self.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
         }
 
         /// #EXP-1961: a call with its own session `call-s`.
@@ -1298,7 +1434,126 @@ mod tests {
                 root: Some("root-1".into()),
                 session: Some("call-s".into()),
             }));
+            // The caller is on the line: the worker's call starts.
+            self.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
         }
+    }
+
+    /// #EXP-1941: the worker warms up at the answer, but its CALL starts at
+    /// `Ready`: a warm worker's `ready` never leaves before the caller's
+    /// first frame opened, and the caller still gets it.
+    #[test]
+    fn the_workers_call_starts_when_the_caller_is_on_the_line() {
+        let mut rig = Rig::ready();
+        rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+        rig.handle(Input::Answered(Answered {
+            call_id: "c1".into(),
+            agent: agent(),
+            link: Box::new(FakeLink(rig.link.clone())),
+            voice: etalk::VoiceChoice { language: "de".into(), ..Default::default() },
+            root: None,
+            session: None,
+        }));
+        assert_eq!(rig.speech.take(), ["prepare de"], "the warm-up only");
+        // A handshake longer than the ring: no `rang` is stepped into the void.
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
+        assert!(rig.link.take().is_empty(), "nothing leaves before the caller is on the line");
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
+        assert_eq!(rig.speech.take(), ["call call-1 de"], "once");
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        assert_eq!(rig.link.take(), [r#"event {"t":"ready"}"#]);
+        // A sealed call's key source adopted the chat: the first utterance goes into it.
+        rig.handle(Input::Root { call_id: "c1".into(), root: "root-9".into() });
+        assert_eq!(rig.reads.take(), ["messages root-9 all"], "its rows there now are history");
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
+        assert_eq!(rig.link.take()[0], r#"event {"t":"rang"}"#, "the ring ends on the caller's clock");
+        rig.handle(Input::Worker(etalk::Event::Finished { id: "call-1-greeting".into(), stopped: false }));
+        rig.handle(Input::Worker(etalk::Event::Said { id: "call-1".into(), text: "hello".into() }));
+        assert_eq!(rig.net.take(), ["answer c1 agent-1", "send c1 root-9 hello"]);
+    }
+
+    /// #EXP-1941: one ring in work at a time, and one call id once: a ring
+    /// whose id got its ticket in the last five minutes is dropped.
+    #[test]
+    fn a_ring_is_answered_one_at_a_time_and_a_call_id_once() {
+        let mut rig = Rig::ready();
+        rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+        assert_eq!(rig.net.take(), ["answer c1 agent-1"], "the rings behind it are dropped");
+        // The server refused it: the next ring is taken.
+        rig.handle(Input::Unanswered { call_id: "c1".into() });
+        rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
+        assert_eq!(rig.net.take(), ["answer c2 agent-1"]);
+        rig.handle(Input::Unanswered { call_id: "c2".into() });
+        // A call that was answered and ended: its id is not answered again.
+        rig.answered();
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ended { reason: None } });
+        assert!(rig.host.call.is_none());
+        rig.net.take();
+        rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+        assert!(rig.net.take().is_empty(), "the relay rang a vouched id again");
+        rig.advance(Duration::from_millis(etalk::call::CALL_ANSWERED_ONCE_MS));
+        rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+        assert_eq!(rig.net.take(), ["answer c1 agent-1"], "longer than an id lives");
+    }
+
+    struct FakeRing {
+        log: Log,
+        ticket: Result<bool, String>,
+        runs_on: &'static str,
+    }
+
+    impl Ring for FakeRing {
+        fn device_id(&self) -> &str {
+            "here"
+        }
+        fn ticket(&self, call_id: &str, agent_id: &str) -> Result<api::voice::CallTicket, String> {
+            self.log.push(format!("ticket {call_id} {agent_id}"));
+            self.ticket.clone().map(|seal| api::voice::CallTicket { url: "wss://relay".into(), seal })
+        }
+        fn agent(&self, agent_id: &str) -> Result<api::agents::Agent, String> {
+            self.log.push("agent".into());
+            Ok(serde_json::from_value(serde_json::json!({ "id": agent_id, "teamId": "team-1", "deviceId": self.runs_on })).unwrap())
+        }
+        fn voice(&self, _agent: &api::agents::Agent) -> etalk::VoiceChoice {
+            self.log.push("voice".into());
+            etalk::VoiceChoice::default()
+        }
+        fn root(&self, _agent_id: &str) -> Result<Option<String>, String> {
+            self.log.push("root".into());
+            Ok(Some("root-1".into()))
+        }
+        fn call_session(&self, _agent_id: &str, _call_id: &str) -> Option<String> {
+            self.log.push("session".into());
+            Some("call-s".into())
+        }
+        fn connect(&self, _call_id: &str, _agent_id: &str, ticket: api::voice::CallTicket) -> Box<dyn Link> {
+            self.log.push(format!("connect seal={}", ticket.seal));
+            Box::new(FakeLink(Log::default()))
+        }
+    }
+
+    /// #EXP-1941: a ring gets its ticket BEFORE the agent, its voice or its
+    /// conversation are read; a ring the server refuses reads nothing more.
+    #[test]
+    fn a_ring_asks_for_its_ticket_first() {
+        let ring = |ticket: Result<bool, String>, runs_on| FakeRing { log: Log::default(), ticket, runs_on };
+        let clear = ring(Ok(false), "here");
+        let answered = answer(&clear, "c1", "agent-1").ok().unwrap();
+        assert_eq!(clear.log.take(), ["ticket c1 agent-1", "agent", "voice", "root", "session", "connect seal=false"]);
+        assert_eq!(answered.root.as_deref(), Some("root-1"));
+        // Told `seal`: the conversation is the key source's (it may create it).
+        let sealed = ring(Ok(true), "here");
+        assert!(answer(&sealed, "c1", "agent-1").ok().unwrap().root.is_none());
+        assert_eq!(sealed.log.take(), ["ticket c1 agent-1", "agent", "voice", "connect seal=true"]);
+        let refused = ring(Err("no ticket".into()), "here");
+        assert!(answer(&refused, "c1", "agent-1").is_err());
+        assert_eq!(refused.log.take(), ["ticket c1 agent-1"], "a forged ring costs one request");
+        let elsewhere = ring(Ok(false), "elsewhere");
+        assert!(answer(&elsewhere, "c1", "agent-1").is_err());
+        assert_eq!(elsewhere.log.take(), ["ticket c1 agent-1", "agent"], "no socket for an agent that runs elsewhere");
     }
 
     #[test]
