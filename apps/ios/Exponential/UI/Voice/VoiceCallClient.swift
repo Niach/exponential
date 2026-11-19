@@ -23,6 +23,15 @@ private let logger = Logger(subsystem: "at.exponential", category: "voice-call")
 /// (screen locked, another app in front) ends the call: no `audio`
 /// background mode (App Review 2.5.4); while one runs the screen never dims
 /// on its own.
+///
+/// #EXP-1941: A SEALED CALL. A phone that can hold keys claims `seal`; when
+/// `voice.startCall` answers `seal: true` the call speaks the sealed wire
+/// through `CallSealLine`: frames are opened in `pump`, in arrival order,
+/// before the hop to the main actor; the capture thread's every packet
+/// passes `uplink`, which seals only after the host proved the chat's key
+/// (before that nothing of the microphone leaves); mute rides inside every
+/// frame (no `call_mute`). A seal failure reads `dropped`, and a wire code
+/// about this phone's own device is never taken from the wire.
 @MainActor
 @Observable
 final class VoiceCallClient {
@@ -53,6 +62,8 @@ final class VoiceCallClient {
     @ObservationIgnored private var startTask: Task<Void, Never>?
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var audio: VoiceCallAudio?
+    /// #EXP-1941: the sealed line of a call the server marked sealed; nil = today's wire.
+    @ObservationIgnored private var line: CallSealLine?
     /// EXP-1929: what the relay last sent, and whether it beats.
     @ObservationIgnored private var liveness: CallLiveness?
     @ObservationIgnored private var livenessTask: Task<Void, Never>?
@@ -67,7 +78,7 @@ final class VoiceCallClient {
     /// the agent's own desktop or, `fallback`, another of the member's).
     func start(
         accountId: String, agentId: String, callee: VoiceCallCallee, device: String, language: String?,
-        fallback: Bool, voiceApi: VoiceApi
+        fallback: Bool, voiceApi: VoiceApi, keys: CallKeySource?
     ) {
         guard state.phase == .hidden else { return }
         self.callee = callee
@@ -87,9 +98,15 @@ final class VoiceCallClient {
                 self.fail("not_granted")
                 return
             }
+            // A key holder that is still starting is waited for, then the
+            // phone claims; one that cannot hold keys dials without the claim.
+            let keys = CallSealLine.supported ? keys : nil
+            let claim = await keys?.ready() ?? false
+            guard generation == self.generation else { return }
+            async let asked = claim ? keys?.target(agentId: agentId) : nil
             let ticket: VoiceCall.Ticket
             do {
-                ticket = try await voiceApi.startCall(accountId: accountId, agentId: agentId)
+                ticket = try await voiceApi.startCall(accountId: accountId, agentId: agentId, seal: claim)
             } catch {
                 guard generation == self.generation else { return }
                 // The server's refusal (the availability reason, no relay).
@@ -103,12 +120,31 @@ final class VoiceCallClient {
             // answers neither field): its answer names the device that speaks.
             if let device = ticket.device { self.state.device = device }
             if let fallback = ticket.fallback { self.state.fallback = fallback }
+            let target = await asked
+            guard generation == self.generation else { return }
             guard let url = URL(string: ticket.url) else {
                 self.fail("dropped")
                 return
             }
-            self.dial(url, generation: generation)
+            // Told sealed without the claim or the ids: no clear call instead.
+            var sealed: SealedCall?
+            if ticket.seal == true {
+                guard claim, let keys, let deviceId = ticket.deviceId else {
+                    self.fail("dropped")
+                    return
+                }
+                sealed = SealedCall(callId: ticket.callId, agentId: agentId, deviceId: deviceId, target: target, keys: keys)
+            }
+            self.dial(url, generation: generation, sealed: sealed)
         }
+    }
+
+    private struct SealedCall {
+        let callId: String
+        let agentId: String
+        let deviceId: String
+        let target: ServerSendTarget?
+        let keys: CallKeySource
     }
 
     /// End call: `call_end` to the host, then close.
@@ -172,6 +208,11 @@ final class VoiceCallClient {
         let muted = !state.muted
         step(muted ? .mute : .unmute)
         audio?.setMuted(muted)
+        // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
+        if let line {
+            line.muted = muted
+            return
+        }
         socket?.send(.string(#"{"t":"call_mute","muted":\#(muted)}"#)) { _ in }
     }
 
@@ -185,9 +226,30 @@ final class VoiceCallClient {
 
     // MARK: - Socket
 
-    private func dial(_ url: URL, generation: Int) {
+    private func dial(_ url: URL, generation: Int, sealed: SealedCall?) {
         let task = URLSession.shared.webSocketTask(with: url)
         socket = task
+        if let sealed {
+            let io = CallSealLine.Io(
+                sendBinary: { frame in task.send(.data(frame)) { _ in } },
+                end: { reason in task.send(.string(#"{"t":"call_end","reason":"\#(reason)"}"#)) { _ in } },
+                fail: { [weak self] code in
+                    Task { @MainActor in
+                        guard let self, generation == self.generation else { return }
+                        self.fail(code)
+                    }
+                }
+            )
+            line = CallSealLine.make(
+                callId: sealed.callId, agentId: sealed.agentId, deviceId: sealed.deviceId,
+                target: sealed.target, keys: sealed.keys, io: io
+            )
+            guard line != nil else {
+                fail("dropped")
+                return
+            }
+        }
+        let line = line
         let liveness = CallLiveness()
         self.liveness = liveness
         // EXP-1929: once the relay beat, a path that carries nothing for
@@ -205,7 +267,11 @@ final class VoiceCallClient {
         }
         let uplink = UplinkSender(task)
         audio = VoiceCallAudio(
-            onUplink: { frame in uplink.send(frame) },
+            // A sealed call's ONE gate: a frame leaves only through the sealer.
+            onUplink: { frame in
+                guard let line else { return uplink.send(frame) }
+                if let sealed = line.uplink(frame) { uplink.send(sealed) }
+            },
             onLevel: { [weak self] level, speaking in
                 Task { @MainActor in
                     guard let self, generation == self.generation else { return }
@@ -222,7 +288,7 @@ final class VoiceCallClient {
             }
         )
         task.resume()
-        Self.pump(task, audio: audio, liveness: liveness, onText: { [weak self] text in
+        Self.pump(task, audio: audio, line: line, liveness: liveness, onText: { [weak self] text in
             Task { @MainActor in
                 guard let self, generation == self.generation else { return }
                 self.handle(text)
@@ -238,10 +304,12 @@ final class VoiceCallClient {
     }
 
     /// The receive loop, off the main actor: audio goes straight to the
-    /// player's queue, control frames hop to the model.
+    /// player's queue, control frames hop to the model. A sealed call's
+    /// frames are opened HERE, in arrival order, before either hop.
     nonisolated private static func pump(
         _ task: URLSessionWebSocketTask,
         audio: VoiceCallAudio?,
+        line: CallSealLine?,
         liveness: CallLiveness,
         onText: @escaping @Sendable (String) -> Void,
         onClosed: @escaping @Sendable () -> Void
@@ -250,16 +318,16 @@ final class VoiceCallClient {
             if case .success = result { liveness.heard() }
             switch result {
             case let .success(.data(frame)):
-                audio?.receive(frame)
+                if let opened = line == nil ? frame : line?.inbound(frame: frame) { audio?.receive(opened) }
             case let .success(.string(text)):
-                onText(text)
+                if let opened = line == nil ? text : line?.inbound(text: text) { onText(opened) }
             case .success:
                 break
             case .failure:
                 onClosed()
                 return
             }
-            pump(task, audio: audio, liveness: liveness, onText: onText, onClosed: onClosed)
+            pump(task, audio: audio, line: line, liveness: liveness, onText: onText, onClosed: onClosed)
         }
     }
 
@@ -292,7 +360,7 @@ final class VoiceCallClient {
             // with its code before its `call_end` (an empty code reads as
             // `dropped`, voice-call.json).
             if case let .failed(code) = event {
-                fail(code.isEmpty ? "dropped" : code)
+                fail(code.isEmpty ? "dropped" : VoiceCall.Seal.wireCode(code))
                 return
             }
             // Barge-in: the reply still buffered stops at once.
@@ -304,12 +372,12 @@ final class VoiceCallClient {
             step(.hungUp(reason: frame["reason"] as? String))
             if let toast = state.toast { toaster.error(toast) }
         case "error":
-            fail(frame["code"] as? String ?? "dropped")
+            fail(VoiceCall.Seal.wireCode(frame["code"] as? String ?? "dropped"))
         case "call_alive":
             liveness?.beat()
         case "bye":
             // The room closed without a `call_end` first.
-            fail(frame["outcome"] as? String ?? "dropped")
+            fail(VoiceCall.Seal.wireCode(frame["outcome"] as? String ?? "dropped"))
         default:
             break
         }
@@ -354,6 +422,8 @@ final class VoiceCallClient {
             VoiceCallAudio.sharedQueue.async { CallAudioSession.leave() }
         }
         audio = nil
+        line?.close()
+        line = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         level = 0
