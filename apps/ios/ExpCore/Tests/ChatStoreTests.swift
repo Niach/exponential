@@ -359,6 +359,9 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(ChatStoreHub.storedMessage(plain, opener: opener)?["createdAt"] as? Int64, ChatStoreWire.isoMs(at))
         XCTAssertTrue(ChatStoreHub.storedMessage(sealed, opener: opener)?["body"] is NSNull, "no key yet: no body")
         XCTAssertNil(ChatStoreHub.storedMessage(chatless, opener: opener))
+        // #EXP-1998: a synced row carries the Postgres text form.
+        let synced = MessageEntity(id: "m4", conversationId: "c", rootId: "r1", teamId: "t", authorKind: "agent", body: "zeppelin", createdAt: "2026-11-17 09:00:00+00", updatedAt: at, sessionId: "s1")
+        XCTAssertEqual(ChatStoreHub.storedMessage(synced, opener: opener)?["createdAt"] as? Int64, ChatStoreWire.isoMs(at))
         ring.add([(rootId: "r1", epoch: 3, secret: Data(count: 32))])
         XCTAssertEqual(ChatStoreHub.storedMessage(sealed, opener: opener)?["body"] as? String, "secret")
     }
