@@ -10,7 +10,7 @@
 //! for the speech worker ([`CallHostEvent::Audio`]), the worker's reply PCM
 //! (mono, its native rate) is encoded into 20 ms Opus packets
 //! ([`CallHost::send_speech`]). The call itself (what is said, sent, spoken)
-//! is the IDE's (`ui::voice_call`).
+//! is the IDE's (`etalk_gpui::voice_call`).
 //!
 //! #EXP-1941: a host the server told `seal` ([`connect_sealed`]) speaks the
 //! SEALED wire instead (voice-call.json `seal`; `enet_core::call_seal` holds
@@ -152,7 +152,8 @@ pub(crate) enum Outbound {
     End,
 }
 
-/// The live call socket; dropping it does NOT end the call (call [`end`]).
+/// The live call socket; [`end`] ends the call, and so does dropping every
+/// handle (`call_end` either way).
 ///
 /// [`end`]: CallHost::end
 #[derive(Clone)]
@@ -164,13 +165,6 @@ impl CallHost {
     #[cfg(test)]
     pub(crate) fn from_sender(tx: flume::Sender<Outbound>) -> Self {
         Self { tx }
-    }
-
-    /// A host whose socket is already gone: every send is dropped (the IDE's
-    /// call lifecycle tests).
-    #[doc(hidden)]
-    pub fn detached() -> Self {
-        Self { tx: flume::unbounded().0 }
     }
 
     /// Forward one flow event (voice-call.json `flowCases` event) to the
