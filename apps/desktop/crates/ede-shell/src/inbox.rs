@@ -62,7 +62,9 @@ pub struct AccountRows {
     pub pull_requests: Vec<PullRequestRow>,
 }
 
-/// A shape's rows off the account's store, typed (rows that do not parse drop out).
+/// A shape's rows off the account's store, typed (rows that do not parse
+/// drop out). #EDE-141: the chat reads through [`crate::chat_rows`] now.
+#[cfg(test)]
 pub fn read_rows<T: DeserializeOwned>(store: &sync::store::ShapeStore, shape: &str) -> Vec<T> {
     rows(store, shape)
 }

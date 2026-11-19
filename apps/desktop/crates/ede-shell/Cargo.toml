@@ -83,6 +83,8 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 data-encoding = "2"
 # The factory documents, to check their headers against the functions this shell matches.
 uicore-docs = { path = "../uicore-docs" }
+# #EDE-141: the Engine's boot and shutdown in a headless gpui app (the leak's counter test).
+gpui = { workspace = true, features = ["test-support"] }
 
 # The installed names (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

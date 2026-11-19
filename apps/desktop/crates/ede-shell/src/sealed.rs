@@ -69,11 +69,17 @@ impl Opens for KeyringFile {
 
 /// An account's opener over the app's keyring.
 pub fn opener(account_id: &str) -> Opener {
-    Opener::new(Arc::new(KeyringFile::new(api::seal_keyring_path(&api::default_data_dir(), account_id, false))))
+    Opener::new(Arc::new(KeyringFile::new(keyring_path(account_id))))
+}
+
+/// The app's keyring file of an account.
+pub fn keyring_path(account_id: &str) -> PathBuf {
+    api::seal_keyring_path(&api::default_data_dir(), account_id, false)
 }
 
 /// The rows the chat reads, opened in place: the sessions first (the
 /// opener learns each session's root), then the messages.
+#[cfg(test)]
 pub fn open(opener: &Opener, sessions: &mut [SessionRow], messages: &mut [MessageRow]) {
     for session in sessions.iter_mut() {
         opener.open_session(session);

@@ -237,35 +237,97 @@ public enum FindInChat {
     public static func eventKey(sessionId: String, seq: Int) -> String { "e:\(sessionId):\(seq)" }
     public static func messageKey(_ messageId: String) -> String { "m:\(messageId)" }
 
-    /// The chat store's `searchChat` answer (`{hits, total}`) as the shown
-    /// session's older hits, in its order: a hit of another session of the
-    /// tree, without a seq, or of a kind the host does not know is dropped.
-    public static func storeHits(_ json: String?, sessionId: String) -> [OlderHit] {
-        guard let data = json?.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hits = object["hits"] as? [[String: Any]] else { return [] }
-        return hits.compactMap { hit -> OlderHit? in
-            guard hit["sessionId"] as? String == sessionId, let seq = (hit["seq"] as? NSNumber)?.intValue,
-                  let kind = hit["kind"] as? String, knownKinds.contains(kind) else { return nil }
-            return OlderHit(key: eventKey(sessionId: sessionId, seq: seq), output: kind == "tool_output")
+    /// #EXP-1998: a store hit as `older` reads it (an event's carries its
+    /// `seq`, a synced message's its `messageId`).
+    public struct StoreHit: Equatable, Sendable {
+        public var sessionId: String
+        public var seq: Int?
+        public var messageId: String?
+        public var kind: String
+
+        public init(sessionId: String, seq: Int? = nil, messageId: String? = nil, kind: String) {
+            self.sessionId = sessionId
+            self.seq = seq
+            self.messageId = messageId
+            self.kind = kind
         }
     }
 
-    /// The device's `search_result` hits (newest first) as older hits.
-    public static func deviceHits(_ hits: [(seq: Int, kind: String)], sessionId: String) -> [OlderHit] {
-        hits.compactMap { hit in
-            guard knownKinds.contains(hit.kind) else { return nil }
-            return OlderHit(key: eventKey(sessionId: sessionId, seq: hit.seq), output: hit.kind == "tool_output")
+    /// #EXP-1998: a device's hit (always the shown session's event).
+    public struct DeviceHit: Equatable, Sendable {
+        public var seq: Int
+        public var kind: String
+
+        public init(seq: Int, kind: String) {
+            self.seq = seq
+            self.kind = kind
         }
+    }
+
+    /// #EXP-1998: the synced messages the host draws as bubbles (nil = a
+    /// live transcript, which holds them as its own rows): `loaded` = every
+    /// loaded synced message of the session, `drawable` = those it would draw
+    /// with no cap, `more` = older ones exist unloaded.
+    public struct Synced: Equatable, Sendable {
+        public var loaded: [String]
+        public var drawable: [String]
+        public var more: Bool
+
+        public init(loaded: [String], drawable: [String], more: Bool) {
+            self.loaded = loaded
+            self.drawable = drawable
+            self.more = more
+        }
+    }
+
+    /// #EXP-1998 (`olderCases`): the store's and the device's hits OLDER
+    /// than the loaded rows, store first, first key wins.
+    public static func older(sessionId: String, lowestSeq: Int?, store: [StoreHit], device: [DeviceHit], synced: Synced?) -> [OlderHit] {
+        let loaded = Set(synced?.loaded ?? [])
+        let drawable = Set(synced?.drawable ?? [])
+        var seen = Set<String>()
+        var out: [OlderHit] = []
+        func push(_ key: String, _ output: Bool) {
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            out.append(OlderHit(key: key, output: output))
+        }
+        func event(_ seq: Int, _ kind: String) {
+            if lowestSeq.map({ seq < $0 }) ?? true { push(eventKey(sessionId: sessionId, seq: seq), kind == "tool_output") }
+        }
+        for hit in store where hit.sessionId == sessionId {
+            if let seq = hit.seq {
+                event(seq, hit.kind)
+            } else if let id = hit.messageId, let synced {
+                if loaded.contains(id) ? drawable.contains(id) : synced.more { push(messageKey(id), false) }
+            }
+        }
+        for hit in device { event(hit.seq, hit.kind) }
+        return out
+    }
+
+    /// The chat store's `searchChat` answer (`{hits, total}`) as the shown
+    /// session's hits, in its order: a hit of another session of the tree,
+    /// with neither a seq nor a message id, or of a kind the host does not
+    /// know is dropped.
+    public static func storeHits(_ json: String?, sessionId: String) -> [StoreHit] {
+        guard let data = json?.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hits = object["hits"] as? [[String: Any]] else { return [] }
+        return hits.compactMap { hit -> StoreHit? in
+            guard hit["sessionId"] as? String == sessionId, let kind = hit["kind"] as? String, knownKinds.contains(kind) else { return nil }
+            let seq = (hit["seq"] as? NSNumber)?.intValue
+            let messageId = hit["messageId"] as? String
+            guard seq != nil || messageId != nil else { return nil }
+            return StoreHit(sessionId: sessionId, seq: seq, messageId: seq == nil ? messageId : nil, kind: kind)
+        }
+    }
+
+    /// The device's `search_result` hits (newest first), kinds it knows.
+    public static func deviceHits(_ hits: [(seq: Int, kind: String)]) -> [DeviceHit] {
+        hits.compactMap { hit in knownKinds.contains(hit.kind) ? DeviceHit(seq: hit.seq, kind: hit.kind) : nil }
     }
 
     /// The hit kinds a transcript draws (chat-store.json `ChatDocKind`).
     static let knownKinds: Set<String> = ["user_message", "narration", "tool", "tool_output", "message"]
-
-    /// The older hits that lie BELOW the loaded stretch (`lowestSeq` nil =
-    /// nothing loaded: all of them).
-    public static func below(_ hits: [OlderHit], lowestSeq: Int?) -> [OlderHit] {
-        guard let lowestSeq else { return hits }
-        return hits.filter { hit in hit.seq.map { $0 < lowestSeq } ?? true }
-    }
 }

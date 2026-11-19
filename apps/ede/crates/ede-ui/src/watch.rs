@@ -18,6 +18,11 @@ use crate::{Change, Runtime};
 pub const DEBOUNCE: Duration = Duration::from_millis(120);
 /// A burst of edits never holds a reload off for longer than this.
 pub const DEBOUNCE_MAX: Duration = Duration::from_millis(500);
+/// A reload that failed (its commit could not run: another git held the
+/// repository) is tried again this often, this many times (#EDE-153): no new
+/// file event comes for what it read.
+pub const RETRY: Duration = Duration::from_millis(250);
+pub const RETRIES: u32 = 40;
 
 /// Watches while it lives; dropping it closes the channel and the
 /// reload thread ends.
@@ -33,8 +38,9 @@ fn relevant(dir: &Path, path: &Path) -> bool {
 }
 
 /// Reload `runtime` whenever a file in its directory changes and hand the
-/// changes (never empty) to `on_change`. A reload that fails (the directory
-/// went away, git broke) reports nothing and the last good state stays.
+/// changes (never empty) to `on_change`. A reload that fails is tried again
+/// ([`RETRY`], #EDE-153); one that keeps failing (the directory went away,
+/// git broke) reports nothing and the last good state stays.
 pub fn watch(runtime: Arc<Mutex<Runtime>>, mut on_change: impl FnMut(Vec<Change>) + Send + 'static) -> io::Result<Watcher> {
     let dir = runtime.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
     let dir = dir.canonicalize().unwrap_or(dir);
@@ -58,7 +64,13 @@ pub fn watch(runtime: Arc<Mutex<Runtime>>, mut on_change: impl FnMut(Vec<Change>
         while rx.recv().is_ok() {
             let started = std::time::Instant::now();
             while rx.recv_timeout(DEBOUNCE).is_ok() && started.elapsed() < DEBOUNCE_MAX {}
-            let changes = runtime.lock().unwrap_or_else(|p| p.into_inner()).reload();
+            let mut changes = runtime.lock().unwrap_or_else(|p| p.into_inner()).reload();
+            let mut tries = 0;
+            while changes.is_err() && tries < RETRIES {
+                thread::sleep(RETRY);
+                tries += 1;
+                changes = runtime.lock().unwrap_or_else(|p| p.into_inner()).reload();
+            }
             if let Ok(changes) = changes {
                 if !changes.is_empty() {
                     on_change(changes);

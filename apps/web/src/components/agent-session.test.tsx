@@ -45,8 +45,14 @@ vi.mock(`@/components/session-account-switch`, () => ({
 // `sessions.answer` call they answer through.
 let messages: unknown[] = []
 const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
+// #EXP-1998: the page hook, stable while `messages` is (like the real memo).
+let messagePage: { rows: unknown[]; more: boolean } | undefined
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionMessages: () => messages,
+  useSessionMessagePage: () => {
+    if (!messagePage || messagePage.rows !== messages) messagePage = { rows: messages, more: false }
+    return messagePage
+  },
   useSessionCard: () => null,
   loadEarlierMessages: () => {},
 }))
