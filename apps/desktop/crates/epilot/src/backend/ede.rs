@@ -1017,7 +1017,8 @@ mod tests {
                             spaces.lock().unwrap().1.clear();
                         }
                         if forgets.swap(false, Ordering::SeqCst) {
-                            forgotten.lock().unwrap().extend(minted.lock().unwrap().drain().map(|(token, _)| token));
+                            let gone: Vec<String> = minted.lock().unwrap().drain().map(|(token, _)| token).collect();
+                            forgotten.lock().unwrap().extend(gone);
                         }
                         let op = serde_json::to_value(&call.request).unwrap()["op"].as_str().unwrap().to_string();
                         let space = spaces.lock().unwrap().1.get(me.as_str()).cloned();
@@ -1039,7 +1040,8 @@ mod tests {
                             Request::MintGrant { session_id, expires_at, capabilities, .. } => {
                                 log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
                                 // Numbered past the forgotten ones: a new grant is never an old one.
-                                let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + forgotten.lock().unwrap().len() + 1)).unwrap();
+                                let past = forgotten.lock().unwrap().len();
+                                let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + past + 1)).unwrap();
                                 minted.lock().unwrap().insert(token.as_str().to_string(), (session_id.clone(), capabilities.clone()));
                                 Ok(serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap())
                             }
