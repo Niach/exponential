@@ -1173,33 +1173,20 @@ public func FfiConverterTypeTalkUplink_lower(_ value: TalkUplink) -> UInt64 {
 
 
 /**
- * `availabilityCases` input.
+ * `availabilityCases` input (EXP-1991): ONE desktop.
  */
 public struct TalkCallAvailabilityInput: Equatable, Hashable {
     /**
-     * The member has a voice Assistant (`voice.get` agentId non-null).
+     * The desktop's name.
      */
-    public var agent: Bool
-    public var platform: TalkCallPlatform
-    /**
-     * The voice device's name; None = none.
-     */
-    public var device: String?
+    public var device: String
     public var online: Bool
-    /**
-     * THIS client is the voice device.
-     */
-    public var here: Bool
     /**
      * None = no `speech` row yet.
      */
     public var speech: TalkCallSpeech?
     /**
-     * A call this client does not run already runs on the voice device.
-     */
-    public var busy: Bool
-    /**
-     * A meeting runs on the voice device.
+     * A meeting runs on it.
      */
     public var meeting: Bool
 
@@ -1207,30 +1194,17 @@ public struct TalkCallAvailabilityInput: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * The member has a voice Assistant (`voice.get` agentId non-null).
-         */agent: Bool, platform: TalkCallPlatform, 
-        /**
-         * The voice device's name; None = none.
-         */device: String?, online: Bool, 
-        /**
-         * THIS client is the voice device.
-         */here: Bool, 
+         * The desktop's name.
+         */device: String, online: Bool, 
         /**
          * None = no `speech` row yet.
          */speech: TalkCallSpeech?, 
         /**
-         * A call this client does not run already runs on the voice device.
-         */busy: Bool, 
-        /**
-         * A meeting runs on the voice device.
+         * A meeting runs on it.
          */meeting: Bool) {
-        self.agent = agent
-        self.platform = platform
         self.device = device
         self.online = online
-        self.here = here
         self.speech = speech
-        self.busy = busy
         self.meeting = meeting
     }
 
@@ -1250,25 +1224,17 @@ public struct FfiConverterTypeTalkCallAvailabilityInput: FfiConverterRustBuffer 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallAvailabilityInput {
         return
             try TalkCallAvailabilityInput(
-                agent: FfiConverterBool.read(from: &buf), 
-                platform: FfiConverterTypeTalkCallPlatform.read(from: &buf), 
-                device: FfiConverterOptionString.read(from: &buf), 
+                device: FfiConverterString.read(from: &buf), 
                 online: FfiConverterBool.read(from: &buf), 
-                here: FfiConverterBool.read(from: &buf), 
                 speech: FfiConverterOptionTypeTalkCallSpeech.read(from: &buf), 
-                busy: FfiConverterBool.read(from: &buf), 
                 meeting: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: TalkCallAvailabilityInput, into buf: inout [UInt8]) {
-        FfiConverterBool.write(value.agent, into: &buf)
-        FfiConverterTypeTalkCallPlatform.write(value.platform, into: &buf)
-        FfiConverterOptionString.write(value.device, into: &buf)
+        FfiConverterString.write(value.device, into: &buf)
         FfiConverterBool.write(value.online, into: &buf)
-        FfiConverterBool.write(value.here, into: &buf)
         FfiConverterOptionTypeTalkCallSpeech.write(value.speech, into: &buf)
-        FfiConverterBool.write(value.busy, into: &buf)
         FfiConverterBool.write(value.meeting, into: &buf)
     }
 }
@@ -2591,7 +2557,7 @@ public func callTimer(ms: UInt64) -> String  {
 })
 }
 /**
- * None = the telephone is enabled; Some = disabled, with the reason.
+ * None = the desktop can take the call; Some = it cannot, with the reason.
  */
 public func callUnavailable(input: TalkCallAvailabilityInput) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
@@ -2684,7 +2650,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_etalk_ffi_checksum_func_call_timer() != 29389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 38799) {
+    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 54339) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_etalk_ffi_checksum_func_call_view() != 16228) {

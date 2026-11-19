@@ -69,7 +69,7 @@ export function webCallInput(
           }))
       : []
   // EXP-1858: the member's own servers (a candidate only as the agent's device).
-  return { platform: `web`, here: null, agentDevice, desktops: own(`desktop`), servers: own(`server`), busy: false }
+  return { here: null, agentDevice, desktops: own(`desktop`), servers: own(`server`), busy: false }
 }
 
 export function webCallTarget(
