@@ -208,3 +208,35 @@ describe(`formatDiffReport`, () => {
     expect(NEAR_MISS_SHARE).toBeLessThan(1)
   })
 })
+
+// #EDE-106: an eDE view captured before the shell drew it is the empty
+// desktop (ede-panel's picture); it never replaces the view's golden.
+describe(`writeShot: the empty eDE desktop`, () => {
+  /** The empty desktop: a dark frame with a small patch (the taskbar) top-left. */
+  const desktop = () => png(400, 300, 0.02)
+  /** The desktop with a light block (the view) at `left`. */
+  async function drawn(left: number): Promise<Uint8Array> {
+    const block = await sharp({ create: { width: 120, height: 120, channels: 3, background: { r: 120, g: 160, b: 220 } } })
+      .png()
+      .toBuffer()
+    return new Uint8Array(await sharp(Buffer.from(await desktop())).composite([{ input: block, left, top: 150 }]).png().toBuffer())
+  }
+
+  test(`refuses the empty desktop over a view's golden, even forced, and keeps the golden`, async () => {
+    await writeShot(`ede-panel`, `ede`, await desktop())
+    await writeShot(`ede-chat`, `ede`, await drawn(40))
+    const before = sha(storeShotPath(`ede-chat`, `ede`))
+    for (const force of [false, true]) {
+      await expect(writeShot(`ede-chat`, `ede`, await desktop(), { force })).rejects.toThrow(/empty desktop/)
+    }
+    expect(sha(storeShotPath(`ede-chat`, `ede`))).toBe(before)
+  })
+
+  test(`a view that moved, ede-panel itself and a first golden still store`, async () => {
+    await writeShot(`ede-panel`, `ede`, await desktop())
+    await writeShot(`ede-chat`, `ede`, await drawn(40))
+    expect((await writeShot(`ede-chat`, `ede`, await drawn(260))).state).toBe(`updated`)
+    expect((await writeShot(`ede-panel`, `ede`, await desktop(), { force: true })).state).toBe(`updated`)
+    expect((await writeShot(`ede-osd`, `ede`, await desktop())).state).toBe(`new`)
+  })
+})

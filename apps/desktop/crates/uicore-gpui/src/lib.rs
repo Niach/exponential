@@ -395,7 +395,12 @@ impl Surfaces {
                 });
                 *out.borrow_mut() = Some(view.clone());
                 let n = name.clone();
-                window.on_next_frame(move |_, _| on_frame(&n, &digest));
+                window.on_next_frame(move |window, _| {
+                    on_frame(&n, &digest);
+                    // #EDE-106: that frame is drawn and presented when the next
+                    // one starts; the eDE goldens wait for this line, not for time.
+                    window.on_next_frame(move |_, _| tracing::info!(document = %n, "drawn"));
+                });
                 cx.new(|_| SurfaceRoot { view, hosted: None })
             },
         );
