@@ -2757,15 +2757,20 @@ fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64
         let query = menu["query"].as_str().unwrap_or_default().to_string();
         let Some(row) = s.menu_selection.step(&query, start_menu::rows(&menu), step) else { return false };
         let apps = menu["apps"].as_array().map_or(0, Vec::len);
-        (name, if row < apps { ("apps", row) } else { ("issues", row - apps) })
+        (name, row, if row < apps { ("apps", row) } else { ("issues", row - apps) })
     };
     // The key is still being dispatched in that window: its view redraws after it.
     let shell = shell.clone();
     cx.defer(move |cx| {
         model_changed(&shell, cx);
-        let (name, (list, index)) = moved;
+        let (name, row, (list, index)) = moved;
         // The results' ScrollArea: a list that cannot scroll is left alone (its rows would go blank).
-        shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, index, cx);
+        // #EDE-133: the first row = the results' top, its group heading included.
+        if row == 0 {
+            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
+        } else {
+            shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, index, cx);
+        }
     });
     true
 }
@@ -2779,10 +2784,9 @@ fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
     dispatch(shell, ShellEvent::StartMenuQuery { query }, cx);
     // #EDE-92: new text = the results start at their top, on the first row
     // (Enter's flush of the same text keeps the place).
-    let first = if !changed { None } else { shell.borrow().feed.get("/shell").map(|v| if v["startMenu"]["apps"].as_array().is_some_and(|a| !a.is_empty()) { "apps" } else { "issues" }) };
-    if let Some(list) = first {
+    if changed {
         for name in ["start-menu", "menu"] {
-            shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, 0, cx);
+            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
         }
     }
     issues_search(shell, cx);
