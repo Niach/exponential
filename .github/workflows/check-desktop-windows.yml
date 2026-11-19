@@ -37,6 +37,12 @@ jobs:
       - name: cargo check
         shell: bash
         run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app
+      # #EDE-140: computer use's Windows backend has tests of its own that no
+      # Linux job compiles. They run in release-suite's desktop-windows
+      # (#EXP-1979); this compiles them on the PR.
+      - name: cargo check (ePilot's tests)
+        shell: bash
+        run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests
       # #ERR-2 / #ERR-3: the vendored gpui-pre-windows patch's own tests.
       - name: gpui-pre-windows patch tests
         shell: bash
