@@ -1038,7 +1038,8 @@ mod tests {
                             }
                             Request::MintGrant { session_id, expires_at, capabilities, .. } => {
                                 log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
-                                let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + 1)).unwrap();
+                                // Numbered past the forgotten ones: a new grant is never an old one.
+                                let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + forgotten.lock().unwrap().len() + 1)).unwrap();
                                 minted.lock().unwrap().insert(token.as_str().to_string(), (session_id.clone(), capabilities.clone()));
                                 Ok(serde_json::to_value(ede_protocol::Grant { token, session_id, run_id: None, capabilities, expires_at }).unwrap())
                             }
