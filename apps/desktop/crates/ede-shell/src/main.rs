@@ -4097,6 +4097,39 @@ mod function_names {
         }
         assert!(checked > 40, "the headers were read ({checked})");
     }
+
+    /// #EDE-93: a press opens the popups whose anchor is the pressed
+    /// component's id (`popups_of`), so every factory popup's anchor names a
+    /// component of its parent document. #VAPP-289 renamed the taskbar's
+    /// `applet-sound` to `applet_sound` while the popup kept the old anchor,
+    /// so a click on the sound applet opened nothing.
+    #[test]
+    fn every_factory_popup_anchors_at_a_component_of_its_parent() {
+        fn ids(node: &serde_json::Value, out: &mut Vec<String>) {
+            match node {
+                serde_json::Value::Object(map) => {
+                    if let Some(id) = map.get("id").and_then(serde_json::Value::as_str) {
+                        out.push(id.to_string());
+                    }
+                    map.values().for_each(|v| ids(v, out));
+                }
+                serde_json::Value::Array(items) => items.iter().for_each(|v| ids(v, out)),
+                _ => {}
+            }
+        }
+        let docs: Vec<(&str, serde_json::Value)> = uicore_docs::DOCS.iter().map(|d| (d.name, serde_json::from_str(d.source).expect(d.name))).collect();
+        let mut checked = Vec::new();
+        for (name, doc) in &docs {
+            let popup = &doc["surface"]["popup"];
+            let (Some(parent), Some(anchor)) = (popup["parent"].as_str(), popup["anchor"].as_str()) else { continue };
+            let (_, parent_doc) = docs.iter().find(|(n, _)| *n == parent).unwrap_or_else(|| panic!("{name}: no parent document {parent}"));
+            let mut parent_ids = Vec::new();
+            ids(&parent_doc["root"], &mut parent_ids);
+            assert!(parent_ids.iter().any(|id| id == anchor), "{name}: {parent} has no component {anchor}");
+            checked.push(*name);
+        }
+        assert!(checked.contains(&"applet-sound"), "the sound applet is a popup ({checked:?})");
+    }
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
   "surface": {
     "popup": {
       "parent": "taskbar",
-      "anchor": "applet-battery",
+      "anchor": "applet_battery",
       "placement": "top-end",
       "size": {
         "width": 380,

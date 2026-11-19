@@ -3,7 +3,7 @@
   "surface": {
     "popup": {
       "parent": "taskbar",
-      "anchor": "applet-network",
+      "anchor": "applet_network",
       "placement": "top-end",
       "size": {
         "width": 380,
