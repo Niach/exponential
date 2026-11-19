@@ -64,17 +64,26 @@ impl Drop for Stopped {
     }
 }
 
+/// `systemd-run --user --scope` as this test asks it of the user manager
+/// itself: with `--expand-environment=no` where systemd has it (from 258 a
+/// scope's argv has `$$` and the like replaced on the client's side).
+fn scope_run(systemd: u32) -> Command {
+    let mut run = Command::new("systemd-run");
+    run.args(["--user", "--scope", "--collect", "--quiet"]);
+    if systemd >= 254 {
+        run.arg("--expand-environment=no");
+    }
+    run.stdin(Stdio::null());
+    run
+}
+
 /// What a compositor with process id `compositor` (nobody's) would have
 /// left: a space's slice with a scope that asked to be left alone at a
 /// stop, and in it a shell that ignores SIGTERM. Its process id is
 /// written to `file`.
-fn left_behind(compositor: u32, file: &Path) -> Child {
+fn left_behind(systemd: u32, compositor: u32, file: &Path) -> Child {
     let script = format!("trap '' TERM; echo $$ > {0}.tmp && mv {0}.tmp {0}; sleep 300; sleep 300", file.display());
-    Command::new("systemd-run")
-        .args(["--user", "--scope", "--collect", "--quiet", "-p", "KillMode=none", &format!("--slice={}", space_slice(compositor, 1)), &format!("--unit=exponential-p{compositor}-s1-1.scope"), "--", "sh", "-c", &script])
-        .stdin(Stdio::null())
-        .spawn()
-        .unwrap()
+    scope_run(systemd).args(["-p", "KillMode=none", &format!("--slice={}", space_slice(compositor, 1)), &format!("--unit=exponential-p{compositor}-s1-1.scope"), "--", "sh", "-c", &script]).spawn().unwrap()
 }
 
 #[test]
@@ -84,16 +93,19 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let (crashed, ended) = (4_194_997, 4_194_998);
     let (all, one) = (spaces_slice(me), space_slice(me, 1));
     let _stopped = Stopped(vec![all.clone(), spaces_slice(crashed), spaces_slice(ended)]);
-    if let Err(reason) = ede_compositor::spaces::slice::Units::probe() {
-        assert!(std::env::var_os("EDE_EXPECT_USER_MANAGER").is_none(), "this check needs a systemd user manager: {reason}");
-        eprintln!("skipped: {reason}");
-        return;
-    }
+    let systemd = match ede_compositor::spaces::slice::Units::probe() {
+        Ok(units) => units.version,
+        Err(reason) => {
+            assert!(std::env::var_os("EDE_EXPECT_USER_MANAGER").is_none(), "this check needs a systemd user manager: {reason}");
+            eprintln!("skipped: {reason}");
+            return;
+        }
+    };
     let (h, dir) = start_with_spaces(&[(800, 600)]);
 
     // What a crashed compositor left is there when this one starts.
     let crashed_file = dir.path().join("crashed.pid");
-    let mut crashed_scope = left_behind(crashed, &crashed_file);
+    let mut crashed_scope = left_behind(systemd, crashed, &crashed_file);
     let crashed_pid = pid_in(&crashed_file);
 
     // The session's start finds the user manager and stops what is stale.
@@ -187,11 +199,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let stubborn_file = dir.path().join("stubborn.pid");
     let stubborn_unit = format!("exponential-p{me}-s1-stubborn.scope");
     let script = format!("trap '' TERM; setsid sh -c 'trap \"\" TERM; echo $$ > {0}.tmp && mv {0}.tmp {0}; sleep 300; sleep 300' & wait", stubborn_file.display());
-    let mut stubborn_scope = Command::new(&units.systemd_run)
-        .args(["--user", "--scope", "--collect", "--quiet", "-p", "KillMode=none", &format!("--slice={one}"), &format!("--unit={stubborn_unit}"), "--", "sh", "-c", &script])
-        .stdin(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut stubborn_scope = scope_run(systemd).args(["-p", "KillMode=none", &format!("--slice={one}"), &format!("--unit={stubborn_unit}"), "--", "sh", "-c", &script]).spawn().unwrap();
     let stubborn = pid_in(&stubborn_file);
     assert!(cgroup(stubborn).unwrap().contains(&format!("/{one}/{stubborn_unit}")));
 
@@ -206,7 +214,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     // A compositor that ended without stopping anything (the session's
     // SIGTERM, a crash): exponential-session runs `space-end` for it.
     let ended_file = dir.path().join("ended.pid");
-    let mut ended_scope = left_behind(ended, &ended_file);
+    let mut ended_scope = left_behind(systemd, ended, &ended_file);
     let ended_pid = pid_in(&ended_file);
     let ended_dir = units.app_slice.join(spaces_slice(ended));
     assert!(ended_dir.is_dir() && alive(ended_pid));
