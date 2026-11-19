@@ -148,9 +148,9 @@ fn a_space_has_its_own_user_manager_and_one_bus() {
     let flatpak_pid = out("flatpak.pid");
     let no_expand = if units.version >= 254 { "--expand-environment=no" } else { "" };
     let script = format!(
-        "XDG_RUNTIME_DIR={} systemd-run --user --scope --collect --quiet {no_expand} --unit=app-flatpak-at.exponential.Test-{me}.scope -- sh -c 'echo $$ > {0}.tmp && mv {0}.tmp {0}; exec sleep 300'",
-        units.runtime.display(),
-        flatpak_pid.display()
+        "XDG_RUNTIME_DIR={runtime} systemd-run --user --scope --collect --quiet {no_expand} --unit=app-flatpak-at.exponential.Test-{me}.scope -- sh -c 'echo $$ > {file}.tmp && mv {file}.tmp {file}; exec sleep 300'",
+        runtime = units.runtime.display(),
+        file = flatpak_pid.display()
     );
     agent.launch(staying(script), Default::default(), None).unwrap();
     let flatpak: u32 = written(&flatpak_pid).trim().parse().unwrap();
