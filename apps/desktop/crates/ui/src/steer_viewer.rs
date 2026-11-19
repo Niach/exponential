@@ -6079,7 +6079,7 @@ impl SteerSessionView {
                 v_flex()
                     .id("steer-no-feed-rows")
                     .w_full()
-                    .flex_shrink()
+                    .flex_shrink(1.)
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.no_feed_scroll)
@@ -6131,7 +6131,7 @@ impl SteerSessionView {
         // message find in chat landed on.
         let all = no_feed_inputs(&messages, usize::MAX);
         let ids: Vec<&str> = all.iter().map(|message| message.id.as_str()).collect();
-        let skip = crate::chat_find::widened_skip(&ids, steer::enet_steer::NO_FEED_INPUTS_MAX, self.find_widen.as_deref());
+        let skip = chat_find::widened_skip(&ids, steer::enet_steer::NO_FEED_INPUTS_MAX, self.find_widen.as_deref());
         all.into_iter()
             .skip(skip)
             .filter_map(|message| {
@@ -6369,7 +6369,7 @@ impl SteerSessionView {
         let mut all = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
         self.synced_tail_all = all.iter().map(|row| row.id.clone()).collect();
         let ids: Vec<&str> = self.synced_tail_all.iter().map(String::as_str).collect();
-        let skip = crate::chat_find::widened_skip(&ids, steer::enet_steer::SYNCED_TAIL_MAX, self.find_widen.as_deref());
+        let skip = chat_find::widened_skip(&ids, steer::enet_steer::SYNCED_TAIL_MAX, self.find_widen.as_deref());
         self.synced_tail = all.split_off(skip);
         self.synced_tail_key = Some(key);
     }
