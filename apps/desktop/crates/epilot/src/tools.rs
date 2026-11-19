@@ -132,6 +132,30 @@ pub(crate) fn list() -> Value {
     ])
 }
 
+/// #EDE-126: `tools/list` of one run. A space run's adds `launch_app` and
+/// says "this space's clipboard" where the person's list speaks of the
+/// person's; a person run's is [`list`], unchanged.
+pub(crate) fn list_for(space: bool) -> Value {
+    let mut tools = list();
+    if !space {
+        return tools;
+    }
+    let all = tools.as_array_mut().expect("the tools array");
+    for tool in all.iter_mut() {
+        let description = match tool["name"].as_str() {
+            Some("paste_text") => format!("Paste text into the focused control in one step: this space's clipboard is set to the text and the paste shortcut pressed once. Prefer it to `type` for anything longer than a few characters (at most {PASTE_MAX_CHARS} characters). `sensitive: true` for a secret (password, token, key): the answer never repeats it. `file` instead of `text` reads the text from a local file (one trailing newline dropped), so a secret never enters the conversation."),
+            Some("copy_selection") => "Copy the focused window's current selection and answer its text. Select first (drag, double_click, ctrl+a).".to_string(),
+            Some("read_clipboard") => "The text on this space's clipboard: what an app's Copy button or a copy shortcut put there.".to_string(),
+            _ => continue,
+        };
+        tool["description"] = json!(description);
+    }
+    all.push(json!({ "name": "launch_app", "description": "Start a program in this space: `argv` is the command and its arguments (no shell). Its window opens here; take a screenshot to see it.", "inputSchema": { "type": "object", "properties": {
+        "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "The command, then its arguments" },
+        "cwd": { "type": "string", "description": "An absolute directory to start it in (default: the home directory)" } }, "required": ["argv"] } }));
+    tools
+}
+
 /// Every tool name.
 #[cfg(test)]
 pub(crate) fn names() -> Vec<String> {
@@ -489,6 +513,13 @@ fn dispatch(
             let combo = shortcut(args, DEFAULT_COPY)?;
             *ctx.copy_mark = None;
             copy(backend, &combo, interrupted)
+        }
+        // #EDE-126: a space run's tool only; elsewhere it is no tool.
+        "launch_app" if in_space(backend) => {
+            let argv: Option<Vec<String>> = args.get("argv").and_then(Value::as_array).filter(|argv| !argv.is_empty()).and_then(|argv| argv.iter().map(|arg| arg.as_str().map(str::to_string)).collect());
+            let argv = argv.ok_or("`argv` must be the command and its arguments, as strings.")?;
+            let pid = backend.launch(&argv, args.get("cwd").and_then(Value::as_str))?;
+            Ok(ok(format!("Started {} (pid {pid}). Take a screenshot to see its window.", argv[0]), json!({ "pid": pid })))
         }
         // #EDE-126: a space's clipboard holds only what the run put there.
         "read_clipboard" if in_space(backend) => {
@@ -861,6 +892,8 @@ pub(crate) mod tests {
         pub focus_moved: AtomicBool,
         /// It drives this agent space, not the person's seat (#EDE-126).
         pub space: Option<u32>,
+        /// `launch` fails with this (the compositor's refusal).
+        pub no_launch: Option<String>,
     }
 
     impl FakeBackend {
@@ -986,6 +1019,13 @@ pub(crate) mod tests {
         fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
             Ok(Box::new(FakeClipboard(self)))
         }
+        fn launch(&self, argv: &[String], cwd: Option<&str>) -> Result<u32, String> {
+            if let Some(refused) = &self.no_launch {
+                return Err(refused.clone());
+            }
+            self.log.lock().unwrap().push(format!("launch {argv:?} {cwd:?}"));
+            Ok(77)
+        }
         fn type_char(&self, ch: char) -> Result<(), String> {
             self.step(format!("type {ch}"))
         }
@@ -1036,6 +1076,36 @@ pub(crate) mod tests {
         let blind = FakeBackend { no_windows: true, space: Some(41), ..Default::default() };
         let reply = one(&blind, "left_click", json!({ "x": 10, "y": 10 }));
         assert_eq!(reply["isError"], Value::Null, "{reply}");
+    }
+
+    /// #EDE-126: `launch_app` is a space run's tool only: listed there,
+    /// with no word about the person's clipboard in that list; the
+    /// person's list is today's. It hands argv and cwd to the backend (the
+    /// compositor decides the environment) and answers the pid.
+    #[test]
+    fn launch_app_is_a_space_runs_tool() {
+        assert_eq!(list_for(false), list());
+        assert!(!names().contains(&"launch_app".to_string()));
+        let space = list_for(true);
+        let tools = space.as_array().unwrap();
+        assert_eq!(tools.len(), names().len() + 1);
+        assert_eq!(tools.last().unwrap()["name"], "launch_app");
+        assert_eq!(tools.last().unwrap()["inputSchema"]["required"], json!(["argv"]));
+        assert!(!space.to_string().contains("person"), "a space run reads nothing about the person's clipboard");
+        let backend = FakeBackend { space: Some(44), ..Default::default() };
+        let reply = one(&backend, "launch_app", json!({ "argv": ["foot", "-e", "top"], "cwd": "/tmp" }));
+        assert_eq!(reply["structuredContent"]["pid"], 77, "{reply}");
+        assert_eq!(backend.log.lock().unwrap().as_slice(), [r#"launch ["foot", "-e", "top"] Some("/tmp")"#]);
+        for bad in [json!({}), json!({ "argv": [] }), json!({ "argv": ["foot", 3] }), json!({ "argv": "foot" })] {
+            assert_eq!(one(&backend, "launch_app", bad.clone())["isError"], true, "{bad}");
+        }
+        assert_eq!(backend.log.lock().unwrap().len(), 1);
+        let refusing = FakeBackend { space: Some(44), no_launch: Some("eDE launch: not_found: no such program".into()), ..Default::default() };
+        assert_eq!(one(&refusing, "launch_app", json!({ "argv": ["nope"] }))["content"][0]["text"], "eDE launch: not_found: no such program");
+        // On the person's seat it is no tool at all.
+        let person = FakeBackend::default();
+        assert_eq!(one(&person, "launch_app", json!({ "argv": ["foot"] }))["isError"], true);
+        assert!(person.log.lock().unwrap().is_empty());
     }
 
     /// #EDE-126: a space's clipboard is the run's own: a paste and a copy

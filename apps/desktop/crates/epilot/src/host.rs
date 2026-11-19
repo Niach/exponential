@@ -624,9 +624,24 @@ impl Hosts {
     }
 }
 
+impl Hosts {
+    /// Whether `session_id` is a run in an agent space (#EDE-126).
+    fn in_space(&self, session_id: &str) -> bool {
+        self.runs.lock().unwrap().get(session_id).is_some_and(|target| *target != Target::Person)
+    }
+}
+
 impl ToolHost for Hosts {
     fn tools(&self) -> Result<Value, String> {
         Ok(tools::list())
+    }
+
+    fn tools_for(&self, session_id: &str) -> Result<Value, String> {
+        Ok(tools::list_for(self.in_space(session_id)))
+    }
+
+    fn instructions_for(&self, session_id: &str) -> Option<String> {
+        self.in_space(session_id).then(|| crate::server::SPACE_INSTRUCTIONS.to_string())
     }
 
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {

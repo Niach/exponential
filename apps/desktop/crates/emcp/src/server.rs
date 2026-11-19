@@ -22,7 +22,10 @@ use ecore::{ErrorCode, Failure, SessionId, Token};
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
-use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, ListToolsResult, PaginatedRequestParams, ServerConfig, Tool};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
+    ServerConfig, Tool,
+};
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
@@ -78,6 +81,11 @@ pub trait ToolProvider: Send + Sync + 'static {
     /// always calls.
     fn try_call(&self, caller: &Caller, name: &str, arguments: Value) -> Result<Value, Refusal> {
         Ok(self.call(caller, name, arguments))
+    }
+    /// #EDE-126: what ONE run reads at `initialize`; `None` (the default)
+    /// = the server's own text ([`ServerInfo::instructions`]).
+    fn instructions_for(&self, _caller: &Caller) -> Option<String> {
+        None
     }
     /// The run's grant ended ([`Server::revoke`]).
     fn ended(&self, _session_id: &SessionId) {}
@@ -473,6 +481,17 @@ impl ServerHandler for Handler {
             info["instructions"] = json!(instructions);
         }
         serde_json::from_value(info).expect("a server info")
+    }
+
+    /// rmcp's own `initialize`, with the run's text in place of the
+    /// server's when its provider has one ([`ToolProvider::instructions_for`]).
+    async fn initialize(&self, request: InitializeRequestParams, context: RequestContext<RoleServer>) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut result = self.negotiate_initialize(&request)?;
+        if let Some(own) = caller_of(&context).ok().and_then(|caller| self.provider.instructions_for(&caller)) {
+            result.instructions = Some(own);
+        }
+        Ok(result)
     }
 
     async fn list_tools(

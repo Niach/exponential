@@ -626,6 +626,16 @@ impl Backend for Ede {
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
         Ok(Box::new(EdeClipboard { client: &self.client, set: Mutex::new(None) }))
     }
+
+    /// No environment and no wrapper of ours: the compositor's launch
+    /// decides both (the space's socket and runtime directory, never the
+    /// person's displays or bus; which profile an app gets).
+    fn launch(&self, argv: &[String], cwd: Option<&str>) -> Result<u32, String> {
+        if self.space.is_none() {
+            return Err("Only a run in an agent space starts programs.".to_string());
+        }
+        self.ask("eDE launch", |client| client.launch(argv.to_vec(), Default::default(), cwd.map(str::to_string)))
+    }
 }
 
 /// How often [`Clipboard::wait_pasted`] asks `clipboard_taken`.
@@ -1014,6 +1024,10 @@ mod tests {
                                 spaces.1.insert(me.as_str().to_string(), info.clone());
                                 Ok(serde_json::to_value(info).unwrap())
                             }
+                            Request::Launch { argv, env, cwd } if space.is_some() => {
+                                log.lock().unwrap().push(format!("launch {argv:?} {env:?} {cwd:?}"));
+                                Ok(serde_json::json!({"pid": 77}))
+                            }
                             other => {
                                 log.lock().unwrap().push(op);
                                 match (other, space) {
@@ -1173,6 +1187,25 @@ mod tests {
         assert_eq!(*PIXELS.lock().unwrap(), before);
         assert_eq!(logged(&faked)[1..], ["create_space 1280x800", "list_outputs", "list_windows"]);
         faked.session.end_run(run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EDE-126: `launch_app` is `launch` with the argv and the cwd and no
+    /// environment of ePilot's: the compositor decides what a launch gets.
+    /// Only a space backend sends it.
+    #[test]
+    fn a_launch_goes_to_the_compositor_with_no_environment_of_ours() {
+        let faked = fake_socket_of(Fake { spaces: true, root_system: true });
+        let run = "epilot-test-space-x";
+        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        assert_eq!(ede.launch(&["foot".to_string()], Some("/tmp")).unwrap(), 77);
+        assert_eq!(logged(&faked)[2..], [r#"launch ["foot"] {} Some("/tmp")"#]);
+        let person = open_as(&faked.session, Some("epilot-test-person-x"), Target::Person).unwrap();
+        assert!(person.launch(&["foot".to_string()], None).is_err());
+        assert_eq!(logged(&faked).iter().filter(|line| line.starts_with("launch")).count(), 1);
+        for run in [run, "epilot-test-person-x"] {
+            faked.session.end_run(run);
+        }
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1418,16 +1451,22 @@ mod tests {
         assert_eq!(pixels, [(2560, 1440), (1600, 1000)], "the current mode, else the scaled size");
     }
 
-    /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
-    /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
-    /// epilot headless_ede`. Skipped without it (the desktop CI builds no
-    /// eDE). Checks the grant too: the connection holds `capture`,
-    /// `input:person` and `ui` only, never the root's `system`.
-    #[test]
-    fn headless_ede_drives_and_captures() {
+    /// A headless `exponential-compositor` on a runtime directory of its
+    /// own, ended and removed with the guard.
+    struct Kill(std::process::Child, PathBuf);
+    impl Drop for Kill {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+
+    /// `None` = `EDE_COMPOSITOR` is unset: the test is skipped.
+    fn headless_compositor() -> Option<(Kill, Session)> {
         let Some(binary) = std::env::var_os("EDE_COMPOSITOR") else {
             eprintln!("EDE_COMPOSITOR unset: skipping the headless eDE run");
-            return;
+            return None;
         };
         use std::os::unix::fs::PermissionsExt;
         let runtime = std::env::temp_dir().join(format!("epilot-ede-{}", uuid::Uuid::new_v4()));
@@ -1444,15 +1483,7 @@ mod tests {
             .env("RUST_LOG", "warn")
             .spawn()
             .unwrap();
-        struct Kill(std::process::Child, PathBuf);
-        impl Drop for Kill {
-            fn drop(&mut self) {
-                let _ = self.0.kill();
-                let _ = self.0.wait();
-                let _ = std::fs::remove_dir_all(&self.1);
-            }
-        }
-        let _kill = Kill(child, runtime.clone());
+        let kill = Kill(child, runtime.clone());
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let socket = loop {
             let found = std::fs::read_dir(runtime.join("exponential-desktop")).ok().and_then(|dir| {
@@ -1471,6 +1502,111 @@ mod tests {
         while !session.token_file.exists() {
             std::thread::sleep(Duration::from_millis(20));
         }
+        Some((kill, session))
+    }
+
+    /// #EDE-126 against a real headless `exponential-compositor` that makes
+    /// spaces (`EDE_COMPOSITOR=<binary> cargo test -p epilot headless_ede`;
+    /// skipped without it): a space run's backend and tools end to end.
+    /// Its grant is `[space]`, its screen is its space's, its keys, clicks
+    /// and clipboard stay there, `launch_app` starts a process the space's
+    /// end takes along, and the person's desk hears nothing of it.
+    /// `EDE_SPACE_APP=<a Wayland program>` also checks its window.
+    #[test]
+    fn headless_ede_runs_a_space_run() {
+        let Some((_kill, session)) = headless_compositor() else { return };
+        use serde_json::json;
+        let run = "epilot-live-space";
+        spaces_offered(&session).expect("this compositor makes spaces");
+        let hello = session.connect_space(run, RUN_TIMING).unwrap().hello;
+        assert_eq!((hello.capabilities, hello.session_id.as_str()), (vec![Capability::Space], run));
+        let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
+        let person = |root: &mut Client| (root.pointer().unwrap(), root.clipboard_serial().unwrap(), root.windows().unwrap().len());
+        root.clipboard_set(text_items("persons", false), false).unwrap();
+        let before = person(&mut root);
+
+        let ede = open_as(&session, Some(run), Target::Space(1)).unwrap();
+        assert!(KEEPERS.lock().unwrap().contains_key(&(session.socket.clone(), run.to_string())), "a space run has a keeper");
+        let spaces = root.spaces().unwrap();
+        assert_eq!((spaces.len(), spaces[0].session_id.as_str(), spaces[0].width, spaces[0].height), (1, run, 1280, 800));
+        let displays = ede.displays().unwrap();
+        assert_eq!(displays.iter().map(|d| (d.name.as_str(), d.width, d.height)).collect::<Vec<_>>(), [("space-1", 1280, 800)]);
+        assert!(ede.lock(Box::new(|| {})).is_err(), "a space has no hold");
+
+        // The tools, as a run calls them (no gate, no hold: `engage` is the host's no-op).
+        let display = std::cell::Cell::new(None);
+        let tool = |name: &str, args: serde_json::Value| {
+            let (mut shown, mut mark) = (display.get(), None);
+            let reply = crate::tools::call(&*ede, name, &args, &mut crate::tools::CallContext { interrupted: &|| false, display: &mut shown, copy_mark: &mut mark, picked: None, engage: &|| Ok(()) });
+            display.set(shown);
+            reply
+        };
+        let ok = |reply: serde_json::Value| {
+            assert_eq!(reply["isError"], serde_json::Value::Null, "{}", reply["content"][0]["text"]);
+            reply
+        };
+        let shot = ok(tool("screenshot", json!({})));
+        assert_eq!((shot["structuredContent"]["width"].as_u64(), shot["structuredContent"]["height"].as_u64()), (Some(1280), Some(800)));
+        assert_eq!(ede.screenshot(&displays[0]).unwrap().rgba[..4], [0x10, 0x20, 0x30, 255], "the space shows the background, not the person's screen");
+        ok(tool("mouse_move", json!({ "x": 300, "y": 200 })));
+        assert_eq!(ok(tool("cursor_position", json!({})))["structuredContent"], json!({ "x": 300, "y": 200 }));
+        ok(tool("left_click", json!({ "x": 310, "y": 210 })));
+        ok(tool("key", json!({ "combo": "ctrl+a" })));
+        ok(tool("type", json!({ "text": "aB" })));
+        ok(tool("scroll", json!({ "x": 10, "y": 10, "direction": "down" })));
+        ok(tool("drag", json!({ "from_x": 10, "from_y": 10, "to_x": 50, "to_y": 50 })));
+        assert_eq!(ok(tool("list_windows", json!({})))["structuredContent"]["windows"], json!([]));
+        ok(tool("wait", json!({ "seconds": 0 })));
+        // The space's own clipboard: nobody is focused, so a paste is missed, but what it set stays (no restore).
+        assert_eq!(tool("paste_text", json!({ "text": "agents" }))["isError"], true);
+        assert_eq!(ok(tool("read_clipboard", json!({})))["content"][0]["text"], "agents");
+        assert_eq!(root.clipboard_text().unwrap().text.as_deref(), Some("persons"), "the person's clipboard is theirs");
+
+        // launch_app: a process of the space's, with the space's environment.
+        let seen = std::env::temp_dir().join(format!("epilot-live-space-{}", uuid::Uuid::new_v4()));
+        let line = format!("env > {0}.tmp; mv {0}.tmp {0}; exec sleep 60", seen.display());
+        let pid = ok(tool("launch_app", json!({ "argv": ["sh", "-c", line], "cwd": "/tmp" })))["structuredContent"]["pid"].as_u64().unwrap();
+        until("the launched program never ran", || seen.exists());
+        let env = std::fs::read_to_string(&seen).unwrap();
+        let _ = std::fs::remove_file(&seen);
+        let var = |name: &str| env.lines().find_map(|line| line.strip_prefix(&format!("{name}="))).map(str::to_string);
+        assert_eq!(var("WAYLAND_DISPLAY"), Some(spaces[0].wayland_display.clone()));
+        assert!(var("XDG_CONFIG_HOME").is_some_and(|home| home.contains("/space-1/home/")), "a profile of the space's own");
+        assert_eq!((var("DISPLAY"), var("EDE_TOKEN")), (None, None));
+        assert!(Path::new(&format!("/proc/{pid}")).exists());
+        if let Ok(app) = std::env::var("EDE_SPACE_APP") {
+            ok(tool("launch_app", json!({ "argv": [app] })));
+            until("the app's window never opened in the space", || tool("list_windows", json!({}))["structuredContent"]["windows"].as_array().is_some_and(|w| !w.is_empty()));
+            ok(tool("screenshot", json!({})));
+        }
+
+        // The person's desk heard nothing of all that.
+        assert_eq!(person(&mut root), before, "the person's pointer, clipboard or windows moved");
+        assert_eq!(ede_protocol::persons(root.outputs().unwrap()).len(), 1);
+        assert!(ede.launch(&["no-such-program-epilot".to_string()], None).unwrap_err().contains("no such program"));
+
+        // The run ends: its grant is revoked, the compositor closes the space and ends what it launched.
+        drop(ede);
+        session.end_run(run);
+        until("the space outlived its run", || root.spaces().unwrap().is_empty());
+        let stat = || std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        until("the launched program outlived its space", || stat().is_empty() || stat().contains(") Z "));
+        assert!(!KEEPERS.lock().unwrap().contains_key(&(session.socket.clone(), run.to_string())));
+        // A space run after it gets a new, empty space.
+        let again = open_as(&session, Some(run), Target::Space(2)).unwrap();
+        assert_eq!(again.displays().unwrap()[0].name, "space-2");
+        drop(again);
+        session.end_run(run);
+    }
+
+    /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
+    /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
+    /// epilot headless_ede`. Skipped without it (the desktop CI builds no
+    /// eDE). Checks the grant too: the connection holds `capture`,
+    /// `input:person` and `ui` only, never the root's `system`.
+    #[test]
+    fn headless_ede_drives_and_captures() {
+        let Some((_kill, session)) = headless_compositor() else { return };
         assert_eq!(unsupported(&Ok(session.clone())), None);
         let ede = open(&session).unwrap();
         let held = session.connect().unwrap().hello.capabilities;
