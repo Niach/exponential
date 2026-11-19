@@ -172,7 +172,7 @@ struct CreateBoardForm: View {
                     GlassTextField("API", text: Binding(
                         get: { draft.prefix },
                         set: { draft.onPrefixChange($0) }
-                    ), bordered: false, foreground: .white.opacity(TextOpacity.secondary))
+                    ), bordered: false)
                     .font(.expMono(.subheadline))
                     .multilineTextAlignment(.trailing)
                     .autocorrectionDisabled()

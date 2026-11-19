@@ -348,12 +348,13 @@ private struct TeamGeneralPage: View {
             GlassTextField("Name", text: Binding(
                 get: { name },
                 set: { name = String($0.prefix(255)) }
-            ), bordered: false, accessibilityIdentifier: "team-name", foreground: .white.opacity(TextOpacity.secondary)) {
+            ), bordered: false, accessibilityIdentifier: "team-name") {
                 EmptyView()
             } trailing: {
                 if savingName { InlineStatus(FeedbackStates.Inline.saving) }
             }
             .multilineTextAlignment(.trailing)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
             .submitLabel(.done)
             .focused($focused, equals: .name)
             .onSubmit { saveName() }

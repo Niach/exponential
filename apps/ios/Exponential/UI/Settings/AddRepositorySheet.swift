@@ -109,7 +109,7 @@ private struct AddEcodeRepositoryForm: View {
                         Text(RepoPage.Copy.Add.name)
                             .foregroundStyle(.white)
                             .fixedSize()
-                        GlassTextField("app", text: $name, bordered: false, accessibilityIdentifier: "ecode-repo-name", foreground: .white.opacity(TextOpacity.secondary))
+                        GlassTextField("app", text: $name, bordered: false, accessibilityIdentifier: "ecode-repo-name")
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -134,8 +134,7 @@ private struct AddEcodeRepositoryForm: View {
                                 "https://github.com/owner/name",
                                 text: $mirrorUrl,
                                 bordered: false,
-                                accessibilityIdentifier: "ecode-repo-mirror-url",
-                                foreground: .white.opacity(TextOpacity.secondary)
+                                accessibilityIdentifier: "ecode-repo-mirror-url"
                             )
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
