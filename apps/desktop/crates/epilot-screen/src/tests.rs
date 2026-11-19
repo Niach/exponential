@@ -1277,3 +1277,12 @@ fn a_frame_is_dropped_when_the_re_read_after_its_grab_is_of_another_display_set(
     assert!(rows.iter().any(|row| row.at < clock.at(650)), "frames before the change were stored");
     assert!(!rows.iter().any(|row| row.at >= clock.at(650)), "none stored after the change");
 }
+
+/// #ERR-29: a capture stream that failed (nothing reopens it) is an error,
+/// the level GlitchTip sends; the reason only in the warning before it.
+#[test]
+fn a_failed_capture_stream_is_an_error() {
+    epilot::log_capture::start();
+    crate::capture::stream_failed(2, &"the PipeWire node went away");
+    assert!(epilot::log_capture::error_logged(crate::capture::STREAM_FAILED), "{:?}", epilot::log_capture::records());
+}
