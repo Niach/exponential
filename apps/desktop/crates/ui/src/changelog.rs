@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-19-repo-less-sessions-full-access",
+    date: "2026-11-19",
+    title: "Chats without a repository reach your whole machine",
+    summary: "Chats and agents without a repository, like your Assistant, now have the same access as a coding session: your files, ssh and the apps on the machine.",
+    body: r##"- **Chats without a repository**: a chat, a team agent or your Assistant running without a repository is no longer kept inside its own folder. It can read and edit your files, use ssh and run the tools on the device, like a coding session in a worktree.
+- **Coding sessions**: nothing changes for sessions on a repository."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_333: ChangelogEntry = ChangelogEntry {
     id: "2026-11-19-calls-own-session-on-every-host",
     date: "2026-11-19",
     title: "Every call opens with the agent's own line",

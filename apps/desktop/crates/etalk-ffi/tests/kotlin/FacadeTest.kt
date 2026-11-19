@@ -124,8 +124,7 @@ fun main(args: Array<String>) {
         val i = obj(c["input"])
         val e = obj(c["expected"])
         val reason = callUnavailable(TalkCallAvailabilityInput(
-            i["agent"] as Boolean, platform(i["platform"]), i["device"] as String?, i["online"] as Boolean, i["here"] as Boolean,
-            (i["speech"] as String?)?.let(::speech), i["busy"] as Boolean, (i["meeting"] as Boolean?) ?: false))
+            i["device"] as String, i["online"] as Boolean, (i["speech"] as String?)?.let(::speech), (i["meeting"] as Boolean?) ?: false))
         check(reason == e["reason"]) { "availability ${c["name"]}: $reason" }
         check((reason == null) == e["enabled"]) { "availability ${c["name"]} enabled" }
     }

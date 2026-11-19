@@ -343,6 +343,57 @@ export function agentsInTeam<T extends TeamAgentLike>(
   return global ? [global, ...own] : own
 }
 
+export const ASSISTANT_MOVE = fixture.assistant.move
+/** #EXP-1984 (`move.clientFloor`): the oldest build per platform that lists
+ *  the global Assistant in every team. */
+export const ASSISTANT_CLIENT_FLOOR = fixture.assistant.move.clientFloor as Record<`desktop` | `android` | `ios`, string>
+
+export interface MoveAssistantLike {
+  id: string
+  ownerId: string
+  createdAt: string
+}
+export interface MoveRootLike {
+  id: string
+  agentId: string
+  lastActivityAt: string | null
+  createdAt: string
+}
+export interface AssistantMove {
+  ownerId: string
+  keepAgentId: string
+  keepRootId: string | null
+  endedRootIds: string[]
+  dropAgentIds: string[]
+}
+
+/** #EXP-1984 (`move.keepCases`): per owner (in owner order), the Assistant
+ *  and conversation root the move keeps, the roots it ends and the rows it
+ *  drops. The kept root = the latest activity (else creation), ties to the
+ *  lower id; no root at all = the newest Assistant row. */
+export function assistantMoveOf(assistants: readonly MoveAssistantLike[], roots: readonly MoveRootLike[]): AssistantMove[] {
+  const cmpId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  const at = (iso: string) => Date.parse(iso)
+  const owners = [...new Set(assistants.map((agent) => agent.ownerId))].sort()
+  return owners.map((ownerId) => {
+    const mine = assistants.filter((agent) => agent.ownerId === ownerId)
+    const ids = new Set(mine.map((agent) => agent.id))
+    const theirRoots = roots
+      .filter((root) => ids.has(root.agentId))
+      .sort((a, b) => at(b.lastActivityAt ?? b.createdAt) - at(a.lastActivityAt ?? a.createdAt) || cmpId(a, b))
+    const keepRoot = theirRoots[0] ?? null
+    const keepAgentId =
+      keepRoot?.agentId ?? [...mine].sort((a, b) => at(b.createdAt) - at(a.createdAt) || cmpId(a, b))[0]!.id
+    return {
+      ownerId,
+      keepAgentId,
+      keepRootId: keepRoot?.id ?? null,
+      endedRootIds: theirRoots.slice(1).map((root) => root.id).sort(),
+      dropAgentIds: mine.map((agent) => agent.id).filter((id) => id !== keepAgentId).sort(),
+    }
+  })
+}
+
 export const COORDINATOR = fixture.coordinator
 export const COORDINATOR_COPY = fixture.coordinator.copy
 /** The option id of "no coordinator". */

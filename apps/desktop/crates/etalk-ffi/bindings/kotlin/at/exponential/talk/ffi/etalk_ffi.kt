@@ -2300,27 +2300,15 @@ public object FfiConverterTypeTalkUplink: FfiConverter<TalkUplink, Long> {
 
 
 /**
- * `availabilityCases` input.
+ * `availabilityCases` input (EXP-1991): ONE desktop.
  */
 data class TalkCallAvailabilityInput (
     /**
-     * The member has a voice Assistant (`voice.get` agentId non-null).
+     * The desktop's name.
      */
-    var `agent`: kotlin.Boolean
-    , 
-    var `platform`: TalkCallPlatform
-    , 
-    /**
-     * The voice device's name; None = none.
-     */
-    var `device`: kotlin.String?
+    var `device`: kotlin.String
     , 
     var `online`: kotlin.Boolean
-    , 
-    /**
-     * THIS client is the voice device.
-     */
-    var `here`: kotlin.Boolean
     , 
     /**
      * None = no `speech` row yet.
@@ -2328,12 +2316,7 @@ data class TalkCallAvailabilityInput (
     var `speech`: TalkCallSpeech?
     , 
     /**
-     * A call this client does not run already runs on the voice device.
-     */
-    var `busy`: kotlin.Boolean
-    , 
-    /**
-     * A meeting runs on the voice device.
+     * A meeting runs on it.
      */
     var `meeting`: kotlin.Boolean
     
@@ -2352,36 +2335,24 @@ data class TalkCallAvailabilityInput (
 public object FfiConverterTypeTalkCallAvailabilityInput: FfiConverterRustBuffer<TalkCallAvailabilityInput> {
     override fun read(buf: ByteBuffer): TalkCallAvailabilityInput {
         return TalkCallAvailabilityInput(
-            FfiConverterBoolean.read(buf),
-            FfiConverterTypeTalkCallPlatform.read(buf),
-            FfiConverterOptionalString.read(buf),
-            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalTypeTalkCallSpeech.read(buf),
-            FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
         )
     }
 
     override fun allocationSize(value: TalkCallAvailabilityInput) = (
-            FfiConverterBoolean.allocationSize(value.`agent`) +
-            FfiConverterTypeTalkCallPlatform.allocationSize(value.`platform`) +
-            FfiConverterOptionalString.allocationSize(value.`device`) +
+            FfiConverterString.allocationSize(value.`device`) +
             FfiConverterBoolean.allocationSize(value.`online`) +
-            FfiConverterBoolean.allocationSize(value.`here`) +
             FfiConverterOptionalTypeTalkCallSpeech.allocationSize(value.`speech`) +
-            FfiConverterBoolean.allocationSize(value.`busy`) +
             FfiConverterBoolean.allocationSize(value.`meeting`)
     )
 
     override fun write(value: TalkCallAvailabilityInput, buf: ByteBuffer) {
-            FfiConverterBoolean.write(value.`agent`, buf)
-            FfiConverterTypeTalkCallPlatform.write(value.`platform`, buf)
-            FfiConverterOptionalString.write(value.`device`, buf)
+            FfiConverterString.write(value.`device`, buf)
             FfiConverterBoolean.write(value.`online`, buf)
-            FfiConverterBoolean.write(value.`here`, buf)
             FfiConverterOptionalTypeTalkCallSpeech.write(value.`speech`, buf)
-            FfiConverterBoolean.write(value.`busy`, buf)
             FfiConverterBoolean.write(value.`meeting`, buf)
     }
 }
@@ -3714,7 +3685,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     
 
         /**
-         * None = the telephone is enabled; Some = disabled, with the reason.
+         * None = the desktop can take the call; Some = it cannot, with the reason.
          */ fun `callUnavailable`(`input`: TalkCallAvailabilityInput): kotlin.String? {
             return FfiConverterOptionalString.lift(
     uniffiRustCall() { _status ->

@@ -1,10 +1,31 @@
 //! #EDE-78: the real `exponential-sealed lock` against the headless
-//! compositor, in a runtime directory of its own. Needs the built binary:
+//! compositor, in a runtime directory of its own; #EDE-127: the real
+//! `exponential-sealed polkit` against it and a stand-in polkitd. Needs the
+//! built binary (and `dbus-daemon` for the polkit agent's bus):
 //! `EDE_SEALED_BIN=<path> cargo test -p ede-compositor --test sealed_client -- --ignored`.
 
-use std::time::{Duration, Instant};
+mod common;
 
+use std::{
+    collections::HashMap,
+    os::unix::fs::DirBuilderExt,
+    path::Path,
+    process::{Child, Command, Stdio},
+    sync::{mpsc, Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use common::Session;
 use ede_compositor::{backend::headless::Harness, Config};
+use ede_protocol::{Capability, SessionId};
+
+/// Each test points the process's `XDG_RUNTIME_DIR` (which the compositor
+/// and the clients it starts read) at a directory of its own: one at a time.
+static ENV: Mutex<()> = Mutex::new(());
+
+const RED: u32 = 0xffff_0000;
+// evdev code; xkb = evdev + 8
+const KEY_A: u32 = 30;
 
 /// Does output `index` show anything but black?
 fn shows(h: &Harness, index: usize) -> bool {
@@ -22,10 +43,11 @@ fn wait(what: &str, mut ok: impl FnMut() -> bool) {
 #[test]
 #[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed"]
 fn the_lock_client_covers_every_output_and_follows_them() {
+    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
     let bin = std::env::var("EDE_SEALED_BIN").expect("EDE_SEALED_BIN");
     let runtime = tempfile::tempdir().unwrap();
-    // The only test of this binary: nothing else reads the environment.
+    // Under ENV: no other test reads the environment meanwhile.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", runtime.path()) };
     let h = Harness::start(Config::default(), &[(800, 600), (1024, 768)]);
     h.with(|ede| ede.listen().map(|_| ())).unwrap();
@@ -45,4 +67,199 @@ fn the_lock_client_covers_every_output_and_follows_them() {
     wait("a new output stayed black", || shows(&h, 1));
     assert!(shows(&h, 0));
     assert!(h.with(|ede| ede.is_locked()));
+}
+
+/// A process this test started, ended with the test.
+struct Kill(Child);
+
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The agent's system bus: a `dbus-daemon` of this test's own.
+fn private_bus(dir: &Path) -> (Kill, String) {
+    let socket = dir.join("system_bus_socket");
+    let config = dir.join("bus.conf");
+    let policy = r#"<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy>"#;
+    std::fs::write(&config, format!("<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n<busconfig><type>session</type><listen>unix:path={}</listen><auth>EXTERNAL</auth>{policy}</busconfig>\n", socket.display())).unwrap();
+    let daemon = Command::new("dbus-daemon").arg(format!("--config-file={}", config.display())).args(["--nofork", "--nopidfile"]).stdout(Stdio::null()).spawn().expect("dbus-daemon (the dbus package)");
+    let daemon = Kill(daemon);
+    wait("the private bus never listened", || socket.exists());
+    (daemon, format!("unix:path={}", socket.display()))
+}
+
+/// polkitd's side, as much of it as the agent meets: the authority the
+/// agent registers with, which then asks the agent to authenticate.
+#[derive(Clone, Default)]
+struct Authority {
+    /// The agent's bus name and object path, once it registered.
+    agent: Arc<Mutex<Option<(String, String)>>>,
+}
+
+#[zbus::interface(name = "org.freedesktop.PolicyKit1.Authority")]
+impl Authority {
+    fn register_authentication_agent(&self, #[zbus(header)] header: zbus::message::Header<'_>, _subject: (String, HashMap<String, zbus::zvariant::OwnedValue>), _locale: String, object_path: String) {
+        *self.agent.lock().unwrap() = header.sender().map(|sender| (sender.to_string(), object_path));
+    }
+}
+
+const AGENT_IFACE: &str = "org.freedesktop.PolicyKit1.AuthenticationAgent";
+
+/// polkitd's `BeginAuthentication` for `pkexec true` as the person: the
+/// request names its subject's and its caller's process, as polkitd does.
+/// The agent answers when the prompt is done (or at once, refused).
+fn begin(polkitd: &zbus::blocking::Connection, (name, path): &(String, String), cookie: &str, subject: u32, caller: u32) -> mpsc::Receiver<Result<(), String>> {
+    let (conn, name, path, cookie) = (polkitd.clone(), name.clone(), path.clone(), cookie.to_string());
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let uid = smithay::reexports::rustix::process::getuid().as_raw();
+        let identity: HashMap<&str, zbus::zvariant::Value<'_>> = HashMap::from([("uid", zbus::zvariant::Value::from(uid))]);
+        let details: HashMap<&str, String> = HashMap::from([("polkit.subject-pid", subject.to_string()), ("polkit.caller-pid", caller.to_string())]);
+        let body = ("org.freedesktop.policykit.exec", "Authentication is needed to run `/usr/bin/true' as the super user", "", details, cookie.as_str(), vec![("unix-user", identity)]);
+        let reply = conn.call_method(Some(name.as_str()), path.as_str(), Some(AGENT_IFACE), "BeginAuthentication", &body);
+        let _ = tx.send(reply.map(|_| ()).map_err(|e| e.to_string()));
+    });
+    rx
+}
+
+/// `pid`'s parent is not in the process group `group` (it was reparented).
+fn parent_outside(pid: u32, group: u32) -> bool {
+    let field = |pid: u32, n: usize| std::fs::read_to_string(format!("/proc/{pid}/stat")).ok().and_then(|stat| stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(n).and_then(|f| f.parse::<u32>().ok())));
+    field(pid, 1).is_some_and(|parent| field(parent, 2) != Some(group))
+}
+
+/// polkitd asks about `subject` (the caller is a system service, as for
+/// `systemctl`): the agent refuses, and nothing maps on the person's desk
+/// meanwhile; the refusal names an agent space.
+fn refused(h: &Harness, app: &mut Session, t: &common::Toplevel, polkitd: &zbus::blocking::Connection, registered: &(String, String), cookie: &str, subject: u32) {
+    let reply = begin(polkitd, registered, cookie, subject, 1);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let answer = loop {
+        assert_eq!(layers(h), 0, "a prompt mapped on the person's desk for {cookie}");
+        app.roundtrip();
+        assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface), "the person's window lost the keyboard to {cookie}");
+        if let Ok(answer) = reply.try_recv() {
+            break answer;
+        }
+        assert!(Instant::now() < deadline, "the agent never answered {cookie}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let refusal = answer.expect_err("a request from an agent space was authenticated");
+    assert!(refusal.contains("agent space"), "{cookie}: {refusal}");
+}
+
+/// The layer surfaces on the person's outputs (the prompt is one).
+fn layers(h: &Harness) -> usize {
+    h.with(|ede| ede.desk.space.outputs().map(|o| smithay::desktop::layer_map_for_output(o).layers().count()).sum())
+}
+
+/// #EDE-127: polkitd finds the authentication agent by the login session,
+/// and an agent space's processes are in the person's session. So the real
+/// agent hears a request whose subject is a process launched into a space:
+/// it refuses it before anything maps (no prompt, the person's window keeps
+/// the keyboard and their next key), and the request fails. A request from
+/// the person's own process still opens the prompt, which takes the keyboard.
+#[test]
+#[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed, and dbus-daemon"]
+fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps() {
+    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let bin = std::env::var("EDE_SEALED_BIN").expect("EDE_SEALED_BIN");
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = dir.path().join("run");
+    std::fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+    // Under ENV: no other test reads the environment meanwhile.
+    unsafe { std::env::set_var("XDG_RUNTIME_DIR", &runtime) };
+    let mut config = Config::default();
+    config.keyboard.layout = "us".into();
+    let h = Harness::start(config, &[(800, 600)]);
+
+    // The person's window, with the keyboard.
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait("the person's window never got the keyboard", || {
+        app.roundtrip();
+        app.state.keyboard_focus.as_ref() == Some(&t.surface)
+    });
+    let display = h.with(|ede| ede.listen()).unwrap();
+
+    // polkitd on a bus of the test's own, and the real agent registered with it.
+    let (_bus, address) = private_bus(dir.path());
+    let authority = Authority::default();
+    let polkitd = zbus::blocking::connection::Builder::address(address.as_str())
+        .unwrap()
+        .name("org.freedesktop.PolicyKit1")
+        .unwrap()
+        .serve_at("/org/freedesktop/PolicyKit1/Authority", authority.clone())
+        .unwrap()
+        .build()
+        .unwrap();
+    let agent = Command::new(&bin).arg("polkit").env("DBUS_SYSTEM_BUS_ADDRESS", &address).env("XDG_SESSION_ID", "ede127").env("WAYLAND_DISPLAY", &display).env("XDG_RUNTIME_DIR", &runtime).spawn().unwrap();
+    let _agent = Kill(agent);
+    wait("the agent never registered with polkitd", || authority.agent.lock().unwrap().is_some());
+    let registered = authority.agent.lock().unwrap().clone().unwrap();
+
+    // An agent space, and a process its shell started there.
+    let mut root = h.ipc();
+    assert!(root.hello.offers_spaces());
+    let grant = root.mint(SessionId::new("run-ede127").unwrap(), vec![Capability::Space], None).unwrap();
+    let mut space = h.ipc_with(grant.token).unwrap();
+    let info = space.create_space(640, 480).unwrap();
+    // A child of its shell, and one that cleared its environment and lost
+    // its parent (only the compositor still knows it: its launch's group).
+    let pids = dir.path().join("pids");
+    std::fs::create_dir(&pids).unwrap();
+    let script = r#"
+        ( env -i sleep 120 & echo $! > "$D/orphan.tmp"; mv "$D/orphan.tmp" "$D/orphan" )
+        sleep 120 & echo $! > "$D/child.tmp"; mv "$D/child.tmp" "$D/child"
+        wait"#;
+    let head = space.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), pids.to_string_lossy().into_owned())].into(), None).unwrap();
+    let pid_in = |name: &str| {
+        let file = pids.join(name);
+        wait(&format!("the space's shell never wrote {name}"), || file.exists());
+        std::fs::read_to_string(&file).unwrap().trim().parse::<u32>().unwrap()
+    };
+    let (child, orphan) = (pid_in("child"), pid_in("orphan"));
+    // `$!` comes before the fork has run `env`, and `env` before `sleep`.
+    wait("the space's children never ran sleep", || [child, orphan].into_iter().all(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| comm.trim() == "sleep")));
+    wait("the orphan kept its parent", || parent_outside(orphan, head));
+
+    // 1. The space's processes ask: refused, nothing maps on the person's desk.
+    refused(&h, &mut app, &t, &polkitd, &registered, &format!("a request from {}'s shell", info.id.as_str()), child);
+    refused(&h, &mut app, &t, &polkitd, &registered, &format!("a request from {}'s orphan", info.id.as_str()), orphan);
+    // Nothing comes later either, and the person's next key is theirs.
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(100));
+        app.roundtrip();
+        assert_eq!(layers(&h), 0, "a prompt mapped after the refusal");
+        assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface));
+    }
+    common::space::person_key(&h, KEY_A);
+    wait("the person's key went elsewhere", || {
+        app.roundtrip();
+        app.state.keys.contains(&KEY_A)
+    });
+
+    // 2. The person's own process asks: the prompt opens and takes the
+    // keyboard; polkitd's cancel closes it and gives the keyboard back.
+    let person = Kill(Command::new("sleep").arg("120").spawn().unwrap());
+    let reply = begin(&polkitd, &registered, "from-person", person.0.id(), person.0.id());
+    wait("the person's own request showed no prompt", || layers(&h) > 0);
+    wait("the prompt never took the keyboard", || {
+        app.roundtrip();
+        app.state.keyboard_focus.is_none()
+    });
+    assert!(reply.try_recv().is_err(), "the person's request was answered without them");
+    polkitd.call_method(Some(registered.0.as_str()), registered.1.as_str(), Some(AGENT_IFACE), "CancelAuthentication", &("from-person",)).unwrap();
+    assert!(reply.recv_timeout(Duration::from_secs(15)).expect("the cancelled request never ended").is_err());
+    wait("the prompt stayed after the cancel", || layers(&h) == 0);
+    wait("the person's window never got the keyboard back", || {
+        app.roundtrip();
+        app.state.keyboard_focus.as_ref() == Some(&t.surface)
+    });
 }

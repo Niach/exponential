@@ -314,31 +314,48 @@ fn a_sealed_prompt_on_the_desktop_is_black_in_every_capture() {
     assert_eq!((preview.at(300, 200), preview.at(5, 5)), (RED, RED), "a window's preview is the window alone");
 }
 
+/// #EDE-140: each key is let go before the next, so the seat never absorbs
+/// a press as already held, and the prompt's going is the control: the
+/// same key then reaches the window below.
 #[test]
 fn a_virtual_keyboard_cannot_type_into_a_protected_window() {
+    const KEY_B: u32 = 48;
     let h = harness(Config::default());
     let mut app = Session::connect(h.connect());
     app.keyboard();
     let mut typist = Session::connect(h.connect());
     typist.keyboard();
     let vk = typist.virtual_keyboard();
+    let mut time = 0;
+    let mut tap = |typist: &mut Session, key: u32| {
+        for state in [1, 0] {
+            vk.key(time, key, state);
+            time += 1;
+        }
+        typist.roundtrip();
+    };
 
     let notes = app.toplevel("notes");
     app.draw(&notes, 200, 200, BLUE);
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&notes.surface));
-    vk.key(0, KEY_A, 1);
-    typist.roundtrip();
-    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    tap(&mut typist, KEY_A);
+    wait_for(&mut app, |c| (c.state.keys.as_slice(), c.state.key_releases.as_slice()) == (&[KEY_A][..], &[KEY_A][..]));
 
     let secret = app.toplevel("pinentry");
     secret.toplevel.set_app_id("pinentry-gnome3".into());
     app.draw(&secret, 200, 200, RED);
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
-    vk.key(1, KEY_A, 1);
-    typist.roundtrip();
+    tap(&mut typist, KEY_B);
     std::thread::sleep(Duration::from_millis(50));
     app.roundtrip();
     assert_eq!(app.state.keys, [KEY_A], "the virtual keyboard typed into a password prompt");
+
+    secret.toplevel.destroy();
+    secret.xdg_surface.destroy();
+    secret.surface.destroy();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&notes.surface));
+    tap(&mut typist, KEY_B);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_B]);
 }
 
 #[test]

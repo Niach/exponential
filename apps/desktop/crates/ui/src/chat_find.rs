@@ -66,17 +66,31 @@ pub(crate) struct ChatFind {
     store: FindSearchPhase,
     /// The last query landed on (a new one starts at the newest stop).
     started: String,
+    /// The query the stops were counted for (the counter shows nothing
+    /// for a newer one yet, never the old query's "No results").
+    counted: String,
     /// A step asked for a landing the next frame runs.
     land: bool,
     debounce: Option<gpui::Task<()>>,
     _subscription: gpui::Subscription,
 }
 
-/// A loaded row's find facts: its stop row, its list row, its run.
+/// A loaded row's find facts: its stop row, its list row (`None` = a
+/// placeholder's bubble, no list to scroll), its run.
 struct Located {
     row: FindRow,
-    ix: usize,
+    ix: Option<usize>,
     run: Option<FeedItemId>,
+}
+
+/// #EXP-1975: an own bubble's key: its stored row's (`m:`), else its
+/// outbox entry's (an unsent one).
+pub(crate) fn own_bubble_key(bubble: &crate::session_outbox::OwnBubble) -> String {
+    match (&bubble.message_id, &bubble.client_id) {
+        (Some(id), _) => find::message_key(id),
+        (None, Some(client_id)) => format!("o:{client_id}"),
+        (None, None) => find::message_key(&bubble.key),
+    }
 }
 
 fn item_key(session_id: &str, item: &FeedItem) -> String {
@@ -104,6 +118,23 @@ fn tool_output_matches(item: &FeedItem, query: &str) -> usize {
 }
 
 impl SteerSessionView {
+    /// #EXP-1975: the genUI `highlight` a row the IDE draws itself (an own
+    /// bubble, a host narration) paints for find in chat (`None` = closed).
+    pub(crate) fn find_mark(&self, key: &str) -> Option<serde_json::Value> {
+        let open = self.find.as_ref().filter(|open| !open.query.is_empty())?;
+        let current = open.current.as_ref().filter(|stop| stop.loaded && !stop.output && stop.key == key).map(|stop| stop.local);
+        Some(match current {
+            Some(local) => serde_json::json!({"query": open.query, "current": local}),
+            None => serde_json::json!({"query": open.query}),
+        })
+    }
+
+    /// #EXP-1975: a feed item's find key while the bar has a query.
+    pub(crate) fn find_item_key(&self, item: &FeedItem) -> Option<String> {
+        self.find.as_ref().filter(|open| !open.query.is_empty())?;
+        Some(item_key(&self.session_id, item))
+    }
+
     /// Opens the bar (or re-focuses it with its query selected).
     pub(crate) fn open_find(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if let Some(open) = &self.find {
@@ -128,6 +159,7 @@ impl SteerSessionView {
             older: Vec::new(),
             store: FindSearchPhase::None,
             started: String::new(),
+            counted: String::new(),
             land: false,
             debounce: None,
             _subscription: subscription,
@@ -147,7 +179,7 @@ impl SteerSessionView {
     pub(crate) fn take_find_request(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         // DEV ONLY (`EXP_DEV_FIND=<query>`, the pictures): open the bar on
         // the query once the rows are in.
-        if self.find.is_none() && (!self.rows.is_empty() || !self.synced_tail.is_empty()) {
+        if self.find.is_none() && (!self.rows.is_empty() || !self.synced_tail.is_empty() || !self.own_tail.is_empty() || self.feed.is_empty()) {
             if let Some(query) = crate::screens::take_dev_find() {
                 self.open_find(window, cx);
                 if let Some(open) = &self.find {
@@ -216,7 +248,7 @@ impl SteerSessionView {
     }
 
     /// The loaded rows' find facts for `query`, top to bottom.
-    fn find_located(&self, query: &str) -> Vec<Located> {
+    fn find_located(&self, query: &str, cx: &App) -> Vec<Located> {
         let items = self.feed.items();
         let agent = self.agent();
         let mut out = Vec::new();
@@ -230,10 +262,26 @@ impl SteerSessionView {
                     group: run.map(|run| run.to_string()),
                     output_hit: output > 0,
                 },
-                ix,
+                ix: Some(ix),
                 run,
             })
         };
+        // #EXP-1975 (find-in-chat.json NO TRANSCRIPT): with neither feed
+        // nor synced tail the view shows its placeholder under the sent
+        // inputs and the own tail: those bubbles are its loaded rows.
+        if self.feed.is_empty() && self.synced_tail.is_empty() {
+            if !self.row_ended() {
+                for (id, text, _) in self.no_feed_input_rows(cx) {
+                    let count = eui_gpui::paint::highlight::markdown_highlight_count(&text, query);
+                    out.push(Located { row: FindRow { key: find::message_key(&id), count, group: None, output_hit: false }, ix: None, run: None });
+                }
+            }
+            for bubble in &self.own_tail {
+                let count = eui_gpui::paint::highlight::markdown_highlight_count(&bubble.text, query);
+                out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: None, run: None });
+            }
+            return out;
+        }
         for (ix, spec) in self.rows.iter().enumerate() {
             match spec {
                 FeedRowSpec::Single { item, .. } => {
@@ -249,7 +297,7 @@ impl SteerSessionView {
                     };
                     if let Some(text) = text {
                         let count = eui_gpui::paint::highlight::markdown_highlight_count(text, query);
-                        out.push(Located { row: FindRow { key: item_key(&self.session_id, item), count, group: None, output_hit: false }, ix, run: None });
+                        out.push(Located { row: FindRow { key: item_key(&self.session_id, item), count, group: None, output_hit: false }, ix: Some(ix), run: None });
                     } else if item.is_tool() && !matches!(&item.kind, FeedKind::Tool { diff: Some(diff), .. } if !diff.is_empty()) {
                         out.extend(tool(item, ix, None));
                     }
@@ -265,7 +313,14 @@ impl SteerSessionView {
         // #FEED-260: the synced tail's bubbles (a not-live feed), after it.
         for (offset, row) in self.synced_tail.iter().enumerate() {
             let count = eui_gpui::paint::highlight::markdown_highlight_count(&row.text, query);
-            out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: self.rows.len() + offset, run: None });
+            out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: Some(self.rows.len() + offset), run: None });
+        }
+        // #EXP-1975: then the viewer's own bubbles (the unconsumed rows, the
+        // outbox), after the orphan and trailing cards.
+        let before_own = self.rows.len() + self.synced_tail.len() + self.orphan_workflows.len() + self.conv_tail().len();
+        for (offset, bubble) in self.own_tail.iter().enumerate() {
+            let count = eui_gpui::paint::highlight::markdown_highlight_count(&bubble.text, query);
+            out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: Some(before_own + offset), run: None });
         }
         out
     }
@@ -274,7 +329,7 @@ impl SteerSessionView {
     /// and returns the paint for the bubbles. Called each render.
     pub(crate) fn find_frame(&mut self, cx: &mut gpui::Context<Self>) -> Option<crate::chat_tab_transcript::FindPaint> {
         let query = self.find.as_ref().map(|open| open.query.clone()).filter(|query| !query.is_empty())?;
-        let located = self.find_located(&query);
+        let located = self.find_located(&query, cx);
         let rows: Vec<FindRow> = located.iter().map(|located| located.row.clone()).collect();
         let lowest = self.feed.items().iter().find_map(|item| item.seq);
         let open = self.find.as_mut()?;
@@ -294,7 +349,17 @@ impl SteerSessionView {
             open.land = true;
         }
         let index = index.or_else(|| stops.len().checked_sub(1));
-        open.current = index.and_then(|index| stops.get(index).cloned());
+        let current = index.and_then(|index| stops.get(index).cloned());
+        // The bar renders above the transcript: a counter that moved in this
+        // frame shows on the next one (#EXP-1975).
+        if open.stops != stops || open.current != current || open.counted != query {
+            cx.spawn(async move |this, cx| {
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
+        open.counted = query.clone();
+        open.current = current;
         open.stops = stops;
         if std::mem::take(&mut open.land) {
             if let Some(stop) = open.current.clone() {
@@ -316,15 +381,17 @@ impl SteerSessionView {
                     if let Some(run) = at.run {
                         self.expanded_groups.insert(run);
                     }
-                    self.chat.pin(true);
-                    self.chat.reveal(at.ix, "center");
+                    if let Some(ix) = at.ix {
+                        self.chat.pin(true);
+                        self.chat.reveal(ix, "center");
+                    }
                 }
             }
         }
         let open = self.find.as_ref()?;
         let current = open.current.as_ref().filter(|stop| stop.loaded && !stop.output).and_then(|stop| {
             let at = located.iter().find(|located| located.row.key == stop.key)?;
-            let key = self.row_keys.get(at.ix)?;
+            let key = self.row_keys.get(at.ix?)?;
             Some((crate::chat_tab_transcript::row_key(key.id), stop.local))
         });
         Some(crate::chat_tab_transcript::FindPaint { query, current })
@@ -374,7 +441,7 @@ impl SteerSessionView {
         let muted = cx.theme().muted_foreground;
         let done = open.store != FindSearchPhase::Searching;
         let current = open.current.as_ref().and_then(|was| open.stops.iter().position(|stop| stop == was));
-        let counter = if open.query.is_empty() { String::new() } else { find::counter(current, open.stops.len(), done, false) };
+        let counter = if open.query.is_empty() || open.counted != open.query { String::new() } else { find::counter(current, open.stops.len(), done, false) };
         let status = (!open.query.is_empty()).then(|| find::status(open.store, FindSearchPhase::None, "")).flatten();
         let button = |id: &str, icon, label: &str, cx: &App| {
             crate::controls::ghost_icon_button(gpui::SharedString::from(id.to_string()), Icon::new(icon), cx).accessibility_label(label.to_string())
@@ -425,5 +492,32 @@ impl SteerSessionView {
                 }))
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::own_bubble_key;
+    use crate::session_outbox::OwnBubble;
+    use domain::message_delivery::DeliveryState;
+
+    fn bubble(message_id: Option<&str>, client_id: Option<&str>) -> OwnBubble {
+        OwnBubble {
+            key: message_id.or(client_id).unwrap_or_default().to_string(),
+            text: "line 2".to_string(),
+            created_at: String::new(),
+            state: DeliveryState::Read,
+            stored: message_id.is_some(),
+            message_id: message_id.map(str::to_string),
+            client_id: client_id.map(str::to_string),
+        }
+    }
+
+    /// #EXP-1975 (find-in-chat.json): an own bubble's stored row is `m:`,
+    /// an outbox entry with no row yet `o:<clientId>`.
+    #[test]
+    fn own_bubbles_take_their_rows_key_else_the_outbox_entrys() {
+        assert_eq!(own_bubble_key(&bubble(Some("8a74cf03-f526-4ecd-a16b-90e36110bbeb"), Some("c-1"))), "m:8a74cf03-f526-4ecd-a16b-90e36110bbeb");
+        assert_eq!(own_bubble_key(&bubble(None, Some("c-1"))), "o:c-1");
     }
 }

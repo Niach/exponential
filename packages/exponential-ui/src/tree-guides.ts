@@ -9,7 +9,14 @@
 // as 0 and ends every subtree), and the rule fills the Row's `guides` part (a
 // TreeGuides native) with `elbowAt` / `tee` / `passThrough`. Locked by
 // `fixtures/tree-guides.json` and the Row cases of `catalog-macros.json`.
+// #EXP-1843: a BOUND `depth` (a templated folder tree: `{"@path": "depth"}`)
+// cannot be computed against its siblings, so the row counts as 0 for them
+// and its own `guides` part KEEPS the binding as its `depth` with no elbow:
+// it resolves per item at bind time and the row indents by it, no connector
+// (as a template item with a literal depth always did). `treeGuideDepth` is
+// how every painter reads the resolved value.
 
+import { isDynamic } from "./expr"
 import type { UiNode } from "./types"
 
 /** Guide geometry for ONE row, in gutter LEVELS (not pixels). */
@@ -64,6 +71,15 @@ function hasDepth(node: UiNode): boolean {
   return !isRowRoot(node) && node.component !== `TreeGuides` && typeof node.props.depth === `number`
 }
 
+/** #EXP-1843: a TreeGuides `depth` as every painter reads it (a bound one
+ *  resolves to whatever the data holds): a finite NUMBER floored, never
+ *  below 0; anything else (a string, a boolean, nothing) = 0. The Rust core
+ *  applies the same rule when it resolves the part (`tree_guide_depth`), so
+ *  gpui, SwiftUI and Compose are handed the number the web painters compute. */
+export function treeGuideDepth(value: unknown): number {
+  return typeof value === `number` && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+}
+
 /** The filled guide as props: `{depth, elbowAt?, tee, passThrough}`. */
 function guideProps(depth: number, g: TreeGuide): Record<string, unknown> {
   const props: Record<string, unknown> = { depth }
@@ -84,7 +100,9 @@ function fillSiblings(nodes: UiNode[]): void {
     const g = guides[i]!
     if (isRowRoot(node)) {
       const part = guidesPart(node)
-      if (part) part.props = guideProps(depths[i]!, g)
+      const bound = node.recipe?.props.depth
+      // #EXP-1843: a bound depth stays a binding (indent only, no elbow).
+      if (part) part.props = isDynamic(bound) ? { ...guideProps(0, g), depth: bound } : guideProps(depths[i]!, g)
     } else if (hasDepth(node)) {
       const { depth: _d, ...guide } = guideProps(depths[i]!, g)
       node.props = { ...node.props, guide }

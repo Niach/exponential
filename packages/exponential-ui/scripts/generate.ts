@@ -64,7 +64,7 @@ import { ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
 import { LIMITS } from "../src/limits"
-import { treeGuides } from "../src/tree-guides"
+import { treeGuideDepth, treeGuides } from "../src/tree-guides"
 import { treeKey, treeRows, type TreeKeyRow } from "../src/tree"
 import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
@@ -1977,10 +1977,14 @@ function treeGuideCases(): ComponentCase[] {
   return cases
 }
 
+/** #EXP-1843: what a bound Row `depth` may resolve to. */
+const TREE_GUIDE_RESOLVED: unknown[] = [0, 1, 2, 7, 1.9, 0.5, -1, -0.5, `2`, ``, `deep`, true, false, null, [2], { depth: 2 }]
+
 function treeGuidesFixture() {
   return {
-    $comment: `${HEADER} Round 3 (docs/round-3-contract.md §2): the tree connector rule the core computes for nested Rows (src/tree-guides.ts treeGuides, the ×4 app rule): depths → per row the elbow level (null for a root), whether the elbow tees on to a later sibling, and the ancestor levels passing straight through. The Rust core replays it (tree_guides.rs); the painters never compute it.`,
+    $comment: `${HEADER} Round 3 (docs/round-3-contract.md §2): the tree connector rule the core computes for nested Rows (src/tree-guides.ts treeGuides, the ×4 app rule): depths → per row the elbow level (null for a root), whether the elbow tees on to a later sibling, and the ancestor levels passing straight through. The Rust core replays it (tree_guides.rs); the painters never compute it. #EXP-1843 \`resolved\`: a Row's BOUND \`depth\` is never computed against its siblings (the row counts as 0 for them; its guides part keeps the binding: indent only, no connector) and resolves per item to whatever the data holds: \`value\` → the \`depth\` every painter draws (treeGuideDepth / tree_guide_depth: a finite NUMBER floored, never below 0; a string, a boolean, null = 0).`,
     cases: Object.entries(TREE_GUIDE_DEPTHS).map(([name, depths]) => ({ name, depths, guides: treeGuides(depths) })),
+    resolved: TREE_GUIDE_RESOLVED.map((value) => ({ value, depth: treeGuideDepth(value) })),
   }
 }
 

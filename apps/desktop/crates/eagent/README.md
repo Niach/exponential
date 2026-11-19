@@ -65,7 +65,7 @@ Server coupling becomes traits the hosts implement. Each lands with the first mo
 
 | Trait | What it answers | Exponential (`coding` + `engine`) | spezl / local |
 | --- | --- | --- | --- |
-| `LaunchSpec` | what to spawn and how (program, env, cwd, agent, picks, resume, MCP servers, context layers, confine root) | `engine::adapters::AdapterSpec` → `LaunchSpec` | built directly |
+| `LaunchSpec` | what to spawn and how (program, env, cwd, agent, picks, resume, MCP servers, context layers) | `engine::adapters::AdapterSpec` → `LaunchSpec` | built directly |
 | `EventSink` | where mapped events go | the steer publisher | the voice loop / UI |
 | `RunBackend` | the side-car a run brings up and its end sequence, the run record, reply cards, consumed messages, open cards | `engine::lifecycle::RunLifecycle` (outbox, publisher, tickers, kill pump, `sessions.*` over tRPC) | `NoBackend` (in memory) |
 | `PromptLocalizer` | a host prompt's attachment embeds, as the agent reads them | `engine::host::SteerLocalizer` (`steer::localize_message`) | none |
@@ -86,7 +86,7 @@ caller changes until a later cleanup.
 
 1. This crate, the dependency gate and the pure leaves: atomic config writes (`api::atomic_file`),
    the lock file, the claude / codex trust seeders, the codex session index, the confinement
-   check, the command head, the Linux run scope, the background `Command` constructor
+   check (gone since #EXP-1890), the command head, the Linux run scope, the background `Command` constructor
    (`terminal::process`).
 2. **Done.** The event vocabulary out of `steer`, as `wire`: `wire::frames` (`ActivityEvent` and
    its pieces, `TurnState`, `ConfigValue`, `QueuedMessage`, `BackgroundTask`, the relay frames),
@@ -138,7 +138,7 @@ caller changes until a later cleanup.
      with `Adapter::new(impl Into<LaunchSpec>)` and drives it as a `ConnectTo<Client>`.
      `LaunchSpec` is the core launch spec (program / args / env / cwd as `SpawnSpec`,
      `CodingAgent`, `RunOptions`, resume handle, `AgentMcp` + `McpServerWire` servers, system
-     append, `ContextLayers`, confine root, `ChildExitLink`); Exponential's
+     append, `ContextLayers`, `ChildExitLink`); Exponential's
      `engine::adapters::AdapterSpec` (the launcher's `coding::LaunchOptions`) converts into it,
      the account slot becoming the profile id. Moved with them, re-exported under the old paths:
      `mcp` (`AgentMcp`, `McpServerWire`, `McpWireTransport`, `McpActor`, `MCP_TOKEN_ENV`,

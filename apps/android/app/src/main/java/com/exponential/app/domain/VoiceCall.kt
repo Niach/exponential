@@ -7,7 +7,7 @@ import kotlinx.serialization.json.intOrNull
 
 /**
  * NEW-69 (voice V5): caller mode on phones. A port of the TS reference
- * `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
+ * `packages/etalk/src/voice-call.ts` (desktop `etalk::call`,
  * iOS `VoiceCall.swift`), byte-locked by `fixtures/voice-call.json` (`copy`,
  * `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens` and every
  * `availabilityCases` / `flowCases` row, replayed by `VoiceCallTest`). The
@@ -39,11 +39,7 @@ object VoiceCall {
         const val QUEUED = "{count} queued · {text}"
 
         object Reasons {
-            /** NEW-99: the member has no voice Assistant yet. */
-            const val NO_AGENT = "Set up your Assistant in Settings → Agents"
-            const val NO_VOICE_DEVICE = "Run your Assistant on a desktop in Settings → Assistant"
             const val OFFLINE = "{device} is offline"
-            const val NOT_HERE = "Calls run on {device}"
             const val PREPARING = "{device} is getting its voice ready"
             /** NEW-99: the voice device's `speech` row reads error. */
             const val VOICE_FAILED = "{device} couldn't load its voice: restart Exponential there"
@@ -312,20 +308,14 @@ object VoiceCall {
     /** The voice device's doctor row `speech` as a caller reads it. */
     enum class Speech(val wire: String) { Ok("ok"), Preparing("preparing"), NoGpu("noGpu"), Failed("failed") }
 
+    /** EXP-1991: ONE desktop, as [callTarget] reads it for its reason. */
     data class AvailabilityInput(
-        /** NEW-99: the member has a voice Assistant (`voice.get` agentId). */
-        val agent: Boolean,
-        val platform: Platform,
-        /** The voice device's name; null = none picked. */
-        val device: String?,
+        /** The desktop's name. */
+        val device: String,
         val online: Boolean,
-        /** THIS client is the voice device. */
-        val here: Boolean,
         /** null = no `speech` row yet. */
         val speech: Speech?,
-        /** A call this client does not run already runs on the voice device. */
-        val busy: Boolean,
-        /** #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set). */
+        /** #NEW-57: a meeting runs on it (`meetingStartedAt` set). */
         val meeting: Boolean = false,
     )
 
@@ -340,21 +330,18 @@ object VoiceCall {
         if (availability.enabled) Tap(call = true, toast = null)
         else Tap(call = false, toast = availability.reason.takeIf { platform == Platform.Phone })
 
-    /** Whether the telephone is enabled, and the reason when it is not. S-3:
-     *  a voice that is still downloading rings until it is ready. */
+    /** Whether a desktop can take a call, and the reason when it cannot
+     *  (`availabilityCases`, first match wins). S-3: a voice that is still
+     *  downloading rings until it is ready. */
     fun callAvailability(input: AvailabilityInput): Availability {
-        fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device ?: ""))
+        fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device))
         val r = Copy.Reasons
         return when {
-            !input.agent -> off(r.NO_AGENT)
-            input.device == null -> off(r.NO_VOICE_DEVICE)
             !input.online -> off(r.OFFLINE)
             input.meeting -> off(r.MEETING)
-            input.platform == Platform.Desktop && !input.here -> off(r.NOT_HERE)
             input.speech == null -> off(r.PREPARING)
             input.speech == Speech.Failed -> off(r.VOICE_FAILED)
             input.speech == Speech.NoGpu -> off(r.NO_GPU)
-            input.busy -> off(r.BUSY)
             else -> Availability(enabled = true, reason = null)
         }
     }
@@ -371,7 +358,6 @@ object VoiceCall {
     )
 
     data class TargetInput(
-        val platform: Platform,
         /** THIS client's own desktop (null on phones and web). */
         val here: String?,
         /** The called agent's Runs on device. */
@@ -424,13 +410,9 @@ object VoiceCall {
             return off(
                 callAvailability(
                     AvailabilityInput(
-                        agent = true,
-                        platform = input.platform,
                         device = first.name,
                         online = first.online,
-                        here = true,
                         speech = first.speech,
-                        busy = false,
                         meeting = first.meeting,
                     ),
                 ).reason,

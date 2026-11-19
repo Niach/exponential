@@ -193,6 +193,9 @@ sealed interface AgentFeedItem {
         override val seq: Long? = null,
         /** EXP-1245: the relay's stamp; the turns chat slots the row by it. */
         val at: Long? = null,
+        /** #EXP-1975: a SYNCED TAIL row's message (`synced:<id>`, like
+         *  [Narration.messageId]); null = a transcript event. */
+        val messageId: String? = null,
     ) : AgentFeedItem
 
     /** An interactive question (AskUserQuestion / plan approval, EXP-78).

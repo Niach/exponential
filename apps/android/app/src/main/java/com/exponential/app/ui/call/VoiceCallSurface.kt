@@ -564,7 +564,7 @@ class AgentCallViewModel @Inject constructor(
     }
 
     companion object {
-        private val OFF = VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = null, desktops = emptyList(), busy = false)
+        private val OFF = VoiceCall.TargetInput(here = null, agentDevice = null, desktops = emptyList(), busy = false)
 
         /**
          * EXP-1857: a phone's `callTarget` input: never a desktop itself
@@ -596,7 +596,7 @@ class AgentCallViewModel @Inject constructor(
             val desktops = own("desktop")
             // EXP-1858: the member's own servers (only the agent's counts).
             val servers = own("server")
-            return VoiceCall.TargetInput(VoiceCall.Platform.Phone, here = null, agentDevice = agentDevice, desktops = desktops, busy = false, servers = servers)
+            return VoiceCall.TargetInput(here = null, agentDevice = agentDevice, desktops = desktops, busy = false, servers = servers)
         }
     }
 }

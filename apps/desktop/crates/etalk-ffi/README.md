@@ -21,7 +21,8 @@ TypeScript reference is `packages/etalk/src/voice-call.ts`.
     `queued {count, text}`, `replyStarted`, `replyFinished`, `mute`, `unmute`,
     `speaker {on}`, `end`, `hungUp {reason?}`, `failed {code}`. A finished
     call with a failure leaves `state.toast`.
-  - `callUnavailable(input)` (None = the telephone is enabled) and
+  - `callUnavailable(input)` (one desktop's reason; None = it can take the
+    call) and
     `callSpeechOf(doctor row state)`.
   - The ring (#EXP-1423): the HOST draws `callRingRandom()` once per call and
     steps `rang` at `callRingMs(random)`; `ready` = the voice device's warm-up

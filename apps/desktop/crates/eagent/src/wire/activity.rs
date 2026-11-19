@@ -610,7 +610,39 @@ pub const BLANK_CODE_POINTS: &[u32] = &[
 /// invisible is no message (a turn ending on a lone U+200B is quiet). Never
 /// `str::trim`: it keeps U+200B and U+FEFF.
 pub fn is_blank_text(text: &str) -> bool {
-    text.chars().all(|c| BLANK_CODE_POINTS.contains(&(c as u32)))
+    let mut at = 0;
+    while let Some(c) = text[at..].chars().next() {
+        if BLANK_CODE_POINTS.contains(&(c as u32)) {
+            at += c.len_utf8();
+            continue;
+        }
+        // #FEED-255: an entity genUI's markdown decodes to an invisible character.
+        let end = if c == '&' { blank_reference_end(text, at, |code| BLANK_CODE_POINTS.contains(&code)) } else { None };
+        let Some(end) = end else { return false };
+        at = end;
+    }
+    true
+}
+
+/// #FEED-255 (transcript-grouping.json `blank.$comment`): the byte index after
+/// the character reference at `at` when it decodes to a code point `blank`
+/// accepts (`&#8203;`, `&#x200B;`, `&nbsp;`, as genUI's markdown decodes), else None.
+fn blank_reference_end(text: &str, at: usize, blank: impl Fn(u32) -> bool) -> Option<usize> {
+    let rest = &text[at..];
+    if rest.starts_with("&nbsp;") {
+        return Some(at + 6);
+    }
+    let after = rest.strip_prefix("&#")?;
+    let (hex, digits) = match after.strip_prefix('x').or_else(|| after.strip_prefix('X')) {
+        Some(digits) => (true, digits),
+        None => (false, after),
+    };
+    let count = digits.bytes().take_while(|b| if hex { b.is_ascii_hexdigit() } else { b.is_ascii_digit() }).count();
+    if count < 1 || count > (if hex { 6 } else { 7 }) || digits.as_bytes().get(count) != Some(&b';') {
+        return None;
+    }
+    let code = u32::from_str_radix(&digits[..count], if hex { 16 } else { 10 }).ok()?;
+    (code > 0 && code <= 0x10FFFF && blank(code)).then(|| at + (rest.len() - digits.len()) + count + 1)
 }
 
 pub const INPUT_TAGS: &[&str] = &["schedule", "event", "pr_opened", "pr_merged", "pr_merge", "pr_checks", "session"];

@@ -77,9 +77,10 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::DestroySpace { space: space() },
         Request::ListSpaces,
         Request::Launch { argv: vec!["true".into()], env: Default::default(), cwd: None },
+        Request::SpaceOfProcess { pid: std::process::id() },
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 35, "one request per op at least");
+    assert_eq!(ops.len(), 36, "one request per op at least");
     all
 }
 
@@ -90,7 +91,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::ReleaseInput | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } => {}
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::BindShortcuts { .. } => {}
         Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {}
-        Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
+        Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } => {}
     }
     std::mem::discriminant(request)
 }

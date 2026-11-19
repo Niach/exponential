@@ -324,7 +324,13 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   `swaylock` still works through `[lock] command` (ext-session-lock).
 - **polkit** (`exponential-sealed polkit`, `exponential-polkit-agent.service`): the
   session's authentication agent; polkitd's request opens the prompt, the
-  password goes to `polkit-agent-helper-1`.
+  password goes to `polkit-agent-helper-1`. A request whose subject or
+  caller belongs to an agent space is refused before anything maps (#EDE-127:
+  no prompt, the person's keyboard stays where it is, the space's command
+  fails; journal: `refused a polkit request from agent space N: <action>`).
+  Whose a process is: its environment or an ancestor's names the space's
+  directory, else the compositor's `space_of_process` (what it launched into
+  the space, that launch's process group, the space's socket's clients).
 - **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
@@ -357,9 +363,13 @@ headless outputs resize. A connector that changes while connected (udev's
 hotplug: a VM window resized, a monitor re-reading its EDID) follows its
 new preferred mode unless `[[outputs]]` pins a mode it still offers; the
 scan runs 150 ms after the last change (VBoxDRMClient pushes a layout
-every 250 ms while the window is dragged), then the outputs without a
-configured position close ranks, layers re-arrange and tiled windows
-follow. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
+every 250 ms while the window is dragged). After any change (`set_output`,
+such a resize, an unplug) the outputs without a configured or
+`set_output` position close ranks, layers re-arrange and every window
+stays on its output (#EDE-139): it goes along as the output moves, tiled
+and fullscreen windows fill it again, one it no longer holds comes back
+inside it, and the windows of an output that went away reopen on the
+first one (a fullscreen one fullscreen there). Nothing is raised. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
 (the `virtualbox-guest-utils` system service, no session service needed)
 pushes the window size to `vmwgfx`, which lists it as the preferred mode. Every surface hears its output's preferred scale
 (fractional through wp-fractional-scale-v1; integer clients keep
@@ -625,6 +635,7 @@ first; each op needs the Core capability it names:
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to

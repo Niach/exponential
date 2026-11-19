@@ -5,7 +5,7 @@ import { A2UI_VERSION, DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, 
 import { HostSurface } from "@exponential_app/eui-react"
 import { swipeBlocked } from "@exponential_app/eui/web"
 import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell, surfaceState } from "@exp/domain-contract/apps"
-import { FAB_CLEARANCE_CLASS, appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
+import { FAB_CLEARANCE_CLASS, FAB_FOOT_CLASS, appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
 import { AppSurfaceBoundary } from "@/components/apps/app-surface-boundary"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -117,7 +117,10 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
 }
 
 /** The frame's classes and the outer centring (the run view has neither
- *  border nor radius; the Phone frame is `phoneWidth` px, centred). */
+ *  border nor radius; the Phone frame is `phoneWidth` px, centred).
+ *  #EXP-1874: the Phone frame's row is THE pinned foot, so the frame centres
+ *  in what the Assistant FAB's corner leaves of the pane (the editor sets
+ *  the pane's `--fab-foot-inset`) and its tab bar never sits under the FAB. */
 function previewFrame(variant: `frame` | `run`, frame: `desktop` | `phone`, className: string | undefined, phone = false) {
   const run = variant === `run`
   return {
@@ -127,7 +130,7 @@ function previewFrame(variant: `frame` | `run`, frame: `desktop` | `phone`, clas
       ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
     },
     testId: run ? APPS_TEST_IDS.run : APPS_TEST_IDS.preview,
-    outer: (surface: ReactNode) => (frame === `desktop` ? surface : <div className={`flex min-h-0 flex-1 justify-center ${className ?? ``}`}>{surface}</div>),
+    outer: (surface: ReactNode) => (frame === `desktop` ? surface : <div className={`flex min-h-0 flex-1 justify-center ${run ? `` : FAB_FOOT_CLASS} ${className ?? ``}`}>{surface}</div>),
   }
 }
 

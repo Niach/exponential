@@ -1112,6 +1112,9 @@ private fun AppChatPane(
                 }
                 GlassComposer(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    // #NEW-137 / #EXP-1762: the app editor's composer IS the
+                    // session composer (apps.json): the flat one-line card.
+                    flat = true,
                     tools = {
                         ComposerToolButton(
                             ExpIcons.uiAdd,
@@ -1146,7 +1149,6 @@ private fun AppChatPane(
                             .then(fieldModifier),
                         placeholder = placeholder,
                         enabled = deviceId != null,
-                        minLines = 2,
                         maxLines = 8,
                         bordered = false,
                     )

@@ -4822,7 +4822,8 @@
         },
         "depth": {
           "type": "number",
-          "default": 0
+          "default": 0,
+          "bindable": true
         },
         "open": {
           "type": "boolean",

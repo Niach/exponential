@@ -2776,7 +2776,7 @@
           "description": "URL a press opens; implies `pressable`."
         },
         "depth": {
-          "description": "Under a tree Section (0 = root)."
+          "description": "Under a tree Section (0 = root); bound = indent only."
         },
         "open": {
           "description": "With children: whether they show, indented; bind it."

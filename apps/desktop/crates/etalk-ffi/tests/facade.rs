@@ -41,13 +41,9 @@ fn availability_and_speech_match_the_fixture() {
     for case in fixture["availabilityCases"].as_array().unwrap() {
         let input = &case["input"];
         let reason = call_unavailable(TalkCallAvailabilityInput {
-            agent: input["agent"].as_bool().unwrap(),
-            platform: platform(&input["platform"]),
-            device: input["device"].as_str().map(str::to_string),
+            device: input["device"].as_str().unwrap().to_string(),
             online: input["online"].as_bool().unwrap(),
-            here: input["here"].as_bool().unwrap(),
             speech: input["speech"].as_str().map(speech),
-            busy: input["busy"].as_bool().unwrap(),
             meeting: input["meeting"].as_bool().unwrap_or(false),
         });
         assert_eq!(reason.as_deref(), case["expected"]["reason"].as_str(), "{}", case["name"]);
