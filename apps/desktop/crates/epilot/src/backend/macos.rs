@@ -1431,6 +1431,7 @@ impl Drop for Lock {
 /// What the tap callback sees, owned by the tap thread for the tap's life.
 struct TapState {
     on_esc: Box<dyn Fn() + Send + Sync>,
+    /// The person's Esc came: `on_esc` runs once the tap is out ([`end_tap`]).
     fired: Cell<bool>,
     stop: Arc<AtomicBool>,
     port: Cell<CFMachPortRef>,
@@ -1498,14 +1499,28 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: LockR
         // SAFETY: the default-mode constant of CoreFoundation.
         CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, STOP_POLL, false);
     }
-    // SAFETY: `port_ref` is the live tap; after this no callback runs.
-    unsafe {
-        CGEventTapEnable(port_ref, false);
-        CFMachPortInvalidate(port_ref);
+    end_tap(&state, || {
+        // SAFETY: `port_ref` is the live tap; after this no callback runs.
+        unsafe {
+            CGEventTapEnable(port_ref, false);
+            CFMachPortInvalidate(port_ref);
+        }
+        run_loop.remove_source(&source, common);
+        PERSON_BUTTONS.store(0, Ordering::Release);
+        log::debug!("[computer] event tap removed");
+    });
+}
+
+/// The tap's end, by the person's Esc or the guard's drop: the tap comes
+/// out (`remove`); after an Esc, then `on_esc` runs, here on the tap's
+/// thread (#EXP-1994: as X11 and Windows, never inside the window server's
+/// callback, and never with the person's input still swallowed).
+fn end_tap(state: &TapState, remove: impl FnOnce()) {
+    if state.fired.get() {
+        crate::backend::escape(remove, &*state.on_esc);
+    } else {
+        remove();
     }
-    run_loop.remove_source(&source, common);
-    PERSON_BUTTONS.store(0, Ordering::Release);
-    log::debug!("[computer] event tap removed");
 }
 
 /// #EXP-1979: the mouse buttons of `held` the person still holds, for the
@@ -1518,7 +1533,8 @@ fn person_holds_button() -> bool {
     PERSON_BUTTONS.load(Ordering::Acquire) != 0
 }
 
-/// The tap: ours through, the person's Esc = `on_esc`, the rest swallowed.
+/// The tap: ours through, the person's Esc ends it (swallowed: `on_esc`
+/// runs once the tap is out), the rest swallowed.
 unsafe extern "C" fn tap_callback(
     _proxy: *mut c_void,
     kind: u32,
@@ -1546,10 +1562,8 @@ unsafe extern "C" fn tap_callback(
         Verdict::Esc => {
             if !state.fired.replace(true) {
                 log::info!("[computer] Esc from the keyboard");
-                // A panic must not unwind into the window server's callback.
-                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (state.on_esc)())).is_err() {
-                    log::warn!("[computer] the Esc handler panicked");
-                }
+                // The run loop ends; the tap comes out, then `on_esc` runs
+                // (`end_tap`).
                 state.stop.store(true, Ordering::Release);
                 CFRunLoop::get_current().stop();
             }
@@ -1619,6 +1633,57 @@ fn held_now() -> HeldAtEngage<TAP_HELD> {
 mod tests {
     use super::*;
 
+    /// The tests that publish [`PERSON_BUTTONS`] (the tap callback does), one
+    /// at a time.
+    static BUTTONS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A [`TapState`] whose `on_esc` counts its runs and reads `removed`
+    /// (the tap is out) as it runs.
+    fn tap_state(removed: Arc<AtomicBool>) -> (TapState, Arc<std::sync::Mutex<Vec<bool>>>) {
+        let runs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = runs.clone();
+        let on_esc = Box::new(move || seen.lock().unwrap().push(removed.load(Ordering::SeqCst)));
+        let state = TapState { on_esc, fired: Cell::new(false), stop: Arc::new(AtomicBool::new(false)), port: Cell::new(std::ptr::null_mut()), held: Cell::new(HeldAtEngage::NONE) };
+        (state, runs)
+    }
+
+    /// The tap callback on one real (never posted) key event.
+    fn tap_key(state: &TapState, keycode: CGKeyCode, down: bool, ours: bool) -> bool {
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).unwrap();
+        let event = CGEvent::new_keyboard_event(source, keycode, down).unwrap();
+        if ours {
+            event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, MAGIC);
+        }
+        let kind = if down { CGEventType::KeyDown } else { CGEventType::KeyUp };
+        // SAFETY: a live event and a live state, as the tap hands them.
+        let out = unsafe { tap_callback(std::ptr::null_mut(), kind as u32, event.as_ptr(), (state as *const TapState).cast_mut().cast()) };
+        !out.is_null()
+    }
+
+    /// #EXP-1994: the person's Esc is swallowed (it never reaches the app in
+    /// front) and ends the tap; `on_esc` runs only once the tap is out, as
+    /// on X11 and Windows, and once.
+    #[test]
+    fn the_persons_esc_is_swallowed_and_on_esc_runs_after_the_tap_is_out() {
+        let _buttons = BUTTONS.lock().unwrap_or_else(|p| p.into_inner());
+        let removed = Arc::new(AtomicBool::new(false));
+        let (state, runs) = tap_state(removed.clone());
+        assert!(!tap_key(&state, ESCAPE, true, false), "the Esc never reaches the front app");
+        assert!(state.stop.load(Ordering::SeqCst), "the tap's run loop ends");
+        assert!(runs.lock().unwrap().is_empty(), "never inside the callback, with the tap in");
+        assert!(!tap_key(&state, ESCAPE, true, false), "a second Esc: swallowed too");
+        assert!(!tap_key(&state, 0, true, false), "the person's other keys: swallowed");
+        assert!(tap_key(&state, ESCAPE, true, true), "our own Esc goes through");
+        end_tap(&state, || removed.store(true, Ordering::SeqCst));
+        assert_eq!(*runs.lock().unwrap(), [true], "on_esc ran once, after the tap came out");
+
+        // The guard's drop ends the tap without an Esc: no on_esc.
+        let removed = Arc::new(AtomicBool::new(false));
+        let (state, runs) = tap_state(removed.clone());
+        end_tap(&state, || removed.store(true, Ordering::SeqCst));
+        assert!(removed.load(Ordering::SeqCst) && runs.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn accessibility_never_addresses_our_own_process() {
         let ours = Pid::try_from(std::process::id()).unwrap();
@@ -1684,6 +1749,7 @@ mod tests {
     /// wait; a held key holds nothing back.
     #[test]
     fn the_pointer_waits_for_the_release_of_a_button_held_at_engage() {
+        let _buttons = BUTTONS.lock().unwrap_or_else(|p| p.into_inner());
         let wait = |millis| crate::backend::wait_for_person_buttons(person_holds_button, || false, Duration::from_millis(millis));
         let mut held = HeldAtEngage::<TAP_HELD>::NONE;
         held.0[56] = true; // kVK_Shift

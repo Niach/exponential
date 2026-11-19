@@ -1013,9 +1013,11 @@ fn hold(hooks: (Hook, Hook), on_esc: &(dyn Fn() + Send + Sync), msg: &mut MSG) {
         }
         if msg.message == WM_ESC {
             if let Some(hooks) = hooks.take() {
-                drop(hooks);
-                log::info!("[computer] Esc: the input lock is released");
-                on_esc();
+                let release = || {
+                    drop(hooks);
+                    log::info!("[computer] Esc: the input lock is released");
+                };
+                crate::backend::escape(release, on_esc);
                 // The hooks are gone: the person's release is theirs again.
                 PERSON_BUTTONS.store(0, Ordering::Release);
             }

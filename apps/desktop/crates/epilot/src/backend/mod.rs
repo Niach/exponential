@@ -352,6 +352,15 @@ pub(crate) enum Verdict {
     Esc,
 }
 
+/// #EXP-1994: the person's Esc under a lock, every OS's: their input is let
+/// go first (`release`: the tap, the hooks or the grabs come out), then
+/// `on_esc` runs, on the lock's thread, never inside an event callback.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn escape(release: impl FnOnce(), on_esc: &(dyn Fn() + Send + Sync)) {
+    release();
+    on_esc();
+}
+
 /// What the clipboard held before a `paste_text` / `copy_selection` took
 /// it: every format the OS let us read, as (the OS's name of the format,
 /// its bytes), in the OS's order. Each backend reads back only its own
@@ -767,6 +776,20 @@ mod tests {
         .unwrap();
         guard_tx.send(thread).unwrap();
         dropped.recv_timeout(std::time::Duration::from_secs(5)).expect("the thread dropped its own guard and went on");
+    }
+
+    /// #EXP-1994: on the person's Esc their input is theirs again before
+    /// `on_esc` runs.
+    #[test]
+    fn an_esc_lets_go_of_the_input_before_on_esc() {
+        let released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let on_esc = {
+            let (released, seen) = (released.clone(), seen.clone());
+            move || *seen.lock().unwrap() = Some(released.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        escape(|| released.store(true, std::sync::atomic::Ordering::SeqCst), &on_esc);
+        assert_eq!(*seen.lock().unwrap(), Some(true), "on_esc ran, with the input already let go");
     }
 
     #[test]
