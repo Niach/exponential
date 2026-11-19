@@ -34,7 +34,7 @@ sync = { path = "../sync", default-features = false }
 # #EDE-65 lane I: a team chat's text sealed to its tree's public key (the IDE's envelope).
 enet-core = { path = "../enet-core", default-features = false }
 flume.workspace = true
-ede-ui = { path = "../../../ede/crates/ede-ui" }
+ede-ui = { path = "../../../ede/crates/ede-ui", default-features = false }
 # The services data source (#EDE-13): /services/<domain> in every document.
 ede-services = { path = "../../../ede/crates/ede-services" }
 gpui.workspace = true
@@ -49,7 +49,9 @@ serde_json.workspace = true
 # #VAPP-273: an exposed records tool checks ids are uuids.
 uuid.workspace = true
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# #ERR-29: both binaries report like the compositor (panics, errors and
+# native crashes through the signed-in server); it owns the subscriber.
+ede-observability = { path = "../../../ede/crates/ede-observability" }
 # The IDE's fonts and Lucide icons (apps/desktop/assets), embedded like crates/app/src/assets.rs does.
 rust-embed = "8"
 # localtime_r for the clock.

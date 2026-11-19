@@ -65,9 +65,14 @@ struct Run {
 
 impl Run {
     fn start(dir: &Path, factory: &Path) -> Run {
+        Run::start_with(dir, factory, vec![fake_shell(dir.parent().unwrap())])
+    }
+
+    /// [`Run::start`] with `command` as the shell.
+    fn start_with(dir: &Path, factory: &Path, command: Vec<String>) -> Run {
         let (ui, _) = Runtime::open_with_factory(dir, factory).unwrap();
         let (tx, reports) = mpsc::channel();
-        let mut supervisor = Supervisor::new(ui, vec![fake_shell(dir.parent().unwrap())], move |r| {
+        let mut supervisor = Supervisor::new(ui, command, move |r| {
             let _ = tx.send(r);
         })
         .unwrap();
@@ -194,7 +199,14 @@ fn three_crashes_after_an_edit_revert_it() {
     let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
     // Crashes before the edit was committed do not count (the panel was still the factory's).
     let after_edit = seen.iter().position(|r| matches!(r, Report::Edit { .. })).expect("the edit");
-    assert_eq!(seen[after_edit..].iter().filter(|r| matches!(r, Report::Crashed)).count(), 3, "{seen:?}");
+    assert_eq!(seen[after_edit..].iter().filter(|r| matches!(r, Report::Crashed { .. })).count(), 3, "{seen:?}");
+    // #ERR-29: each with the status the shell ended with (the fake's `exit 1`).
+    for r in &seen[after_edit..] {
+        if let Report::Crashed { status } = r {
+            assert_eq!(status.and_then(|s| s.code()), Some(1), "{r:?}");
+            assert!(ede_ui::supervise::shell_failed(*status));
+        }
+    }
     // The shell comes back and draws the reverted panel.
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
     std::thread::sleep(Duration::from_millis(500));
@@ -259,7 +271,7 @@ fn an_edit_from_an_earlier_run_is_still_a_suspect() {
     }
     let run = Run::start(&dir, &factory);
     let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
-    assert_eq!(seen.iter().filter(|r| matches!(r, Report::Crashed)).count(), 3, "{seen:?}");
+    assert_eq!(seen.iter().filter(|r| matches!(r, Report::Crashed { .. })).count(), 3, "{seen:?}");
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
     assert_eq!(text(&dir), "factory");
 }
@@ -318,4 +330,79 @@ fn an_edit_undone_before_its_frame_is_no_rollback() {
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(text(&dir), "factory");
     assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+}
+
+/// #EDE-150: the apps a shell launched inherit its stdout. A shell that
+/// dies while one of them runs is seen at once (and started again), not
+/// when that app ends; the pipe's late end is not the next shell's; and
+/// the supervisor goes on.
+#[test]
+fn a_shell_that_dies_while_its_apps_run_is_started_again() {
+    let (tmp, dir, factory) = setup();
+    let marker = tmp.path().join("crashed-once");
+    // The first shell leaves an "app" holding its stdout for 7 s and dies;
+    // the next one lives.
+    let script = format!(r#"if [ -e "{m}" ]; then exec sleep 30; fi; : > "{m}"; sleep 7 & exit 1"#, m = marker.display());
+    let began = Instant::now();
+    let run = Run::start_with(&dir, &factory, vec!["sh".into(), "-c".into(), script]);
+    let seen = run.wait(Duration::from_secs(4), |r| matches!(r, Report::Crashed { .. }));
+    assert_eq!(seen.iter().filter(|r| matches!(r, Report::Started { .. })).count(), 1, "{seen:?}");
+    assert!(matches!(seen.last(), Some(Report::Crashed { status }) if status.and_then(|s| s.code()) == Some(1)), "{seen:?}");
+    run.wait(Duration::from_secs(10), |r| matches!(r, Report::Started { .. }));
+    // The first shell's pipe ends when its app does (at 7 s): the shell
+    // that runs now is not taken for it.
+    while began.elapsed() < Duration::from_millis(8500) {
+        if let Ok(report) = run.reports.recv_timeout(Duration::from_millis(100)) {
+            assert!(!matches!(report, Report::Crashed { .. } | Report::Started { .. }), "the living shell was taken for the dead one: {report:?}");
+        }
+    }
+    // And the supervisor is not stuck waiting on it: an edit is committed.
+    fs::write(dir.join("panel.json"), serde_json::to_vec_pretty(&panel("edited")).unwrap()).unwrap();
+    run.wait(Duration::from_secs(10), |r| matches!(r, Report::Edit { name, .. } if name == "panel"));
+}
+
+/// #ERR-29: `exponential-ui supervise` starts diagnostics (the compositor's
+/// ede-observability) and reports a shell that died of a signal as an error,
+/// the level that becomes a GlitchTip event; diagnostics stay off here.
+#[test]
+fn the_supervisor_logs_a_crashed_shell_as_an_error() {
+    use std::io::BufRead;
+    let (tmp, dir, factory) = setup();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_exponential-ui"))
+        .args(["--dir", dir.to_str().unwrap(), "--factory", factory.to_str().unwrap(), "supervise", "--", "sh", "-c", "ulimit -c 0; kill -SEGV $$"])
+        .env("EXP_DIAGNOSTICS", "0")
+        .env("NO_COLOR", "1")
+        .env("RUST_LOG", "info")
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_CACHE_HOME", home.join(".cache"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (tx, rx) = mpsc::channel();
+    let stderr = child.stderr.take().unwrap();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut seen = Vec::new();
+    let found = loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(line) if line.contains("ERROR") && line.contains("the shell crashed") => break Some(line),
+            Ok(line) => seen.push(line),
+            Err(_) if Instant::now() > deadline => break None,
+            Err(_) => {}
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    let line = found.unwrap_or_else(|| panic!("no error for the crashed shell: {seen:#?}"));
+    assert!(line.contains("SIGSEGV") || line.contains("signal: 11") || line.contains("139"), "{line}");
 }

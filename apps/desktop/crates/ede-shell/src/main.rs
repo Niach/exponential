@@ -3428,16 +3428,31 @@ fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
+/// #ERR-29: a start that cannot go on: an error (a GlitchTip event when
+/// diagnostics are on), flushed before the exit skips the guard's drop.
+/// `detail` (a path under the person's home) stays on stderr.
+fn fail_start(what: &'static str, detail: String) -> ! {
+    eprintln!("exponential-shell: {detail}");
+    tracing::error!("{what}");
+    ede_observability::flush();
+    std::process::exit(2);
+}
+
 fn main() {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    // A crash-monitor process (ede-observability) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
+    // `connect`, `--help` and bad arguments end here, before diagnostics.
     let options = parse_args();
+    // #ERR-29: the compositor's diagnostics (panics, errors, native
+    // crashes), tagged `shell`; stdout is the supervisor's frame lines. The
+    // person's chats, notifications and accounts pass through here: a
+    // report says where a line was logged, never what it said.
+    let _diagnostics = ede_observability::init_with("shell", "info", ede_observability::Output::Stderr, ede_observability::Trail::Places);
+    ede_observability::watch_native_crashes("shell");
     let dir = ede_ui::default_dir();
     let (ui, initial) = match Runtime::open_readonly(&dir) {
         Ok(opened) => opened,
-        Err(e) => {
-            eprintln!("exponential-shell: {}: {e}", dir.display());
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the ui directory could not be opened", format!("{}: {e}", dir.display())),
     };
     let ui = Arc::new(Mutex::new(ui));
     let (changes_tx, changes_rx) = mpsc::channel::<Vec<Change>>();
@@ -3445,10 +3460,7 @@ fn main() {
         let _ = changes_tx.send(changes);
     }) {
         Ok(w) => w,
-        Err(e) => {
-            eprintln!("exponential-shell: watch {}: {e}", dir.display());
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the ui directory could not be watched", format!("watch {}: {e}", dir.display())),
     };
     let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
 
@@ -3560,10 +3572,7 @@ fn main() {
     let config_dir = settings::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
     let workspaces = match accounts::Workspaces::open(&config_dir, demo) {
         Ok(w) => w,
-        Err(e) => {
-            eprintln!("exponential-shell: {e}");
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the desktops and accounts could not be opened", e.to_string()),
     };
     workspaces.start_sync();
     let team_deltas = workspaces.deltas();
@@ -4071,6 +4080,32 @@ mod notification_lifetime {
         assert_eq!(n.push(toast(101)), vec![1]);
         assert_eq!(n.list.len(), 100);
         assert!(!n.toasts.contains(&1));
+    }
+}
+
+/// #ERR-29: both binaries of this crate report like the compositor (the
+/// same check as ede-session's packaging test, which CI runs only when eDE
+/// itself changes).
+#[cfg(test)]
+mod diagnostics {
+    fn starts_diagnostics(bin: &str, source: &str, components: &[&str]) {
+        // The body of `main` alone (this test's own text is in the file too).
+        let main = &source[source.find("\nfn main(").expect("a main") + 1..];
+        let main = &main[..main.find("\n}\n").expect("the end of main")];
+        let first = main.lines().skip(1).map(str::trim).find(|l| !l.is_empty() && !l.starts_with("//"));
+        assert_eq!(first, Some("ede_observability::run_crash_monitor_if_requested();"), "{bin}: the crash monitor's dispatch comes first");
+        assert!(main.contains("ede_observability::init_with(") && main.contains("ede_observability::watch_native_crashes("), "{bin} starts diagnostics");
+        assert!(main.contains("ede_observability::Output::Stderr, ede_observability::Trail::Places)"), "{bin}: stdout is a protocol, and no line's text leaves the machine");
+        assert!(!source.contains(&["tracing_subscriber", "::fmt()"].concat()), "{bin}: a second subscriber panics");
+        for component in components {
+            assert!(source.contains(&format!("\"{component}\"")), "{bin}: tagged {component}");
+        }
+    }
+
+    #[test]
+    fn the_shell_and_the_sealed_surfaces_start_diagnostics() {
+        starts_diagnostics("exponential-shell", include_str!("main.rs"), &["shell"]);
+        starts_diagnostics("exponential-sealed", include_str!("bin/ede-sealed/main.rs"), &["sealed-lock", "sealed-polkit", "sealed-consent", "sealed-share"]);
     }
 }
 

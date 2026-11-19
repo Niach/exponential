@@ -10,7 +10,7 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -58,21 +58,46 @@ impl FrameLine {
     }
 }
 
+/// #ERR-29: whether the shell's ending is a failure worth a report: a
+/// crash signal, a panic's 101, any code but 0, or no status at all. The
+/// signals that end a session under it (SIGTERM, SIGINT, SIGHUP: systemd
+/// stopping the unit, a closed terminal) and a quit (0) are not; SIGKILL is
+/// (the OOM killer: systemd's own SIGKILL comes after the SIGTERM that
+/// already ended this process).
+pub fn shell_failed(status: Option<ExitStatus>) -> bool {
+    let Some(status) = status else { return true };
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        // SIGHUP 1, SIGINT 2, SIGTERM 15: the same numbers on every unix.
+        if let Some(signal) = status.signal() {
+            return !matches!(signal, 1 | 2 | 15);
+        }
+    }
+    !status.success()
+}
+
 pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// `Line` and `Exited` name the shell they are of (its number since the
+/// supervisor started): the apps a shell launched inherit its stdout, so
+/// the pipe of a shell that died stays open, and may still speak, for as
+/// long as they run.
 enum Msg {
     Changes(Vec<Change>),
-    Line(String),
-    Exited,
+    Line(u64, String),
+    Exited(u64),
 }
 
 /// What the supervisor did, for logs and tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Report {
     Started { pid: u32 },
-    Crashed,
+    /// The shell ended without the supervisor stopping it; `status` as
+    /// `wait` read it (#ERR-29: [`shell_failed`] tells a crash from a stop).
+    Crashed { status: Option<ExitStatus> },
     Edit { name: String, commit: String },
     Refused { name: String },
     Drawn { name: String, commit: String },
@@ -103,6 +128,8 @@ pub struct Supervisor {
     known: HashMap<String, String>,
     command: Vec<String>,
     child: Option<Child>,
+    /// The number of the shell `child` is (or was).
+    shell: u64,
     tx: mpsc::Sender<Msg>,
     rx: mpsc::Receiver<Msg>,
     _watcher: crate::Watcher,
@@ -132,7 +159,7 @@ impl Supervisor {
                 let _ = tx.send(Msg::Changes(changes));
             })?
         };
-        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
+        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, shell: 0, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
     }
 
     pub fn state(&self) -> &ApplyState {
@@ -144,13 +171,15 @@ impl Supervisor {
         let mut child = Command::new(&self.command[0]).args(&self.command[1..]).env("EDE_UI_DIR", &dir).stdout(Stdio::piped()).stdin(Stdio::null()).spawn()?;
         let stdout = child.stdout.take().expect("piped stdout");
         let tx = self.tx.clone();
+        self.shell += 1;
+        let shell = self.shell;
         std::thread::Builder::new().name("exponential-ui-shell-out".into()).spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if tx.send(Msg::Line(line)).is_err() {
+                if tx.send(Msg::Line(shell, line)).is_err() {
                     return;
                 }
             }
-            let _ = tx.send(Msg::Exited);
+            let _ = tx.send(Msg::Exited(shell));
         })?;
         (self.on_report)(Report::Started { pid: child.id() });
         self.child = Some(child);
@@ -172,25 +201,40 @@ impl Supervisor {
         let mut quick_exits = 0u32;
         let mut restart_at: Option<SystemTime> = None;
         while !stop.load(Ordering::Relaxed) {
+            // The shell's end, with its status when it was read.
+            let mut ended: Option<Option<ExitStatus>> = None;
             match self.rx.recv_timeout(TICK) {
                 Ok(Msg::Changes(changes)) => self.on_changes(changes)?,
-                Ok(Msg::Line(line)) => self.on_line(&line)?,
-                Ok(Msg::Exited) => {
+                Ok(Msg::Line(shell, line)) if shell == self.shell => self.on_line(&line)?,
+                Ok(Msg::Exited(shell)) if shell == self.shell => {
                     if let Some(mut child) = self.child.take() {
-                        let _ = child.wait();
+                        ended = Some(child.wait().ok());
                     }
-                    (self.on_report)(Report::Crashed);
-                    self.step(Event::Crash { at: now_ms() })?;
-                    quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
-                    if quick_exits >= MAX_QUICK_EXITS {
-                        return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
-                    }
-                    restart_at = Some(SystemTime::now() + RESTART_DELAY);
                 }
+                // A shell before this one: its apps still hold its stdout.
+                Ok(Msg::Line(..) | Msg::Exited(..)) => {}
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     self.step(Event::Tick { at: now_ms() })?;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            // #EDE-150: the apps the shell launched inherit its stdout, so a
+            // shell that died never closed the pipe while one of them ran:
+            // its exit is read here too, not from the pipe's end alone.
+            if ended.is_none() {
+                if let Some(Ok(Some(status))) = self.child.as_mut().map(Child::try_wait) {
+                    self.child = None;
+                    ended = Some(Some(status));
+                }
+            }
+            if let Some(status) = ended {
+                (self.on_report)(Report::Crashed { status });
+                self.step(Event::Crash { at: now_ms() })?;
+                quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
+                if quick_exits >= MAX_QUICK_EXITS {
+                    return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
+                }
+                restart_at = Some(SystemTime::now() + RESTART_DELAY);
             }
             if restart_at.is_some_and(|t| SystemTime::now() >= t) {
                 restart_at = None;
@@ -390,6 +434,19 @@ mod tests {
 
     fn applied() -> Vec<Change> {
         vec![Change::Applied { name: "panel".into(), commit: None }]
+    }
+
+    /// #ERR-29: a crash signal, a panic or an error code is a failure; the
+    /// session stopping the shell or the shell quitting is not.
+    #[cfg(unix)]
+    #[test]
+    fn a_crash_is_a_failure_and_a_stop_is_not() {
+        use std::os::unix::process::ExitStatusExt;
+        let signal = |n: i32| Some(ExitStatus::from_raw(n));
+        let code = |n: i32| Some(ExitStatus::from_raw(n << 8));
+        for (status, failed) in [(signal(11), true), (signal(6), true), (signal(9), true), (code(101), true), (code(2), true), (None, true), (signal(15), false), (signal(2), false), (signal(1), false), (code(0), false)] {
+            assert_eq!(shell_failed(status), failed, "{status:?}");
+        }
     }
 
     /// A tick past every deadline.

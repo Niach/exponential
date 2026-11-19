@@ -814,7 +814,7 @@ send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or lo
 
 ## Diagnostics (#LOGS-2)
 
-`crates/ede-observability`: the Sentry SDK in the compositor and `exponential-session` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
+`crates/ede-observability`: the Sentry SDK in every long-running binary (#ERR-29: the compositor, `exponential-session`, `exponential-services serve`, `exponential-shell`, `exponential-sealed`, the portal and `exponential-ui supervise`, each with its own `component` tag; panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions, native crashes; the shell and the sealed surfaces, where the person's content passes through, send only WHERE a line was logged, never its text: `Trail::Places`),
 OFF unless the signed-in account's server turns it on. Nothing is baked in: the server of the first
 account in the IDE's shared `accounts.json` answers `GET <server>/api/monitoring/config?platform=ede`
 (`{"enabled", "dsn", "environment", "tracesSampleRate"}`), the answer is cached in
