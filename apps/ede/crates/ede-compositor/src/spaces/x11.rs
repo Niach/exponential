@@ -37,6 +37,21 @@ pub const FIRST_DISPLAY: u32 = 10;
 /// Where the search for a free display number gives up.
 const LAST_DISPLAY: u32 = 99;
 
+/// The Xwayland of this compositor serving `display`: a child of this
+/// process (smithay keeps its handle to itself).
+fn xwayland_process(display: u32) -> Option<smithay::reexports::rustix::process::Pid> {
+    let me = std::process::id();
+    let wanted = format!(":{display}");
+    std::fs::read_dir("/proc").ok()?.flatten().filter_map(|entry| entry.file_name().to_str()?.parse::<i32>().ok()).find_map(|pid| {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let parent: u32 = stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()?;
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        let mut args = cmdline.split(|b| *b == 0);
+        let ours = parent == me && args.next().is_some_and(|program| program.ends_with(b"Xwayland")) && args.any(|arg| arg == wanted.as_bytes());
+        ours.then(|| smithay::reexports::rustix::process::Pid::from_raw(pid)).flatten()
+    })
+}
+
 /// A space's Xwayland.
 pub(crate) struct SpaceX11 {
     /// The `XWayland` source in the loop: removing it kills the server's
@@ -193,6 +208,12 @@ impl Ede {
     /// waits for its connection to close.
     pub(crate) fn space_x11_closed(&mut self, x11: Option<SpaceX11>) {
         let Some(x11) = x11 else { return };
+        // Its Wayland client is killed with the source, but the socket
+        // closes only at the display's next dispatch, which an idle desk
+        // may not have for a while: the server is told to end as well.
+        if let Some(pid) = xwayland_process(x11.display) {
+            let _ = smithay::reexports::rustix::process::kill_process(pid, smithay::reexports::rustix::process::Signal::TERM);
+        }
         self.loop_handle.remove(x11.token);
         if let Some(wm) = x11.xwm {
             self.spaces.closing_xwms.push(wm);
