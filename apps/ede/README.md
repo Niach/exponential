@@ -914,6 +914,47 @@ space. The person's own processes are not affected. The table is
 `crates/ede-space-guard/src/devices.rs`; the program is generated from it
 and tested in an eBPF interpreter on every device.
 
+With it the guard attaches a connect program, for `connect()` and for a
+datagram's `sendto()`, which refuses a unix socket made in the space the
+way to (`crates/ede-space-guard/src/connect.rs`):
+
+| path | why |
+|---|---|
+| `/run/dbus/system_bus_socket` | no system bus in a space: no `loginctl lock-session` or `terminate-session`, no `systemctl suspend`/`reboot`, no `nmcli networking off`, no `udisksctl mount`, no `pkexec` |
+| `/run/user/<uid>/bus`, `/run/user/<uid>/.dbus-proxy/…` | the person's session bus and their Flatpaks' proxies (their portals hand out camera streams) |
+| `/run/user/<uid>/systemd/…` | the person's user manager: nothing leaves the slice through it (also not `flatpak run`'s hard-coded socket: the Flatpak stays in its launch's scope) |
+| `/run/user/<uid>/exponential-desktop/…` (but the spaces' own directory) | eDE's control socket (lock, log out with the root token) and `services.sock` (power, network) |
+| `/run/systemd/private`, `/run/systemd/io.systemd.*` | PID 1 for root (`sudo reboot`), logind's Varlink (`sudo -i` would get a new login session) |
+| `/tmp/tmux-<uid>/…`, `/run/screen/…` | the person's tmux and screen servers run what they are sent outside the space |
+| `/run/wpa_supplicant/…`, `/run/hostapd/…`, `/run/tailscale/…`, `/run/mullvad-vpn`, `/run/cloudflare-warp/…` | `wpa_cli disconnect` (a member of `netdev`), `tailscale down` and the like |
+| `/run/docker.sock`, `/run/user/<uid>/docker.sock`, `/run/libvirt/…`, `/run/incus/…`, `/var/lib/incus/…`, `/var/lib/lxd/…`, `/var/snap/lxd/…` | daemons that act for their group as root, and a rootless docker of the person's |
+| any path with `/../` | so no other rule is walked around by spelling |
+
+It reads the address as the caller passed it, bounded by its length
+(libdbus passes no NUL), before the kernel looks the path up; an address
+whose family is not AF_UNIX is refused (a misread layout fails closed). A
+symlink of the space's own, a relative path or `//` get around it, on
+purpose. Abstract sockets (the space's bus) are not paths and pass, and
+so does the person's Xwayland's abstract socket: until Xwayland gets an
+X authority (F3), `DISPLAY=:0 xdotool type …` from a space reaches the
+person's X11 apps.
+
+The package also ships `/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules`:
+polkit answers NO for every action whose subject is in a space's slice
+(polkit takes a space's processes for the person's active session, so
+suspend, reboot, network and mounts would pass without a prompt). It reads
+the subject's `/proc/<pid>/cgroup` with `cat`: about 4 ms per polkit check
+of a process of the person's user manager (measured on Ubuntu 26.04), and
+polkitd checks one at a time, so a flood of such checks slows every
+authorization on the machine. It never answers YES; when polkitd cannot
+run `cat` at all, it asks for an administrator's password instead of
+passing. An earlier rule that answers wins (polkit sorts all rule files
+by name: hence `00-00-`). logind's `Lock`/`Terminate` for the session's
+owner never ask polkit: the connect program closes those. The session
+checks that the rule is read: a probe in its spaces' slice asks for the
+package's action `at.exponential.desktop.space-probe`, which the rule
+answers with a challenge; readiness and the doctor's line need it.
+
 - **What it is.** `/usr/libexec/exponential-space-guard`, a system service
   started by `exponential-space-guard.socket` (`/run/exponential-space-guard.sock`;
   the package links it into `sockets.target.wants`, so it is `static`:
@@ -928,12 +969,14 @@ and tested in an eBPF interpreter on every device.
   session's start: the session only asks it for readiness and the doctor,
   which reads what the running session decided (`<wayland-N>.guard` beside
   its socket). Uninstalled, launches run as before, and the doctor says so.
-- **Its capabilities, no root.** A user of its own (`DynamicUser`),
+- **Its three capabilities, no root.** A user of its own (`DynamicUser`),
   `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
+  `CAP_PERFMON` (the connect program reads the address it is asked about),
   nothing else; no network, no home directories, the system read-only, a
   narrow syscall set. What a compromised guard could do with them: attach
   cgroup programs to any cgroup (also refusing devices or sockets to other
-  users' processes) and, with `CAP_BPF`, load other program types.
+  users' processes) and, with `CAP_BPF` and `CAP_PERFMON`, load tracing
+  programs that read kernel and process memory.
 - **What a hostile caller can make it do.** Anyone on the machine can ask.
   The guard takes the asking process's user and cgroup from the kernel
   (`SO_PEERCRED`, `/proc/<pid>/cgroup`), requires that cgroup to be inside
@@ -949,7 +992,8 @@ and tested in an eBPF interpreter on every device.
   runtime directory, such as a user namespace's subordinate ids, share
   two), each request gets one second from connect to its line, and
   `space-enter` asks again after `busy` within its 5 s. At most 64 live
-  space slices per user carry its programs; a removed one frees its place.
+  space slices per user carry its programs, and at most 4 directories of
+  spaces have connect programs; a removed slice frees its place.
 - **Not a wall** (#EDE-145). Not stopped by it: a process that moves itself
   to another cgroup of the user; a descriptor opened outside the space and
   passed in; the person's terminals (`/dev/pts/*`: a space can read what
@@ -957,8 +1001,9 @@ and tested in an eBPF interpreter on every device.
   program of the person's can); where `kernel.yama.ptrace_scope` is 0, a
   space taking descriptors from the person's processes (`pidfd_getfd`);
   root in a space (sudo with the person's password) detaching the program.
-- **Needs** cgroup v2 and a kernel that loads the program (`exponential-space-guard
-  probe` prints `ok` or why not).
+- **Needs** cgroup v2, Linux 6.7 or newer (the unix connect hook) with BTF,
+  lockdown below `confidentiality`, and a kernel that loads both programs
+  (`exponential-space-guard probe` prints `ok` or why not).
 
 ## Config
 
