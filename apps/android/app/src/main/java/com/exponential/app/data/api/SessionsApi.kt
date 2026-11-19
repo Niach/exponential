@@ -6,6 +6,8 @@ import com.exponential.app.data.sealed.CardItemWire.str
 import com.exponential.app.data.sealed.CardItemWire.text
 import com.exponential.app.data.sealed.CardTap
 import com.exponential.app.data.sealed.CardTapWire
+import com.exponential.app.data.sealed.NO_KEY_REFUSAL
+import com.exponential.app.data.sealed.PreparedSend
 import com.exponential.app.data.sealed.SealedWriter
 import com.exponential.app.data.sealed.StaleTree
 import javax.inject.Inject
@@ -370,6 +372,33 @@ data class SessionMcpPicks(val mcpServerIds: List<String> = emptyList())
 
 private val stopJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }
 
+/**
+ * [SessionsApi.send] past the writer: [prepare] = the sealing writer's
+ * input, [transport] = the request. #EXP-1958 (sealed-content.json
+ * `cardStamps` NEVER IN CLEAR): a send with `cardItem` carries a card's
+ * OPENED text, so it leaves only as the writer SEALED it
+ * ([CardItemWire.leavesSealed]); a plaintext wire (a clear tree) is refused
+ * with [NO_KEY_REFUSAL] before any request. Every other send keeps its wire.
+ */
+internal suspend fun sendPrepared(
+    input: SessionsSendInput,
+    prepare: suspend (fresh: Boolean) -> PreparedSend,
+    transport: suspend (SessionsSendInput) -> SessionsSendResult,
+): SessionsSendResult =
+    // #FEED-250 (sealed-content.json `staleTree`): a key write the server
+    // refuses as stale re-resolves the tree from the server and goes again once.
+    StaleTree.sendOnce { fresh ->
+        val prepared = prepare(fresh)
+        if (input.cardItem != null && !CardItemWire.leavesSealed(prepared.input.text, prepared.input.name, prepared.input.sealedName)) {
+            throw TrpcException(NO_KEY_REFUSAL)
+        }
+        val result = transport(prepared.input)
+        // EXP-1522: a new tree's key is kept here (Keystore + a synchronous
+        // prefs commit): never on the caller's (main) thread.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { prepared.onSent(result) }
+        result
+    }
+
 @Singleton
 class SessionsApi @Inject constructor(
     private val trpc: TrpcClient,
@@ -383,20 +412,19 @@ class SessionsApi @Inject constructor(
     suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult =
         // #FEED-250 (sealed-content.json `staleTree`): a key write the server
         // refuses as stale re-resolves the tree from the server and goes again once.
-        StaleTree.sendOnce { fresh ->
-            val prepared = sealer.get().prepareSend(accountId, input, fresh)
-            val result = trpc.mutation(
-                accountId,
-                path = "sessions.send",
-                input = prepared.input,
-                inputSerializer = SessionsSendInput.serializer(),
-                outputSerializer = SessionsSendResult.serializer(),
-            )
-            // EXP-1522: a new tree's key is kept here (Keystore + a synchronous
-            // prefs commit): never on the caller's (main) thread.
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { prepared.onSent(result) }
-            result
-        }
+        sendPrepared(
+            input,
+            prepare = { fresh -> sealer.get().prepareSend(accountId, input, fresh) },
+            transport = { wire ->
+                trpc.mutation(
+                    accountId,
+                    path = "sessions.send",
+                    input = wire,
+                    inputSerializer = SessionsSendInput.serializer(),
+                    outputSerializer = SessionsSendResult.serializer(),
+                )
+            },
+        )
 
     /** #FEED-250 `sessions.sendTarget`: the server's word on the caller's conversation with an agent / app. */
     suspend fun sendTarget(accountId: String, agentId: String?, appId: String?): SessionSendTarget =
@@ -622,7 +650,9 @@ class SessionsApi @Inject constructor(
         val tap = cardTap(accountId, messageId, CardItemAction.StartAll)
         if (tap != null) {
             val card = tap.opened ?: throw TrpcException(LOCKED_CARD)
-            for (itemId in CardItemWire.openIds(card, CardItemWire::suggestionOpen)) {
+            // No open item left on the opened card: a failed action, never a silent one.
+            val open = CardItemWire.openIds(card, CardItemWire::suggestionOpen).ifEmpty { throw TrpcException(ITEM_GONE) }
+            for (itemId in open) {
                 sealedStart(accountId, tap, messageId, tap.item(itemId), null)
             }
             return
@@ -637,7 +667,8 @@ class SessionsApi @Inject constructor(
 
     /** EXP-1323: × / Dismiss one suggested task (sealed: the server stamps it). */
     suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) {
-        cardTap(accountId, messageId, CardItemAction.Dismiss)
+        // An item the opened card no longer carries fails ([ITEM_GONE]).
+        cardTap(accountId, messageId, CardItemAction.Dismiss)?.item(itemId)
         suggestionItem(accountId, "sessions.dismissSuggestion", messageId, itemId)
     }
 
@@ -663,11 +694,15 @@ class SessionsApi @Inject constructor(
     /** EXP-1211: dismiss the quick-reply row (the whole card; sealed: every open reply id). */
     suspend fun dismissReplies(accountId: String, messageId: String) {
         val tap = cardTap(accountId, messageId, CardItemAction.DismissReplies)
-        val itemIds = tap?.opened?.let { CardItemWire.openIds(it, CardItemWire::replyOpen) }
+        val itemIds = tap?.let { sealed ->
+            val card = sealed.opened ?: throw TrpcException(LOCKED_CARD)
+            // No open reply left on the opened card: a failed action, never a silent one.
+            CardItemWire.openIds(card, CardItemWire::replyOpen).ifEmpty { throw TrpcException(ITEM_GONE) }
+        }
         trpc.mutationUnit(
             accountId,
             path = "sessions.dismissReplies",
-            input = DismissRepliesInput(messageId, itemIds?.takeIf { it.isNotEmpty() }),
+            input = DismissRepliesInput(messageId, itemIds),
             inputSerializer = DismissRepliesInput.serializer(),
         )
     }

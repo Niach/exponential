@@ -54,6 +54,15 @@ object CardItemWire {
         else -> CardTapRoute(CardTapWire.Stamp, serverCalls.getValue(action))
     }
 
+    /**
+     * `cardStamps` NEVER IN CLEAR: a tap's prepared wire is sealed: [text] an
+     * `exp-sealed:` envelope, no clear [name] (a Start's title leaves only
+     * as [sealedName], itself an envelope).
+     */
+    fun leavesSealed(text: String?, name: String?, sealedName: String?): Boolean =
+        text?.startsWith(SealedContent.BODY_PREFIX) == true && name == null &&
+            (sealedName == null || sealedName.startsWith(SealedContent.BODY_PREFIX))
+
     /** The request a started / here item carries: its title, a blank line, its text. */
     fun request(title: String, text: String): String = "$title\n\n$text"
 

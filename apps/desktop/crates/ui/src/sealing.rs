@@ -422,6 +422,19 @@ fn no_key(message: String) -> api::ApiError {
 
 /// THE sealed `sessions.send` (BLOCKING, off the UI thread).
 pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan) -> Result<SendOutput, api::ApiError> {
+    let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
+    // A key holder still coming up is waited for (`clearTree.holderWaitMs`).
+    send_planned(&writer, input, plan, sealing::sealer().is_ok(), &mut |input| api::sessions::send(trpc, input))
+}
+
+/// [`send_blocking`] over any writer / transport (`send` = the request).
+fn send_planned(
+    writer: &dyn Writer,
+    input: &SendInput,
+    plan: &SendPlan,
+    holder: bool,
+    send: &mut dyn FnMut(&SendInput) -> Result<SendOutput, api::ApiError>,
+) -> Result<SendOutput, api::ApiError> {
     let mut input = input.clone();
     if !plan.mention_user_ids.is_empty() {
         input.mention_user_ids = Some(plan.mention_user_ids.clone());
@@ -429,14 +442,35 @@ pub fn send_blocking(trpc: &api::TrpcClient, input: &SendInput, plan: &SendPlan)
     if !plan.ref_issue_ids.is_empty() {
         input.ref_issue_ids = Some(plan.ref_issue_ids.clone());
     }
+    // #EXP-1958 (`cardStamps` NEVER IN CLEAR): a card tap carries OPENED
+    // text; every wire it may take is checked right before the request.
+    let mut send = |wire: &SendInput| {
+        if wire.card_item.is_some() {
+            card_item_sealed(wire)?;
+        }
+        send(wire)
+    };
     // #EDE-97: plaintext only where it is the legal wire (a clear tree, a
     // Local desktop) or nothing is sealed (an attachment-only send).
     if plan.clear || plan.target == SealTarget::None {
-        return api::sessions::send(trpc, &input);
+        return send(&input);
     }
-    let writer = Live { node: plan.node.clone(), trpc: Some(trpc) };
-    // A key holder still coming up is waited for (`clearTree.holderWaitMs`).
-    deliver(&writer, &input, &plan.target, sealing::sealer().is_ok(), &mut |input| api::sessions::send(trpc, input))
+    deliver(writer, &input, &plan.target, holder, &mut send)
+}
+
+/// #EXP-1958 (`cardStamps` NEVER IN CLEAR): a send with `cardItem` leaves
+/// only as the writer SEALED it: its text an `exp-sealed:` envelope, no
+/// clear `name` (a Start's title leaves as `sealedName`). Anything else
+/// (a clear tree, no sealer / key) is refused before any request.
+fn card_item_sealed(wire: &SendInput) -> Result<(), api::ApiError> {
+    let sealed = |value: &str| value.starts_with(enet_core::sealed::SEALED_BODY_PREFIX);
+    let text = wire.text.as_deref().is_some_and(sealed);
+    let name = wire.name.is_none() && wire.sealed_name.as_deref().is_none_or(sealed);
+    if text && name {
+        return Ok(());
+    }
+    log::warn!("[sealing] card tap not sent: its opened text could not be sealed");
+    Err(no_key(sealing::NO_KEY_REFUSAL.to_string()))
 }
 
 /// #EXP-1960: an [`SealTarget::Unsynced`] session's tree as the server has
@@ -1157,5 +1191,84 @@ mod tests {
         assert!(out.is_ok());
         assert_eq!(writer.calls(), vec![format!("create {ROOT}")], "no server lookup");
         assert_eq!(writer.opens(1, sent[0].text.as_deref().unwrap()).as_deref(), Some("secret"));
+    }
+
+    /// #EXP-1958 (`cardStamps` NEVER IN CLEAR): every send a card tap makes
+    /// through `send_planned` with `transport` counting the requests.
+    fn card_tap(writer: &dyn Writer, input: &SendInput, plan: &SendPlan, holder: bool) -> (Result<SendOutput, api::ApiError>, Vec<SendInput>) {
+        let mut sent = Vec::new();
+        let out = send_planned(writer, input, plan, holder, &mut |wire| {
+            sent.push(wire.clone());
+            Ok(SendOutput { session_id: wire.session_id.clone().or(wire.parent_id.clone()).unwrap_or_default(), ..SendOutput::default() })
+        });
+        (out, sent)
+    }
+
+    const MESSAGE: &str = "4d2c8b1e-5a7f-4e30-9b6d-2f1a0c9e8d73";
+    const ITEM: &str = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+
+    #[test]
+    fn a_card_tap_into_a_clear_tree_or_without_keys_sends_nothing() {
+        let reply = SendInput::card_message(ROOT, MESSAGE, ITEM, "Yes, ship it");
+        let start = SendInput::card_start(ROOT, MESSAGE, ITEM, "Add tests", "Cover it", Vec::new());
+        let root = |clear: bool| SendPlan { target: SealTarget::Root(ROOT.into()), clear, ..SendPlan::default() };
+        for input in [&reply, &start] {
+            // A clear tree the store knows (or a Local desktop): the composer
+            // would send plaintext; a tap refuses.
+            let (out, sent) = card_tap(&ServerTree::new(true, false, true), input, &root(true), true);
+            assert!(is_no_key_refusal(&out), "{out:?}");
+            assert!(sent.is_empty(), "{sent:?}");
+            // A clear tree only the server names (an unsynced session).
+            let clear_root = "c1e4a7b0-2d5f-4a83-9c6e-1b0d3f5a7e92";
+            let facts = TreeFacts { root_id: clear_root.into(), clear: true, key: None };
+            let writer = ServerTree { facts: Some(facts), ..ServerTree::new(true, false, true) };
+            let unsynced = SendPlan { target: SealTarget::Unsynced(CHILD.into()), ..SendPlan::default() };
+            let (out, sent) = card_tap(&writer, input, &unsynced, true);
+            assert!(is_no_key_refusal(&out), "{out:?}");
+            assert!(sent.is_empty(), "{sent:?}");
+            // No key holder runs / this install may not key the tree.
+            let (out, sent) = card_tap(&ServerTree::new(false, false, true), input, &root(false), false);
+            assert!(is_no_key_refusal(&out) && sent.is_empty(), "{out:?}");
+            let (out, sent) = card_tap(&ServerTree::new(false, false, false), input, &root(false), true);
+            assert!(is_no_key_refusal(&out) && sent.is_empty(), "{out:?}");
+        }
+        // The guard alone: a clear name beside a sealed text never leaves.
+        let writer = ServerTree::new(false, true, true);
+        let mut wire = start.clone();
+        wire.text = Some(writer.seal_body(ROOT, "Add tests\n\nCover it").unwrap());
+        assert!(card_item_sealed(&wire).is_err());
+        wire.sealed_name = Some(writer.seal_body(ROOT, "Add tests").unwrap());
+        wire.name = None;
+        assert!(card_item_sealed(&wire).is_ok());
+        wire.sealed_name = Some("Add tests".into());
+        assert!(card_item_sealed(&wire).is_err());
+
+        // The composer's own send (no `cardItem`) into a clear tree stays plaintext.
+        let plain = SendInput::message(ROOT, "in clear", Vec::new());
+        let (out, sent) = card_tap(&ServerTree::new(true, false, true), &plain, &root(true), true);
+        assert!(out.is_ok());
+        assert_eq!(sent, vec![plain]);
+    }
+
+    #[test]
+    fn a_keyed_card_tap_sends_sealed_with_its_card_item() {
+        let item = api::sessions::CardItem { message_id: MESSAGE.into(), item_id: ITEM.into() };
+        let plan = SendPlan { target: SealTarget::Root(ROOT.into()), ..SendPlan::default() };
+        let writer = ServerTree::new(false, false, true);
+        let (out, sent) = card_tap(&writer, &SendInput::card_message(ROOT, MESSAGE, ITEM, "Yes"), &plan, true);
+        assert!(out.is_ok(), "{out:?}");
+        let [wire] = sent.as_slice() else { panic!("{sent:?}") };
+        assert_eq!(wire.card_item.as_ref(), Some(&item));
+        assert_eq!(writer.opens(1, wire.text.as_deref().unwrap()).as_deref(), Some("Yes"));
+
+        let writer = ServerTree::new(false, false, true);
+        let start = SendInput::card_start(ROOT, MESSAGE, ITEM, "Add tests", "Cover it", Vec::new());
+        let (out, sent) = card_tap(&writer, &start, &plan, true);
+        assert!(out.is_ok(), "{out:?}");
+        let [wire] = sent.as_slice() else { panic!("{sent:?}") };
+        assert_eq!(wire.card_item.as_ref(), Some(&item));
+        assert!(wire.name.is_none());
+        assert_eq!(writer.opens(1, wire.sealed_name.as_deref().unwrap()).as_deref(), Some("Add tests"));
+        assert_eq!(writer.opens(1, wire.text.as_deref().unwrap()).as_deref(), Some("Add tests\n\nCover it"));
     }
 }
