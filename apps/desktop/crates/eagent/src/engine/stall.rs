@@ -27,9 +27,7 @@
 //!    session tab / CLI show the reason instead of an empty "ended", and the
 //!    user wakes it with a message (EXP-1292) rather than hunting a zombie.
 //!
-//! Silence is measured on the mapper's output (see `SessionCtx::dispatch`)
-//! and on the bytes an agent's `terminal/*` command writes (which never reach
-//! the mapper at all, so a long PTY command would otherwise read as a wedge):
+//! Silence is measured on the mapper's output (see `SessionCtx::dispatch`):
 //! the worktree `diff` ticker does not count (a wedged run has no new diff,
 //! and a busy one has events anyway), nor does the interrupt's own
 //! bookkeeping — nor the watchdog's OWN notice, or the interrupt it announces
@@ -268,12 +266,10 @@ mod tests {
         assert_eq!(dog.tick(input(next + STALL_AFTER, next)), StallAction::Interrupt);
     }
 
-    /// A `terminal/*` command's output is activity like anything else the
-    /// mapper emits (`SessionCtx::touch_activity_throttled`): a `bun test`
-    /// behind a raised `BASH_MAX_TIMEOUT_MS` streams for half an hour without
-    /// one ACP notification, and it must not be interrupted for it.
+    /// Activity that keeps coming, however sparse, keeps a long turn alive:
+    /// the clock never gets [`STALL_AFTER`] of silence.
     #[test]
-    fn streaming_terminal_output_keeps_the_turn_alive() {
+    fn streaming_activity_keeps_the_turn_alive() {
         let start = Instant::now();
         let mut dog = StallWatchdog::new();
         // One chunk every five minutes for an hour: the clock never gets

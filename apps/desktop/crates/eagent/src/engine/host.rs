@@ -22,9 +22,6 @@
 //! - `fs/read_text_file` / `fs/write_text_file` → SPAWNED onto a blocking
 //!   thread (EXP-766): `std::fs` on a FIFO, a dead network mount or a huge
 //!   file takes as long as it takes, and inline that stalls the connection;
-//! - `terminal/create|output|kill|release` → inline (a spawn, a buffer read,
-//!   a signal); `terminal/wait_for_exit` is SPAWNED, because it resolves only
-//!   when the child does (EXP-750);
 //! - `session/prompt` → spawned from the command loop, so a `Cancel` arriving
 //!   mid-turn still reaches the adapter.
 //!
@@ -42,19 +39,16 @@ use std::time::{Duration, Instant};
 use agent_client_protocol::v1::schema::{
     BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
     ClientSessionCapabilities, CompactionCapabilities, ContentBlock, CreateElicitationRequest,
-    CreateElicitationResponse, CreateTerminalRequest, CreateTerminalResponse,
-    ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
+    CreateElicitationResponse, ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
     ElicitationContentValue, ElicitationFormCapabilities, FileSystemCapabilities,
-    InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
+    InitializeRequest, LoadSessionRequest,
     NewSessionRequest, PermissionOptionId, PromptRequest,
-    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
+    ReadTextFileRequest, ReadTextFileResponse,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionConfigId, SessionConfigOptionValue,
     SessionConfigOptionsCapabilities, SessionId, SessionModeId, SessionNotification,
-    SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, TerminalExitStatus,
-    TerminalId, TerminalOutputRequest, TerminalOutputResponse, TextContent,
-    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
-    WriteTextFileResponse,
+    SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, TextContent,
+    WriteTextFileRequest, WriteTextFileResponse,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -66,7 +60,6 @@ use super::local::{EnginePhase, LocalFeedEvent, ASK_WITHDRAWN_META_KEY};
 use super::mapper::{AnswerDecision, MapOut, Mapper, PendingAskKey, Reply, FLUSH_IDLE};
 use super::reply::SubagentRow;
 use super::sink::EventSink;
-use super::terminals::{TerminalSink, Terminals};
 use crate::wire;
 
 /// Where the rich, host-local feed items go. `None` on the daemon, which
@@ -126,12 +119,11 @@ pub const SEED_RETRY_AFTER: Duration = Duration::from_secs(2);
 pub const BACKLOG_CAP: usize = 4096;
 
 /// How large ONE coalesced `Output` row in the backlog may grow before the
-/// next chunk starts a fresh row. A live terminal (EXP-750) reads in 8 KB
-/// chunks — thousands of rows for one `bun dev` — and a ring of nothing but
-/// those evicts the transcript a reopened tab needs (the tool rows, the
-/// `TerminalBound` edge, the questions). Consecutive chunks of the same
-/// still-running call merge instead; this cap keeps a merged row from
-/// becoming one unbounded string.
+/// next chunk starts a fresh row. A command streaming in small chunks would
+/// be thousands of rows, and a ring of nothing but those evicts the
+/// transcript a reopened tab needs (the tool rows, the questions).
+/// Consecutive chunks of the same still-running call merge instead; this cap
+/// keeps a merged row from becoming one unbounded string.
 pub const MERGED_OUTPUT_CAP: usize = 256 * 1024;
 
 /// [`BACKLOG_CAP`] for a host with no `LocalSink` (the CLI daemon). It never
@@ -356,12 +348,9 @@ pub trait PromptLocalizer: Send + Sync + 'static {
 
 /// What the client advertises at `initialize`.
 ///
-/// `terminal: true` (EXP-750, revising D5): the five `terminal/*` methods run
-/// the agent's command on a PTY we own ([`crate::terminals`]), so a long
-/// command renders as a LIVE card with a Stop button instead of a block of
-/// text that appears once it is over. Output stays exactly as local as the
-/// `ToolCallContent::Content` path it joins — the wire never carried a
-/// command's stdout and still does not. `elicitation.form` is NOT optional — without it the
+/// No `terminal` (EXP-1991, D5 again): both adapters report a command's
+/// output as `ToolCallContent::Content`, and the client serves none of the
+/// `terminal/*` methods, so it never offers them. `elicitation.form` is NOT optional — without it the
 /// claude port has to disallow `AskUserQuestion` and codex answers
 /// `requestUserInput` with `{}` immediately, silently discarding the agent's
 /// question.
@@ -370,7 +359,6 @@ pub fn client_capabilities() -> ClientCapabilities {
         .fs(FileSystemCapabilities::new()
             .read_text_file(true)
             .write_text_file(true))
-        .terminal(true)
         .elicitation(ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()))
         .session(
             ClientSessionCapabilities::new()
@@ -522,24 +510,6 @@ pub(crate) fn out_is_activity(out: &MapOut) -> bool {
         )
     });
     wire || local || out.idle == Some(true)
-}
-
-/// How often terminal output is allowed to move the activity clock.
-const TERMINAL_ACTIVITY_STEP: Duration = Duration::from_secs(1);
-
-/// FEED-25: does this terminal event count as the agent being alive? An
-/// agent's `terminal/*` command bypasses the mapper entirely, so without this
-/// a claude `Bash` call with a raised `BASH_MAX_TIMEOUT_MS` streams for half
-/// an hour and still reads as a wedged turn. Written bytes count, and so does
-/// the exit edge that closes the card (once per terminal, and a command
-/// finishing IS progress); a `bind` flush of nothing at all does not.
-pub(crate) fn terminal_is_activity(event: &LocalFeedEvent) -> bool {
-    match event {
-        LocalFeedEvent::Output {
-            chunk, exit_code, ..
-        } => !chunk.is_empty() || exit_code.is_some(),
-        _ => false,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -794,8 +764,8 @@ impl FeedState {
         true
     }
 
-    /// Append a streaming terminal chunk onto the row it continues, instead
-    /// of pushing a row per PTY read. Only the LAST row qualifies, only for
+    /// Append a streaming output chunk onto the row it continues, instead
+    /// of pushing a row per chunk. Only the LAST row qualifies, only for
     /// the same tool call, and only while neither carries an exit code (the
     /// closing event stays its own row, so a card still ends where it did).
     /// `true` = merged, nothing to push.
@@ -1137,10 +1107,6 @@ pub struct SessionCtx {
     pub sink: OnceLock<Arc<dyn EventSink>>,
     pub feed: LocalFeed,
     pub(crate) asks: PendingAsks,
-    /// EXP-750: the live `terminal/*` children this session spawned. Killed
-    /// at the end of the run, and on drop — nothing an agent started here
-    /// outlives it.
-    pub(crate) terminals: Terminals,
     pub(crate) ids: Mutex<SessionIds>,
     /// EXP-214: the latest pending flag; the lifecycle ticker forwards it.
     pub needs_input: AtomicBool,
@@ -1632,16 +1598,6 @@ impl SessionCtx {
             }
         }
         for event in out.local {
-            // EXP-750: the terminal a tool call embeds is bound BEFORE the
-            // edge is emitted, so the buffered output flushes onto the card
-            // the renderer is about to create.
-            if let LocalFeedEvent::TerminalBound {
-                tool_call_id,
-                terminal_id,
-            } = &event
-            {
-                self.terminals.bind(terminal_id, tool_call_id);
-            }
             self.feed.emit(self.local_sink.as_ref(), event);
         }
         if let Some(title) = out.agent_title {
@@ -1739,20 +1695,6 @@ impl SessionCtx {
     pub fn touch_activity(&self) {
         if let Ok(mut at) = self.last_activity.lock() {
             *at = Instant::now();
-        }
-    }
-
-    /// FEED-25: the same clock, from the terminal reader thread — a chatty
-    /// command hits this per PTY read, so the write is rate-limited to one
-    /// per [`TERMINAL_ACTIVITY_STEP`]. The comparison IS the rate limit: the
-    /// stored instant only moves once the step has elapsed, which leaves the
-    /// clock at most one step behind and costs one uncontended lock.
-    pub fn touch_activity_throttled(&self) {
-        if let Ok(mut at) = self.last_activity.lock() {
-            let now = Instant::now();
-            if now.saturating_duration_since(*at) >= TERMINAL_ACTIVITY_STEP {
-                *at = now;
-            }
         }
     }
 
@@ -1890,11 +1832,6 @@ where
     let notify_ctx = ctx.clone();
     let permission_ctx = ctx.clone();
     let elicit_ctx = ctx.clone();
-    let create_ctx = ctx.clone();
-    let output_ctx = ctx.clone();
-    let wait_ctx = ctx.clone();
-    let kill_ctx = ctx.clone();
-    let release_ctx = ctx.clone();
     let main_ctx = ctx.clone();
 
     Client
@@ -2032,75 +1969,6 @@ where
                     Ok(())
                 })?;
                 Ok(())
-            },
-            on_receive_request!(),
-        )
-        // EXP-750 — the five `terminal/*` methods. Four are inline (a spawn,
-        // a buffer read, a signal); only the wait can outlast the dispatch
-        // loop's patience, so it is the one that spawns.
-        .on_receive_request(
-            async move |request: CreateTerminalRequest, responder, _cx| match create_terminal(
-                &create_ctx,
-                &request,
-            ) {
-                Ok(terminal_id) => responder.respond(CreateTerminalResponse::new(terminal_id)),
-                Err(err) => responder.respond_with_internal_error(err),
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: TerminalOutputRequest, responder, _cx| match output_ctx
-                .terminals
-                .snapshot(request.terminal_id.0.as_ref())
-            {
-                Some(snapshot) => responder.respond(
-                    TerminalOutputResponse::new(snapshot.output, snapshot.truncated)
-                        .exit_status(snapshot.exit.as_ref().map(exit_status)),
-                ),
-                None => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: WaitForTerminalExitRequest, responder, cx| {
-                // The whole point of this one is to block until the command
-                // finishes — inline it and the session stops dispatching for
-                // as long as the agent's build takes.
-                let ctx = wait_ctx.clone();
-                cx.spawn(async move {
-                    let terminal_id = request.terminal_id.clone();
-                    let result = match ctx.terminals.wait(terminal_id.0.as_ref()).await {
-                        Some(exit) => {
-                            responder.respond(WaitForTerminalExitResponse::new(exit_status(&exit)))
-                        }
-                        None => responder.respond_with_error(unknown_terminal(&terminal_id)),
-                    };
-                    if let Err(err) = result {
-                        log::warn!("engine: terminal wait response failed: {err}");
-                    }
-                    Ok(())
-                })?;
-                Ok(())
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: KillTerminalRequest, responder, _cx| match kill_ctx
-                .terminals
-                .kill(request.terminal_id.0.as_ref())
-            {
-                true => responder.respond(KillTerminalResponse::new()),
-                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: ReleaseTerminalRequest, responder, _cx| match release_ctx
-                .terminals
-                .release(request.terminal_id.0.as_ref())
-            {
-                true => responder.respond(ReleaseTerminalResponse::new()),
-                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
             },
             on_receive_request!(),
         )
@@ -2310,7 +2178,6 @@ where
                 }
             }
             ctx.asks.cancel_all();
-            ctx.terminals.kill_all();
             // EXP-766: the same dismissal `EngineCommand::Cancel` does. The
             // loop ending with a card open used to leave that card published
             // and `needs_input` true, so the ended run still read as waiting
@@ -2982,9 +2849,8 @@ fn drain_queue(
 
 /// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the
 /// user's Stop, `!cancel_queued` the stall watchdog's interrupt. Both dismiss
-/// the open cards and kill the agent's terminals — a stalled turn has no
-/// card open (`needs_input` gates the watchdog) and no terminal writing (its
-/// bytes would have reset the clock), so nothing of value is lost there.
+/// the open cards — a stalled turn has none open (`needs_input` gates the
+/// watchdog), so nothing of value is lost there.
 fn cancel_turn(
     cx: &agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -2995,7 +2861,6 @@ fn cancel_turn(
     meta.insert(CANCEL_QUEUED_META_KEY.to_string(), serde_json::Value::Bool(cancel_queued));
     let _ = cx.send_notification(CancelNotification::new(session_id.clone()).meta(meta));
     ctx.asks.cancel_all();
-    ctx.terminals.kill_all();
     let mut out = MapOut::default();
     ctx.with_mapper(|mapper| mapper.on_cancel(&mut out));
     ctx.dispatch(out);
@@ -3393,59 +3258,6 @@ fn elicitation_content(
     content
 }
 
-/// `terminal/create`: the agent's command on a PTY of ours, streaming into
-/// the local feed. `cwd` defaults to the run's own worktree — an agent that
-/// names none means "where this session works", never wherever the desktop
-/// process happens to have been started.
-fn create_terminal(
-    ctx: &Arc<SessionCtx>,
-    request: &CreateTerminalRequest,
-) -> std::io::Result<String> {
-    let mut spec = crate::spawn::SpawnSpec::new(request.command.clone())
-        .args(request.args.clone())
-        .cwd(
-            request
-                .cwd
-                .clone()
-                .unwrap_or_else(|| ctx.run.worktree.clone()),
-        );
-    for variable in &request.env {
-        spec = spec.env(variable.name.clone(), variable.value.clone());
-    }
-    // WEAK on purpose: a terminal that outlives its session (a child ignoring
-    // its kill) must not keep the whole run's context alive with it.
-    let weak = Arc::downgrade(ctx);
-    let sink: TerminalSink = Arc::new(move |event| {
-        if let Some(ctx) = weak.upgrade() {
-            // FEED-25: a running command is the agent working, even though
-            // none of this ever reaches the mapper (or the wire).
-            if terminal_is_activity(&event) {
-                ctx.touch_activity_throttled();
-            }
-            ctx.emit_local(event);
-        }
-    });
-    ctx.terminals.create(&spec, request.output_byte_limit, sink)
-}
-
-/// A `ChildExit` in ACP's own shape. `exit_code` is `u32` there, so a signal
-/// death (our `-1`) reports the signal and no code, which is exactly what the
-/// schema means by "may be null if terminated by signal".
-fn exit_status(exit: &crate::spawn::ChildExit) -> TerminalExitStatus {
-    TerminalExitStatus::new()
-        .exit_code(u32::try_from(exit.code).ok())
-        .signal(exit.signal.clone())
-}
-
-/// An id we never handed out (or one already released): the agent's mistake,
-/// not ours, so it is `invalid_params` with the id spelled out.
-fn unknown_terminal(terminal_id: &TerminalId) -> Error {
-    Error::invalid_params().data(serde_json::Value::String(format!(
-        "unknown terminal `{}`",
-        terminal_id.0
-    )))
-}
-
 fn read_text_file(request: &ReadTextFileRequest) -> Result<String, std::io::Error> {
     let content = std::fs::read_to_string(&request.path)?;
     if request.line.is_none() && request.limit.is_none() {
@@ -3635,13 +3447,13 @@ mod tests {
     }
 
     #[test]
-    fn the_client_advertises_terminals_and_a_form_elicitation() {
+    fn the_client_advertises_files_and_a_form_elicitation_but_no_terminals() {
         let capabilities = client_capabilities();
         assert!(capabilities.fs.read_text_file);
         assert!(capabilities.fs.write_text_file);
-        // EXP-750: an agent's command may run as a LIVE terminal here — its
-        // output is still a local card and never a wire row.
-        assert!(capabilities.terminal);
+        // EXP-1991: the client runs no `terminal/*` commands, so it never
+        // offers to; both adapters report command output as content.
+        assert!(!capabilities.terminal);
         assert!(capabilities
             .elicitation
             .as_ref()
@@ -3686,25 +3498,6 @@ mod tests {
         let mut started = MapOut::default();
         started.idle = Some(false);
         assert!(!out_is_activity(&started));
-    }
-
-    /// A `terminal/*` command never touches the mapper, so its bytes are the
-    /// engine's ONLY sign of life while a long build runs.
-    #[test]
-    fn terminal_bytes_and_the_exit_are_activity_but_an_empty_flush_is_not() {
-        let output = |chunk: &str, exit_code: Option<i32>| LocalFeedEvent::Output {
-            tool_call_id: "call-1".to_string(),
-            chunk: chunk.to_string(),
-            exit_code,
-        };
-        assert!(terminal_is_activity(&output("test 12 of 400\n", None)));
-        // The card's closing edge: a command that finished IS progress.
-        assert!(terminal_is_activity(&output("", Some(0))));
-        // A `bind` with nothing buffered and no exit says nothing at all.
-        assert!(!terminal_is_activity(&output("", None)));
-        assert!(!terminal_is_activity(&LocalFeedEvent::Phase(
-            EnginePhase::Live
-        )));
     }
 
     // ── The local feed's backlog and its latest-wins state (review UI-2) ───
@@ -4072,23 +3865,15 @@ mod tests {
             .collect()
     }
 
-    /// The bug this guards (EXP-750 review C5): a live terminal pushes ONE
-    /// row per 8 KB PTY read, so a dev server left running evicted the whole
-    /// transcript — tool rows, the `TerminalBound` edge, the questions — from
-    /// what a reopened tab replays, leaving the output chunks with no card to
-    /// hang off.
+    /// The bug this guards (EXP-750 review C5): a command streaming ONE row
+    /// per chunk (a dev server left running) evicted the whole transcript —
+    /// tool rows, the questions — from what a reopened tab replays, leaving
+    /// the output chunks with no card to hang off.
     #[test]
-    fn streaming_terminal_chunks_coalesce_instead_of_evicting_the_transcript() {
+    fn streaming_output_chunks_coalesce_instead_of_evicting_the_transcript() {
         let feed = LocalFeed::default();
         feed.emit(None, LocalFeedEvent::Phase(EnginePhase::Live));
         feed.emit(None, narration("running the dev server"));
-        feed.emit(
-            None,
-            LocalFeedEvent::TerminalBound {
-                tool_call_id: "tc-1".into(),
-                terminal_id: "term-1".into(),
-            },
-        );
         // 10k reads of a chatty server, 64 bytes each.
         let chunk = "x".repeat(64);
         let total = 10_000 * chunk.len();
@@ -4098,9 +3883,6 @@ mod tests {
 
         let replay = drain(&feed.subscribe());
         assert_eq!(narrations(&replay), vec!["running the dev server"]);
-        assert!(replay
-            .iter()
-            .any(|event| matches!(event, LocalFeedEvent::TerminalBound { .. })));
         // Merged rows, not 10k of them, and the cap is the only thing that
         // starts a new one — with every byte still there.
         let rows = outputs(&replay);
@@ -4141,7 +3923,7 @@ mod tests {
     /// Coalescing is a BACKLOG concern: a live subscriber still gets every
     /// chunk as it happens, or the card would stop streaming.
     #[test]
-    fn a_live_subscriber_sees_every_terminal_chunk() {
+    fn a_live_subscriber_sees_every_output_chunk() {
         let feed = LocalFeed::default();
         let rx = feed.subscribe();
         feed.emit(None, output("tc-1", "a", None));

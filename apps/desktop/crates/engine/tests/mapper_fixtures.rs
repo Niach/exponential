@@ -465,30 +465,14 @@ fn a_multi_file_edit_publishes_every_section_in_one_patch() {
     assert_eq!(files[0].additions + files[1].additions, 2);
 }
 
-/// EXP-750: a `ToolCallContent::Terminal` is a LOCAL binding edge — the
-/// terminal id names the live command the card renders, and neither the id
-/// nor the command line it came from may reach the relay.
+/// EXP-1991: the client runs no terminals (it advertises `terminal: false`),
+/// so a `ToolCallContent::Terminal` an agent embeds anyway is a card detail
+/// with nothing behind it: no local event names it, and neither the id nor
+/// the command line it came from may reach the relay.
 #[test]
-fn a_terminal_tool_call_binds_locally_and_never_reaches_the_wire() {
-    let bindings: Vec<(String, String)> = local("terminal.jsonl")
-        .iter()
-        .filter_map(|event| match event {
-            engine::LocalFeedEvent::TerminalBound {
-                tool_call_id,
-                terminal_id,
-            } => Some((tool_call_id.clone(), terminal_id.clone())),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        bindings,
-        vec![
-            ("tc-7".to_string(), "term-1".to_string()),
-            // The completion repeats the embed; binding is idempotent
-            // downstream (the engine flushes once).
-            ("tc-7".to_string(), "term-1".to_string()),
-        ]
-    );
+fn a_terminal_tool_call_maps_to_nothing_and_never_reaches_the_wire() {
+    let local = format!("{:?}", local("terminal.jsonl"));
+    assert!(!local.contains("term-1"), "no local event names the terminal: {local}");
 
     let wire = wire("terminal.jsonl");
     assert_eq!(
