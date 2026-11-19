@@ -514,6 +514,12 @@ impl Backend for Ede {
         self.target
     }
 
+    // #EDE-80: the compositor releases what a run drove when its hold or
+    // its connection ends (and refuses a release after the person's Esc).
+    fn lets_go_itself(&self) -> bool {
+        true
+    }
+
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
         // #EDE-91: the person's desk only. #EDE-126: a space run is
         // listed its own space's output and nothing else.

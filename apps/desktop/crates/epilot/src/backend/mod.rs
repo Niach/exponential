@@ -346,6 +346,13 @@ pub(crate) trait Backend: Send {
     fn target(&self) -> Target {
         Target::Person
     }
+    /// Whether what this backend holds down is let go without it: `true`
+    /// where the compositor releases a run's keys and buttons itself once
+    /// its hold or connection ends (eDE), so a release it refuses leaves
+    /// nothing pressed (#ERR-29).
+    fn lets_go_itself(&self) -> bool {
+        false
+    }
     /// Every display, the primary marked; never empty.
     fn displays(&self) -> Result<Vec<DisplayInfo>, String>;
     /// `display`'s pixels now; any resolution, the frame fits it.
@@ -384,6 +391,16 @@ pub(crate) trait Backend: Send {
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
         Err("This desktop has no clipboard computer use can drive.".to_string())
     }
+}
+
+/// #ERR-29: the input lock lost its hold on the person's input (its
+/// connection gone, a release that never reached its thread): an error, a
+/// GlitchTip event, its text fixed so they group; the detail (the OS
+/// error, nothing of the person's) in the warning before it.
+#[cfg_attr(not(any(target_os = "linux", target_os = "windows")), allow(dead_code))]
+pub(crate) fn lock_lost(message: &'static str, detail: &dyn std::fmt::Display) {
+    log::warn!("{message}: {detail}");
+    log::error!("{message}");
 }
 
 /// Why this machine cannot drive anything, if so (no display, Wayland):

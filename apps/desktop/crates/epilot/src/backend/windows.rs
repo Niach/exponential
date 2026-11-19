@@ -1041,7 +1041,8 @@ impl Drop for Lock {
         // SAFETY: no pointers; the id names the lock thread, which lives
         // until it takes this WM_QUIT.
         if unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) } == 0 {
-            log::warn!("[computer] {}", last_error("Releasing the input lock"));
+            // #ERR-29: the hooks stay and keep the person's input until Esc.
+            super::lock_lost("[computer] the input lock was not released", &last_error("Releasing the input lock"));
             return;
         }
         if thread.thread().id() != std::thread::current().id() {
