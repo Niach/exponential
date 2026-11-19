@@ -25,6 +25,8 @@ struct SharedPayload: Sendable {
     var files: [SharedFile] = []
     /// Files past the extractor's cap, left unread: the composer's cap note.
     var moreFiles = false
+    /// Files over the server's limit, left out: the composer's rejected toast.
+    var rejected = 0
     /// EXP-1635: the raw share, what `ShareTargets.shareChatText` reads.
     var text: String = ""
     var subject: String?

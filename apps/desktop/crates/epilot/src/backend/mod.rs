@@ -139,7 +139,8 @@ pub(crate) enum Button {
 /// by the backend's own index (Windows a VK, macOS a keycode or a button).
 /// A lock swallows all of the person's input except each one's release,
 /// once: a button swallowed on its way up would stay down, and the agent's
-/// next move would drag what the person was dragging.
+/// next move would drag what the person was dragging. #EXP-1979: unless the
+/// agent pressed or released that one itself meanwhile ([`Self::ours`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 pub(crate) struct HeldAtEngage<const N: usize>(pub [bool; N]);
@@ -157,6 +158,15 @@ impl<const N: usize> HeldAtEngage<N> {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// #EXP-1979: the agent's own press or release of `index`. The agent
+    /// holds or let go of it now, so the person's release no longer passes:
+    /// it would cut into the agent's drag or combo.
+    pub(crate) fn ours(&mut self, index: usize) {
+        if let Some(slot) = self.0.get_mut(index) {
+            *slot = false;
         }
     }
 }
@@ -525,6 +535,10 @@ mod tests {
         assert!(!held.passes(1, false), "only once");
         assert!(!held.passes(2, false), "not held at engage");
         assert!(!held.passes(9, false), "out of range");
+        held.0[2] = true;
+        held.ours(2);
+        assert!(!held.passes(2, false), "the agent pressed or released it since");
+        held.ours(9);
     }
 
     /// #EXP-1921: a lock thread that answers after `take` gave up hears so

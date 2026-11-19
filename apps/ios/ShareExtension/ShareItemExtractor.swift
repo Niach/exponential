@@ -23,6 +23,7 @@ enum ShareItemExtractor {
         var files: [SharedFile] = []
         var subject: String?
         var moreFiles = false
+        var rejected = 0
 
         for item in items {
             if subject == nil {
@@ -42,6 +43,8 @@ enum ShareItemExtractor {
                                 moreFiles = true
                             } else if let file = loadFile(url) {
                                 files.append(file)
+                            } else {
+                                rejected += 1
                             }
                         } else {
                             webURL = url
@@ -56,12 +59,14 @@ enum ShareItemExtractor {
                         moreFiles = true
                     } else if let file = await loadFile(provider) {
                         files.append(file)
+                    } else {
+                        rejected += 1
                     }
                 }
             }
         }
 
-        if texts.isEmpty, webURL == nil, images.isEmpty, files.isEmpty, !moreFiles { return nil }
+        if texts.isEmpty, webURL == nil, images.isEmpty, files.isEmpty, !moreFiles, rejected == 0 { return nil }
 
         let (title, description) = composeText(texts: texts, webURL: webURL)
         return SharedPayload(
@@ -70,6 +75,7 @@ enum ShareItemExtractor {
             images: images,
             files: files,
             moreFiles: moreFiles,
+            rejected: rejected,
             text: texts.joined(separator: "\n"),
             subject: subject,
             url: webURL?.absoluteString

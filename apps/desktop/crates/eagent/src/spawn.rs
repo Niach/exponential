@@ -242,7 +242,7 @@ fn dedup_prepend(prepend: &[String], base: &str) -> String {
 
 // ---------------------------------------------------------------------------
 // The headless PTY (EXP-1426 part 4b, out of `terminal::pty`, which re-exports
-// it): the ACP `terminal/*` capability and the emulator both open one.
+// it): the emulator opens one.
 // ---------------------------------------------------------------------------
 
 /// The cell size a PTY's pixel extent starts at before an emulator measured

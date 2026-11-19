@@ -139,9 +139,9 @@ impl LocalExtras {
             }
             // EXP-1206: a RUNNING call is its headline alone — nothing
             // streams under it, so the transcript never jumps while a command
-            // prints. Its output (and the live terminal it ran in) is the
-            // wire's once it settles, the same bytes on every client.
-            engine::LocalFeedEvent::Output { .. } | engine::LocalFeedEvent::TerminalBound { .. } => {}
+            // prints. Its output is the wire's once it settles, the same
+            // bytes on every client.
+            engine::LocalFeedEvent::Output { .. } => {}
             // EXP-791: the plan reaches the reader through the answer card
             // and the transcript, and a thought is transcript too — neither
             // is pinned state here any more.
@@ -854,17 +854,12 @@ mod tests {
         assert!(tool_diff_file("--- a/x\n+++ b/x\n").is_none());
     }
 
-    /// EXP-1206: a RUNNING command's output and its live terminal never
-    /// collect locally — the row is its headline alone until the wire's
-    /// settled output lands.
+    /// EXP-1206: a RUNNING command's output never collects locally — the
+    /// row is its headline alone until the wire's settled output lands.
     #[test]
     fn streamed_output_never_hangs_off_a_row() {
         let mut extras = LocalExtras::default();
         extras.bind(7, "call-1".to_string());
-        extras.apply(engine::LocalFeedEvent::TerminalBound {
-            tool_call_id: "call-1".to_string(),
-            terminal_id: "term-1".to_string(),
-        });
         extras.apply(engine::LocalFeedEvent::Output {
             tool_call_id: "call-1".to_string(),
             chunk: "building\n".to_string(),
