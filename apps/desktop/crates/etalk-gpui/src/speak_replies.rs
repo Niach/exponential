@@ -914,6 +914,11 @@ impl SpeakReplies {
         let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speaks()) else {
             return;
         };
+        // #EXP-1981: while the call's own session is asked, nothing of the
+        // chat is the call's (a first call's chat answering its brief).
+        if call_agent.is_some() && crate::voice_call::session_pending(cx) {
+            return;
+        }
         let call_session = call_agent.as_ref().and_then(|_| crate::voice_call::session(cx));
         let Some(conversation) = call_session.clone().or_else(|| host::conversation(agent_id, cx)) else { return };
         // S-3: only a voice turn's reply: the call's conversation, or the

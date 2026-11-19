@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-19-calls-own-session-on-every-host`,
+    date: `2026-11-19`,
+    title: `Every call opens with the agent's own line`,
+    summary: `Calls the desktop app answers or runs, and encrypted calls on the CLI, get their own session again: the agent's opening line and the summary in the chat. A device that can't write into an encrypted chat no longer listens without answering.`,
+    body: `- **Desktop app calls**: a call the desktop app answers or runs itself gets its own session again, so the agent opens with its own line and the summary lands in the chat when you hang up.
+- **Encrypted calls**: a call whose audio is end-to-end encrypted gets its own session too, on the desktop app and the CLI.
+- **A device without its keys**: a desktop or CLI whose key holder isn't running no longer takes a call into an encrypted chat and swallows every word; the call ends at once and says the device couldn't get its voice ready.`,
+  },
+  {
     id: `2026-11-19-desktop-cli-0-14-170-calls-find-copy-image`,
     date: `2026-11-19`,
     title: `Calls with their own opening line, find in chat, and Copy image`,

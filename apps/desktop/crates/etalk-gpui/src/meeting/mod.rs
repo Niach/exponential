@@ -1056,7 +1056,7 @@ impl MeetingHost {
                             Err(err) => return (sent, Err(err)),
                         }
                     }
-                    (sent, last.ok_or_else(|| SendError { message: "nothing to send".into(), refused: false }))
+                    (sent, last.ok_or_else(|| SendError { message: "nothing to send".into(), refused: false, unstorable: false }))
                 })
                 .await;
             let _ = this.update(cx, |this, _| this.answered(&meeting_id, generation, parts, sent, result));
@@ -1271,8 +1271,8 @@ mod tests {
     /// classification itself: `ui/src/talk_host.rs`).
     #[test]
     fn a_refused_batch_is_dropped() {
-        assert!(refused(&SendError { message: "x".into(), refused: true }));
-        assert!(!refused(&SendError { message: "x".into(), refused: false }));
+        assert!(refused(&SendError { message: "x".into(), refused: true, unstorable: false }));
+        assert!(!refused(&SendError { message: "x".into(), refused: false, unstorable: false }));
 
         let mut batcher = Batcher::default();
         batcher.step(FlushEvent::Segment, 0, Some(segment("you", 0)));
@@ -1353,7 +1353,7 @@ mod tests {
     /// A send answered `status` (Exponential's refusal rule: a 4xx other
     /// than 401, 408, 429).
     fn http(status: u16) -> Result<Sent, SendError> {
-        Err(SendError { message: format!("HTTP {status}: x"), refused: (400..500).contains(&status) && !matches!(status, 401 | 408 | 429) })
+        Err(SendError { message: format!("HTTP {status}: x"), refused: (400..500).contains(&status) && !matches!(status, 401 | 408 | 429), unstorable: false })
     }
 
     #[test]

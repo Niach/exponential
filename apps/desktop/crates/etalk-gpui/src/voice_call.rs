@@ -119,6 +119,9 @@ struct Active {
     sent: bool,
     /// #EXP-1961: `openingWaitMs` passed since the voice was in.
     opening_waited: bool,
+    /// #EXP-1981: utterances said while the call's session was still asked
+    /// (a pickup that could wait no longer): sent once it answered.
+    held: Vec<String>,
 }
 
 /// S-3: what changes many times a second (the microphone's level, the
@@ -204,6 +207,12 @@ pub fn session(cx: &App) -> Option<String> {
     let this = entity.read(cx);
     let active = this.active.as_ref().filter(|active| !active.dialled && this.state.phase != CallPhase::Ringing)?;
     active.session.clone()
+}
+
+/// #EXP-1981: the running call's own session is still being asked: Speak
+/// replies speaks nothing of the chat meanwhile (none of its rows are the call's).
+pub(crate) fn session_pending(cx: &App) -> bool {
+    global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| !active.dialled && active.session_pending))
 }
 
 /// #EXP-1961: a ringing call's own session still waiting for its opening
@@ -374,7 +383,7 @@ pub fn start(agent_id: String, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     let device = target.name.unwrap_or_default();
     if target.local {
-        entity.update(cx, |this, cx| this.begin(agent_id, None, device, target.fallback, cx));
+        entity.update(cx, |this, cx| this.begin(agent_id, None, None, device, target.fallback, cx));
     } else {
         entity.update(cx, |this, cx| this.dial(agent_id, device, target.fallback, cx));
     }
@@ -457,6 +466,12 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
             Ok(connection) => {
                 // It got its ticket: this call id is not answered again.
                 let _ = weak.update(cx, |this, _| this.answered.note(&call_id, process_ms()));
+                // #EXP-1982: it can store none of the call's words here.
+                if let Some(code) = connection.refuse {
+                    log::warn!("[voice] call {call_id}: refused ({code}): the chat is end-to-end encrypted and this desktop has no key holder");
+                    fail_when_on_the_line(connection.link, connection.events, code, cx).await;
+                    return;
+                }
                 (connection.link, connection.events)
             }
             Err(err) => {
@@ -474,7 +489,10 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 host.end();
                 return false;
             }
-            this.begin(agent_id, Some(host), device, false, cx);
+            // #EXP-1981: the call session names the ring's call id. A sealed
+            // call is here only once its first frame opened: its key source
+            // adopted (or created) the chat before, so the server finds it.
+            this.begin(agent_id, Some(call_id), Some(host), device, false, cx);
             true
         });
         if !matches!(started, Ok(true)) {
@@ -524,24 +542,28 @@ fn refuse(call_id: String, agent_id: String, code: &'static str, cx: &mut App) {
     let Some(connecting) = host::host(cx).and_then(|host| host.connect_call(&call_id, &agent_id, true, cx)) else { return };
     cx.spawn(async move |cx| {
         let Ok(connection) = connecting.await else { return };
-        let (host, rx) = (connection.link, connection.events);
-        let started = std::time::Instant::now();
-        while started.elapsed() < ring_timeout() {
-            match rx.try_recv() {
-                Ok(CallLinkEvent::Ready) => {
-                    host.send_event(host_failed_event(code));
-                    break;
-                }
-                Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_))
-                | Err(flume::TryRecvError::Disconnected) => break,
-                Ok(_) | Err(flume::TryRecvError::Empty) => {
-                    cx.background_executor().timer(Duration::from_millis(50)).await;
-                }
-            }
-        }
-        host.end();
+        fail_when_on_the_line(connection.link, connection.events, code, cx).await;
     })
     .detach();
+}
+
+/// A refused call: `failed {code}` once the caller is on the line (within
+/// the relay's ring), then the hang-up.
+async fn fail_when_on_the_line(host: Box<dyn CallLink>, rx: flume::Receiver<CallLinkEvent>, code: &str, cx: &mut gpui::AsyncApp) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < ring_timeout() {
+        match rx.try_recv() {
+            Ok(CallLinkEvent::Ready) => {
+                host.send_event(host_failed_event(code));
+                break;
+            }
+            Ok(CallLinkEvent::Ended { .. } | CallLinkEvent::Dropped(_)) | Err(flume::TryRecvError::Disconnected) => break,
+            Ok(_) | Err(flume::TryRecvError::Empty) => {
+                cx.background_executor().timer(Duration::from_millis(50)).await;
+            }
+        }
+    }
+    host.end();
 }
 
 /// A speech-worker event that belongs to the call (routed here before
@@ -667,9 +689,11 @@ impl VoiceCall {
         self.active.as_ref().is_some_and(|active| active.dialled)
     }
 
-    /// A call whose speech runs HERE: local (`host` None) or streamed in.
+    /// A call whose speech runs HERE: local (`host` None) or streamed in
+    /// (`call_id` = the ring's server call id; #EXP-1981: None for a local
+    /// call, whose call session is asked without one).
     /// `device` = this desktop's name, `fallback` = not the agent's own.
-    fn begin(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
+    fn begin(&mut self, agent_id: String, call_id: Option<String>, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
         let Some(client) = crate::speak_replies::client(cx) else { return };
         // A held push to talk and anything being said stop first.
         crate::push_to_talk::cancel_for_call(cx);
@@ -683,7 +707,7 @@ impl VoiceCall {
         let id = self.open(agent_id.clone(), host, cx);
         let remote = self.active.as_ref().is_some_and(|active| active.host.is_some());
         // #EXP-1961: the call's own session, asked while it rings.
-        if let Some(job) = host::call_session(&agent_id, None, cx) {
+        if let Some(job) = host::call_session(&agent_id, call_id.as_deref(), cx) {
             if let Some(active) = self.active.as_mut() {
                 active.session_pending = true;
             }
@@ -692,11 +716,28 @@ impl VoiceCall {
                 let session = cx.background_executor().spawn(async move { job() }).await;
                 let _ = this.update(cx, |this, cx| {
                     if !this.is_call(&call) {
+                        // #EXP-1981: the call ended while it asked: its session hears the hang-up.
+                        if let Some(session) = session.as_deref() {
+                            log::info!("[voice] call {call}: its session {session} came after the hang-up");
+                            host::call_ended(session, cx);
+                        }
                         return;
                     }
+                    let mut held = Vec::new();
+                    let mut agent_id = String::new();
                     if let Some(active) = this.active.as_mut() {
                         active.session_pending = false;
+                        if session.is_none() {
+                            // No session: the chat takes the call (no late opening to drop).
+                            active.late_opening = false;
+                        }
                         active.session = session;
+                        held = std::mem::take(&mut active.held);
+                        agent_id = active.agent_id.clone();
+                    }
+                    // What was said meanwhile goes where its answer is spoken.
+                    for text in held {
+                        this.send(agent_id.clone(), text, cx);
                     }
                     this.check_opening(cx);
                 });
@@ -871,6 +912,7 @@ impl VoiceCall {
             late_opening: false,
             sent: false,
             opening_waited: false,
+            held: Vec::new(),
         });
         self.live.update(cx, |live, _| *live = CallLive::default());
         id
@@ -1087,7 +1129,8 @@ impl VoiceCall {
                 }
             }
             None => {
-                active.late_opening = active.session.is_some();
+                // #EXP-1981: a session still asked has its opening still to come, too.
+                active.late_opening = active.session.is_some() || active.session_pending;
                 self.step(CallEvent::ReplyFinished, cx);
             }
         }
@@ -1117,7 +1160,8 @@ impl VoiceCall {
     /// Hang up the worker (and the host, when told) and step `event`: End,
     /// or the caller's `call_end` as `HungUp(reason)`.
     fn close_with(&mut self, tell_host: bool, event: CallEvent, cx: &mut Context<Self>) {
-        let Some(active) = self.active.take() else { return };
+        let Some(mut active) = self.active.take() else { return };
+        self.send_held(&mut active, cx);
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
         }
@@ -1139,7 +1183,8 @@ impl VoiceCall {
     }
 
     fn fail(&mut self, code: &str, cx: &mut Context<Self>) {
-        let Some(active) = self.active.take() else { return };
+        let Some(mut active) = self.active.take() else { return };
+        self.send_held(&mut active, cx);
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
         }
@@ -1291,7 +1336,20 @@ impl VoiceCall {
         self.send(agent_id, text, cx);
     }
 
+    /// #EXP-1981: the call ended while its session was asked: what it held
+    /// goes into the chat (the old path), never lost.
+    fn send_held(&mut self, active: &mut Active, cx: &mut Context<Self>) {
+        for text in std::mem::take(&mut active.held) {
+            self.send(active.agent_id.clone(), text, cx);
+        }
+    }
+
     fn send(&mut self, agent_id: String, text: String, cx: &mut Context<Self>) {
+        // #EXP-1981: the call's session is still asked: held until it answers.
+        if let Some(active) = self.active.as_mut().filter(|active| active.session_pending) {
+            active.held.push(text);
+            return;
+        }
         let Some(mut outgoing) = host::outgoing(&agent_id, &text, cx) else { return };
         // #EXP-1961: into the call's own session (sealed with the chat's tree key).
         if let Some(session) = self.active.as_ref().and_then(|active| active.session.clone()) {
@@ -1301,13 +1359,28 @@ impl VoiceCall {
             outgoing.target = etalk::voice::UtteranceTarget::Session { session_id: session, text };
         }
         let Some(job) = host::send(outgoing, cx) else { return };
-        cx.spawn(async move |_, cx| {
+        let call = self.active.as_ref().map(|active| active.id.clone()).unwrap_or_default();
+        cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { job() }).await;
-            if let Err(err) = result {
+            match result {
+                // #EXP-1982: no word of this call can be stored (an encrypted
+                // chat, no key holder here): the call ends instead of
+                // listening on and swallowing every line.
+                Err(err) if err.unstorable => {
+                    log::warn!("[voice] call {call}: the send was refused and nothing can be stored here: {err}");
+                    let _ = this.update(cx, |this, cx| {
+                        if this.is_call(&call) {
+                            this.fail("dropped", cx);
+                        }
+                    });
+                }
                 // The call goes on; the words are in the log, never lost
                 // silently: a toast says the line did not go out.
-                log::warn!("[voice] call: the send failed: {err}");
-                let _ = cx.update(|cx| host::notify(Notice::Error(etalk::voice::VOICE.ptt_copy.overlay_not_sent.clone()), cx));
+                Err(err) => {
+                    log::warn!("[voice] call: the send failed: {err}");
+                    let _ = cx.update(|cx| host::notify(Notice::Error(etalk::voice::VOICE.ptt_copy.overlay_not_sent.clone()), cx));
+                }
+                Ok(_) => {}
             }
         })
         .detach();
@@ -2163,6 +2236,105 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(*link.borrow(), [format!("event {}", host_failed_event("busy")), "end".to_string()]);
         cx.update(|cx| assert!(active(cx) && phase(cx) == CallPhase::Ringing, "the call here goes on"));
+    }
+
+    /// #EXP-1981: a rung call asks for its call session with the RING'S
+    /// call id (it was an empty one, a 400, on every call), once the relay
+    /// admitted this desktop: a sealed call only after its first frame
+    /// opened, when its key source has adopted (or created) the chat. Its
+    /// utterances go into that session and its hang-up is told. A call run
+    /// here asks with no call id at all.
+    #[gpui::test]
+    async fn a_rung_call_asks_for_its_session_with_the_rings_call_id(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        let (caller, _link) = rig.incoming_call();
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        assert!(rig.session_asks().is_empty(), "nothing before the caller is on the line");
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.run_until_parked();
+        assert_eq!(rig.session_asks(), [(AGENT.to_string(), Some("c-1".to_string()))]);
+        let id = cx.update(|cx| {
+            let this = global(cx).unwrap().read(cx);
+            let active = this.active.as_ref().unwrap();
+            assert_eq!(active.session.as_deref(), Some("call-s"));
+            active.id.clone()
+        });
+        answered(&rig, &id, cx);
+        cx.executor().advance_clock(Duration::from_millis(VOICE_CALL.call_session.opening_wait_ms));
+        cx.run_until_parked();
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "hello".into() }, cx);
+        assert_eq!(rig.call_log().0, ["call-s"], "the utterance goes into the call session");
+        caller.send(CallLinkEvent::Ended { reason: None }).unwrap();
+        cx.run_until_parked();
+        assert_eq!(rig.call_log().1, ["call-s"], "the hang-up is told");
+        rung(cx);
+        cx.run_until_parked();
+        assert_eq!(rig.session_asks(), [(AGENT.to_string(), None)], "a local call names no call id");
+    }
+
+    /// #EXP-1981: a call that ends while its session is still asked: the
+    /// session that answers afterwards hears the hang-up (it would otherwise
+    /// read as running and the next call would resume it).
+    #[gpui::test]
+    async fn a_session_that_answers_after_the_hang_up_hears_it(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        cx.update(|cx| {
+            start(AGENT.into(), cx);
+            end(cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(rig.session_asks(), [(AGENT.to_string(), None)]);
+        assert_eq!(rig.call_log().1, ["call-s"]);
+    }
+
+    /// #EXP-1982: a ring the host refused (a clear call into an encrypted
+    /// chat, no key holder here) never begins: no call, no worker, no call
+    /// session; the caller gets `failed {unavailable}` once it is on the
+    /// line, then the hang-up.
+    #[gpui::test]
+    async fn a_refused_ring_fails_unavailable_and_never_begins(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        rig.requests();
+        let (caller, link) = rig.incoming_refused_call("unavailable");
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        assert_eq!(*link.borrow(), [format!("event {}", host_failed_event("unavailable")), "end".to_string()]);
+        cx.update(|cx| assert!(!active(cx), "the call never began"));
+        assert!(rig.session_asks().is_empty(), "no call session for it");
+        assert!(rig.requests().iter().all(|request| !matches!(request, etalk::Request::Call { .. })), "nothing listens");
+    }
+
+    /// #EXP-1982 (backstop): a send refused while this desktop has no key
+    /// holder can never land, nor can any later one: the call ends
+    /// `dropped` (the caller's toast) instead of listening on. Any other
+    /// failed send keeps the call and toasts the line not sent here.
+    #[gpui::test]
+    async fn a_send_that_can_never_be_stored_ends_the_call(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let (caller, link) = rig.incoming_call();
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.run_until_parked();
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.run_until_parked();
+        let id = cx.update(|cx| global(cx).unwrap().read(cx).active.as_ref().unwrap().id.clone());
+        answered(&rig, &id, cx);
+        rig.fail_sends(crate::host::SendError { message: "HTTP 400: not sent".into(), refused: true, unstorable: false });
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "hello".into() }, cx);
+        cx.update(|cx| assert!(active(cx), "a refusal another desktop could pass: the call goes on"));
+        link.borrow_mut().clear();
+        rig.fail_sends(crate::host::SendError { message: "HTTP 400: no key".into(), refused: true, unstorable: true });
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "anyone there?".into() }, cx);
+        cx.update(|cx| assert!(!active(cx), "the call ended"));
+        let sent = link.borrow().clone();
+        let failed = sent.iter().position(|line| *line == format!("event {}", host_failed_event("dropped")));
+        assert!(failed.is_some_and(|at| sent[at + 1..] == ["end".to_string()]), "the caller's toast, then the hang-up: {sent:?}");
     }
 
     /// #EXP-1941: the ring names its agent to the host (the ticket vouches
