@@ -1557,34 +1557,33 @@ mod tests {
     }
 
     impl Server {
+        /// Exponential patch (#EXP-1970): Xvfb picks a free display number itself
+        /// (`-displayfd`) and writes it once it accepts connections, so the server
+        /// reached is always this child (a guessed number could be another's).
         fn start() -> Option<Self> {
+            use std::io::BufRead as _;
             use std::process::{Command, Stdio};
-            for number in 4800 + std::process::id() % 500.. {
-                let display = format!(":{number}");
-                let Ok(mut child) = Command::new("Xvfb")
-                    .args([display.as_str(), "-screen", "0", "640x480x24", "-nolisten", "tcp"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                else {
-                    return None;
-                };
-                for _ in 0..200 {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    if child.try_wait().ok().flatten().is_some() {
-                        break;
-                    }
-                    if x11rb::connect(Some(&display)).is_ok() {
-                        return Some(Server { child, display });
-                    }
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                if number > 4800 + 520 {
-                    return None;
-                }
+            let Ok(mut child) = Command::new("Xvfb")
+                .args(["-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return None;
+            };
+            let stdout = child.stdout.take().unwrap();
+            // The guard from here on: a failing test still stops its server.
+            let mut server = Server { child, display: String::new() };
+            let mut number = String::new();
+            std::io::BufReader::new(stdout).read_line(&mut number).ok()?;
+            let number = number.trim();
+            if number.is_empty() {
+                // Xvfb exited without a display (no `-displayfd` support).
+                return None;
             }
-            None
+            server.display = format!(":{number}");
+            Some(server)
         }
     }
 

@@ -125,6 +125,12 @@ program, so the IDE's "Copy image" shipped on macOS/Windows only.
 - **Tests:** the `clipboard` tests in the three files; the X11 round trip
   starts a private Xvfb (skipped without one) and reads from another client,
   including an image larger than a request.
+- **Private Xvfb (#EXP-1970):** the input shape and clipboard round-trip
+  tests start Xvfb with `-displayfd` and use the number it writes once it
+  accepts connections, so the server they reach is always their own child
+  (a guessed `base + pid % 500` could be another test's or another
+  session's Xvfb, which failed them at random under load). The `Server`
+  guard kills it when the test ends, failed or not.
 
 ## Packaging
 
