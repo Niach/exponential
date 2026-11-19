@@ -115,6 +115,8 @@ function listen() {
 /** Sign-in: this account's store (started once the tab is idle). */
 export function startChatStore(userId: string): void {
   if (account === userId) return
+  // Rows a chat loaded while no store ran (before this start) are this start's.
+  const kept = account === undefined ? [...early.values()] : []
   stopChatStore()
   account = userId
   listen()
@@ -122,6 +124,7 @@ export function startChatStore(userId: string): void {
     activityBound = true
     for (const type of [`pointerdown`, `keydown`, `wheel`]) window.addEventListener(type, noteActive, { passive: true, capture: true })
   }
+  if (kept.length > 0) recordMessages(kept)
   const warm = () => void ensure()
   if (typeof requestIdleCallback === `function`) requestIdleCallback(warm, { timeout: 5_000 })
   else setTimeout(warm, 1_000)
@@ -153,6 +156,7 @@ export function stopChatStore(): void {
   feeds.clear()
   seen.clear()
   locked.clear()
+  early.clear()
 }
 
 /** One op on the worker; undefined = no store here (unsupported, stopped). */
@@ -245,6 +249,8 @@ export type MessageLike = {
 
 /** id → what was stored (the raw body and whether it opened). */
 const seen = new Map<string, string>()
+/** Rows a chat loaded before the store started (stored at the start). */
+const early = new Map<string, MessageLike>()
 /** Rows stored without a body: stored again when a key arrives. */
 const locked = new Map<string, MessageLike>()
 let keyWatch: (() => void) | undefined
@@ -262,7 +268,13 @@ function storedMessage(row: MessageLike): StoredMessage | null {
 /** The synced messages a chat loaded (any number of times: only what
  *  changed goes to the worker). */
 export function recordMessages(rows: readonly MessageLike[]): void {
-  if (!account || rows.length === 0) return
+  if (rows.length === 0) return
+  if (!account) {
+    // #EDE-99: a chat's first rows land before the layout starts the store
+    // (a child's effects run first): keep them for the start.
+    for (const row of rows) if (early.size < SEEN_MAX) early.set(row.id, row)
+    return
+  }
   const out: StoredMessage[] = []
   for (const row of rows) {
     const message = storedMessage(row)

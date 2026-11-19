@@ -47,6 +47,7 @@ import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
 import { useAppIconBadge } from "@/hooks/use-app-icon-badge"
 import { useWebInstall } from "@/lib/enet/use-web-install"
+import { startChatStore, stopChatStore } from "@/lib/chat-store/client"
 import {
   useTeamBySlug,
   useTeamBoards,
@@ -160,6 +161,14 @@ function TeamLayout() {
   // under the team app too (`_authenticated` does not wrap /t/$teamSlug).
   useWebInstall(user?.id)
   useKeyHolder(user?.id)
+  // #EDE-115/#EDE-99: every chat on this browser (OPFS) under the team app
+  // too: find in chat's older hits and the global search's Chats read it.
+  const storeUserId = user?.id
+  useEffect(() => {
+    if (!storeUserId) return
+    startChatStore(storeUserId)
+    return () => stopChatStore()
+  }, [storeUserId])
   // #FEED-232: the OS app icon's count (every team's Needs you rows).
   useAppIconBadge(user?.id)
   // #EXP-1815: a new notification while the app is open = THE toast,
