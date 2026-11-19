@@ -1629,7 +1629,8 @@ mod tests {
 
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
-    /// epilot headless_ede`. Skipped without it (the desktop CI builds no
+    /// epilot headless_ede`. Skipped without it (the gate's `ede` job builds
+    /// the compositor and sets it, #EDE-140; its desktop job builds no
     /// eDE). Checks the grant too: the connection holds `capture`,
     /// `input:person` and `ui` only, never the root's `system`. #EDE-140:
     /// with windows of its own (listed, activated, typed into, a protected
