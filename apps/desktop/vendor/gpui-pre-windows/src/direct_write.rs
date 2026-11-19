@@ -2348,3 +2348,141 @@ mod tests {
         Ok(())
     }
 }
+
+/// Exponential patch (#VAPP-166 / #EXP-1889), tests only: a VARIABLE font
+/// (Google Fonts' `Nunito[wght].ttf`, default instance 200) lays out and
+/// paints at the weight asked for on DirectWrite, like the static instances
+/// the conformance set carries. The Linux and macOS twins are
+/// `crates/eui-gpui/tests/variable_fonts.rs` and `variable_font_macos.rs`.
+#[cfg(test)]
+mod exponential_variable_font_tests {
+    // Not `super::*`: that glob brings `gpui::test`, which shadows `#[test]`.
+    use super::DirectWriteTextSystem;
+    use gpui::{
+        Font, FontRun, FontStyle, FontWeight, PlatformTextSystem, RenderGlyphParams, SharedString,
+        point, px,
+    };
+    use std::borrow::Cow;
+    use std::path::PathBuf;
+
+    const SAMPLE: &str = "Hamburgefonstiv spezl";
+
+    fn font_file(name: &str) -> Vec<u8> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../packages/exponential-ui/conformance/fonts")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// A text system whose custom collection holds only `files`.
+    fn system(files: &[&str]) -> DirectWriteTextSystem {
+        let ts = DirectWriteTextSystem::new(None).expect("DirectWrite starts without a GPU");
+        ts.add_fonts(files.iter().map(|f| Cow::Owned(font_file(f))).collect())
+            .expect("the fonts load");
+        ts
+    }
+
+    fn font(weight: f32) -> Font {
+        Font {
+            family: SharedString::from("Nunito"),
+            features: Default::default(),
+            fallbacks: None,
+            weight: FontWeight(weight),
+            style: FontStyle::Normal,
+        }
+    }
+
+    fn layout(ts: &DirectWriteTextSystem, weight: f32) -> gpui::LineLayout {
+        let id = ts.font_id(&font(weight)).expect("Nunito resolves");
+        ts.layout_line(SAMPLE, px(32.0), &[FontRun { len: SAMPLE.len(), font_id: id }])
+    }
+
+    fn width(ts: &DirectWriteTextSystem, weight: f32) -> f32 {
+        f32::from(layout(ts, weight).width)
+    }
+
+    /// The summed coverage of the sample's glyphs, rasterised at `weight`.
+    fn ink(ts: &DirectWriteTextSystem, weight: f32) -> u64 {
+        let line = layout(ts, weight);
+        let mut total = 0u64;
+        let mut glyphs = 0;
+        for run in &line.runs {
+            for g in &run.glyphs {
+                let params = RenderGlyphParams {
+                    font_id: run.font_id,
+                    glyph_id: g.id,
+                    font_size: px(32.0),
+                    subpixel_variant: point(0u8, 0u8),
+                    scale_factor: 1.0,
+                    is_emoji: false,
+                    subpixel_rendering: false,
+                    dilation: 0,
+                };
+                let bounds = ts.glyph_raster_bounds(&params).expect("bounds");
+                if bounds.size.width.0 == 0 || bounds.size.height.0 == 0 {
+                    continue;
+                }
+                let (_, bytes) = ts.rasterize_glyph(&params, bounds).expect("raster");
+                total += bytes.iter().map(|&b| b as u64).sum::<u64>();
+                glyphs += 1;
+            }
+        }
+        assert!(glyphs > 10, "the sample's glyphs rasterise: {glyphs}");
+        total
+    }
+
+    #[test]
+    fn variable_font_lays_out_at_the_requested_weight() {
+        let variable = system(&["Nunito-Variable.ttf"]);
+        let pairs = [
+            (400.0, "Nunito-Regular.ttf"),
+            (500.0, "Nunito-Medium.ttf"),
+            (600.0, "Nunito-SemiBold.ttf"),
+            (700.0, "Nunito-Bold.ttf"),
+            (800.0, "Nunito-ExtraBold.ttf"),
+        ];
+        let mut report = Vec::new();
+        for (weight, file) in pairs {
+            report.push((weight, width(&variable, weight), width(&system(&[file]), weight)));
+        }
+        let default_instance = width(&variable, 200.0);
+        // Printed first, so a red run still shows every number.
+        eprintln!(
+            "VAPP-166 DirectWrite: Nunito[wght] at 200 = {default_instance} px; (weight, variable, static) = {report:?}"
+        );
+        for (weight, got, want) in &report {
+            assert!(*want > 0.0, "the static instance at {weight} lays out");
+            assert!(
+                (got - want).abs() <= want * 0.01,
+                "Nunito[wght] at {weight}: {got} px wide, the static instance {want} px"
+            );
+        }
+        for pair in report.windows(2) {
+            assert!(
+                pair[1].1 > pair[0].1,
+                "{} is wider than {}: {report:?}",
+                pair[1].0,
+                pair[0].0
+            );
+        }
+        assert!(default_instance < report[0].1, "the default (200) instance is narrower than 400");
+    }
+
+    #[test]
+    fn variable_font_paints_at_the_requested_weight() {
+        let variable = system(&["Nunito-Variable.ttf"]);
+        let inks: Vec<u64> = [200.0, 400.0, 500.0, 600.0, 700.0, 800.0]
+            .iter()
+            .map(|&weight| ink(&variable, weight))
+            .collect();
+        let static_semi = ink(&system(&["Nunito-SemiBold.ttf"]), 600.0);
+        eprintln!(
+            "VAPP-166 DirectWrite: Nunito[wght] ink at 200/400/500/600/700/800 = {inks:?}, static SemiBold = {static_semi}"
+        );
+        for pair in inks.windows(2) {
+            assert!(pair[0] < pair[1], "more weight, more ink: {inks:?}");
+        }
+        let diff = (inks[3] as f64 - static_semi as f64).abs() / static_semi as f64;
+        assert!(diff < 0.03, "600 paints like the static SemiBold: {} vs {static_semi}", inks[3]);
+    }
+}
