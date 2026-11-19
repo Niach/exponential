@@ -743,6 +743,19 @@ mod tests {
             panic!("never: {what} (host: {}, caller: {})", self.host_kinds().join(" "), self.caller_kinds().join(" "));
         }
 
+        /// Wait until the relay RECORDED a frame `matches` (a frame an end
+        /// sent is in its socket before the relay task reads it: an end's
+        /// own event can come first under load).
+        async fn until_recorded(&self, what: &str, matches: impl Fn(bool, &Message) -> bool) {
+            for _ in 0..600 {
+                if self.record.lock().unwrap().iter().any(|(up, frame)| matches(*up, frame)) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the relay never recorded: {what}");
+        }
+
         fn host_kinds(&self) -> Vec<String> {
             self.host_events.lock().unwrap().iter().map(|event| match event {
                 CallHostEvent::Audio(_) => "audio".into(),
@@ -906,7 +919,8 @@ mod tests {
         call.until("the caller gives up by itself", |_, caller| failed_dropped(caller)).await;
         assert!(started.elapsed() >= Duration::from_millis(400));
         assert_eq!(call.binary_lengths(true), [56]);
-        assert!(call.record.lock().unwrap().iter().any(|(up, frame)| *up && frame.to_string().contains("no_key")), "the caller said why");
+        // The caller said why (its `call_end` reaches the relay after its own event).
+        call.until_recorded("the caller's call_end no_key", |up, frame| up && frame.is_text() && frame.to_string().contains("no_key")).await;
     }
 
     /// Another device, another agent, another key, another root, an epoch
@@ -964,7 +978,7 @@ mod tests {
         let caller = call.caller_events.lock().unwrap();
         assert!(caller.contains(&CallCallerEvent::Event(json!({ "t": "partial", "text": "one" }))));
         assert!(!caller.contains(&CallCallerEvent::Event(json!({ "t": "partial", "text": "three" }))), "nothing after the hole");
-        assert!(call.record.lock().unwrap().iter().any(|(up, frame)| *up && frame.is_text() && frame.to_string().contains("call_end") && frame.to_string().contains("\"seal\"")));
+        call.until_recorded("the caller's call_end seal", |up, frame| up && frame.is_text() && frame.to_string().contains("call_end") && frame.to_string().contains("\"seal\"")).await;
     }
 
     /// A packet the codec could not fit into one step leaves as an empty
