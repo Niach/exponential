@@ -1331,18 +1331,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
+    /// The worker up without a request, as a test wants it: a spawn that
+    /// fails is an `Exited`, like a worker that died (as a request reports
+    /// it, off the lock).
+    #[cfg(unix)]
+    fn spawn_worker(client: &SpeechClient) {
+        let spawned = {
+            let mut guard = client.worker.lock().unwrap();
+            assert!(guard.is_none(), "no worker runs yet");
+            client.spawn().map(|worker| *guard = Some(worker))
+        };
+        if spawned.is_err() {
+            (client.on_event)(Event::Exited);
+        }
+    }
+
     /// #EXP-1885: a fake worker script, written by a child process. Written
     /// here, its write fd could leak into a sibling test's fork (open until
     /// that child execs), and spawning the script then fails with ETXTBSY:
     /// a failed start, reported as `Exited`, under load.
-    /// The worker up without a request, as a test wants it.
-    #[cfg(unix)]
-    fn spawn_worker(client: &SpeechClient) {
-        let mut guard = client.worker.lock().unwrap();
-        assert!(guard.is_none(), "no worker runs yet");
-        *guard = Some(client.spawn().expect("the worker spawns"));
-    }
-
     #[cfg(unix)]
     fn fake_worker(path: &std::path::Path, body: &str) {
         let status = Command::new("/bin/sh")
