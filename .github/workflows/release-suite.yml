@@ -187,9 +187,11 @@ jobs:
 
   # #EDE-11: eDE's goldens. The headless compositor draws the factory
   # documents through the supervisor and the shell (apps/ede/scripts/shots.sh),
-  # the shots lane encodes them, and the committed store must not move:
-  # a pixel that changed is a look that changed, and the PR re-records it
-  # with `bun run shots -- --platform ede --skip-seed`.
+  # the shots lane encodes them, and the committed store must not move.
+  # #EDE-140: "moved" is eDE's own tolerance (packages/shots/src/store.ts:
+  # more than one pixel in 10,000 changed clearly, or 2 % of them faintly),
+  # not the store's 0.5 %. The PR re-records with `bun run shots -- --platform
+  # ede --skip-seed`, or from this job's artifact (shots/README.md).
   ede-goldens:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ede-goldens')

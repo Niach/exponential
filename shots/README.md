@@ -385,6 +385,21 @@ subject is a small element carry a tighter per-view `diffTolerance` in
 the run log before trusting a `kept`; `--force` rewrites a shot the tolerance
 swallowed.
 
+**eDE's goldens are held tighter** (#EDE-140). Their clock, date, data and
+fonts are fixed (`apps/ede/scripts/shots.sh`: the shell's embedded fonts plus
+DejaVu, never the machine's), so one commit draws one picture: your machine and
+the Mint's runner byte for byte, the GitHub-hosted fallback within a level or
+two at glyph edges (all 21 views of one commit: at most 4 pixels at the loose
+pass, at most 0.43 % at a colour distance of about 6 grey levels). So an eDE
+shot changed when more than one pixel in 10,000 moved at the loose pass
+(`EDE_TOLERANCE`: a taskbar icon, a renamed label), or more than 2 % moved
+faintly (`EDE_FAINT_CHECK`: a colour token). Under the store's 0.5 % a surface
+token that moved by 14 levels changed up to half of nine goldens and every one
+was `kept`. Re-record with `bun run shots -- --platform ede --skip-seed`, or
+take the pictures the failed job drew: unzip its `ede-goldens` /
+`ede-goldens-lite` artifact into the repo root and run
+`bun run shots -- --platform ede --skip-seed --write-only`.
+
 **A `--views` run writes every shot that differs at all** (EXP-670). The share
 of a tolerance is a weak signal and must not be read as one: in a single run a
 reviews-queue reorder read 95% of its tolerance, a whole new "Pending invites"

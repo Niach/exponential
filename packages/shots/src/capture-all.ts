@@ -103,6 +103,7 @@ import {
 import { formatDuration, hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { rawDir, rawShotPath, repoRoot } from "./paths.ts"
 import {
+  EDE_FAINT_CHECK,
   formatDiffReport,
   indexStore,
   storeShotPath,
@@ -2161,7 +2162,9 @@ async function writeStore(
           platform,
           state: result.state,
           changedRatio: result.changedRatio,
-          tolerance: toleranceFor(view.id),
+          tolerance: toleranceFor(view.id, undefined, platform),
+          faintRatio: result.faintRatio,
+          faintTolerance: result.faintRatio === undefined ? undefined : EDE_FAINT_CHECK.tolerance,
         })
       } catch (error) {
         tally.failed++
