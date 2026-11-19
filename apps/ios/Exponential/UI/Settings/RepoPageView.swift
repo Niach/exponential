@@ -475,7 +475,8 @@ private struct RepoSettingsTab: View {
                         "https://github.com/owner/name",
                         text: $mirrorUrl,
                         bordered: false,
-                        accessibilityIdentifier: "repo-mirror-url"
+                        accessibilityIdentifier: "repo-mirror-url",
+                        foreground: .white.opacity(TextOpacity.secondary)
                     )
                     .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)

@@ -325,6 +325,9 @@ export interface ChatConversationProps {
   /** EXP-1323: the live tail after the last row (Tasks card + status
    *  line), the host's. */
   tail?: ReactNode
+  /** #EXP-1975 (find-in-chat.json): wraps a drawn row's body (inside its
+   *  transcript row), e.g. the host's find row with its key; absent = none. */
+  wrapRow?: (row: SessionChatRow, body: ReactNode) => ReactNode
   className?: string
 }
 
@@ -440,6 +443,7 @@ export function ChatConversation(props: ChatConversationProps) {
     suggestions,
     renderIssueRef,
     tail,
+    wrapRow,
     layout = `transcript`,
     messageTime,
     onSurfaceReply,
@@ -512,7 +516,7 @@ export function ChatConversation(props: ChatConversationProps) {
     ) : null
     return (
       <TranscriptRow key={row.id} layout={layout} avatar={avatar}>
-        {body}
+        {wrapRow ? wrapRow(row, body) : body}
       </TranscriptRow>
     )
   }
@@ -823,6 +827,7 @@ export function ChatConversation(props: ChatConversationProps) {
             attachmentSrc,
             row.type === `suggestions` ? suggestions : null,
             row.type === `suggestions` ? renderIssueRef : null,
+            wrapRow ?? null,
           ]}
         />
       ))}

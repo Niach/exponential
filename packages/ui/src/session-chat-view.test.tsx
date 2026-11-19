@@ -966,3 +966,27 @@ describe(`waiting cards`, () => {
     expect(screen.queryByText(`A`)).toBeNull()
   })
 })
+
+describe(`ChatConversation #EXP-1975 wrapRow`, () => {
+  it(`wraps every drawn row's body inside its transcript row, in order`, () => {
+    const rows = [
+      { type: `message`, id: `m1`, author: `agent`, authorId: null, body: `Agent text`, queued: false, authorSessionId: null, xref: null },
+      { type: `message`, id: `m2`, author: `user`, authorId: `u1`, body: `My text`, queued: true, authorSessionId: null, xref: null },
+    ] as SessionChatRow[]
+    const { container } = render(
+      <TooltipProvider>
+        <ChatConversation
+          rows={rows}
+          renderText={(text) => <p>{text}</p>}
+          attachmentSrc={(id) => `/api/attachments/${id}`}
+          viewerId="u1"
+          wrapRow={(row, body) => <div data-wrapped={row.id}>{body}</div>}
+        />
+      </TooltipProvider>
+    )
+    const wrapped = [...container.querySelectorAll(`[data-wrapped]`)]
+    expect(wrapped.map((el) => el.getAttribute(`data-wrapped`))).toEqual([`m1`, `m2`])
+    expect(wrapped[0]!.textContent).toContain(`Agent text`)
+    expect(wrapped[1]!.textContent).toContain(`My text`)
+  })
+})

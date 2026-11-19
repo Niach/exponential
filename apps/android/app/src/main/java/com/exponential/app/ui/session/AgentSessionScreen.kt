@@ -1221,11 +1221,39 @@ private fun RunFaceContent(
                 // Run face body in BOTH modes, once it has something to show.
                 .then(if (bodyPlaceholder) Modifier else Modifier.testTag("agent-feed")),
         ) {
+            // #EDE-130 (find-in-chat.json): what find in chat asks of this
+            // session (its keys, the store, the device and its name).
+            val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
+                TranscriptFindHost(
+                    sessionId = viewModel.codingSessionId,
+                    rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
+                    deviceOnline = hostDevice.online,
+                    deviceName = hostDevice.displayLabel,
+                    searchStore = viewModel::findInStore,
+                    searchDevice = viewModel::findOnDevice,
+                )
+            }
             // EXP-893: the diff is the Changes face and Merge lives in the
             // header. An ended run's byline heads the feed as its first row
             // (so it scrolls with it), or sits above a placeholder.
             if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
+                // #EXP-1975 (find-in-chat.json): the placeholder's loaded
+                // rows = the sent inputs above it, then the own tail; find
+                // counts and paints them (no transcript to page in).
+                val placeholderInputs = if (!sessionEnded) noFeedInputs else emptyList()
+                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                val placeholderFind = rememberTranscriptFind(
+                    find = com.exponential.app.ui.chat.LocalFindInChat.current,
+                    host = findHost,
+                    feed = emptyList(),
+                    workflowIds = emptySet(),
+                    liveRowId = null,
+                    agent = catalogAgent,
+                    canLoadEarlier = false,
+                    ownBubbles = placeholderBubbles,
+                )
+                androidx.compose.runtime.CompositionLocalProvider(LocalFindPaint provides placeholderFind.paint) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1238,9 +1266,9 @@ private fun RunFaceContent(
                     // mechanism: the consumed inputs stand in for the
                     // transcript (`read`), then the own tail (unconsumed rows,
                     // the outbox) with their marks.
-                    if (!sessionEnded && noFeedInputs.isNotEmpty()) {
+                    if (placeholderInputs.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            noFeedInputs,
+                            placeholderInputs,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp).testTag("transcript-sent-inputs"),
                         )
@@ -1264,6 +1292,7 @@ private fun RunFaceContent(
                     }
                     // #EXP-1732: the host's rows under the empty-feed placeholder.
                     LocalFeedFooter.current?.invoke()
+                }
                 }
             } else {
                 // #FEED-260 (steer-enet.json OFFLINE LINE): a transcript the
@@ -1293,18 +1322,6 @@ private fun RunFaceContent(
                     }
                 } else {
                     hostFooter
-                }
-                // #EDE-130 (find-in-chat.json): what find in chat asks of this
-                // session (its keys, the store, the device and its name).
-                val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
-                    TranscriptFindHost(
-                        sessionId = viewModel.codingSessionId,
-                        rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
-                        deviceOnline = hostDevice.online,
-                        deviceName = hostDevice.displayLabel,
-                        searchStore = viewModel::findInStore,
-                        searchDevice = viewModel::findOnDevice,
-                    )
                 }
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalFeedFooter provides transcriptFooter,
@@ -1943,6 +1960,8 @@ private fun ActivityFeed(
         liveRowId = liveRowId,
         agent = agent,
         canLoadEarlier = onCanLoadEarlier(),
+        // #EXP-1975: the own tail drawn after the rows is loaded rows too.
+        ownBubbles = ownTail,
     )
     val shownRows = remember(feed, windowStart, workflowIds, docked) {
         // #EXP-1772: a hidden marker (a system input the agent answered with
@@ -2061,12 +2080,19 @@ private fun ActivityFeed(
     // #EDE-130: find in chat's landing = THE deep-link scroll path: page
     // older until the stop's row is loaded, centre it, ring it (an output
     // or an older stop).
+    // #EXP-1975: the own tail's stops land on its item (the list's last but
+    // the host's footer).
+    val ownFindKeys = remember(ownTail) { ownTail.mapTo(HashSet(), ::ownBubbleFindKey) }
+    val hasFeedFooter = LocalFeedFooter.current != null
     val findLink = rememberDeepLink(
         listState = listState,
         request = transcriptFind.request,
         indexOf = { key ->
             if (focused != null) {
                 null
+            } else if (key in ownFindKeys) {
+                val total = listState.layoutInfo.totalItemsCount
+                (total - 1 - (if (hasFeedFooter) 1 else 0)).takeIf { it >= 0 }
             } else {
                 val at = rows.indexOfFirst { findRowHolds(it, key, transcriptFind.keys) }
                 if (at < 0) null else (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + at

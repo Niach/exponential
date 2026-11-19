@@ -291,7 +291,7 @@ impl Ede {
             }
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
-            self.spaces.open(std::path::Path::new(&runtime).join("exponential-desktop").join(format!("{}.spaces", name.to_string_lossy())));
+            self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
         }
         Ok(name)
     }
@@ -662,6 +662,20 @@ impl Ede {
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.remap(window, rect.loc);
+    }
+
+    /// `output`'s work area changed (a panel's exclusive zone came, changed
+    /// or went, #EDE-139): its tiled and maximized windows fill the new one,
+    /// in place (who is in front stays).
+    pub fn refit_tiles(&mut self, output: &Output) {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
+            let Some(tile) = window_state(&w).tile else { continue };
+            let Some(geo) = self.desk.space.element_geometry(&w) else { continue };
+            let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+            if self.desk.space.output_under(center).next() == Some(output) {
+                self.tile(&w, tile);
+            }
+        }
     }
 
     /// `rect` minus the title bar at its top (what the window itself gets).

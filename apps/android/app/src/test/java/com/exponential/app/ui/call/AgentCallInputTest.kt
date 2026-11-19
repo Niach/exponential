@@ -26,7 +26,6 @@ class AgentCallInputTest {
         )
         val settings = Voice.Settings(voiceDeviceId = "d-mint", meetingStartedAt = iso(now))
         val input = AgentCallViewModel.phoneCallInput(settings, "d-mint", rows, "me", now)
-        assertEquals(VoiceCall.Platform.Phone, input.platform)
         assertEquals(null, input.here)
         assertEquals("d-mint", input.agentDevice)
         assertEquals(

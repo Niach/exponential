@@ -3,7 +3,7 @@ import XCTest
 @testable import ExpCore
 
 // NEW-69: caller mode, locked ×4 (TS `voice-call.ts`, desktop
-// `domain::voice_call`, Android `VoiceCallTest`) against
+// `etalk::call`, Android `VoiceCallTest`) against
 // fixtures/voice-call.json: every `copy` key (incl. `reasons` and
 // `failed`), the `testIds`, `icons`, `constants`, `wire`,
 // `surfaceSpecimens`, and every `availabilityCases` and `flowCases` row
@@ -51,11 +51,8 @@ final class VoiceCallTests: XCTestCase {
             "via": VoiceCall.Copy.via,
         ])
         XCTAssertEqual(reasons, [
-            "noAgent": VoiceCall.Copy.Reasons.noAgent,
-            "noVoiceDevice": VoiceCall.Copy.Reasons.noVoiceDevice,
             "voiceFailed": VoiceCall.Copy.Reasons.voiceFailed,
             "offline": VoiceCall.Copy.Reasons.offline,
-            "notHere": VoiceCall.Copy.Reasons.notHere,
             "preparing": VoiceCall.Copy.Reasons.preparing,
             "noGpu": VoiceCall.Copy.Reasons.noGpu,
             "busy": VoiceCall.Copy.Reasons.busy,
@@ -187,13 +184,9 @@ final class VoiceCallTests: XCTestCase {
             let expected = try XCTUnwrap(row["expected"] as? [String: Any], name)
             let speech = input["speech"] as? String
             let availability = VoiceCall.callAvailability(VoiceCall.AvailabilityInput(
-                agent: try XCTUnwrap(input["agent"] as? Bool, name),
-                platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
-                device: input["device"] as? String,
+                device: try XCTUnwrap(input["device"] as? String, name),
                 online: input["online"] as? Bool ?? false,
-                here: input["here"] as? Bool ?? false,
                 speech: try speech.map { try XCTUnwrap(VoiceCall.Speech(rawValue: $0), name) },
-                busy: input["busy"] as? Bool ?? false,
                 meeting: input["meeting"] as? Bool ?? false
             ))
             XCTAssertEqual(availability, VoiceCall.Availability(
@@ -222,7 +215,6 @@ final class VoiceCallTests: XCTestCase {
             }
             XCTAssertNotNil(input["desktops"] as? [[String: Any]], name)
             let target = VoiceCall.callTarget(VoiceCall.TargetInput(
-                platform: try XCTUnwrap(VoiceCall.Platform(rawValue: input["platform"] as? String ?? ""), name),
                 here: input["here"] as? String,
                 agentDevice: input["agentDevice"] as? String,
                 desktops: try devices("desktops"),

@@ -1422,9 +1422,19 @@ pub(crate) mod tests {
         person_clipboard(&backend, "the person's");
         let reply = one(&backend, "paste_text", json!({ "text": "hello" }));
         assert_eq!(reply["isError"], Value::Null, "{reply}");
+        // The paste key is the OS's: cmd+v on a Mac.
+        let paste = if cfg!(target_os = "macos") { "Super" } else { "Control" };
         assert_eq!(
             backend.log.lock().unwrap().as_slice(),
-            ["clip save", "clip set hello", "key Named(Control) down", "key Char('v') down", "key Char('v') up", "key Named(Control) up", "clip restore 1"]
+            [
+                "clip save".to_string(),
+                "clip set hello".to_string(),
+                format!("key Named({paste}) down"),
+                "key Char('v') down".to_string(),
+                "key Char('v') up".to_string(),
+                format!("key Named({paste}) up"),
+                "clip restore 1".to_string(),
+            ]
         );
         assert_eq!(backend.clip.lock().unwrap().text.as_deref(), Some("the person's"));
         assert!(reply["content"][0]["text"].as_str().unwrap().starts_with("Pasted 5 characters"));

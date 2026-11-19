@@ -106,7 +106,7 @@ final class AgentCallAvailability {
     /// Where a call to the agent running on `agentDevice` speaks.
     func target(agentDevice: String?) -> VoiceCall.Target {
         VoiceCall.callTarget(VoiceCall.TargetInput(
-            platform: .phone, here: nil, agentDevice: agentDevice, desktops: desktops, servers: servers, busy: false
+            here: nil, agentDevice: agentDevice, desktops: desktops, servers: servers, busy: false
         ))
     }
 

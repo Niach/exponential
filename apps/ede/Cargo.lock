@@ -911,6 +911,7 @@ dependencies = [
  "wayland-protocols-wlr",
  "x11rb 0.13.2",
  "xcursor",
+ "zbus",
 ]
 
 [[package]]

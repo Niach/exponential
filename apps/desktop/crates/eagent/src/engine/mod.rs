@@ -6,8 +6,7 @@
 //! policies the run ticker drives (stall watchdog, API-error retry, the
 //! compaction ask), and (part 4b) the ONE `SessionUpdate` → wire mapper with
 //! its reply cards and the [`host_tools::HostTools`] seam, the
-//! `context_layout` arithmetic, the result refs and the ACP `terminal/*`
-//! capability, and (part 4c) the ACP adapters themselves: a host starts the
+//! `context_layout` arithmetic and the result refs, and (part 4c) the ACP adapters themselves: a host starts the
 //! user's own `claude` / `codex` from a core [`LaunchSpec`] ([`adapters`],
 //! [`launch`]), and (part 4d) the ACP host and the session: [`start`] drives
 //! that adapter into an [`EventSink`] behind a [`RunBackend`] ([`NoBackend`]
@@ -30,7 +29,6 @@ pub mod reply;
 pub mod session;
 pub mod sink;
 pub mod stall;
-pub mod terminals;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, LaunchSpec};
