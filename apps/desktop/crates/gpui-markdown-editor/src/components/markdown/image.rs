@@ -80,6 +80,8 @@ pub(crate) enum ImageResolvedSource {
     Pending,
     /// EXP-261 vendoring: the host resolver failed to fetch.
     Failed,
+    /// #EXP-1968 vendoring: the host refuses the source; never fetched.
+    StandIn(crate::host::ImageStandIn),
 }
 
 impl PartialEq for ImageResolvedSource {
@@ -89,6 +91,7 @@ impl PartialEq for ImageResolvedSource {
             (Self::Remote(a), Self::Remote(b)) => a == b,
             (Self::Decoded(a), Self::Decoded(b)) => std::sync::Arc::ptr_eq(a, b),
             (Self::Pending, Self::Pending) | (Self::Failed, Self::Failed) => true,
+            (Self::StandIn(a), Self::StandIn(b)) => a == b,
             _ => false,
         }
     }
