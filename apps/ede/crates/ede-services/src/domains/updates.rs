@@ -31,6 +31,10 @@ impl Service for Updates {
     fn description(&self) -> &'static str {
         "Package updates through apt."
     }
+    /// `apt list` loads the whole package cache; an action looks again at once.
+    fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(30 * 60)
+    }
 
     fn snapshot(&self) -> Value {
         let Some(text) = command("apt", &["list", "--upgradable"]) else { return unavailable("apt is not available") };

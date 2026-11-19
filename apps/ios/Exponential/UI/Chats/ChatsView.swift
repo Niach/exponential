@@ -482,7 +482,7 @@ struct ChatsView: View {
             case .linkIssue, .publish, .export, .separator:
                 break
             }
-        case .checks, .mergeNow, .hold, .resume, .closePr:
+        case .checks, .mergeNow, .hold, .resume, .closePr, .search:
             break
         }
     }

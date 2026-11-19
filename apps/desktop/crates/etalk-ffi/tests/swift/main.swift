@@ -132,7 +132,6 @@ for c in fixture["timerCases"] as! [[String: Any]] {
 for _ in 0..<50 { let r = callRingRandom(); check(r >= 0 && r < 1, "random \(r)") }
 let k = callConstants()
 check(k.minRingMs == num((fixture["constants"] as! [String: Any])["minRingMs"])!.uint64Value, "constants")
-check(callGreeting(language: "de") == "Hallo?" && callGreeting(language: nil) == "Hello?", "greeting")
 check(callWireEvent(event: .mute) == nil, "mute stays local")
 
 // the codec: a 440 Hz tone, one packet lost and recovered by the uplink's FEC

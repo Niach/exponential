@@ -340,6 +340,7 @@ fn link_event(event: steer::call_host::CallHostEvent) -> CallLinkEvent {
     match event {
         CallHostEvent::Ready => CallLinkEvent::Ready,
         CallHostEvent::Audio(pcm) => CallLinkEvent::Audio(pcm),
+        CallHostEvent::Lost { ms } => CallLinkEvent::Lost { ms },
         CallHostEvent::Mute(muted) => CallLinkEvent::Mute(muted),
         CallHostEvent::Ended { reason } => CallLinkEvent::Ended { reason },
         CallHostEvent::Dropped(reason) => CallLinkEvent::Dropped(reason),
@@ -465,6 +466,30 @@ impl TalkHost for ExponentialHost {
                 .map(|output| Sent { session_id: output.session_id, message_id: output.message_id })
                 .map_err(send_error)
         }))
+    }
+
+    fn call_session(&self, agent_id: &str, call_id: Option<&str>, cx: &App) -> Option<etalk_gpui::CallSessionJob> {
+        let trpc = crate::queries::trpc_client(cx)?;
+        let (agent_id, call_id) = (agent_id.to_string(), call_id.unwrap_or_default().to_string());
+        Some(Box::new(move || match api::voice::voice_call_session(&trpc, &agent_id, &call_id) {
+            Ok(session) => session.map(|session| session.session_id),
+            Err(err) => {
+                log::info!("[voice] no call session ({err}): the chat takes the call");
+                None
+            }
+        }))
+    }
+
+    fn call_ended(&self, session_id: &str, cx: &App) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        let session_id = session_id.to_string();
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) = api::voice::voice_call_ended(&trpc, &session_id) {
+                    log::warn!("[voice] the call's end did not reach the server: {err}");
+                }
+            })
+            .detach();
     }
 
     fn write(&self, write: VoiceWrite, done: Box<dyn FnOnce(&mut App)>, cx: &mut App) -> bool {

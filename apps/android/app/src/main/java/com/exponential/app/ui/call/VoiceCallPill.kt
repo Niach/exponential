@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -86,20 +88,22 @@ fun VoiceCallPill(
     agentColor: String? = null,
     width: Dp = VoiceCall.Pill.WIDTH.dp,
     still: Boolean = false,
+    /** FEED-272: the row docked on the call's Chat tab: full width, no drag handle, a card's corners. */
+    docked: Boolean = false,
 ) {
+    val shape = if (docked) RoundedCornerShape(12.dp) else CircleShape
     Row(
         modifier = modifier
-            .width(width)
+            .then(if (docked) Modifier.fillMaxWidth() else Modifier.width(width).shadow(12.dp, shape))
             .height(VoiceCall.Pill.HEIGHT.dp)
-            .shadow(12.dp, CircleShape)
-            .background(GlassTokens.OpaqueCardFill, CircleShape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
+            .background(GlassTokens.OpaqueCardFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(start = 12.dp, end = 10.dp)
             .testTag(VoiceCall.TestIds.PILL),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DragHandle()
+        if (!docked) DragHandle()
         PillAvatar(view, agent, agentIcon, agentColor)
         Column(Modifier.weight(1f)) {
             Text(

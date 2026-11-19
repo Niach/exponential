@@ -188,6 +188,8 @@ class AgentSessionViewModel @AssistedInject constructor(
     composerDrafts: ComposerDrafts,
     // #FEED-237: the persisted session outbox (message-delivery.json).
     private val outbox: com.exponential.app.data.outbox.SessionOutbox,
+    // #EDE-130: find in chat's older hits off the account's chat store.
+    private val chatStores: com.exponential.app.data.chatstore.ChatStoreManager,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -833,6 +835,70 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val rootId: Flow<String?> = session
         .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
         .distinctUntilChanged()
+
+    /** #EXP-1943 (session-card.json `call`): the tree's CALL sessions; the
+     *  live feed draws their reports as their cards (`feedCallSession`). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val treeCalls: StateFlow<List<SessionTree.Session>> = rootId
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTreeNoDigest(root) }
+                    .map { tree ->
+                        tree.filter { !it.voiceCall.isNullOrBlank() && it.id != codingSessionId }
+                            .map(SessionTree::session)
+                            .filter { SessionTree.isCallSession(it) }
+                    }
+            }
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1943: THIS session is a call session (its view = the call view). */
+    val isCall: StateFlow<Boolean> = session
+        .map { SessionTree.parseVoiceCall(it?.voiceCall) != null }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** #EXP-1943 (`callView`): a call session's own messages (the spoken
+     *  turns, the server's lines, the summary replies); empty for any other. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val callMessages: StateFlow<List<SessionTree.Message>> = isCall
+        .flatMapLatest { call ->
+            if (!call) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+                    .map { rows -> rows.map { SessionTree.message(it, codingSessionId) } }
+            }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1943: the agent of the chat a call session belongs to (its root's
+     *  definition): the call view's subtitle and bubbles. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val callAgent: StateFlow<com.exponential.app.data.db.AgentDefinitionEntity?> = isCall
+        .flatMapLatest { call -> if (call) rootId else flowOf(null) }
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(null)
+            } else {
+                dbFlow.scopedQuery<SessionEntity?>(null) { it.sessionDao().observeById(root) }
+                    .map { it?.agentId?.takeIf { id -> id.isNotEmpty() } }
+                    .distinctUntilChanged()
+                    .flatMapLatest { id ->
+                        if (id == null) {
+                            flowOf(null)
+                        } else {
+                            dbFlow.scopedQuery<com.exponential.app.data.db.AgentDefinitionEntity?>(null) {
+                                it.agentDefinitionDao().observeById(id)
+                            }
+                        }
+                    }
+            }
+        }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the header's back row — the CHAT's title — and this
@@ -1689,6 +1755,15 @@ class AgentSessionViewModel @AssistedInject constructor(
     fun loadEarlier() {
         connection.loadEarlier()
     }
+
+    /** #EDE-130 (find-in-chat.json): the chat store's hits for [rootId]'s
+     *  chat (null = no store), newest first. */
+    suspend fun findInStore(rootId: String, query: String): List<com.exponential.app.data.chatstore.StoredChatHit>? =
+        chatStores.searchChat(rootId, query, com.exponential.app.domain.FindInChat.HITS_MAX)
+
+    /** #EDE-130: the running device's `search` frame below [beforeSeq] (#EDE-96). */
+    suspend fun findOnDevice(query: String, beforeSeq: Long?): com.exponential.app.data.steer.SteerSearchResult? =
+        connection.search(query, beforeSeq)
 
     /**
      * EXP-1291: Stop = `sessions.stop` — interrupts the current turn; the

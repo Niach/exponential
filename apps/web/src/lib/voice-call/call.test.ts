@@ -220,7 +220,7 @@ describe(`the web caller's wire`, () => {
     expect(view(call)?.status).toBe(fixture.copy.gettingReady)
     expect(rings.stopped).toBe(0)
     socket.text({ t: `call_event`, event: { t: `ready` } })
-    expect(view(call)).toMatchObject({ activity: `speaking`, caption: fixture.copy.greeting.en, buttons: [`mute`, `end`] })
+    expect(view(call)).toMatchObject({ activity: `listening`, caption: ``, buttons: [`mute`, `end`] })
     expect(rings.stopped).toBe(1)
   })
 

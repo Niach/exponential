@@ -69,6 +69,7 @@ class SessionTreeTest {
         agentId = json.str("agentId"),
         startedByAgentId = json.str("startedByAgentId"),
         background = (json["background"] as? JsonPrimitive)?.booleanOrNull ?: false,
+        voiceCall = (json["voiceCall"] as? JsonObject)?.let { SessionTree.parseVoiceCall(it.toString()) },
     )
 
     private fun blocked(json: JsonObject) = (json["blocked"] as? JsonObject)?.let {
@@ -162,6 +163,8 @@ class SessionTreeTest {
         put("elapsed", nullable(card.elapsed))
         put("running", card.running)
         put("testId", card.testId)
+        // #EXP-1943: only call cards carry the key.
+        if (card.call) put("caption", nullable(card.caption))
     }
 
     private fun encode(tab: SessionTree.ChatTab): JsonObject = when (tab) {
@@ -468,6 +471,78 @@ class SessionTreeTest {
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
+    }
+
+    /** #EXP-1943 (TS `callCard`): `callCases`, whole-object compare. */
+    @Test
+    fun `every session-card call case matches the fixture`() {
+        val cases = cardFixture.list("callCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val actual = SessionTree.callCard(
+                session(input.getValue("session").jsonObject),
+                input.str("summary"),
+                input.str("now")!!,
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
+        }
+    }
+
+    /** #EXP-1943 (TS `feedCallSession`): `feedCases`. */
+    @Test
+    fun `every session-card feed case matches the fixture`() {
+        val cases = cardFixture.list("feedCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val calls = case.getValue("calls").jsonArray.map { it.jsonPrimitive.content }.toSet()
+            assertEquals(case.str("name"), case.str("expected"), SessionTree.feedCallSession(case.str("text")!!, calls))
+        }
+    }
+
+    /** #EXP-1943 (TS `callView`): `callViewCases`, whole-object compare. */
+    @Test
+    fun `every session-card call view case matches the fixture`() {
+        val cases = cardFixture.list("callViewCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val view = SessionTree.callView(
+                session = session(input.getValue("session").jsonObject),
+                messages = input.list("messages").map(::message),
+                agentName = input.str("agentName")!!,
+                now = input.str("now")!!,
+                utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
+            )
+            val actual = buildJsonObject {
+                put("sessionId", view.sessionId)
+                put("title", view.title)
+                put("subtitle", view.subtitle)
+                put("running", view.running)
+                put("summary", nullable(view.summary))
+                put("summaryLabel", view.summaryLabel)
+                put("rows", JsonArray(view.rows.map(::encode)))
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+    }
+
+    /** #EXP-1943: the call copy IS the fixture's `call` block. */
+    @Test
+    fun `the call copy equals the fixture`() {
+        val call = cardFixture.getValue("call").jsonObject
+        val copy = SessionTree.CallCopy
+        val expected = mapOf(
+            "icon" to copy.ICON, "tone" to copy.TONE, "running" to copy.RUNNING, "ended" to copy.ENDED,
+            "seconds" to copy.SECONDS, "minutes" to copy.MINUTES, "hours" to copy.HOURS,
+            "viewTitle" to copy.VIEW_TITLE, "viewRunning" to copy.VIEW_RUNNING, "subtitle" to copy.SUBTITLE,
+            "when" to copy.WHEN, "whenRunning" to copy.WHEN_RUNNING, "today" to copy.TODAY, "summary" to copy.SUMMARY,
+        )
+        assertEquals(call.keys - "prompts", expected.keys)
+        for ((key, value) in expected) assertEquals(key, call.str(key), value)
+        val prompts = call.getValue("prompts").jsonObject
+        assertEquals(prompts.keys, copy.PROMPTS.keys)
+        for ((key, value) in prompts) assertEquals(key, value.jsonPrimitive.content, copy.PROMPTS[key])
     }
 
     /** #NEW-49 (TS `sessionWaiting`): `waitingCases`. */

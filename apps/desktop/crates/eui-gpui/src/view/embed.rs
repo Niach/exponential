@@ -367,6 +367,20 @@ impl HostPlugin for EmbedHost {
         self.inner.on_image_press(src, window, cx)
     }
 
+    // #EXP-1947: the host's image rules and image menu reach its nested
+    // surfaces (an image is never fetched past the host's source rule).
+    fn image_source(&self, src: &str, alt: &str) -> Option<crate::host::ImageSourceVerdict> {
+        self.inner.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.inner.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: crate::host::ImageTarget, picture: AnyElement, window: &mut Window, cx: &mut App) -> AnyElement {
+        self.inner.image_menu(target, picture, window, cx)
+    }
+
     fn attachment(&self, href: &str, cx: &App) -> Option<MarkdownAttachment> {
         self.inner.attachment(href, cx)
     }

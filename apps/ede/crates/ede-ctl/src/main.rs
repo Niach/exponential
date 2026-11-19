@@ -10,7 +10,14 @@
 //! exponential-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
 //! exponential-ctl pointer <x> <y> [--click|--press|--release] [--bindings]  pointer motion, optionally a left click, or one edge of it for a drag (--bindings = as the person's)
 //! exponential-ctl minimize <id> | restore <id>                         into the taskbar and back (#EDE-48)
+//! exponential-ctl space create [WxH] [--session NAME]    an agent space (#EDE-126): mints a space grant, makes its space, prints it with the grant's token
+//! exponential-ctl space list | space destroy <id>        the spaces (all of them with the root token); close one
+//! exponential-ctl launch [--cwd DIR] [--env K=V]… -- ARGV…   start a program in the space of the token in $EDE_TOKEN
+//! exponential-ctl capture --space ID --png FILE          a space's screen (the root token, or the space's own)
 //! ```
+//!
+//! With a space's token in `$EDE_TOKEN` the other commands act in that
+//! space: `windows`, `outputs`, `capture`, `key`, `pointer`.
 //!
 //! An agent in the VM uses this instead of QMP's screendump and
 //! input-send-event: it only ever reaches the nested or headless eDE, never
@@ -18,10 +25,10 @@
 
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
-use ede_protocol::{CaptureTarget, Client, InputEvent, WindowId};
+use ede_protocol::{Capability, CaptureTarget, Client, InputEvent, SessionId, SpaceId, WindowId};
 
 fn usage() -> ! {
-    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID");
+    eprintln!("usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID | --space ID] --png FILE [--expect-drawn] | space create [WxH] [--session NAME] | space list | space destroy ID | launch [--cwd DIR] [--env K=V] -- ARGV | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID");
     std::process::exit(2)
 }
 
@@ -63,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match a.as_str() {
                     "--output" => target = Some(CaptureTarget::Output { name: args.next().unwrap_or_else(|| usage()) }),
                     "--window" => target = Some(CaptureTarget::Window { window: WindowId::new(args.next().unwrap_or_else(|| usage())).map_err(|e| format!("not a window id: {e:?}"))? }),
+                    "--space" => target = Some(CaptureTarget::Space { space: SpaceId::new(args.next().unwrap_or_else(|| usage())).map_err(|e| format!("not a space id: {e:?}"))? }),
                     "--png" => png = Some(args.next().unwrap_or_else(|| usage()).into()),
                     "--expect-drawn" => expect_drawn = true,
                     _ => usage(),
@@ -116,6 +124,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if click || rest.iter().any(|a| a == "--release") {
                 send(InputEvent::PointerButton { button: 0x110, pressed: false })?;
             }
+        }
+        "space" => match args.next().as_deref() {
+            Some("create") => {
+                let (mut size, mut session) = ((1280, 800), format!("exponential-ctl-{}", std::process::id()));
+                while let Some(a) = args.next() {
+                    match a.as_str() {
+                        "--session" => session = args.next().unwrap_or_else(|| usage()),
+                        wxh => {
+                            let (w, h) = wxh.split_once('x').unwrap_or_else(|| usage());
+                            size = (w.parse()?, h.parse()?);
+                        }
+                    }
+                }
+                if !ede.hello.offers_spaces() {
+                    return Err("this compositor makes no agent spaces".into());
+                }
+                // The space is its grant's: it ends when the grant is revoked
+                // (`space destroy`), or with the compositor.
+                let grant = ede.mint(SessionId::new(session).map_err(|e| format!("not a session name: {e:?}"))?, vec![Capability::Space], None)?;
+                let space = Client::connect_with_token(grant.token.clone())?.create_space(size.0, size.1)?;
+                let mut out = serde_json::to_value(&space)?;
+                out["token"] = serde_json::json!(grant.token.as_str());
+                println!("{out}");
+            }
+            Some("list") => {
+                for space in ede.spaces()? {
+                    println!("{}", serde_json::to_string(&space)?);
+                }
+            }
+            Some("destroy") => ede.destroy_space(SpaceId::new(args.next().unwrap_or_else(|| usage())).map_err(|e| format!("not a space id: {e:?}"))?)?,
+            _ => usage(),
+        },
+        "launch" => {
+            let (mut cwd, mut env) = (None, std::collections::BTreeMap::new());
+            loop {
+                match args.next().as_deref() {
+                    Some("--cwd") => cwd = Some(args.next().unwrap_or_else(|| usage())),
+                    Some("--env") => {
+                        let pair = args.next().unwrap_or_else(|| usage());
+                        let (name, value) = pair.split_once('=').unwrap_or_else(|| usage());
+                        env.insert(name.to_string(), value.to_string());
+                    }
+                    Some("--") => break,
+                    _ => usage(),
+                }
+            }
+            let pid = ede.launch(args.collect(), env, cwd)?;
+            println!("{{\"pid\":{pid}}}");
         }
         "minimize" | "restore" => {
             let id = WindowId::new(args.next().unwrap_or_else(|| usage())).map_err(|e| format!("not a window id: {e:?}"))?;

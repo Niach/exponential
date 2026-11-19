@@ -22,13 +22,15 @@ pub struct GlobalShortcuts {
     pub ctx: Arc<Ctx>,
 }
 
+/// The session's BOUND shortcuts, as the portal answers them (#EXP-1938: a
+/// shortcut whose trigger the compositor refused has none, and is no row).
 fn rows(s: &Session) -> Vec<(String, Vardict)> {
     s.shortcuts
         .iter()
-        .map(|(id, description, trigger)| {
-            let props: Vardict =
-                [("description".to_string(), value(description.as_str())), ("trigger_description".to_string(), value(trigger.clone().unwrap_or_default()))].into();
-            (id.clone(), props)
+        .filter_map(|(id, description, trigger)| {
+            let trigger = trigger.as_deref()?;
+            let props: Vardict = [("description".to_string(), value(description.as_str())), ("trigger_description".to_string(), value(trigger))].into();
+            Some((id.clone(), props))
         })
         .collect()
 }
@@ -94,4 +96,25 @@ pub fn forward(ctx: &Ctx, event: &Envelope) {
     let member = if event.kind == ede_protocol::events::SHORTCUT_ACTIVATED { "Activated" } else { "Deactivated" };
     let options: HashMap<&str, Value> = HashMap::new();
     let _ = zbus::block_on(conn.emit_signal(None::<()>, PATH, IFACE, member, &(session, e.id.as_str(), e.time as u64, options)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EXP-1938: the portal answers with the shortcuts that were BOUND. A
+    /// trigger the compositor refused (no modifier, taken) is no row: an
+    /// app reads a row as its shortcut working.
+    #[test]
+    fn a_refused_trigger_is_no_row() {
+        let mut session = Session::new(Kind::GlobalShortcuts, "at.exponential.app");
+        session.shortcuts = vec![
+            ("push-to-talk".into(), "Push to talk".into(), None),
+            ("pause-listening".into(), "Pause listening".into(), Some("Ctrl+Alt+P".into())),
+        ];
+        let bound = rows(&session);
+        assert_eq!(bound.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["pause-listening"]);
+        assert_eq!(bound[0].1["trigger_description"], value("Ctrl+Alt+P"));
+        assert_eq!(bound[0].1["description"], value("Pause listening"));
+    }
 }

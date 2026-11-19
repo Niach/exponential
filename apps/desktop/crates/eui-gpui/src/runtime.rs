@@ -1545,6 +1545,20 @@ impl HostPlugin for HostAdapter {
         }
     }
 
+    // #EXP-1947: the base's image rules (an app screen's base keeps its own
+    // stricter media rule and asks nothing here).
+    fn image_source(&self, src: &str, alt: &str) -> Option<crate::host::ImageSourceVerdict> {
+        self.base.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.base.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: crate::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.base.image_menu(target, picture, window, cx)
+    }
+
     fn attachment(&self, href: &str, cx: &App) -> Option<crate::host::MarkdownAttachment> {
         match self.host.upgrade().and_then(|host| host.read(cx).policy.attachment.clone()) {
             Some(attachment) => attachment(href, cx),

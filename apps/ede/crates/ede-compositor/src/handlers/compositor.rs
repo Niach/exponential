@@ -37,6 +37,9 @@ impl CompositorHandler for Ede {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        if let Some(id) = crate::spaces::space_of_surface(surface) {
+            return self.space_commit(id, surface);
+        }
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {

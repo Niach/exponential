@@ -7,8 +7,10 @@
 //! specifications; nothing is shared with Cinnamon's implementations.
 //!
 //! Events reach the main loop over a channel ([`Event`]); the main loop
-//! acts back through [`Dbus`] (closing a notification, activating an item,
-//! clicking a menu row), each a short blocking call.
+//! acts back through [`Dbus`]. Notification signals go out at once; every
+//! tray call (reading the items, activating one, its menu, a menu row) runs
+//! on the tray thread, each bounded by [`TRAY_CALL_TIMEOUT`], its answer
+//! back as an [`Event`] (#EDE-135: a hung tray app froze the whole shell).
 
 use std::{
     collections::HashMap,
@@ -35,6 +37,8 @@ const ITEM_INTERFACE: &str = "org.kde.StatusNotifierItem";
 const MENU_INTERFACE: &str = "com.canonical.dbusmenu";
 /// A toast without an expiry from the app stays this long; critical ones stay.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(6);
+/// How long a call to another app on the bus may take (a hung tray item).
+pub const TRAY_CALL_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// What the main loop hears.
 #[derive(Debug)]
@@ -43,8 +47,21 @@ pub enum Event {
     Notified(Notification),
     /// An app asked to close one (`CloseNotification`).
     CloseRequested(u32),
-    /// Items registered, left or changed: read [`Dbus::tray_items`] again.
+    /// Items registered, left or changed: ask [`Dbus::tray_refresh`].
     TrayChanged,
+    /// The tray as read on the tray thread.
+    TrayItems(Vec<TrayItem>),
+    /// A pressed item's menu ([`Dbus::tray_menu`]); an item without one was activated.
+    TrayMenu { service: String, entries: Vec<MenuEntry> },
+}
+
+/// What the tray thread does, in order; refreshes asked together read once.
+#[derive(Debug, PartialEq)]
+enum TrayRequest {
+    Refresh,
+    Activate(String),
+    Menu(String),
+    MenuEvent(String, i32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -262,6 +279,7 @@ pub struct Dbus {
     conn: Connection,
     items: Arc<Mutex<Vec<String>>>,
     tx: mpsc::Sender<Event>,
+    tray: mpsc::Sender<TrayRequest>,
 }
 
 impl Dbus {
@@ -270,10 +288,15 @@ impl Dbus {
     /// them while eDE runs nested; the objects still answer on the unique
     /// name). `None` = no session bus.
     pub fn start(tx: mpsc::Sender<Event>, clock: fn() -> String) -> Option<Dbus> {
+        Self::start_on(zbus::blocking::connection::Builder::session(), tx, clock)
+    }
+
+    /// [`Dbus::start`] on the bus `builder` reaches (a test's private bus).
+    fn start_on(builder: zbus::Result<zbus::blocking::connection::Builder<'static>>, tx: mpsc::Sender<Event>, clock: fn() -> String) -> Option<Dbus> {
         let items = Arc::new(Mutex::new(Vec::new()));
         let notifications = Notifications { tx: tx.clone(), next_id: Arc::new(AtomicU32::new(1)), clock };
         let watcher = Watcher { items: items.clone(), tx: tx.clone() };
-        let conn = match zbus::blocking::connection::Builder::session().and_then(|b| b.serve_at(NOTIFICATIONS_PATH, notifications)).and_then(|b| b.serve_at(WATCHER_PATH, watcher)).and_then(|b| b.build()) {
+        let conn = match builder.and_then(|b| b.method_timeout(TRAY_CALL_TIMEOUT).serve_at(NOTIFICATIONS_PATH, notifications)).and_then(|b| b.serve_at(WATCHER_PATH, watcher)).and_then(|b| b.build()) {
             Ok(c) => c,
             Err(e) => {
                 tracing::info!("no session bus: {e} (no notifications, no tray)");
@@ -290,7 +313,8 @@ impl Dbus {
         if conn.request_name(host.as_str()).is_ok() {
             let _ = conn.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_NAME), "RegisterStatusNotifierHost", &(host.as_str(),));
         }
-        let dbus = Dbus { conn, items, tx };
+        let tray = Tray { conn: conn.clone(), items: items.clone() }.spawn(tx.clone());
+        let dbus = Dbus { conn, items, tx, tray };
         tracing::info!(unique = %dbus.unique_name(), "session bus");
         dbus.watch_bus();
         Some(dbus)
@@ -353,13 +377,94 @@ impl Dbus {
         let _ = self.conn.emit_signal(None::<BusName<'_>>, NOTIFICATIONS_PATH, NOTIFICATIONS_NAME, "ActionInvoked", &(id, key));
     }
 
-    fn item_proxy(&self, service: &str) -> Option<Proxy<'_>> {
+    /// Reads the tray again: [`Event::TrayItems`].
+    pub fn tray_refresh(&self) {
+        let _ = self.tray.send(TrayRequest::Refresh);
+    }
+
+    /// A left click: `Activate`.
+    pub fn tray_activate(&self, service: &str) {
+        let _ = self.tray.send(TrayRequest::Activate(service.to_string()));
+    }
+
+    /// A press on an item with a menu: [`Event::TrayMenu`], or `Activate`
+    /// when it has no rows after all.
+    pub fn tray_menu(&self, service: &str) {
+        let _ = self.tray.send(TrayRequest::Menu(service.to_string()));
+    }
+
+    /// A menu row clicked.
+    pub fn tray_menu_event(&self, service: &str, id: i32) {
+        let _ = self.tray.send(TrayRequest::MenuEvent(service.to_string(), id));
+    }
+}
+
+/// The tray thread's side: the calls to the items (#EDE-135).
+struct Tray {
+    conn: Connection,
+    items: Arc<Mutex<Vec<String>>>,
+}
+
+/// The requests one turn of the tray thread runs: in order, each refresh
+/// dropped but the last (one read answers them all).
+fn coalesce(mut batch: Vec<TrayRequest>) -> Vec<TrayRequest> {
+    if let Some(last) = batch.iter().rposition(|r| *r == TrayRequest::Refresh) {
+        let mut i = 0;
+        batch.retain(|r| {
+            i += 1;
+            *r != TrayRequest::Refresh || i - 1 == last
+        });
+    }
+    batch
+}
+
+impl Tray {
+    fn spawn(self, tx: mpsc::Sender<Event>) -> mpsc::Sender<TrayRequest> {
+        let (requests, rx) = mpsc::channel::<TrayRequest>();
+        std::thread::Builder::new()
+            .name("ede-shell-tray".into())
+            .spawn(move || {
+                while let Ok(first) = rx.recv() {
+                    let mut batch = vec![first];
+                    batch.extend(rx.try_iter());
+                    for request in coalesce(batch) {
+                        let event = match request {
+                            TrayRequest::Refresh => Some(Event::TrayItems(self.tray_items())),
+                            TrayRequest::Activate(service) => {
+                                self.tray_activate(&service, 0, 0);
+                                None
+                            }
+                            TrayRequest::Menu(service) => match self.tray_menu(&service) {
+                                Some(entries) if !entries.is_empty() => Some(Event::TrayMenu { service, entries }),
+                                _ => {
+                                    self.tray_activate(&service, 0, 0);
+                                    None
+                                }
+                            },
+                            TrayRequest::MenuEvent(service, id) => {
+                                self.tray_menu_event(&service, id);
+                                None
+                            }
+                        };
+                        if let Some(event) = event {
+                            if tx.send(event).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+            })
+            .expect("the tray thread");
+        requests
+    }
+
+    fn item_proxy(&self, service: &str) -> Option<Proxy<'static>> {
         let (name, path) = service.split_once('/').map(|(n, p)| (n.to_string(), format!("/{p}")))?;
-        Proxy::new(&self.conn, name, path, ITEM_INTERFACE).ok()
+        uncached_proxy(&self.conn, name, path, ITEM_INTERFACE)
     }
 
     /// Every registered item, read fresh (a dead one is dropped).
-    pub fn tray_items(&self) -> Vec<TrayItem> {
+    fn tray_items(&self) -> Vec<TrayItem> {
         let services = self.items.lock().unwrap_or_else(|p| p.into_inner()).clone();
         services
             .iter()
@@ -391,7 +496,7 @@ impl Dbus {
     }
 
     /// A left click: `Activate`.
-    pub fn tray_activate(&self, service: &str, x: i32, y: i32) {
+    fn tray_activate(&self, service: &str, x: i32, y: i32) {
         if let Some(proxy) = self.item_proxy(service) {
             if let Err(e) = proxy.call_method("Activate", &(x, y)) {
                 tracing::info!(service, "Activate: {e}");
@@ -399,18 +504,18 @@ impl Dbus {
         }
     }
 
-    fn menu_proxy(&self, service: &str) -> Option<Proxy<'_>> {
+    fn menu_proxy(&self, service: &str) -> Option<Proxy<'static>> {
         let proxy = self.item_proxy(service)?;
         let menu: OwnedObjectPath = proxy.get_property("Menu").ok()?;
         if menu.as_str() == "/" {
             return None;
         }
         let name = service.split_once('/')?.0.to_string();
-        Proxy::new(&self.conn, name, menu.as_str().to_string(), MENU_INTERFACE).ok()
+        uncached_proxy(&self.conn, name, menu.as_str().to_string(), MENU_INTERFACE)
     }
 
     /// The item's dbusmenu, two levels deep.
-    pub fn tray_menu(&self, service: &str) -> Option<Vec<MenuEntry>> {
+    fn tray_menu(&self, service: &str) -> Option<Vec<MenuEntry>> {
         let proxy = self.menu_proxy(service)?;
         let _ = proxy.call_method("AboutToShow", &(0i32,));
         let props = ["label", "enabled", "visible", "type", "toggle-type", "toggle-state", "children-display"];
@@ -422,7 +527,7 @@ impl Dbus {
     }
 
     /// A row clicked.
-    pub fn tray_menu_event(&self, service: &str, id: i32) {
+    fn tray_menu_event(&self, service: &str, id: i32) {
         if let Some(proxy) = self.menu_proxy(service) {
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0);
             if let Err(e) = proxy.call_method("Event", &(id, "clicked", ZValue::from(0i32), now)) {
@@ -430,6 +535,18 @@ impl Dbus {
             }
         }
     }
+}
+
+/// A proxy that reads each property when asked: a caching one waits for its
+/// `GetAll` without the connection's call timeout (a hung item hung the read).
+fn uncached_proxy(conn: &Connection, name: String, path: String, interface: &'static str) -> Option<Proxy<'static>> {
+    zbus::blocking::proxy::Builder::<Proxy<'static>>::new(conn)
+        .destination(name)
+        .and_then(|b| b.path(path))
+        .and_then(|b| b.interface(interface))
+        .map(|b| b.cache_properties(zbus::proxy::CacheProperties::No))
+        .and_then(|b| b.build())
+        .ok()
 }
 
 /// dbusmenu's layout node: `(id, properties, children)`.
@@ -500,8 +617,114 @@ pub fn pixmap_data_url(pixmaps: &[(i32, i32, Vec<u8>)]) -> Option<String> {
 }
 
 #[cfg(test)]
+pub(crate) mod private_bus {
+    //! A dbus-daemon of the test's own (never the session bus).
+
+    pub struct PrivateBus {
+        child: std::process::Child,
+        pub address: String,
+        _dir: tempfile::TempDir,
+    }
+
+    impl PrivateBus {
+        pub fn start() -> PrivateBus {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("bus");
+            let config = dir.path().join("bus.conf");
+            std::fs::write(&config, format!(r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig><type>session</type><listen>unix:path={}</listen><policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy></busconfig>"#, socket.display())).unwrap();
+            let child = std::process::Command::new("dbus-daemon").arg("--nofork").arg(format!("--config-file={}", config.display())).stdout(std::process::Stdio::null()).spawn().expect("dbus-daemon");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !socket.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            PrivateBus { child, address: format!("unix:path={}", socket.display()), _dir: dir }
+        }
+
+        pub fn builder(&self) -> zbus::Result<zbus::blocking::connection::Builder<'static>> {
+            zbus::blocking::connection::Builder::address(self.address.as_str())
+        }
+    }
+
+    impl Drop for PrivateBus {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tray item whose app stopped answering (SIGSTOP, a debugger).
+    struct HungItem;
+
+    #[zbus::interface(name = "org.kde.StatusNotifierItem")]
+    impl HungItem {
+        #[zbus(property)]
+        async fn title(&self) -> String {
+            std::future::pending::<()>().await;
+            String::new()
+        }
+
+        async fn activate(&self, _x: i32, _y: i32) {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    fn clock() -> String {
+        "12:00".into()
+    }
+
+    /// The next event that is not a [`Event::TrayChanged`], within `t`.
+    fn next_answer(rx: &mpsc::Receiver<Event>, t: Duration) -> Option<Event> {
+        let deadline = Instant::now() + t;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(Event::TrayChanged) => continue,
+                Ok(e) => return Some(e),
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    /// #EDE-135: a hung tray item answers nothing; the shell's calls return
+    /// at once and the tray thread gives up on it.
+    #[test]
+    fn a_hung_tray_item_does_not_hang_the_tray() {
+        let bus = private_bus::PrivateBus::start();
+        let (tx, rx) = mpsc::channel();
+        let dbus = Dbus::start_on(bus.builder(), tx, clock).expect("the shell on the private bus");
+        let item = bus.builder().and_then(|b| b.serve_at("/StatusNotifierItem", HungItem)).and_then(|b| b.build()).unwrap();
+        let me = item.unique_name().unwrap().to_string();
+        item.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_NAME), "RegisterStatusNotifierItem", &(me.as_str(),)).unwrap();
+        let service = format!("{me}/StatusNotifierItem");
+
+        // A press and a read, as the main loop makes them: neither waits.
+        let asked = Instant::now();
+        dbus.tray_activate(&service);
+        dbus.tray_menu(&service);
+        dbus.tray_refresh();
+        dbus.tray_refresh();
+        assert!(asked.elapsed() < Duration::from_millis(100), "the shell waited {:?}", asked.elapsed());
+        // The read comes back once, without the item that never answered its title.
+        match next_answer(&rx, Duration::from_secs(10)) {
+            Some(Event::TrayItems(items)) => assert!(items.iter().all(|i| i.service != service), "an item with nothing to show: {items:?}"),
+            other => panic!("the tray read hung: {other:?}"),
+        }
+        assert!(next_answer(&rx, Duration::from_millis(1500)).is_none(), "two refreshes asked together read once");
+    }
+
+    #[test]
+    fn refreshes_asked_together_read_once_after_the_presses() {
+        use TrayRequest::*;
+        let batch = vec![Refresh, Activate("a".into()), Refresh, MenuEvent("b".into(), 3), Refresh];
+        assert_eq!(coalesce(batch), vec![Activate("a".into()), MenuEvent("b".into(), 3), Refresh]);
+        assert_eq!(coalesce(vec![Menu("a".into())]), vec![Menu("a".into())]);
+    }
 
     #[test]
     fn item_addresses_follow_the_spec() {

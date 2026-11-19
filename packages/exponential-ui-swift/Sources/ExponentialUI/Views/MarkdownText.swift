@@ -21,17 +21,32 @@ public struct MarkdownText: View {
     /// What the hooks' answers depend on beyond the text (resolved members,
     /// a synced row): a change parses again.
     let revision: String
+    /// #EDE-130: the catalog `highlight` prop (search marks, paint only;
+    /// nil = none), as a `Markdown` node takes it.
+    let highlight: TextHighlightSpec?
 
     @Environment(\.dynamicTypeSize) private var dynamicType
     /// Unsized pictures that decoded since the last parse (each re-sizes its box).
     @State private var loaded = 0
 
-    public init(_ text: String, context: SurfaceModel, options: MarkdownOptions = MarkdownOptions(), hugsWidth: Bool = false, revision: String = "") {
+    public init(_ text: String, context: SurfaceModel, options: MarkdownOptions = MarkdownOptions(), hugsWidth: Bool = false, revision: String = "", highlight: TextHighlightSpec? = nil) {
         self.text = text
         self.context = context
         self.options = options
         self.hugsWidth = hugsWidth
         self.revision = revision
+        self.highlight = highlight
+    }
+
+    /// The look's props with the `highlight` prop (the node's shape).
+    private func props(_ look: MarkdownTextLook) -> Props {
+        guard let highlight else { return look.props }
+        var props = look.props
+        var prop: [String: JSONValue] = ["query": .string(highlight.query)]
+        if let current = highlight.current { prop["current"] = .number(Double(current)) }
+        if let before = highlight.before { prop["before"] = .string(before) }
+        props["highlight"] = .object(prop)
+        return props
     }
 
     public var body: some View {
@@ -41,7 +56,7 @@ public struct MarkdownText: View {
             MarkdownTextFrame(doc: doc, hugs: hugsWidth) {
                 GeometryReader { g in
                     MarkdownView(
-                        text: text, width: g.size.width, styles: look.styles, ink: look.ink, model: context, props: look.props,
+                        text: text, width: g.size.width, styles: look.styles, ink: look.ink, model: context, props: props(look),
                         options: options, prepared: (doc.blocks, doc.layout(g.size.width)),
                         onImageLoaded: { loaded += 1 }, paragraphs: doc
                     )

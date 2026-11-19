@@ -107,6 +107,11 @@ impl IdleNotifierHandler for Ede {
 
 impl IdleInhibitHandler for Ede {
     fn inhibit(&mut self, surface: WlSurface) {
+        // #EDE-126: a space's inhibitor is not the person's: it is not
+        // stored and never counts; their screen still locks on idle.
+        if crate::spaces::space_of_surface(&surface).is_some() {
+            return;
+        }
         self.idle.inhibitors.push(surface);
         let inhibited = self.idle_inhibited();
         self.idle_notifier.set_is_inhibited(inhibited);

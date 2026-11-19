@@ -198,6 +198,9 @@ struct AgentSessionView: View {
     /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
     /// plan / question cards above plus its `surface` cards), oldest first.
     @State private var sessionCards: [AskDock.SessionCard] = []
+    /// #EXP-1943: the tree's call sessions (`sessions.voice_call` set): a
+    /// call's report relay draws its call card (`FeedCalls`).
+    @State private var callSessions: [SessionEntity] = []
     /// #EXP-1562: the chat header's waiting pick and the card it lit.
     @Environment(\.waitingFocus) private var waitingFocus
     @State private var highlightId: String?
@@ -208,6 +211,14 @@ struct AgentSessionView: View {
     @State private var deepLinkFrame: CGRect?
     /// The session's cards have been read once (a link waits for them).
     @State private var cardsLoaded = false
+    /// #EDE-130 (find-in-chat.json): the chat screen's find (the ROOT's
+    /// transcript only), this transcript's half of it, and its landing on
+    /// THE deep-link scroll path (the stop's key as the link's target).
+    @Environment(\.chatFind) private var chatFind
+    @State private var transcriptFind = TranscriptFind()
+    @State private var findTaken: WaitingFocus?
+    @State private var findLink: WaitingCards.DeepLink?
+    @State private var findFrame: CGRect?
     /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
     /// person inputs, oldest first, drawn as the viewer's bubbles under a
     /// no-feed placeholder.
@@ -444,6 +455,7 @@ struct AgentSessionView: View {
         content
             .task(id: session.id) { await observeToolAsks() }
             .task(id: session.id) { await observeNoFeedInputs() }
+            .task(id: session.id) { await observeCallSessions() }
             // #EXP-1380: a widened message limit (Load earlier) re-reads.
             .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
             .onReceive(NotificationCenter.default.publisher(for: Chats.MessageLimits.changed)) { note in
@@ -621,8 +633,18 @@ struct AgentSessionView: View {
 
     // MARK: - Feed
 
-    @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
+        // #EDE-130: find in chat runs with or without a feed (the store's
+        // and the device's older hits still count).
+        feedBodyContent(model)
+            .modifier(TranscriptFindDriver(
+                find: chatFind, transcriptFind: transcriptFind, model: model,
+                accountId: accountId, rootId: session.rootId, sessionId: session.id
+            ))
+    }
+
+    @ViewBuilder
+    private func feedBodyContent(_ model: AgentSessionModel) -> some View {
         if let placeholder = noFeedPlaceholder(model) {
             noFeedBody(placeholder, model: model)
         } else {
@@ -951,7 +973,12 @@ struct AgentSessionView: View {
                             // S-3 (dock.json): a waiting plan or question
                             // stays inline, answerable, never a DockCard.
                             // #EXP-1625: the model's immutable row snapshots.
-                            let entries = model.transcript
+                            // #EXP-1943: a call's later reports draw nothing
+                            // (its ONE card sits at the first).
+                            let feedCalls = FeedCalls.place(model.transcript, calls: callSessions)
+                            let entries = feedCalls.hidden.isEmpty
+                                ? model.transcript
+                                : model.transcript.filter { !feedCalls.hidden.contains($0.id) }
                             let lastId = entries.last?.id
                             // EXP-1398 (ask-dock.json `anchorCases`): EVERY
                             // session card draws inline after the call that
@@ -964,6 +991,8 @@ struct AgentSessionView: View {
                             // #EXP-1736 (transcript-grouping.json): who sent
                             // each row, its group, its avatar.
                             let grouping = feedGrouping(entries, anchors: toolCardAnchors, model: model)
+                            // #EDE-130: the row find in chat is landing on.
+                            let findEntry = findLink.flatMap { findEntryId($0.target, model: model) }
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -978,6 +1007,12 @@ struct AgentSessionView: View {
                                 let layout = grouping.layouts[entry.id]
                                 // The EXP-787 ladder between rows; the
                                 // grouping's 3 / 12 between two bubbles.
+                                if let callId = feedCalls.anchors[entry.id] {
+                                    // #EXP-1943: a call's report relay = THE call card.
+                                    TranscriptRow(side: .full, gap: Self.gapPoints(entry.gap), avatar: nil) {
+                                        feedCallCard(callId, caption: feedCalls.captions[callId])
+                                    }
+                                } else {
                                 TranscriptRow(
                                     side: layout?.side ?? .full,
                                     gap: grouping.bubbleGaps[entry.id] ?? Self.gapPoints(entry.gap),
@@ -995,10 +1030,19 @@ struct AgentSessionView: View {
                                     }
                                     .equatable()
                                 }
+                                .deepLinkRow(entry.id == findEntry, frame: $findFrame)
+                                }
                                 inlineToolCards(
                                     Self.rowItemIds(entry.row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
                                     model: model
                                 )
+                            }
+                            // #EXP-1943: a running call with no report in the
+                            // loaded feed: its card after the feed's last row.
+                            ForEach(feedCalls.trailing, id: \.self) { callId in
+                                TranscriptRow(side: .full, gap: Self.gapPoints(.turn), avatar: nil) {
+                                    feedCallCard(callId, caption: nil)
+                                }
                             }
                             // EXP-1323 / #EXP-1732: the root's suggested
                             // tasks with nothing open left (or for a reader).
@@ -1062,6 +1106,8 @@ struct AgentSessionView: View {
                 // EXP-1162: no `stickyHeaderFade` — the Work screen's header
                 // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
+                // #EDE-130: what the rows paint for find in chat.
+                .environment(\.findPaint, transcriptFind.paint)
                 // Large chats: the first layout starts at the bottom (the
                 // initial offset only, never re-anchored on size changes,
                 // EXP-70), so the opening pass sizes the newest rows, not the
@@ -1070,7 +1116,7 @@ struct AgentSessionView: View {
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
-                    hold: deepLink != nil,
+                    hold: deepLink != nil || findLink != nil || transcriptFind.holding,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
                 // steer-enet.json REPLAY TAIL: within one viewport of the
@@ -1079,7 +1125,7 @@ struct AgentSessionView: View {
                 // were reading once the page lands above it.
                 .modifier(LoadEarlierNearTop(
                     // A pending deep link pages for itself, one page at a time.
-                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier && deepLink == nil,
+                    enabled: agentTab == nil && !atBottom && model.canLoadEarlier && deepLink == nil && findLink == nil,
                     load: {
                         let anchor = model.transcript.first?.id
                         loadEarlierMessages()
@@ -1113,6 +1159,25 @@ struct AgentSessionView: View {
                     onMissing: {
                         atBottom = true
                         proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    }
+                ))
+                // #EDE-130 (find-in-chat.json LANDING): THE deep-link path
+                // lands on find's current stop: page an older row in, reveal
+                // it, centre it, ring it (an output or paged-in stop only).
+                .modifier(DeepLinkScroll(
+                    focus: transcriptFind.focus, taken: $findTaken, link: $findLink,
+                    highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
+                    targetFrame: findFrame, proxy: proxy,
+                    ready: true, found: { findEntryId($0, model: model) != nil },
+                    more: model.canLoadEarlier,
+                    arrival: "\(model.transcript.first?.id ?? -1)",
+                    page: { model.loadEarlier() },
+                    centre: { key in
+                        if let entry = findEntryId(key, model: model) { proxy.scrollTo(entry, anchor: .center) }
+                    },
+                    onTake: {
+                        atBottom = false
+                        agentTab = nil
                     }
                 ))
                 .onAppear {
@@ -1309,7 +1374,7 @@ struct AgentSessionView: View {
             case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
                 // #FEED-256: a blank narration draws nothing.
                 EmptyView()
-            case let .narration(_, text, _, _, at):
+            case let .narration(id, text, _, _, at):
                 // #EXP-1736: the agent's prose = THE message bubble under its
                 // avatar. #VAPP-258: the live tail is the reply being written.
                 // #EXP-1864: its first fragment's `HH:mm`.
@@ -1317,6 +1382,7 @@ struct AgentSessionView: View {
                     text, layout: layout, streaming: isLast && model?.agentWorking == true,
                     time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 )
+                .modifier(FindRowMark(id: id))
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _)
@@ -1334,7 +1400,7 @@ struct AgentSessionView: View {
                     preview: preview, output: output, live: id == liveToolRowId,
                     script: script, settledAt: settledAt
                 )
-            case let .userMessage(_, text, _, at):
+            case let .userMessage(id, text, _, at):
                 // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                 let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 // EXP-724: a steered slash command is a control action, not
@@ -1361,13 +1427,16 @@ struct AgentSessionView: View {
                     // its name ` ›` above it the only press; #FEED-238: it
                     // folds like every bubble.
                     senderBubble(input.body, layout: layout, streaming: false, time: time)
+                        .modifier(FindRowMark(id: id))
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
                     // origin's bubble (the session that started this one).
                     senderBubble(text, layout: layout, streaming: false, time: time)
+                        .modifier(FindRowMark(id: id))
                 } else {
                     // #FEED-237: the live transcript's echo of the turn = two checks.
                     UserMessageBubble(text: text, context: markdownContext, caption: time, status: .read, tail: layout?.tail == true)
+                        .modifier(FindRowMark(id: id))
                 }
             case let .question(question):
                 questionCard(question)
@@ -1470,6 +1539,8 @@ struct AgentSessionView: View {
                         break
                     }
                     if case .marker = TranscriptGrouping.feedInput(text) { break }
+                    // #EXP-1943: a call's report relay = its card, a full row.
+                    if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
                     if let input = TranscriptGrouping.crossSessionInput(text) {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
@@ -1668,7 +1739,8 @@ struct AgentSessionView: View {
                 settled: settled, preview: preview,
                 refs: markdownContext.issueRefs, output: output, live: live,
                 kind: kind,
-                testResults: callId.flatMap { model?.testResults[$0] }
+                testResults: callId.flatMap { model?.testResults[$0] },
+                findId: item.id
             )
         }
     }
@@ -1711,6 +1783,13 @@ struct AgentSessionView: View {
     private static func callId(_ item: AgentFeedItem) -> String? {
         guard case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item else { return nil }
         return callId
+    }
+
+    /// #EDE-130: the transcript entry drawing find key `key` (nil = not in
+    /// the painted window yet).
+    private func findEntryId(_ key: String, model: AgentSessionModel) -> Int? {
+        guard let id = transcriptFind.itemId(key) else { return nil }
+        return model.transcript.first { Self.rowItemIds($0.row).contains(id) }?.id
     }
 
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
@@ -1877,6 +1956,31 @@ struct AgentSessionView: View {
                 if !cardsLoaded { cardsLoaded = true }
             }
         } catch {}
+    }
+
+    /// #EXP-1943: the tree's call sessions, kept for the feed's call cards.
+    private func observeCallSessions() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let rootId = session.rootId.isEmpty ? session.id : session.rootId
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.tree(db: db, rootId: rootId).filter { $0.voiceCall != nil }
+        }
+        do {
+            for try await calls in observation.values(in: pool) where calls != callSessions {
+                callSessions = calls
+            }
+        } catch {}
+    }
+
+    /// #EXP-1943: THE call card of one call session; its tap opens the call view.
+    @ViewBuilder
+    private func feedCallCard(_ callId: String, caption: String?) -> some View {
+        if let call = callSessions.first(where: { $0.id == callId }) {
+            FeedCallCard(session: call, caption: caption) {
+                pushRoute(.callView(accountId: accountId, sessionId: callId))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Android 0.14.134 (steer-enet.json SENT INPUTS): the session's consumed
@@ -4132,6 +4236,10 @@ private struct ToolRow: View {
     /// A settled `execute`'s output parsed as a test run — ONCE, when its
     /// settle landed (`AgentSessionModel.testResults`), never per render.
     var testResults: TestResults? = nil
+    /// #EDE-130: the feed item find in chat paints this line as (nil = none).
+    var findId: Int? = nil
+
+    @Environment(\.findPaint) private var findPaint
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools keeps its own sentence + mark (as
@@ -4168,6 +4276,16 @@ private struct ToolRow: View {
         return Trace.failedTests(testResults)
     }
 
+    /// #EDE-130 (find-in-chat.json): the line with find's marks on its
+    /// title and, while its output matches, `outputHint` beside it.
+    private func findLine(_ model: TraceLineModel) -> some View {
+        let mark = findId.flatMap { id in findPaint?.mark(id) }
+        let hint = findId.flatMap { id in findPaint?.outputHits[id] }.map(FindInChat.outputHint)
+        let shown = hint.map { TraceLineModel(icon: model.icon, title: model.title, description: $0, status: model.status) } ?? model
+        return TraceLine(shown, size: .sm)
+            .environment(\.traceTitleMarks, mark.flatMap { FindMarks.title(model.title, mark: $0) })
+    }
+
     @ViewBuilder
     private var genericRow: some View {
         TraceStack(size: .sm) {
@@ -4176,13 +4294,13 @@ private struct ToolRow: View {
             // call's own "Ran …" line, as on web, desktop and Android.
             if let failedTests, let shownOutput {
                 TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
-                    TraceLine(failedTests, size: .sm)
+                    findLine(failedTests)
                 } content: {
                     CodeBlockView(shownOutput, language: .ansi, destructive: true)
                 }
             } else if let shownOutput {
                 TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
-                    TraceLine(line, size: .sm)
+                    findLine(line)
                 } content: {
                     CodeBlockView(
                         shownOutput,
@@ -4191,10 +4309,12 @@ private struct ToolRow: View {
                     )
                 }
             } else {
-                TraceLine(line, size: .sm)
+                findLine(line)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // An output stop (or a paged-in one) rings the row.
+        .waitingHighlight(findId != nil && findPaint?.ring == findId)
     }
 }
 
@@ -4418,6 +4538,13 @@ private struct ToolGroupRow: View {
     var testResults: [String: TestResults] = [:]
 
     @State private var expanded = false
+    /// #EDE-130: a stop inside the fold opens it (it stays open, like a tap).
+    @Environment(\.findPaint) private var findPaint
+
+    private var findOpens: Bool {
+        guard let open = findPaint?.openGroups, !open.isEmpty else { return false }
+        return items.contains { open.contains($0.id) }
+    }
 
     /// EXP-785: the collapsed caption is what the calls DID ("Ran 3 commands
     /// · edited 2 files"), the one summary every client derives from the
@@ -4459,7 +4586,8 @@ private struct ToolGroupRow: View {
                             settled: settled, preview: preview, refs: refs,
                             output: output, live: liveTail && id == items.last?.id,
                             kind: kind,
-                            testResults: callId.flatMap { testResults[$0] }
+                            testResults: callId.flatMap { testResults[$0] },
+                            findId: id
                         )
                     }
                 }
@@ -4478,6 +4606,23 @@ private struct ToolGroupRow: View {
                 .padding(.top, Trace.Geometry.sm.contentTop)
             }
         }
+        .onChange(of: findOpens, initial: true) { _, open in
+            if open { expanded = true }
+        }
+    }
+}
+
+/// #EDE-130 (find-in-chat.json): a bubble's find marks (genUI's
+/// `highlight` on its markdown, the current match when it is the current
+/// stop's row) and its ring when a landing rings it.
+struct FindRowMark: ViewModifier {
+    let id: Int
+    @Environment(\.findPaint) private var findPaint
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.findMark, findPaint?.mark(id))
+            .waitingHighlight(findPaint?.ring == id)
     }
 }
 

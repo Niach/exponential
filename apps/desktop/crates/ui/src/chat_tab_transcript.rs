@@ -38,7 +38,7 @@ pub(crate) const SCROLL: &str = "chat_scroll";
 /// The document's host row (an Embed): `chat_row_host.<key>` once painted.
 pub(crate) const HOST_NODE: &str = "chat_row_host";
 /// What the IDE draws itself: the eDE home, the header, the composer.
-pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_footer"];
+pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_find", "chat_footer"];
 /// The paging sentinel's row id (the old list's top padding, `pt_2`).
 pub(crate) const PAGE_ROW: &str = "page";
 const PAGE_HEIGHT: f32 = 8.;
@@ -167,6 +167,8 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
             // #EXP-1876: the group's first bubble wears THE tail.
             tail: facts.layout.is_some_and(|layout| layout.tail),
         }),
+        // #EDE-129: find in chat sets it at the push.
+        highlight: None,
     }
 }
 
@@ -272,6 +274,16 @@ pub(crate) struct ChatPush {
     pub senders: HashMap<String, (TranscriptSender, Option<Arc<gpui::Image>>)>,
     /// The live reply's row key (its bubble's Markdown streams).
     pub streaming: Option<String>,
+    /// #EDE-129: find in chat's marks on the bubbles.
+    pub find: Option<FindPaint>,
+}
+
+/// #EDE-129 (find-in-chat.json): the marks the bubbles paint: every match
+/// of `query`, the match `current = (row id, local index)` as the current one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FindPaint {
+    pub query: String,
+    pub current: Option<(String, usize)>,
 }
 
 /// The Chat tab's transcript: the mounted document, the host rows, the
@@ -289,6 +301,10 @@ pub(crate) struct ChatTranscript {
     count: usize,
     /// The live reply's row key at the last push.
     streaming_key: Option<String>,
+    /// #EDE-129: the find marks at the last push, and each bubble's match
+    /// count (row id → the genUI highlight count of its prepared body).
+    find: Option<FindPaint>,
+    find_counts: HashMap<String, usize>,
     /// The document's list follows its newest row (as of this frame's
     /// render; the document holds it, [`SurfaceView::keep_list_place`]).
     follow: bool,
@@ -323,6 +339,8 @@ impl ChatTranscript {
             revision: u64::MAX,
             count: 0,
             streaming_key: None,
+            find: None,
+            find_counts: HashMap::new(),
             follow: true,
             to_end: true,
             scroll_to: None,
@@ -403,6 +421,22 @@ impl ChatTranscript {
             }
         }
         self.streaming_key = push.streaming;
+        // #EDE-129: each bubble's matches, counted on what it paints.
+        self.find_counts.clear();
+        if let Some(find) = &push.find {
+            for row in &mut rows {
+                if let ChatRowInput::Message { id, body, highlight, .. } = row {
+                    let count = eui_gpui::paint::highlight::markdown_highlight_count(body, &find.query);
+                    self.find_counts.insert(id.clone(), count);
+                    let current = find.current.as_ref().filter(|(row, _)| row == id).map(|(_, local)| *local);
+                    *highlight = Some(match current {
+                        Some(local) => json!({"query": find.query, "current": local}),
+                        None => json!({"query": find.query}),
+                    });
+                }
+            }
+        }
+        self.find = push.find;
         // The reply that stopped streaming (or started) lays out again under
         // its new options (its text may be the same).
         let restream = {
@@ -460,6 +494,17 @@ impl ChatTranscript {
                 }
             });
         }
+    }
+
+    /// #EDE-129: the find marks differ from the last push's.
+    pub(crate) fn find_moved(&self, find: Option<&FindPaint>) -> bool {
+        self.find.as_ref() != find
+    }
+
+    /// #EDE-129: bubble `id`'s match count at the last push (`None` = not
+    /// a bubble of the document).
+    pub(crate) fn find_count(&self, id: &str) -> Option<usize> {
+        self.find_counts.get(id).copied()
     }
 
     /// The live reply's row key as last pushed.
@@ -890,6 +935,19 @@ impl HostPlugin for TranscriptHost {
 
     fn attachment(&self, href: &str, cx: &App) -> Option<MarkdownAttachment> {
         self.md.attachment(href, cx)
+    }
+
+    // #EXP-1947: the source rule and THE image menu pass through.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        self.md.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.md.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.md.image_menu(target, picture, window, cx)
     }
 
     fn markdown_hooks_version(&self, text: &str, cx: &App) -> Option<u64> {

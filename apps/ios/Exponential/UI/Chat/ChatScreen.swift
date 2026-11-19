@@ -114,12 +114,16 @@ struct ChatScreen: View {
     @State private var pendingChatPick: ChatMenuSheet.Entry?
     @State private var deleteTarget: String?
     @State private var isOwner = false
+    /// #EDE-130 (find-in-chat.json): find in chat over the root's transcript;
+    /// while open its bar REPLACES the header band (header + tabs).
+    @State private var find: ChatFind
     @Environment(\.dismiss) private var dismiss
 
     init(rootId: String, initialPage: ChatPage = .conversation, editor: ChatEditorSlot? = nil) {
         self.rootId = rootId
         self.initialPage = initialPage
         self.editor = editor
+        _find = State(initialValue: ChatFind(chatKey: rootId))
         switch initialPage {
         case .results:
             _ownTab = State(initialValue: .results)
@@ -232,15 +236,18 @@ struct ChatScreen: View {
             AppBackground()
             if let model, let rows = model.rows, let view = model.view {
                 let shown = screen(rows, view)
+                // FEED-272: the call's Chat tab = this chat under the call's bar.
+                let docked = VoiceCallClient.shared.docked(agentId: callAgentId)
+                let active: SessionScreen.Tab = docked ? .chat : shown.active
                 ZStack {
                     // The Chat stays mounted under every other tab (its draft
                     // and scroll survive a tab switch).
                     chatPage(rows: rows)
-                        .opacity(shown.active == .chat ? 1 : 0)
-                        .allowsHitTesting(shown.active == .chat)
-                        .accessibilityHidden(shown.active != .chat)
-                    if shown.active != .chat {
-                        tabBody(shown.active, rows: rows, view: view)
+                        .opacity(active == .chat ? 1 : 0)
+                        .allowsHitTesting(active == .chat)
+                        .accessibilityHidden(active != .chat)
+                    if active != .chat {
+                        tabBody(active, rows: rows, view: view)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -251,9 +258,26 @@ struct ChatScreen: View {
                 // every tab — #EXP-1688: THE chat header over THE tabs,
                 // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
-                    chatHeader(rows: rows, view: view)
-                    SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
-                        selectTab(next)
+                    if docked {
+                        CallChatBar()
+                    } else if find.open {
+                        FindInChatHeader(find: find)
+                    } else {
+                        chatHeader(rows: rows, view: view)
+                        SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
+                            selectTab(next)
+                        }
+                    }
+                }
+                // find-in-chat.json KEYS: ⌘F while the chat shows = find in
+                // chat (an open bar re-focuses its field).
+                .background {
+                    if shown.active == .chat, opened == nil, kind(rows) != .app {
+                        Button(FindInChat.Copy.menu) { find.openBar() }
+                            .keyboardShortcut("f", modifiers: .command)
+                            .opacity(0)
+                            .frame(width: 0, height: 0)
+                            .accessibilityHidden(true)
                     }
                 }
             } else if model?.missing == true {
@@ -270,6 +294,8 @@ struct ChatScreen: View {
                     .workHeaderBand { ChatHeader() }
             }
         }
+        // FEED-272: an agent's chat registers with the call while it shows.
+        .callChat(agentId: callAgentId)
         // #EXP-1688: THE session screen draws THE chat header itself, for
         // every kind (an app editor's too).
         .toolbar(.hidden, for: .navigationBar)
@@ -473,6 +499,13 @@ struct ChatScreen: View {
     }
 
     private var chatLoaded: Bool { model?.view != nil }
+
+    /// FEED-272: the agent this chat calls (an agent's conversation, not an
+    /// app editor's): its call's Chat tab shows here.
+    private var callAgentId: String? {
+        guard let root = model?.rows?.root, root.isAgent, root.appId == nil else { return nil }
+        return root.agentId
+    }
 
     /// #EXP-1785 (waiting-cards.json): THE TREE's waiting plans and
     /// questions (ask-dock `chatPendingAsks` over the chat view's rows, the
@@ -758,6 +791,7 @@ struct ChatScreen: View {
             editorMove: editor?.appMove,
             editorPicks: editor?.picks
         )
+        .environment(\.chatFind, find)
         .id(rows.root.id)
     }
 
@@ -949,7 +983,16 @@ struct ChatScreen: View {
             export: app?.export ?? false,
             delete: screenKind == .app ? (app?.delete ?? false) : (screenKind == .session && canSteer && canDelete)
         )
-        let own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        var own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        // #EDE-130 (find-in-chat.json `menuCases`): Search in chat first, its
+        // own group, while the chat shows (an item over it: not).
+        if tab == .chat, opened == nil {
+            // The sheet draws its own dividers (`separates`): no separator row.
+            own = FindInChat.menu(
+                kind: screenKind.rawValue, entries: own.map { Optional($0) },
+                search: Optional(ChatMenuSheet.Entry.search), separator: nil
+            ).compactMap { $0 }
+        }
         guard screenKind == .session else { return own }
         return own + prMenuEntries.map { entry -> ChatMenuSheet.Entry in
             switch entry {
@@ -1008,6 +1051,8 @@ struct ChatScreen: View {
         case .resume: holdGuide(false)
         case .closePr:
             closePrTarget = rows.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
+        case .search:
+            find.openBar()
         }
     }
 
@@ -1260,6 +1305,7 @@ struct ChatScreen: View {
     /// A tab tap: the tab, nothing opened over it, a held request dropped.
     private func selectTab(_ next: SessionScreen.Tab) {
         pendingPage = nil
+        if next != .chat { find.close() }
         UIApplication.endEditing()
         withAnimation(motion.standard) {
             opened = nil
@@ -2087,9 +2133,12 @@ private struct AgentChatEmpty: View {
 
     var body: some View {
         let shown = screen
+        // FEED-272: the call's Chat tab = this chat under the call's bar.
+        let docked = VoiceCallClient.shared.docked(agentId: agent.id)
+        let active: SessionScreen.Tab = docked ? .chat : shown.active
         ZStack {
             AppBackground()
-            if shown.active == .results {
+            if active == .results {
                 EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.chatResults, size: .list)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -2100,7 +2149,7 @@ private struct AgentChatEmpty: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if shown.active == .chat {
+            if active == .chat {
                 ChatComposer(
                     sessionId: "",
                     placeholder: "Message \(agent.name)",
@@ -2111,33 +2160,38 @@ private struct AgentChatEmpty: View {
             }
         }
         .workHeaderBand {
-            ChatHeader {
-                ChatHeaderTitle(
-                    title: agent.name,
-                    subtitle: subtitle,
-                    agentIcon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-                    agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
-                    assistant: agent.isAssistant
-                )
-            } trailing: {
-                AgentCallButton(
-                    agentId: agent.id, agentName: agent.name,
-                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color,
-                    agentDevice: agent.deviceId, agentLanguage: agent.voice.language
-                )
-                .buttonStyle(.plain)
-                if !menuEntries.isEmpty {
-                    ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
-                        UIApplication.endEditing()
-                        menuOpen = true
+            if docked {
+                CallChatBar()
+            } else {
+                ChatHeader {
+                    ChatHeaderTitle(
+                        title: agent.name,
+                        subtitle: subtitle,
+                        agentIcon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                        agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
+                        assistant: agent.isAssistant
+                    )
+                } trailing: {
+                    AgentCallButton(
+                        agentId: agent.id, agentName: agent.name,
+                        agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color,
+                        agentDevice: agent.deviceId, agentLanguage: agent.voice.language
+                    )
+                    .buttonStyle(.plain)
+                    if !menuEntries.isEmpty {
+                        ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
+                            UIApplication.endEditing()
+                            menuOpen = true
+                        }
                     }
                 }
-            }
-            SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
-                UIApplication.endEditing()
-                tab = next
+                SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
+                    UIApplication.endEditing()
+                    tab = next
+                }
             }
         }
+        .callChat(agentId: agent.id)
         .navigationDestination(isPresented: $settingsOpen) {
             AgentSettingsPage(teamId: agent.teamId, agentId: agent.id, isOwner: isOwner)
                 .environment(\.accountId, accountId)

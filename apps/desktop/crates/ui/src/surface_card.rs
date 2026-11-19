@@ -195,6 +195,19 @@ impl HostPlugin for ReplyHost {
         self.inner.attachment(href, cx)
     }
 
+    // #EXP-1947: the source rule and THE image menu pass through.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        self.inner.image_source(src, alt)
+    }
+
+    fn has_image_menu(&self, cx: &App) -> bool {
+        self.inner.has_image_menu(cx)
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, window: &mut gpui::Window, cx: &mut App) -> gpui::AnyElement {
+        self.inner.image_menu(target, picture, window, cx)
+    }
+
     fn markdown_options(&self, cx: &App) -> eui_gpui::host::MarkdownOptions {
         self.inner.markdown_options(cx)
     }

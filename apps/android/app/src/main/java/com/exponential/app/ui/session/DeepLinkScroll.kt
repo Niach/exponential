@@ -41,8 +41,11 @@ internal fun rememberDeepLink(
     loadedMark: () -> Int,
     page: () -> Unit,
     onTake: () -> Unit = {},
+    /** false = a link of the transcript's own (find in chat's landing): the
+     *  host's card link ([LocalCardScrollSettled]) is not told. */
+    reportSettled: Boolean = true,
 ): DeepLinkState {
-    val settle = LocalCardScrollSettled.current
+    val settle = if (reportSettled) LocalCardScrollSettled.current else null
     val latestIndexOf by rememberUpdatedState(indexOf)
     val latestMore by rememberUpdatedState(more)
     val latestMark by rememberUpdatedState(loadedMark)

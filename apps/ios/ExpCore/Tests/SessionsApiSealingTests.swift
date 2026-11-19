@@ -32,6 +32,7 @@ final class SessionsApiSealingTests: XCTestCase {
         func pending(accountId: String, installId: String) async throws -> [PendingTreeKey] { [] }
         func wrap(accountId: String, installId: String, wraps: [PendingTreeKeyWrap]) async throws {}
         func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey] { [] }
+        func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult { RequestKeyResult(state: "noHost") }
     }
 
     /// Records each `sessions.send` body and answers it.

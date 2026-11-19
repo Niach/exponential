@@ -440,6 +440,22 @@ export const codingSessionBlockedWindowValues = [
   `model`,
 ] as const
 
+/** #EXP-1961 (etalk voice-call.json `callSession`): a call session's call.
+ *  ISO stamps; `durationMs` sums the ended segments (a resume adds one). */
+export interface SessionVoiceCall {
+  /** The host's call id of the latest segment. */
+  callId: string | null
+  startedAt: string
+  segmentStartedAt: string
+  /** null = the call is running. */
+  endedAt: string | null
+  durationMs: number
+  /** It ended: its next reply is the summary (bus.json). */
+  summaryPending: boolean
+  /** The chat's messages up to here are in the call session already. */
+  readUpTo: string
+}
+
 export interface CodingSessionBlocked {
   kind: string
   /** The agent and usage window of a wall; null on a watchdog flag. */
@@ -1434,7 +1450,14 @@ export type MessageCard =
     }
   | { kind: `thread_started`; sessionId: string }
   /** A child's end (or a turn's relay when `final` is false) in its parent. */
-  | { kind: `report`; sessionId: string; summary: string; final?: boolean | null }
+  | {
+      kind: `report`
+      sessionId: string
+      summary: string
+      final?: boolean | null
+      /** #EXP-1961: a call's summary (not final): the call's times. */
+      call?: { startedAt: string; endedAt: string | null; durationMs: number } | null
+    }
   /** NEW-1: a child's open question/plan card mirrored into its parent and
    *  watchers: `messageId` = THE card row on `sessionId` (one row, two
    *  views); answering either answers the child. */

@@ -11,7 +11,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::{blocking::Connection, zvariant::OwnedValue};
 
-use super::{prop, session_bus, str_of};
+use super::{polled_session_bus, prop, session_bus, str_of};
 use crate::{unavailable, ActionSpec, Service};
 
 const PREFIX: &str = "org.mpris.MediaPlayer2.";
@@ -98,7 +98,7 @@ impl Service for Media {
     }
 
     fn snapshot(&self) -> Value {
-        let Ok(conn) = session_bus() else { return unavailable("no session bus") };
+        let Ok(conn) = polled_session_bus() else { return unavailable("no session bus") };
         let names = match player_names(&conn) {
             Ok(n) => n,
             Err(e) => return unavailable(format!("session bus: {e}")),

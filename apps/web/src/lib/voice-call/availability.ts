@@ -30,7 +30,7 @@ export function callSpeechOf(doctor: DeviceDoctor | null | undefined): CallSpeec
 export interface CallSettingsLike {
   /** The member's Assistant's desktop (where a meeting runs). */
   voiceDeviceId: string | null
-  /** The member's voice language (the fallback greeting). */
+  /** The member's voice language. */
   language?: string
   /** #NEW-57: a meeting runs on the voice device. */
   meetingStartedAt?: string | null

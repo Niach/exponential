@@ -334,11 +334,6 @@ RustBuffer uniffi_etalk_ffi_fn_func_call_constants(RustCallStatus *_Nonnull out_
 RustBuffer uniffi_etalk_ffi_fn_func_call_event_of_wire(RustBuffer json, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_GREETING
-#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_GREETING
-RustBuffer uniffi_etalk_ffi_fn_func_call_greeting(RustBuffer language, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_IDLE
 #define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_FN_FUNC_CALL_IDLE
 RustBuffer uniffi_etalk_ffi_fn_func_call_idle(RustCallStatus *_Nonnull out_status
@@ -678,12 +673,6 @@ uint16_t uniffi_etalk_ffi_checksum_func_call_constants(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_EVENT_OF_WIRE
 #define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_EVENT_OF_WIRE
 uint16_t uniffi_etalk_ffi_checksum_func_call_event_of_wire(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_GREETING
-#define UNIFFI_FFIDEF_UNIFFI_ETALK_FFI_CHECKSUM_FUNC_CALL_GREETING
-uint16_t uniffi_etalk_ffi_checksum_func_call_greeting(void
     
 );
 #endif

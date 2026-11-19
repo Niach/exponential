@@ -444,6 +444,11 @@ impl Host {
         let mut copy_mark = armed.filter(|(_, under)| hold == Some(*under)).map(|(mark, _)| mark);
         let leased = std::cell::Cell::new(None);
         let engage = || {
+            // #EDE-126: a space has no person to hold out: no lock, no
+            // hold thread, no Esc. Only the run's end stops it.
+            if self.target != Target::Person {
+                return if self.stopped(session_id) { Err(ENDED.to_string()) } else { Ok(()) };
+            }
             let seq = self.lease(session_id, label, backend).map_err(|refused| match refused {
                 Refused::Aborted => tools::ABORTED.to_string(),
                 Refused::Ended => ENDED.to_string(),
@@ -619,9 +624,24 @@ impl Hosts {
     }
 }
 
+impl Hosts {
+    /// Whether `session_id` is a run in an agent space (#EDE-126).
+    fn in_space(&self, session_id: &str) -> bool {
+        self.runs.lock().unwrap().get(session_id).is_some_and(|target| *target != Target::Person)
+    }
+}
+
 impl ToolHost for Hosts {
     fn tools(&self) -> Result<Value, String> {
         Ok(tools::list())
+    }
+
+    fn tools_for(&self, session_id: &str) -> Result<Value, String> {
+        Ok(tools::list_for(self.in_space(session_id)))
+    }
+
+    fn instructions_for(&self, session_id: &str) -> Option<String> {
+        self.in_space(session_id).then(|| crate::server::SPACE_INSTRUCTIONS.to_string())
     }
 
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
@@ -1173,6 +1193,24 @@ mod tests {
         assert!(!b.aborted("s2") && b.engaged(), "an Esc on one host reached the other");
         a.shutdown();
         b.shutdown();
+    }
+
+    /// #EDE-126: a space has no person to hold out: a driving call takes
+    /// no lock, starts no janitor and is no banner; the run's end still
+    /// stops its calls.
+    #[test]
+    fn a_space_run_takes_no_hold_and_its_end_stops_it() {
+        let host = Host::on(Target::Space(43));
+        host.admit("s1");
+        let backend = tools::tests::FakeBackend { space: Some(43), ..Default::default() };
+        let click = json!({ "x": 10, "y": 10 });
+        let reply = host.call_on(&backend, "s1", "EXP-1", "left_click", click.clone());
+        assert_eq!(reply["isError"], Value::Null, "{reply}");
+        assert!(backend.log.lock().unwrap().iter().any(|line| line == "Left down"));
+        assert!(!backend.log.lock().unwrap().iter().any(|line| line == "lock"), "a space run took the hold");
+        assert!(!host.engaged() && !*host.janitor.lock().unwrap());
+        host.end("s1");
+        assert_eq!(host.call_on(&backend, "s1", "EXP-1", "left_click", click)["content"][0]["text"], ENDED);
     }
 
     /// #EDE-126: each space run has a target, and so a host, of its own; a

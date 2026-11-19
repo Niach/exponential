@@ -17,18 +17,18 @@
 //!
 //! S-3: a call RINGS first: `Start` = ringing; the worker warms up (`Call`
 //! with `ring_ms`, a local call's ring tone on its one output stream until
-//! the greeting) and confirms with `CallListening` (= `Ready`); EXP-1423:
+//! the opening) and confirms with `CallListening` (= `Ready`); EXP-1423:
 //! the ring's earliest answer, drawn per call (`etalk::call::call_ring_ms`), =
-//! `Rang`; both = answered: the device says `callGreeting(language)`
-//! through the worker's `Speak` ([`speak_replies::speak_greeting`], never an
-//! agent message), its end listens. No `CallListening` within `maxRingMs`
+//! `Rang`; both = answered: it listens (#EXP-1966: no fixed greeting); the
+//! agent's own opening line goes through the worker's `Speak`
+//! ([`speak_replies::speak_greeting`]). No `CallListening` within `maxRingMs`
 //! (or a failed download) fails it `unavailable`; a voice still downloading
 //! keeps ringing. MIC CHECK: no `Level` ≥ `noSoundLevel` from
 //! `CallListening` until the ring's end (at least 1.5 s of listening) steps
 //! `NoSound`. FEED-276: `Ready` also waits for the agent's own voice
 //! (`hostVoice`: its clip on disk and prepared; a clip still fetching after
 //! `hostVoice.waitMs`, or one that failed, speaks the built-in voice,
-//! logged), so the greeting is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
+//! logged), so the opening is never said in the stock voice. The surfaces: the in-window CALL PANEL over the agent chat's
 //! body ([`CallPanel`]) and, while no IDE window is focused, the FLOATING
 //! PILL (`push_to_talk::overlay`, [`Face::Call`]); both read [`face`]. The
 //! live level and the timer repaint only them ([`CallLive`]).
@@ -53,7 +53,7 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
+    div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable, Global, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window,
 };
 
@@ -105,6 +105,20 @@ struct Active {
     voice_preparing: bool,
     /// FEED-276: `hostVoice.waitMs` passed since the ring started.
     voice_waited: bool,
+    /// #EXP-1961: the call's own session (a child of the chat), once the
+    /// server answered; `session_pending` = still asking.
+    session: Option<String>,
+    session_pending: bool,
+    /// #EXP-1961: the voice is in; `ready` waits for the opening line.
+    voice_ready_at: Option<Instant>,
+    /// #EXP-1961: the agent's opening line (its row id, its text) and when.
+    opening: Option<(Instant, String, String)>,
+    /// #EXP-1961: the pickup was silent: a late opening is never spoken.
+    late_opening: bool,
+    /// #EXP-1961: an utterance went out (a later reply is no opening).
+    sent: bool,
+    /// #EXP-1961: `openingWaitMs` passed since the voice was in.
+    opening_waited: bool,
 }
 
 /// S-3: what changes many times a second (the microphone's level, the
@@ -177,6 +191,48 @@ pub fn agent_id(cx: &App) -> Option<String> {
     let this = entity.read(cx);
     let active = this.active.as_ref().filter(|active| !active.dialled && this.state.phase != CallPhase::Ringing)?;
     Some(active.agent_id.clone())
+}
+
+/// #EXP-1961: the running call's own session, once it no longer rings
+/// (Speak replies speaks ITS replies; None = the chat's).
+pub fn session(cx: &App) -> Option<String> {
+    let entity = global(cx)?;
+    let this = entity.read(cx);
+    let active = this.active.as_ref().filter(|active| !active.dialled && this.state.phase != CallPhase::Ringing)?;
+    active.session.clone()
+}
+
+/// #EXP-1961: a ringing call's own session still waiting for its opening
+/// line, and its agent: Speak replies hands that line over ([`opening`]).
+pub(crate) fn ringing_session(cx: &App) -> Option<(String, String)> {
+    let entity = global(cx)?;
+    let this = entity.read(cx);
+    let active = this
+        .active
+        .as_ref()
+        .filter(|active| !active.dialled && this.state.phase == CallPhase::Ringing && active.opening.is_none())?;
+    Some((active.session.clone()?, active.agent_id.clone()))
+}
+
+/// #EXP-1961: the opening line arrived during the ring (said at the pickup).
+pub(crate) fn opening(id: String, text: String, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| {
+        if let Some(active) = this.active.as_mut().filter(|active| active.opening.is_none()) {
+            active.opening = Some((Instant::now(), id, text));
+        }
+        this.check_opening(cx);
+    });
+}
+
+/// #EXP-1961: a reply after a silent pickup, before anything was said, is
+/// the late opening: not spoken (true = drop it).
+pub(crate) fn drops_late_opening(cx: &mut App) -> bool {
+    let Some(entity) = global(cx) else { return false };
+    entity.update(cx, |this, _| {
+        let Some(active) = this.active.as_mut() else { return false };
+        std::mem::take(&mut active.late_opening) && !active.sent
+    })
 }
 
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
@@ -554,9 +610,10 @@ impl VoiceCall {
             self.toasts.push(toast.clone());
             host::notify(Notice::Error(toast), cx);
         }
-        // S-3: rang and ready answered it: the device says its greeting
-        // (EXP-1857: a dialled call's host says it; only the timer starts).
-        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Speaking {
+        // S-3: rang and ready answered it (#EXP-1966: on Listening): the
+        // device says the agent's opening, or listens (EXP-1857: a dialled
+        // call's host does; only the timer starts).
+        if before.phase == CallPhase::Ringing && self.state.phase == CallPhase::Listening {
             if self.dialled() {
                 if let Some(active) = self.active.as_mut() {
                     active.answered_at = Some(Instant::now());
@@ -601,8 +658,29 @@ impl VoiceCall {
         // its clip), prepared before the greeting.
         let language = crate::speak_replies::voice_of(&agent_id, cx).language;
         crate::speak_replies::use_voice_of(&agent_id, cx);
-        let id = self.open(agent_id, host, cx);
+        let id = self.open(agent_id.clone(), host, cx);
         let remote = self.active.as_ref().is_some_and(|active| active.host.is_some());
+        // #EXP-1961: the call's own session, asked while it rings.
+        if let Some(job) = host::call_session(&agent_id, None, cx) {
+            if let Some(active) = self.active.as_mut() {
+                active.session_pending = true;
+            }
+            let call = id.clone();
+            cx.spawn(async move |this, cx| {
+                let session = cx.background_executor().spawn(async move { job() }).await;
+                let _ = this.update(cx, |this, cx| {
+                    if !this.is_call(&call) {
+                        return;
+                    }
+                    if let Some(active) = this.active.as_mut() {
+                        active.session_pending = false;
+                        active.session = session;
+                    }
+                    this.check_opening(cx);
+                });
+            })
+            .detach();
+        }
         self.step(CallEvent::Start { device, language: Some(language.clone()), fallback }, cx);
         // S-3: a LOCAL call rings on this device while the worker warms up;
         // a remote one rings on the caller (the host's `rang` follows).
@@ -764,6 +842,13 @@ impl VoiceCall {
             answered_at: None,
             voice_preparing: false,
             voice_waited: false,
+            session: None,
+            session_pending: false,
+            voice_ready_at: None,
+            opening: None,
+            late_opening: false,
+            sent: false,
+            opening_waited: false,
         });
         self.live.update(cx, |live, _| *live = CallLive::default());
         id
@@ -870,9 +955,62 @@ impl VoiceCall {
         let waited = if active.voice_waited { VOICE_CALL.host_voice.wait_ms } else { active.started.elapsed().as_millis() as u64 };
         match call_voice_ready(voice, waited) {
             CallVoiceReady::Wait => log::info!("[voice] call {}: waiting for the agent's own voice ({voice:?})", active.id),
-            CallVoiceReady::Ready => self.step(CallEvent::Ready, cx),
+            CallVoiceReady::Ready => self.voice_in(cx),
             CallVoiceReady::BuiltIn => {
                 log::warn!("[voice] call {}: the agent's own voice is not here ({voice:?} after {waited} ms); the built-in voice speaks", active.id);
+                self.voice_in(cx);
+            }
+        }
+    }
+
+    /// The voice is in: `ready`, or (#EXP-1961) with a call session the
+    /// opening line is waited for first (`callSession.openingCases`).
+    fn voice_in(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.as_mut() else { return };
+        if active.session.is_none() && !active.session_pending {
+            return self.step(CallEvent::Ready, cx);
+        }
+        if active.voice_ready_at.is_none() {
+            active.voice_ready_at = Some(Instant::now());
+            let id = active.id.clone();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(VOICE_CALL.call_session.opening_wait_ms)).await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.is_call(&id) {
+                        if let Some(active) = this.active.as_mut() {
+                            active.opening_waited = true;
+                        }
+                        this.check_opening(cx);
+                    }
+                });
+            })
+            .detach();
+        }
+        self.check_opening(cx);
+    }
+
+    /// #EXP-1961: a held `ready` goes once the opening line is in, or
+    /// `openingWaitMs` after the voice was (a silent pickup); a call whose
+    /// session never came takes the old path at once.
+    fn check_opening(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.as_ref() else { return };
+        if self.state.ready || self.state.phase != CallPhase::Ringing {
+            return;
+        }
+        let Some(ready) = active.voice_ready_at else { return };
+        if active.session.is_none() && !active.session_pending {
+            return self.step(CallEvent::Ready, cx);
+        }
+        let wait = VOICE_CALL.call_session.opening_wait_ms;
+        let ms = |at: Instant| at.saturating_duration_since(active.started).as_millis() as u64;
+        let ready_ms = ms(ready);
+        let opening = active.opening.as_ref().filter(|_| active.session.is_some()).map(|(at, _, _)| ms(*at));
+        let now = if active.opening_waited { ready_ms + wait } else { ms(Instant::now()).min(ready_ms + wait - 1) };
+        match etalk::call::call_opening(Some(ready_ms), opening, now) {
+            etalk::call::CallOpening::Wait => {}
+            etalk::call::CallOpening::Speak => self.step(CallEvent::Ready, cx),
+            etalk::call::CallOpening::Listen => {
+                log::info!("[voice] call {}: no opening line in time: picked up silently", active.id);
                 self.step(CallEvent::Ready, cx);
             }
         }
@@ -910,15 +1048,26 @@ impl VoiceCall {
         }
     }
 
-    /// S-3: answered: the device says its greeting on the call's stream
-    /// (Speak replies tracks it like a reply: its end listens).
+    /// S-3: answered: the device says the agent's opening line on the
+    /// call's stream (Speak replies tracks it like a reply: its end
+    /// listens), or listens at once (#EXP-1961).
     fn answer(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_mut() else { return };
         active.answered_at = Some(Instant::now());
-        let greeting_id = active.greeting_id.clone();
-        if !crate::speak_replies::speak_greeting(greeting_id, self.state.greeting.clone(), cx) {
-            // Nothing can speak it: listen at once.
-            self.step(CallEvent::ReplyFinished, cx);
+        // #EXP-1961 (#FEED-275): the agent's own opening line, or silence
+        // (no fixed greeting any more, a call without its session too).
+        match active.opening.clone().filter(|_| active.session.is_some()) {
+            Some((_, id, text)) => {
+                active.greeting_id = id.clone();
+                if !crate::speak_replies::speak_greeting(id, text, cx) {
+                    // Nothing can speak it: listen at once.
+                    self.step(CallEvent::ReplyFinished, cx);
+                }
+            }
+            None => {
+                active.late_opening = active.session.is_some();
+                self.step(CallEvent::ReplyFinished, cx);
+            }
         }
     }
 
@@ -950,6 +1099,9 @@ impl VoiceCall {
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
         }
+        if let Some(session) = active.session.as_deref() {
+            host::call_ended(session, cx);
+        }
         if active.speaking.is_some() {
             crate::speak_replies::stop(cx);
         }
@@ -968,6 +1120,9 @@ impl VoiceCall {
         let Some(active) = self.active.take() else { return };
         if let Some(client) = crate::speak_replies::client(cx) {
             client.hangup(active.id.clone());
+        }
+        if let Some(session) = active.session.as_deref() {
+            host::call_ended(session, cx);
         }
         if active.speaking.is_some() {
             crate::speak_replies::stop(cx);
@@ -997,6 +1152,11 @@ impl VoiceCall {
             CallHostEvent::Audio(pcm) => {
                 let (Some(active), Some(client)) = (self.active.as_ref(), crate::speak_replies::client(cx)) else { return };
                 client.call_audio(active.id.clone(), &pcm);
+            }
+            // Question 9: the worker knows where an utterance begins and ends.
+            CallHostEvent::Lost { ms } => {
+                let (Some(active), Some(client)) = (self.active.as_ref(), crate::speak_replies::client(cx)) else { return };
+                client.call_lost(active.id.clone(), ms);
             }
             CallHostEvent::Mute(muted) => self.set_muted(muted, cx),
             // The relay's `idle` / `max_length` (or the caller's socket gone)
@@ -1096,6 +1256,7 @@ impl VoiceCall {
         }
         let busy = matches!(self.state.phase, CallPhase::Thinking | CallPhase::Speaking);
         let agent_id = active.agent_id.clone();
+        active.sent = true;
         if busy {
             active.queued += 1;
         }
@@ -1109,7 +1270,14 @@ impl VoiceCall {
     }
 
     fn send(&mut self, agent_id: String, text: String, cx: &mut Context<Self>) {
-        let Some(outgoing) = host::outgoing(&agent_id, &text, cx) else { return };
+        let Some(mut outgoing) = host::outgoing(&agent_id, &text, cx) else { return };
+        // #EXP-1961: into the call's own session (sealed with the chat's tree key).
+        if let Some(session) = self.active.as_ref().and_then(|active| active.session.clone()) {
+            let text = match &outgoing.target {
+                etalk::voice::UtteranceTarget::Session { text, .. } | etalk::voice::UtteranceTarget::Agent { text, .. } => text.clone(),
+            };
+            outgoing.target = etalk::voice::UtteranceTarget::Session { session_id: session, text };
+        }
         let Some(job) = host::send(outgoing, cx) else { return };
         cx.spawn(async move |_, cx| {
             let result = cx.background_executor().spawn(async move { job() }).await;
@@ -1127,7 +1295,7 @@ impl VoiceCall {
     /// call's Speaking follows (only for the call's own conversation).
     fn on_speaker(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.as_ref() else { return };
-        let conversation = host::conversation(&active.agent_id, cx);
+        let conversation = active.session.clone().or_else(|| host::conversation(&active.agent_id, cx));
         let greeting = active.greeting_id.clone();
         let speaking = crate::speak_replies::speaking(cx)
             .filter(|speaking| speaking.message_id == greeting || Some(&speaking.session_id) == conversation.as_ref());
@@ -1198,6 +1366,9 @@ fn ring_timeout() -> Duration {
     Duration::from_millis(VOICE_CALL.constants.ring_timeout_ms)
 }
 
+/// FEED-272: the tabs' and the docked row's width cap (the chat column's).
+const CHAT_COLUMN_MAX_W: f32 = 768.;
+
 /// S-3: the in-window CALL PANEL over an agent chat's body (the agent
 /// screen holds one): drawn while THIS client runs a call with that agent,
 /// nothing otherwise. Esc in it ends the call; the header's telephone
@@ -1205,6 +1376,8 @@ fn ring_timeout() -> Duration {
 /// never the chat around it.
 pub struct CallPanel {
     agent_id: Option<String>,
+    /// FEED-272: the tab on top (a call opens on `tabs.initial`).
+    tab: etalk::call::CallTab,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -1217,7 +1390,7 @@ impl CallPanel {
             subscriptions.push(cx.observe(&call, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&live, |_, _, cx| cx.notify()));
         }
-        CallPanel { agent_id: None, focus: cx.focus_handle(), _subscriptions: subscriptions }
+        CallPanel { agent_id: None, tab: VOICE_CALL.tabs.initial, focus: cx.focus_handle(), _subscriptions: subscriptions }
     }
 
     /// The chat's agent (its screen resolves it).
@@ -1232,6 +1405,24 @@ impl CallPanel {
     pub fn shown(&self, cx: &App) -> bool {
         self.agent_id.as_deref().is_some_and(|agent_id| runs_for(agent_id, cx))
     }
+
+    /// FEED-272: the call sits DOCKED over the chat (the Chat tab): the
+    /// screen lays the panel out ABOVE the chat instead of over it.
+    pub fn docked(&self, cx: &App) -> bool {
+        self.tab == etalk::call::CallTab::Chat && self.shown(cx)
+    }
+
+    /// The tab on top.
+    pub fn tab(&self) -> etalk::call::CallTab {
+        self.tab
+    }
+
+    pub fn set_tab(&mut self, tab: etalk::call::CallTab, cx: &mut Context<Self>) {
+        if self.tab != tab {
+            self.tab = tab;
+            cx.notify();
+        }
+    }
 }
 
 impl Focusable for CallPanel {
@@ -1243,20 +1434,69 @@ impl Focusable for CallPanel {
 impl Render for CallPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let face = self.shown(cx).then(|| face(cx)).flatten();
-        let Some(face) = face else { return div().into_any_element() };
+        let Some(face) = face else {
+            // No call: the next one opens on `tabs.initial` again.
+            self.tab = VOICE_CALL.tabs.initial;
+            return div().into_any_element();
+        };
         let actions = CallActions { on_mute: std::rc::Rc::new(toggle_mute), on_end: std::rc::Rc::new(end) };
-        div()
-            .absolute()
-            .inset_0()
+        let this = cx.entity().downgrade();
+        let on_tab: crate::voice_overlay::TabClick = std::rc::Rc::new(move |tab, cx| {
+            this.update(cx, |panel, cx| panel.set_tab(tab, cx)).ok();
+        });
+        let tabs = crate::voice_overlay::call_tabs(self.tab, on_tab, cx);
+        let panel_id = SharedString::from(VOICE_CALL.test_ids.panel.clone());
+        let background = {
+            use gpui_component::ActiveTheme as _;
+            cx.theme().background
+        };
+        let root = div()
             .track_focus(&self.focus)
             .on_key_down(|event, _, cx| {
                 if event.keystroke.key == "escape" {
                     cx.stop_propagation();
                     end(cx);
                 }
-            })
-            .child(crate::voice_overlay::call_panel(SharedString::from(VOICE_CALL.test_ids.panel.clone()), &face, &actions, cx))
-            .into_any_element()
+            });
+        match self.tab {
+            // FEED-272 Chat: the tabs and the pill's row docked ABOVE the
+            // chat (the screen puts this panel before it), the chat with its
+            // composer readable and writable under them.
+            etalk::call::CallTab::Chat => root
+                .flex_none()
+                .w_full()
+                .flex()
+                .justify_center()
+                .px(px(16.))
+                .pt(px(12.))
+                .pb(px(4.))
+                .child(
+                    gpui_component::v_flex()
+                        .w_full()
+                        .max_w(px(CHAT_COLUMN_MAX_W))
+                        .gap(px(12.))
+                        .child(tabs)
+                        .child(crate::voice_overlay::call_pill_docked(panel_id, &face, &actions, cx)),
+                )
+                .into_any_element(),
+            etalk::call::CallTab::Voice => root
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .bg(background)
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .justify_center()
+                        .px(px(16.))
+                        .pt(px(12.))
+                        .child(div().w_full().max_w(px(CHAT_COLUMN_MAX_W)).child(tabs)),
+                )
+                .child(div().flex_1().min_h_0().child(crate::voice_overlay::call_panel(panel_id, &face, &actions, cx)))
+                .into_any_element(),
+        }
     }
 }
 
@@ -1655,8 +1895,8 @@ mod tests {
         global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Event(event), cx));
     }
 
-    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (the
-    /// host greets; no greeting here), its flow events step this machine,
+    /// EXP-1857: CALLER MODE: the host's `rang` + `ready` answer it (on
+    /// Listening, #EXP-1966; the host speaks), its flow events step this machine,
     /// the microphone goes up, mute and End reach the host; the via line
     /// names the desktop that speaks; Speak replies never speaks it here.
     #[gpui::test]
@@ -1671,7 +1911,7 @@ mod tests {
             assert_eq!(phase(cx), CallPhase::Ringing, "the ring is the host's");
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
-            assert_eq!(phase(cx), CallPhase::Speaking, "the host greets");
+            assert_eq!(phase(cx), CallPhase::Listening, "answered (#EXP-1966: the host speaks its opening as a reply)");
             assert!(global(cx).unwrap().read(cx).active.as_ref().unwrap().answered_at.is_some(), "the timer runs");
             host_event(&id, serde_json::json!({ "t": "replyFinished" }), cx);
             assert_eq!(phase(cx), CallPhase::Listening);
@@ -1726,23 +1966,71 @@ mod tests {
         rig.worker(etalk::Event::Finished { id: id.into(), stopped: false }, cx);
     }
 
-    /// #EXP-1936: the call and the speaker together: the greeting is said
-    /// and its end listens; an utterance goes out and waits; the agent's
-    /// reply is spoken and the call follows it; a card-only row is not.
+    /// #EXP-1961 (#FEED-275): a call with its own session: no fixed
+    /// greeting; the pickup waits for the agent's own opening line (written
+    /// during the ring, never said before the pickup), says it, sends the
+    /// utterances into the call session, speaks its replies and tells the
+    /// server the hang-up.
     #[gpui::test]
-    async fn a_call_speaks_its_greeting_and_its_replies(cx: &mut gpui::TestAppContext) {
+    async fn a_call_session_opens_with_the_agents_own_line(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        let id = rung(cx);
+        cx.run_until_parked();
+        rig.requests();
+        rig.worker(etalk::Event::CallListening { id: id.clone() }, cx);
+        assert!(cx.update(|cx| !global(cx).unwrap().read(cx).state.ready), "ready waits for the opening line");
+        rig.call_message("o1", "Hi Danny, the build is green.", 1, cx);
+        assert!(rig.spoken().is_empty(), "never said during the ring");
+        answered(&rig, &id, cx);
+        assert_eq!(rig.spoken(), ["o1"]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
+        finished(&rig, "o1", cx);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "thanks".into() }, cx);
+        assert_eq!(rig.call_log().0, ["call-s"]);
+        rig.message("chat", "agent", "A reply in the chat.", 2, cx);
+        assert!(rig.spoken().is_empty(), "the chat's replies are not the call's");
+        rig.call_message("r1", "Anything else?", 3, cx);
+        assert_eq!(rig.spoken(), ["r1"]);
+        cx.update(end);
+        assert_eq!(rig.call_log().1, ["call-s"]);
+    }
+
+    /// #EXP-1961: no opening line `openingWaitMs` after the voice: a silent
+    /// pickup on Listening, and the late line is never spoken.
+    #[gpui::test]
+    async fn a_call_session_without_an_opening_picks_up_silently(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        rig.with_call_session("call-s");
+        let id = rung(cx);
+        cx.run_until_parked();
+        answered(&rig, &id, cx);
+        cx.executor().advance_clock(Duration::from_millis(VOICE_CALL.call_session.opening_wait_ms));
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
+        rig.requests();
+        rig.call_message("o1", "Hello!", 1, cx);
+        assert!(rig.spoken().is_empty(), "a late opening is not spoken");
+        rig.call_message("r2", "Still there?", 2, cx);
+        assert_eq!(rig.spoken(), ["r2"]);
+    }
+
+    /// #EXP-1936: the call and the speaker together: #EXP-1961 no fixed
+    /// greeting (a call without its own session listens at once); an
+    /// utterance goes out and waits; the agent's reply is spoken and the
+    /// call follows it; a card-only row is not.
+    #[gpui::test]
+    async fn a_call_speaks_its_replies_and_no_fixed_greeting(cx: &mut gpui::TestAppContext) {
         let rig = Rig::install(settings(), cx);
         let id = rung(cx);
         assert!(matches!(rig.requests().last(), Some(etalk::Request::Call { remote: false, .. })));
         answered(&rig, &id, cx);
-        let greeting = format!("{id}-greeting");
-        assert_eq!(rig.spoken(), [greeting.clone()]);
-        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
-        finished(&rig, &greeting, cx);
+        assert!(rig.spoken().is_empty(), "no fixed greeting");
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
         rig.worker(etalk::Event::Said { id: id.clone(), text: "status of the release".into() }, cx);
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Thinking);
-        rig.row(crate::test_support::Row { id: "card".into(), author_kind: "agent", body: "A plan.".into(), has_card: true, created_at: "2026-11-17T10:00:04.000Z".into() }, cx);
+        rig.row(crate::test_support::Row { id: "card".into(), author_kind: "agent", body: "A plan.".into(), has_card: true, created_at: "2026-11-17T10:00:04.000Z".into(), session_id: None }, cx);
         assert!(rig.spoken().is_empty(), "a card is shown, never spoken");
         rig.message("r1", "agent", "All green. Ship it.", 5, cx);
         assert_eq!(rig.spoken(), ["r1"]);
@@ -1786,8 +2074,7 @@ mod tests {
         assert!(cx.update(|cx| global(cx).unwrap().read(cx).state.ready), "its Prepare is done: ready");
         cx.executor().advance_clock(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
         cx.run_until_parked();
-        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
-        assert_eq!(rig.spoken(), [format!("{id}-greeting")]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening, "answered (#EXP-1961: no fixed greeting)");
     }
 
     /// FEED-276: a clip that never lands is waited for `hostVoice.waitMs`,
@@ -1798,15 +2085,14 @@ mod tests {
         rig.agent_voice(fetching_voice(), cx);
         let id = rung(cx);
         answered(&rig, &id, cx);
-        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking, "the bound passed within the longest ring");
-        assert_eq!(rig.spoken(), [format!("{id}-greeting")]);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening, "the bound passed within the longest ring: answered");
         cx.update(end);
         rig.agent_voice(crate::host::AgentVoice { clip: CallVoice::Failed, ..fetching_voice() }, cx);
         let id = rung(cx);
         rig.worker(etalk::Event::CallListening { id: id.clone() }, cx);
         cx.executor().advance_clock(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
         cx.run_until_parked();
-        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
+        assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
     }
 
     /// #EXP-1936: while the call still rings no reply is the call's: the
@@ -1821,7 +2107,7 @@ mod tests {
         assert_eq!(cx.update(|cx| (agent_id(cx), crate::speak_replies::speaking(cx))), (None, None));
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Ringing);
         answered(&rig, &id, cx);
-        assert_eq!(rig.spoken(), [format!("{id}-greeting")]);
+        assert!(rig.spoken().is_empty(), "the typed answer stays unsaid");
         assert_eq!(cx.update(|cx| agent_id(cx)).as_deref(), Some(AGENT), "answered: its replies are the call's");
     }
 
@@ -1869,7 +2155,7 @@ mod tests {
             host_event(&id, serde_json::json!({ "t": "rang" }), cx);
             host_event(&id, serde_json::json!({ "t": "ready" }), cx);
             let before = global(cx).unwrap().read(cx).state.clone();
-            assert_eq!(before.phase, CallPhase::Speaking);
+            assert_eq!(before.phase, CallPhase::Listening);
             for foreign in [
                 serde_json::json!({ "t": "start", "device": "elsewhere" }),
                 serde_json::json!({ "t": "mute" }),

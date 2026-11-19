@@ -123,8 +123,13 @@ fn a_space_grant_reaches_no_person_op() {
     for request in requests(&window) {
         let expect = match &request {
             r if !r.in_space() => ErrorCode::Forbidden,
-            // Until a compositor makes spaces (`Hello::features`).
-            Request::CreateSpace { .. } | Request::ListSpaces => ErrorCode::Unavailable,
+            // This harness has no directory for spaces.
+            Request::CreateSpace { .. } => ErrorCode::Unavailable,
+            // Its own spaces: none.
+            Request::ListSpaces => {
+                assert_eq!(agent.spaces().unwrap(), []);
+                continue;
+            }
             _ => ErrorCode::NotFound,
         };
         assert_eq!(code(agent.call(request.clone())), expect, "{request:?}");

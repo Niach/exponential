@@ -20,6 +20,7 @@ import {
   Menu,
   Prompt,
   toastActionError,
+  useIsMobile,
   type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
@@ -35,6 +36,7 @@ import { messageCollection, sessionCollection } from "@/lib/collections"
 import { canSteerSession } from "@/lib/session-account-switch"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
+import { findInChatMenuEntries } from "@/components/chat/find-in-chat"
 
 // Chat 58cb32df (fixtures/chats.json `menuCases`) + #FEED-239
 // (session-screen.json `menuCases`): the chat's and the agent's menus ×web.
@@ -392,15 +394,19 @@ export function AgentHeaderMenu({
   linkIssue,
   closeRef,
   className,
+  onFind,
 }: {
   team: Team | null | undefined
   agentId: string
   title: string
+  /** #EDE-129: Search in chat (first, its own group). */
+  onFind?: () => void
   onSettings: () => void
   linkIssue?: readonly MenuEntry[]
   closeRef?: { current: () => void }
   className?: string
 }) {
-  const entries = useAgentMenuRows({ team, agentId, onSettings, linkIssue })
+  const isMobile = useIsMobile()
+  const entries = findInChatMenuEntries(useAgentMenuRows({ team, agentId, onSettings, linkIssue }), onFind, isMobile)
   return <SessionScreenMenuButton entries={entries} title={title} className={className} closeRef={closeRef} />
 }

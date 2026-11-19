@@ -11,6 +11,14 @@
 //! (mono, its native rate) is encoded into 20 ms Opus packets
 //! ([`CallHost::send_speech`]). The call itself (what is said, sent, spoken)
 //! is the IDE's (`ui::voice_call`).
+//!
+//! #EXP-1941: a host the server told `seal` ([`connect_sealed`]) speaks the
+//! SEALED wire instead (voice-call.json `seal`; `enet_core::call_seal` holds
+//! the bytes): the caller's hello is a binary frame of type 1, the host's a
+//! `call_event {t: "hello"}` with its tag; audio is one fixed-size sealed
+//! frame per 20 ms either way (mute rides in its flag); every flow event but
+//! `failed` is a `call_event {t: "sealed"}`. Dormant: nothing passes a key
+//! source yet, so every call is today's.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +27,9 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;
 
+use enet_core::call_seal::{hello_of_frame, host_hello_text, parse_hello, CallFinish, CallHandshake, CallRole, CallSeal, CallSealPad, CallSealRefusal};
+
+use crate::call_keys::{CallHello, CallKeyFuture, CallSealing};
 use crate::SteerRuntime;
 
 /// voice-call.json `wire.kinds.up`: caller → host audio.
@@ -34,10 +45,41 @@ pub const UP_RATE: u32 = 16_000;
 /// voice-call.json `constants.downKbps`.
 pub const DOWN_BITRATE: i32 = 32_000;
 
+/// The `call_end` reason of a call that reached voice-call.json `maxCallMs`
+/// (the relay's own, `expireCall`).
+pub const MAX_LENGTH: &str = "max_length";
+
 /// EXP-1929 (`livenessCases`): once the relay beat (`call_alive`), a call
 /// that hears nothing from it for voice-call.json `idleTimeoutMs` is dropped.
 pub fn idle_timeout() -> Duration {
     Duration::from_millis(etalk::call::VOICE_CALL.constants.idle_timeout_ms)
+}
+
+/// One call socket's timers: voice-call.json's (tests shorten them).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Timing {
+    /// EXP-1929: `idleTimeoutMs`, the liveness deadline and every send's.
+    pub idle: Duration,
+    /// #EXP-1941: `seal.handshakeMs`, from the socket's open: a host told
+    /// `seal` that is not sealed by then ends the call `no_key`.
+    pub handshake: Duration,
+    /// #EXP-1941: `maxCallMs`, from the socket's open: the host ends every
+    /// call it answered itself, sealed or clear; the relay need not.
+    pub max_call: Duration,
+    /// #EXP-1941: `seal.helloEveryMs`: a caller sends its hello again this
+    /// often until a host hello is taken.
+    pub hello_every: Duration,
+}
+
+impl Timing {
+    pub(crate) fn fixture() -> Self {
+        let spec = &*etalk::call::VOICE_CALL;
+        Timing {
+            idle: idle_timeout(),
+            handshake: Duration::from_millis(spec.seal.handshake_ms), max_call: Duration::from_millis(spec.constants.max_call_ms),
+            hello_every: Duration::from_millis(spec.seal.hello_every_ms),
+        }
+    }
 }
 
 /// EXP-1929: the liveness deadline of one call socket. An older relay never
@@ -88,6 +130,12 @@ pub enum CallHostEvent {
     Ready,
     /// The caller's audio, decoded: mono [`UP_RATE`] Hz.
     Audio(Vec<i16>),
+    /// #EXP-1941 (question 9), a sealed call only: this many ms of the
+    /// caller's audio were lost before the next [`CallHostEvent::Audio`]
+    /// (frames the relay skipped or held back, a packet its sender could not
+    /// seal). The host logic never joins speech across it: it hands the
+    /// count to the speech worker, which knows where an utterance begins.
+    Lost { ms: u32 },
     /// `call_mute`.
     Mute(bool),
     /// `call_end` from the caller (or the relay).
@@ -96,7 +144,7 @@ pub enum CallHostEvent {
     Dropped(String),
 }
 
-enum Outbound {
+pub(crate) enum Outbound {
     Event(Value),
     Speech { pcm: Vec<i16>, rate: u32 },
     /// Barge-in: drop the encoder's partial frame.
@@ -113,6 +161,11 @@ pub struct CallHost {
 }
 
 impl CallHost {
+    #[cfg(test)]
+    pub(crate) fn from_sender(tx: flume::Sender<Outbound>) -> Self {
+        Self { tx }
+    }
+
     /// A host whose socket is already gone: every send is dropped (the IDE's
     /// call lifecycle tests).
     #[doc(hidden)]
@@ -178,23 +231,196 @@ impl Encoder {
         (self.rate * FRAME_MS / 1000) as usize
     }
 
-    /// Every whole frame `pcm` completes, as wire frames.
-    fn push(&mut self, pcm: &[i16]) -> Vec<Vec<u8>> {
+    /// Every whole frame `pcm` completes: its seq and its packet, coded into
+    /// a buffer of `room` bytes (the codec takes it as a hard limit). A frame
+    /// that could not be coded: skipped as today (the seq moves only with a
+    /// packet), or with `count_failed` kept as None under its own seq, for
+    /// the sealed wire's empty frame.
+    fn packets(&mut self, pcm: &[i16], room: usize, count_failed: bool) -> Vec<(u16, Option<Vec<u8>>)> {
         self.pending.extend_from_slice(pcm);
         let len = self.frame_len();
         let mut out = Vec::new();
-        let mut packet = [0u8; MAX_FRAME_BYTES - 3];
+        let mut packet = vec![0u8; room];
         while self.pending.len() >= len {
             let frame: Vec<i16> = self.pending.drain(..len).collect();
-            match self.opus.encode(&frame, &mut packet) {
-                Ok(size) => {
-                    out.push(audio_frame(KIND_DOWN, self.seq, &packet[..size]));
-                    self.seq = self.seq.wrapping_add(1);
-                }
-                Err(err) => log::warn!("call host: opus encode failed: {err}"),
+            let coded = self.opus.encode(&frame, &mut packet).map(|size| packet[..size].to_vec());
+            if let Err(err) = &coded {
+                log::warn!("call host: opus encode failed: {err}");
+            }
+            if coded.is_ok() || count_failed {
+                out.push((self.seq, coded.ok()));
+                self.seq = self.seq.wrapping_add(1);
             }
         }
         out
+    }
+
+    /// Every whole frame `pcm` completes, as today's wire frames.
+    fn push(&mut self, pcm: &[i16]) -> Vec<Vec<u8>> {
+        self.packets(pcm, MAX_FRAME_BYTES - 3, false).into_iter().filter_map(|(seq, packet)| Some(audio_frame(KIND_DOWN, seq, &packet?))).collect()
+    }
+}
+
+/// #EXP-1941: the sealed wire of one call on the host, from "told `seal`" to
+/// sealed (`call_seal_step`'s host rows).
+struct Sealed<'a> {
+    told: &'a CallSealing,
+    /// The first well-formed caller hello was taken (once).
+    hello_taken: bool,
+    /// Offered (its hello went out), then sealed.
+    seal: Option<CallSeal>,
+    /// A caller frame opened: `Ready` went out.
+    sealed: bool,
+    /// Audio frames in a row that did not open, once sealed.
+    failures: u32,
+    /// Frames dropped before sealed, for the log (never their bytes).
+    dropped: u64,
+    muted: bool,
+    /// Frames lost since the last packet that reached the decoder.
+    lost: u32,
+}
+
+/// What one inbound frame of a sealed call asks of the socket.
+enum Step {
+    Nothing,
+    /// The first well-formed hello: start the key source.
+    Key(CallHello),
+    /// End the call with this `seal.endReasons` reason.
+    End(&'static str),
+}
+
+pub(crate) fn seal_pad() -> CallSealPad {
+    let spec = &etalk::call::VOICE_CALL.seal;
+    CallSealPad { audio_up: spec.audio_pad_step.up, audio_down: spec.audio_pad_step.down, control_pad: spec.control_pad_bytes, max_plain: spec.max_plain_bytes }
+}
+
+/// The silence that stands for `frames` lost frames, at most twice the
+/// segmenter's closing silence: beyond that the utterance has ended anyway.
+fn gap_silence(frames: u32) -> Vec<i16> {
+    let frame = (UP_RATE * FRAME_MS / 1000) as usize;
+    let most = (2 * etalk::call::VOICE_CALL.constants.min_silence_ms / u64::from(FRAME_MS)) as usize;
+    vec![0; frame * (frames as usize).min(most)]
+}
+
+impl Sealed<'_> {
+    fn reasons() -> &'static etalk::call::CallSealEndReasons {
+        &etalk::call::VOICE_CALL.seal.end_reasons
+    }
+
+    /// A binary frame: the caller's hello, or sealed audio.
+    fn binary(&mut self, frame: &[u8], decoder: &mut etalk_codec::Uplink, on_event: &impl Fn(CallHostEvent)) -> Step {
+        if frame.get(1) == Some(&1) {
+            // A hello: the first well-formed one is taken on arrival, once;
+            // another changes nothing.
+            return match hello_of_frame(frame).and_then(|hello| parse_hello(hello, CallRole::Caller).ok()) {
+                Some(hello) if !self.hello_taken => {
+                    self.hello_taken = true;
+                    Step::Key(hello)
+                }
+                Some(_) => Step::Nothing,
+                None => self.drop_frame(),
+            };
+        }
+        let Some(opened) = self.seal.as_ref().map(|seal| seal.open_audio(frame)) else { return self.drop_frame() };
+        let opened = match opened {
+            Ok(opened) => opened,
+            Err(refusal) if self.sealed => {
+                // Counted, never decoded. The count finds a bug; it is no defence.
+                self.failures += 1;
+                if self.failures >= etalk::call::VOICE_CALL.seal.max_open_failures {
+                    log::warn!("call host: {} frames in a row did not open ({refusal})", self.failures);
+                    return Step::End(&Self::reasons().seal);
+                }
+                return Step::Nothing;
+            }
+            Err(_) => return self.drop_frame(),
+        };
+        self.failures = 0;
+        if !self.sealed {
+            // The caller's proof: only now is anyone on the line.
+            self.sealed = true;
+            log::info!("call host: sealed ({} frames dropped before)", self.dropped);
+            on_event(CallHostEvent::Ready);
+        }
+        let muted = opened.flags & 1 != 0;
+        if muted != self.muted {
+            self.muted = muted;
+            on_event(CallHostEvent::Mute(muted));
+        }
+        // Never joined across a gap: what the decoder does not recover (one
+        // frame, from the next packet's FEC) stands as silence. A frame with
+        // `len` 0 is one missing frame and reaches no decoder.
+        self.lost = self.lost.saturating_add(opened.missing);
+        if opened.packet.is_empty() {
+            return Step::Nothing;
+        }
+        let lost = std::mem::take(&mut self.lost);
+        if lost > 0 {
+            // Every lost frame counts, one the decoder recovers too.
+            on_event(CallHostEvent::Lost { ms: lost.saturating_mul(FRAME_MS) });
+        }
+        let decoded = decoder.push(opened.seq, &opened.packet);
+        let recovered = u32::from(decoded.len() > (UP_RATE * FRAME_MS / 1000) as usize).min(lost);
+        let mut pcm = gap_silence(lost - recovered);
+        pcm.extend(decoded);
+        if !pcm.is_empty() {
+            on_event(CallHostEvent::Audio(pcm));
+        }
+        Step::Nothing
+    }
+
+    fn drop_frame(&mut self) -> Step {
+        self.dropped += 1;
+        Step::Nothing
+    }
+
+    /// One flow event as the frame to send: sealed, its `text` clipped so the
+    /// padded plaintext fits; a `failed` stays clear (it must work before any
+    /// key exists). None = nothing may leave yet (no caller frame opened).
+    fn event(&self, event: Value) -> Result<Option<String>, &'static str> {
+        if event["t"] == "failed" {
+            return Ok(Some(json!({ "t": "call_event", "event": event }).to_string()));
+        }
+        let Some(seal) = self.seal.as_ref() else { return Ok(None) };
+        let mut event = event;
+        loop {
+            let plain = json!({ "t": "call_event", "event": event }).to_string();
+            match seal.seal_control(&plain) {
+                Ok(data) => return Ok(Some(json!({ "t": "call_event", "event": { "t": "sealed", "data": data } }).to_string())),
+                Err(CallSealRefusal::Unproven) => return Ok(None),
+                Err(CallSealRefusal::TooLarge) => {
+                    let over = plain.len().saturating_sub(seal_pad().max_plain).max(1);
+                    let Some(Value::String(text)) = event.get_mut("text") else { return Ok(None) };
+                    let mut keep = text.len().saturating_sub(over);
+                    while !text.is_char_boundary(keep) {
+                        keep -= 1;
+                    }
+                    if keep == text.len() {
+                        return Ok(None);
+                    }
+                    text.truncate(keep);
+                }
+                Err(refusal) => {
+                    log::warn!("call host: an event could not be sealed ({refusal})");
+                    return Err(&Self::reasons().seal);
+                }
+            }
+        }
+    }
+
+    /// Reply PCM as sealed frames, every one the same size. A frame the
+    /// codec could not fit into one step leaves as an empty frame under its
+    /// seq: 20 ms the caller's decoder conceals, never a second size.
+    fn speech(&self, encoder: &mut Encoder, pcm: &[i16]) -> Result<Vec<Vec<u8>>, &'static str> {
+        let Some(seal) = self.seal.as_ref().filter(|_| self.sealed) else { return Ok(Vec::new()) };
+        let mut frames = Vec::new();
+        for (seq, packet) in encoder.packets(pcm, seal_pad().audio_down, true) {
+            frames.push(seal.seal_audio(seq, 0, packet.as_deref().unwrap_or(&[])).map_err(|refusal| {
+                log::warn!("call host: a frame could not be sealed ({refusal})");
+                Self::reasons().seal.as_str()
+            })?);
+        }
+        Ok(frames)
     }
 }
 
@@ -205,51 +431,145 @@ pub fn connect(
     url: String,
     on_event: impl Fn(CallHostEvent) + Send + Sync + 'static,
 ) -> CallHost {
+    connect_sealed(runtime, url, None, on_event)
+}
+
+/// #EXP-1941: [`connect`] for a host the server told the call's mode.
+/// `sealing` None = today's wire, byte for byte. Some = the host speaks ONLY
+/// the sealed wire: it answers the caller's hello with its own once its key
+/// source gave the key, reports [`CallHostEvent::Ready`] when the first
+/// caller frame OPENED (never at `call_ready`), and sends nothing but that
+/// hello and a clear `failed` before. Never clear: no key within
+/// `seal.handshakeMs` ends the call `no_key`.
+pub fn connect_sealed(
+    runtime: &Arc<SteerRuntime>,
+    url: String,
+    sealing: Option<CallSealing>,
+    on_event: impl Fn(CallHostEvent) + Send + Sync + 'static,
+) -> CallHost {
     let (tx, rx) = flume::unbounded::<Outbound>();
     runtime.handle().spawn(async move {
-        if let Err(err) = run(&url, &rx, &on_event, idle_timeout()).await {
+        if let Err(err) = run(&url, &rx, &on_event, Timing::fixture(), sealing.as_ref()).await {
             on_event(CallHostEvent::Dropped(err));
         }
     });
     CallHost { tx }
 }
 
-async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(CallHostEvent) + Send + Sync), timeout: Duration) -> Result<(), String> {
+pub(crate) async fn run(
+    url: &str,
+    rx: &flume::Receiver<Outbound>,
+    on_event: &(impl Fn(CallHostEvent) + Send + Sync),
+    timing: Timing,
+    sealing: Option<&CallSealing>,
+) -> Result<(), String> {
     let stream = crate::dial(url).await.map_err(|err| match err {
         crate::DialError::Unauthorized => "the call ticket was refused".to_string(),
         crate::DialError::Other(err) => err,
     })?;
+    // The caller's hello as it arrived: the transcript holds these bytes.
+    let mut sealed_hello: Option<Vec<u8>> = None;
+    let timeout = timing.idle;
+    let opened_at = tokio::time::Instant::now();
     let (mut sink, mut source) = stream.split();
     let mut decoder = etalk_codec::Uplink::new(UP_RATE)?;
     let mut encoder: Option<Encoder> = None;
     let mut liveness = Liveness::new(timeout);
+    let mut sealed = sealing.map(|told| Sealed { told, hello_taken: false, seal: None, sealed: false, failures: 0, dropped: 0, muted: false, lost: 0 });
+    // Keying: the key source's one answer. Dropped with the call: it stops.
+    let mut key_job: Option<CallKeyFuture<'_>> = None;
+    // The socket itself ends the call: `call_end {reason}`, and the host logic hears it.
+    macro_rules! end_call {
+        ($reason:expr) => {{
+            let reason: &str = $reason;
+            log::info!("call host: ending the call ({reason})");
+            let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end", "reason": reason }).to_string()), timeout).await;
+            let _ = sink.close().await;
+            on_event(CallHostEvent::Ended { reason: Some(reason.to_string()) });
+            return Ok(());
+        }};
+    }
     loop {
         tokio::select! {
             () = liveness.dead() => return Err("the call went silent".into()),
+            () = tokio::time::sleep_until(opened_at + timing.max_call) => end_call!(MAX_LENGTH),
+            () = tokio::time::sleep_until(opened_at + timing.handshake), if sealed.as_ref().is_some_and(|sealed| !sealed.sealed) => {
+                end_call!(&Sealed::reasons().no_key)
+            }
+            key = async { key_job.as_mut().expect("guarded").await }, if key_job.is_some() => {
+                key_job = None;
+                let sealed = sealed.as_mut().expect("only a sealed call has a key source");
+                let told = sealed.told;
+                let caller_hello = sealed_hello.take().expect("the hello that started the source");
+                let finished = key.and_then(|key| {
+                    let handshake = CallHandshake::new(CallRole::Host, Some(&key.root_id), key.epoch).map_err(|refusal| refusal.to_string())?;
+                    let input = CallFinish {
+                        secret: &key.secret,
+                        call_id: &told.call_id,
+                        agent_id: &told.agent_id,
+                        device_id: &told.device_id,
+                        peer_hello: &caller_hello,
+                        root_id: None,
+                        epoch: 0,
+                        pad: seal_pad(),
+                    };
+                    handshake.finish(&input).map_err(|refusal| refusal.to_string())
+                });
+                match finished {
+                    Ok(seal) => {
+                        // Offered: its hello with the tag, once.
+                        let hello = host_hello_text(&seal.host_hello().expect("a host's finish gives its hello"));
+                        sealed.seal = Some(seal);
+                        send_within(&mut sink, Message::text(json!({ "t": "call_event", "event": { "t": "hello", "data": hello } }).to_string()), timeout).await?;
+                    }
+                    Err(reason) => {
+                        log::warn!("call host: no key for the call: {reason}");
+                        end_call!(&Sealed::reasons().no_key)
+                    }
+                }
+            }
             inbound = source.next() => {
                 let Some(inbound) = inbound else { return Err("the relay closed the call".into()) };
                 let inbound = inbound.map_err(|err| crate::redact_ticket(&err.to_string()))?;
                 liveness.heard(false);
                 match inbound {
-                    Message::Binary(frame) => {
-                        if let Some((KIND_UP, seq, packet)) = parse_audio_frame(&frame) {
-                            let pcm = decoder.push(seq, packet);
-                            if !pcm.is_empty() {
-                                on_event(CallHostEvent::Audio(pcm));
+                    Message::Binary(frame) => match sealed.as_mut() {
+                        None => {
+                            if let Some((KIND_UP, seq, packet)) = parse_audio_frame(&frame) {
+                                let pcm = decoder.push(seq, packet);
+                                if !pcm.is_empty() {
+                                    on_event(CallHostEvent::Audio(pcm));
+                                }
                             }
                         }
-                    }
+                        Some(sealed) => match sealed.binary(&frame, &mut decoder, on_event) {
+                            Step::Nothing => {}
+                            Step::Key(hello) => {
+                                sealed_hello = Some(frame[2..].to_vec());
+                                let told = sealed.told;
+                                key_job = Some(told.keys.key(hello));
+                            }
+                            Step::End(reason) => end_call!(reason),
+                        },
+                    },
                     Message::Text(text) => {
                         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
-                        match value["t"].as_str() {
-                            Some("call_ready") => on_event(CallHostEvent::Ready),
-                            Some("call_alive") => liveness.heard(true),
-                            Some("call_mute") => on_event(CallHostEvent::Mute(value["muted"].as_bool().unwrap_or(false))),
-                            Some("call_end") | Some("bye") => {
+                        match (value["t"].as_str(), sealed.as_mut()) {
+                            (Some("call_ready"), None) => on_event(CallHostEvent::Ready),
+                            // Sealed: `Ready` is the first frame that opens; the relay writes this one.
+                            (Some("call_ready"), Some(_)) => {}
+                            (Some("call_alive"), _) => liveness.heard(true),
+                            (Some("call_mute"), None) => on_event(CallHostEvent::Mute(value["muted"].as_bool().unwrap_or(false))),
+                            // Sealed: mute rides in the audio's flag. Clear content ends a sealed call.
+                            (Some("call_mute"), Some(sealed)) if sealed.sealed => end_call!(&Sealed::reasons().seal),
+                            (Some("call_mute"), Some(sealed)) => {
+                                sealed.drop_frame();
+                            }
+                            (Some("call_end") | Some("bye"), _) => {
                                 on_event(CallHostEvent::Ended { reason: value["reason"].as_str().or(value["outcome"].as_str()).map(str::to_string) });
                                 return Ok(());
                             }
-                            Some("error") => {
+                            (Some("error"), _) => {
                                 return Err(value["code"].as_str().unwrap_or("error").to_string());
                             }
                             _ => {}
@@ -270,14 +590,31 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                 };
                 match outbound {
                     Outbound::Event(event) => {
-                        let frame = json!({ "t": "call_event", "event": event }).to_string();
-                        send_within(&mut sink, Message::text(frame), timeout).await?;
+                        let frame = match sealed.as_ref() {
+                            None => Some(json!({ "t": "call_event", "event": event }).to_string()),
+                            Some(sealed) => match sealed.event(event) {
+                                Ok(frame) => frame,
+                                Err(reason) => end_call!(reason),
+                            },
+                        };
+                        match frame {
+                            Some(frame) => send_within(&mut sink, Message::text(frame), timeout).await?,
+                            None => log::warn!("call host: an event was not sent (no caller frame opened yet, or it cannot be sealed)"),
+                        }
                     }
                     Outbound::Speech { pcm, rate } => {
                         if encoder.as_ref().is_none_or(|encoder| encoder.rate != rate) {
                             encoder = Some(Encoder::new(rate)?);
                         }
-                        for frame in encoder.as_mut().expect("set above").push(&pcm) {
+                        let encoder = encoder.as_mut().expect("set above");
+                        let frames = match sealed.as_ref() {
+                            None => encoder.push(&pcm),
+                            Some(sealed) => match sealed.speech(encoder, &pcm) {
+                                Ok(frames) => frames,
+                                Err(reason) => end_call!(reason),
+                            },
+                        };
+                        for frame in frames {
                             send_within(&mut sink, Message::Binary(frame.into()), timeout).await?;
                         }
                     }
@@ -340,6 +677,300 @@ mod tests {
     }
 
     const TEST_TIMEOUT: Duration = Duration::from_millis(300);
+    /// The idle deadline shortened; the two others far away.
+    const TEST_TIMING: Timing = Timing { idle: TEST_TIMEOUT, handshake: Duration::from_secs(600), max_call: Duration::from_secs(600), hello_every: Duration::from_millis(50) };
+
+    // --- #EXP-1941: the sealed wire against a scripted relay -----------------
+
+    use crate::call_keys::FixedKeySource;
+    use enet_core::call_seal::{hello_frame, host_hello_of_text, CallFinish, CallHandshake, CallRole, CallSeal, CallSealPad};
+
+    const ROOT: &str = "11111111-1111-4111-8111-111111111111";
+    const CALL: &str = "22222222-2222-4222-8222-222222222222";
+    const AGENT: &str = "33333333-3333-4333-8333-333333333333";
+    const SECRET: [u8; 32] = [7; 32];
+
+    /// A relay the test drives: what it sends the host, what the host sent it
+    /// (text and binary frames only).
+    async fn scripted_relay() -> (String, tokio::sync::mpsc::UnboundedSender<Message>, tokio::sync::mpsc::UnboundedReceiver<Message>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let (to_host, mut script) = tokio::sync::mpsc::unbounded_channel::<Message>();
+        let (sent, from_host) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let (mut sink, mut source) = tokio_tungstenite::accept_async(tcp).await.unwrap().split();
+            loop {
+                tokio::select! {
+                    frame = script.recv() => match frame {
+                        Some(frame) => sink.send(frame).await.unwrap(),
+                        None => return std::future::pending().await,
+                    },
+                    frame = source.next() => match frame {
+                        Some(Ok(frame)) if frame.is_text() || frame.is_binary() => { let _ = sent.send(frame); }
+                        Some(Ok(_)) => {}
+                        _ => return std::future::pending().await,
+                    },
+                }
+            }
+        });
+        (url, to_host, from_host)
+    }
+
+    fn sealing(key: Option<(String, u32, [u8; 32])>, delay: Duration) -> CallSealing {
+        CallSealing { call_id: CALL.into(), agent_id: AGENT.into(), device_id: "desk-7f3a".into(), caller_target: None, keys: Arc::new(FixedKeySource { key, delay }) }
+    }
+
+    fn finish<'a>(peer_hello: &'a [u8]) -> CallFinish<'a> {
+        CallFinish { secret: &SECRET, call_id: CALL, agent_id: AGENT, device_id: "desk-7f3a", peer_hello, root_id: Some(ROOT), epoch: 4, pad: CallSealPad::default() }
+    }
+
+    /// A host told `seal`, running against the scripted relay.
+    struct SealedHost {
+        to_host: tokio::sync::mpsc::UnboundedSender<Message>,
+        from_host: tokio::sync::mpsc::UnboundedReceiver<Message>,
+        events: Arc<std::sync::Mutex<Vec<CallHostEvent>>>,
+        host: CallHost,
+        ended: tokio::task::JoinHandle<Result<(), String>>,
+    }
+
+    impl SealedHost {
+        async fn start(sealing: CallSealing, timing: Timing) -> Self {
+            let (url, to_host, from_host) = scripted_relay().await;
+            let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (tx, rx) = flume::unbounded();
+            let seen = events.clone();
+            let ended = tokio::spawn(async move { run(&url, &rx, &move |event| seen.lock().unwrap().push(event), timing, Some(&sealing)).await });
+            SealedHost { to_host, from_host, events, host: CallHost { tx }, ended }
+        }
+
+        /// The next frame the host sent, as JSON (a text frame) within `wait`.
+        async fn text(&mut self, wait: Duration) -> Option<Value> {
+            match tokio::time::timeout(wait, self.from_host.recv()).await {
+                Ok(Some(Message::Text(text))) => serde_json::from_str(&text).ok(),
+                Ok(Some(other)) => panic!("not a text frame: {other:?}"),
+                _ => None,
+            }
+        }
+
+        fn events(&self) -> Vec<CallHostEvent> {
+            self.events.lock().unwrap().clone()
+        }
+
+        /// One sealed frame up; back when the host logic has `events` events
+        /// (a frame crosses the relay; `send_event` does not).
+        async fn up(&self, frame: Vec<u8>, events: usize) {
+            self.to_host.send(Message::Binary(frame.into())).unwrap();
+            for _ in 0..500 {
+                if self.events().len() >= events {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the host logic has {} events, not {events}", self.events().len());
+        }
+
+        /// The caller's hello goes up; the host's comes back; the caller finishes.
+        async fn handshake(&mut self) -> CallSeal {
+            let caller = CallHandshake::new(CallRole::Caller, None, 0).unwrap();
+            self.to_host.send(Message::Binary(hello_frame(&caller.hello().unwrap()).into())).unwrap();
+            let hello = self.text(Duration::from_secs(5)).await.expect("the host's hello");
+            assert_eq!((hello["t"].as_str(), hello["event"]["t"].as_str()), (Some("call_event"), Some("hello")), "{hello}");
+            let hello = host_hello_of_text(hello["event"]["data"].as_str().unwrap()).expect("70 bytes");
+            caller.finish(&finish(&hello)).expect("the tag opens")
+        }
+    }
+
+    /// One 20 ms frame of a tone as the caller's Opus.
+    fn up_packet(encoder: &mut etalk_codec::Encoder) -> Vec<u8> {
+        let tone: Vec<i16> = (0..320).map(|i| ((i as f32 * 440.0 * std::f32::consts::TAU / 16_000.0).sin() * 8000.0) as i16).collect();
+        let mut packet = [0u8; 120];
+        let size = encoder.encode(&tone, &mut packet).unwrap();
+        packet[..size].to_vec()
+    }
+
+    const QUIET: Duration = Duration::from_millis(150);
+
+    /// The cut's first test: a hello gets a hello whose tag opens; `Ready`
+    /// comes only after the first opened frame, never at `call_ready`; and
+    /// nothing but that hello leaves the host before it.
+    #[tokio::test]
+    async fn a_hello_gets_a_hello_and_ready_waits_for_the_first_opened_frame() {
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), TEST_TIMING).await;
+        call.to_host.send(text("call_ready")).unwrap();
+        let caller = call.handshake().await;
+        // The relay repeats `call_ready` and the hello; the host logic talks early.
+        call.to_host.send(text("call_ready")).unwrap();
+        call.to_host.send(Message::Binary(hello_frame(&CallHandshake::new(CallRole::Caller, None, 0).unwrap().hello().unwrap()).into())).unwrap();
+        call.host.send_event(json!({ "t": "said", "text": "canary-7f3a" }));
+        call.host.send_speech(vec![1000; 4800], 24_000);
+        assert_eq!(call.text(QUIET).await, None, "nothing but the hello before a caller frame opened");
+        assert_eq!(call.events(), vec![], "no Ready at call_ready");
+
+        let mut up = etalk_codec::Encoder::new(UP_RATE, 24_000, Some(10)).unwrap();
+        call.up(caller.seal_audio(0, 1, &up_packet(&mut up)).unwrap(), 3).await;
+        call.host.send_event(json!({ "t": "said", "text": "canary-7f3a" }));
+        let sealed = call.text(Duration::from_secs(5)).await.expect("a sealed event");
+        assert_eq!(sealed["event"]["t"], "sealed", "{sealed}");
+        assert!(!sealed.to_string().contains("canary"));
+        let plain = caller.open_control(sealed["event"]["data"].as_str().unwrap()).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&plain).unwrap(), json!({ "t": "call_event", "event": { "t": "said", "text": "canary-7f3a" } }));
+        let events = call.events();
+        assert_eq!(events[..2], [CallHostEvent::Ready, CallHostEvent::Mute(true)], "Ready at the first opened frame, mute from its flag");
+        assert!(matches!(&events[2], CallHostEvent::Audio(pcm) if pcm.len() == 320), "{events:?}");
+
+        // Speech goes down sealed, every frame one size; a clear `failed` still crosses.
+        call.host.send_speech(vec![1000; 960], 24_000);
+        call.host.send_event(json!({ "t": "failed", "code": "busy" }));
+        for seq in 0..2 {
+            let Some(Message::Binary(frame)) = call.from_host.recv().await else { panic!("a down frame") };
+            assert_eq!(frame.len(), 27 + 160);
+            assert_eq!(caller.open_audio(&frame).unwrap().seq, seq);
+        }
+        assert_eq!(call.text(Duration::from_secs(5)).await, Some(json!({ "t": "call_event", "event": { "t": "failed", "code": "busy" } })));
+    }
+
+    /// Question 9: the host never joins across a gap. Frames the relay
+    /// dropped stand as silence; ONE lost frame, and an empty frame (a packet
+    /// its sender could not seal), the decoder recovers from the next packet.
+    #[tokio::test]
+    async fn a_gap_is_never_joined() {
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), TEST_TIMING).await;
+        let caller = call.handshake().await;
+        let mut up = etalk_codec::Encoder::new(UP_RATE, 24_000, Some(10)).unwrap();
+        let frames: Vec<Vec<u8>> = (0..9u16)
+            .map(|seq| if seq == 6 { caller.seal_audio(seq, 0, &[]).unwrap() } else { caller.seal_audio(seq, 0, &up_packet(&mut up)).unwrap() })
+            .collect();
+        // The relay drops 2, 3 and 4; 6 is the caller's own empty frame.
+        for seq in [0, 1, 5, 6, 7] {
+            call.to_host.send(Message::Binary(frames[seq].clone().into())).unwrap();
+        }
+        call.up(frames[8].clone(), 8).await;
+        let lost: Vec<u32> = call.events().into_iter().filter_map(|event| if let CallHostEvent::Lost { ms } = event { Some(ms) } else { None }).collect();
+        assert_eq!(lost, [60, 20], "the host logic hears of every loss, a recovered one too");
+        let audio: Vec<Vec<i16>> = call.events().into_iter().filter_map(|event| if let CallHostEvent::Audio(pcm) = event { Some(pcm) } else { None }).collect();
+        assert_eq!(audio.iter().map(Vec::len).collect::<Vec<_>>(), [320, 320, 4 * 320, 2 * 320, 320], "0, 1, three lost + 5, the empty one recovered + 7, 8");
+        assert!(audio[2][..3 * 320].iter().all(|sample| *sample == 0), "the three lost frames are silence");
+        let closing = etalk::call::VOICE_CALL.constants.min_silence_ms as usize;
+        assert_eq!(gap_silence(1_000_000).len(), 320 * 2 * closing / 20, "a long gap: no more than twice the closing silence");
+    }
+
+    /// A host whose key holder is gone ends `no_key` at once, never clear.
+    #[tokio::test]
+    async fn no_key_ends_the_call_at_once() {
+        let mut call = SealedHost::start(sealing(None, Duration::ZERO), TEST_TIMING).await;
+        call.to_host.send(Message::Binary(hello_frame(&CallHandshake::new(CallRole::Caller, None, 0).unwrap().hello().unwrap()).into())).unwrap();
+        assert_eq!(call.text(Duration::from_secs(5)).await, Some(json!({ "t": "call_end", "reason": "no_key" })));
+        assert_eq!(call.events(), vec![CallHostEvent::Ended { reason: Some("no_key".into()) }]);
+    }
+
+    /// Before sealed: a clear `call_mute`, a frame that does not open and a
+    /// hello that is not well-formed are dropped. Once sealed: clear content
+    /// ends the call `seal`.
+    #[tokio::test]
+    async fn clear_content_ends_a_sealed_call() {
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), TEST_TIMING).await;
+        let mute = Message::text(json!({ "t": "call_mute", "muted": true }).to_string());
+        call.to_host.send(mute.clone()).unwrap();
+        call.to_host.send(Message::Binary(vec![1, 1, 0, 0].into())).unwrap();
+        call.to_host.send(Message::Binary(audio_frame(KIND_UP, 0, &[1, 2, 3]).into())).unwrap();
+        let caller = call.handshake().await;
+        call.to_host.send(mute.clone()).unwrap();
+        call.to_host.send(Message::Binary(vec![1; 147].into())).unwrap();
+        assert_eq!(call.text(QUIET).await, None);
+        assert_eq!(call.events(), vec![], "dropped, the call goes on");
+        call.up(caller.seal_audio(0, 0, &[]).unwrap(), 1).await;
+        call.to_host.send(mute).unwrap();
+        assert_eq!(call.text(Duration::from_secs(5)).await, Some(json!({ "t": "call_end", "reason": "seal" })));
+        assert_eq!(call.events(), vec![CallHostEvent::Ready, CallHostEvent::Ended { reason: Some("seal".into()) }]);
+    }
+
+    /// Once sealed, `maxOpenFailures` frames in a row that do not open
+    /// (clear audio, a replay, a forgery) end the call `seal`; one good frame
+    /// between them starts the count again.
+    #[tokio::test]
+    async fn frames_that_do_not_open_are_counted() {
+        let most = etalk::call::VOICE_CALL.seal.max_open_failures;
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), TEST_TIMING).await;
+        let caller = call.handshake().await;
+        let first = caller.seal_audio(0, 0, &[]).unwrap();
+        call.to_host.send(Message::Binary(first.clone().into())).unwrap();
+        for _ in 0..most - 1 {
+            call.to_host.send(Message::Binary(first.clone().into())).unwrap();
+        }
+        call.to_host.send(Message::Binary(caller.seal_audio(1, 0, &[]).unwrap().into())).unwrap();
+        for _ in 0..most - 1 {
+            call.to_host.send(Message::Binary(audio_frame(KIND_UP, 7, &[9; 60]).into())).unwrap();
+        }
+        assert_eq!(call.text(QUIET).await, None, "one below the limit, twice");
+        call.to_host.send(Message::Binary(first.into())).unwrap();
+        assert_eq!(call.text(Duration::from_secs(5)).await, Some(json!({ "t": "call_end", "reason": "seal" })));
+    }
+
+    /// The host ends EVERY call it answered at `maxCallMs`, a clear one too:
+    /// a relay that keeps the room cannot hold a host without end.
+    #[tokio::test]
+    async fn a_clear_call_ends_at_the_longest_call() {
+        let (url, _to_host, mut from_host) = scripted_relay().await;
+        let events = std::sync::Mutex::new(Vec::new());
+        let (_tx, rx) = flume::unbounded();
+        let timing = Timing { max_call: TEST_TIMEOUT, ..TEST_TIMING };
+        assert_eq!(run(&url, &rx, &|event| events.lock().unwrap().push(event), timing, None).await, Ok(()));
+        assert_eq!(from_host.recv().await, Some(Message::text(json!({ "t": "call_end", "reason": "max_length" }).to_string())));
+        assert_eq!(*events.lock().unwrap(), vec![CallHostEvent::Ended { reason: Some("max_length".into()) }]);
+    }
+
+    /// A text above `maxPlainBytes` is clipped, never split, and still opens.
+    #[tokio::test]
+    async fn a_long_text_is_clipped_to_one_frame() {
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), TEST_TIMING).await;
+        let caller = call.handshake().await;
+        call.up(caller.seal_audio(0, 0, &[]).unwrap(), 1).await;
+        call.host.send_event(json!({ "t": "replyStarted", "text": "grüß \"dich\" ".repeat(900) }));
+        let sealed = call.text(Duration::from_secs(5)).await.expect("a sealed event");
+        assert!(sealed.to_string().len() <= 8192, "under the relay's event cap");
+        let plain = caller.open_control(sealed["event"]["data"].as_str().unwrap()).unwrap();
+        let most = etalk::call::VOICE_CALL.seal.max_plain_bytes;
+        assert!(plain.len() <= most && plain.len() > most / 2, "{}", plain.len());
+        let event: Value = serde_json::from_str(&plain).unwrap();
+        assert!(event["event"]["text"].as_str().unwrap().starts_with("grüß \"dich\" grüß"));
+    }
+
+    /// Measured for the pad step (`seal.audioPadStep.down`): the reply
+    /// encoder takes a buffer of one step as a hard limit, also on noise, the
+    /// loudest thing a codec can be handed.
+    #[test]
+    fn the_reply_encoder_keeps_to_one_step() {
+        assert_eq!(seal_pad(), CallSealPad::default(), "the fixture's sizes are the core's defaults");
+        let step = seal_pad().audio_down;
+        let mut noise = 0x2545_f491_4f6c_dd1du64;
+        let pcm: Vec<i16> = (0..24_000)
+            .map(|_| {
+                noise ^= noise << 13;
+                noise ^= noise >> 7;
+                noise ^= noise << 17;
+                (noise >> 48) as i16
+            })
+            .collect();
+        let (mut free, mut held) = (Encoder::new(24_000).unwrap(), Encoder::new(24_000).unwrap());
+        let largest = |packets: Vec<(u16, Option<Vec<u8>>)>| (packets.iter().filter(|(_, packet)| packet.is_none()).count(), packets.iter().filter_map(|(_, packet)| Some(packet.as_ref()?.len())).max().unwrap_or(0));
+        let (free, held) = (largest(free.packets(&pcm, MAX_FRAME_BYTES - 3, true)), largest(held.packets(&pcm, step, true)));
+        println!("reply encoder on noise, 50 frames: largest packet {} bytes into {} bytes, {} into one step of {step} ({} frames not coded)", free.1, MAX_FRAME_BYTES - 3, held.1, held.0);
+        assert!(held.1 <= step);
+    }
+
+    /// A host that the relay rang and then starves (no hello, no
+    /// `call_ready`) ends `no_key` at `handshakeMs` from its socket's open.
+    #[tokio::test]
+    async fn a_host_that_never_gets_a_hello_ends_at_the_handshake_deadline() {
+        let timing = Timing { handshake: TEST_TIMEOUT, ..TEST_TIMING };
+        let mut call = SealedHost::start(sealing(Some((ROOT.into(), 4, SECRET)), Duration::ZERO), timing).await;
+        let started = std::time::Instant::now();
+        assert_eq!(call.text(TEST_TIMEOUT * 10).await, Some(json!({ "t": "call_end", "reason": "no_key" })));
+        assert!(started.elapsed() >= TEST_TIMEOUT);
+        assert_eq!((&mut call.ended).await.unwrap(), Ok(()));
+        assert_eq!(call.events(), vec![CallHostEvent::Ended { reason: Some("no_key".into()) }]);
+    }
 
     /// EXP-1929 (voice-gpui-call-2, voice-hosts-2, lens-cleanup-5): a relay
     /// that beat once and then went silent drops the call within the deadline.
@@ -349,7 +980,7 @@ mod tests {
         let events = std::sync::Mutex::new(Vec::new());
         let (_tx, rx) = flume::unbounded();
         let started = std::time::Instant::now();
-        let ended = tokio::time::timeout(TEST_TIMEOUT * 10, run(&url, &rx, &|event| events.lock().unwrap().push(event), TEST_TIMEOUT)).await;
+        let ended = tokio::time::timeout(TEST_TIMEOUT * 10, run(&url, &rx, &|event| events.lock().unwrap().push(event), TEST_TIMING, None)).await;
         assert_eq!(ended.expect("the dead call ends"), Err("the call went silent".to_string()));
         assert!(started.elapsed() >= TEST_TIMEOUT);
         assert_eq!(*events.lock().unwrap(), vec![CallHostEvent::Ready]);
@@ -361,7 +992,7 @@ mod tests {
     async fn an_older_relay_without_a_beat_keeps_the_call() {
         let (url, _sent) = silent_relay(vec![text("call_ready")]).await;
         let (_tx, rx) = flume::unbounded();
-        let ended = tokio::time::timeout(TEST_TIMEOUT * 4, run(&url, &rx, &|_| {}, TEST_TIMEOUT)).await;
+        let ended = tokio::time::timeout(TEST_TIMEOUT * 4, run(&url, &rx, &|_| {}, TEST_TIMING, None)).await;
         assert!(ended.is_err(), "still in the call: {ended:?}");
     }
 
@@ -372,7 +1003,7 @@ mod tests {
     async fn a_silent_host_answers_the_relays_ping() {
         let (url, mut sent) = silent_relay(vec![text("call_ready"), Message::Ping(vec![7u8].into())]).await;
         let (_tx, rx) = flume::unbounded();
-        tokio::spawn(async move { run(&url, &rx, &|_| {}, TEST_TIMEOUT).await });
+        tokio::spawn(async move { run(&url, &rx, &|_| {}, TEST_TIMING, None).await });
         let pong = tokio::time::timeout(TEST_TIMEOUT, sent.recv()).await.expect("a pong").unwrap();
         assert_eq!(pong, Message::Pong(vec![7u8].into()));
     }

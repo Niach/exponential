@@ -3,6 +3,10 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
 import {
+  callDuration,
+  callOpening,
+  callSessionPick,
+  callSessionText,
   CALL_IDLE,
   CALL_SEAL_IDLE,
   callSealStep,
@@ -134,5 +138,27 @@ describe(`EXP-1941: callSealStep (seal.modeCases)`, () => {
       expect(callSealWireCode(code)).toBe(`dropped`)
     }
     expect(callSealWireCode(`busy`)).toBe(`busy`)
+  })
+})
+
+describe(`EXP-1961 callSession`, () => {
+  for (const entry of fixture.callSession.pickCases) {
+    test(`pick: ${entry.name}`, () => {
+      expect(callSessionPick(entry.prev, entry.nowMs)).toBe(entry.pick as never)
+    })
+  }
+  for (const entry of fixture.callSession.openingCases) {
+    test(`opening: ${entry.name}`, () => {
+      expect(callOpening(entry.readyAtMs, entry.openingAtMs, entry.nowMs)).toBe(entry.opening as never)
+    })
+  }
+  for (const entry of fixture.callSession.durationCases) {
+    test(`duration: ${entry.name}`, () => {
+      expect(callDuration(entry.durationMs, entry.segmentStartedAtMs, entry.endedAtMs)).toBe(entry.expected)
+    })
+  }
+  test(`the request names the agent's language, English when unset`, () => {
+    expect(callSessionText(`in {language}`, `de`)).toBe(`in German`)
+    expect(callSessionText(`in {language}`, null)).toBe(`in English`)
   })
 })

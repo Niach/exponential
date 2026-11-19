@@ -108,15 +108,16 @@ pub(crate) fn agent_header_menu(
 ) -> Option<AnyElement> {
     let (kind, entries) = crate::chat_actions::agent_screen_entries(agent_id, link.is_some(), cx);
     let agent_id = agent_id.to_string();
+    // #EDE-129: Search in chat makes the menu (whatever else it lists).
     crate::chat_actions::screen_menu_button(
-        !entries.is_empty(),
+        true,
         move |menu, window, cx| {
             let id = agent_id.clone();
             let on_settings = on_settings.clone();
             let on_entry: crate::chat_actions::OnMenuEntry = Rc::new(move |entry, window, cx| {
                 crate::chat_actions::run_agent_screen_entry(entry, &id, &*on_settings, window, cx)
             });
-            crate::session_chat::link_then_menu_items(menu, kind.as_str(), &entries, on_entry, link.as_ref(), window, cx)
+            crate::session_chat::link_then_menu_items(menu, kind.as_str(), &entries, on_entry, link.as_ref(), None, window, cx)
         },
         cx,
     )
@@ -1569,6 +1570,9 @@ impl Render for AgentScreenView {
             .pb(px(crate::dock::DOCK_GAP))
             .children(chat_empty)
             .into_any_element();
+        // FEED-272: on the call's Chat tab the panel sits docked ABOVE the chat.
+        use gpui::prelude::FluentBuilder as _;
+        let docked = self.call_panel.read(cx).docked(cx);
         let chat = div()
             .id(if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" })
             .relative()
@@ -1577,10 +1581,11 @@ impl Render for AgentScreenView {
             .flex_1()
             .min_h_0()
             .w_full()
+            .when(docked, |d| d.child(self.call_panel.clone()))
             .child(conversation)
             .children(band)
             // S-3: the call panel covers the body while the call runs.
-            .child(self.call_panel.clone())
+            .when(!docked, |d| d.child(self.call_panel.clone()))
             .into_any_element();
         // VAPP-110: an editor's chat is the app editor's chat pane, headerless
         // (#EXP-1837: so is the Assistant widget's).

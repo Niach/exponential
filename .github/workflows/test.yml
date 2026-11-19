@@ -337,8 +337,16 @@ jobs:
       # mode: its contract replay, the loopback server, the hub). epilot's
       # live test `headless_ede_drives_and_captures` needs a built compositor
       # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
+      # #EXP-1941: P2P's core (enet-core) for the call seal: its unit tests
+      # replay voice-call.json `seal` byte for byte; its node tests (real
+      # endpoints over localhost UDP) stay in the release suite. Its phone
+      # binding (exponential-net-ffi) too: the fixture replays through the
+      # facade, without `facade` (nodes again). And steer's unit tests: the
+      # call sockets against a scripted relay (its tests/ run nodes too). And
+      # etalk: `seal.modeCases` replays there; without its one test that is
+      # flaky under load (the_sweep_skips_a_download_in_progress_elsewhere).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
-      # eagent, coding and ui stay lib-only. None of these crates has a doc test.
+      # eagent, coding, ui and enet-core stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
         working-directory: apps/desktop
         # #EXP-1825: the Mint has a GPU, so a missing headless adapter fails
@@ -349,9 +357,9 @@ jobs:
           cargo nextest run --locked --no-fail-fast
           -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
           -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
-          -p epilot -p epilot-screen -p emcp
+          -p epilot -p epilot-screen -p emcp -p enet-core -p exponential-net-ffi -p steer -p etalk
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
-          -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
+          -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui) | package(enet-core) | package(steer) | (package(exponential-net-ffi) & binary(facade)) | test(the_sweep_skips_a_download_in_progress_elsewhere))'
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
       # outside the workspace, so nextest's package filters cannot name it.

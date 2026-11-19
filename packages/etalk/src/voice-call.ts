@@ -11,6 +11,8 @@ export const VOICE_CALL_CONSTANTS = fixture.constants
 export const VOICE_CALL_WIRE = fixture.wire
 export const VOICE_CALL_HANG_UP = fixture.hangUpRules
 export const VOICE_CALL_PILL = fixture.pill
+export const VOICE_CALL_TABS = fixture.tabs as { order: readonly (`chat` | `voice`)[]; initial: `chat` | `voice`; copy: { chat: string; voice: string }; testIds: { tabs: string; chat: string; voice: string } }
+export type CallTab = `chat` | `voice`
 
 export type CallPlatform = `desktop` | `phone` | `web`
 /** The voice device's doctor row `speech` as a caller reads it. */
@@ -175,8 +177,6 @@ export interface CallState {
   device: string
   /** EXP-1857: the device is not the agent's own (`copy.via` shows it). */
   fallback: boolean
-  /** The greeting the device says once answered. */
-  greeting: string
   /** The ring's earliest answer (`callRingMs`) passed. */
   rang: boolean
   /** The worker confirmed it listens (`CallListening`). */
@@ -214,19 +214,12 @@ export const CALL_IDLE: CallState = {
   speaker: true,
   device: ``,
   fallback: false,
-  greeting: ``,
   rang: false,
   ready: false,
   noSound: false,
   said: ``,
   line: ``,
   toast: null,
-}
-
-/** The greeting in `language` (English for an unknown one). */
-export function callGreeting(language: string | undefined): string {
-  const greetings = fixture.copy.greeting as Record<string, string>
-  return greetings[language ?? `en`] ?? greetings.en
 }
 
 function quoted(text: string): string {
@@ -239,9 +232,10 @@ function failedState(state: CallState, code: string): CallState {
   return { ...CALL_IDLE, toast }
 }
 
-/** Rang and ready: the device speaks its greeting (not an agent turn). */
+/** Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+ *  own opening line, if any, arrives as its first reply). */
 function answered(state: CallState): CallState {
-  return { ...state, phase: `speaking`, line: state.greeting, toast: null }
+  return { ...state, phase: `listening`, line: ``, toast: null }
 }
 
 /** One step of the call (the same machine on the voice device and a caller). */
@@ -259,7 +253,6 @@ export function callStep(state: CallState, event: CallEvent): CallState {
       phase: `ringing`,
       device: event.device,
       fallback: event.fallback ?? false,
-      greeting: callGreeting(event.language),
     }
   }
   if (state.phase === `hidden`) return state
@@ -531,4 +524,43 @@ export function callSealStep(role: CallSealRole, state: CallSealState, event: Ca
       if (caller) return state.phase === `told` ? stay : over(seal)
       return count
   }
+}
+
+// EXP-1961 (`callSession`): a call runs in its own call session, a child of
+// the chat. Pure parts the server (pick, duration) and the Rust hosts
+// (opening) replay.
+export const VOICE_CALL_SESSION = fixture.callSession
+
+export type CallSessionPick = `start` | `resume` | `replace`
+
+/** `pickCases`: the chat's newest call child (`prev`: its status and its
+ *  call's `endedAt` in ms, null = running) decides the call's session. */
+export function callSessionPick(
+  prev: { status: string; endedAtMs: number | null } | null,
+  nowMs: number
+): CallSessionPick {
+  if (!prev || prev.status === `ended`) return `start`
+  if (prev.endedAtMs === null || nowMs - prev.endedAtMs <= fixture.callSession.resumeMs) return `resume`
+  return `replace`
+}
+
+export type CallOpening = `wait` | `speak` | `listen`
+
+/** `openingCases`: whether the host says the agent's opening line. */
+export function callOpening(readyAtMs: number | null, openingAtMs: number | null, nowMs: number): CallOpening {
+  if (readyAtMs === null) return `wait`
+  const deadline = readyAtMs + fixture.callSession.openingWaitMs
+  if (openingAtMs !== null && openingAtMs < deadline) return `speak`
+  return nowMs >= deadline ? `listen` : `wait`
+}
+
+/** `durationCases`: the call's total after a segment ends. */
+export function callDuration(durationMs: number, segmentStartedAtMs: number, endedAtMs: number): number {
+  return durationMs + Math.max(0, endedAtMs - segmentStartedAtMs)
+}
+
+/** The `request` / `resumeText` with the agent's Voice language. */
+export function callSessionText(template: string, language: string | null | undefined): string {
+  const names = fixture.callSession.languageNames as Record<string, string>
+  return template.replaceAll(`{language}`, names[language ?? `en`] ?? names.en!)
 }

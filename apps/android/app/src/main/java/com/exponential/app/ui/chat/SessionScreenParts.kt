@@ -208,9 +208,22 @@ private fun SessionTabCount(count: Int) {
 fun sessionScreenMenuGroups(
     kind: SessionScreen.Kind,
     entries: List<SessionScreen.MenuEntry>,
+    /** #EDE-130 (find-in-chat.json `menuCases`): Search in chat, FIRST in
+     *  its own group, for a kind with a transcript (phones: no shortcut
+     *  hint); null = no entry. */
+    onFind: (() -> Unit)? = null,
     onPick: (SessionScreen.MenuEntry) -> Unit,
 ): List<List<ChatMenuItem>> {
     val groups = mutableListOf(mutableListOf<ChatMenuItem>())
+    if (onFind != null && com.exponential.app.domain.FindInChat.searchable(kind.wire)) {
+        groups.last() += ChatMenuItem(
+            label = com.exponential.app.domain.FindInChat.Copy.MENU,
+            icon = ExpIcons.navSearch,
+            onClick = onFind,
+            testTag = "${SessionScreen.TestIds.MENU}-${com.exponential.app.domain.FindInChat.SEARCH}",
+        )
+        groups += mutableListOf<ChatMenuItem>()
+    }
     for (entry in entries) {
         if (entry == SessionScreen.MenuEntry.Separator) {
             groups += mutableListOf<ChatMenuItem>()
@@ -236,7 +249,7 @@ fun sessionScreenMenuItems(
     kind: SessionScreen.Kind,
     entries: List<SessionScreen.MenuEntry>,
     onPick: (SessionScreen.MenuEntry) -> Unit,
-): List<ChatMenuItem> = sessionScreenMenuGroups(kind, entries, onPick).flatMapIndexed { index, group ->
+): List<ChatMenuItem> = sessionScreenMenuGroups(kind, entries, onPick = onPick).flatMapIndexed { index, group ->
     group.mapIndexed { i, item -> if (index > 0 && i == 0) item.copy(dividerBefore = true) else item }
 }
 

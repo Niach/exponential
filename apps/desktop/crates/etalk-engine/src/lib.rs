@@ -578,10 +578,16 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 let _ = tx.send(Job::Warm);
                 let _ = listen.send(listener::Job::Call { id, language, remote });
             }
-            Request::CallAudio { id, pcm } => match etalk::decode_pcm(&pcm) {
+            Request::CallAudio { id, pcm, lost_ms } => match etalk::decode_pcm(&pcm) {
                 Ok(pcm) => {
-                    let samples = pcm.into_iter().map(|sample| f32::from(sample) / 32768.0).collect();
-                    let _ = listen.send(listener::Job::Audio { id, samples });
+                    // #EXP-1941: the loss comes first: it lies before these samples.
+                    if lost_ms > 0 {
+                        let _ = listen.send(listener::Job::Lost { id: id.clone(), ms: lost_ms });
+                    }
+                    if !pcm.is_empty() {
+                        let samples = pcm.into_iter().map(|sample| f32::from(sample) / 32768.0).collect();
+                        let _ = listen.send(listener::Job::Audio { id, samples });
+                    }
                 }
                 Err(err) => eprintln!("unreadable call audio ({err})"),
             },

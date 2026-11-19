@@ -165,9 +165,10 @@ struct IncrSend {
 const INCR_STALE: Duration = Duration::from_secs(5);
 /// Exponential patch (#EXP-1946): the largest INCR chunk.
 const INCR_CHUNK_MAX: usize = 1 << 20;
-/// Exponential patch (#EXP-1946): how long the exit handover waits for the clipboard manager while
-/// an INCR transfer to it still makes progress.
-const HANDOVER_INCR_MAX: Duration = Duration::from_secs(3);
+/// Exponential patch (#EXP-1946, #EXP-1973): how long the exit handover waits for the clipboard
+/// manager's answer to `SAVE_TARGETS`, INCR transfers included (upstream: a fixed 100 ms, which a
+/// loaded machine's manager can miss before it even asks for the data).
+const HANDOVER_MAX: Duration = Duration::from_secs(3);
 
 impl XContext {
     fn new(display: &str) -> Result<Self> {
@@ -922,6 +923,20 @@ impl Inner {
             return Ok(());
         }
 
+        // Exponential patch (#EXP-1973): with no clipboard manager there is nobody to wait for.
+        let manager = self
+            .server
+            .conn
+            .get_selection_owner(self.atoms.CLIPBOARD_MANAGER)
+            .map_err(into_unknown)?
+            .reply()
+            .map_err(into_unknown)?
+            .owner;
+        if manager == x11rb::NONE {
+            log::trace!("No clipboard manager to hand the clipboard over to");
+            return Ok(());
+        }
+
         // It's important that we lock the state before sending the request
         // because we don't want the request server thread to lock the state
         // after the request but before we can lock it here.
@@ -941,39 +956,28 @@ impl Inner {
         self.server.conn.flush().map_err(into_unknown)?;
 
         *handover_state = ManagerHandoverState::InProgress;
-        let max_handover_duration = Duration::from_millis(100);
 
-        // Note that we are using a parking_lot condvar here, which doesn't wake up
-        // spuriously
-        let mut result = self
-            .handover_cv
-            .wait_for(&mut handover_state, max_handover_duration);
-        // Exponential patch (#EXP-1946): an image sent in INCR chunks takes longer than 100 ms;
-        // keep waiting while that transfer still runs (stale ones are dropped), up to a cap.
-        let handover_start = Instant::now();
-        while result.timed_out()
-            && *handover_state == ManagerHandoverState::InProgress
-            && self.incr_sends_pending()
-            && handover_start.elapsed() < HANDOVER_INCR_MAX
-        {
-            result = self
+        // Exponential patch (#EXP-1973): wait for the manager's answer (it has read every target
+        // it wants, INCR chunks included), bounded, rather than a fixed 100 ms: a manager that has
+        // not yet asked for the data when we stop serving it saves nothing. Note that we are using
+        // a parking_lot condvar here, which doesn't wake up spuriously.
+        let deadline = Instant::now() + HANDOVER_MAX;
+        while *handover_state == ManagerHandoverState::InProgress {
+            if self
                 .handover_cv
-                .wait_for(&mut handover_state, max_handover_duration);
+                .wait_until(&mut handover_state, deadline)
+                .timed_out()
+            {
+                break;
+            }
         }
 
-        if *handover_state == ManagerHandoverState::Finished {
-            return Ok(());
-        }
-        if result.timed_out() {
+        if *handover_state != ManagerHandoverState::Finished {
             log::warn!(
                 "Could not hand the clipboard contents over to the clipboard manager. The request timed out."
             );
-            return Ok(());
         }
-
-        Err(Error::unknown(
-            "The handover was not finished and the condvar didn't time out, yet the condvar wait ended. This should be unreachable.",
-        ))
+        Ok(())
     }
 }
 
@@ -1557,34 +1561,33 @@ mod tests {
     }
 
     impl Server {
+        /// Exponential patch (#EXP-1970): Xvfb picks a free display number itself
+        /// (`-displayfd`) and writes it once it accepts connections, so the server
+        /// reached is always this child (a guessed number could be another's).
         fn start() -> Option<Self> {
+            use std::io::BufRead as _;
             use std::process::{Command, Stdio};
-            for number in 4800 + std::process::id() % 500.. {
-                let display = format!(":{number}");
-                let Ok(mut child) = Command::new("Xvfb")
-                    .args([display.as_str(), "-screen", "0", "640x480x24", "-nolisten", "tcp"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                else {
-                    return None;
-                };
-                for _ in 0..200 {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    if child.try_wait().ok().flatten().is_some() {
-                        break;
-                    }
-                    if x11rb::connect(Some(&display)).is_ok() {
-                        return Some(Server { child, display });
-                    }
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                if number > 4800 + 520 {
-                    return None;
-                }
+            let Ok(mut child) = Command::new("Xvfb")
+                .args(["-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return None;
+            };
+            let stdout = child.stdout.take().unwrap();
+            // The guard from here on: a failing test still stops its server.
+            let mut server = Server { child, display: String::new() };
+            let mut number = String::new();
+            std::io::BufReader::new(stdout).read_line(&mut number).ok()?;
+            let number = number.trim();
+            if number.is_empty() {
+                // Xvfb exited without a display (no `-displayfd` support).
+                return None;
             }
-            None
+            server.display = format!(":{number}");
+            Some(server)
         }
     }
 
@@ -1595,6 +1598,10 @@ mod tests {
         }
     }
 
+    /// Exponential patch (#EXP-1973): `Clipboard::new` shares one process-wide clipboard, so the
+    /// tests that make one (each on its own Xvfb) take turns.
+    static GLOBAL_CLIPBOARD: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
     /// Another X client's read (its own window, a real `ConvertSelection`), not the owner's
     /// shortcut: a small PNG in one property, one larger than a request in INCR chunks, and the
     /// text of a mixed item next to its image.
@@ -1604,6 +1611,7 @@ mod tests {
             eprintln!("skipped: no Xvfb binary");
             return;
         };
+        let _global = GLOBAL_CLIPBOARD.lock();
         let owner = super::Clipboard::new(&server.display).unwrap();
         let reader = super::Inner::new(&server.display).unwrap();
         let png_atom = reader.atoms.PNG__MIME;
@@ -1661,7 +1669,7 @@ mod tests {
         assert_eq!(read(png_atom).unwrap(), (png_atom, small));
 
         // The exit handover: a clipboard manager takes the large image (INCR) before we go.
-        let saved = fake_manager(&server.display);
+        let saved = fake_manager(&server.display, std::time::Duration::ZERO);
         owner
             .set_item(
                 &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, large.clone())),
@@ -1675,10 +1683,60 @@ mod tests {
         assert!(saved == large, "the manager saved {} of {} bytes", saved.len(), large.len());
     }
 
+    /// Exponential patch (#EXP-1973): a clipboard manager that takes its time (a loaded machine)
+    /// still gets the clipboard at exit: the owner waits for its answer, not a fixed 100 ms.
+    #[test]
+    fn clipboard_x11_handover_waits_for_a_slow_manager() {
+        let Some(server) = Server::start() else {
+            eprintln!("skipped: no Xvfb binary");
+            return;
+        };
+        let _global = GLOBAL_CLIPBOARD.lock();
+        let saved = fake_manager(&server.display, std::time::Duration::from_millis(500));
+        let owner = super::Clipboard::new(&server.display).unwrap();
+        let small = png();
+        owner
+            .set_item(
+                &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, small.clone())),
+                super::ClipboardKind::Clipboard,
+                super::WaitConfig::None,
+            )
+            .unwrap();
+        drop(owner);
+        super::wait_for_clipboard_handovers();
+        let saved = saved.lock().take().expect("the manager saved nothing");
+        assert_eq!(saved, small);
+    }
+
+    /// Exponential patch (#EXP-1973): with no clipboard manager running, exit does not wait.
+    #[test]
+    fn clipboard_x11_handover_without_a_manager_does_not_wait() {
+        let Some(server) = Server::start() else {
+            eprintln!("skipped: no Xvfb binary");
+            return;
+        };
+        let _global = GLOBAL_CLIPBOARD.lock();
+        let owner = super::Clipboard::new(&server.display).unwrap();
+        owner
+            .set_item(
+                &ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, png())),
+                super::ClipboardKind::Clipboard,
+                super::WaitConfig::None,
+            )
+            .unwrap();
+        // The handover itself, not `wait_for_clipboard_handovers`: that joins other tests' too.
+        let start = std::time::Instant::now();
+        owner.inner.ask_clipboard_manager_to_request_our_data().unwrap();
+        assert!(start.elapsed() < super::HANDOVER_MAX / 2, "waited {:?}", start.elapsed());
+    }
+
     /// A tiny clipboard manager on `display`: it owns `CLIPBOARD_MANAGER` and, asked to
-    /// `SAVE_TARGETS`, reads the clipboard's `image/png` as any other client would (INCR
-    /// included), keeps it, then answers the request.
-    fn fake_manager(display: &str) -> std::sync::Arc<parking_lot::Mutex<Option<Vec<u8>>>> {
+    /// `SAVE_TARGETS`, waits `delay` (#EXP-1973), reads the clipboard's `image/png` as any other
+    /// client would (INCR included), keeps it, then answers the request.
+    fn fake_manager(
+        display: &str,
+        delay: std::time::Duration,
+    ) -> std::sync::Arc<parking_lot::Mutex<Option<Vec<u8>>>> {
         use x11rb::{
             connection::Connection as _, protocol::xproto::ConnectionExt as _,
             wrapper::ConnectionExt as _,
@@ -1715,6 +1773,7 @@ mod tests {
                     if request.target != fetcher.atoms.SAVE_TARGETS {
                         continue;
                     }
+                    std::thread::sleep(delay);
                     let fetched = fetcher
                         .read(&[fetcher.atoms.PNG__MIME], super::ClipboardKind::Clipboard)
                         .ok();

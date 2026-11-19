@@ -125,11 +125,14 @@ pub struct Extras {
     /// An agent's conversation session, the persistent kind
     /// ([`crate::launcher::dispatches`]); NEW-1: no chat root dispatches.
     pub dispatch: bool,
+    /// #EXP-1961: a voice call's own session (`sessions.brief` `call`):
+    /// [`VOICE_CALL_SECTION`].
+    pub voice_call: bool,
 }
 
 impl Extras {
     /// The bare playbook (an agent shell, a test).
-    pub const NONE: Extras = Extras { computer_use: None, code_mode: false, dispatch: false };
+    pub const NONE: Extras = Extras { computer_use: None, code_mode: false, dispatch: false, voice_call: false };
 }
 
 /// EXP-1196 — what a run is told when THIS device's Computer use switch is
@@ -165,6 +168,26 @@ fast one by design): there is one pointer and one keyboard, so screen work never
 keep the plan and the final check in this conversation.
 ";
 
+/// #EXP-1961 (etalk voice-call.json `callSession`): what a CALL session is
+/// told: it is spoken, so short sentences and no Markdown; small things it
+/// does itself, bigger work goes to the chat. Outside the playbook like
+/// computer use (the runbook is at its byte cap).
+pub const VOICE_CALL_SECTION: &str = "# Voice call
+
+You are on a phone call: every reply you write is read aloud to the person, and they answer by \
+speaking. The brief's Call section names the chat you answer for.
+
+- Speak: one to three short sentences, plain words. No Markdown, lists, tables, code, links or \
+ids read out; say numbers and names the way a person would.
+- Your first reply is your opening line: short, in your own words, fitting where the chat stands.
+- Small things you do yourself while talking (a look-up, reading the chat, filing an issue); say \
+what you are doing in a few words first.
+- Ask before long work. Work that takes more than a minute goes to the chat as a message \
+(`exponential_sessions_send` to the chat's session) and you say you handed it over.
+- Messages from the chat reach you as they come; read them before you answer.
+- When the call has ended you are asked for its summary: reply with it only, plain sentences.
+";
+
 /// [`COMPUTER_USE_SECTION`] with the subagent model alias filled in.
 pub fn computer_use_section(model: &str) -> String {
     COMPUTER_USE_SECTION.replace("{model}", model)
@@ -178,6 +201,9 @@ pub fn fixed_append(extras: &Extras) -> String {
     let mut text = playbook(extras.dispatch).to_string();
     if let Some(model) = &extras.computer_use {
         text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
+    }
+    if extras.voice_call {
+        text = format!("{}\n\n{}", text.trim_end(), VOICE_CALL_SECTION);
     }
     text
 }
@@ -314,6 +340,16 @@ run `bun test`.\n"
     /// EXP-1292: a team agent's instructions follow the team prompt under
     /// their own heading; either layer alone renders alone, and blank ones
     /// vanish.
+    /// #EXP-1961: a call session gets the voice section after the playbook;
+    /// every other launch never does.
+    #[test]
+    fn a_call_session_gets_the_voice_section() {
+        let call = fixed_append(&Extras { voice_call: true, ..Extras::NONE });
+        assert!(call.trim_end().ends_with(VOICE_CALL_SECTION.trim_end()));
+        assert!(!fixed_append(&Extras::NONE).contains("# Voice call"));
+        assert!(mentioned_tools(VOICE_CALL_SECTION).iter().all(|name| name.starts_with("exponential_sessions")));
+    }
+
     #[test]
     fn agent_instructions_ride_after_the_team_prompt() {
         let extras = Extras::NONE;

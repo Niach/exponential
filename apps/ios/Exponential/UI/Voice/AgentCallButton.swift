@@ -15,7 +15,7 @@ struct AgentCallButton: View {
     var agentIcon: String? = nil
     var agentColor: String? = nil
     /// EXP-1857: the agent's Runs on device (the call rings it) and its own
-    /// voice language (the greeting; nil = the member's).
+    /// voice language (nil = the member's).
     var agentDevice: String? = nil
     var agentLanguage: String? = nil
 
@@ -38,7 +38,8 @@ struct AgentCallButton: View {
                 device: target.name ?? "",
                 language: agentLanguage.flatMap { $0.isEmpty ? nil : $0 } ?? model.settings?.language,
                 fallback: target.fallback,
-                voiceApi: deps.voiceApi
+                voiceApi: deps.voiceApi,
+                keys: HolderCallKeys(holder: deps.treeKeyHolder, accountId: accountId, sealable: model.sealable)
             )
         } label: {
             ChatHeaderGhostGlyph(
@@ -70,6 +71,11 @@ final class AgentCallAvailability {
     private(set) var now = Date()
 
     nonisolated init() {}
+
+    /// #EXP-1941: a desktop or server of the member advertises `call-seal`.
+    var sealable: Bool {
+        devices.contains { $0.caps?.contains("\"\(VoiceCall.Seal.cap)\"") == true }
+    }
 
     /// The member's own desktops as `callTarget` reads them, newest first.
     var desktops: [VoiceCall.TargetDevice] { own(kind: "desktop") }

@@ -471,6 +471,38 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
+    typealias FfiType = UInt16
+    typealias SwiftType = UInt16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -794,6 +826,366 @@ public func FfiConverterTypeEnetAccessPolicy_lift(_ handle: UInt64) throws -> En
 #endif
 public func FfiConverterTypeEnetAccessPolicy_lower(_ value: EnetAccessPolicy) -> UInt64 {
     return FfiConverterTypeEnetAccessPolicy.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One end's half of the exchange: it holds the eph secret until `finish`.
+ */
+public protocol EnetCallHandshakeProtocol: AnyObject, Sendable {
+    
+    /**
+     * The call's sealer. WORKS ONCE, whatever it answers.
+     */
+    func finish(input: EnetCallFinish) throws  -> EnetCallSeal
+    
+    /**
+     * The CALLER's hello (54 bytes): made once, resent unchanged.
+     */
+    func hello() throws  -> Data
+    
+}
+/**
+ * One end's half of the exchange: it holds the eph secret until `finish`.
+ */
+open class EnetCallHandshake: EnetCallHandshakeProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_net_ffi_fn_clone_enetcallhandshake(self.handle, $0) }
+    }
+    /**
+     * A fresh eph key per socket. `root_id` None = a caller that knows no root yet.
+     */
+public convenience init(role: EnetCallRole, rootId: String?, epoch: UInt32)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_constructor_enetcallhandshake_new(
+        FfiConverterTypeEnetCallRole_lower(role),
+        FfiConverterOptionString.lower(rootId),
+        FfiConverterUInt32.lower(epoch),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_net_ffi_fn_free_enetcallhandshake(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The call's sealer. WORKS ONCE, whatever it answers.
+     */
+open func finish(input: EnetCallFinish)throws  -> EnetCallSeal  {
+    return try  FfiConverterTypeEnetCallSeal_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallhandshake_finish(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeEnetCallFinish_lower(input),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The CALLER's hello (54 bytes): made once, resent unchanged.
+     */
+open func hello()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallhandshake_hello(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetCallHandshake: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = EnetCallHandshake
+
+    public static func lift(_ handle: UInt64) throws -> EnetCallHandshake {
+        return EnetCallHandshake(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: EnetCallHandshake) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetCallHandshake {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: EnetCallHandshake, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallHandshake_lift(_ handle: UInt64) throws -> EnetCallHandshake {
+    return try FfiConverterTypeEnetCallHandshake.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallHandshake_lower(_ value: EnetCallHandshake) -> UInt64 {
+    return FfiConverterTypeEnetCallHandshake.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The sealed call of one end; it owns its counters.
+ */
+public protocol EnetCallSealProtocol: AnyObject, Sendable {
+    
+    /**
+     * HOST ONLY: its hello with the tag (70 bytes), sent once.
+     */
+    func hostHello()  -> Data?
+    
+    func openAudio(frame: Data) throws  -> EnetOpenedAudio
+    
+    /**
+     * CALLER ONLY: the control frame's JSON text, trailing spaces included.
+     */
+    func openControl(data: String) throws  -> String
+    
+    /**
+     * One audio frame, always one size. A packet above the step is refused
+     * (`too_large`): seal an empty packet in its place.
+     */
+    func sealAudio(seq: UInt16, flags: UInt8, packet: Data) throws  -> Data
+    
+    /**
+     * HOST ONLY: the `data` of `call_event {t: "sealed"}`.
+     */
+    func sealControl(text: String) throws  -> String
+    
+}
+/**
+ * The sealed call of one end; it owns its counters.
+ */
+open class EnetCallSeal: EnetCallSealProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_net_ffi_fn_clone_enetcallseal(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_net_ffi_fn_free_enetcallseal(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * HOST ONLY: its hello with the tag (70 bytes), sent once.
+     */
+open func hostHello() -> Data?  {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallseal_host_hello(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func openAudio(frame: Data)throws  -> EnetOpenedAudio  {
+    return try  FfiConverterTypeEnetOpenedAudio_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallseal_open_audio(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(frame),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * CALLER ONLY: the control frame's JSON text, trailing spaces included.
+     */
+open func openControl(data: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallseal_open_control(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(data),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * One audio frame, always one size. A packet above the step is refused
+     * (`too_large`): seal an empty packet in its place.
+     */
+open func sealAudio(seq: UInt16, flags: UInt8, packet: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_audio(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt16.lower(seq),
+        FfiConverterUInt8.lower(flags),
+        FfiConverterData.lower(packet),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * HOST ONLY: the `data` of `call_event {t: "sealed"}`.
+     */
+open func sealControl(text: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_method_enetcallseal_seal_control(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetCallSeal: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = EnetCallSeal
+
+    public static func lift(_ handle: UInt64) throws -> EnetCallSeal {
+        return EnetCallSeal(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: EnetCallSeal) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetCallSeal {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: EnetCallSeal, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallSeal_lift(_ handle: UInt64) throws -> EnetCallSeal {
+    return try FfiConverterTypeEnetCallSeal.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallSeal_lower(_ value: EnetCallSeal) -> UInt64 {
+    return FfiConverterTypeEnetCallSeal.lower(value)
 }
 
 
@@ -1734,6 +2126,175 @@ public func FfiConverterTypeEnetBlob_lower(_ value: EnetBlob) -> RustBuffer {
 }
 
 
+public struct EnetCallFinish: Equatable, Hashable {
+    /**
+     * The tree SECRET (32 bytes) of the HOST hello's root and epoch.
+     */
+    public var secret: Data
+    public var callId: String
+    public var agentId: String
+    /**
+     * The host's steer device id.
+     */
+    public var deviceId: String
+    /**
+     * The other end's hello: 70 bytes for a caller, 54 for a host.
+     */
+    public var peerHello: Data
+    /**
+     * CALLER ONLY, required there: the root and the epoch its own
+     * `sendTarget` answer names NOW. A host hello that names others is refused.
+     */
+    public var rootId: String?
+    public var epoch: UInt32
+    public var pad: EnetCallSealPad
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The tree SECRET (32 bytes) of the HOST hello's root and epoch.
+         */secret: Data, callId: String, agentId: String, 
+        /**
+         * The host's steer device id.
+         */deviceId: String, 
+        /**
+         * The other end's hello: 70 bytes for a caller, 54 for a host.
+         */peerHello: Data, 
+        /**
+         * CALLER ONLY, required there: the root and the epoch its own
+         * `sendTarget` answer names NOW. A host hello that names others is refused.
+         */rootId: String?, epoch: UInt32, pad: EnetCallSealPad) {
+        self.secret = secret
+        self.callId = callId
+        self.agentId = agentId
+        self.deviceId = deviceId
+        self.peerHello = peerHello
+        self.rootId = rootId
+        self.epoch = epoch
+        self.pad = pad
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetCallFinish: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetCallFinish: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetCallFinish {
+        return
+            try EnetCallFinish(
+                secret: FfiConverterData.read(from: &buf), 
+                callId: FfiConverterString.read(from: &buf), 
+                agentId: FfiConverterString.read(from: &buf), 
+                deviceId: FfiConverterString.read(from: &buf), 
+                peerHello: FfiConverterData.read(from: &buf), 
+                rootId: FfiConverterOptionString.read(from: &buf), 
+                epoch: FfiConverterUInt32.read(from: &buf), 
+                pad: FfiConverterTypeEnetCallSealPad.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetCallFinish, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.secret, into: &buf)
+        FfiConverterString.write(value.callId, into: &buf)
+        FfiConverterString.write(value.agentId, into: &buf)
+        FfiConverterString.write(value.deviceId, into: &buf)
+        FfiConverterData.write(value.peerHello, into: &buf)
+        FfiConverterOptionString.write(value.rootId, into: &buf)
+        FfiConverterUInt32.write(value.epoch, into: &buf)
+        FfiConverterTypeEnetCallSealPad.write(value.pad, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallFinish_lift(_ buf: RustBuffer) throws -> EnetCallFinish {
+    return try FfiConverterTypeEnetCallFinish.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallFinish_lower(_ value: EnetCallFinish) -> RustBuffer {
+    return FfiConverterTypeEnetCallFinish.lower(value)
+}
+
+
+/**
+ * The sizes a sealer pads to (`seal.audioPadStep`, `controlPadBytes`, `maxPlainBytes`).
+ */
+public struct EnetCallSealPad: Equatable, Hashable {
+    public var audioUp: UInt32
+    public var audioDown: UInt32
+    public var controlPad: UInt32
+    public var maxPlain: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(audioUp: UInt32, audioDown: UInt32, controlPad: UInt32, maxPlain: UInt32) {
+        self.audioUp = audioUp
+        self.audioDown = audioDown
+        self.controlPad = controlPad
+        self.maxPlain = maxPlain
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetCallSealPad: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetCallSealPad: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetCallSealPad {
+        return
+            try EnetCallSealPad(
+                audioUp: FfiConverterUInt32.read(from: &buf), 
+                audioDown: FfiConverterUInt32.read(from: &buf), 
+                controlPad: FfiConverterUInt32.read(from: &buf), 
+                maxPlain: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetCallSealPad, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.audioUp, into: &buf)
+        FfiConverterUInt32.write(value.audioDown, into: &buf)
+        FfiConverterUInt32.write(value.controlPad, into: &buf)
+        FfiConverterUInt32.write(value.maxPlain, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallSealPad_lift(_ buf: RustBuffer) throws -> EnetCallSealPad {
+    return try FfiConverterTypeEnetCallSealPad.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallSealPad_lower(_ value: EnetCallSealPad) -> RustBuffer {
+    return FfiConverterTypeEnetCallSealPad.lower(value)
+}
+
+
 public struct EnetChatMessage: Equatable, Hashable {
     public var id: Data
     public var timestampMs: UInt64
@@ -1966,6 +2527,88 @@ public func FfiConverterTypeEnetEpochKey_lift(_ buf: RustBuffer) throws -> EnetE
 #endif
 public func FfiConverterTypeEnetEpochKey_lower(_ value: EnetEpochKey) -> RustBuffer {
     return FfiConverterTypeEnetEpochKey.lower(value)
+}
+
+
+public struct EnetOpenedAudio: Equatable, Hashable {
+    public var seq: UInt16
+    /**
+     * Bit 0 on `up` = the microphone is muted.
+     */
+    public var flags: UInt8
+    /**
+     * Empty for a frame with `len` 0: nothing of it reaches a decoder.
+     */
+    public var packet: Data
+    /**
+     * Frames missing before this packet (a `len` 0 frame counts as one):
+     * never join audio across a gap.
+     */
+    public var missing: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(seq: UInt16, 
+        /**
+         * Bit 0 on `up` = the microphone is muted.
+         */flags: UInt8, 
+        /**
+         * Empty for a frame with `len` 0: nothing of it reaches a decoder.
+         */packet: Data, 
+        /**
+         * Frames missing before this packet (a `len` 0 frame counts as one):
+         * never join audio across a gap.
+         */missing: UInt32) {
+        self.seq = seq
+        self.flags = flags
+        self.packet = packet
+        self.missing = missing
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetOpenedAudio: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetOpenedAudio: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetOpenedAudio {
+        return
+            try EnetOpenedAudio(
+                seq: FfiConverterUInt16.read(from: &buf), 
+                flags: FfiConverterUInt8.read(from: &buf), 
+                packet: FfiConverterData.read(from: &buf), 
+                missing: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetOpenedAudio, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.seq, into: &buf)
+        FfiConverterUInt8.write(value.flags, into: &buf)
+        FfiConverterData.write(value.packet, into: &buf)
+        FfiConverterUInt32.write(value.missing, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedAudio_lift(_ buf: RustBuffer) throws -> EnetOpenedAudio {
+    return try FfiConverterTypeEnetOpenedAudio.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetOpenedAudio_lower(_ value: EnetOpenedAudio) -> RustBuffer {
+    return FfiConverterTypeEnetOpenedAudio.lower(value)
 }
 
 
@@ -2346,6 +2989,72 @@ public func FfiConverterTypeEnetTreeKey_lift(_ buf: RustBuffer) throws -> EnetTr
 public func FfiConverterTypeEnetTreeKey_lower(_ value: EnetTreeKey) -> RustBuffer {
     return FfiConverterTypeEnetTreeKey.lower(value)
 }
+
+
+
+public enum EnetCallRole: Equatable, Hashable {
+    
+    case caller
+    case host
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EnetCallRole: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetCallRole: FfiConverterRustBuffer {
+    typealias SwiftType = EnetCallRole
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetCallRole {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .caller
+        
+        case 2: return .host
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EnetCallRole, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .caller:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .host:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallRole_lift(_ buf: RustBuffer) throws -> EnetCallRole {
+    return try FfiConverterTypeEnetCallRole.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetCallRole_lower(_ value: EnetCallRole) -> RustBuffer {
+    return FfiConverterTypeEnetCallRole.lower(value)
+}
+
 
 
 public 
@@ -3177,6 +3886,27 @@ public func wrapTreeKey(installPublic: String, treeSecret: Data)throws  -> Strin
 })
 }
 /**
+ * The fixture's sizes (the self-test holds them against `seal`).
+ */
+public func callSealPad() -> EnetCallSealPad  {
+    return try!  FfiConverterTypeEnetCallSealPad_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_call_seal_pad(uniffiCallStatus
+    )
+})
+}
+/**
+ * Replays `seal` of voice-call.json (the whole fixture's JSON) inside Rust;
+ * an error's reason names every vector and refusal that did not hold.
+ */
+public func callSealSelftest(fixtureJson: String)throws   {try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_call_seal_selftest(
+        FfiConverterString.lower(fixtureJson),uniffiCallStatus
+    )
+}
+}
+/**
  * The default config: our relay, nobody allowed yet.
  */
 public func defaultConfig() -> EnetConfig  {
@@ -3280,6 +4010,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_net_ffi_checksum_func_wrap_tree_key() != 51680) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_net_ffi_checksum_func_call_seal_pad() != 20052) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_call_seal_selftest() != 40299) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_net_ffi_checksum_func_default_config() != 14466) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3293,6 +4029,27 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 60060) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_finish() != 40253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_hello() != 23011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallseal_host_hello() != 11036) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallseal_open_audio() != 28680) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallseal_open_control() != 4182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallseal_seal_audio() != 59019) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetcallseal_seal_control() != 4036) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetaccesspolicy_allow() != 41495) {
@@ -3389,6 +4146,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_ticket() != 11244) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_constructor_enetcallhandshake_new() != 57550) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_constructor_enetnode_start() != 32634) {

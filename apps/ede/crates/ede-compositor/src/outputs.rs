@@ -126,6 +126,12 @@ pub fn set_surface_scale(surface: &WlSurface, scale: f64) {
 
 impl FractionalScaleHandler for Ede {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
+        // #EDE-126: a space's surface gets its own output's scale, never
+        // the person's first output's (1 once its space is gone).
+        if let Some(id) = crate::spaces::space_of_surface(&surface) {
+            let scale = self.spaces.get(id).map_or(1.0, |space| space.output.current_scale().fractional_scale());
+            return set_surface_scale(&surface, scale);
+        }
         // The output under the window, else the first one.
         let scale = self
             .window_for_surface(&surface)

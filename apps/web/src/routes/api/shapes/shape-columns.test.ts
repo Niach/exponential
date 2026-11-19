@@ -164,6 +164,9 @@ describe(`sessions allowlist`, () => {
   it(`syncs the EXP-1458 tree key and sealed title`, () => {
     expect(SESSION_COLUMNS).toEqual(expect.arrayContaining([`seal_public_key`, `seal_epoch`, `sealed_title`, `seal_rotate_epoch`]))
   })
+  it(`syncs the EXP-1961 call mark`, () => {
+    expect(SESSION_COLUMNS).toContain(`voice_call`)
+  })
   it(`syncs the EDE-97 clear-for-life flag`, () => {
     expect(SESSION_COLUMNS).toContain(`clear_tree`)
   })

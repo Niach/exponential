@@ -79,6 +79,8 @@ object SessionTree {
         val background: Boolean = false,
         /** #NEW-49: what it waits on (`sessions.watching`, absent = nothing). */
         val watching: List<Watching> = emptyList(),
+        /** #EXP-1943: a call session's call (`sessions.voice_call`, null = not a call). */
+        val voiceCall: TreeVoiceCall? = null,
     )
 
     /** #NEW-49: one entry of `sessions.watching` (eagent wakeups.json WATCH
@@ -471,6 +473,11 @@ object SessionTree {
         /** A spinner while true. */
         val running: Boolean,
         val testId: String,
+        /** #EXP-1943: a call card's muted second line (its summary). */
+        val caption: String? = null,
+        /** #EXP-1943: a [callCard] (only call cards carry [caption]; no kind
+         *  word drawn, its name ticks every second while running). */
+        val call: Boolean = false,
     )
 
     /**
@@ -526,6 +533,237 @@ object SessionTree {
             elapsed = elapsed,
             running = state == SessionState.Working,
             testId = CardCopy.TEST_ID_CARD,
+        )
+    }
+
+    // ── #EXP-1943 (session-card.json `call`): a call in the chat ────────────
+
+    /** The fields of `sessions.voice_call` the UI reads (etalk voice-call.json
+     *  `callSession`); [endedAt] null = the call is running; [durationMs] =
+     *  the ended segments' total (a resume adds one). */
+    data class TreeVoiceCall(
+        val startedAt: String,
+        val segmentStartedAt: String,
+        val endedAt: String?,
+        val durationMs: Long,
+    )
+
+    /** `sessions.voice_call` raw jsonb TEXT → its call; null, absent or
+     *  garbage (no startedAt) = not a call. */
+    fun parseVoiceCall(raw: String?): TreeVoiceCall? {
+        if (raw.isNullOrBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: return null
+        val startedAt = obj.str("startedAt")?.takeIf { it.isNotEmpty() } ?: return null
+        return TreeVoiceCall(
+            startedAt = startedAt,
+            segmentStartedAt = obj.str("segmentStartedAt")?.takeIf { it.isNotEmpty() } ?: startedAt,
+            endedAt = obj.str("endedAt")?.takeIf { it.isNotEmpty() },
+            durationMs = (obj["durationMs"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.toLong() ?: 0L,
+        )
+    }
+
+    /** session-card.json `call` (the test proves equality). */
+    object CallCopy {
+        const val ICON = "voice-call"
+        const val TONE = "foreground"
+        const val RUNNING = "In a call · {timer}"
+        const val ENDED = "Call ended after {duration}"
+        const val SECONDS = "{count} sec"
+        const val MINUTES = "{count} min"
+        const val HOURS = "{hours} h {minutes} min"
+        const val VIEW_TITLE = "Call · {duration}"
+        const val VIEW_RUNNING = "Call · {timer}"
+        const val SUBTITLE = "{when} · {agent}"
+        const val WHEN = "{day} {start} – {end}"
+        const val WHEN_RUNNING = "{day} {start}"
+        const val TODAY = "Today"
+        const val SUMMARY = "Summary"
+        /** The server's lines in a call session, ONE {placeholder} each. */
+        val PROMPTS: Map<String, String> = linkedMapOf(
+            "request" to "The person is calling you and the phone is ringing. Answer with ONE short opening line in your own words that fits where the chat stands, in {language}, then wait for them to speak.",
+            "resume" to "The person called back. Open again with ONE short line in {language}, then wait.",
+            "ended" to "The call ended after {minutes}. Reply with the call's summary for the main chat, nothing else: what was said and decided, what you did, and what you handed to the chat. Plain sentences, no greeting.",
+        )
+    }
+
+    /** A call session (a non-null `voiceCall`). */
+    fun isCallSession(session: Session?): Boolean = session?.voiceCall != null
+
+    /** The call is running: not ended, its segment open. */
+    fun callRunning(session: Session): Boolean =
+        session.status != DomainContract.sessionStatusEnded && session.voiceCall != null && session.voiceCall.endedAt == null
+
+    /** The call's length so far: the ended segments + the running one. */
+    fun callTotalMs(session: Session, now: String): Long {
+        val call = session.voiceCall ?: return 0L
+        if (!callRunning(session)) return call.durationMs
+        val since = ms(call.segmentStartedAt)
+        val at = ms(now)
+        return call.durationMs + if (since != null && at != null) maxOf(0L, at - since) else 0L
+    }
+
+    /** The live timer: `02:14`, `1:02:14` past an hour. */
+    fun callClock(durationMs: Long): String {
+        val total = maxOf(0L, Math.floorDiv(durationMs, 1000L))
+        val hours = total / 3600
+        val minutes = (total % 3600) / 60
+        val seconds = total % 60
+        fun pad(value: Long) = value.toString().padStart(2, '0')
+        return if (hours > 0) "$hours:${pad(minutes)}:${pad(seconds)}" else "${pad(minutes)}:${pad(seconds)}"
+    }
+
+    /** An ended call's length: `42 sec`, `4 min`, `1 h 5 min`. */
+    fun callLength(durationMs: Long): String {
+        val safe = maxOf(0L, durationMs)
+        if (safe < 60_000L) return CallCopy.SECONDS.replace("{count}", (safe / 1000L).toString())
+        // JS Math.round: half up.
+        val minutes = maxOf(1L, Math.floorDiv(safe + 30_000L, 60_000L))
+        if (minutes < 60) return CallCopy.MINUTES.replace("{count}", minutes.toString())
+        return CallCopy.HOURS.replace("{hours}", (minutes / 60).toString()).replace("{minutes}", (minutes % 60).toString())
+    }
+
+    /** THE session card of a call session (`callCases`). */
+    fun callCard(session: Session, summary: String?, now: String): SessionCard {
+        val running = callRunning(session)
+        val total = callTotalMs(session, now)
+        val caption = if (!running && !summary.isNullOrBlank()) summary.trim() else null
+        return SessionCard(
+            sessionId = session.id,
+            icon = CallCopy.ICON,
+            name = if (running) {
+                CallCopy.RUNNING.replace("{timer}", callClock(total))
+            } else {
+                CallCopy.ENDED.replace("{duration}", callLength(total))
+            },
+            kindWord = "",
+            state = if (running) SessionState.Working else SessionState.Done,
+            tone = CallCopy.TONE,
+            elapsed = null,
+            running = false,
+            testId = CardCopy.TEST_ID_CARD,
+            caption = caption,
+            call = true,
+        )
+    }
+
+    /** Which of [CallCopy.PROMPTS] (the server's lines) a body is, else null:
+     *  it starts with the text before the placeholder, ends with the text
+     *  after it and is longer than the two together. */
+    fun callPrompt(body: String): String? {
+        val text = body.trim()
+        for ((key, template) in CallCopy.PROMPTS) {
+            val open = template.indexOf('{')
+            val close = if (open < 0) -1 else template.indexOf('}', open)
+            if (open < 0 || close < 0) continue
+            val before = template.substring(0, open)
+            val after = template.substring(close + 1)
+            if (text.length > before.length + after.length && text.startsWith(before) && text.endsWith(after)) return key
+        }
+        return null
+    }
+
+    /** The live feed (`feedCases`): the call session whose REPORT this device
+     *  input relays (`Report from <name> (session <id>): …`), else null. */
+    fun feedCallSession(text: String, callIds: Collection<String>): String? {
+        val input = TranscriptGrouping.crossSessionInput(text) ?: return null
+        if (input.kind != TranscriptGrouping.InputKind.Report) return null
+        return input.sessionId.takeIf { it in callIds }
+    }
+
+    /** THE call view (`callViewCases`): the call session's own screen. */
+    data class CallView(
+        val sessionId: String,
+        val title: String,
+        val subtitle: String,
+        val running: Boolean,
+        /** The newest summary, null = none yet (no band). */
+        val summary: String?,
+        val summaryLabel: String,
+        /** The spoken turns: [SessionChatRow.MessageRow] and [SessionChatRow.Locked]. */
+        val rows: List<SessionChatRow>,
+    )
+
+    private fun hhmm(iso: String, utcOffsetMinutes: Int): String {
+        val local = (ms(iso) ?: 0L) + utcOffsetMinutes * 60_000L
+        val minuteOfDay = Math.floorMod(local, 86_400_000L) / 60_000L
+        return "${(minuteOfDay / 60).toString().padStart(2, '0')}:${(minuteOfDay % 60).toString().padStart(2, '0')}"
+    }
+
+    fun callView(
+        session: Session,
+        messages: List<Message>,
+        agentName: String,
+        now: String,
+        utcOffsetMinutes: Int,
+    ): CallView {
+        val running = callRunning(session)
+        val total = callTotalMs(session, now)
+        val call = session.voiceCall
+        val startedAt = call?.startedAt ?: session.createdAt
+        fun localDay(iso: String) = Math.floorDiv((ms(iso) ?: 0L) + utcOffsetMinutes * 60_000L, 86_400_000L)
+        val day = if (localDay(startedAt) >= localDay(now)) CallCopy.TODAY else Chats.chatTimeLabel(startedAt, now, utcOffsetMinutes)
+        val endedAt = call?.endedAt
+        val whenText = if (running || endedAt == null) {
+            CallCopy.WHEN_RUNNING.replace("{day}", day).replace("{start}", hhmm(startedAt, utcOffsetMinutes))
+        } else {
+            CallCopy.WHEN.replace("{day}", day)
+                .replace("{start}", hhmm(startedAt, utcOffsetMinutes))
+                .replace("{end}", hhmm(endedAt, utcOffsetMinutes))
+        }
+        val own = messages.filter { it.sessionId == session.id }.sortedByEpoch(tie = messageTie) { ms(it.createdAt) ?: 0L }
+        val rows = mutableListOf<SessionChatRow>()
+        var summary: String? = null
+        var afterEnded = false
+        for (message in own) {
+            if (message.card != null) continue
+            if (!message.authorSessionId.isNullOrEmpty() && message.authorSessionId != session.id) continue
+            val author = when (message.authorKind) {
+                DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
+                else -> DomainContract.messageAuthorKindSystem
+            }
+            if (author == DomainContract.messageAuthorKindSystem) continue
+            if (author == DomainContract.messageAuthorKindUser && message.locked == null) {
+                val prompt = callPrompt(message.body)
+                if (prompt != null) {
+                    afterEnded = prompt == "ended"
+                    continue
+                }
+            }
+            if (author == DomainContract.messageAuthorKindAgent && afterEnded) {
+                afterEnded = false
+                if (message.locked == null && !TranscriptGrouping.isBlankText(message.body)) summary = message.body.trim()
+                continue
+            }
+            message.locked?.let { reason ->
+                rows.add(SessionChatRow.Locked(message.id, reason, author))
+            }
+            if (message.locked != null) continue
+            val body = messageRowBody(message.body, message.attachmentIds)
+            if (TranscriptGrouping.isBlankText(body)) continue
+            rows.add(
+                SessionChatRow.MessageRow(
+                    id = message.id,
+                    author = author,
+                    authorId = message.authorId,
+                    body = body,
+                    queued = false,
+                    authorSessionId = message.authorSessionId,
+                    xref = null,
+                ),
+            )
+        }
+        return CallView(
+            sessionId = session.id,
+            title = if (running) {
+                CallCopy.VIEW_RUNNING.replace("{timer}", callClock(total))
+            } else {
+                CallCopy.VIEW_TITLE.replace("{duration}", callLength(total))
+            },
+            subtitle = CallCopy.SUBTITLE.replace("{when}", whenText).replace("{agent}", agentName),
+            running = running,
+            summary = summary,
+            summaryLabel = CallCopy.SUMMARY,
+            rows = rows,
         )
     }
 
@@ -1258,7 +1496,10 @@ object SessionTree {
         fun nameOf(s: Session) = sessionCard(s, titles[s.id] ?: "", now).name
         // #NEW-49: the card a session row draws (see [waitingCards]).
         val everySession = byId.values.toList()
-        fun rowCard(s: Session): SessionCard = sessionCard(
+        // #EXP-1943: a call session's row = its [callCard] (caption = the
+        // newest summary of its reports, [callSummaries] below).
+        val callSummaries = HashMap<String, String>()
+        fun rowCard(s: Session): SessionCard = if (isCallSession(s)) callCard(s, callSummaries[s.id], now) else sessionCard(
             s,
             titles[s.id] ?: "",
             now,
@@ -1300,12 +1541,27 @@ object SessionTree {
                 }
         }
         val conversation = (own + asks).sortedByEpoch(tie = messageTie) { ms(it.createdAt) ?: 0L }
+        // #EXP-1943 (session-card.json `call`): a call's reports fold into its
+        // ONE card as the caption (the newest summary); they draw no row.
+        fun callOf(card: JsonObject?): Session? =
+            card?.str("sessionId")?.let { byId[it] }?.takeIf { isCallSession(it) }
+        for (message in conversation) {
+            val card = message.card ?: continue
+            if (card.str("kind") != DomainContract.messageCardKindReport) continue
+            val call = callOf(card) ?: continue
+            val summary = card.str("summary")?.takeIf { it.isNotBlank() }
+                ?: if (message.locked != null) "" else message.body
+            if (summary.isNotBlank()) callSummaries[call.id] = summary
+        }
         val rows = mutableListOf<SessionChatRow>()
         val messagesById = messages.associateBy { it.id }
         val escalated = mutableSetOf<String>()
         val fires = mutableSetOf<String>()
         for (message in conversation) {
             val card = message.card
+            if (message.locked != null && card != null && callOf(card) != null &&
+                (card.str("kind") == DomainContract.messageCardKindReport || card.str("kind") == DomainContract.messageCardKindEvent)
+            ) continue
             message.locked?.let { reason ->
                 val author = when (message.authorKind) {
                     DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
@@ -1366,6 +1622,7 @@ object SessionTree {
                 }
                 DomainContract.messageCardKindReport -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
+                    if (isCallSession(target)) continue
                     rows.add(
                         SessionChatRow.Report(
                             id = message.id,
@@ -1384,6 +1641,8 @@ object SessionTree {
                     suggestionsRow(message, card, byId, titles, issueMap, now)?.let(rows::add)
                 }
                 DomainContract.messageCardKindEvent -> {
+                    // #EXP-1943: a line about a call session draws nothing (its card speaks).
+                    if (callOf(card) != null) continue
                     // #EXP-1772: a firing draws nothing of its own; one the agent
                     // answered is THE marker above that reply (`fires`, below).
                     if (card.str("event") == DomainContract.messageEventKindTriggerFired) {
@@ -2060,6 +2319,7 @@ object SessionTree {
         startedByAgentId = row.startedByAgentId,
         background = row.background,
         watching = parseWatching(row.watching),
+        voiceCall = parseVoiceCall(row.voiceCall),
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

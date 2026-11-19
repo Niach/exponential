@@ -97,6 +97,10 @@ pub fn voice_stop_meeting(
 #[serde(rename_all = "camelCase")]
 pub struct CallTicket {
     pub url: String,
+    /// #EXP-1941: the call's mode, as the server told the caller too (the
+    /// call id vouches for it). Absent on an older server = today's wire.
+    #[serde(default)]
+    pub seal: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,13 +110,62 @@ struct CallHostTicketInput<'a> {
     /// EXP-1857: the answering desktop (any of the member's own).
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<&'a str>,
+    /// #EXP-1941: the ring's agent. The call id vouches for it: a host that
+    /// names another agent than the caller dialled gets no ticket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_id: Option<&'a str>,
 }
 
 /// NEW-55: `voice.callHostTicket` — mutation; a desktop the relay rang
 /// (`call_ring`) answers with it. EXP-1857: `device_id` = this desktop's
 /// own id (any of the member's desktops may be rung; None = the voice device).
 pub fn voice_call_host_ticket(trpc: &TrpcClient, call_id: &str, device_id: Option<&str>) -> Result<CallTicket, ApiError> {
-    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id, device_id })
+    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id, device_id, agent_id: None })
+}
+
+/// #EXP-1941: [`voice_call_host_ticket`] of a host that names its device AND
+/// the ring's agent: the only host a sealed call id is answered for. Asked
+/// FIRST, before the agent, its voice or its conversation are read.
+pub fn voice_call_host_ticket_for(trpc: &TrpcClient, call_id: &str, device_id: &str, agent_id: &str) -> Result<CallTicket, ApiError> {
+    trpc.mutation("voice.callHostTicket", &CallHostTicketInput { call_id, device_id: Some(device_id), agent_id: Some(agent_id) })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallSessionInput<'a> {
+    agent_id: &'a str,
+    call_id: &'a str,
+}
+
+/// #EXP-1961: `voice.callSession`'s answer: the call's own session (a child
+/// of the chat).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSession {
+    pub session_id: String,
+    pub chat_id: String,
+    #[serde(default)]
+    pub resumed: bool,
+}
+
+/// #EXP-1961: `voice.callSession` — mutation; the host asks while it rings.
+/// `None` = no call session (no chat yet, no room): the old path.
+pub fn voice_call_session(trpc: &TrpcClient, agent_id: &str, call_id: &str) -> Result<Option<CallSession>, ApiError> {
+    trpc.mutation("voice.callSession", &CallSessionInput { agent_id, call_id })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallEndedInput<'a> {
+    session_id: &'a str,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CallEnded {}
+
+/// #EXP-1961: `voice.callEnded` — mutation; the hang-up (its summary follows).
+pub fn voice_call_ended(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
+    trpc.mutation::<_, CallEnded>("voice.callEnded", &CallEndedInput { session_id }).map(|_| ())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,6 +174,10 @@ struct StartCallInput<'a> {
     agent_id: &'a str,
     platform: &'a str,
     device_id: &'a str,
+    /// #EXP-1941: the claim "this caller can seal" (it has a key holder).
+    /// Not sent when false: today's input.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    seal: bool,
 }
 
 /// EXP-1857: `voice.startCall`'s answer: the caller's ticket URL and the
@@ -134,6 +191,10 @@ pub struct StartedCall {
     pub device: String,
     #[serde(default)]
     pub fallback: bool,
+    /// #EXP-1941: the call's mode: the claim AND the target's cap, decided
+    /// once by the server and told to the host too. Absent = today's wire.
+    #[serde(default)]
+    pub seal: bool,
 }
 
 /// EXP-1857: `voice.startCall` — mutation; the desktop IDE as a CALLER
@@ -141,7 +202,15 @@ pub struct StartedCall {
 /// Refused (`PRECONDITION_FAILED`, the availability reason as the message)
 /// when no desktop speaks, `BAD_REQUEST` when this desktop is the target.
 pub fn voice_start_call(trpc: &TrpcClient, agent_id: &str, device_id: &str) -> Result<StartedCall, ApiError> {
-    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id })
+    voice_start_call_claiming(trpc, agent_id, device_id, false)
+}
+
+/// #EXP-1941: [`voice_start_call`] with the claim. `seal` = this caller can
+/// seal: its key holder is up (one that is still starting is waited for
+/// first, `coding::sealing`'s service wait; only a caller that can never
+/// hold keys dials without the claim). The answer's `seal` is the mode.
+pub fn voice_start_call_claiming(trpc: &TrpcClient, agent_id: &str, device_id: &str, seal: bool) -> Result<StartedCall, ApiError> {
+    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id, seal })
 }
 
 #[cfg(test)]
@@ -152,17 +221,26 @@ mod tests {
     /// is a desktop with its own id.
     #[test]
     fn call_inputs_name_this_desktop() {
-        let host = CallHostTicketInput { call_id: "c1", device_id: Some("d-mac") };
+        let host = CallHostTicketInput { call_id: "c1", device_id: Some("d-mac"), agent_id: None };
         assert_eq!(serde_json::to_string(&host).unwrap(), r#"{"callId":"c1","deviceId":"d-mac"}"#);
-        let old = CallHostTicketInput { call_id: "c1", device_id: None };
+        let old = CallHostTicketInput { call_id: "c1", device_id: None, agent_id: None };
         assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"callId":"c1"}"#);
-        let start = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac" };
+        let start = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: false };
         assert_eq!(serde_json::to_string(&start).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac"}"#);
+        // #EXP-1941: the claim and the ring's agent are new fields; without
+        // them the inputs above are today's, byte for byte.
+        let claiming = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: true };
+        assert_eq!(serde_json::to_string(&claiming).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac","seal":true}"#);
+        let naming = CallHostTicketInput { call_id: "c1", device_id: Some("d-mac"), agent_id: Some("a1") };
+        assert_eq!(serde_json::to_string(&naming).unwrap(), r#"{"callId":"c1","deviceId":"d-mac","agentId":"a1"}"#);
+        let ticket: CallTicket = serde_json::from_str(r#"{"url":"wss://r/x?ticket=t","seal":true}"#).unwrap();
+        assert!(ticket.seal && !serde_json::from_str::<CallTicket>(r#"{"url":"u"}"#).unwrap().seal, "an older server names no mode");
         let started: StartedCall = serde_json::from_str(
             r#"{"callId":"c1","ticket":"t","url":"wss://r/x?ticket=t","relayUrl":"wss://r","deviceId":"d-mint","device":"mint","fallback":true}"#,
         )
         .unwrap();
         assert_eq!((started.device.as_str(), started.fallback, started.url.as_str()), ("mint", true, "wss://r/x?ticket=t"));
+        assert!(!started.seal, "an older server names no mode: today's wire");
     }
 
     #[test]

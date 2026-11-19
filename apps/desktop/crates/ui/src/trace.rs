@@ -63,6 +63,8 @@ pub(crate) struct TraceLine {
     pub chevron: bool,
     pub status: Option<TraceStatus>,
     pub size: TraceSize,
+    /// #EDE-129: find-in-chat marks behind the title (byte ranges, fills).
+    pub marks: Vec<(std::ops::Range<usize>, Hsla)>,
 }
 
 impl TraceLine {
@@ -76,6 +78,7 @@ impl TraceLine {
             chevron: false,
             status: None,
             size: TraceSize::Sm,
+            marks: Vec::new(),
         }
     }
 
@@ -112,6 +115,12 @@ impl TraceLine {
         self.size = size;
         self
     }
+
+    /// #EDE-129: the title's find-in-chat marks.
+    pub(crate) fn marks(mut self, marks: Vec<(std::ops::Range<usize>, Hsla)>) -> Self {
+        self.marks = marks;
+        self
+    }
 }
 
 /// The text colour a line's status paints its title in.
@@ -135,6 +144,13 @@ fn line_row(line: &TraceLine, interactive: bool, window: &Window, cx: &App) -> g
             g.font_size,
             window,
         )
+    } else if !line.marks.is_empty() {
+        // #EDE-129: the genUI highlight's fills behind the matches.
+        StyledText::new(line.title.clone())
+            .with_highlights(line.marks.iter().map(|(range, fill)| {
+                (range.clone(), HighlightStyle { background_color: Some(*fill), ..Default::default() })
+            }))
+            .into_any_element()
     } else {
         StyledText::new(line.title.clone()).into_any_element()
     };

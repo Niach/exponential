@@ -27,7 +27,8 @@ struct VoiceCallScreen: View {
                     onMute: { client.toggleMute() },
                     onSpeaker: { client.toggleSpeaker() },
                     onEnd: { client.end() },
-                    onMinimize: { client.minimize() }
+                    onMinimize: { client.minimize() },
+                    onTab: { client.showTab($0) }
                 )
             }
         }
@@ -81,6 +82,8 @@ struct VoiceCallSurface: View {
     var onEnd: () -> Void = {}
     /// EXP-1681: the top leading chevron (nil = none: web's twin has none).
     var onMinimize: (() -> Void)? = nil
+    /// FEED-272: the Chat | Voice tabs on top (nil = none); this surface is Voice.
+    var onTab: ((VoiceCall.Tab) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -124,6 +127,14 @@ struct VoiceCallSurface: View {
                 .padding(.bottom, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            if let onTab {
+                CallTabs(active: .voice, onSelect: onTab)
+                    .padding(.leading, onMinimize != nil ? 60 : 12)
+                    .padding(.trailing, 12)
+                    .padding(.top, 4)
+            }
+        }
         .overlay(alignment: .topLeading) {
             if let onMinimize {
                 GhostIconButton(

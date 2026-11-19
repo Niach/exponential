@@ -489,6 +489,22 @@ impl HostPlugin for CardSurfaceHost {
         crate::links::markdown_attachment(href, cx)
     }
 
+    /// #EXP-1947 (`image-actions.json` `imageSource`): only the instance's
+    /// own attachments, data and local pictures load; another website's
+    /// picture is a link, anything else its alt.
+    fn image_source(&self, src: &str, alt: &str) -> Option<eui_gpui::host::ImageSourceVerdict> {
+        Some(crate::image_actions::source_verdict(src, alt, self.instance.as_deref()))
+    }
+
+    /// #EXP-1947: a rendered picture answers THE image menu (Copy image).
+    fn has_image_menu(&self, _cx: &App) -> bool {
+        true
+    }
+
+    fn image_menu(&self, target: eui_gpui::host::ImageTarget, picture: gpui::AnyElement, _window: &mut Window, _cx: &mut App) -> gpui::AnyElement {
+        crate::image_actions::eui_image_menu(target, picture)
+    }
+
     /// Sandbox: a `Video` / `AudioPlayer` press plays nothing — web's host
     /// is inert too. The default would hand an agent-authored attachment
     /// (fetched with the bearer token) to the system opener.

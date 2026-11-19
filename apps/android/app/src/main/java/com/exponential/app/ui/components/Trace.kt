@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import at.exponential.ui.primitives.drawHighlightFills
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -179,6 +180,10 @@ fun TraceLine(
     chevron: Boolean = false,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    /** #EDE-130 (text-highlight.json): search marks on the title (genUI's
+     *  `highlight`: `match` behind each, `matchCurrent` behind the local
+     *  current one); null = none. */
+    highlight: at.exponential.ui.primitives.MarkdownHighlight? = null,
 ) {
     val g = currentTraceSize.geometry
     val interaction = remember { MutableInteractionSource() }
@@ -189,6 +194,8 @@ fun TraceLine(
         else -> TraceMuted
     }
     val style = traceTextStyle(g)
+    val marked = remember(title, highlight) { highlightedTitle(title, highlight) }
+    val fills = traceHighlightFills(marked, style)
     Row(
         modifier = modifier
             .then(
@@ -219,14 +226,16 @@ fun TraceLine(
             Spacer(Modifier.width(g.gap.dp))
         }
         Text(
-            title,
+            marked,
             style = style,
             color = ink,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
+            onTextLayout = fills.second,
             modifier = Modifier
                 .weight(1f, fill = false)
+                .then(fills.first)
                 .traceShimmer(ink, status == TraceStatus.Running),
         )
         if (badge != null) {
@@ -296,11 +305,16 @@ fun TraceLine(
     chevron: Boolean = false,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    /** #EDE-130: find in chat's marks on the title. */
+    highlight: at.exponential.ui.primitives.MarkdownHighlight? = null,
+    /** #EDE-130: find in chat's `outputHint` in the description slot. */
+    hint: String? = null,
 ) = TraceLine(
-    title = model.title,
+    title = AnnotatedString(model.title),
     modifier = modifier,
     icon = traceIcon(model.icon),
-    description = if (badge) null else model.description,
+    highlight = highlight,
+    description = if (badge) null else hint ?: model.description,
     badge = if (badge) model.description else null,
     status = model.status,
     open = open,
@@ -308,6 +322,45 @@ fun TraceLine(
     onClick = onClick,
     onClickLabel = onClickLabel,
 )
+
+/** #EDE-130: [title] with a [HIGHLIGHT_MARK_TAG] annotation per match (its fill). */
+private fun highlightedTitle(title: AnnotatedString, highlight: at.exponential.ui.primitives.MarkdownHighlight?): AnnotatedString {
+    if (highlight == null) return title
+    val ranges = at.exponential.ui.primitives.highlightRanges(title.text, highlight.query)
+    if (ranges.isEmpty()) return title
+    return buildAnnotatedString {
+        append(title)
+        ranges.forEachIndexed { i, r ->
+            val fill = if (i == highlight.current) highlight.matchCurrent else highlight.match
+            addStringAnnotation(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, at.exponential.ui.primitives.highlightMarkValue(fill), r.first, r.last + 1)
+        }
+    }
+}
+
+/** #EDE-130: the marks' fills drawn behind the title, each in the font's
+ *  glyph box ([at.exponential.ui.primitives.drawHighlightFills]); layout unchanged. */
+@Composable
+private fun traceHighlightFills(text: AnnotatedString, style: TextStyle): Pair<Modifier, (androidx.compose.ui.text.TextLayoutResult) -> Unit> {
+    val marked = remember(text) { text.hasStringAnnotations(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, 0, text.length) }
+    val laid = remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    if (!marked) return Modifier to { _ -> }
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val metrics = remember(style, measurer) {
+        val r = measurer.measure(
+            "x",
+            style.copy(
+                lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
+                lineHeightStyle = null,
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+        r.firstBaseline to (r.size.height - r.firstBaseline)
+    }
+    return Modifier.drawBehind {
+        val r = laid.value ?: return@drawBehind
+        drawHighlightFills(r) { metrics }
+    } to { r -> laid.value = r }
+}
 
 /** A title with a muted trailing subject (our MCP calls: "Created issue" +
  *  the subject at `descriptionAlpha`). */

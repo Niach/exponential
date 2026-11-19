@@ -173,9 +173,10 @@ function AgentChannelPage() {
         className={buttonClass}
       />
     ),
-    menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu) => (
+    menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu, onFind?: () => void) => (
       <AgentHeaderMenu
         team={team}
+        onFind={onFind}
         agentId={agent.id}
         title={name}
         onSettings={onSettings}

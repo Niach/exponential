@@ -23,12 +23,13 @@ public final class VoiceApi: Sendable {
     /// NEW-69: a phone's call with an agent (`platform: phone`); the server
     /// refuses with the availability reason, else answers the caller's relay
     /// ticket and the URL to dial as-is (EXP-1857: and the target it picked,
-    /// `deviceId`, `device`, `fallback`).
-    public func startCall(accountId: String, agentId: String) async throws -> VoiceCall.Ticket {
+    /// `deviceId`, `device`, `fallback`). #EXP-1941: `seal` = this phone can
+    /// seal the call (an older server drops it and answers no `seal`).
+    public func startCall(accountId: String, agentId: String, seal: Bool = false) async throws -> VoiceCall.Ticket {
         try await trpc.mutation(
             accountId: accountId,
             path: "voice.startCall",
-            input: StartCallInput(agentId: agentId, platform: VoiceCall.Platform.phone.rawValue)
+            input: StartCallInput(agentId: agentId, platform: VoiceCall.Platform.phone.rawValue, seal: seal)
         )
     }
 
@@ -55,4 +56,5 @@ private struct EmptyInput: Encodable {}
 private struct StartCallInput: Encodable {
     let agentId: String
     let platform: String
+    let seal: Bool
 }

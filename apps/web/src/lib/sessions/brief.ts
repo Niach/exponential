@@ -10,6 +10,7 @@ import type { Db } from "@/lib/sessions/tx"
 import { inSession, pendingInput } from "@/lib/sessions/messages"
 import { isSealedBody } from "@/lib/sessions/sealed"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
+import { callBrief } from "@/lib/sessions/call-chat"
 
 export { deriveSessionTitle }
 
@@ -87,6 +88,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  team, the conversation not `shared`): only then may the device attach
    *  `get_screenshots`. */
   screenMemory: boolean
+  /** #EXP-1961: a CALL session (voice-call.json `callSession`): its brief
+   *  has the Call section and its launch adds the voice section. */
+  call: boolean
 }> {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -123,6 +127,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     }
   }
 
+  // #EXP-1961: a call session's Call section replaces Parent.
+  if (session.voiceCall) input.call = await callBrief(session)
+
   const [team] = await db
     .select({ agentPrompt: teams.agentPrompt })
     .from(teams)
@@ -139,6 +146,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const voicePolicy = await isVoiceConversation(session)
   return {
     brief: composeBrief(input),
+    call: session.voiceCall !== null,
     sealedText,
     sealedAttachments,
     voicePolicy,

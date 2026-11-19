@@ -52,8 +52,6 @@ pub struct CallCopy {
     /// EXP-1857: the device that speaks while a call falls back.
     pub via: String,
     pub queued: String,
-    /// S-3: what the device says once answered, by language.
-    pub greeting: HashMap<String, String>,
     pub reasons: CallReasons,
     pub failed: HashMap<String, String>,
 }
@@ -146,6 +144,56 @@ pub struct CallPill {
     pub phone_bottom_px: f32,
 }
 
+/// FEED-272: one tab of the call surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallTab {
+    /// The agent's main chat with the call docked as the pill's row.
+    Chat,
+    /// The call surface as before.
+    Voice,
+}
+
+/// FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallTabs {
+    pub order: Vec<CallTab>,
+    /// The tab a call opens on.
+    pub initial: CallTab,
+    pub copy: CallTabsText,
+    pub test_ids: CallTabsTestIds,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CallTabsText {
+    pub chat: String,
+    pub voice: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CallTabsTestIds {
+    pub tabs: String,
+    pub chat: String,
+    pub voice: String,
+}
+
+impl CallTabs {
+    pub fn label(&self, tab: CallTab) -> &str {
+        match tab {
+            CallTab::Chat => &self.copy.chat,
+            CallTab::Voice => &self.copy.voice,
+        }
+    }
+
+    pub fn test_id(&self, tab: CallTab) -> &str {
+        match tab {
+            CallTab::Chat => &self.test_ids.chat,
+            CallTab::Voice => &self.test_ids.voice,
+        }
+    }
+}
+
 /// One styleguide row of the call surface (`surfaceSpecimens`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct SurfaceSpecimen {
@@ -176,6 +224,48 @@ pub struct HangUpRules {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct CallSealPadStep {
+    pub up: usize,
+    pub down: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSealEndReasons {
+    /// No key within `handshake_ms`, or a `finish` that failed.
+    pub no_key: String,
+    /// Clear content, a deleted event or too many frames that do not open.
+    pub seal: String,
+}
+
+/// #EXP-1941 (`seal`): the call seal's rules outside the bytes (those are
+/// `enet_core::call_seal`'s, which replays `seal.vectors`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSealSpec {
+    /// The device cap a host advertises while it has a key holder.
+    pub cap: String,
+    pub audio_pad_step: CallSealPadStep,
+    pub control_pad_bytes: usize,
+    pub max_plain_bytes: usize,
+    /// A caller sends its hello again this often until a host hello is taken.
+    pub hello_every_ms: u64,
+    /// Not sealed this long after an end's own start: the call ends `no_key`.
+    pub handshake_ms: u64,
+    pub pull_every_ms: u64,
+    /// Once sealed: this many audio frames in a row that do not open end the call.
+    pub max_open_failures: u32,
+    /// Question 9: an utterance that lost more than this on the way is not
+    /// sent (`etalk::CALL_MAX_LOST_MS`). A starting value, to be set from a
+    /// measurement on real calls before sealing is switched on.
+    pub max_lost_ms: u32,
+    /// The codes about the caller's OWN device: never taken from the wire.
+    pub own_device_codes: Vec<String>,
+    pub end_reasons: CallSealEndReasons,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceCallSpec {
     pub copy: CallCopy,
@@ -186,7 +276,43 @@ pub struct VoiceCallSpec {
     pub wire: CallWire,
     pub hang_up_rules: HangUpRules,
     pub pill: CallPill,
+    /// FEED-272: the Chat / Voice tabs on top of the call surface.
+    pub tabs: CallTabs,
     pub host_voice: HostVoice,
+    pub call_session: CallSessionSpec,
+    pub seal: CallSealSpec,
+}
+
+/// #EXP-1961 (`callSession`): the call's own session's host-side numbers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSessionSpec {
+    pub resume_ms: u64,
+    pub opening_wait_ms: u64,
+}
+
+/// #EXP-1961: what [`call_opening`] answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallOpening {
+    /// Keep ringing.
+    Wait,
+    /// Pick up and say the agent's opening line.
+    Speak,
+    /// Pick up silently on Listening; that opening is never spoken.
+    Listen,
+}
+
+/// #EXP-1961 (`callSession.openingCases`): the agent's own opening line
+/// (its call session's first reply), against the host's `ready` (the voice
+/// is in): before ready = wait; in by `ready + openingWaitMs` = speak;
+/// none by then = listen.
+pub fn call_opening(ready_at_ms: Option<u64>, opening_at_ms: Option<u64>, now_ms: u64) -> CallOpening {
+    let Some(ready) = ready_at_ms else { return CallOpening::Wait };
+    let deadline = ready + VOICE_CALL.call_session.opening_wait_ms;
+    if opening_at_ms.is_some_and(|at| at < deadline) {
+        return CallOpening::Speak;
+    }
+    if now_ms >= deadline { CallOpening::Listen } else { CallOpening::Wait }
 }
 
 /// FEED-276: how long a host's `ready` waits for the agent's own voice.
@@ -227,7 +353,7 @@ pub enum CallVoiceReady {
 /// `waited_ms` after the ring started, given the agent's voice: none or
 /// installed = ready; failed = the built-in voice at once; fetching waits
 /// until `hostVoice.waitMs`, then the built-in voice; installing waits
-/// until then, then ready (the greeting queues behind its Prepare).
+/// until then, then ready (the opening queues behind its Prepare).
 pub fn call_voice_ready(voice: CallVoice, waited_ms: u64) -> CallVoiceReady {
     let bound = waited_ms >= VOICE_CALL.host_voice.wait_ms;
     match voice {
@@ -241,6 +367,191 @@ pub fn call_voice_ready(voice: CallVoice, waited_ms: u64) -> CallVoiceReady {
 
 pub static VOICE_CALL: LazyLock<VoiceCallSpec> =
     LazyLock::new(|| serde_json::from_str(VOICE_CALL_JSON).expect("voice-call.json parses"));
+
+// --- #EXP-1941: the call seal's handshake steps (`seal.modeCases`) ----------
+//
+// One pure step for both ends of a call the server marked sealed (TS:
+// `callSealStep`). It decides WHAT happens; the end does it: the key source,
+// `finish` and the frames live in `steer::call_host` and `steer::call_caller`
+// (the sealer is `enet_core::call_seal`). The order is Noise NNpsk2's: the
+// caller's hello, the host's hello with its tag (opened inside the caller's
+// `finish`), then the caller's first frame that opens.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealRole {
+    Caller,
+    Host,
+}
+
+/// `Clear` = a call the server did not mark sealed: today's wire, not stepped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealPhase {
+    Idle,
+    Clear,
+    Told,
+    Offered,
+    Keying,
+    Sealed,
+    Over,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallSealState {
+    pub phase: CallSealPhase,
+    /// Sealed audio frames in a row that did not open.
+    pub failures: u32,
+}
+
+pub const CALL_SEAL_IDLE: CallSealState = CallSealState { phase: CallSealPhase::Idle, failures: 0 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallSealTimer {
+    Handshake,
+    MaxCall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum CallSealEvent {
+    /// What the server told this end; the host's socket opens here.
+    Start {
+        seal: bool,
+        #[serde(default)]
+        required: Option<bool>,
+    },
+    Ready,
+    /// A hello of the other end; `ok` = well-formed, checked before any `finish`.
+    Hello { ok: bool },
+    /// The key source gave up.
+    NoKey,
+    Key,
+    Finished { ok: bool },
+    /// A binary frame; `opens` = the sealer opened it.
+    Frame { opens: bool },
+    /// A `sealed` event; `opens` = the sealer opened it.
+    Sealed { opens: bool },
+    /// Clear content: a `call_event` that is neither `hello`, `sealed` nor
+    /// `failed`, or a `call_mute`.
+    Clear,
+    /// A clear `failed {code}`, or the code of the relay's `error` / `bye`.
+    Failed { code: String },
+    /// The socket closed, or `call_end`, `bye`, `error`.
+    Closed,
+    Timeout { timer: CallSealTimer },
+}
+
+/// A wire code about the caller's OWN device reads `dropped`.
+pub fn call_seal_wire_code(code: &str) -> String {
+    if VOICE_CALL.seal.own_device_codes.iter().any(|own| own == code) { VOICE_CALL.hang_up_rules.failed_code.clone() } else { code.to_string() }
+}
+
+/// The next state and what the end does now, in order: `timer`, `hello`,
+/// `helloStop`, `key`, `finish`, `go`, `count`, `end` / `end:<reason>`,
+/// `fail:<code>`, `abandon` (voice-call.ts names each).
+pub fn call_seal_step(role: CallSealRole, state: CallSealState, event: &CallSealEvent) -> (CallSealState, Vec<String>) {
+    use CallSealEvent as E;
+    use CallSealPhase as P;
+    let spec = &VOICE_CALL.seal;
+    let (no_key, seal) = (spec.end_reasons.no_key.as_str(), spec.end_reasons.seal.as_str());
+    let dropped = VOICE_CALL.hang_up_rules.failed_code.as_str();
+    let caller = role == CallSealRole::Caller;
+    let phase = state.phase;
+    let stay = || (state, Vec::new());
+    let to = |phase: P, actions: &[&str]| (CallSealState { phase, failures: 0 }, actions.iter().map(|action| action.to_string()).collect::<Vec<_>>());
+    // Every seal failure reads `dropped` on the caller; the host just ends.
+    let over = |reason: &str| {
+        let fail = format!("fail:{dropped}");
+        let end = format!("end:{reason}");
+        if caller { to(P::Over, &[&end, &fail, "abandon"]) } else { to(P::Over, &[&end, "abandon"]) }
+    };
+    let count = || (state, vec!["count".to_string()]);
+
+    if let E::Start { seal, required } = event {
+        if phase != P::Idle {
+            return stay();
+        }
+        if *seal {
+            return to(P::Told, if caller { &[] } else { &["timer"] });
+        }
+        if !required.unwrap_or(spec.required) {
+            return to(P::Clear, &[]);
+        }
+        return if caller { to(P::Over, &[&format!("fail:{dropped}")]) } else { to(P::Over, &["end"]) };
+    }
+    // The host ends a call it answered at `maxCallMs` itself, sealed or clear.
+    if matches!(event, E::Timeout { timer: CallSealTimer::MaxCall }) {
+        return if !caller && !matches!(phase, P::Idle | P::Over) { to(P::Over, &["end", "abandon"]) } else { stay() };
+    }
+    if matches!(phase, P::Idle | P::Clear | P::Over) {
+        return stay();
+    }
+    let sealed = phase == P::Sealed;
+    match event {
+        E::Start { .. } => unreachable!("handled above"),
+        E::Failed { code } => {
+            let code = if caller { call_seal_wire_code(code) } else { code.clone() };
+            to(P::Over, &[&format!("fail:{code}"), "abandon"])
+        }
+        E::Closed => to(P::Over, &["abandon"]),
+        E::Timeout { .. } => if sealed { stay() } else { over(no_key) },
+        E::Ready => if caller && phase == P::Told { to(P::Offered, &["timer", "hello"]) } else { stay() },
+        E::Hello { ok } => {
+            // The first well-formed hello is taken on arrival, once; another changes nothing.
+            let waiting = phase == if caller { P::Offered } else { P::Told };
+            if waiting && *ok {
+                return if caller { to(P::Keying, &["helloStop", "key"]) } else { to(P::Keying, &["key"]) };
+            }
+            if !*ok && !sealed && (waiting || !caller) { count() } else { stay() }
+        }
+        E::NoKey => if phase == P::Keying { over(no_key) } else { stay() },
+        E::Key => if phase == P::Keying { (state, vec!["finish".to_string()]) } else { stay() },
+        E::Finished { ok } => {
+            if phase != P::Keying {
+                return stay();
+            }
+            if !*ok {
+                return over(if caller { seal } else { no_key });
+            }
+            if caller { to(P::Sealed, &["go"]) } else { to(P::Offered, &["hello"]) }
+        }
+        E::Frame { opens } => {
+            if sealed {
+                if *opens {
+                    return if state.failures == 0 { stay() } else { to(P::Sealed, &[]) };
+                }
+                let failures = state.failures + 1;
+                return if failures >= spec.max_open_failures { over(seal) } else { (CallSealState { phase: P::Sealed, failures }, vec!["count".to_string()]) };
+            }
+            // A caller gets no binary frame before it is sealed; a host's
+            // first frame that opens is the caller's proof.
+            if caller {
+                return if phase == P::Told { stay() } else { over(seal) };
+            }
+            if phase == P::Offered && *opens { to(P::Sealed, &["go"]) } else { count() }
+        }
+        E::Sealed { opens } => {
+            if !caller {
+                return stay();
+            }
+            if sealed {
+                return if *opens { stay() } else { over(seal) };
+            }
+            if phase == P::Told { stay() } else { over(seal) }
+        }
+        E::Clear => {
+            if sealed {
+                return over(seal);
+            }
+            if caller {
+                return if phase == P::Told { stay() } else { over(seal) };
+            }
+            count()
+        }
+    }
+}
 
 /// Where the telephone is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,8 +741,6 @@ pub struct CallState {
     pub device: String,
     /// EXP-1857: the device is not the agent's own (`copy.via` shows it).
     pub fallback: bool,
-    /// The greeting the device says once answered.
-    pub greeting: String,
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     pub rang: bool,
     /// The worker confirmed it listens (`CallListening`).
@@ -454,7 +763,6 @@ impl Default for CallState {
             speaker: true,
             device: String::new(),
             fallback: false,
-            greeting: String::new(),
             rang: false,
             ready: false,
             no_sound: false,
@@ -469,6 +777,8 @@ impl Default for CallState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallEvent {
     /// EXP-1857: `fallback` = the device is not the agent's own.
+    /// `language` stays on the wire for older callers; the machine ignores
+    /// it since #EXP-1966 (no fixed greeting).
     Start { device: String, language: Option<String>, fallback: bool },
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     Rang,
@@ -492,12 +802,6 @@ pub enum CallEvent {
     Failed(String),
 }
 
-/// The greeting in `language` (English for an unknown one).
-pub fn call_greeting(language: Option<&str>) -> String {
-    let greetings = &VOICE_CALL.copy.greeting;
-    greetings.get(language.unwrap_or("en")).or_else(|| greetings.get("en")).cloned().unwrap_or_default()
-}
-
 fn quoted(text: &str) -> String {
     format!("“{text}”")
 }
@@ -508,20 +812,20 @@ fn failed_state(state: &CallState, code: &str) -> CallState {
     CallState { toast: Some(text.replace("{device}", &state.device)), ..CallState::default() }
 }
 
-/// Rang and ready: the device speaks its greeting (not an agent turn).
+/// Rang and ready: it listens (#EXP-1966: no fixed greeting; the agent's
+/// own opening line, if any, arrives as its first reply).
 fn answered(state: CallState) -> CallState {
-    CallState { phase: CallPhase::Speaking, line: state.greeting.clone(), toast: None, ..state }
+    CallState { phase: CallPhase::Listening, line: String::new(), toast: None, ..state }
 }
 
 /// One step of the call (the same machine on the voice device and a caller).
 pub fn call_step(state: &CallState, event: &CallEvent) -> CallState {
     let at = |phase: CallPhase, line: String| CallState { phase, line, toast: None, ..state.clone() };
-    if let CallEvent::Start { device, language, fallback } = event {
+    if let CallEvent::Start { device, fallback, .. } = event {
         return CallState {
             phase: CallPhase::Ringing,
             device: device.clone(),
             fallback: *fallback,
-            greeting: call_greeting(language.as_deref()),
             ..CallState::default()
         };
     }
@@ -745,6 +1049,29 @@ pub fn call_timer(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1941: every row of `seal.modeCases`, phase and actions.
+    #[test]
+    fn the_call_seal_steps_replay_the_mode_cases() {
+        let cases = fixture()["seal"]["modeCases"].as_array().unwrap().clone();
+        assert!(cases.len() >= 30);
+        for case in cases {
+            let role: CallSealRole = serde_json::from_value(case["role"].clone()).unwrap();
+            let mut state = CALL_SEAL_IDLE;
+            let mut actions = Vec::new();
+            for event in case["events"].as_array().unwrap() {
+                let event: CallSealEvent = serde_json::from_value(event.clone()).unwrap_or_else(|err| panic!("{}: {err}", case["name"]));
+                let (next, did) = call_seal_step(role, state, &event);
+                state = next;
+                actions.push(did);
+            }
+            assert_eq!(serde_json::json!(actions), case["actions"], "{}", case["name"]);
+            assert_eq!(state.phase, serde_json::from_value::<CallSealPhase>(case["phase"].clone()).unwrap(), "{}", case["name"]);
+        }
+        assert_eq!(call_seal_wire_code("not_granted"), "dropped");
+        assert_eq!(call_seal_wire_code("busy"), "busy");
+        assert_eq!(VOICE_CALL.seal.max_lost_ms, crate::CALL_MAX_LOST_MS);
+    }
     use serde_json::Value;
 
     fn fixture() -> Value {
@@ -757,6 +1084,17 @@ mod tests {
             "phone" => CallPlatform::Phone,
             _ => CallPlatform::Web,
         }
+    }
+
+    /// FEED-272: the tabs read Chat | Voice and a call opens on Voice.
+    #[test]
+    fn the_call_tabs_open_on_voice() {
+        let tabs = &VOICE_CALL.tabs;
+        assert_eq!(tabs.order, vec![CallTab::Chat, CallTab::Voice]);
+        assert_eq!(tabs.initial, CallTab::Voice);
+        assert_eq!((tabs.label(CallTab::Chat), tabs.label(CallTab::Voice)), ("Chat", "Voice"));
+        assert_eq!(tabs.test_ids.tabs, "voice-call-tabs");
+        assert_eq!(tabs.test_id(CallTab::Chat), "voice-call-tab-chat");
     }
 
     #[test]
@@ -783,6 +1121,16 @@ mod tests {
         }
         for case in fixture["ringToneCases"].as_array().unwrap() {
             assert_eq!(call_ring_tone_on(case["ms"].as_i64().unwrap()), case["on"].as_bool().unwrap(), "{case}");
+        }
+        for case in fixture["callSession"]["openingCases"].as_array().unwrap() {
+            let expected = match case["opening"].as_str().unwrap() {
+                "wait" => CallOpening::Wait,
+                "speak" => CallOpening::Speak,
+                "listen" => CallOpening::Listen,
+                other => panic!("unknown opening {other}"),
+            };
+            let got = call_opening(case["readyAtMs"].as_u64(), case["openingAtMs"].as_u64(), case["nowMs"].as_u64().unwrap());
+            assert_eq!(got, expected, "{case}");
         }
         for case in fixture["hostVoice"]["cases"].as_array().unwrap() {
             let voice = match case["clip"].as_str().unwrap() {
@@ -815,13 +1163,6 @@ mod tests {
             assert!((0.0..1.0).contains(&random), "{random}");
         }
         assert_ne!(call_ring_random(), call_ring_random());
-    }
-
-    #[test]
-    fn the_greeting_falls_back_to_english() {
-        assert_eq!(call_greeting(Some("de")), "Hallo?");
-        assert_eq!(call_greeting(Some("xx")), "Hello?");
-        assert_eq!(call_greeting(None), "Hello?");
     }
 
     #[test]

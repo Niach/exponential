@@ -742,6 +742,8 @@ struct ChatTranscriptSpecimens: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // #EXP-1943: the call card + call view on top (the shot's first screen).
+            CallSpecimens()
             // #EXP-1873: the check-ins first, the shot's first screen.
             checkIns
             ForEach(Self.rows, id: \.item.id) { row in

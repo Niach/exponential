@@ -652,7 +652,7 @@ pub fn voice_turn(session_id: &str, cx: &mut App) {
     }
 }
 
-/// S-3: a call was answered: the device says `text` (`callGreeting`) on the
+/// S-3: a call was answered: the device says `text` (the opening line) on the
 /// call's output stream, tracked like a reply (`speaking`, its `Finished`)
 /// so the call's Speaking follows it, but no agent message and no banner
 /// (no session). False = nothing here can speak it.
@@ -888,12 +888,34 @@ impl SpeakReplies {
             return;
         }
         let voice = self.own_voice(cx);
-        // NEW-55: while a call runs, ITS agent's conversation is spoken.
+        // #EXP-1961: a ringing call's own session: its first reply is the
+        // agent's opening line, held for the pickup (never spoken now: a
+        // Speak would end the ring).
+        if let Some((session, agent_id)) = crate::voice_call::ringing_session(cx) {
+            let language = self.voice_for(Some(&agent_id), cx).language;
+            let opening = fresh.iter().rev().find(|row| {
+                let message = row.message();
+                message.session_id == Some(session.as_str())
+                    && message.author_kind == Some("agent")
+                    && !message.has_card
+                    && message.author_session_id.is_none()
+            });
+            if let Some(row) = opening {
+                let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
+                if !spoken.is_empty() {
+                    crate::voice_call::opening(row.id.clone(), spoken, cx);
+                }
+            }
+            return;
+        }
+        // NEW-55: while a call runs, ITS agent's conversation is spoken
+        // (#EXP-1961: the call's own session when it has one).
         let call_agent = crate::voice_call::agent_id(cx);
         let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speaks()) else {
             return;
         };
-        let Some(conversation) = host::conversation(agent_id, cx) else { return };
+        let call_session = call_agent.as_ref().and_then(|_| crate::voice_call::session(cx));
+        let Some(conversation) = call_session.clone().or_else(|| host::conversation(agent_id, cx)) else { return };
         // S-3: only a voice turn's reply: the call's conversation, or the
         // conversation a push-to-talk / wake turn went to.
         if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
@@ -930,6 +952,11 @@ impl SpeakReplies {
             return;
         }
         let row = row.clone();
+        // #EXP-1961: the opening that came after a silent pickup stays unsaid.
+        if call_session.is_some() && crate::voice_call::drops_late_opening(cx) {
+            log::info!("[voice] call: the opening line came after the pickup: not spoken");
+            return;
+        }
         let _ = self.ensure_voice(Some(&agent_id), cx);
         let Some(client) = self.client.as_ref() else { return };
         client.speak(row.id.clone(), spoken.clone());

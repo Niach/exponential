@@ -25,6 +25,14 @@ export interface Blocked {
   resumeSince?: number | null
 }
 
+/** EXP-1961: a call session's call (ms). `summaryPending` = it ended and its next reply is the summary. */
+export interface VoiceCall {
+  startedAt: number
+  endedAt: number | null
+  durationMs: number
+  summaryPending: boolean
+}
+
 export interface HubSession {
   id: string
   parentId: string | null
@@ -58,6 +66,8 @@ export interface HubSession {
   /** #EXP-1720: a ROOT's OTHER teams its tree may work in besides its own (the Assistant's picked teams ∩ the
    *  member's, emcp access.json `assistantScope`); null = its own team only. */
   scopeTeamIds: string[] | null
+  /** EXP-1961: a CALL session's call (etalk voice-call.json `callSession`); null = not a call. */
+  voiceCall?: VoiceCall | null
   createdAt: number
   startedAt: number | null
   endedAt: number | null
@@ -94,6 +104,8 @@ export type Card =
   | PlanCard
   | { kind: `ask`; sessionId: string; messageId: string }
   | { kind: `report`; sessionId: string; summary: string; final: true }
+  /** EXP-1961: a call's summary (bus.json): the call goes on idling, so not final. */
+  | { kind: `report`; sessionId: string; summary: string; final: false; call: { startedAt: number; endedAt: number | null; durationMs: number } }
   | { kind: `event`; event: string; sessionId: string; pullRequestId?: string; watchId?: string }
   | {
       kind: `event`

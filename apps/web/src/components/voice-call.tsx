@@ -6,8 +6,10 @@
 // (`VoiceCallSurface`, the `voice-call` entry; S-3: phone-call style, a
 // full-height overlay over the chat, `callView(state, 'web')`). The call
 // streams to the target desktop (lib/voice-call/call.ts), ringing first; leaving
-// the chat (or the page) hangs up. Only the surface reads the microphone's
-// level and ticks the timer, so neither re-renders the chat.
+// the agent page (or closing the tab) hangs up. FEED-272: Chat / Voice tabs
+// on top of the surface; Chat docks the call as the pill's row over the
+// chat, which stays readable and writable underneath. Only the surface reads
+// the microphone's level and ticks the timer, so neither re-renders the chat.
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
@@ -16,11 +18,13 @@ import {
   VOICE_CALL_COPY,
   VOICE_CALL_ICONS,
   VOICE_CALL_SEAL,
+  VOICE_CALL_TABS,
   VOICE_CALL_TEST_IDS,
   type CallAvailability,
+  type CallTab,
   type CallTarget,
 } from "@exp/etalk/voice-call"
-import { Button, cn, conceptIcon, IconTooltip, toast, VoiceCallSurface } from "@exp/ui"
+import { Button, cn, conceptIcon, CallTabs, IconTooltip, toast, VoiceCallPill, VoiceCallSurface } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -69,7 +73,7 @@ const WEB_CALL_DEPS: CallDeps = {
 export interface VoiceCallAvailability extends CallTarget {
   /** The target desktop's name (the toasts' `{device}`). */
   device: string
-  /** The member's voice language (the greeting the caption shows). */
+  /** The member's voice language. */
   language: string | undefined
 }
 
@@ -201,32 +205,69 @@ function useScreenAwake(active: boolean) {
   }, [active])
 }
 
-/** The call surface while a call runs (THE `VoiceCallSurface`, exactly the
- *  styleguide entry) covering the chat at full height; the only reader of
- *  the microphone's level and the timer's clock. */
+/** The call while it runs (THE `VoiceCallSurface`, exactly the styleguide
+ *  entry): on Voice covering the chat at full height, on Chat (FEED-272) the
+ *  pill's row docked over the chat; the only reader of the microphone's
+ *  level and the timer's clock. */
 export function VoiceCallOverlay({
   call,
   snapshot,
   agentName,
   avatar,
-}: ReturnType<typeof useVoiceCall> & { agentName: string; avatar: ReactNode }) {
+  initialTab = VOICE_CALL_TABS.initial as CallTab,
+}: ReturnType<typeof useVoiceCall> & { agentName: string; avatar: ReactNode; initialTab?: CallTab }) {
   const view = callView(snapshot.state, `web`)
   const level = useSyncExternalStore(call.subscribeLevel, call.getLevel, call.getLevel)
   const answeredAt = useAnsweredAt(view !== null && view.activity !== `ringing`)
   const now = useNow(1_000)
-  useScreenAwake(view !== null)
+  const [tab, setTab] = useState<CallTab>(initialTab)
+  // A new call opens on Voice again.
+  const live = view !== null
+  useEffect(() => {
+    if (!live) setTab(initialTab)
+  }, [live, initialTab])
+  useScreenAwake(live)
   if (!view) return null
+  const timer = callTimer(answeredAt === null ? 0 : now.getTime() - answeredAt)
+  const shownLevel = view.muted ? 0 : level
+  if (tab === `chat`) {
+    return (
+      <div className="flex shrink-0 flex-col gap-3 px-3 pt-3 md:px-4" data-testid={VOICE_CALL_TEST_IDS.panel} data-tab="chat">
+        <CallTabs tab={tab} onTab={setTab} className="mx-auto max-w-3xl" />
+        <div className="mx-auto w-full max-w-3xl">
+          <VoiceCallPill
+            docked
+            agent={agentName}
+            avatar={avatar}
+            status={view.status ?? timer}
+            activity={view.activity}
+            level={shownLevel}
+            muted={view.muted}
+            buttons={view.buttons}
+            end={view.end}
+            onMute={() => call.toggleMute()}
+            onEnd={() => call.end()}
+          />
+        </div>
+      </div>
+    )
+  }
   return (
-    <div className="absolute inset-0 z-40 flex" data-testid={VOICE_CALL_TEST_IDS.panel}>
-      <VoiceCallSurface
-        agent={agentName}
-        avatar={avatar}
-        view={view}
-        timer={callTimer(answeredAt === null ? 0 : now.getTime() - answeredAt)}
-        level={view.muted ? 0 : level}
-        onEnd={() => call.end()}
-        onMute={() => call.toggleMute()}
-      />
+    <div className="absolute inset-0 z-40 flex flex-col bg-background" data-testid={VOICE_CALL_TEST_IDS.panel} data-tab="voice">
+      <div className="shrink-0 px-3 pt-3 md:px-4">
+        <CallTabs tab={tab} onTab={setTab} className="mx-auto max-w-3xl" />
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <VoiceCallSurface
+          agent={agentName}
+          avatar={avatar}
+          view={view}
+          timer={timer}
+          level={shownLevel}
+          onEnd={() => call.end()}
+          onMute={() => call.toggleMute()}
+        />
+      </div>
     </div>
   )
 }

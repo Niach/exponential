@@ -46,6 +46,56 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-19-call-chat-tab",
+    date: "2026-11-19",
+    title: "Read the chat during a call",
+    summary: "A call now has Chat and Voice tabs at the top: switch to Chat to read and write in the agent's chat while you keep talking.",
+    body: r##"- **Chat and Voice**: a call opens on Voice as before; Chat shows the agent's chat with the call on top, mute and hang up one tap away.
+- **Type while you talk**: what you write goes to the chat, the call reads it before its next answer.
+- **The call keeps going**: switching tabs never mutes or ends it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_329: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-call-card",
+    date: "2026-11-18",
+    title: "A call is one card in the chat",
+    summary: "Each call shows as one card in the agent chat, “In a call · 02:14” while it runs and “Call ended after 4 min” with its summary afterwards; a tap opens the call: its summary on top, then what was said.",
+    body: r##"- **One card per call**: the spoken turns stay out of the chat; the card ticks while the call runs, and a call you pick up again within ten minutes updates the same card.
+- **The summary as its caption**: once the call ends, its summary reads under “Call ended after 4 min” instead of a separate report bubble.
+- **The call's own view**: “Call · 4 min”, the date and time range with the agent's name, the summary under its band, then every spoken turn as bubbles.
+- **On web, desktop, iOS and Android**."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_328: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-find-in-chat",
+    date: "2026-11-18",
+    title: "Find in a chat",
+    summary: "Search inside the chat you have open: Search in chat in its … menu or Ctrl/Cmd+F, every match marked, “2 of 7” with previous and next, older messages included.",
+    body: r##"- **Search in chat**: open it from the chat's … menu or with Ctrl/Cmd+F (⌘K and Ctrl+K stay the global search).
+- **Every match marked**: the current one stands out; previous and next walk them in reading order and wrap around.
+- **The whole chat**: older messages from this device's local copy count too, and a folded tool group with a match opens itself.
+- **On web, desktop, eDE, iOS and Android**: on phones the bar takes the chat header's place, “2/7” with up and down."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_327: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-18-calls-own-session",
+    date: "2026-11-18",
+    title: "Calls run in their own session",
+    summary: "A call with your agent now runs in its own session under the chat: the agent opens with its own words in its own voice, and when you hang up a summary lands in the chat.",
+    body: r##"- **Its own words**: the agent writes and says its own opening line while the phone rings; no fixed "Hello?" any more. If it has nothing ready in time, the call picks up and listens.
+- **Its own session**: the call reads where the chat stands and what you type there, does small things itself and hands bigger work to the chat.
+- **A summary after**: when the call ends, its summary arrives in the chat, and calling back within 10 minutes picks up the same call."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_326: ChangelogEntry = ChangelogEntry {
     id: "2026-11-18-whole-chat-messages",
     date: "2026-11-18",
     title: "Chat messages always show in full",
@@ -83,37 +133,14 @@ const PREVIOUS_324: ChangelogEntry = ChangelogEntry {
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS_323: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-android",
+    id: "2026-11-18-copy-image-everywhere",
     date: "2026-11-18",
-    title: "Copy image on Android",
-    summary: "Long-press a picture on Android to copy it or share it. A picture from another website shows as a link and is never loaded.",
-    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
-- **Share**: the same menu shares the picture as a PNG file.
-- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_322: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-ios",
-    date: "2026-11-18",
-    title: "Copy image on iOS",
-    summary: "Long-press a picture on iOS to copy it or share it. A picture from another website shows as a link and is never loaded.",
-    body: r##"- **Copy image**: long-press a picture in a comment, a chat, a plan, a result or the viewer, then pick Copy image. The picture itself goes to the clipboard as PNG, ready to paste into another app.
-- **Share**: the same menu shares the picture as a PNG file. The share sheet also saves it to Photos.
-- **Pictures from other websites**: a picture from another website shows as a link with its host or alt text, and Exponential never loads it. Tap the link to open it."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_321: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-18-copy-image-on-the-web",
-    date: "2026-11-18",
-    title: "Copy image on the web",
-    summary: "Right-click any picture on the web (a result, a screenshot, an image in a comment or chat) and pick Copy image; on a phone, long-press it. Pictures from other websites show as a link instead.",
-    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image. The picture itself goes to the clipboard, at full size, ready to paste into another app.
-- **On a phone**: long-press the picture. Where your browser can share files, Share sends the picture to another app.
-- **Pictures from other websites**: an image from another website is never loaded. It shows as a link with its description (or the website's name) and opens in a new tab."##,
+    title: "Copy image everywhere",
+    summary: "Right-click a picture on the web or the desktop app, or long-press it on a phone, and pick Copy image. Pictures from other websites show as a link and are never loaded.",
+    body: r##"- **Copy image**: right-click a picture in a description, comment, chat, result, plan or the full-screen viewer and pick Copy image; on iOS, Android and phone browsers, long-press it. The picture itself goes to the clipboard as PNG, at full size, ready to paste into another app.
+- **Share on phones**: the same menu shares the picture as a PNG file (on iOS the share sheet also saves it to Photos). A phone browser offers Share where it can share files.
+- **Desktop and Exponential Desktop**: right-click works on macOS, Windows and Linux (X11 and Wayland).
+- **Pictures from other websites**: a picture from another website is never loaded. It shows as a link with its description (or the website's name) and opens in your browser."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

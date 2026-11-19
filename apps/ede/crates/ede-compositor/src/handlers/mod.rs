@@ -4,7 +4,7 @@ mod compositor;
 mod decoration;
 mod dmabuf;
 mod input_method;
-mod layer_shell;
+pub(crate) mod layer_shell;
 mod xdg_shell;
 #[cfg(feature = "xwayland")]
 mod xwayland;
@@ -37,7 +37,10 @@ impl SeatHandler for Ede {
         &mut self.seat_state
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, image: smithay::input::pointer::CursorImageStatus) {
+    fn cursor_image(&mut self, seat: &Seat<Self>, image: smithay::input::pointer::CursorImageStatus) {
+        if let Some(id) = crate::spaces::space_of_seat(seat) {
+            return self.space_cursor_image(id, image);
+        }
         self.desk.cursor_status = image;
     }
 
@@ -45,6 +48,10 @@ impl SeatHandler for Ede {
         let dh = &self.display_handle;
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client);
+        // A space's seat: the person's text input and X11 focus stay.
+        if crate::spaces::space_of_seat(seat).is_some() {
+            return;
+        }
         self.keep_text_input_off_protected(focused);
         #[cfg(feature = "xwayland")]
         self.sync_x11_focus(focused);
@@ -57,22 +64,33 @@ impl SelectionHandler for Ede {
 
     /// A Wayland client set (or cleared) the clipboard: the serial moves
     /// and Xwayland's CLIPBOARD follows.
-    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
+    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, seat: Seat<Self>) {
         if ty != SelectionTarget::Clipboard {
             return;
         }
         let mimes = source.map(|s| s.mime_types());
+        // #EDE-126: a space's copy is the space's: the person's serial,
+        // owner and Xwayland stay (nobody's once its space is gone).
+        if let Some(id) = crate::spaces::space_of_seat(&seat) {
+            if let Some(desk) = self.try_desk_mut(id) {
+                desk.clipboard.changed(mimes.map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+            }
+            return;
+        }
         self.desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
         self.xwm_selection(mimes);
     }
 
     /// A Wayland client reads a compositor-side selection.
-    fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: std::os::fd::OwnedFd, _seat: Seat<Self>, user_data: &Self::SelectionUserData) {
+    fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: std::os::fd::OwnedFd, seat: Seat<Self>, user_data: &Self::SelectionUserData) {
         if ty != SelectionTarget::Clipboard {
             return;
         }
+        let space = crate::spaces::space_of_seat(&seat);
         match user_data {
-            crate::clipboard::Selection::Ours(owned) => self.serve_owned(owned, &mime_type, fd),
+            crate::clipboard::Selection::Ours(owned) => self.serve_owned(space.unwrap_or(crate::desk::DeskId::PERSON), owned, &mime_type, fd),
+            // Xwayland's selection is the person's: no space's seat holds it.
+            crate::clipboard::Selection::X11 if space.is_some() => drop(fd),
             #[cfg(feature = "xwayland")]
             crate::clipboard::Selection::X11 => {
                 if let Some(xwm) = self.xwm.as_mut() {

@@ -917,9 +917,11 @@ dependencies = [
 name = "ede-ctl"
 version = "0.2.28"
 dependencies = [
+ "ede-compositor",
  "ede-protocol",
  "png 0.17.16",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

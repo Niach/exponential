@@ -26,6 +26,7 @@ use smithay::{
 use crate::{
     grabs::{MoveSurfaceGrab, ResizeSurfaceGrab},
     layout::Tile,
+    spaces::space_of_surface,
     state::{set_window_state, window_state, Ede},
 };
 
@@ -35,10 +36,16 @@ impl XdgShellHandler for Ede {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        if let Some(id) = space_of_surface(surface.wl_surface()) {
+            return self.space_new_toplevel(id, surface);
+        }
         self.desk.unmapped.push(Window::new_wayland_window(surface));
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        if let Some(id) = space_of_surface(surface.wl_surface()) {
+            return self.space_toplevel_destroyed(id, surface);
+        }
         let wl = surface.wl_surface().clone();
         self.desk.unmapped.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != &wl));
         if let Some(parked) = self.desk.workspaces.parked.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
@@ -111,6 +118,9 @@ impl XdgShellHandler for Ede {
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
+        if let Some(id) = space_of_surface(surface.wl_surface()) {
+            return self.space_keeps_state(id, surface);
+        }
         match self.window_for_surface(surface.wl_surface()) {
             Some(window) if self.desk.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
             // Not mapped yet: it opens maximized once its first buffer arrives.
@@ -137,6 +147,9 @@ impl XdgShellHandler for Ede {
     }
 
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<wl_output::WlOutput>) {
+        if let Some(id) = space_of_surface(surface.wl_surface()) {
+            return self.space_keeps_state(id, surface);
+        }
         match self.window_for_surface(surface.wl_surface()) {
             Some(window) if self.desk.space.element_location(&window).is_some() => self.set_fullscreen(&window, true),
             // Not mapped yet: it opens fullscreen once its first buffer arrives.
@@ -150,6 +163,9 @@ impl XdgShellHandler for Ede {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if let Some(id) = space_of_surface(surface.wl_surface()) {
+            return self.space_keeps_state(id, surface);
+        }
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.set_fullscreen(&window, false);
         }
@@ -272,6 +288,9 @@ impl Ede {
     }
 
     fn unconstrain_popup(&self, popup: &PopupSurface) {
+        if let Some(id) = space_of_surface(popup.wl_surface()) {
+            return self.space_unconstrain_popup(id, popup);
+        }
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
         let Some(window) = self.window_for_surface(&root) else { return };
         let Some(window_geo) = self.desk.space.element_geometry(&window) else { return };
