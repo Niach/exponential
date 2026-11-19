@@ -127,8 +127,9 @@ const COMMANDS_PER_HEARTBEAT = 32
 // write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
-// client at the floors sends every key it knows) — except `defaultAgent`,
-// which `setLaunchDefaults` carries forward (EXP-1158).
+// client at the floors sends every key it knows) — except `defaultAgent`
+// (EXP-1158) and `computerUseDisplayId` (NEW-59), which `setLaunchDefaults`
+// carries forward.
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
