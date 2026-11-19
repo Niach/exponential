@@ -56,14 +56,20 @@ function sealDeps(): SealDeps {
 }
 
 /** `sessions.send`, sealed when this browser holds keys; a tree that moved
- *  on behind this tab is re-resolved and re-sealed once (#FEED-248). */
-export async function sendSessionMessage(input: SessionsSendInput, options?: TrpcOptions) {
+ *  on behind this tab is re-resolved and re-sealed once (#FEED-248).
+ *  `extra` = tRPC-only fields passed beside the sealed input untouched
+ *  (#EXP-1958: `cardItem`, a tap on a sealed card). */
+export async function sendSessionMessage(
+  input: SessionsSendInput,
+  options?: TrpcOptions,
+  extra?: { cardItem?: { messageId: string; itemId: string } }
+) {
   const deps = sealDeps()
   let attempts = 0
   return sendSealed(input, deps, (sealed) =>
     // A stale tree on the first try is retried, not toasted.
     trpc.sessions.send.mutate(
-      sealed as SessionsSendInput,
+      { ...(sealed as SessionsSendInput), ...extra },
       attempts++ === 0 ? { ...options, context: { ...options?.context, resealOnStaleTree: true } } : options
     )
   )
