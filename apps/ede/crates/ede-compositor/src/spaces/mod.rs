@@ -14,6 +14,7 @@ pub mod frames;
 mod input;
 pub mod launch;
 pub mod ipc;
+mod members;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;

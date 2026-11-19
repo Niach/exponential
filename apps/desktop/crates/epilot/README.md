@@ -8,7 +8,9 @@ pointer, no background mode, no accessibility tree, pixels only.
 
 The host process serves ONE loopback MCP endpoint (streamable HTTP, plain JSON
 answers, a per-run bearer token). Any MCP-speaking agent CLI reaches it with a
-config entry; the crate is gpui-free, tokio-free and talks to no server.
+config entry; the crate is gpui-free, has no tokio in its API (the endpoint
+is emcp's, on emcp's own runtime: two workers plus the blocking pool every
+tool call runs on) and talks to no server.
 
 Exponential links it from the IDE and the `exponential` daemon (through
 `coding::computer`); spezl links it as a git dependency.

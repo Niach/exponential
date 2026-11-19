@@ -6,14 +6,20 @@
 //! `polkit-agent-helper-1 <user>` (the cookie). Then the same line protocol
 //! both ways: the password on each `PAM_PROMPT_ECHO_OFF`, `SUCCESS` or
 //! `FAILURE` at the end. `CancelAuthentication` closes the prompt.
+//!
+//! #EDE-127: polkitd finds this agent by the login session, and what an
+//! agent launched into an agent space runs in that session too. A request
+//! whose subject or caller belongs to a space is refused before anything
+//! maps: no prompt on the person's screen, their keyboard stays where it
+//! is, the space's command fails.
 
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, Arc},
 };
 
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
@@ -50,30 +56,64 @@ pub enum UiEvent {
     Done(String),
 }
 
+/// Which agent space one of these processes belongs to: the space's id
+/// (`space-n`), `None` = the person's (#EDE-127).
+pub type SpaceOf = Arc<dyn Fn(&[u32]) -> Option<String> + Send + Sync>;
+
+/// The processes polkitd names in a request's details: its subject's
+/// (pkexec's parent, the client of a system service) and its caller's
+/// (pkexec itself, the service).
+pub const PIDS: [&str; 2] = ["polkit.subject-pid", "polkit.caller-pid"];
+
+/// The agent space a request comes from, by its subject's or its caller's
+/// process; `None` = the person's (or polkitd named no process).
+pub fn asked_from(details: &HashMap<String, String>, space_of: &(dyn Fn(&[u32]) -> Option<String> + Send + Sync)) -> Option<String> {
+    let pids: Vec<u32> = PIDS.iter().filter_map(|key| details.get(*key)?.trim().parse().ok()).filter(|pid| *pid > 1).collect();
+    if pids.is_empty() {
+        return None;
+    }
+    space_of(&pids)
+}
+
+/// The space's number in a line for people: `space-3` is agent space 3.
+fn number(space: &str) -> &str {
+    space.strip_prefix("space-").unwrap_or(space)
+}
+
 /// The agent object: requests go to the prompt over `to_ui`; the method
 /// waits for the answers (polkit waits for it).
 pub struct Agent {
     pub to_ui: mpsc::Sender<UiEvent>,
+    /// Whether a request comes from an agent space (#EDE-127).
+    pub space_of: SpaceOf,
 }
 
 #[zbus::interface(name = "org.freedesktop.PolicyKit1.AuthenticationAgent")]
 impl Agent {
     #[allow(clippy::too_many_arguments)]
-    async fn begin_authentication(&self, action_id: String, message: String, _icon_name: String, _details: HashMap<String, String>, cookie: String, identities: Vec<(String, HashMap<String, OwnedValue>)>) -> zbus::fdo::Result<()> {
-        let users: Vec<String> = identities
-            .iter()
-            .filter(|(kind, _)| kind == "unix-user")
-            .filter_map(|(_, details)| details.get("uid").and_then(|v| u32::try_from(v.clone()).ok()))
-            .filter_map(user_name)
-            .collect();
-        if users.is_empty() {
-            return Err(zbus::fdo::Error::Failed("no unix user to authenticate as".into()));
-        }
-        let request = Request { cookie, message, action_id, users };
-        // The wait on its own thread (#EDE-87): the bus keeps serving, so
-        // polkitd's `CancelAuthentication` (Ctrl+C on pkexec) closes the prompt.
-        let to_ui = self.to_ui.clone();
-        blocking::unblock(move || authenticate(&to_ui, request)).await
+    async fn begin_authentication(&self, action_id: String, message: String, _icon_name: String, details: HashMap<String, String>, cookie: String, identities: Vec<(String, HashMap<String, OwnedValue>)>) -> zbus::fdo::Result<()> {
+        // On its own thread (#EDE-87): the bus keeps serving, so polkitd's
+        // `CancelAuthentication` (Ctrl+C on pkexec) closes the prompt; the
+        // space check reads /proc and may ask the compositor.
+        let (to_ui, space_of) = (self.to_ui.clone(), self.space_of.clone());
+        blocking::unblock(move || {
+            // #EDE-127: first, before anything can map.
+            if let Some(space) = asked_from(&details, &*space_of) {
+                tracing::info!("refused a polkit request from agent space {}: {action_id}", number(&space));
+                return Err(zbus::fdo::Error::Failed(format!("refused: asked from agent space {}", number(&space))));
+            }
+            let users: Vec<String> = identities
+                .iter()
+                .filter(|(kind, _)| kind == "unix-user")
+                .filter_map(|(_, details)| details.get("uid").and_then(|v| u32::try_from(v.clone()).ok()))
+                .filter_map(user_name)
+                .collect();
+            if users.is_empty() {
+                return Err(zbus::fdo::Error::Failed("no unix user to authenticate as".into()));
+            }
+            authenticate(&to_ui, Request { cookie, message, action_id, users })
+        })
+        .await
     }
 
     fn cancel_authentication(&self, cookie: String) {
@@ -161,6 +201,59 @@ fn user_name(uid: u32) -> Option<String> {
     Some(unsafe { std::ffi::CStr::from_ptr((*pw).pw_name) }.to_string_lossy().into_owned())
 }
 
+/// Which agent space one of `pids` belongs to (#EDE-127): what their
+/// environments, or those of the processes they descend from, say about
+/// the compositor's spaces under `spaces` (no round trip, and it holds
+/// while the compositor cannot be asked), else what `compositor` answers
+/// from what it launched and what connected to a space's socket.
+pub fn space_of_with(pids: &[u32], spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Option<String>) -> Option<String> {
+    if let Some(spaces) = spaces {
+        if let Some((space, pid)) = pids.iter().find_map(|pid| ede_protocol::process::space_by_environment(*pid, spaces)) {
+            tracing::debug!("process {pid} is agent space {}'s by its environment", number(space.as_str()));
+            return Some(space.as_str().to_string());
+        }
+    }
+    compositor(pids)
+}
+
+/// [`space_of_with`] for this session: the compositor of `$WAYLAND_DISPLAY`.
+pub fn space_of(pids: &[u32]) -> Option<String> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let display = std::env::var("WAYLAND_DISPLAY").ok();
+    let spaces = runtime.as_deref().zip(display.as_deref()).map(|(runtime, display)| ede_protocol::spaces_path(runtime, display));
+    space_of_with(pids, spaces.as_deref(), ask_compositor)
+}
+
+/// The compositor's answer; a compositor that makes no spaces has none to
+/// name, and one that cannot be asked (or is too old to know the op)
+/// leaves the answer to the environments.
+fn ask_compositor(pids: &[u32]) -> Option<String> {
+    let mut client = match ede_protocol::Client::connect_env() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!("polkit: the compositor cannot be asked whose processes these are: {e:?}");
+            return None;
+        }
+    };
+    if !client.hello.offers_spaces() {
+        return None;
+    }
+    for pid in pids {
+        match client.space_of_process(*pid) {
+            Ok(Some(found)) => {
+                tracing::debug!("process {pid} is agent space {}'s ({:?} of process {})", number(found.space.as_str()), found.by, found.pid);
+                return Some(found.space.as_str().to_string());
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("polkit: the compositor could not say whose process {pid} is: {e:?}");
+                return None;
+            }
+        }
+    }
+    None
+}
+
 /// The login session polkit asks this agent for (#EDE-87): the agent runs
 /// as a user unit, in no session of its own, so `XDG_SESSION_ID` when the
 /// unit has it, else logind's graphical session of this user. Never the
@@ -206,10 +299,14 @@ mod tests {
 
     /// The agent served on one end of a socket pair, polkitd's side on the other.
     fn agent_on_a_pair() -> (zbus::blocking::Connection, zbus::blocking::Connection, mpsc::Receiver<UiEvent>) {
+        agent_on_a_pair_with(Arc::new(|_| None))
+    }
+
+    fn agent_on_a_pair_with(space_of: SpaceOf) -> (zbus::blocking::Connection, zbus::blocking::Connection, mpsc::Receiver<UiEvent>) {
         let (a, b) = UnixStream::pair().unwrap();
         let (to_ui, ui) = mpsc::channel();
         let server = std::thread::spawn(move || {
-            zbus::blocking::connection::Builder::unix_stream(a).server(zbus::Guid::generate()).unwrap().p2p().serve_at(AGENT_PATH, Agent { to_ui }).unwrap().build().unwrap()
+            zbus::blocking::connection::Builder::unix_stream(a).server(zbus::Guid::generate()).unwrap().p2p().serve_at(AGENT_PATH, Agent { to_ui, space_of }).unwrap().build().unwrap()
         });
         let polkitd = zbus::blocking::connection::Builder::unix_stream(b).p2p().build().unwrap();
         (server.join().unwrap(), polkitd, ui)
@@ -240,6 +337,84 @@ mod tests {
         assert!(matches!(ui.recv_timeout(Duration::from_secs(5)), Ok(UiEvent::Done(c)) if c == "cookie-1"), "the prompt closes");
         drop(answer); // what the prompt does when it closes
         assert_eq!(begun.recv_timeout(Duration::from_secs(5)), Ok(false), "BeginAuthentication ends as cancelled");
+    }
+
+    /// polkitd's `BeginAuthentication` as it sends it, naming the subject's
+    /// and the caller's process; its answer arrives on the receiver.
+    fn begin(polkitd: &zbus::blocking::Connection, cookie: &str, subject: &str, caller: &str) -> mpsc::Receiver<Result<(), String>> {
+        let (polkitd, cookie) = (polkitd.clone(), cookie.to_string());
+        let details = HashMap::from([("polkit.subject-pid".to_string(), subject.to_string()), ("polkit.caller-pid".to_string(), caller.to_string())]);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let identity: HashMap<String, Value<'_>> = HashMap::from([("uid".to_string(), Value::from(unsafe { libc::getuid() }))]);
+            let body = ("org.freedesktop.policykit.exec", "Authentication is needed", "", details, cookie.as_str(), vec![("unix-user", identity)]);
+            let r = polkitd.call_method(None::<&str>, AGENT_PATH, Some("org.freedesktop.PolicyKit1.AuthenticationAgent"), "BeginAuthentication", &body);
+            let _ = tx.send(r.map(|_| ()).map_err(|e| e.to_string()));
+        });
+        rx
+    }
+
+    /// #EDE-127: a request whose subject or caller is an agent space's
+    /// process is refused at once and the prompt never hears of it; the
+    /// person's request opens the prompt as before.
+    #[test]
+    fn a_request_from_an_agent_space_is_refused_before_any_prompt() {
+        let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = asked.clone();
+        let space_of: SpaceOf = Arc::new(move |pids: &[u32]| {
+            log.lock().unwrap().push(pids.to_vec());
+            pids.contains(&4242).then(|| "space-3".to_string())
+        });
+        let (_agent, polkitd, ui) = agent_on_a_pair_with(space_of);
+        // The space's process is the subject (pkexec's parent)...
+        let refused = begin(&polkitd, "c-space", "4242", "4243").recv_timeout(Duration::from_secs(5)).expect("answered at once");
+        assert!(refused.as_ref().is_err_and(|e| e.contains("refused: asked from agent space 3")), "{refused:?}");
+        // ...or the caller (a space's process asking about another).
+        let refused = begin(&polkitd, "c-caller", "5151", "4242").recv_timeout(Duration::from_secs(5)).expect("answered at once");
+        assert!(refused.is_err());
+        assert!(ui.recv_timeout(Duration::from_millis(300)).is_err(), "the prompt heard of a space's request");
+        assert_eq!(*asked.lock().unwrap(), [vec![4242, 4243], vec![5151, 4242]], "both processes are asked about");
+        // The person's own: the prompt opens; cancelled, it ends as before.
+        let reply = begin(&polkitd, "c-person", "5151", "5152");
+        let Ok(UiEvent::Begin(request, answer)) = ui.recv_timeout(Duration::from_secs(5)) else { panic!("the person's request opened no prompt") };
+        assert_eq!(request.cookie, "c-person");
+        answer.send(Answer::Cancel).unwrap();
+        assert!(reply.recv_timeout(Duration::from_secs(5)).unwrap().is_err());
+    }
+
+    /// The processes asked about: the subject's and the caller's, never
+    /// init or garbage; no process named = nothing to ask.
+    #[test]
+    fn a_request_names_its_subjects_and_its_callers_process() {
+        let details = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let seen = std::sync::Mutex::new(Vec::new());
+        let space_of = |pids: &[u32]| {
+            seen.lock().unwrap().push(pids.to_vec());
+            None
+        };
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "10"), ("polkit.caller-pid", "11"), ("other", "12")]), &space_of), None);
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", " 20\n"), ("polkit.caller-pid", "1")]), &space_of), None);
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "x"), ("polkit.caller-pid", "0")]), &space_of), None);
+        assert_eq!(asked_from(&details(&[]), &space_of), None);
+        assert_eq!(*seen.lock().unwrap(), [vec![10, 11], vec![20]]);
+        assert_eq!(asked_from(&details(&[("polkit.caller-pid", "7")]), &|pids: &[u32]| (pids == [7]).then(|| "space-1".into())), Some("space-1".into()));
+    }
+
+    /// The environment answers first (no round trip); the compositor is
+    /// asked about the rest, and its answer stands.
+    #[test]
+    fn the_environment_answers_first_and_the_compositor_for_the_rest() {
+        let spaces = std::env::temp_dir().join(format!("ede-sealed-{}.spaces", std::process::id()));
+        let mut in_space = Command::new("sleep").arg("30").env("XDG_RUNTIME_DIR", spaces.join("space-5")).spawn().unwrap();
+        let mut person = Command::new("sleep").arg("30").spawn().unwrap();
+        assert_eq!(space_of_with(&[person.id(), in_space.id()], Some(&spaces), |_| panic!("the environment said it")), Some("space-5".into()));
+        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |pids| (pids == [person.id()]).then(|| "space-9".into())), Some("space-9".into()), "what the compositor knows");
+        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |_| None), None);
+        assert_eq!(space_of_with(&[in_space.id()], None, |_| None), None, "no spaces directory: the compositor alone");
+        for child in [&mut in_space, &mut person] {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
     /// #EDE-87 P1: a user unit has no `XDG_SESSION_ID`; the agent then

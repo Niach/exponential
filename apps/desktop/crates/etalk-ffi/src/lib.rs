@@ -106,22 +106,15 @@ impl From<TalkCallSpeech> for CallSpeech {
     }
 }
 
-/// `availabilityCases` input.
+/// `availabilityCases` input (EXP-1991): ONE desktop.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct TalkCallAvailabilityInput {
-    /// The member has a voice Assistant (`voice.get` agentId non-null).
-    pub agent: bool,
-    pub platform: TalkCallPlatform,
-    /// The voice device's name; None = none.
-    pub device: Option<String>,
+    /// The desktop's name.
+    pub device: String,
     pub online: bool,
-    /// THIS client is the voice device.
-    pub here: bool,
     /// None = no `speech` row yet.
     pub speech: Option<TalkCallSpeech>,
-    /// A call this client does not run already runs on the voice device.
-    pub busy: bool,
-    /// A meeting runs on the voice device.
+    /// A meeting runs on it.
     pub meeting: bool,
 }
 
@@ -376,17 +369,13 @@ pub fn call_view(state: TalkCallState, platform: TalkCallPlatform) -> Option<Tal
     })
 }
 
-/// None = the telephone is enabled; Some = disabled, with the reason.
+/// None = the desktop can take the call; Some = it cannot, with the reason.
 #[uniffi::export]
 pub fn call_unavailable(input: TalkCallAvailabilityInput) -> Option<String> {
     call::call_unavailable(&call::CallAvailabilityInput {
-        agent: input.agent,
-        platform: input.platform.into(),
-        device: input.device.as_deref(),
+        device: &input.device,
         online: input.online,
-        here: input.here,
         speech: input.speech.map(Into::into),
-        busy: input.busy,
         meeting: input.meeting,
     })
 }

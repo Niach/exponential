@@ -46,6 +46,21 @@ describe(`callAvailability`, () => {
   }
 })
 
+// EXP-1991: no reason is copy nothing can show. Each one is the reason
+// some `targetCases` row answers (`{device}` = any name).
+test(`every reason is one callTarget answers`, () => {
+  const shown = fixture.targetCases.map((entry) => entry.expected.reason).filter((reason) => reason !== null)
+  const answered = (template: string) => {
+    const [before, after] = template.split(`{device}`)
+    return shown.some((reason) =>
+      after === undefined
+        ? reason === template
+        : reason.length > before!.length + after.length && reason.startsWith(before!) && reason.endsWith(after)
+    )
+  }
+  expect(Object.entries(fixture.copy.reasons).filter(([, template]) => !answered(template)).map(([key]) => key)).toEqual([])
+})
+
 describe(`EXP-1878: callTap`, () => {
   for (const entry of fixture.tapCases) {
     test(entry.name, () => {

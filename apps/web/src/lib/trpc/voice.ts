@@ -4,8 +4,8 @@
 // heartbeat (devices.heartbeat `voice`). A write nudges the old and the new
 // voice device so a switch lands at once instead of on the next beat.
 //
-// NEW-55 (voice V4, caller mode): `startCall` checks the call's availability
-// (`fixtures/voice-call.json` `callAvailability`) and mints the CALLER's relay
+// NEW-55 (voice V4, caller mode): `startCall` picks where the call speaks
+// (`fixtures/voice-call.json` `callTarget`) and mints the CALLER's relay
 // ticket; `callHostTicket` mints the voice device's answer. The relay pairs
 // them (apps/steer-relay hub.ts, call rooms) and checks the host's account.
 //
@@ -506,7 +506,6 @@ export const voiceRouter = router({
       }
       const settings = await voiceSettingsOf(db, userId)
       const target = callTarget({
-        platform: input.platform,
         here: input.platform === `desktop` ? (input.deviceId ?? null) : null,
         agentDevice: agent.deviceId,
         ...(await callDevicesOf(db, userId, settings, new Date())),

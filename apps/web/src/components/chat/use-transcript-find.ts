@@ -25,9 +25,11 @@ import type { FindInChat, FindPaint } from "@/components/chat/find-in-chat"
 // (reveal it in the window, open its group or fold, page an older one in,
 // centre, ring) and reports the counter and status line to the bar.
 
-/** A loaded row with what landing needs: the feed item to reveal. */
+/** A loaded row with what landing needs: the feed item to reveal (#EXP-1975:
+ *  null = a bubble drawn outside the feed: the synced tail, the own tail,
+ *  the sent inputs; always mounted, found by its `data-find-key`). */
 export interface TranscriptFindRow extends FindRowSpec {
-  itemId: number
+  itemId: number | null
   /** Its output's matches (the hint), 0 = none. */
   outputCount: number
 }
@@ -134,13 +136,15 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
     }
   }, [query, rootId, sessionId])
 
-  // An older hit is one BELOW the loaded stretch.
+  // An older hit is one BELOW the loaded stretch (only event keys carry a
+  // seq; #EXP-1975: a message key is never an older event).
   const lowest = input.lowestSeq
   const olderHits = useMemo(() => {
     if (older.query !== query) return []
     const below = (hit: FindOlderHit) => {
+      if (!hit.key.startsWith(`e:`)) return false
       const seq = Number(hit.key.slice(hit.key.lastIndexOf(`:`) + 1))
-      return lowest === undefined || seq < lowest
+      return Number.isFinite(seq) && (lowest === undefined || seq < lowest)
     }
     return [...older.store, ...older.device].filter(below)
   }, [older, query, lowest])
@@ -198,7 +202,7 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
       const group = land.openGroup
       setOpenGroups((prev) => (prev.has(group) ? prev : new Set([...prev, group])))
     }
-    if (live) reveal(live.itemId)
+    if (live && live.itemId !== null) reveal(live.itemId)
     // Centre once the row (and its marks) painted: a revealed window or an
     // opened group mounts on the next frames.
     let tries = 0

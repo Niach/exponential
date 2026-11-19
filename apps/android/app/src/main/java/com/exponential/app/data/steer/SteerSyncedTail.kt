@@ -61,7 +61,7 @@ fun syncedTailItems(
         if (m.authorKind == "agent") {
             AgentFeedItem.Narration(id = id, text = m.body.trim(), messageId = "synced:${m.id}", at = m.createdAtMs)
         } else {
-            AgentFeedItem.UserMessage(id = id, text = m.body.trim(), at = m.createdAtMs)
+            AgentFeedItem.UserMessage(id = id, text = m.body.trim(), at = m.createdAtMs, messageId = "synced:${m.id}")
         }
     }
 }

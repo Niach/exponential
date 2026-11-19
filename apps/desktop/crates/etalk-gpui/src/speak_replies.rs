@@ -93,15 +93,11 @@ pub struct DeviceVoice {
 }
 
 impl DeviceVoice {
-    /// The worker runs here: an agent is picked (S-3: speak-back is always
-    /// on; EXP-1857: on every desktop of the member's).
+    /// The worker runs here, and with it the voice (the TTS model): an agent
+    /// is picked (S-3: speak-back is always on; EXP-1857: on every desktop of
+    /// the member's).
     pub fn active(&self) -> bool {
         self.agent_id.is_some()
-    }
-
-    /// The voice (the TTS model) is wanted: always where the worker runs.
-    fn speaks(&self) -> bool {
-        self.active()
     }
 }
 
@@ -155,7 +151,7 @@ pub struct Speaking {
     pub title: String,
 }
 
-/// The voice download, for the Speak replies row's trailing detail.
+/// The voice download, for the Language row's detail (S-3).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Download {
     #[default]
@@ -577,12 +573,12 @@ pub fn worker_ready(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).worker_ready)
 }
 
-/// The voice download state (the Speak replies row's detail).
+/// The voice download state (S-3: the Language row's detail).
 pub fn download(cx: &App) -> Download {
     global(cx).map(|entity| entity.read(cx).download.clone()).unwrap_or_default()
 }
 
-/// The Speak replies row's trailing detail while the voice downloads:
+/// The Language row's detail while the voice downloads (S-3):
 /// voice.json `downloadProgress`, `None` when nothing downloads.
 pub fn download_detail(cx: &App) -> Option<String> {
     match download(cx) {
@@ -748,7 +744,7 @@ impl SpeakReplies {
     /// NEW-55: the doctor's `speech` row (None = no row: not the voice
     /// device, Speak replies off, or the worker has not answered yet).
     fn speech_state(&self, cx: &App) -> Option<SpeechState> {
-        speech_row(self.own_voice(cx).speaks(), &self.download, self.voices_known, self.voices.is_empty())
+        speech_row(self.own_voice(cx).active(), &self.download, self.voices_known, self.voices.is_empty())
     }
 
     /// THIS device's share of the member's voice settings. A method, not a
@@ -775,7 +771,7 @@ impl SpeakReplies {
     /// from the one it holds (nothing while the worker is not speaking).
     /// True = a Prepare went out.
     fn ensure_voice(&mut self, agent_id: Option<&str>, cx: &mut Context<Self>) -> bool {
-        if !self.prepared.speaks() || self.download == Download::Unavailable {
+        if !self.prepared.active() || self.download == Download::Unavailable {
             return false;
         }
         let wanted = self.voice_for(agent_id, cx);
@@ -827,7 +823,6 @@ impl SpeakReplies {
             return;
         }
         let was_active = self.prepared.active();
-        let was_speaking = self.prepared.speaks();
         let voice_changed = self.prepared.voice != wanted.voice;
         let agent_changed = self.prepared.agent_id != wanted.agent_id;
         self.prepared = wanted.clone();
@@ -843,19 +838,8 @@ impl SpeakReplies {
             if (agent_changed || voice_changed) && self.speaking.take().is_some() {
                 client.stop();
             }
-            if wanted.speaks() {
-                if !was_speaking || voice_changed {
-                    client.prepare(wanted.voice.clone());
-                }
-            } else {
-                // #NEW-54: push to talk alone: the worker stays up (its
-                // Listen loads the transcriber), the voice is never fetched.
-                if was_speaking && self.speaking.take().is_some() {
-                    client.stop();
-                }
-                if !was_active {
-                    client.start();
-                }
+            if !was_active || voice_changed {
+                client.prepare(wanted.voice.clone());
             }
         } else {
             client.shutdown();
@@ -903,7 +887,10 @@ impl SpeakReplies {
             if let Some(row) = opening {
                 let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
                 if !spoken.is_empty() {
-                    crate::voice_call::opening(row.id.clone(), spoken, cx);
+                    // #EXP-1992: after this update: a pickup it lets go
+                    // says the line through this speaker.
+                    let id = row.id.clone();
+                    cx.defer(move |cx| crate::voice_call::opening(id, spoken, cx));
                 }
             }
             return;
@@ -911,7 +898,7 @@ impl SpeakReplies {
         // NEW-55: while a call runs, ITS agent's conversation is spoken
         // (#EXP-1961: the call's own session when it has one).
         let call_agent = crate::voice_call::agent_id(cx);
-        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.speaks()) else {
+        let Some(agent_id) = call_agent.as_deref().or(voice.agent_id.as_deref()).filter(|_| voice.active()) else {
             return;
         };
         // #EXP-1981: while the call's own session is asked, nothing of the
@@ -1091,11 +1078,7 @@ impl SpeakReplies {
                 // Still the same setting and not given up: bring it back.
                 if this.prepared == prepared && this.download != Download::Unavailable {
                     if let Some(client) = this.client.as_ref() {
-                        if prepared.speaks() {
-                            client.prepare(prepared.voice.clone());
-                        } else {
-                            client.start();
-                        }
+                        client.prepare(prepared.voice.clone());
                     }
                 }
             });
@@ -1378,8 +1361,8 @@ mod tests {
         assert!(voice_here(&settings, "d-mint").active());
         assert!(voice_here(&settings, "d-mac").active(), "another desktop speaks too");
         let server = etalk::voice::VoiceSettings { voice_device_id: None, ..settings.clone() };
-        assert!(voice_here(&server, "d-mac").speaks());
-        assert_eq!(speech_row(voice_here(&server, "d-mac").speaks(), &Download::Idle, true, false), Some(SpeechState::Ready), "its own row");
+        assert!(voice_here(&server, "d-mac").active());
+        assert_eq!(speech_row(voice_here(&server, "d-mac").active(), &Download::Idle, true, false), Some(SpeechState::Ready), "its own row");
         let german = etalk::voice::VoiceSettings {
             language: "de".into(),
             voice_file: "/home/me/clip.wav".into(),
@@ -1395,8 +1378,6 @@ mod tests {
         assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
         let no_agent = etalk::voice::VoiceSettings { agent_id: None, ..settings.clone() };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
-        // S-3: speak-back is always on: the worker prepares the voice.
-        assert!(voice_here(&settings, "d-mint").speaks());
     }
 
 }

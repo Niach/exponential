@@ -758,38 +758,6 @@ impl SpeechClient {
         self.send_if_running(&Request::MeetingPause { id: id.into(), paused });
     }
 
-    /// #NEW-54: bring the worker up without a request (push to talk wants
-    /// it resident and its `Ready` known before the first key-down).
-    pub fn start(&self) {
-        #[cfg(feature = "test-support")]
-        if self.record.is_some() {
-            return;
-        }
-        let failed = {
-            let Ok(mut guard) = self.worker.lock() else { return };
-            if guard.is_some() {
-                return;
-            }
-            match self.spawn() {
-                Ok(worker) => {
-                    *guard = Some(worker);
-                    false
-                }
-                Err(err) => {
-                    log::warn!("talk: speech worker failed to start: {err}");
-                    true
-                }
-            }
-        };
-        // Wave review of #1263/#1278: a worker that never came up is an
-        // `Exited` like one that died (off the lock: the host may call
-        // back in), so the Devices speech row reads unavailable rather
-        // than vanishing.
-        if failed {
-            (self.on_event)(Event::Exited);
-        }
-    }
-
     /// NEW-78: the key was released; Heard or Empty follows.
     pub fn end_listen(&self, id: impl Into<String>) {
         self.send_if_running(&Request::EndListen { id: id.into() });
@@ -936,7 +904,10 @@ impl SpeechClient {
                     Ok(worker) => *guard = Some(worker),
                     Err(err) => {
                         log::warn!("talk: speech worker failed to start: {err}");
-                        // As in [`Self::start`]: reported as an exit, off the lock.
+                        // Wave review of #1263/#1278: a worker that never came
+                        // up is an `Exited` like one that died (off the lock:
+                        // the host may call back in), so the Devices speech
+                        // row reads unavailable rather than vanishing.
                         drop(guard);
                         (self.on_event)(Event::Exited);
                         return;
@@ -1319,7 +1290,6 @@ mod tests {
     #[test]
     fn a_missing_executable_fails_quietly() {
         let client = SpeechClient::new(PathBuf::from("/nonexistent/exe"), std::env::temp_dir(), |_| {});
-        client.start();
         client.speak("m1", "Hello.");
         client.stop();
         client.end_listen("u1");
@@ -1361,6 +1331,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
+    /// The worker up without a request, as a test wants it: a spawn that
+    /// fails is an `Exited`, like a worker that died (as a request reports
+    /// it, off the lock).
+    #[cfg(unix)]
+    fn spawn_worker(client: &SpeechClient) {
+        let spawned = {
+            let mut guard = client.worker.lock().unwrap();
+            assert!(guard.is_none(), "no worker runs yet");
+            client.spawn().map(|worker| *guard = Some(worker))
+        };
+        if spawned.is_err() {
+            (client.on_event)(Event::Exited);
+        }
+    }
+
     /// #EXP-1885: a fake worker script, written by a child process. Written
     /// here, its write fd could leak into a sibling test's fork (open until
     /// that child execs), and spawning the script then fails with ETXTBSY:
@@ -1399,13 +1384,13 @@ mod tests {
             (client, rx)
         };
         let (client, exited) = exits(script("lives", "exec sleep 30"));
-        client.start();
+        spawn_worker(&client);
         // The reader has seen EOF and decided once it is joined.
         client.shut_down().expect("a worker ran").join().unwrap();
         assert!(exited.try_recv().is_err(), "an asked-for exit sends no Exited");
 
         let (client, exited) = exits(script("dies", "exit 1"));
-        client.start();
+        spawn_worker(&client);
         exited.recv_timeout(std::time::Duration::from_secs(60)).expect("a worker that dies on its own is reported");
         client.shutdown();
         assert!(exited.try_recv().is_err(), "reported once");
@@ -1504,8 +1489,7 @@ mod tests {
     }
 
     /// Wave review of #1263/#1278: a worker that never SPAWNS is reported
-    /// like one that died — once per attempt, from `start` and from a
-    /// request that would have spawned it.
+    /// like one that died — once per request that would have spawned it.
     #[test]
     fn a_failed_spawn_is_reported_as_an_exit() {
         let dir = std::env::temp_dir().join(format!("talk-nospawn-{}", std::process::id()));
@@ -1516,10 +1500,10 @@ mod tests {
                 *counter.lock().unwrap() += 1;
             }
         });
-        client.start();
-        assert_eq!(*seen.lock().unwrap(), 1, "a failed start is an exit");
         client.call("c1", "en", false, 3_000);
-        assert_eq!(*seen.lock().unwrap(), 2, "a request that cannot spawn is an exit");
+        assert_eq!(*seen.lock().unwrap(), 1, "a request that cannot spawn is an exit");
+        client.speak("m1", "Hello.");
+        assert_eq!(*seen.lock().unwrap(), 2, "once per attempt");
         // Requests that never spawn a worker say nothing.
         client.stop();
         client.hangup("c1");
@@ -1577,7 +1561,7 @@ mod tests {
         fake_worker(&exe, "exec sleep 30");
         let client = SpeechClient::new(exe, data.clone(), |_| {});
 
-        client.start();
+        spawn_worker(&client);
         assert_eq!(client.remove_partial_downloads(), 0, "a running worker's .part is a download in progress");
         assert!(!client.remove_voice_data(), "skipped while a worker runs");
         assert!(talk.join("models").join("qwen3-tts.part").is_file());
@@ -1588,7 +1572,7 @@ mod tests {
         assert!(client.remove_voice_data());
         assert!(!talk.exists(), "set aside before the call returns");
         // The worker comes back at once and downloads into a fresh talk/.
-        client.start();
+        spawn_worker(&client);
         std::fs::create_dir_all(talk.join("models")).unwrap();
         std::fs::write(talk.join("models").join("qwen3-tts.part"), "again").unwrap();
         // A bound only for a hang; the delete thread may start late under load.

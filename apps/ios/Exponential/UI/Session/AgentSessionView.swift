@@ -639,6 +639,7 @@ struct AgentSessionView: View {
         feedBodyContent(model)
             .modifier(TranscriptFindDriver(
                 find: chatFind, transcriptFind: transcriptFind, model: model,
+                inputs: noFeedPlaceholder(model) == nil || model.sessionEnded ? [] : noFeedInputs,
                 accountId: accountId, rootId: session.rootId, sessionId: session.id
             ))
     }
@@ -725,6 +726,7 @@ struct AgentSessionView: View {
                                 VStack(alignment: .trailing, spacing: 0) {
                                     ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
                                         // #FEED-239: one own group under the viewer's avatar.
+                                        let key = FindInChat.messageKey(input.id)
                                         TranscriptRow(
                                             side: .own,
                                             gap: index == 0 ? 0 : TranscriptGrouping.Layout.gapInGroup,
@@ -737,7 +739,11 @@ struct AgentSessionView: View {
                                                 status: .read,
                                                 tail: index == 0
                                             )
+                                            // #EXP-1975: a sent input is a loaded find row.
+                                            .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(key)))
                                         }
+                                        .id(key)
+                                        .deepLinkRow(findLink?.target == key, frame: $findFrame)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -760,10 +766,21 @@ struct AgentSessionView: View {
                         }
                         .frame(minHeight: geo.size.height)
                     }
+                    // #EXP-1975: the sent inputs and the own tail paint find's marks.
+                    .environment(\.findPaint, transcriptFind.paint)
                     .modifier(DeepLinkScroll(
                         focus: waitingFocus, taken: $deepLinkTaken, link: $deepLink,
                         highlight: $highlightId, targetFrame: deepLinkFrame, proxy: proxy,
                         ready: cardsLoaded, found: { waitingIds.contains($0) }
+                    ))
+                    // #EXP-1975 (find-in-chat.json LANDING): find's current
+                    // stop centres here too.
+                    .modifier(DeepLinkScroll(
+                        focus: transcriptFind.focus, taken: $findTaken, link: $findLink,
+                        highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
+                        targetFrame: findFrame, proxy: proxy,
+                        ready: true, found: { transcriptFind.itemId($0) != nil },
+                        centre: { key in proxy.scrollTo(key, anchor: .center) }
                     ))
                 }
             }
@@ -1168,12 +1185,16 @@ struct AgentSessionView: View {
                     focus: transcriptFind.focus, taken: $findTaken, link: $findLink,
                     highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
                     targetFrame: findFrame, proxy: proxy,
-                    ready: true, found: { findEntryId($0, model: model) != nil },
+                    ready: true, found: { findEntryId($0, model: model) != nil || ownFindKey($0, model: model) },
                     more: model.canLoadEarlier,
                     arrival: "\(model.transcript.first?.id ?? -1)",
                     page: { model.loadEarlier() },
                     centre: { key in
-                        if let entry = findEntryId(key, model: model) { proxy.scrollTo(entry, anchor: .center) }
+                        if let entry = findEntryId(key, model: model) {
+                            proxy.scrollTo(entry, anchor: .center)
+                        } else if ownFindKey(key, model: model) {
+                            proxy.scrollTo(key, anchor: .center)
+                        }
                     },
                     onTake: {
                         atBottom = false
@@ -1792,6 +1813,11 @@ struct AgentSessionView: View {
         return model.transcript.first { Self.rowItemIds($0.row).contains(id) }?.id
     }
 
+    /// #EXP-1975: find key `key` names one of the own tail's bubbles.
+    private func ownFindKey(_ key: String, model: AgentSessionModel) -> Bool {
+        model.ownBubbles.contains { TranscriptFind.ownKey($0) == key }
+    }
+
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
     /// tool-posted card anchors.
     private static func rowItemIds(_ row: AgentFeedRow) -> [Int] {
@@ -2080,8 +2106,12 @@ struct AgentSessionView: View {
                     onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) },
                     tail: index == 0
                 )
+                // #EXP-1975: the own tail is a loaded find row.
+                .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(TranscriptFind.ownKey(bubble))))
             }
-            .id("own-\(bubble.id)")
+            // #EXP-1975: its find key (where find centres it).
+            .id(TranscriptFind.ownKey(bubble))
+            .deepLinkRow(findLink?.target == TranscriptFind.ownKey(bubble), frame: $findFrame)
         }
     }
 
