@@ -2951,8 +2951,16 @@ struct AgentSessionView: View {
     private func dismissSuggestion(_ rowId: String, _ itemId: String) {
         let db = deps.db
         runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
-            let status = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)?.cardSealStatus ?? .plain
-            guard CardItemWire.wire(status, action: .dismiss) != .refused else { throw SealRefusal() }
+            let card = SealedSuggestionTap.card(db: db, accountId: accountId, rowId: rowId)
+            switch CardItemWire.wire(card?.cardSealStatus ?? .plain, action: .dismiss) {
+            case .server, .sealed:
+                break
+            case .stamp:
+                // #EXP-1958: the server cannot tell which ids the card carries.
+                _ = try CardItemWire.item(itemId, in: card?.card?.items)
+            case .refused:
+                throw SealRefusal()
+            }
             try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
         }
     }
