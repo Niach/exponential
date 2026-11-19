@@ -6098,7 +6098,8 @@ impl SteerSessionView {
                 .flex_1()
                 .min_h_0()
                 .children(inputs)
-                .child(div().flex_1().min_h_0().child(body))
+                // #EXP-1998: the copy keeps its room under a long column.
+                .child(div().flex_1().min_h(px(160.)).child(body))
                 .children(cards.map(|cards| div().w_full().flex_shrink_0().px_4().pb_2().child(cards)))
                 .into_any_element();
         }
