@@ -200,6 +200,12 @@ fn file_of(name: &str) -> String {
     }
 }
 
+/// Where [`Runtime::put_back`] keeps a refused edit it replaced (hidden:
+/// the shell, the watcher and history never read it).
+pub fn refused_file(name: &str) -> String {
+    format!(".{}.refused", file_of(name))
+}
+
 /// The names of the top-level `*.json` files (hidden files, editor
 /// leftovers and anything that is not a document name are skipped).
 fn names_on_disk(dir: &Path) -> io::Result<Vec<String>> {
@@ -310,13 +316,54 @@ impl Runtime {
     /// Put the factory copy of `name` back, as the commit `Factory <name>`
     /// (the apply machine's `factory` effect).
     pub fn restore_factory(&mut self, name: &str) -> io::Result<Vec<Change>> {
+        let bytes = self.factory_copy(name)?;
+        write_atomic(&self.dir.join(file_of(name)), &bytes)?;
+        self.reload_with(Some(&format!("Factory {name}")))
+    }
+
+    /// The factory copy of `name` as it ships.
+    pub fn factory_copy(&self, name: &str) -> io::Result<Vec<u8>> {
         let Some(factory) = &self.factory else {
             return Err(io::Error::other("no factory directory"));
         };
         let file = file_of(name);
-        let bytes = fs::read(factory.join(&file)).map_err(|e| io::Error::other(format!("factory {file}: {e}")))?;
-        write_atomic(&self.dir.join(&file), &bytes)?;
-        self.reload_with(Some(&format!("Factory {name}")))
+        fs::read(factory.join(&file)).map_err(|e| io::Error::other(format!("factory {file}: {e}")))
+    }
+
+    /// `name` alone as it is on disk now (#EDE-137): what [`Self::reload`]
+    /// does for one document. A valid edit nobody took in yet is committed
+    /// (`Edit <file>`), a broken one refused; the others wait for the watcher.
+    pub fn take_in(&mut self, name: &str) -> io::Result<Vec<Change>> {
+        self.reload_names(Some(name), None)
+    }
+
+    /// The supervisor's own writes (#EDE-137: a rollback, the factory
+    /// copy): `bytes` into `name` as the commit `message`, this document
+    /// alone. Only its file is committed and reloaded, so another
+    /// document's edit landing in the same moment stays for the watcher (an
+    /// edit of its own, committed and supervised as one). What the file
+    /// holds is taken in first ([`Self::take_in`]): a valid edit stays in
+    /// the history; a broken one (never committed) is kept aside as
+    /// `.<name>.json.refused`, never lost. The commit; `None` when git held
+    /// `bytes` already.
+    pub fn put_back(&mut self, name: &str, bytes: &[u8], message: &str) -> io::Result<Option<String>> {
+        self.take_in(name)?;
+        let file = file_of(name);
+        let path = self.dir.join(&file);
+        if let Seen::Bytes(disk) = read(&path)? {
+            if disk != bytes && self.repo.show_head(&file)?.as_deref() != Some(disk.as_slice()) {
+                fs::write(self.dir.join(refused_file(name)), &disk)?;
+            }
+        }
+        write_atomic(&path, bytes)?;
+        let commit = self.commit_tracked(&[file], message)?;
+        self.reload_names(Some(name), None)?;
+        Ok(commit)
+    }
+
+    /// `name` as git revision `rev` holds it (`None` when it has none).
+    pub fn bytes_at(&self, rev: &str, name: &str) -> io::Result<Option<Vec<u8>>> {
+        self.repo.show_at(rev, &file_of(name))
     }
 
     /// The newest commit of `name` when the file on disk is what git holds
@@ -402,14 +449,24 @@ impl Runtime {
     }
 
     fn reload_with(&mut self, message: Option<&str>) -> io::Result<Vec<Change>> {
-        let mut names = names_on_disk(&self.dir)?;
-        for name in self.seen.keys().chain(self.documents.keys()) {
-            if !names.contains(name) {
-                names.push(name.clone());
+        self.reload_names(None, message)
+    }
+
+    /// [`Self::reload_with`] over every file, or `only` that one.
+    fn reload_names(&mut self, only: Option<&str>, message: Option<&str>) -> io::Result<Vec<Change>> {
+        let mut names = match only {
+            Some(name) => vec![name.to_string()],
+            None => names_on_disk(&self.dir)?,
+        };
+        if only.is_none() {
+            for name in self.seen.keys().chain(self.documents.keys()) {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
             }
-        }
-        if !names.iter().any(|n| n == THEME) {
-            names.push(THEME.to_string());
+            if !names.iter().any(|n| n == THEME) {
+                names.push(THEME.to_string());
+            }
         }
         names.sort();
         names.dedup();
@@ -438,7 +495,20 @@ impl Runtime {
         if !self.commits {
             return Ok(changes);
         }
-        if let Some(id) = self.commit_tracked(&files, &message)? {
+        let committed = match self.commit_tracked(&files, &message) {
+            Ok(committed) => committed,
+            Err(e) => {
+                // #EDE-153: what could not be committed counts as unread, so
+                // the next reload takes it in again; else the edit is lost (no
+                // commit, never reported again: nobody supervises it).
+                for (_, i) in &to_commit {
+                    let name = changes[*i].name().to_string();
+                    self.seen.remove(&name);
+                }
+                return Err(e);
+            }
+        };
+        if let Some(id) = committed {
             for (_, i) in &to_commit {
                 if let Change::Applied { commit, .. } | Change::Removed { commit, .. } | Change::ThemeApplied { commit, .. } = &mut changes[*i] {
                     *commit = Some(id.clone());

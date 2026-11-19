@@ -930,7 +930,11 @@ expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
 panel.json, rolled back`), unless another process undid or replaced it
 meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
-and what replaced it is an edit of its own; the shell dying counts as a crash, it restarts
+and what replaced it is an edit of its own. A rollback puts back what the
+shell last drew (after two quick edits, never the first one, which did not
+draw either) and touches that document alone: another document's edit in
+the same moment stays an edit of its own, and a broken text the file holds
+meanwhile is kept beside it as `.panel.json.refused`. The shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never
