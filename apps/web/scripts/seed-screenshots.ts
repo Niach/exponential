@@ -1436,6 +1436,13 @@ async function seedSessionTree(ctx: {
         body: `\u200b`,
         at: minutesAgo(10),
       },
+      // #FEED-255: the same, spelled as entities the markdown decodes.
+      {
+        sessionId: ids.coldStart,
+        author: `agent`,
+        body: `&#8203;\n&nbsp;\n&#x200B;`,
+        at: minutesAgo(10),
+      },
       // The session's own card, waiting (Needs you).
       {
         sessionId: ids.coldStart,
