@@ -227,6 +227,8 @@ data class SessionSendTarget(
     val brief: String? = null,
     /** #EDE-97: the root stays in clear (an outside MCP client started it); absent = false. */
     val clearTree: Boolean = false,
+    /** #EXP-1941: the root's rotation is due (a call on it waits for the rotation); absent = false. */
+    val rotationDue: Boolean = false,
 )
 
 /** `sessions.send`'s answer: the session it landed in and the message row
