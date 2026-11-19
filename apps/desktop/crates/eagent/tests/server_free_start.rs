@@ -21,19 +21,18 @@ use std::time::{Duration, Instant};
 
 use agent_client_protocol::v1::schema::{
     AvailableCommand, AvailableCommandsUpdate, CompactionId, CompactionStatus, CompactionUpdate,
-    ContentBlock, ContentChunk, CreateElicitationRequest, CreateTerminalRequest, ElicitationAction, ElicitationContentValue,
+    ContentBlock, ContentChunk, CreateElicitationRequest, ElicitationAction, ElicitationContentValue,
     ElicitationFormMode, ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope,
     InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
     NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionId,
     PermissionOptionKind, PromptRequest, PromptResponse, ReadTextFileRequest,
-    ReleaseTerminalRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionOutcome, RequestPermissionRequest,
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
     SessionInfoUpdate,
     SessionMode, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, StringPropertySchema, Terminal, TerminalOutputRequest,
-    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolKind, UsageUpdate,
-    WaitForTerminalExitRequest,
+    SetSessionModeResponse, StopReason, StringPropertySchema,
+    TextContent, ToolCall, ToolCallId, ToolKind, UsageUpdate,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -78,12 +77,6 @@ struct FakeState {
     read_failed: AtomicBool,
     config_set: Mutex<Option<(String, String)>>,
     mode_set: Mutex<Option<String>>,
-    /// EXP-750: what the client answered the `terminal/*` round trip with.
-    terminal_id: Mutex<Option<String>>,
-    terminal_output: Mutex<Option<String>>,
-    /// The exit code `terminal/wait_for_exit` reported (`-1` = a signal
-    /// death, which is what a Stop looks like from here).
-    terminal_exit: Mutex<Option<i32>>,
     /// FEED-153: how many `fail-*` prompts the fake has refused so far.
     failures: AtomicUsize,
     /// EXP-1910: the fake never answers `initialize` (a wedged CLI, a long
@@ -547,67 +540,6 @@ async fn run_turn(
                 .block_task()
                 .await;
             state.read_failed.store(result.is_err(), Ordering::SeqCst);
-            StopReason::EndTurn
-        }
-        // EXP-750 — the terminal round trip: create, publish the tool call
-        // that EMBEDS the terminal (which is what binds it to a card), wait
-        // for the exit, read the retained output, release.
-        "terminal" | "terminal-sleep" => {
-            let command = if text == "terminal" {
-                "printf a; printf b; exit 3"
-            } else {
-                "sleep 30"
-            };
-            let created = cx
-                .send_request(
-                    CreateTerminalRequest::new(session_id.clone(), "sh")
-                        .args(vec!["-c".to_string(), command.to_string()])
-                        .output_byte_limit(64u64 * 1024),
-                )
-                .block_task()
-                .await;
-            let Ok(created) = created else {
-                return StopReason::EndTurn;
-            };
-            let terminal_id = created.terminal_id.clone();
-            *state.terminal_id.lock().expect("the terminal slot is not poisoned") =
-                Some(terminal_id.0.to_string());
-            let _ = cx.send_notification(SessionNotification::new(
-                session_id.clone(),
-                SessionUpdate::ToolCall(
-                    ToolCall::new(ToolCallId::new("tc-term"), "Run the tests")
-                        .kind(ToolKind::Execute)
-                        .content(vec![ToolCallContent::Terminal(Terminal::new(
-                            terminal_id.clone(),
-                        ))]),
-                ),
-            ));
-            if let Ok(exit) = cx
-                .send_request(WaitForTerminalExitRequest::new(
-                    session_id.clone(),
-                    terminal_id.clone(),
-                ))
-                .block_task()
-                .await
-            {
-                *state.terminal_exit.lock().expect("the exit slot is not poisoned") =
-                    Some(exit.exit_status.exit_code.map_or(-1, |code| code as i32));
-            }
-            if let Ok(output) = cx
-                .send_request(TerminalOutputRequest::new(
-                    session_id.clone(),
-                    terminal_id.clone(),
-                ))
-                .block_task()
-                .await
-            {
-                *state.terminal_output.lock().expect("the output slot is not poisoned") =
-                    Some(output.output);
-            }
-            let _ = cx
-                .send_request(ReleaseTerminalRequest::new(session_id.clone(), terminal_id))
-                .block_task()
-                .await;
             StopReason::EndTurn
         }
         // EXP-1292: a turn whose LAST top-level message is its reply — the

@@ -207,13 +207,6 @@ impl EngineSession {
         self.send(EngineCommand::LoadHistory);
     }
 
-    /// EXP-750: stop one live `terminal/*` command without touching the run
-    /// — what the Stop button on a running output card does. Unknown ids are
-    /// a no-op: the card may be older than the terminal's release.
-    pub fn kill_terminal(&self, terminal_id: &str) {
-        self.0.ctx.terminals.kill(terminal_id);
-    }
-
     /// Interrupt the running turn without ending the session. EXP-861: a
     /// Stop also drops the messages held queued behind the turn.
     pub fn cancel_turn(&self) {
@@ -253,7 +246,7 @@ impl EngineSession {
     }
 
     /// EXP-1374: the wall-clock time of the run's last activity (FEED-25's
-    /// clock: any mapper output, tool call, terminal output) — the
+    /// clock: any mapper output or tool call) — the
     /// heartbeat's `sessionActivity` entry.
     pub fn last_activity_at(&self) -> std::time::SystemTime {
         let ago = std::time::Instant::now().saturating_duration_since(self.0.ctx.last_activity());
@@ -546,7 +539,6 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         sink: OnceLock::new(),
         feed: LocalFeed::new(keep_backlog),
         asks: PendingAsks::default(),
-        terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
         background_tasks_live: AtomicBool::new(false),

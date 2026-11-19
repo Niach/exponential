@@ -125,7 +125,8 @@ caller changes until a later cleanup.
      `engine::context_layout` (plus `ContextLayers` / `ProjectMemoryFile` / `CarriedBase` out of
      `coding`, which re-exports them), `engine::exp_tool_refs` (the rule; the spec comes from
      `HostTools::preview_spec`, and `engine::exp_tool_refs` keeps the name-keyed entry and the
-     fixture lock), and `engine::terminals` (the Agent Client Protocol `terminal/*` capability). The headless PTY
+     fixture lock), and `engine::terminals` (the Agent Client Protocol `terminal/*` capability;
+     removed by EXP-1991: neither adapter ever sent `terminal/create`). The headless PTY
      (`Pty`, `open_pty`, `build_command`, `winsize`) moved out of `terminal::pty` into `spawn`;
      the emulator stays in `terminal`. The wire got `RemoteAnswer`, `SessionBlocked` (the
      `sessions.report` conversion is `steer::SessionBlockedReport`), `now_unix_millis`,
