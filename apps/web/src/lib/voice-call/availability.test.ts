@@ -44,7 +44,7 @@ function rowsFor(input: CallTargetInput) {
 }
 
 // Web is never a desktop itself, and `busy` is the relay's to say on dial.
-const WEB_CASES = fixture.targetCases.filter((c) => c.input.platform !== `desktop` && !c.input.busy)
+const WEB_CASES = fixture.targetCases.filter((c) => c.input.here === null && !c.input.busy)
 
 describe(`web call target (voice-call.json targetCases)`, () => {
   it.each(WEB_CASES.map((c) => [c.name, c] as const))(`%s`, (_name, c) => {

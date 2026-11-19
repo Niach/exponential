@@ -21,7 +21,7 @@ import org.junit.Test
 
 /**
  * NEW-69: caller mode, locked ×4 (TS `voice-call.ts`, desktop
- * `domain::voice_call`, iOS `VoiceCallTests`) against
+ * `etalk::call`, iOS `VoiceCallTests`) against
  * `fixtures/voice-call.json`: every `copy` key (reasons + failed included),
  * the `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens`, and every
  * `availabilityCases` / `flowCases` row (view + toast).
@@ -72,10 +72,7 @@ class VoiceCallTest {
         assertEquals(copy.keys - setOf("reasons", "failed"), flat.keys)
         flat.forEach { (key, value) -> assertEquals(key, copy.str(key), value) }
         val reasons = mapOf(
-            "noAgent" to VoiceCall.Copy.Reasons.NO_AGENT,
-            "noVoiceDevice" to VoiceCall.Copy.Reasons.NO_VOICE_DEVICE,
             "offline" to VoiceCall.Copy.Reasons.OFFLINE,
-            "notHere" to VoiceCall.Copy.Reasons.NOT_HERE,
             "preparing" to VoiceCall.Copy.Reasons.PREPARING,
             "voiceFailed" to VoiceCall.Copy.Reasons.VOICE_FAILED,
             "noGpu" to VoiceCall.Copy.Reasons.NO_GPU,
@@ -204,13 +201,9 @@ class VoiceCallTest {
             val input = case.getValue("input").jsonObject
             val got = VoiceCall.callAvailability(
                 VoiceCall.AvailabilityInput(
-                    agent = input.getValue("agent").jsonPrimitive.boolean,
-                    platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
-                    device = input.str("device"),
+                    device = input.str("device")!!,
                     online = input.getValue("online").jsonPrimitive.boolean,
-                    here = input.getValue("here").jsonPrimitive.boolean,
                     speech = input.str("speech")?.let { s -> VoiceCall.Speech.entries.single { it.wire == s } },
-                    busy = input.getValue("busy").jsonPrimitive.boolean,
                     meeting = input["meeting"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
@@ -240,7 +233,6 @@ class VoiceCallTest {
             val input = case.getValue("input").jsonObject
             val got = VoiceCall.callTarget(
                 VoiceCall.TargetInput(
-                    platform = VoiceCall.Platform.entries.single { it.wire == input.str("platform") },
                     here = input.str("here"),
                     agentDevice = input.str("agentDevice"),
                     desktops = devices(input.getValue("desktops").jsonArray),

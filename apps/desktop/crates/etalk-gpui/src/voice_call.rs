@@ -357,7 +357,6 @@ pub fn target(agent_id: &str, cx: &App) -> CallTarget {
     let servers = target_desktops(None, None, &servers, None);
     let agent_device = host::agent(agent_id, cx).and_then(|agent| agent.device_id);
     call_target(&CallTargetInput {
-        platform: CallPlatform::Desktop,
         here: here.as_deref(),
         agent_device: agent_device.as_deref(),
         desktops: &desktops,
@@ -1438,10 +1437,7 @@ fn is_reason(message: &str) -> bool {
     let reasons = &VOICE_CALL.copy.reasons;
     [
         &reasons.meeting,
-        &reasons.no_agent,
-        &reasons.no_voice_device,
         &reasons.offline,
-        &reasons.not_here,
         &reasons.preparing,
         &reasons.voice_failed,
         &reasons.no_gpu,
@@ -1456,7 +1452,8 @@ fn is_reason(message: &str) -> bool {
 }
 
 /// How long a ring may wait for the ticket before the relay gives up
-/// (voice-call.json `constants.ringTimeoutMs`), for the log.
+/// (voice-call.json `constants.ringTimeoutMs`): a refused call waits this
+/// long for the caller to be on the line ([`fail_when_on_the_line`]).
 fn ring_timeout() -> Duration {
     Duration::from_millis(VOICE_CALL.constants.ring_timeout_ms)
 }
@@ -1905,7 +1902,6 @@ mod tests {
         assert_eq!(unsynced.len(), 4);
         // Danny's case: the Assistant runs on a server, this desktop speaks.
         let target = call_target(&CallTargetInput {
-            platform: CallPlatform::Desktop,
             here: Some("d-new"),
             agent_device: Some("d-server"),
             desktops: &unsynced,
@@ -1916,7 +1912,6 @@ mod tests {
         // This desktop has no GPU: the call is dialled to mint.
         let here_silent = target_desktops(Some(("d-mac", "macbook")), Some(CallSpeech::NoGpu), &rows, None);
         let target = call_target(&CallTargetInput {
-            platform: CallPlatform::Desktop,
             here: Some("d-mac"),
             agent_device: Some("d-server"),
             desktops: &here_silent,
