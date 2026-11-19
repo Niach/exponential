@@ -177,4 +177,64 @@ final class SessionsApiSealingTests: XCTestCase {
         XCTAssertEqual(sent[1]["issueIds"] as? [String], [issue])
         XCTAssertEqual(sent[1]["cardItem"] as? [String: String], ["messageId": "m-2", "itemId": "s1"])
     }
+
+    /// #EXP-1958 (`cardStamps`, NEVER IN CLEAR): a tap hands OPENED text to
+    /// the writer. With no sealer, or into a tree the writer sends plaintext
+    /// to (a `clearTree`), it throws `SealedOnlyError` and makes NO request;
+    /// the composer's own send into that clear tree still goes in clear.
+    func testASealedCardTapNeverLeavesInClear() async throws {
+        let auth = AuthRepository(accountStore: AccountStore(keychain: FakeKeychain()))
+        auth.setInstanceUrl("https://exp.example.com")
+        auth.setToken("t", email: "u@x.com", userId: "u", onboardingKnown: true)
+        let accountId = ServerAccount.makeId(instanceUrl: "https://exp.example.com", userId: "u")
+        let db = DatabaseManager()
+        defer {
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
+        let pool = try db.pool(forAccountId: accountId)
+        try DatabaseManager.runMigrations(on: pool)
+        let row = #"{"id":"clear","team_id":"t","user_id":"u","device_id":"d","clear_tree":true,"created_at":"x","updated_at":"x"}"#
+        try await pool.write { conn in
+            try JSONDecoder().decode(SessionEntity.self, from: Data(row.utf8)).save(conn)
+        }
+        let api = SessionsApi(trpc: TrpcClient(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth))
+        Server.bodies.mutate { $0 = [] }
+        let reply = CardItemWire.message(sessionId: "clear", text: "Yes, ship it")
+        let start = CardItemWire.start(parentId: "clear", title: "Add tests", text: "Cover it", issueIds: [])
+        let cardItem = CardItemRef(messageId: "m-1", itemId: "r1")
+
+        func assertRefused(_ input: SessionsSendInput, _ what: String) async {
+            do {
+                try await api.send(accountId: accountId, input, cardItem: cardItem)
+                XCTFail("\(what): the tap was sent")
+            } catch {
+                XCTAssertEqual(error as? SealedOnlyError, SealedOnlyError(), what)
+            }
+        }
+
+        // No sealer in this process.
+        await assertRefused(reply, "no sealer, reply")
+        await assertRefused(start, "no sealer, Start")
+        XCTAssertEqual(Server.bodies.value.count, 0, "nothing left without a sealer")
+
+        // A sealer whose target is a clear tree: the writer prepares plaintext.
+        let crypto = StubCrypto()
+        api.sealing.sealer = SessionSealer(
+            holder: TreeKeyHolder(
+                keys: Keys(), installs: nil, crypto: crypto, ring: SealedKeyRing(persistence: .memory),
+                identity: { Data(repeating: 3, count: 32) }, installId: { _ in "install-me" }
+            ),
+            opener: SealedOpener(crypto: crypto, ring: SealedKeyRing(persistence: .memory)),
+            db: db,
+            userId: { _ in "u" }
+        )
+        await assertRefused(reply, "clear tree, reply")
+        await assertRefused(start, "clear tree, Start")
+        XCTAssertEqual(Server.bodies.value.count, 0, "nothing left into a clear tree")
+
+        // The composer's own send (no cardItem) is that tree's plaintext.
+        try await api.send(accountId: accountId, .message(sessionId: "clear", text: "hello"))
+        XCTAssertEqual(Server.bodies.value.map { $0["text"] as? String }, ["hello"])
+    }
 }

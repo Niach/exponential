@@ -32,8 +32,9 @@ public struct SessionsStopResult: Decodable, Sendable, Equatable {
 
 /// #EXP-1641: a write into sealed content this install could not seal (no
 /// key, no crypto, the card not here): nothing was sent.
-public struct SealedOnlyError: Error, Equatable, Sendable {
+public struct SealedOnlyError: LocalizedError, Equatable, Sendable {
     public init() {}
+    public var errorDescription: String? { noKeyRefusal }
 }
 
 /// A plan card's decision (`sessions.answer({decision})`).
@@ -225,7 +226,9 @@ public final class SessionsApi: Sendable {
     /// resend naming it returns the row the server already stored).
     @discardableResult
     /// #EXP-1958: `cardItem` = the SEALED card item this send acts on (a
-    /// reply, Do it here, Start), passed through the writer untouched.
+    /// reply, Do it here, Start), passed through the writer untouched. Its
+    /// text is OPENED content: it leaves sealed or not at all
+    /// (`SealedOnlyError`: no sealer, a clear tree, no key).
     public func send(
         accountId: String,
         _ input: SessionsSendInput,
@@ -234,12 +237,13 @@ public final class SessionsApi: Sendable {
     ) async throws -> SessionsSendResult {
         // EXP-1459: the text leaves sealed to the tree's key (+ mentions).
         guard let sealer else {
-            guard clientMessageId != nil || cardItem != nil else {
+            if cardItem != nil { throw SealedOnlyError() }
+            guard clientMessageId != nil else {
                 return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
             }
             return try await trpc.mutation(
                 accountId: accountId, path: "sessions.send",
-                input: SealedSendInput(input: input, clientMessageId: clientMessageId, cardItem: cardItem)
+                input: SealedSendInput(input: input, clientMessageId: clientMessageId)
             )
         }
         // #FEED-250: a tree that moved on behind this store is re-resolved
@@ -247,7 +251,10 @@ public final class SessionsApi: Sendable {
         return try await StaleTreeResend.send { fresh in
             var prepared = try await sealer.prepare(accountId: accountId, input, fresh: fresh)
             if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
-            prepared.input.cardItem = cardItem
+            if let cardItem {
+                guard prepared.input.leavesSealed else { throw SealedOnlyError() }
+                prepared.input.cardItem = cardItem
+            }
             let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
             await sealer.completed(prepared, result: result)
             return result

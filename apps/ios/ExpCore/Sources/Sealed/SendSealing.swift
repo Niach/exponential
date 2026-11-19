@@ -79,6 +79,13 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         self.cardItem = cardItem
     }
 
+    /// #EXP-1958 (`cardStamps`, NEVER IN CLEAR): the writer sealed this
+    /// send: its text is an envelope and no clear `name` rides along.
+    public var leavesSealed: Bool {
+        guard let text = input.text, SealedEnvelope.isSealedBody(text) else { return false }
+        return input.name == nil
+    }
+
     private enum Keys: String, CodingKey { case seal, mentionUserIds, sealedName, clientMessageId, cardItem }
 
     public func encode(to encoder: Encoder) throws {
