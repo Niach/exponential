@@ -14,6 +14,7 @@
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
 //!   the prompt, polkit's helper checks the password; it stays up between prompts.
+//!   A request from an agent space is refused and opens nothing (#EDE-127).
 //! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
@@ -390,7 +391,7 @@ fn lock() {
 /// The polkit agent: a prompt per request.
 fn polkit_agent() {
     let (ui_tx, ui_rx) = mpsc::channel::<polkit::UiEvent>();
-    let conn = match zbus::blocking::connection::Builder::system().and_then(|b| b.serve_at(polkit::AGENT_PATH, polkit::Agent { to_ui: ui_tx })).and_then(|b| b.build()) {
+    let conn = match zbus::blocking::connection::Builder::system().and_then(|b| b.serve_at(polkit::AGENT_PATH, polkit::Agent { to_ui: ui_tx, space_of: std::sync::Arc::new(polkit::space_of) })).and_then(|b| b.build()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("exponential-sealed polkit: no system bus: {e}");

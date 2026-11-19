@@ -291,7 +291,7 @@ impl Ede {
             }
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
-            self.spaces.open(std::path::Path::new(&runtime).join("exponential-desktop").join(format!("{}.spaces", name.to_string_lossy())));
+            self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
         }
         Ok(name)
     }
