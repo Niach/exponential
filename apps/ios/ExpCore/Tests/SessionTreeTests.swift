@@ -673,7 +673,8 @@ final class SessionTreeTests: XCTestCase {
                     messageId: try XCTUnwrap(string(value["messageId"])),
                     items: try XCTUnwrap(value["items"] as? [[String: Any]]).map {
                         ComposerReply(id: try XCTUnwrap(string($0["id"])), text: try XCTUnwrap(string($0["text"])))
-                    }
+                    },
+                    sessionId: string(input["sessionId"])
                 )
             }
             XCTAssertEqual(actual, expected, name)

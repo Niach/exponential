@@ -105,12 +105,17 @@ public enum SessionsSendInput: Sendable, Equatable {
         appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil,
         cli: String? = nil, account: String? = nil, model: String? = nil
     )
-    /// A CHILD session of `parentId` on any device.
+    /// A CHILD session of `parentId` on any device (nil = the parent's).
+    /// `name` = its display name (the sealing writer sends it as
+    /// `sealedName`), `issueIds` = the issues it holds (#EXP-1958: a sealed
+    /// suggestion's Start).
     case child(
         parentId: String,
-        deviceId: String,
+        deviceId: String?,
         options: SessionLaunchOptions = SessionLaunchOptions(),
-        text: String? = nil
+        text: String? = nil,
+        name: String? = nil,
+        issueIds: [String]? = nil
     )
     /// A message into an existing session (resumes it when idle; an ended
     /// chat revives server-side, the same row). Needs text or files.
@@ -134,7 +139,7 @@ extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, computerUse, ultracode, mcpServerIds, skillIds
-        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId, scopeTeamIds
+        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId, scopeTeamIds, name
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -184,11 +189,13 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(cli, forKey: .cli)
             try c.encodeIfPresent(account, forKey: .account)
             try c.encodeIfPresent(model.flatMap { $0.isEmpty ? nil : $0 }, forKey: .model)
-        case let .child(parentId, deviceId, options, text):
+        case let .child(parentId, deviceId, options, text, name, issueIds):
             try c.encode(parentId, forKey: .parentId)
-            try c.encode(deviceId, forKey: .deviceId)
+            try c.encodeIfPresent(deviceId, forKey: .deviceId)
             try encodeOptions(options)
             try c.encodeIfPresent(text, forKey: .text)
+            try c.encodeIfPresent(name, forKey: .name)
+            try c.encodeIfPresent(issueIds, forKey: .issueIds)
         case let .message(sessionId, text, attachmentIds, scope):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encodeIfPresent(text, forKey: .text)
