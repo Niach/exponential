@@ -224,6 +224,42 @@ pub struct HangUpRules {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct CallSealPadStep {
+    pub up: usize,
+    pub down: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSealEndReasons {
+    /// No key within `handshake_ms`, or a `finish` that failed.
+    pub no_key: String,
+    /// Clear content, a deleted event or too many frames that do not open.
+    pub seal: String,
+}
+
+/// #EXP-1941 (`seal`): the call seal's rules outside the bytes (those are
+/// `enet_core::call_seal`'s, which replays `seal.vectors`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSealSpec {
+    /// The device cap a host advertises while it has a key holder.
+    pub cap: String,
+    pub audio_pad_step: CallSealPadStep,
+    pub control_pad_bytes: usize,
+    pub max_plain_bytes: usize,
+    /// A caller sends its hello again this often until a host hello is taken.
+    pub hello_every_ms: u64,
+    /// Not sealed this long after an end's own start: the call ends `no_key`.
+    pub handshake_ms: u64,
+    pub pull_every_ms: u64,
+    /// Once sealed: this many audio frames in a row that do not open end the call.
+    pub max_open_failures: u32,
+    pub end_reasons: CallSealEndReasons,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceCallSpec {
     pub copy: CallCopy,
@@ -238,6 +274,7 @@ pub struct VoiceCallSpec {
     pub tabs: CallTabs,
     pub host_voice: HostVoice,
     pub call_session: CallSessionSpec,
+    pub seal: CallSealSpec,
 }
 
 /// #EXP-1961 (`callSession`): the call's own session's host-side numbers.
