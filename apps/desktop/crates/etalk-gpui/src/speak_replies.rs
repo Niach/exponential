@@ -903,7 +903,10 @@ impl SpeakReplies {
             if let Some(row) = opening {
                 let spoken = etalk::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, &language);
                 if !spoken.is_empty() {
-                    crate::voice_call::opening(row.id.clone(), spoken, cx);
+                    // #EXP-1992: after this update: a pickup it lets go
+                    // says the line through this speaker.
+                    let id = row.id.clone();
+                    cx.defer(move |cx| crate::voice_call::opening(id, spoken, cx));
                 }
             }
             return;
