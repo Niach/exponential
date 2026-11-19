@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-19-phones-calls-find-in-chat`,
+    date: `2026-11-19`,
+    title: `Calls, find in chat and full messages on phones`,
+    summary: `Android 0.14.151 and iOS 0.14.139: calls open with the agent's own words, a call is one card in the chat with Chat and Voice tabs, find in chat, and long messages show in full.`,
+    body: `- **Calls**: a call opens with the agent's own words in its own voice and runs in its own session; when you hang up, a summary lands in the chat.
+- **One card per call**: the call shows as one card in the chat; during the call, Chat and Voice tabs let you read and write while you talk.
+- **Find in chat**: search the chat you have open, “2/7” with up and down.
+- **Long messages show in full**: no more Show more.
+- **Agent chats**: the header has no tabs.
+- **Chats kept on the phone**: every chat is stored on the phone, older messages included.
+- **Sending into an older chat** no longer waits and fails.`,
+  },
+  {
     id: `2026-11-19-call-chat-tab`,
     date: `2026-11-19`,
     title: `Read the chat during a call`,
