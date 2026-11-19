@@ -844,8 +844,8 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
 - **How.** A launch is four programs in one process: `exponential-compositor
   space-run` makes the slices when the space has none (`busctl`), becomes
   `systemd-run --user --scope`; in the scope `space-enter` is the first
-  program (the entry of every scope into a space, where #EDE-146's guard
-  goes; today it only becomes the next), and `space-exec` takes the
+  program (the entry of every scope into a space: it asks the space guard
+  below, then becomes the next), and `space-exec` takes the
   caller's environment from its standard input and becomes the program. No
   D-Bus library in the compositor; nothing the caller chose (a variable, an
   `LD_PRELOAD`) reaches a program outside the scope or an argument. A launch
@@ -884,6 +884,65 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
   guards against the accidents of ordinary programs (#EDE-145).
+
+## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
+
+A space's programs are the person's user, so by user they may open the
+person's microphone and camera (the `uaccess` ACLs logind gives the person,
+the audio and video groups), switch their radios off (`/dev/rfkill`) or type
+into their session (`/dev/uinput`). What tells a space's processes apart is
+their slice (above). The space guard is the one privileged part of eDE that
+acts on it: when a process INSIDE a space's slice asks, it attaches a fixed
+eBPF device program to that slice. From then on the kernel refuses every
+`open()` and `mknod()` by a process of the space of:
+
+| devices | why |
+|---|---|
+| `/dev/snd/*` (116), OSS (14) | the microphone (and the speakers) |
+| `/dev/video*`, `/dev/v4l-subdev*` (81), DVB (212) | cameras, libcamera, video capture |
+| `/dev/input/*` (13), `/dev/uinput` (10:223) | the person's keyboard and mouse; `ydotool` |
+| `/dev/rfkill` (10:242) for writing | `rfkill block all` turns Wi-Fi and Bluetooth off |
+| `/dev/i2c-*` (89) | `ddcutil` switches monitors off |
+| `/dev/bus/usb/*` (189) for writing | PTP cameras, libusb capture |
+
+whoever owns the node and whatever its ACL says, also for root in the
+space, for a snap with its `camera` interface, a Flatpak with
+`--device=all`, a reopen through `/proc/<pid>/fd`. Everything else (the GPU,
+ttys, fuse, `/dev/null`) is as before. The person's own processes are not
+affected. The table is `crates/ede-space-guard/src/devices.rs`; the program
+is generated from it and tested in an eBPF interpreter on every device.
+
+- **What it is.** `/usr/libexec/exponential-space-guard`, a system service
+  started by `exponential-space-guard.socket` (`/run/exponential-space-guard.sock`,
+  enabled by the package; it ends after 10 minutes without a request).
+  `exponential-compositor space-enter`, the first program of every scope
+  into a space, asks it (`enter <spaces>`) and becomes the space's program
+  only on `ok`: nothing runs in a space before its slice is guarded. A
+  compositor whose guard answered at the session's start never starts
+  anything in a space without it; one without a guard says so in the log,
+  and `exponential-compositor doctor` has a line `Space guard`.
+- **Its three capabilities, no root.** A user of its own (`DynamicUser`),
+  `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach a device program and a
+  socket-address program to a cgroup), `CAP_PERFMON` (a socket-address
+  program reads the address it is asked about), nothing else; no network,
+  no home directories, the system read-only.
+- **What a hostile caller can make it do.** Anyone on the machine can ask.
+  The guard takes the asking process's user and cgroup from the kernel
+  (`SO_PEERCRED`, `/proc/<pid>/cgroup`), requires that cgroup to be inside
+  a space slice (`app-exponential_p<pid>-s<n>.slice`) under THAT user's own
+  manager and owned by them, and attaches its fixed programs there. So the
+  most a caller can do is restrict cgroups of its own user: take sound,
+  cameras and input devices away from its own processes. It writes no file,
+  never detaches anything and touches no other user. A space's programs
+  cannot undo it: the person's user can neither load a program nor get a
+  descriptor of the guard's, and without one the kernel refuses to detach
+  programs attached with `BPF_F_ALLOW_MULTI`. A user can make at most 64 of
+  their cgroups guarded per run of the service.
+- **Not a wall** (#EDE-145): a process that moves itself to another cgroup
+  of the user, or gets a descriptor opened outside the space, is not
+  stopped by it.
+- **Needs** cgroup v2 and a kernel that loads the program (`exponential-space-guard
+  probe` prints `ok` or why not).
 
 ## Config
 

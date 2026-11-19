@@ -56,6 +56,12 @@ if [ "$1" = configure ]; then
     [ -f "$f" ] || continue
     sed -i -e 's/^\(X\{0,1\}Session\)=ede$/\1=exponential/' -e 's/^\(X\{0,1\}Session\)=ede-safe$/\1=exponential-safe/' "$f" || true
   done
+  # #EDE-146..148: the space guard's socket listens from now on (the
+  # package's link in sockets.target.wants starts it at every boot).
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl start exponential-space-guard.socket || true
+  fi
 fi
 exit 0
 POSTINST

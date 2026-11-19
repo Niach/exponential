@@ -23,6 +23,19 @@ post_upgrade() {
   post_install
 }
 INSTALL
+# #EDE-146..148: the space guard's socket listens from now on (the
+# package's link in sockets.target.wants starts it at every boot).
+cat > "$work/exponential-desktop.install" <<'INSTALL'
+post_install() {
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl start exponential-space-guard.socket || true
+  fi
+}
+post_upgrade() {
+  post_install
+}
+INSTALL
 cat > "$work/PKGBUILD" <<PKGBUILD
 pkgbase=exponential-desktop
 pkgname=(exponential-desktop exponential-repo)
@@ -38,6 +51,7 @@ package_exponential-desktop() {
   depends=(glibc gcc-libs pipewire libinput seatd systemd-libs libxkbcommon pixman libglvnd mesa wayland vulkan-icd-loader fontconfig freetype2 git xorg-xwayland xdg-desktop-portal xdg-desktop-portal-gtk dbus glib2 systemd)
   optdepends=('exponential-repo: updates from the Exponential repository' 'vulkan-driver: the shell draws with Vulkan' 'vulkan-tools: the doctor names the GPU the shell takes' 'gnome-keyring: secrets')
   backup=(etc/pam.d/exponential-desktop)
+  install=exponential-desktop.install
   cp -a "$src/." "\$pkgdir/"
   rm -f "\$pkgdir/.version"
   install -Dm644 "$work/pam" "\$pkgdir/etc/pam.d/exponential-desktop"

@@ -102,6 +102,17 @@ pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     }
 }
 
+/// #EDE-146..148: the space guard keeps a space's programs off the
+/// person's microphone, camera and radio switches; `found` = what the
+/// guard answered (the session's start asks the same).
+pub fn check_space_guard(found: Result<(), String>) -> Check {
+    let name = "Space guard";
+    match found {
+        Ok(()) => Check { name, level: Level::Ok, detail: "your microphone, camera and radio switches are closed to agent spaces".into() },
+        Err(reason) => Check { name, level: Level::Warn, detail: format!("{reason}: programs in an agent space can use your microphone, camera and radio switches") },
+    }
+}
+
 /// `root.join(absolute)`: the system's files under another root in tests.
 fn under(root: &Path, absolute: &str) -> PathBuf {
     root.join(absolute.trim_start_matches('/'))
@@ -990,6 +1001,7 @@ pub fn run_checks() -> Vec<Check> {
             let config = crate::config::Config::default_path().map(|path| crate::config::Config::load(&path).0).unwrap_or_default();
             (units.version, crate::spaces::slice::described(&config.spaces, units.machine))
         })),
+        check_space_guard(crate::spaces::slice::guard_probe(&crate::spaces::slice::guard_socket())),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
         nv.suspend_units = command_output("systemctl", &["is-enabled", "nvidia-suspend.service", "nvidia-resume.service"]);
@@ -1059,6 +1071,16 @@ mod tests {
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 24.1.4")).level, Level::Ok);
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 25.0.0")).level, Level::Ok);
         assert!(check_xwayland(None, None).detail.contains("apt install xwayland"));
+    }
+
+    /// #EDE-146..148: no guard is a warning that says what is open.
+    #[test]
+    fn doctor_says_whether_agent_spaces_are_guarded() {
+        let ok = check_space_guard(Ok(()));
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "your microphone, camera and radio switches are closed to agent spaces"));
+        let missing = check_space_guard(crate::spaces::slice::guard_probe(std::path::Path::new("/nonexistent/exponential-space-guard.sock")));
+        assert_eq!(missing.level, Level::Warn);
+        assert_eq!(missing.detail, "the space guard is not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera and radio switches");
     }
 
     /// #EDE-138: no user manager (or an old one) is a warning that says

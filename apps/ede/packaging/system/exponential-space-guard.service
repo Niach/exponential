@@ -1,0 +1,41 @@
+# Exponential Desktop's space guard (#EDE-146, #EDE-147, #EDE-148). Started by
+# its socket, ends after 10 minutes without a request. It attaches two fixed
+# eBPF programs to the systemd slice of an agent space when a process inside
+# that slice asks, so nothing in a space opens the person's microphone,
+# camera, radio switches or input devices (README.md, "The space guard").
+# No root: a user of its own and exactly the three capabilities the kernel
+# asks for to load and attach a device and a socket-address program and to
+# read a socket's address in one.
+[Unit]
+Description=Exponential Desktop space guard
+Documentation=https://exponential.at/desktop/
+Requires=exponential-space-guard.socket
+
+[Service]
+ExecStart=/usr/libexec/exponential-space-guard
+DynamicUser=yes
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectHostname=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service bpf
+UMask=0077
+MemoryMax=64M
+TasksMax=32

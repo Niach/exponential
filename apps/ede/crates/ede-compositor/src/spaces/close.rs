@@ -288,6 +288,17 @@ impl Ede {
             }
         }
         tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
+        // #EDE-146..148: decided once, like the scopes: a compositor whose
+        // guard answered never starts anything in a space without it.
+        let socket = slice::guard_socket();
+        let mut units = units;
+        match slice::guard_probe(&socket) {
+            Ok(()) => {
+                tracing::info!("agent spaces are guarded ({})", socket.display());
+                units.guard = Some(socket);
+            }
+            Err(reason) => tracing::warn!("agent spaces are not guarded: programs in them can use the microphone, the camera and the radio switches: {reason}"),
+        }
         self.spaces.units = Some(units);
     }
 

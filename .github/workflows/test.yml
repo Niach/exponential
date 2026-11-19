@@ -636,6 +636,11 @@ jobs:
         env:
           EDE_EXPECT_USER_MANAGER: '1'
         run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real
+      - name: The space guard on this kernel (#EDE-146..148, sudo makes device nodes and runs the guard)
+        working-directory: apps/ede
+        env:
+          EDE_SPACE_GUARD_REAL: '1'
+        run: cargo test --locked -p ede-space-guard --test real -- --test-threads=1
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is

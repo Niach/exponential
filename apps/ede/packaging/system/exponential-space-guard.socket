@@ -1,0 +1,15 @@
+# Exponential Desktop's space guard (#EDE-146, #EDE-147, #EDE-148): the
+# socket the first program of every agent space's scope asks before it runs.
+# Anyone may connect; the guard only ever restricts the asking process's own
+# space slice (README.md, "The space guard").
+[Unit]
+Description=Exponential Desktop space guard socket
+Documentation=https://exponential.at/desktop/
+
+[Socket]
+ListenStream=/run/exponential-space-guard.sock
+SocketMode=0666
+Accept=no
+
+[Install]
+WantedBy=sockets.target
