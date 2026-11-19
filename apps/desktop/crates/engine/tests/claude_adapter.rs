@@ -417,7 +417,6 @@ fn spec_env(
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
-        confine_to: None,
         skills_dir: None,
         aside: false,
         exit: engine::ChildExitLink::new(),

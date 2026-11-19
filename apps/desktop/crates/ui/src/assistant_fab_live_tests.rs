@@ -22,7 +22,13 @@ struct Scene {
     /// #EXP-1872: THE bulk bar's dock over the pane's foot, a bar too wide
     /// to stay clear of the corner by centring alone.
     bulk: bool,
+    /// #EXP-1874: the app editor's Phone frame in a preview pane this wide,
+    /// pinned to the card's right edge.
+    phone_pane: Option<f32>,
 }
+
+/// The test Phone frame's selector.
+const PHONE_FRAME: &str = "test-phone-frame";
 
 /// The test bulk bar's selector.
 const BULK_BAR: &str = "test-bulk-bar";
@@ -76,7 +82,26 @@ impl Render for Scene {
             let bar = div().debug_selector(|| BULK_BAR.into()).w(px(700.)).h(px(40.)).into_any_element();
             crate::issue_list::bulk_bar_dock("test-bulk-dock", bar, window, cx)
         });
-        div().relative().size_full().children(rail).children(bulk).child(self.fab.clone())
+        let phone = self.phone_pane.map(|width| {
+            let frame = div()
+                .debug_selector(|| PHONE_FRAME.into())
+                .w(px(domain::apps::APPS.preview.phone_width))
+                .max_w_full()
+                .h_full()
+                .into_any_element();
+            // The editor's preview pane: `p_4` around the frame's row.
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .w(px(width))
+                .flex()
+                .flex_col()
+                .p_4()
+                .child(crate::app_screen::frame_row(frame, true, window, cx))
+        });
+        div().relative().size_full().children(rail).children(bulk).children(phone).child(self.fab.clone())
     }
 }
 
@@ -99,11 +124,11 @@ struct Harness<'a> {
 
 /// A signed-in viewer (`u1`) in team `t1` whose Assistant is `as1`.
 fn harness(cx: &mut gpui::TestAppContext) -> Harness<'_> {
-    harness_with(cx, false, false)
+    harness_with(cx, false, false, None)
 }
 
 /// [`harness`] with THE plan rail pinned to the card's right edge.
-fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool) -> Harness<'_> {
+fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool, phone_pane: Option<f32>) -> Harness<'_> {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("accounts.json"),
@@ -136,7 +161,7 @@ fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool) -> Harnes
             let fab = cx.new(|cx| AssistantFab::new(nav.clone(), cx));
             *slot.borrow_mut() = Some((nav, fab.clone()));
             let rail = rail.then(|| cx.new(|_| crate::markdown::ImageCache::new(None)));
-            let scene = cx.new(|_| Scene { fab, rail, bulk });
+            let scene = cx.new(|_| Scene { fab, rail, bulk, phone_pane });
             gpui_component::Root::new(scene, window, cx)
         }
     });
@@ -284,7 +309,7 @@ fn a_pinned_foot_sits_beside_the_fab(cx: &mut gpui::TestAppContext) {
     // #EXP-1872: THE plan rail pinned to the card's right edge: its foot
     // (Back / Next, the decision) is THE `foot`, so Next paints beside the
     // circle, `inset` px clear of it, never under it.
-    let mut h = harness_with(cx, true, false);
+    let mut h = harness_with(cx, true, false, None);
     let next = format!("{}-{PLAN_ID}", domain::plan_card::test_ids().step_next);
     let next: &'static str = Box::leak(next.into_boxed_str());
     let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
@@ -303,13 +328,31 @@ fn the_bulk_bar_centres_beside_the_fab(cx: &mut gpui::TestAppContext) {
     // #EXP-1872: THE bulk bar's dock is THE pinned foot: in a pane whose
     // width leaves the centred bar under the circle, it centres in what the
     // corner leaves and ends `inset` px left of the FAB.
-    let mut h = harness_with(cx, false, true);
+    let mut h = harness_with(cx, false, true, None);
     h.cx.simulate_resize(gpui::size(px(800.), px(600.)));
     h.settle();
     let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
     let bar = h.cx.debug_bounds(BULK_BAR).expect("the bar paints");
     assert!(bar.bottom() > circle.top(), "the bar floats at the pane's foot: {bar:?} {circle:?}");
     assert!(bar.right() + px(ASSISTANT_FAB.inset) <= circle.left(), "the bar ends beside the FAB: {bar:?} {circle:?}");
+}
+
+#[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
+fn the_phone_frame_centres_beside_the_fab(cx: &mut gpui::TestAppContext) {
+    use domain::agent_settings::ASSISTANT_FAB;
+    // #EXP-1874: the app editor's Phone frame pins its tab bar at its own
+    // foot, so the frame's row is THE pinned foot: in a preview pane too
+    // narrow to centre the frame clear of the corner, the frame centres in
+    // what the corner leaves and ends `inset` px left of the FAB.
+    for pane in [420., 540.] {
+        let mut h = harness_with(cx, false, false, Some(pane));
+        let circle = h.cx.debug_bounds(TEST_IDS.0).expect("the FAB paints");
+        let frame = h.cx.debug_bounds(PHONE_FRAME).expect("the frame paints");
+        assert!(frame.bottom() > circle.top(), "the frame's foot sits at the pane's foot: {frame:?} {circle:?}");
+        assert!(frame.right() + px(ASSISTANT_FAB.inset) <= circle.left(), "the frame ends beside the FAB ({pane}): {frame:?} {circle:?}");
+        assert!(frame.size.width <= px(domain::apps::APPS.preview.phone_width));
+    }
 }
 
 /// #EXP-1872: every element positioned at a pane's bottom, per file. A new
@@ -334,7 +377,7 @@ fn nothing_pins_to_a_foot_without_the_fab_foot() {
         ("join_team.rs", 1, "a modal dialog over the FAB"),
         ("media_tile.rs", 1, "a video tile's duration chip, inside the tile"),
         ("outline.rs", 1, "the active row's bar"),
-        ("phone_bar.rs", 2, "the app preview's phone tab bar inside its frame"),
+        ("phone_bar.rs", 2, "the caret + the drag lens inside a tab cell (the app preview's frame row = THE pinned foot)"),
         ("picker/mod.rs", 1, "a picker popover's fade"),
         ("picker/search_list.rs", 1, "a popover's fade"),
         ("plan_page.rs", 2, "the floating panel's overlay (its foot = THE pinned foot), the scrollbar"),

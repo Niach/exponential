@@ -774,6 +774,10 @@ impl Drop for Hold {
 }
 
 #[cfg(test)]
+#[path = "ede_test_client.rs"]
+mod test_client;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::Target;
@@ -1453,18 +1457,69 @@ mod tests {
 
     /// A headless `exponential-compositor` on a runtime directory of its
     /// own, ended and removed with the guard.
-    struct Kill(std::process::Child, PathBuf);
+    struct Kill {
+        child: std::process::Child,
+        runtime: PathBuf,
+        binary: std::ffi::OsString,
+    }
+
     impl Drop for Kill {
         fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-            let _ = std::fs::remove_dir_all(&self.1);
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_dir_all(&self.runtime);
         }
     }
 
-    /// `None` = `EDE_COMPOSITOR` is unset: the test is skipped.
+    impl Kill {
+        fn spawn(binary: &std::ffi::OsStr, runtime: &Path) -> std::process::Child {
+            std::process::Command::new(binary)
+                .args(["--headless", "640x480", "--no-xwayland", "--config"])
+                .arg(runtime.join("compositor.toml"))
+                .env("XDG_RUNTIME_DIR", runtime)
+                .env_remove("DISPLAY")
+                .env_remove("WAYLAND_DISPLAY")
+                .env("RUST_LOG", "warn")
+                .spawn()
+                .unwrap()
+        }
+
+        /// The session of the compositor running on the runtime directory,
+        /// once it answers its own token (after a kill the dead one's
+        /// socket and token file are still there).
+        fn session(&self) -> Session {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                let sockets = std::fs::read_dir(self.runtime.join("exponential-desktop")).into_iter().flatten().flatten().map(|entry| entry.path());
+                for socket in sockets.filter(|path| path.extension().is_some_and(|ext| ext == "sock")) {
+                    let display = socket.file_stem().unwrap().to_string_lossy().into_owned();
+                    let session = session_of(env(&[("XDG_CURRENT_DESKTOP", "Exponential"), ("XDG_RUNTIME_DIR", self.runtime.to_str().unwrap()), ("WAYLAND_DISPLAY", &display)]))
+                        .unwrap()
+                        .unwrap();
+                    if session.root_token().and_then(|root| session.connect_token(root)).is_ok() {
+                        return session;
+                    }
+                }
+                assert!(std::time::Instant::now() < deadline, "exponential-compositor did not open its socket");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+
+        /// The compositor dies as in a crash (its sockets and token file
+        /// stay behind) and a new one starts on the same runtime directory.
+        fn restart(&mut self) -> Session {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.child = Kill::spawn(&self.binary, &self.runtime);
+            self.session()
+        }
+    }
+
+    /// `None` = `EDE_COMPOSITOR` is unset: the test is skipped, unless
+    /// `EDE_COMPOSITOR_REQUIRED` is set (CI, #EDE-140): then it fails.
     fn headless_compositor() -> Option<(Kill, Session)> {
         let Some(binary) = std::env::var_os("EDE_COMPOSITOR") else {
+            assert!(std::env::var_os("EDE_COMPOSITOR_REQUIRED").is_none(), "EDE_COMPOSITOR_REQUIRED is set but EDE_COMPOSITOR is not");
             eprintln!("EDE_COMPOSITOR unset: skipping the headless eDE run");
             return None;
         };
@@ -1472,36 +1527,9 @@ mod tests {
         let runtime = std::env::temp_dir().join(format!("epilot-ede-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&runtime).unwrap();
         std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let config = runtime.join("compositor.toml");
-        std::fs::write(&config, "background = \"#102030\"\n").unwrap();
-        let child = std::process::Command::new(binary)
-            .args(["--headless", "640x480", "--no-xwayland", "--config"])
-            .arg(&config)
-            .env("XDG_RUNTIME_DIR", &runtime)
-            .env_remove("DISPLAY")
-            .env_remove("WAYLAND_DISPLAY")
-            .env("RUST_LOG", "warn")
-            .spawn()
-            .unwrap();
-        let kill = Kill(child, runtime.clone());
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let socket = loop {
-            let found = std::fs::read_dir(runtime.join("exponential-desktop")).ok().and_then(|dir| {
-                dir.flatten().map(|entry| entry.path()).find(|path| path.extension().is_some_and(|ext| ext == "sock"))
-            });
-            if let Some(socket) = found {
-                break socket;
-            }
-            assert!(std::time::Instant::now() < deadline, "exponential-compositor did not open its socket");
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        let display = socket.file_stem().unwrap().to_string_lossy().into_owned();
-        let session = session_of(env(&[("XDG_CURRENT_DESKTOP", "Exponential"), ("XDG_RUNTIME_DIR", runtime.to_str().unwrap()), ("WAYLAND_DISPLAY", &display)]))
-            .unwrap()
-            .unwrap();
-        while !session.token_file.exists() {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        std::fs::write(runtime.join("compositor.toml"), "background = \"#102030\"\n").unwrap();
+        let kill = Kill { child: Kill::spawn(&binary, &runtime), runtime, binary };
+        let session = kill.session();
         Some((kill, session))
     }
 
@@ -1603,10 +1631,13 @@ mod tests {
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
     /// epilot headless_ede`. Skipped without it (the desktop CI builds no
     /// eDE). Checks the grant too: the connection holds `capture`,
-    /// `input:person` and `ui` only, never the root's `system`.
+    /// `input:person` and `ui` only, never the root's `system`. #EDE-140:
+    /// with windows of its own (listed, activated, typed into, a protected
+    /// one refused), the person's Esc during a hold, and a compositor that
+    /// restarted.
     #[test]
     fn headless_ede_drives_and_captures() {
-        let Some((_kill, session)) = headless_compositor() else { return };
+        let Some((mut compositor, session)) = headless_compositor() else { return };
         assert_eq!(unsupported(&Ok(session.clone())), None);
         let ede = open(&session).unwrap();
         let held = session.connect().unwrap().hello.capabilities;
@@ -1642,6 +1673,81 @@ mod tests {
         }
         assert_eq!(ede.cursor_position().unwrap(), (10, 10));
 
+        // #EDE-140: real windows (a Wayland client of the test's own). The
+        // list, top to bottom; a second window of the app in front takes
+        // the keyboard.
+        const KEYS: [u32; 4] = [30, 28, 48, 1]; // evdev: A, Enter, B, Esc
+        let wayland = session.socket.parent().and_then(Path::parent).unwrap().join(session.socket.file_stem().unwrap());
+        let mut app = test_client::App::connect(&wayland);
+        let notes = app.window("notes", "epilot.notes", (200, 150), 0xff20_60a0);
+        let other = app.window("other", "epilot.other", (200, 150), 0xffa0_6020);
+        until("the second window never took the keyboard", || app.focused(&other));
+        let listed = ede.list_windows().unwrap();
+        let seen: Vec<_> = listed.iter().map(|window| (window.title.as_str(), window.app.as_str(), window.active)).collect();
+        assert_eq!(seen, [("other", "epilot.other", true), ("notes", "epilot.notes", false)]);
+
+        // activate_window brings the one behind forward, with the keyboard;
+        // the agent's keys reach it and a capture shows it as drawn.
+        let behind = listed[1].id;
+        ede.activate_window(behind).unwrap();
+        until("the activated window never took the keyboard", || app.focused(&notes));
+        let listed = ede.list_windows().unwrap();
+        assert_eq!((listed[0].id, listed[0].active, listed[1].active), (behind, true, false));
+        ede.type_char('a').unwrap();
+        ede.key(Key::Named(crate::keys::Named::Return), true).unwrap();
+        ede.key(Key::Named(crate::keys::Named::Return), false).unwrap();
+        until("the agent's keys never reached the window", || app.keys() == KEYS[..2]);
+        let centre = |shot: &Image, window: &WindowInfo| {
+            let (x, y) = (window.x + window.width as i32 / 2, window.y + window.height as i32 / 2);
+            let at = (y as usize * shot.width as usize + x as usize) * 4;
+            shot.rgba[at..at + 4].to_vec()
+        };
+        assert_eq!(centre(&ede.screenshot(screen).unwrap(), &listed[0]), [0x20, 0x60, 0xa0, 255], "the window in front, as drawn");
+
+        // The hold: the person's keys stay out while the agent's land;
+        // their Esc (their keyboard: through the compositor's bindings)
+        // ends it, the host hears it and no window does.
+        let mut person = session.connect_token(session.root_token().unwrap()).unwrap();
+        let tap = |person: &mut Client, key: u32| {
+            for pressed in [true, false] {
+                person.input_as_person(InputEvent::Key { key, pressed }).unwrap();
+            }
+        };
+        let (esc, escaped) = std::sync::mpsc::channel();
+        let guard = ede
+            .lock(Box::new(move || {
+                let _ = esc.send(());
+            }))
+            .unwrap();
+        tap(&mut person, KEYS[2]);
+        ede.type_char('a').unwrap();
+        until("the agent's key never landed during the hold", || app.keys() == [KEYS[0], KEYS[1], KEYS[0]]);
+        tap(&mut person, KEYS[3]);
+        escaped.recv_timeout(Duration::from_secs(5)).expect("the person's Esc never reached the hold");
+        drop(guard);
+        tap(&mut person, KEYS[2]);
+        let typed = [KEYS[0], KEYS[1], KEYS[0], KEYS[2]];
+        until("the person's key never landed after the hold", || app.keys() == typed);
+        drop(person);
+
+        // A protected window (a password manager) is never driven, never
+        // named and black in a capture.
+        let vault = app.window("My passwords", "org.keepassxc.KeePassXC", (200, 150), 0xffc0_2020);
+        until("the password manager never took the keyboard", || app.focused(&vault));
+        let refused = ede.type_char('a').unwrap_err();
+        assert!(refused.contains("protected"), "{refused}");
+        let listed = ede.list_windows().unwrap();
+        assert_eq!((listed[0].title.as_str(), listed[0].app.as_str(), listed[0].active), ("", "org.keepassxc.KeePassXC", true));
+        let refused = ede.mouse_move(listed[0].x + 10, listed[0].y + 10).unwrap_err();
+        assert!(refused.contains("protected"), "{refused}");
+        assert_eq!(centre(&ede.screenshot(screen).unwrap(), &listed[0]), [0, 0, 0, 255], "a protected window is black in a capture");
+        assert_eq!(app.keys(), typed, "a key reached the password manager");
+        for window in [vault, other, notes] {
+            app.close(window);
+        }
+        until("the windows never closed", || ede.list_windows().unwrap().is_empty());
+        drop(app);
+
         // The clipboard: set, read back, nobody focused takes it, restore.
         let clipboard = ede.clipboard().unwrap();
         let before = clipboard.change_count().unwrap();
@@ -1675,5 +1781,22 @@ mod tests {
         let gone = session.connect_token(token).err().expect("a revoked grant connects no more");
         assert!(gone.contains("unknown or expired token"), "{gone}");
         assert_eq!(session.connect().unwrap().hello.capabilities, CAPABILITIES.to_vec());
+
+        // #EDE-140: the compositor crashes and comes back on the same
+        // runtime directory. It knows nothing of the grant this process
+        // still holds: the next backend mints a new one and works.
+        let (_, stale) = GRANT.lock().unwrap().clone().unwrap();
+        drop((root, ede));
+        let session = compositor.restart();
+        let gone = session.connect_token(stale.clone()).err().expect("a new compositor knows no old grant");
+        assert!(gone.contains("unknown or expired token"), "{gone}");
+        let ede = open(&session).expect("the grant is minted again after a restart");
+        assert!(GRANT.lock().unwrap().clone().unwrap().1 != stale, "the stale grant is not kept");
+        assert_eq!(session.connect().unwrap().hello.capabilities, CAPABILITIES.to_vec());
+        let displays = ede.displays().unwrap();
+        assert_eq!((displays[0].width, displays[0].height), (640, 480), "the new compositor's own output, at its own scale");
+        assert_eq!(ede.screenshot(&displays[0]).unwrap().rgba[..4], [0x10, 0x20, 0x30, 255]);
+        ede.mouse_move(20, 30).unwrap();
+        assert_eq!(ede.cursor_position().unwrap(), (20, 30));
     }
 }

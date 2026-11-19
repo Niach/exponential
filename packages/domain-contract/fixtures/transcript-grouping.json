@@ -1469,7 +1469,7 @@
     }
   ],
   "blank": {
-    "$comment": "#FEED-256 / #FEED-254 BLANK TEXT ×5 (`isBlankText(text)`, `blankCases`; web, desktop, iOS, Android and the driver (eagent `blank::is_blank_text`) replay it): a text is BLANK when every character in it is one of `codePoints` (hex Unicode scalars: the Unicode White_Space set plus the invisible format characters: soft hyphen, Mongolian vowel separator, zero-width space, zero-width non-joiner, zero-width joiner, LRM, RLM, word joiner, BOM); the empty text is blank. Never a platform's own trim (JS `trim` keeps U+200B, Rust/Swift/Kotlin differ on U+FEFF and U+00A0). THE DRIVER: a turn whose final text is blank posts no reply (nothing stored, nothing relayed to the person, a parent or a managing agent); the server treats a blank card-less reply as no message too. EVERY CLIENT: a stored card-less message with a blank body draws nothing (no bubble, no transcript item, it never breaks a group), a feed narration with blank text is the `blank` role, and so is a feed input that `feedInput` reads as a relay whose `body` is blank (#FEED-254: `Message from <name> (session <id>): ` followed by nothing) (`checkInCases`: a blank message after quiet keeps the check-in quiet).",
+    "$comment": "#FEED-256 / #FEED-254 BLANK TEXT ×5 (`isBlankText(text)`, `blankCases`; web, desktop, iOS, Android and the driver (eagent `blank::is_blank_text`) replay it): a text is BLANK when every character in it is one of `codePoints` (hex Unicode scalars: the Unicode White_Space set plus the invisible format characters: soft hyphen, Mongolian vowel separator, zero-width space, zero-width non-joiner, zero-width joiner, LRM, RLM, word joiner, BOM); the empty text is blank. Never a platform's own trim (JS `trim` keeps U+200B, Rust/Swift/Kotlin differ on U+FEFF and U+00A0). THE DRIVER: a turn whose final text is blank posts no reply (nothing stored, nothing relayed to the person, a parent or a managing agent); the server treats a blank card-less reply as no message too. EVERY CLIENT: a stored card-less message with a blank body draws nothing (no bubble, no transcript item, it never breaks a group), a feed narration with blank text is the `blank` role, and so is a feed input that `feedInput` reads as a relay whose `body` is blank (#FEED-254: `Message from <name> (session <id>): ` followed by nothing) (`checkInCases`: a blank message after quiet keeps the check-in quiet). #FEED-255 ENTITIES: a text is blank too when its only other content is character references that DECODE to one of `codePoints`, exactly the ones genUI's markdown decodes (an invisible body drew a tall empty bubble): a decimal `&#<1-7 digits>;`, a hex `&#x<1-6 hex digits>;` (`x` or `X`) or the named `&nbsp;`; a reference to any other code point, a malformed one (no `;`, too many digits, `&#0;`, past U+10FFFF) or any other named entity (`&amp;`) is visible text.",
     "codePoints": [
       "0009",
       "000A",
@@ -1571,6 +1571,61 @@
     {
       "name": "an em dash",
       "text": "—",
+      "expected": false
+    },
+    {
+      "name": "a zero-width space as a decimal entity (#FEED-255)",
+      "text": "&#8203;",
+      "expected": true
+    },
+    {
+      "name": "a tall body of invisible entities, hex and named",
+      "text": "&#x200B;\n&#X200b;\n&nbsp;\n&#160;\n&#65279;\n",
+      "expected": true
+    },
+    {
+      "name": "entities mixed with raw zero-width characters",
+      "text": "\u200b &nbsp; \u2060&#8288;",
+      "expected": true
+    },
+    {
+      "name": "a visible entity",
+      "text": "&amp;",
+      "expected": false
+    },
+    {
+      "name": "an entity of a letter",
+      "text": "&#97;",
+      "expected": false
+    },
+    {
+      "name": "an entity without its semicolon",
+      "text": "&#8203",
+      "expected": false
+    },
+    {
+      "name": "an entity with too many digits",
+      "text": "&#00008203;",
+      "expected": false
+    },
+    {
+      "name": "a NUL entity",
+      "text": "&#0;",
+      "expected": false
+    },
+    {
+      "name": "an entity past U+10FFFF",
+      "text": "&#x110000;",
+      "expected": false
+    },
+    {
+      "name": "an unknown named entity",
+      "text": "&zwsp;",
+      "expected": false
+    },
+    {
+      "name": "a lone ampersand",
+      "text": "&",
       "expected": false
     }
   ],

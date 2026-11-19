@@ -1,5 +1,5 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
-import { FIND_IN_CHAT_TEST_IDS, findEventKey, findInChatOutputHint } from "@exp/domain-contract/find-in-chat"
+import { FIND_IN_CHAT_TEST_IDS, findEventKey, findInChatOutputHint, findMessageKey } from "@exp/domain-contract/find-in-chat"
 import { highlightCount } from "@exponential_app/eui"
 import { markdownHighlightCount } from "@exponential_app/eui/web"
 import { FindInChatContext, FindPaintContext, FindRow, type FindPaint } from "@/components/chat/find-in-chat"
@@ -836,45 +836,6 @@ export function AgentSessionView({
     [session, sessionMessages, tree, issues, syncedTailIds]
   )
   const deviceName = device.label || `Desktop`
-  // #EDE-129 (find-in-chat.json): find in chat over the WHOLE loaded feed
-  // (not just the painted window) plus the store's and the device's older
-  // hits; the rows read the paint through `FindPaintContext`.
-  const findInChat = useContext(FindInChatContext)
-  const isCommandText = useCallback((text: string) => parseSteerCommand(text, agentCommands) !== null, [agentCommands])
-  const findRowsFor = useCallback(
-    (query: string) => transcriptFindRows(feed, session.id, query, isCommandText),
-    [feed, session.id, isCommandText]
-  )
-  const revealFindItem = useCallback(
-    (itemId: number) => {
-      const at = feed.findIndex((item) => item.id === itemId)
-      if (at >= 0 && at < windowStart) startTransition(() => setWindowFrom(itemId))
-    },
-    [feed, windowStart]
-  )
-  const pageFindOlder = useCallback(() => {
-    startTransition(() => setWindowFrom(WINDOW_FROM_START))
-    store.loadEarlier()
-  }, [store])
-  const isMobileFind = useIsMobile()
-  const transcriptFind = useTranscriptFind({
-    find: findInChat,
-    compact: isMobileFind,
-    sessionId: session.id,
-    rootId: session.rootId ?? session.id,
-    rowsFor: findRowsFor,
-    lowestSeq: feed[0]?.seq,
-    fromStart: !snapshotCanLoadEarlier,
-    deviceOnline: device.online ?? null,
-    deviceName,
-    search: store.search,
-    reveal: revealFindItem,
-    pageOlder: pageFindOlder,
-    canPageOlder: snapshotCanLoadEarlier,
-    scrollRef,
-  })
-  const findPaint = transcriptFind.paint
-  const findHolding = transcriptFind.holding
   // EXP-773: the device-offline copy names the machine the transcript lives on.
   useEffect(
     () => store.noteDeviceLabel(device.label),
@@ -1262,7 +1223,7 @@ export function AgentSessionView({
   // #EXP-1732: the settled suggested-tasks cards (an open one is THE
   // Dock's) and the viewer's queued messages (a person's FIRST message
   // included) show under any empty-feed placeholder too, same column.
-  const extraRows = [...suggestionRows, ...handoffRows, ...queuedRows]
+  const extraRows = useMemo(() => [...suggestionRows, ...handoffRows, ...queuedRows], [suggestionRows, handoffRows, queuedRows])
   const lastExtra = extraRows[extraRows.length - 1]
   const extrasEndOwn = lastExtra?.type === `message` && lastExtra.author === `user` && lastExtra.authorId === viewerId
   const chatExtras =
@@ -1271,6 +1232,7 @@ export function AgentSessionView({
         <ChatConversation
           rows={extraRows}
           renderText={renderChatText}
+          wrapRow={wrapFindRow}
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
           viewerId={viewerId}
@@ -1296,7 +1258,9 @@ export function AgentSessionView({
             }}
             avatar={viewerAvatar ? <UserAvatar user={viewerAvatar} size={32} /> : null}
           >
-            <OutboxBubble sessionId={session.id} entry={entry} tail={index === 0 && !extrasEndOwn} />
+            <FindRow findKey={outboxFindKey(entry.clientId)}>
+              <OutboxBubble sessionId={session.id} entry={entry} tail={index === 0 && !extrasEndOwn} />
+            </FindRow>
           </TranscriptRow>
         ))}
       </div>
@@ -1325,6 +1289,60 @@ export function AgentSessionView({
     noFeed: deviceOffline && phase.kind === `ended`,
     deviceOffline: device.online === false,
   })
+  // #EDE-129 (find-in-chat.json): find in chat over the WHOLE loaded feed
+  // (not just the painted window) plus the store's and the device's older
+  // hits; the rows read the paint through `FindPaintContext`.
+  // (After the placeholder's state: the rows depend on what it draws.)
+  const findInChat = useContext(FindInChatContext)
+  const isCommandText = useCallback((text: string) => parseSteerCommand(text, agentCommands) !== null, [agentCommands])
+  // #EXP-1975: EVERY bubble the screen shows, in drawn order: the feed's
+  // rows, the synced tail, the own tail; under the no-transcript placeholder
+  // the sent inputs above it, then the own tail.
+  const findRowsFor = useCallback(
+    (query: string) =>
+      chatScreenFindRows({
+        query,
+        feed,
+        sessionId: session.id,
+        isCommand: isCommandText,
+        placeholder: placeholderShown,
+        sent: sentShown ? sentRows : NO_ROWS,
+        syncedTail: syncedTailRows,
+        ownTail: activeAgent !== null && !placeholderShown ? NO_ROWS : extraRows,
+        outbox: activeAgent !== null && !placeholderShown ? NO_OUTBOX : outbox,
+      }),
+    [feed, session.id, isCommandText, placeholderShown, sentShown, sentRows, syncedTailRows, activeAgent, extraRows, outbox]
+  )
+  const revealFindItem = useCallback(
+    (itemId: number) => {
+      const at = feed.findIndex((item) => item.id === itemId)
+      if (at >= 0 && at < windowStart) startTransition(() => setWindowFrom(itemId))
+    },
+    [feed, windowStart]
+  )
+  const pageFindOlder = useCallback(() => {
+    startTransition(() => setWindowFrom(WINDOW_FROM_START))
+    store.loadEarlier()
+  }, [store])
+  const isMobileFind = useIsMobile()
+  const transcriptFind = useTranscriptFind({
+    find: findInChat,
+    compact: isMobileFind,
+    sessionId: session.id,
+    rootId: session.rootId ?? session.id,
+    rowsFor: findRowsFor,
+    lowestSeq: feed[0]?.seq,
+    fromStart: !snapshotCanLoadEarlier,
+    deviceOnline: device.online ?? null,
+    deviceName,
+    search: store.search,
+    reveal: revealFindItem,
+    pageOlder: pageFindOlder,
+    canPageOlder: snapshotCanLoadEarlier,
+    scrollRef,
+  })
+  const findPaint = transcriptFind.paint
+  const findHolding = transcriptFind.holding
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -1465,6 +1483,7 @@ export function AgentSessionView({
                 <ChatConversation
                   rows={sentRows}
                   renderText={renderChatText}
+                  wrapRow={wrapFindRow}
                   attachmentSrc={attachmentUrl}
                   chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                   viewerId={viewerId}
@@ -1589,6 +1608,7 @@ export function AgentSessionView({
                     <ChatConversation
                       rows={syncedTailRows}
                       renderText={renderChatText}
+                      wrapRow={wrapFindRow}
                       attachmentSrc={attachmentUrl}
                       chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                       viewerId={viewerId}
@@ -1699,6 +1719,76 @@ const NO_ROWS: SessionChatRow[] = []
 const NO_TREE: readonly SessionRow[] = []
 const NO_ISSUES: readonly TreeIssue[] = []
 const NO_DOCKED: ReadonlySet<string> = new Set()
+const NO_OUTBOX: readonly { clientId: string; text: string }[] = []
+
+/** #EXP-1975 (find-in-chat.json): a drawn chat row's find key: a bubble
+ *  (a person's or the agent's message, a child's report) = `m:<messageId>`;
+ *  the rest (markers, cards) count nothing. */
+export function chatRowFindKey(row: SessionChatRow): string | null {
+  if (row.type === `report` || (row.type === `message` && row.author !== `system`)) return findMessageKey(row.id)
+  return null
+}
+
+/** #EXP-1975: an outbox entry with no row yet = `o:<clientId>`. */
+export function outboxFindKey(clientId: string): string {
+  return `o:${clientId}`
+}
+
+/** #EXP-1975: `ChatConversation`'s `wrapRow`: each bubble paints its marks. */
+export function wrapFindRow(row: SessionChatRow, body: ReactNode): ReactNode {
+  return <FindRow findKey={chatRowFindKey(row)}>{body}</FindRow>
+}
+
+/** #EXP-1975: what a person's bubble shows (`UserMessageBubble`): the text,
+ *  or its prose beside the attachments (none when markers chip it). */
+function userBubbleText(text: string): string {
+  const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
+  const attached = attachmentIds.length > 0 || files.length > 0
+  return attached ? (markers.length > 0 ? `` : body) : text
+}
+
+/** #EXP-1975: drawn chat rows' bubbles as find rows (what `MessageBubble`
+ *  paints: a message's body, a report's summary). */
+export function chatFindRows(rows: readonly SessionChatRow[], query: string): TranscriptFindRow[] {
+  const out: TranscriptFindRow[] = []
+  for (const row of rows) {
+    const key = chatRowFindKey(row)
+    if (!key) continue
+    const text = row.type === `report` ? row.summary || row.text : row.type === `message` ? row.body : ``
+    out.push({ key, count: text ? markdownHighlightCount(text, query) : 0, itemId: null, outputCount: 0 })
+  }
+  return out
+}
+
+/** #EXP-1975 (find-in-chat.json): the chat screen's loaded find rows =
+ *  EVERY bubble it shows, in drawn order: the transcript's rows, the synced
+ *  tail, the own tail (own rows, then outbox entries with no row yet);
+ *  while the no-transcript placeholder shows, the sent inputs above it,
+ *  then the own tail. */
+export function chatScreenFindRows(input: {
+  query: string
+  feed: readonly FeedItem[]
+  sessionId: string
+  isCommand: (text: string) => boolean
+  /** The no-transcript placeholder shows (no feed rows, no synced tail). */
+  placeholder: boolean
+  /** The sent inputs drawn above the placeholder (empty = none drawn). */
+  sent: readonly SessionChatRow[]
+  syncedTail: readonly SessionChatRow[]
+  /** The own tail's rows (handoff, queued; suggestions count nothing). */
+  ownTail: readonly SessionChatRow[]
+  outbox: readonly { clientId: string; text: string }[]
+}): TranscriptFindRow[] {
+  const { query } = input
+  const head = input.placeholder
+    ? chatFindRows(input.sent, query)
+    : [...transcriptFindRows(input.feed, input.sessionId, query, input.isCommand), ...chatFindRows(input.syncedTail, query)]
+  const outbox = input.outbox.map((entry): TranscriptFindRow => {
+    const shown = userBubbleText(entry.text)
+    return { key: outboxFindKey(entry.clientId), count: shown ? markdownHighlightCount(shown, query) : 0, itemId: null, outputCount: 0 }
+  })
+  return [...head, ...chatFindRows(input.ownTail, query), ...outbox]
+}
 
 /** #FEED-237 (message-delivery.json): an outbox entry = the viewer's own
  *  bubble with the clock, or the red mark whose menu retries or deletes. */
@@ -1906,10 +1996,7 @@ export function transcriptFindRows(
       if (commandDivider(item.text) || isCommand(item.text) || item.checkIns) continue
       const input = feedInput(item.text)
       if (input?.kind === `marker`) continue
-      const text = input?.kind === `relay` ? input.body : item.text
-      const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
-      const attached = attachmentIds.length > 0 || files.length > 0
-      const shown = attached ? (markers.length > 0 ? `` : body) : text
+      const shown = userBubbleText(input?.kind === `relay` ? input.body : item.text)
       out.push({ key, count: shown ? markdownHighlightCount(shown, query) : 0, itemId: item.id, outputCount: 0 })
     } else if (item.kind === `tool` && !item.workflowId && !traceNotice(item.name) && !item.diff) {
       out.push(findToolRow(item, key, query, null, item.id))

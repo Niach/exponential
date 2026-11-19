@@ -180,7 +180,6 @@ impl LocalAgent {
             // The CLI names the conversation itself: that name is the Chats row.
             name_conversation: true,
             aside: false,
-            confine_to: None,
             // A local (server-free) run has no team skills.
             skills_dir: None,
             exit: ChildExitLink::new(),

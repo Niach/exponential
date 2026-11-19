@@ -1327,10 +1327,16 @@ impl AppScreenView {
                 .w_full()
                 .justify_center()
                 .p_2()
-                .child(crate::phone_bar::capsule().children(screens.into_iter().map(
+                // #EXP-1874: a frame narrower than its tabs (a narrow pane
+                // beside the Assistant FAB) squeezes them; the bar never
+                // leaves the frame.
+                .child(crate::phone_bar::capsule().max_w_full().children(screens.into_iter().map(
                     |(template, title, icon)| {
                         let selected = template == shown;
                         crate::phone_bar::screen_tab(screen_icon(icon.as_deref()), title, selected, cx)
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
                             .id(SharedString::from(format!("preview-screen-{template}")))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
@@ -1399,9 +1405,7 @@ impl AppScreenView {
             .p_4()
             .child(self.render_preview_toolbar(cx))
             .children(banner)
-            // The frame's row: a flex parent so the frame keeps its height
-            // (flex_1) and centres at the Phone width.
-            .child(h_flex().flex_1().min_h_0().w_full().items_stretch().justify_center().child(frame))
+            .child(frame_row(frame, self.frame == PreviewFrame::Phone, window, cx))
             .into_any_element()
     }
 
@@ -1568,6 +1572,16 @@ impl AppScreenView {
         };
         frame.into_any_element()
     }
+}
+
+/// The preview frame's row: a flex parent so the frame keeps its height
+/// (flex_1) and centres at the Phone width. #EXP-1874: the Phone frame's row
+/// is THE pinned foot (`assistant_fab::foot`), so the frame centres in what
+/// the Assistant FAB's corner leaves of the pane and its tab bar never sits
+/// under the circle; the Desktop frame fills the pane.
+pub(crate) fn frame_row(frame: AnyElement, phone: bool, window: &Window, cx: &gpui::App) -> gpui::Div {
+    let row = if phone { crate::assistant_fab::foot("app-preview-frame", px(0.), window, cx) } else { div().w_full() };
+    row.flex().flex_row().flex_1().min_h_0().items_stretch().justify_center().child(frame)
 }
 
 impl AppScreenView {

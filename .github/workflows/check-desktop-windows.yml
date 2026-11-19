@@ -5,7 +5,8 @@ name: check-desktop-windows
 # This compiles the app for Windows on every PR that touches the desktop
 # workspace (#EXP-1805: was only the update and relaunch path; a warm run
 # takes ~4-8 min on a free hosted runner) and runs the vendored
-# gpui-pre-windows' own tests (#ERR-2/#ERR-3). Informational: not part of
+# gpui-pre-windows' own tests (#ERR-2/#ERR-3), a variable font's weights on
+# DirectWrite and the claude store's junctions (#EXP-1889). Informational: not part of
 # `gate`. The macOS twin is check-desktop-macos.yml.
 
 on:
@@ -14,6 +15,8 @@ on:
       - ".github/workflows/check-desktop-windows.yml"
       - ".github/actions/cargo-fetch/**"
       - "apps/desktop/**"
+      # The variable-font test reads the conformance fonts.
+      - "packages/exponential-ui/conformance/fonts/**"
 
 permissions:
   contents: read
@@ -37,7 +40,21 @@ jobs:
       - name: cargo check
         shell: bash
         run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app
+      # #EDE-140: computer use's Windows backend has tests of its own that no
+      # Linux job compiles. They run in release-suite's desktop-windows
+      # (#EXP-1979); this compiles them on the PR.
+      - name: cargo check (ePilot's tests)
+        shell: bash
+        run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests
       # #ERR-2 / #ERR-3: the vendored gpui-pre-windows patch's own tests.
       - name: gpui-pre-windows patch tests
         shell: bash
         run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p gpui-pre-windows --lib -- exponential_patch_tests system_notifications::tests
+      # #EXP-1889 (#VAPP-166): a variable font's weights on DirectWrite.
+      - name: Variable-font weights (DirectWrite)
+        shell: bash
+        run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p gpui-pre-windows --lib -- exponential_variable_font_tests --nocapture
+      # #EXP-1889 (#EXP-1794): the claude store's junctions (`mklink /J`).
+      - name: One claude store (junctions)
+        shell: bash
+        run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eagent --lib claude_store

@@ -6286,7 +6286,8 @@
         "depth": {
           "type": "number",
           "default": 0,
-          "description": "Under a tree Section (0 = root)."
+          "bindable": true,
+          "description": "Under a tree Section (0 = root); bound = indent only."
         },
         "open": {
           "type": "boolean",

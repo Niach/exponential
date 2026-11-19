@@ -58,6 +58,16 @@ pub(crate) struct Launch {
 }
 
 impl Launch {
+    /// Its process id, which is also its group's ([`Ede::space_of_process`]).
+    pub(crate) fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// The space it was launched into.
+    pub(crate) fn desk(&self) -> DeskId {
+        self.desk
+    }
+
     fn signal(&self, signal: Signal) {
         if let Some(group) = Pid::from_raw(self.child.id() as i32) {
             let _ = kill_process_group(group, signal);

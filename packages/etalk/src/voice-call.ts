@@ -28,20 +28,14 @@ export function callSpeechOf(state: string | null | undefined): CallSpeech | nul
   return `preparing`
 }
 
+/** EXP-1991: ONE desktop, as `callTarget` reads it for its reason. */
 export interface CallAvailabilityInput {
-  /** NEW-99: the member has a voice Assistant (`voice.get` agentId). */
-  agent: boolean
-  platform: CallPlatform
-  /** The voice device's name; null = none picked. */
-  device: string | null
+  /** The desktop's name. */
+  device: string
   online: boolean
-  /** THIS client is the voice device. */
-  here: boolean
   /** null = no `speech` row yet. */
   speech: CallSpeech | null
-  /** A call this client does not run already runs on the voice device. */
-  busy: boolean
-  /** #NEW-57: a meeting runs on the voice device. */
+  /** #NEW-57: a meeting runs on it. */
   meeting?: boolean
 }
 
@@ -50,23 +44,20 @@ export interface CallAvailability {
   reason: string | null
 }
 
-/** Whether the telephone is enabled, and the reason when it is not. S-3:
- *  a voice that is still downloading rings until it is ready. */
+/** Whether a desktop can take a call, and the reason when it cannot
+ *  (`availabilityCases`, first match wins). S-3: a voice that is still
+ *  downloading rings until it is ready. */
 export function callAvailability(input: CallAvailabilityInput): CallAvailability {
   const reasons = fixture.copy.reasons
   const off = (reason: string): CallAvailability => ({
     enabled: false,
-    reason: reason.replace(`{device}`, input.device ?? ``),
+    reason: reason.replace(`{device}`, input.device),
   })
-  if (!input.agent) return off(reasons.noAgent)
-  if (input.device === null) return off(reasons.noVoiceDevice)
   if (!input.online) return off(reasons.offline)
   if (input.meeting) return off(reasons.meeting)
-  if (input.platform === `desktop` && !input.here) return off(reasons.notHere)
   if (input.speech === null) return off(reasons.preparing)
   if (input.speech === `failed`) return off(reasons.voiceFailed)
   if (input.speech === `noGpu`) return off(reasons.noGpu)
-  if (input.busy) return off(reasons.busy)
   return { enabled: true, reason: null }
 }
 
@@ -95,7 +86,6 @@ export interface CallTargetDevice {
 }
 
 export interface CallTargetInput {
-  platform: CallPlatform
   /** THIS client's own desktop (null on phones and web). */
   here: string | null
   /** The called agent's Runs on device. */
@@ -143,13 +133,9 @@ export function callTarget(input: CallTargetInput): CallTarget {
     const first = candidates[0]
     if (!first) return { ...none, enabled: false, reason: fixture.copy.reasons.noDesktop }
     const { reason } = callAvailability({
-      agent: true,
-      platform: input.platform,
       device: first.name,
       online: first.online,
-      here: true,
       speech: first.speech,
-      busy: false,
       meeting: first.meeting,
     })
     return { ...none, enabled: false, reason }

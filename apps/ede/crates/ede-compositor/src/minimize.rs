@@ -67,18 +67,7 @@ impl Ede {
         if st.workspace != self.desk.workspaces.active {
             self.desk.workspaces.parked.push(window.clone());
         } else {
-            let at = st.parked_at.filter(|at| {
-                let center = at.to_f64() + window.geometry().size.to_f64().to_point().downscale(2.0);
-                self.desk.space.output_under(center).next().is_some()
-            });
-            match at {
-                Some(at) => self.desk.space.map_element(window.clone(), at, true),
-                // Its output went away meanwhile: a fresh place on the first one.
-                None => {
-                    self.desk.space.map_element(window.clone(), (0, 0), true);
-                    self.rehome_lost_windows(&[window.clone()]);
-                }
-            }
+            self.map_parked(window, true);
         }
         self.window_event(ede_protocol::events::WINDOW_RESTORED, window);
         true

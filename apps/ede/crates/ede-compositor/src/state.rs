@@ -291,7 +291,7 @@ impl Ede {
             }
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
-            self.spaces.open(std::path::Path::new(&runtime).join("exponential-desktop").join(format!("{}.spaces", name.to_string_lossy())));
+            self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
         }
         Ok(name)
     }
@@ -371,36 +371,20 @@ impl Ede {
             Some([x, y]) => (x, y),
             None => (self.desk.space.outputs().filter_map(|o| self.desk.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0), 0),
         };
-        self.desk.space.map_output(output, at);
+        self.place_output(output, at.into());
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
         self.output_changed(output.name());
     }
 
     /// Unplugged: the rest close ranks left to right, and the windows that
-    /// were on it (or end up on no output) reopen on the first one.
+    /// were on it (or end up on no output) reopen on the first one
+    /// ([`Self::relayout`]).
     pub fn remove_output(&mut self, output: &Output) {
-        let center = |space: &Space<Window>, w: &Window| {
-            space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
-        };
-        let gone = self.desk.space.output_geometry(output);
-        let on_it: Vec<Window> = self
-            .desk.space
-            .elements()
-            .filter(|w| gone.zip(center(&self.desk.space, w)).is_some_and(|(g, c)| g.to_f64().contains(c)))
-            .cloned()
-            .collect();
+        let before = self.laid_out();
         self.desk.space.unmap_output(output);
         self.lock_output_removed(output);
-        let outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
-        let mut x = 0;
-        for o in outputs {
-            let w = self.desk.space.output_geometry(&o).map(|g| g.size.w).unwrap_or(0);
-            self.desk.space.map_output(&o, (x, 0));
-            layer_map_for_output(&o).arrange();
-            x += w;
-        }
-        self.rehome_lost_windows(&on_it);
+        self.relayout(&before);
     }
 
     /// Windows in `also`, and any whose centre is on no output, reopen on
@@ -409,7 +393,7 @@ impl Ede {
         let center = |space: &Space<Window>, w: &Window| {
             space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
         };
-        let Some(area) = self.desk.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
+        let Some(first) = self.desk.space.outputs().next().cloned() else { return };
         let orphans: Vec<Window> = self
             .desk.space
             .elements()
@@ -417,16 +401,47 @@ impl Ede {
             .cloned()
             .collect();
         for w in orphans {
-            // A tiled window becomes floating again at its old size.
-            let mut size = self.restore_size(&w).unwrap_or(w.geometry().size);
-            self.untile(&w, None);
-            let fh = self.frame_height(&w);
-            size.h += fh;
-            let taken: Vec<_> = self.desk.space.elements().filter(|o| *o != &w).filter_map(|o| self.desk.space.element_location(o)).collect();
-            let mut loc = layout::place_new(size, area, &taken, 32);
-            loc.y += fh;
-            self.move_window(&w, loc, false);
+            self.rehome(&w, &first);
         }
+    }
+
+    /// `window` reopens in a free spot of `output`'s work area, where it
+    /// stands in the stack: a tiled one floating again at its old size, a
+    /// fullscreen one filling `output`, leaving fullscreen to that spot
+    /// (#EDE-139: never to the place on an output that went away).
+    pub fn rehome(&mut self, window: &Window, output: &Output) {
+        let st = window_state(window);
+        let size = st.restore.or(st.fullscreen).map_or(window.geometry().size, |r| r.size);
+        let Some(loc) = self.free_spot(window, size, output) else { return };
+        if st.fullscreen.is_some() {
+            set_window_state(window, WindowState { fullscreen: Some(Rectangle::new(loc, size)), tile: None, restore: None, ..st });
+            self.fit_fullscreen(window, output);
+            return;
+        }
+        self.untile(window, None);
+        self.relocate_window(window, loc);
+    }
+
+    /// Where a `size` window (its title bar not counted) opens in
+    /// `output`'s work area beside the other windows.
+    pub(crate) fn free_spot(&self, window: &Window, size: Size<i32, Logical>, output: &Output) -> Option<Point<i32, Logical>> {
+        let area = self.work_area(output)?;
+        let fh = self.frame_height(window);
+        let taken: Vec<_> = self.desk.space.elements().filter(|o| *o != window).filter_map(|o| self.desk.space.element_location(o)).collect();
+        let mut loc = layout::place_new((size.w, size.h + fh).into(), area, &taken, 32);
+        loc.y += fh;
+        Some(loc)
+    }
+
+    /// `r` moved by `delta` along with `output`; one `output` no longer
+    /// holds (it shrank) gets a free spot on it instead.
+    pub(crate) fn moved_along(&self, window: &Window, r: Rect, delta: Point<i32, Logical>, output: &Output) -> Rect {
+        let r = Rectangle::new(r.loc + delta, r.size);
+        let center = r.loc.to_f64() + r.size.to_f64().to_point().downscale(2.0);
+        if self.desk.space.output_geometry(output).is_some_and(|g| g.to_f64().contains(center)) {
+            return r;
+        }
+        self.free_spot(window, r.size, output).map_or(r, |loc| Rectangle::new(loc, r.size))
     }
 
     /// The output's area minus exclusive layer-shell zones (a panel), inset
@@ -565,6 +580,16 @@ impl Ede {
         }
     }
 
+    /// [`Self::move_window`] where it stands in the stack: who is in front
+    /// and who is activated stay (a display change, #EDE-139).
+    pub fn relocate_window(&mut self, window: &Window, loc: Point<i32, Logical>) {
+        self.remap(window, loc);
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = window.x11_surface() {
+            let _ = x11.configure(Some(Rectangle::new(loc, x11.last_configure().size)));
+        }
+    }
+
     /// First buffer arrived: pick a spot on the pointer's output and map.
     pub fn place_new_window(&mut self, desk: DeskId, window: Window) {
         self.desk_mut(desk).unmapped.retain(|w| w != &window);
@@ -649,7 +674,16 @@ impl Ede {
     pub fn tile(&mut self, window: &Window, tile: Tile) {
         let Some(geo) = self.desk.space.element_geometry(window) else { return };
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
-        let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) else { return };
+        if let Some(output) = self.output_at(center) {
+            self.tile_on(window, tile, &output);
+        }
+    }
+
+    /// [`Self::tile`] on `output`, whichever output its old tile's centre
+    /// lies on now (#EDE-139: the outputs moved under it).
+    pub fn tile_on(&mut self, window: &Window, tile: Tile, output: &Output) {
+        let Some(geo) = self.desk.space.element_geometry(window) else { return };
+        let Some(area) = self.work_area(output) else { return };
         let mut st = window_state(window);
         if st.fullscreen.is_some() {
             return;
@@ -662,6 +696,20 @@ impl Ede {
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.remap(window, rect.loc);
+    }
+
+    /// `output`'s work area changed (a panel's exclusive zone came, changed
+    /// or went, #EDE-139): its tiled and maximized windows fill the new one,
+    /// in place (who is in front stays).
+    pub fn refit_tiles(&mut self, output: &Output) {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
+            let Some(tile) = window_state(&w).tile else { continue };
+            let Some(geo) = self.desk.space.element_geometry(&w) else { continue };
+            let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+            if self.desk.space.output_under(center).next() == Some(output) {
+                self.tile(&w, tile);
+            }
+        }
     }
 
     /// `rect` minus the title bar at its top (what the window itself gets).
@@ -732,6 +780,14 @@ impl Ede {
                 (None, None) => {}
             }
         }
+    }
+
+    /// A fullscreen `window` covers `output` as it is now (its mode, scale
+    /// or place changed, or the window came over from another, #EDE-139).
+    pub fn fit_fullscreen(&mut self, window: &Window, output: &Output) {
+        let Some(out) = self.desk.space.output_geometry(output) else { return };
+        self.configure_window(window, Some(out), None, true);
+        self.remap(window, out.loc);
     }
 
     /// The output background until the shell draws a wallpaper; black

@@ -788,6 +788,10 @@ final class AgentSessionModel {
     /// row, a publisher older than EXP-783).
     func findSeq(_ id: Int) -> Int? { seqById[id] }
 
+    /// #EXP-1975: the synced message a synced-tail row draws (its find key
+    /// `m:<messageId>`, find-in-chat.json); nil = a feed row.
+    func findMessageId(_ id: Int) -> String? { syncedTailMessageIds[id] }
+
     /// The lowest loaded seq (the device's `beforeSeq`).
     var findLowestSeq: Int? { oldestSeq }
 
@@ -922,6 +926,7 @@ final class AgentSessionModel {
             syncedTail = nextTail
             tailVersion &+= 1
         }
+        if nextTail.isEmpty, !syncedTailMessageIds.isEmpty { syncedTailMessageIds = [:] }
         let line = SteerNoFeed.offlineLine(
             live: live, rows: feed.count + syncedTail.count, ended: sessionEnded,
             noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline
@@ -988,6 +993,8 @@ final class AgentSessionModel {
     @ObservationIgnored private var feedVersion = 0
     /// #FEED-260: bumped when the synced tail moved.
     @ObservationIgnored private var tailVersion = 0
+    /// #EXP-1975: the synced tail's row ids → their message ids.
+    @ObservationIgnored private var syncedTailMessageIds: [Int: String] = [:]
 
     /// #FEED-260: an input of the synced tail moved (the phase, the host's
     /// presence, the history fetch, the own bubbles, the synced messages).
@@ -1036,6 +1043,7 @@ final class AgentSessionModel {
             messages: tailMessages.filter { !own.contains($0.id) },
             unreachable: unreachable
         ) { $0 }
+        syncedTailMessageIds = Dictionary(picked.map { (Self.syncedTailId($0.id), $0.id) }, uniquingKeysWith: { first, _ in first })
         return picked.map { m in
             let id = Self.syncedTailId(m.id)
             let text = m.body.trimmingCharacters(in: .whitespacesAndNewlines)

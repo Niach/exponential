@@ -64,6 +64,10 @@ pub struct Client {
     pub pointer_enters: u32,
     pub pointer_motions: u32,
     pub buttons: Vec<(u32, bool)>,
+    /// Every scroll it heard (#EDE-140): each `axis` (0 = vertical, 1 =
+    /// horizontal) with its value, each `axis_discrete` with its steps.
+    pub axes: Vec<(u32, f64)>,
+    pub axis_steps: Vec<(u32, i32)>,
     pub idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
     /// `idled` and `resumed` on our idle notifications.
     pub idled: u32,
@@ -620,6 +624,8 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Client {
                     state.press_at = state.pointer_at;
                 }
             }
+            wl_pointer::Event::Axis { axis: WEnum::Value(axis), value, .. } => state.axes.push((axis.into(), value)),
+            wl_pointer::Event::AxisDiscrete { axis: WEnum::Value(axis), discrete } => state.axis_steps.push((axis.into(), discrete)),
             _ => {}
         }
     }

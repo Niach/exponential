@@ -76,9 +76,8 @@ for c in fixture["availabilityCases"] as! [[String: Any]] {
     let i = c["input"] as! [String: Any]
     let e = c["expected"] as! [String: Any]
     let reason = callUnavailable(input: TalkCallAvailabilityInput(
-        agent: i["agent"] as! Bool, platform: platform(i["platform"]), device: str(i["device"]),
-        online: i["online"] as! Bool, here: i["here"] as! Bool, speech: str(i["speech"]).map(speech),
-        busy: i["busy"] as! Bool, meeting: (i["meeting"] as? Bool) ?? false))
+        device: str(i["device"])!, online: i["online"] as! Bool, speech: str(i["speech"]).map(speech),
+        meeting: (i["meeting"] as? Bool) ?? false))
     check(reason == str(e["reason"]), "availability \(c["name"]!): \(String(describing: reason))")
     check((reason == nil) == (e["enabled"] as! Bool), "availability \(c["name"]!) enabled")
 }

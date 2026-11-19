@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Row `depth` bound to data (#EXP-1843): TreeGuides reads its resolved `depth` through the core's `treeGuideDepth` (a finite number floored, never below 0; a numeric STRING is 0 now, as in the Rust core); `list-reorder.test.tsx` renders a templated folder tree whose rows bind `depth`.
 - `highlight` on Text and Markdown (#EDE-95): the matches paint through the CSS Custom Highlight API (`paintHighlights`, `::highlight(xui-match)` / `(xui-match-current)` in base-css), no DOM change; `highlight.test.tsx` replays `fixtures/text-highlight.json` `markdownCases` through the rendered DOM.
 - Markdown chips keep their punctuation (#EXP-1882): a chip and the text it touches paint in one `.xui-md-glue` span (`glueChips`), so `)`, `.`, `,` or `(` never wrap away from it; a capped chip leaves them room. `browser/exp1882.test.ts` (the harness `?view=tree&chips=1`).
 - `forcedStates` surface prop (#EXP-1781): host-only FORCED interaction states (id → `hover` / `pressed` / `focus`; a key covers the node and its parts `<key>.…`), PAINT ONLY: they join the `data-xs` of the node and its parts (`useParts` + `PartFn.forced` for unplaced per-item parts: Radio and Segmented `item.<i>`), no event, overlay, focus move or ARIA change. `forced-states.test.tsx` replays `fixtures/forced-states.json`; the harness `?view=specimen` passes a specimen's `states`; the specimen snapshots gain the state rows.
