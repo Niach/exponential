@@ -9,6 +9,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { asc, eq, sql } from "drizzle-orm"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
+import { REPLIES_MAX, SUGGESTIONS_MAX } from "@exp/db-schema/domain"
 import {
   generateTreeKey,
   openBody,
@@ -276,6 +277,80 @@ describe.skipIf(!ready.ok)(`#EXP-1958 taps on a sealed card in a keyed tree`, ()
     const tasks = await postSealed(w, suggestionsCard())
     await expect(host.startSuggestion({ messageId: tasks, itemId: `x`, where: `child` })).rejects.toThrow(SEALED_SUGGESTIONS_MESSAGE)
     expect((await storedCard(messageId)).stamps).toBeUndefined()
+    await assertNoPlaintext(w.teamId)
+  })
+
+  it(`${caseNamed(`an item id that is no uuid`).name}, ${caseNamed(`__proto__ as`).name}: nothing posted, nothing stamped`, async () => {
+    const w = await world()
+    const host = caller(w.owner)
+    const replies = repliesCard()
+    const repliesId = await postSealed(w, replies)
+    const tasksId = await postSealed(w, suggestionsCard())
+    const before = await lastBody(w.rootId)
+    const sealed = () => sealBody(w.tree.publicKey, 1, SECRET.reply)
+    for (const c of [caseNamed(`an item id that is no uuid`), caseNamed(`__proto__ as`)] as Array<Case & { itemId: string }>) {
+      // Twice: an unstamped success would let the same tap repeat forever.
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          host.send({ sessionId: w.rootId, text: sealed(), cardItem: { messageId: repliesId, itemId: c.itemId } })
+        ).rejects.toMatchObject({ code: c.code })
+      }
+    }
+    const stamp = caseNamed(`a stamp action with an item id`) as Case & { itemId: string }
+    await expect(host.dismissSuggestion({ messageId: tasksId, itemId: stamp.itemId })).rejects.toMatchObject({ code: stamp.code })
+    await expect(host.dismissReplies({ messageId: repliesId, itemIds: [ids(replies)[0]!, stamp.itemId] })).rejects.toMatchObject({
+      code: stamp.code,
+    })
+    await expect(
+      host.fileSuggestion({ messageId: tasksId, itemId: stamp.itemId, title: `Proto task`, text: `x` })
+    ).rejects.toMatchObject({ code: stamp.code })
+    expect((await db.select().from(issues).where(eq(issues.title, `Proto task`))).length).toBe(0)
+    expect(await lastBody(w.rootId)).toBe(before)
+    expect((await storedCard(repliesId)).stamps).toBeUndefined()
+    expect((await storedCard(tasksId)).stamps).toBeUndefined()
+  })
+
+  it(`${caseNamed(`a new id once stamps holds`).name}`, async () => {
+    const w = await world()
+    const host = caller(w.owner)
+    const code = caseNamed(`a new id once stamps holds`).code
+    const fresh = () => crypto.randomUUID()
+    const sealed = () => sealBody(w.tree.publicKey, 1, SECRET.reply)
+    const count = async (messageId: string) => Object.keys(((await storedCard(messageId)).stamps ?? {}) as object).length
+
+    // Suggestions: a steerer inventing ids fills the map to SUGGESTIONS_MAX, no further.
+    const tasksId = await postSealed(w, suggestionsCard())
+    for (let i = 0; i < SUGGESTIONS_MAX; i++) await host.dismissSuggestion({ messageId: tasksId, itemId: fresh() })
+    expect(await count(tasksId)).toBe(SUGGESTIONS_MAX)
+    await expect(host.dismissSuggestion({ messageId: tasksId, itemId: fresh() })).rejects.toMatchObject({ code })
+    const children = (await db.select().from(sessions).where(eq(sessions.parentId, w.rootId))).length
+    await expect(
+      host.send({ parentId: w.rootId, text: sealed(), cardItem: { messageId: tasksId, itemId: fresh() } })
+    ).rejects.toMatchObject({ code })
+    expect((await db.select().from(sessions).where(eq(sessions.parentId, w.rootId))).length).toBe(children)
+    await expect(host.fileSuggestion({ messageId: tasksId, itemId: fresh(), title: `Overflow task`, text: `x` })).rejects.toMatchObject({ code })
+    expect((await db.select().from(issues).where(eq(issues.title, `Overflow task`))).length).toBe(0)
+    expect(await count(tasksId)).toBe(SUGGESTIONS_MAX)
+
+    // Replies: REPLIES_MAX, by the send and by dismissReplies (all or nothing).
+    const replies = repliesCard()
+    const repliesId = await postSealed(w, replies)
+    const [first] = ids(replies) as [string]
+    await host.send({ sessionId: w.rootId, text: sealed(), cardItem: { messageId: repliesId, itemId: first } })
+    await expect(
+      host.dismissReplies({ messageId: repliesId, itemIds: Array.from({ length: REPLIES_MAX }, fresh) })
+    ).rejects.toMatchObject({ code })
+    expect(await count(repliesId)).toBe(1)
+    await host.dismissReplies({ messageId: repliesId, itemIds: [first, ...Array.from({ length: REPLIES_MAX - 1 }, fresh)] })
+    expect(await count(repliesId)).toBe(REPLIES_MAX)
+    const before = await lastBody(w.rootId)
+    await expect(
+      host.send({ sessionId: w.rootId, text: sealed(), cardItem: { messageId: repliesId, itemId: fresh() } })
+    ).rejects.toMatchObject({ code })
+    expect(await lastBody(w.rootId)).toBe(before)
+    // A known id is still stamped again by dismissReplies.
+    await host.dismissReplies({ messageId: repliesId, itemIds: [first] })
+    expect(await count(repliesId)).toBe(REPLIES_MAX)
     await assertNoPlaintext(w.teamId)
   })
 

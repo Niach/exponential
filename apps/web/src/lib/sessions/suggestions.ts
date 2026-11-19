@@ -84,10 +84,15 @@ async function loadSealedCard(userId: string, messageId: string, kind: SealedKin
   return loaded
 }
 
+/** A sealed card's item id: its writers mint uuids (v4). */
+const ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** Stamps `itemIds` of a sealed card under the message row's lock: the
  *  clear `stamps[id]` gains `stamp` (null = only lock and check). `fresh` =
  *  a stamped item is a CONFLICT (rolls the caller's transaction back), else
- *  it is stamped again. */
+ *  it is stamped again. The server cannot tell which ids the sealed card
+ *  carries, so `stamps` is bounded instead: an id is a uuid, and a NEW one
+ *  is refused once the map holds as many as the card's kind has items. */
 async function stampSealedItems(
   tx: Tx,
   messageId: string,
@@ -95,6 +100,8 @@ async function stampSealedItems(
   stamp: CardStamp | null,
   fresh: boolean
 ): Promise<void> {
+  const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+  if (!itemIds.every((id) => ITEM_ID.test(id))) throw bad(`This card has no such item`)
   const [row] = await tx
     .select({ card: messages.card })
     .from(messages)
@@ -103,13 +110,20 @@ async function stampSealedItems(
   const card = (row?.card ?? null) as Record<string, unknown> | null
   if (!isSealedCard(card)) throw new TRPCError({ code: `CONFLICT`, message: `This card changed` })
   const raw = card!.stamps
-  const stamps: Record<string, CardStamp> =
-    raw && typeof raw === `object` && !Array.isArray(raw) ? { ...(raw as Record<string, CardStamp>) } : {}
+  // No prototype: an id is only ever an own key.
+  const stamps: Record<string, CardStamp> = Object.create(null)
+  if (raw && typeof raw === `object` && !Array.isArray(raw)) {
+    for (const [id, value] of Object.entries(raw)) stamps[id] = value as CardStamp
+  }
+  const max = card!.kind === `replies` ? REPLIES_MAX : SUGGESTIONS_MAX
+  let held = Object.keys(stamps).length
   for (const id of itemIds) {
-    const prior = Object.hasOwn(stamps, id) ? cardStamp(stamps[id]) : {}
+    const known = Object.hasOwn(stamps, id)
+    const prior = known ? cardStamp(stamps[id]) : {}
     if (fresh && Object.keys(prior).length > 0) {
       throw new TRPCError({ code: `CONFLICT`, message: `This was already handled` })
     }
+    if (!known && ++held > max) throw bad(`This card has no such item`)
     stamps[id] = { ...prior, ...stamp }
   }
   if (!stamp) return
