@@ -43,7 +43,7 @@ const { deriveSessionTitle } = await import(`@/lib/sessions/title`)
 const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
 const { escalateCard, escalateTarget } = await import(`@/lib/sessions/escalate`)
 const { hidePrivateLinesInTx } = await import(`@/lib/sessions/private-lines`)
-const { dismissSuggestion, dismissReplies, SEALED_SUGGESTIONS_MESSAGE } = await import(`@/lib/sessions/suggestions`)
+const { sendReply, startSuggestion, SEALED_SUGGESTIONS_MESSAGE } = await import(`@/lib/sessions/suggestions`)
 const { askHiddenText, privateText } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(`@exp/domain-contract/chats`)
@@ -334,7 +334,7 @@ describe.skipIf(!ready.ok)(`EXP-1458: private lines`, () => {
 })
 
 describe.skipIf(!ready.ok)(`EXP-1458: suggestions`, () => {
-  it(`a sealed suggestions / replies card is refused, never read`, async () => {
+  it(`a sealed suggestions / replies card is never read: the server's own sends refuse it (#EXP-1958: taps are the client's)`, async () => {
     const w = await world()
     const session = await w.root(`work`)
     const put = (kind: string) =>
@@ -342,12 +342,12 @@ describe.skipIf(!ready.ok)(`EXP-1458: suggestions`, () => {
         insertMessage(tx, session, { authorKind: `agent`, body: ``, card: { kind, sealed: SEALED } as never })
       )
     const suggestions = await put(`suggestions`)
-    await expect(dismissSuggestion(w.owner, { messageId: suggestions, itemId: `a` })).rejects.toMatchObject({
+    await expect(startSuggestion(w.owner, { messageId: suggestions, itemId: `a`, where: `here` })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
       message: SEALED_SUGGESTIONS_MESSAGE,
     })
     const replies = await put(`replies`)
-    await expect(dismissReplies(w.owner, replies)).rejects.toMatchObject({
+    await expect(sendReply(w.owner, { messageId: replies, itemId: `a` })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
       message: SEALED_SUGGESTIONS_MESSAGE,
     })

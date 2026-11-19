@@ -85,13 +85,14 @@ async function loadSealedCard(userId: string, messageId: string, kind: SealedKin
 }
 
 /** Stamps `itemIds` of a sealed card under the message row's lock: the
- *  clear `stamps[id]` gains `stamp`. `fresh` = a stamped item is a CONFLICT
- *  (rolls the caller's transaction back), else it is stamped again. */
+ *  clear `stamps[id]` gains `stamp` (null = only lock and check). `fresh` =
+ *  a stamped item is a CONFLICT (rolls the caller's transaction back), else
+ *  it is stamped again. */
 async function stampSealedItems(
   tx: Tx,
   messageId: string,
   itemIds: readonly string[],
-  stamp: CardStamp,
+  stamp: CardStamp | null,
   fresh: boolean
 ): Promise<void> {
   const [row] = await tx
@@ -111,6 +112,7 @@ async function stampSealedItems(
     }
     stamps[id] = { ...prior, ...stamp }
   }
+  if (!stamp) return
   await tx
     .update(messages)
     .set({ card: { ...card, stamps } as unknown as MessageCard, updatedAt: new Date() })
@@ -476,7 +478,7 @@ export async function fileSuggestion(
       createIssue,
       (tx, issueId) => stampSealedItems(tx, input.messageId, [input.itemId], { issueId }, true),
       // Locked and checked open first: a lost stamp never leaves an orphan issue.
-      (tx) => stampSealedItems(tx, input.messageId, [input.itemId], {}, true)
+      (tx) => stampSealedItems(tx, input.messageId, [input.itemId], null, true)
     )
   }
   const { message, session, card } = await loadSuggestionCard(userId, input.messageId)
