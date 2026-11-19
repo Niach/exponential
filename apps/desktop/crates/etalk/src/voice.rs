@@ -1,5 +1,5 @@
 //! NEW-53: exponentialTalk's voice settings and spoken-reply rules, the
-//! desktop mirror of `packages/domain-contract/src/voice.ts`, byte-locked by
+//! desktop mirror of `packages/etalk/src/voice.ts`, byte-locked by
 //! `fixtures/voice.json` (every case list replays below).
 
 use std::collections::HashMap;
