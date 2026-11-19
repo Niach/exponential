@@ -75,6 +75,10 @@ pub struct Client {
     /// The serial of the last button press our pointer received (what a
     /// client-side title bar hands back with `move` and `resize`).
     pub press_serial: Option<u32>,
+    /// Where the pointer is on the surface under it (enter, motion) and
+    /// where it was at the last button press, surface-local.
+    pub pointer_at: Option<(f64, f64)>,
+    pub press_at: Option<(f64, f64)>,
     pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
     /// Every offer the data device announced, with its types.
     pub offers: Vec<(wl_data_offer::WlDataOffer, Vec<String>)>,
@@ -412,9 +416,26 @@ impl Session {
         inhibitor
     }
 
+    /// Like [`Session::draw`], with `rect` (x, y, w, h, buffer pixels) in
+    /// `fg`: a button on its window.
+    pub fn draw_with_rect(&mut self, t: &Toplevel, (w, h): (i32, i32), bg: u32, rect: (i32, i32, i32, i32), fg: u32) {
+        if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
+            t.xdg_surface.ack_configure(serial);
+        }
+        let buffer = self.buffer_with(w, h, |x, y| if (rect.0..rect.0 + rect.2).contains(&x) && (rect.1..rect.1 + rect.3).contains(&y) { fg } else { bg });
+        t.surface.attach(Some(&buffer), 0, 0);
+        t.surface.damage_buffer(0, 0, w, h);
+        t.surface.commit();
+        self.roundtrip();
+    }
+
     fn buffer(&mut self, w: i32, h: i32, argb: u32) -> wl_buffer::WlBuffer {
+        self.buffer_with(w, h, |_, _| argb)
+    }
+
+    fn buffer_with(&mut self, w: i32, h: i32, argb: impl Fn(i32, i32) -> u32) -> wl_buffer::WlBuffer {
         let mut file = tempfile::tempfile().expect("shm file");
-        let bytes: Vec<u8> = std::iter::repeat_n(argb.to_le_bytes(), (w * h) as usize).flatten().collect();
+        let bytes: Vec<u8> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| argb(x, y).to_le_bytes()).collect();
         file.write_all(&bytes).unwrap();
         let pool = self.state.shm.as_ref().unwrap().create_pool(file.as_fd(), w * h * 4, &self.qh, ());
         let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Argb8888, &self.qh, ());
@@ -582,13 +603,21 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
 impl Dispatch<wl_pointer::WlPointer, ()> for Client {
     fn event(state: &mut Self, _: &wl_pointer::WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
-            wl_pointer::Event::Enter { .. } => state.pointer_enters += 1,
-            wl_pointer::Event::Motion { .. } => state.pointer_motions += 1,
+            wl_pointer::Event::Enter { surface_x, surface_y, .. } => {
+                state.pointer_enters += 1;
+                state.pointer_at = Some((surface_x, surface_y));
+            }
+            wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
+                state.pointer_motions += 1;
+                state.pointer_at = Some((surface_x, surface_y));
+            }
+            wl_pointer::Event::Leave { .. } => state.pointer_at = None,
             wl_pointer::Event::Button { serial, button, state: WEnum::Value(pressed), .. } => {
                 let pressed = pressed == wl_pointer::ButtonState::Pressed;
                 state.buttons.push((button, pressed));
                 if pressed {
                     state.press_serial = Some(serial);
+                    state.press_at = state.pointer_at;
                 }
             }
             _ => {}
