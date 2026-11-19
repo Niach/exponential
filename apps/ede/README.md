@@ -167,6 +167,8 @@ WAYLAND_DISPLAY=wayland-1 xed        # or point a client at the socket it logs
 Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
+Photograph it only with `scripts/lanes/capture.sh :77 <out.png>` (#EXP-2022),
+which refuses the live display.
 
 ## Tier A: frames, the recovery screen, the restore hotkey (#EDE-16)
 
