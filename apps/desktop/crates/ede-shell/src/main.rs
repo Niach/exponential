@@ -497,14 +497,8 @@ impl HostPlugin for Host {
         if !matches!(event.component_id.as_str(), "chat_composer" | "chat_home_composer") || !allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
             return;
         }
-        let (shell, paths) = (self.shell.clone(), event.paths.clone());
-        cx.defer(move |cx| {
-            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
-            if let Some(notice) = notice {
-                failed_action(&shell, "attach", "the file", &notice, cx);
-            }
-            chat_files_changed(&shell, cx);
-        });
+        let (shell, paths, field) = (self.shell.clone(), event.paths.clone(), event.component_id.clone());
+        cx.defer(move |cx| chat_stage(&shell, &field, &paths, cx));
     }
 
     /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
@@ -1043,8 +1037,7 @@ impl HostPlugin for Host {
                         Some("attach") => chat_attach(&shell, cx),
                         Some("unattach") => {
                             if let Ok(key) = arg("key").parse::<u64>() {
-                                shell.borrow_mut().chat_files.remove(key);
-                                chat_files_changed(&shell, cx);
+                                chat_unattach(&shell, key, cx);
                             }
                         }
                         // #EDE-129 (find-in-chat.json): the header's Search in chat, the bar.
@@ -2503,14 +2496,83 @@ fn chat_attach(shell: &SharedShell, cx: &mut App) {
             }
         };
         cx.update(|cx| {
-            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
-            if let Some(notice) = notice {
-                failed_action(&shell, "attach", "the file", &notice, cx);
-            }
-            chat_files_changed(&shell, cx);
+            let field = chat_field(&shell.borrow());
+            chat_stage(&shell, field, &paths, cx);
         });
     })
     .detach();
+}
+
+/// #EXP-1845: the chat's drawn composer: the home's on the start face,
+/// the conversation's otherwise.
+fn chat_field(s: &Shell) -> &'static str {
+    if s.feed.get("/chatting").and_then(|c| c["face"].as_str()) == Some("home") {
+        "chat_home_composer"
+    } else {
+        "chat_composer"
+    }
+}
+
+/// The composer `field`'s live text and caret (bytes); before the chat is
+/// drawn, the host's draft with the caret at its end.
+fn chat_field_draft(shell: &SharedShell, field: &str, cx: &App) -> (String, usize) {
+    let s = shell.borrow();
+    s.surfaces
+        .region("chat")
+        .and_then(|region| {
+            let view = region.view.read(cx);
+            Some((view.field_text(field, cx)?, view.field_caret(field, cx)?))
+        })
+        .unwrap_or_else(|| (s.chat_draft.clone(), s.chat_draft.len()))
+}
+
+/// #EXP-1845: a pick (the "+", a paste, a drop) staged the app composers'
+/// way (`domain::composer_attachments`): an `[Image #N]` per taken image
+/// typed at `field`'s caret, each refusal its own error toast.
+fn chat_stage(shell: &SharedShell, field: &str, paths: &[std::path::PathBuf], cx: &mut App) {
+    let (text, caret) = chat_field_draft(shell, field, cx);
+    let outcome = shell.borrow_mut().chat_files.stage_paths(paths, &text, caret);
+    for message in &outcome.toasts {
+        toast(shell, message, "", cx);
+    }
+    if let Some((at, inserted)) = &outcome.inserted {
+        // The field types it (its caret, its undo); its change follows.
+        let region = shell.borrow().surfaces.region("chat").cloned();
+        let typed = region.is_some_and(|region| {
+            region.handle.update(cx, |_, window, cx| region.view.update(cx, |view, cx| view.insert_into_field(field, *at, inserted, window, cx))).unwrap_or(false)
+        });
+        if typed {
+            shell.borrow_mut().chat_draft = outcome.text.clone();
+            chat_menu_changed(shell);
+        } else {
+            chat_set_draft(shell, &outcome.text, cx);
+        }
+    }
+    chat_files_changed(shell, cx);
+}
+
+/// #EXP-1845: a chip's X: an image's markers leave the draft, the higher
+/// ones slide down, and the caret keeps the writer's place.
+fn chat_unattach(shell: &SharedShell, key: u64, cx: &mut App) {
+    let field = chat_field(&shell.borrow());
+    let (text, caret) = chat_field_draft(shell, field, cx);
+    let rewritten = shell.borrow_mut().chat_files.remove(key, &text, caret);
+    if let Some((next, caret)) = rewritten {
+        let region = shell.borrow().surfaces.region("chat").cloned();
+        match region {
+            Some(region) => {
+                // A programmatic write: the field adopts it even focused.
+                region.view.update(cx, |view, cx| {
+                    view.caret_on_write(field, caret);
+                    let _ = view.assign_data("/chat/draft", Some(json!(next)), cx);
+                });
+                shell.borrow_mut().chat_draft = next;
+                chat_menu_changed(shell);
+            }
+            None => chat_set_draft(shell, &next, cx),
+        }
+    }
+    chat_files_changed(shell, cx);
 }
 
 /// A send landed: what went out leaves the strip.
