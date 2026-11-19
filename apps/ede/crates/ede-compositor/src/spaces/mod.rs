@@ -12,6 +12,7 @@
 mod close;
 pub mod frames;
 mod input;
+pub mod launch;
 pub mod ipc;
 mod windows;
 pub use close::DIR_RETRIES;
@@ -61,6 +62,8 @@ pub struct Spaces {
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
     /// Software, for the damage check and the captures ([`frames`]).
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
+    /// What was launched into spaces and still runs ([`launch`]).
+    launches: Vec<launch::Launch>,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -68,7 +71,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
