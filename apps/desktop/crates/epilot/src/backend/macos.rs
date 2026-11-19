@@ -29,7 +29,6 @@ use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use core_foundation::array::CFArray;
@@ -63,6 +62,7 @@ use objc2_foundation::{NSArray, NSData, NSString};
 use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
+use crate::backend::{LockReady, LockStartError, LockThread, Verdict};
 
 /// Our tag in every event we post ("EXP1"): the lock lets these through.
 const MAGIC: i64 = 0x4558_5031;
@@ -1382,7 +1382,7 @@ const STOP_POLL: Duration = Duration::from_millis(250);
 struct Lock {
     stop: Arc<AtomicBool>,
     run_loop: CFRunLoop,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
@@ -1391,17 +1391,24 @@ impl Lock {
             return Err("Accessibility is not granted.".to_string());
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<CFRunLoop, String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn({
-                let stop = stop.clone();
-                move || hold(on_esc, stop, ready_tx)
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(run_loop)) => Ok(Lock { stop, run_loop, thread: Some(thread) }),
-            Ok(Err(reason)) => Err(reason),
+        // A tap that went in just as the wait gave up stops here.
+        let late = {
+            let stop = stop.clone();
+            move |answer: Result<CFRunLoop, String>| {
+                stop.store(true, Ordering::Release);
+                if let Ok(run_loop) = answer {
+                    run_loop.stop();
+                }
+            }
+        };
+        let body = {
+            let stop = stop.clone();
+            move |ready| hold(on_esc, stop, ready)
+        };
+        match LockThread::start(body, late) {
+            Ok((Ok(run_loop), thread)) => Ok(Lock { stop, run_loop, thread }),
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
             Err(_) => {
                 stop.store(true, Ordering::Release);
                 Err("The event tap did not start.".to_string())
@@ -1416,11 +1423,7 @@ impl Drop for Lock {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.run_loop.stop();
-        if let Some(thread) = self.thread.take() {
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
+        self.thread.join();
         PERSON_BUTTONS.store(0, Ordering::Release);
     }
 }
@@ -1441,7 +1444,7 @@ const TAP_BUTTONS: usize = 128;
 const TAP_HELD: usize = TAP_BUTTONS + 32;
 
 /// The tap thread: install the tap, report, run until `stop`, tear down.
-fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::sync::mpsc::Sender<Result<CFRunLoop, String>>) {
+fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: LockReady<Result<CFRunLoop, String>>) {
     let state = Box::new(TapState {
         on_esc,
         fired: Cell::new(false),
@@ -1463,7 +1466,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
         )
     };
     if port_ref.is_null() {
-        let _ = ready.send(Err("macOS refused the input lock (the event tap); check Accessibility.".to_string()));
+        ready.send(Err("macOS refused the input lock (the event tap); check Accessibility.".to_string()));
         return;
     }
     // SAFETY: non-null and ours (create rule).
@@ -1472,7 +1475,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     let Ok(source) = port.create_runloop_source(0) else {
         // SAFETY: `port_ref` is the live tap.
         unsafe { CFMachPortInvalidate(port_ref) };
-        let _ = ready.send(Err("Could not attach the input lock to a run loop.".to_string()));
+        ready.send(Err("Could not attach the input lock to a run loop.".to_string()));
         return;
     };
     let run_loop = CFRunLoop::get_current();
@@ -1486,7 +1489,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     let held = held_now();
     state.held.set(held);
     publish_buttons(&held);
-    if ready.send(Ok(run_loop.clone())).is_err() {
+    if !ready.send(Ok(run_loop.clone())) {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
     }
@@ -1553,13 +1556,6 @@ unsafe extern "C" fn tap_callback(
         }
     }
     std::ptr::null_mut()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Verdict {
-    Pass,
-    Swallow,
-    Esc,
 }
 
 /// The tap's decision on one event of `kind` (its keycode and mouse
