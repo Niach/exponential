@@ -6,10 +6,14 @@
 //! plain tool line's title + its output's stop, a folded run's members)
 //! plus the chat store's older hits, the current stop kept while answers
 //! arrive, and the landing (open the run, page an older one in, centre).
+//! #EDE-99: a global search pick SEEDS it ([`request_find_at`]): the bar
+//! opens on the pick's query and starts at the hit's stop
+//! (`domain::search_list::global_chat_start`) instead of the newest.
 
 use std::time::Duration;
 
 use domain::find_in_chat::{self as find, FindOlderHit, FindRow, FindSearchPhase, FindStep, FindStop};
+use domain::search_list::GlobalChatTarget;
 use gpui::{div, px, AnyElement, App, AppContext as _, Entity, Focusable as _, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
@@ -47,6 +51,20 @@ pub(crate) fn request_find(session_id: Option<String>, window: &mut Window, cx: 
     window.refresh();
 }
 
+/// #EDE-99: a global search pick meant for `session`'s view: its bar opens
+/// on `query`, starting at `target`.
+#[derive(Default)]
+struct FindSeed(Option<(String, String, GlobalChatTarget)>);
+
+impl gpui::Global for FindSeed {}
+
+/// #EDE-99 (search-list.json `pickCases`): the pick's session view opens
+/// find in chat on `query` with its start = `target`'s stop.
+pub(crate) fn request_find_at(session_id: String, query: String, target: GlobalChatTarget, window: &mut Window, cx: &mut App) {
+    cx.set_global(FindSeed(Some((session_id, query, target))));
+    window.refresh();
+}
+
 /// The `…` entry's trailing shortcut hint.
 pub(crate) fn find_shortcut_hint(cx: &App) -> AnyElement {
     div()
@@ -68,6 +86,9 @@ pub(crate) struct ChatFind {
     started: String,
     /// A step asked for a landing the next frame runs.
     land: bool,
+    /// #EDE-99: a pick's start, re-resolved as stops arrive until it is
+    /// found or the store answered; dropped at the first step or edit.
+    target: Option<GlobalChatTarget>,
     debounce: Option<gpui::Task<()>>,
     _subscription: gpui::Subscription,
 }
@@ -129,6 +150,7 @@ impl SteerSessionView {
             store: FindSearchPhase::None,
             started: String::new(),
             land: false,
+            target: None,
             debounce: None,
             _subscription: subscription,
         });
@@ -157,6 +179,21 @@ impl SteerSessionView {
                 self.set_find_query(find::query(&query), cx);
             }
         }
+        let seed = cx.try_global::<FindSeed>().and_then(|seed| seed.0.clone()).filter(|(id, ..)| *id == self.session_id);
+        if let Some((_, query, target)) = seed {
+            cx.set_global(FindSeed(None));
+            self.open_find(window, cx);
+            if let Some(open) = &self.find {
+                let input = open.input.clone();
+                input.update(cx, |state, cx| state.set_value(query.clone(), window, cx));
+            }
+            self.set_find_query(find::query(&query), cx);
+            if let Some(open) = self.find.as_mut() {
+                open.target = Some(target);
+                open.started.clear();
+            }
+            cx.notify();
+        }
         let wanted = cx.try_global::<FindRequest>().and_then(|request| request.0.clone());
         let Some(target) = wanted else { return };
         if target.as_deref().is_some_and(|id| id != self.session_id) {
@@ -184,6 +221,7 @@ impl SteerSessionView {
         }
         open.query = query.clone();
         open.current = None;
+        open.target = None;
         open.older.clear();
         open.store = FindSearchPhase::None;
         if !query.is_empty() {
@@ -288,7 +326,17 @@ impl SteerSessionView {
             .current
             .as_ref()
             .and_then(|was| stops.iter().position(|stop| stop.key == was.key && stop.local == was.local && stop.output == was.output));
-        if open.started != query && !stops.is_empty() {
+        if let Some(target) = open.target.clone() {
+            // #EDE-99: a pick starts on its hit once that is a stop, else on
+            // the newest once the store has answered (`startCases`).
+            let found = stops.iter().any(|stop| stop.key == target.key && stop.output == target.output);
+            if !stops.is_empty() && (found || open.store != FindSearchPhase::Searching) {
+                open.target = None;
+                open.started = query.clone();
+                index = domain::search_list::global_chat_start(&stops, &target);
+                open.land = true;
+            }
+        } else if open.started != query && !stops.is_empty() {
             open.started = query.clone();
             index = find::step(None, stops.len(), FindStep::Start);
             open.land = true;
@@ -332,6 +380,7 @@ impl SteerSessionView {
 
     fn find_step(&mut self, step: FindStep, cx: &mut gpui::Context<Self>) {
         let Some(open) = self.find.as_mut() else { return };
+        open.target = None;
         let index = open
             .current
             .as_ref()

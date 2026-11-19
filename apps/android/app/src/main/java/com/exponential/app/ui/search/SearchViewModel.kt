@@ -14,6 +14,16 @@ import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueSearch
+import com.exponential.app.domain.Chats
+import com.exponential.app.domain.FindInChat
+import com.exponential.app.domain.SearchList
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.data.chatstore.ChatStoreManager
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.SessionIssueEntity
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import com.exponential.app.data.TeamSelection
@@ -70,6 +80,14 @@ data class SearchState(
     // idle search hint".
     val query: String = "",
     val results: List<SearchResult> = emptyList(),
+    /** #EDE-99: the Chats rows (the store's answer, the previous query's while [chatsLoading]). */
+    val chats: List<SearchList.ChatRow> = emptyList(),
+    /** #EDE-99: the store answers a newer query than [chats]'. */
+    val chatsLoading: Boolean = false,
+    /** #EDE-99 `globalSections`: untitled = today's flat issue list. */
+    val sections: SearchList.Sections = SearchList.Sections(false, emptyList(), null, false),
+    /** #EDE-99: this client has a chat store (the placeholder names chats). */
+    val store: Boolean = false,
 )
 
 /** EXP-922: the ONE limit every search surface on every client uses. */
@@ -116,6 +134,7 @@ class SearchViewModel @Inject constructor(
     holder: DatabaseHolder,
     selection: TeamSelection,
     private val issuesApi: IssuesApi,
+    private val chatStores: ChatStoreManager,
 ) : ViewModel() {
 
     // Reactive account + team scoping (no constructor-time DB snapshot).
@@ -199,12 +218,125 @@ class SearchViewModel @Inject constructor(
         }
 
     // The rank: a flow on Dispatchers.Default over the prepared pool.
-    val state: StateFlow<SearchState> = combine(pool, rankQuery, serverSearch) { pool, query, server ->
+    private val issueState: Flow<SearchState> = combine(pool, rankQuery, serverSearch) { pool, query, server ->
         Triple(pool, query, server)
     }
         .mapLatest { (pool, query, server) -> rank(pool, query, server) }
         .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchState())
+
+    // ── #EDE-99 (search-list.json CHATS): the chat store's `searchAll` ──────
+    // The find-in-chat query, asked `debounceMs` after the last keystroke on
+    // Dispatchers.IO (the store's own context); `collectLatest` drops an older
+    // answer the moment a newer query arrives. The previous rows stay (with
+    // the Section's spinner) until the newer answer replaces them.
+
+    /** The store's answer: [query] = the query [chats] answered, [asking] = the one in flight. */
+    private data class ChatAnswer(
+        val query: String = "",
+        val chats: List<SearchList.ChatMatch> = emptyList(),
+        val asking: String? = null,
+        val store: Boolean = false,
+    )
+
+    private val chatAnswer = MutableStateFlow(ChatAnswer(store = chatStores.hasStore))
+
+    init {
+        viewModelScope.launch {
+            _query.map(FindInChat::query).debounce(SearchList.Chats.DEBOUNCE_MS).distinctUntilChanged().collectLatest { query ->
+                if (query.isEmpty()) {
+                    chatAnswer.value = ChatAnswer(store = chatStores.hasStore)
+                    return@collectLatest
+                }
+                chatAnswer.update { it.copy(asking = query, store = it.store || chatStores.hasStore) }
+                val chats = chatStores.searchAll(query, FindInChat.HITS_MAX)
+                chatAnswer.value = ChatAnswer(query, chats.orEmpty(), asking = null, store = chats != null)
+            }
+        }
+    }
+
+    /** The active team's synced roots (+ the viewer's personal team, the Assistant's chat), by id. */
+    private class TeamRoots(
+        val roots: Map<String, SessionEntity> = emptyMap(),
+        val links: List<SessionIssueEntity> = emptyList(),
+        val agentNames: Map<String, String> = emptyMap(),
+    )
+
+    private val teamRoots: Flow<TeamRoots> = dbAndTeam.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(TeamRoots())
+        } else {
+            combine(
+                db.sessionDao().observeAll(),
+                db.teamDao().observeAll(),
+                db.sessionIssueDao().observeAll(),
+                db.agentDefinitionDao().observeAll(),
+            ) { sessions, teams, links, agents ->
+                val synced = teams.mapTo(HashSet()) { it.id }
+                val roots = sessions.filter { row ->
+                    row.isRoot && row.appId == null &&
+                        (row.teamId == teamId || (synced.isNotEmpty() && row.teamId !in synced))
+                }.associateBy { it.id }
+                TeamRoots(roots, links.filter { it.sessionId in roots }, agents.associate { it.id to it.name })
+            }
+        }
+    }.flowOn(Dispatchers.Default)
+
+    /** The Chats rows of the answer: roots of the active team only, at most `chatsMax`. */
+    private val chatRows: Flow<List<SearchList.ChatRow>> = combine(chatAnswer, teamRoots, pool, dbFlow) { answer, roots, pool, db ->
+        ChatInputs(answer, roots, pool, db)
+    }.mapLatest { (answer, team, pool, db) ->
+        if (answer.query.isEmpty() || answer.chats.isEmpty()) return@mapLatest emptyList()
+        val hitRoots = answer.chats.mapNotNull { team.roots[it.rootId] }
+        val digests = hitRoots.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
+        val titler = SessionTree.titler(
+            team.links.filter { link -> hitRoots.any { it.id == link.sessionId } }.map(SessionTree::sessionIssue),
+            pool.rows.map { SessionTree.issue(it.result.issue) },
+            digests,
+        )
+        val roots = hitRoots.associate { row ->
+            val agent = row.agentId?.takeIf { it.isNotEmpty() }
+            row.id to SearchList.ChatRoot(
+                title = agent?.let(team.agentNames::get)?.takeIf { it.isNotBlank() } ?: titler(SessionTree.session(row)),
+                agent = agent != null,
+            )
+        }
+        val messageIds = answer.chats.mapNotNull { it.hit.messageId.takeIf { _ -> it.hit.kind == "message" } }
+        val authors = HashMap<String, String>()
+        digests.forEach { if (it.id in messageIds) authors[it.id] = it.authorKind }
+        if (db != null && messageIds.isNotEmpty()) {
+            runCatching { db.messageDao().rawByIds(messageIds) }.getOrNull()?.forEach { authors[it.id] = it.authorKind }
+        }
+        val nowMs = System.currentTimeMillis()
+        SearchList.globalChatRows(
+            query = answer.query,
+            now = SessionTree.nowIso(nowMs),
+            utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(nowMs),
+            chats = answer.chats,
+            roots = roots,
+            messageAuthors = authors,
+        )
+    }.flowOn(Dispatchers.Default)
+
+    private data class ChatInputs(
+        val answer: ChatAnswer,
+        val roots: TeamRoots,
+        val pool: SearchPool,
+        val db: com.exponential.app.data.db.ExponentialDatabase?,
+    )
+
+    // The list: issues, then (with a store and a query) the Chats section.
+    val state: StateFlow<SearchState> = combine(issueState, chatRows, chatAnswer, _query) { issues, rows, answer, raw ->
+        val query = FindInChat.query(raw)
+        val loading = query.isNotEmpty() && (answer.asking != null || answer.query != query)
+        val shown = if (answer.query.isEmpty()) emptyList() else rows
+        val store = answer.store || chatStores.hasStore
+        issues.copy(
+            chats = shown,
+            chatsLoading = loading,
+            store = store,
+            sections = SearchList.globalSections(issues.query, issues.results.size, if (store) SearchList.ChatsState(shown.size, loading) else null),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchState())
 
     private fun rank(pool: SearchPool, query: String, server: ServerSearch): SearchState {
         if (query.isEmpty()) return SearchState(query = "")

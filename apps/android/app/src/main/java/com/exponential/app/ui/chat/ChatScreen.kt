@@ -431,6 +431,15 @@ fun ChatScreen(
         (if (agent?.assistant == true) agentDefinition?.ownerId == me else isOwner)
     // #EDE-130 (find-in-chat.json): find in chat, opened from the `…`.
     val findInChat = rememberFindInChat(viewModel.rootId)
+    // #EDE-99 (search-list.json A PICK): a global search pick on this root
+    // opens the Chat tab with the bar on its query, starting at its hit.
+    LaunchedEffect(findInChat) {
+        FindInChatSeeds.take(viewModel.rootId)?.let { pick ->
+            requestedTab = SessionScreen.Tab.Chat.wire
+            closeItem()
+            findInChat.seed(pick.query, pick.target)
+        }
+    }
     val chatMenu = sessionScreenMenuGroups(
         kind,
         onFind = {

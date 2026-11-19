@@ -324,7 +324,7 @@ fun TraceLine(
 )
 
 /** #EDE-130: [title] with a [HIGHLIGHT_MARK_TAG] annotation per match (its fill). */
-private fun highlightedTitle(title: AnnotatedString, highlight: at.exponential.ui.primitives.MarkdownHighlight?): AnnotatedString {
+internal fun highlightedTitle(title: AnnotatedString, highlight: at.exponential.ui.primitives.MarkdownHighlight?): AnnotatedString {
     if (highlight == null) return title
     val ranges = at.exponential.ui.primitives.highlightRanges(title.text, highlight.query)
     if (ranges.isEmpty()) return title
@@ -340,7 +340,7 @@ private fun highlightedTitle(title: AnnotatedString, highlight: at.exponential.u
 /** #EDE-130: the marks' fills drawn behind the title, each in the font's
  *  glyph box ([at.exponential.ui.primitives.drawHighlightFills]); layout unchanged. */
 @Composable
-private fun traceHighlightFills(text: AnnotatedString, style: TextStyle): Pair<Modifier, (androidx.compose.ui.text.TextLayoutResult) -> Unit> {
+internal fun traceHighlightFills(text: AnnotatedString, style: TextStyle): Pair<Modifier, (androidx.compose.ui.text.TextLayoutResult) -> Unit> {
     val marked = remember(text) { text.hasStringAnnotations(at.exponential.ui.primitives.HIGHLIGHT_MARK_TAG, 0, text.length) }
     val laid = remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     if (!marked) return Modifier to { _ -> }
