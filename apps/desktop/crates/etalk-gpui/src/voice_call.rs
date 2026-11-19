@@ -1153,6 +1153,11 @@ impl VoiceCall {
                 let (Some(active), Some(client)) = (self.active.as_ref(), crate::speak_replies::client(cx)) else { return };
                 client.call_audio(active.id.clone(), &pcm);
             }
+            // Question 9: the worker knows where an utterance begins and ends.
+            CallHostEvent::Lost { ms } => {
+                let (Some(active), Some(client)) = (self.active.as_ref(), crate::speak_replies::client(cx)) else { return };
+                client.call_lost(active.id.clone(), ms);
+            }
             CallHostEvent::Mute(muted) => self.set_muted(muted, cx),
             // The relay's `idle` / `max_length` (or the caller's socket gone)
             // fail it with the `dropped` toast; only a reason-less hang-up

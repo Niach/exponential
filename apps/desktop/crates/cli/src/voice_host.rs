@@ -61,6 +61,8 @@ pub trait Speech: Send {
     fn prepare(&self, voice: etalk::VoiceChoice);
     fn call(&self, id: &str, language: &str);
     fn call_audio(&self, id: &str, pcm: &[i16]);
+    /// #EXP-1941: `ms` of the caller's audio were lost before the next audio.
+    fn call_lost(&self, id: &str, ms: u32);
     fn call_mute(&self, id: &str, muted: bool);
     fn speak(&self, id: &str, text: &str);
     fn stop(&self);
@@ -78,6 +80,9 @@ impl Speech for etalk::SpeechClient {
     }
     fn call_audio(&self, id: &str, pcm: &[i16]) {
         etalk::SpeechClient::call_audio(self, id, pcm);
+    }
+    fn call_lost(&self, id: &str, ms: u32) {
+        etalk::SpeechClient::call_lost(self, id, ms);
     }
     fn call_mute(&self, id: &str, muted: bool) {
         etalk::SpeechClient::call_mute(self, id, muted);
@@ -492,6 +497,8 @@ impl Host {
         match event {
             CallHostEvent::Ready => log::info!("[voice] call {call_id}: the caller is on the line"),
             CallHostEvent::Audio(pcm) => self.speech.call_audio(&id, &pcm),
+            // Question 9: the worker knows where an utterance begins and ends.
+            CallHostEvent::Lost { ms } => self.speech.call_lost(&id, ms),
             CallHostEvent::Mute(muted) => {
                 self.speech.call_mute(&id, muted);
                 self.step(if muted { CallEvent::Mute } else { CallEvent::Unmute });
@@ -1156,6 +1163,9 @@ mod tests {
         fn call_audio(&self, id: &str, pcm: &[i16]) {
             self.0.push(format!("audio {id} {}", pcm.len()));
         }
+        fn call_lost(&self, id: &str, ms: u32) {
+            self.0.push(format!("lost {id} {ms}"));
+        }
         fn call_mute(&self, id: &str, muted: bool) {
             self.0.push(format!("mute {id} {muted}"));
         }
@@ -1386,6 +1396,9 @@ mod tests {
         rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Audio(vec![0; 320]) });
         rig.handle(Input::Worker(etalk::Event::Level { id: "call-1".into(), level: 0.5, bands: Default::default() }));
         assert_eq!(rig.speech.take(), ["audio call-1 320"]);
+        // #EXP-1941: a loss on the way goes to the worker, which knows the utterance.
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Lost { ms: 60 } });
+        assert_eq!(rig.speech.take(), ["lost call-1 60"]);
         // The ring's longest earliest answer: rang, then the greeting.
         rig.advance(Duration::from_millis(VOICE_CALL.constants.min_ring_ms + VOICE_CALL.constants.ring_jitter_ms));
         assert_eq!(rig.link.take(), [r#"event {"t":"rang"}"#, r#"event {"t":"replyFinished"}"#], "the caller was heard: no noSound");

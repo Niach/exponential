@@ -123,6 +123,12 @@ pub enum CallHostEvent {
     Ready,
     /// The caller's audio, decoded: mono [`UP_RATE`] Hz.
     Audio(Vec<i16>),
+    /// #EXP-1941 (question 9), a sealed call only: this many ms of the
+    /// caller's audio were lost before the next [`CallHostEvent::Audio`]
+    /// (frames the relay skipped or held back, a packet its sender could not
+    /// seal). The host logic never joins speech across it: it hands the
+    /// count to the speech worker, which knows where an utterance begins.
+    Lost { ms: u32 },
     /// `call_mute`.
     Mute(bool),
     /// `call_end` from the caller (or the relay).
@@ -337,6 +343,10 @@ impl Sealed<'_> {
             return Step::Nothing;
         }
         let lost = std::mem::take(&mut self.lost);
+        if lost > 0 {
+            // Every lost frame counts, one the decoder recovers too.
+            on_event(CallHostEvent::Lost { ms: lost.saturating_mul(FRAME_MS) });
+        }
         let decoded = decoder.push(opened.seq, &opened.packet);
         let recovered = u32::from(decoded.len() > (UP_RATE * FRAME_MS / 1000) as usize).min(lost);
         let mut pcm = gap_silence(lost - recovered);
@@ -745,7 +755,7 @@ mod tests {
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            panic!("the host logic has {:?}", self.events());
+            panic!("the host logic has {} events, not {events}", self.events().len());
         }
 
         /// The caller's hello goes up; the host's comes back; the caller finishes.
@@ -823,7 +833,9 @@ mod tests {
         for seq in [0, 1, 5, 6, 7] {
             call.to_host.send(Message::Binary(frames[seq].clone().into())).unwrap();
         }
-        call.up(frames[8].clone(), 6).await;
+        call.up(frames[8].clone(), 8).await;
+        let lost: Vec<u32> = call.events().into_iter().filter_map(|event| if let CallHostEvent::Lost { ms } = event { Some(ms) } else { None }).collect();
+        assert_eq!(lost, [60, 20], "the host logic hears of every loss, a recovered one too");
         let audio: Vec<Vec<i16>> = call.events().into_iter().filter_map(|event| if let CallHostEvent::Audio(pcm) = event { Some(pcm) } else { None }).collect();
         assert_eq!(audio.iter().map(Vec::len).collect::<Vec<_>>(), [320, 320, 4 * 320, 2 * 320, 320], "0, 1, three lost + 5, the empty one recovered + 7, 8");
         assert!(audio[2][..3 * 320].iter().all(|sample| *sample == 0), "the three lost frames are silence");

@@ -100,6 +100,13 @@ pub const YOU_CHANNEL: &str = "you";
 /// keeps talk-listen.json's 300 ms); `voice-call.json` `minSilenceMs`
 /// (S-3: 700, a breath between two clauses no longer ends the turn).
 pub const CALL_MIN_SILENCE_MS: usize = 700;
+/// #EXP-1941 (question 9): a streamed call's utterance in which MORE than
+/// this much audio was lost on the way is not sent: a host never joins
+/// speech across what a relay cut out or held back. `voice-call.json`
+/// `seal.maxLostMs` once the fixture names it; until then this constant of
+/// the same value. A STARTING value: it is set from a measurement on real
+/// calls before sealing is switched on (nothing reports a loss before that).
+pub const CALL_MAX_LOST_MS: u32 = 300;
 /// NEW-55: speech this long in the open utterance is a barge-in
 /// ([`Event::SpeechStarted`]); `voice-call.json` `bargeInMs`.
 pub const BARGE_IN_MS: usize = 250;
@@ -110,6 +117,10 @@ pub const SPEECH_AUDIO_CHUNK_MS: u32 = 100;
 
 /// NEW-78: the bands of a [`Event::Level`] frame (low to high pitch).
 pub const LEVEL_BANDS: usize = 8;
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
 
 /// Host → worker, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,8 +157,15 @@ pub enum Request {
         ring_ms: u32,
     },
     /// NEW-55: caller audio of remote call `id`: base64 of i16 little-endian
-    /// mono [`CALL_RATE`] samples ([`encode_pcm`]).
-    CallAudio { id: String, pcm: String },
+    /// mono [`CALL_RATE`] samples ([`encode_pcm`]). #EXP-1941: `lost_ms` =
+    /// how much audio was lost before these samples (a sealed call's socket
+    /// counts it; absent when zero, so every other call's bytes are today's).
+    CallAudio {
+        id: String,
+        pcm: String,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        lost_ms: u32,
+    },
     /// NEW-55: `muted` drops call `id`'s incoming audio (no Level, no
     /// utterances); replies still play.
     CallMute { id: String, muted: bool },
@@ -798,7 +816,13 @@ impl SpeechClient {
     /// NEW-55: the caller's audio of remote call `id`: mono [`CALL_RATE`] Hz
     /// samples (the host decoded the caller's Opus).
     pub fn call_audio(&self, id: impl Into<String>, pcm: &[i16]) {
-        self.send_if_running(&Request::CallAudio { id: id.into(), pcm: encode_pcm(pcm) });
+        self.send_if_running(&Request::CallAudio { id: id.into(), pcm: encode_pcm(pcm), lost_ms: 0 });
+    }
+
+    /// #EXP-1941: `ms` of remote call `id`'s audio were lost on the way,
+    /// before the samples that come next ([`CALL_MAX_LOST_MS`]).
+    pub fn call_lost(&self, id: impl Into<String>, ms: u32) {
+        self.send_if_running(&Request::CallAudio { id: id.into(), pcm: String::new(), lost_ms: ms });
     }
 
     /// NEW-55: mute or unmute call `id`.
@@ -1185,7 +1209,9 @@ mod tests {
                 Request::Call { id: "c1".into(), language: "de".into(), remote: true, ring_ms: 0 },
                 r#"{"t":"call","id":"c1","language":"de","remote":true,"ringMs":0}"#,
             ),
-            (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]) }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
+            (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]), lost_ms: 0 }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
+            // #EXP-1941: a loss rides the same request; zero is not written.
+            (Request::CallAudio { id: "c1".into(), pcm: String::new(), lost_ms: 60 }, r#"{"t":"callAudio","id":"c1","pcm":"","lostMs":60}"#),
             (Request::CallMute { id: "c1".into(), muted: true }, r#"{"t":"callMute","id":"c1","muted":true}"#),
             (Request::Hangup { id: "c1".into() }, r#"{"t":"hangup","id":"c1"}"#),
         ];

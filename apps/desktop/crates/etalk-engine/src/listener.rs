@@ -207,6 +207,9 @@ pub enum Job {
     Call { id: String, language: String, remote: bool },
     /// NEW-55: remote call `id`'s audio, mono 16 kHz.
     Audio { id: String, samples: Vec<f32> },
+    /// #EXP-1941: `ms` of remote call `id`'s audio were lost before the next
+    /// [`Job::Audio`].
+    Lost { id: String, ms: u32 },
     Mute { id: String, muted: bool },
     Hangup { id: String },
     /// #NEW-56: listen for `phrase` between Listens (empty = off).
@@ -1543,6 +1546,16 @@ fn handle<H: Hearing>(
                 (links.emit)(&Event::ListenFailed { id, reason, detail });
             }
         }
+        Job::Lost { id, ms } => {
+            if !calling(active, &id) {
+                return;
+            }
+            let Some(Active::Call(running)) = active.as_mut() else { unreachable!("checked") };
+            // Only a remote call's audio crosses a relay.
+            if running.remote {
+                running.call.lost(ms);
+            }
+        }
         Job::Mute { id, muted } => {
             if !calling(active, &id) {
                 return;
@@ -2387,6 +2400,34 @@ mod tests {
         }
         harness.said(2);
         harness.close();
+    }
+
+    /// #EXP-1941 (question 9): an utterance that lost more than
+    /// `CALL_MAX_LOST_MS` on the way is never said; one that lost less is,
+    /// and so is the next one. A loss between utterances drops nothing.
+    #[test]
+    fn an_utterance_that_lost_too_much_is_not_said() {
+        let harness = Harness::new();
+        harness.call("c1", true);
+        let most = etalk::CALL_MAX_LOST_MS;
+        let say = |lost: &[u32]| {
+            let chunks: Vec<Vec<f32>> = phrase(0.8).chunks(320).map(<[f32]>::to_vec).collect();
+            // The losses fall into the speech: 0.2 s of silence, then 0.8 s of tone.
+            for (index, chunk) in chunks.into_iter().enumerate() {
+                if index >= 25 && index - 25 < lost.len() {
+                    harness.send(Job::Lost { id: "c1".into(), ms: lost[index - 25] });
+                }
+                harness.send(Job::Audio { id: "c1".into(), samples: chunk });
+            }
+        };
+        harness.send(Job::Lost { id: "c1".into(), ms: 10 * most });
+        say(&[most / 2, most / 2]);
+        assert_eq!(said(&harness.said(1)), ["clip1"], "a loss before it, and exactly the limit inside");
+        say(&[most / 2, most / 2, 20]);
+        say(&[]);
+        say(&[]);
+        harness.said(3);
+        assert_eq!(said(&harness.close()).len(), 3, "the second utterance was dropped whole, the two after it said");
     }
 
     /// S-3: a call whose recognizer is still downloading stays pending (no
