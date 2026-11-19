@@ -462,11 +462,8 @@ impl Backend for Mac {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let text = ch.to_string();
-        self.unicode(&text, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.unicode(&text, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.unicode(&ch.to_string(), down)
     }
 
     fn person_holds_button(&self) -> bool {

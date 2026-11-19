@@ -735,10 +735,8 @@ impl Backend for Win32 {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        send(&unicode_inputs(ch, false))?;
-        std::thread::sleep(Duration::from_millis(6));
-        send(&unicode_inputs(ch, true))
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        send(&unicode_inputs(ch, !down))
     }
 
     fn person_holds_button(&self) -> bool {
