@@ -35,9 +35,10 @@ decibri-aec = "=0.2.0"
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 cpal = "0.16"
 
-# #NEW-92: a local call's player gets a one-page pipe (`F_SETPIPE_SZ`), so
-# the stream is paced by the player and a stop plays out at most 43 ms.
-[target.'cfg(target_os = "linux")'.dependencies]
+# #NEW-92: a local call's player gets a one-page pipe (`F_SETPIPE_SZ`, Linux),
+# so the stream is paced by the player and a stop plays out at most 43 ms.
+# #ERR-29: `_exit` for a worker one of whose engine threads panicked.
+[target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
 [dev-dependencies]
@@ -47,3 +48,10 @@ sha2 = { workspace = true }
 # NEW-55: the `call_latency` example times the call's Opus frames (NEW-88:
 # through `etalk-codec`, so `--features etalk-codec/libopus` times libopus).
 etalk-codec = { path = "../etalk-codec" }
+# #ERR-29: the host side and its log capture, for the worker's panic test.
+etalk = { path = "../etalk", default-features = false, features = ["test-support"] }
+
+# #ERR-29: the worker really panics and aborts: its own `main`.
+[[test]]
+name = "worker_panic"
+harness = false

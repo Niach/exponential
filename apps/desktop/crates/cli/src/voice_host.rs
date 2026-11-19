@@ -856,10 +856,18 @@ impl Host {
                 };
                 self.fail(code, now);
             }
-            etalk::Event::Exited => {
+            etalk::Event::Exited { code, signal } => {
                 self.up = false;
+                // #ERR-29: the dead ends are errors (GlitchTip events), their
+                // text fixed so they group; the worker's crash is its own. A
+                // worker that never started or was stopped with the daemon
+                // has said so itself.
                 if self.call.is_some() {
-                    log::warn!("[voice] the speech worker exited during a call");
+                    if etalk::crashed(code, signal) {
+                        log::error!("[voice] the speech worker exited during a call");
+                    } else {
+                        log::warn!("[voice] the speech worker exited during a call");
+                    }
                     self.fail("dropped", now);
                 }
                 if self.download == Download::Running {
@@ -868,6 +876,7 @@ impl Host {
                 self.crashes += 1;
                 if self.crashes >= MAX_CRASHES && self.download != Download::Unavailable {
                     log::warn!("[voice] the speech worker crashed {} times in a row; giving up until a restart", self.crashes);
+                    log::error!("[voice] the speech worker kept crashing; voice given up until a restart");
                     self.download = Download::Unavailable;
                 } else if self.voices.is_none() {
                     // The probe never answered: it runs again later.
@@ -2065,11 +2074,14 @@ mod tests {
 
     #[test]
     fn three_crashes_in_a_row_fail_the_voice() {
+        etalk::log_capture::start();
         let mut rig = Rig::ready();
         for _ in 0..MAX_CRASHES {
-            rig.handle(Input::Worker(etalk::Event::Exited));
+            rig.handle(Input::Worker(etalk::Event::Exited { code: None, signal: Some(11) }));
         }
         assert_eq!(rig.host.speech_state(), Some(SpeechState::Failed));
+        // #ERR-29: the give-up is an error, the level GlitchTip sends.
+        assert!(etalk::log_capture::error_logged("[voice] the speech worker kept crashing; voice given up until a restart"), "{:?}", etalk::log_capture::records());
     }
 
     /// A ring: the agent's voice is prepared, the call listens, rang +
@@ -2191,9 +2203,12 @@ mod tests {
         rig.net.take();
         rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
         assert!(rig.net.take().is_empty(), "busy: the relay tells the caller");
-        rig.handle(Input::Worker(etalk::Event::Exited));
+        etalk::log_capture::start();
+        rig.handle(Input::Worker(etalk::Event::Exited { code: None, signal: Some(11) }));
         let events = rig.link.take();
         assert_eq!(events.first().map(String::as_str), Some(r#"event {"t":"failed","code":"dropped"}"#), "{events:?}");
+        // #ERR-29: a call the worker's death dropped is an error.
+        assert!(etalk::log_capture::error_logged("[voice] the speech worker exited during a call"), "{:?}", etalk::log_capture::records());
         assert!(events.contains(&"end".to_string()));
         assert!(rig.host.call.is_none());
     }
