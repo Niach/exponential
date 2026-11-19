@@ -10,7 +10,7 @@ use common::{
     Session,
 };
 use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
-use ede_protocol::{Capability, Error, ErrorCode, Request, SessionId, SpaceId};
+use ede_protocol::{Capability, CaptureTarget, Error, ErrorCode, InputEvent, Request, SessionId, SpaceId};
 use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
@@ -552,4 +552,100 @@ fn a_space_ends_with_its_grant() {
     tick(3);
     assert_eq!(listed(&mut root), ["run-2"]);
     spaces_settled(&h);
+}
+
+/// Two agents, each with a space. Each sees, captures and drives its own
+/// and nothing else: not the other's, not the person's. The person's
+/// lists and captures show neither.
+#[test]
+fn a_space_grant_sees_and_drives_only_its_space() {
+    const GREEN: u32 = 0xff00_ff00;
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let mut a = person_with_a_window(&h);
+    let persons_window = root.windows().unwrap()[0].id.clone();
+    let before = person_snapshot(&h);
+
+    let open = |session: &str, colour: u32| {
+        let (_, mut agent) = space_grant(&h, session, None);
+        let space = agent.create_space(640, 480).unwrap();
+        let mut client = Session::connect(UnixStream::connect(&space.wayland_display).unwrap());
+        client.keyboard();
+        client.pointer();
+        let window = client.toplevel(session);
+        client.draw_configured(&window, 64, 64, colour);
+        wait_for(&mut client, |c| c.state.keyboard_focus.is_some());
+        (agent, space, client)
+    };
+    let (mut one, space1, mut b1) = open("run-1", RED);
+    let (mut two, space2, mut b2) = open("run-2", GREEN);
+
+    // Lists: its own window on its own output, and nothing else.
+    let windows = one.windows().unwrap();
+    assert_eq!(windows.len(), 1);
+    let own = windows[0].clone();
+    assert_eq!((own.title.as_deref(), own.space.as_ref(), own.focused, own.x, own.y, own.width, own.height), (Some("run-1"), Some(&space1.id), true, 0, 0, 640, 480));
+    let outputs = one.outputs().unwrap();
+    assert_eq!(outputs.iter().map(|o| (o.name.as_str(), o.width, o.height, o.space.as_ref())).collect::<Vec<_>>(), [("space-1", 640, 480, Some(&space1.id))]);
+    let others = two.windows().unwrap();
+    assert!(others.len() == 1 && others[0].id != own.id);
+    // The person's lists know of no space.
+    assert_eq!(root.windows().unwrap().iter().map(|w| (w.id.clone(), w.space.clone())).collect::<Vec<_>>(), [(persons_window.clone(), None)]);
+    assert_eq!(root.outputs().unwrap().iter().map(|o| o.name.clone()).collect::<Vec<_>>(), ["HEADLESS-1"]);
+
+    // Captures: by its output's name or by its id; `since` its own serial.
+    let by_output = one.capture(CaptureTarget::Output { name: "space-1".into() }).unwrap();
+    assert_eq!((by_output.info.width, by_output.info.height, by_output.at(320, 240)), (640, 480, RED));
+    let by_id = one.capture(CaptureTarget::Space { space: space1.id.clone() }).unwrap();
+    assert_eq!((by_id.at(320, 240), by_id.info.serial), (RED, by_output.info.serial));
+    assert!(one.capture_since(CaptureTarget::Space { space: space1.id.clone() }, Some(by_id.info.serial)).unwrap().is_none());
+    assert_eq!(code(one.capture(CaptureTarget::Output { name: "HEADLESS-1".into() })), ErrorCode::NotFound);
+    assert_eq!(code(one.capture(CaptureTarget::Output { name: "space-2".into() })), ErrorCode::NotFound);
+    assert_eq!(code(one.capture(CaptureTarget::Space { space: space2.id.clone() })), ErrorCode::Forbidden);
+    // `system` captures any space; the person's output shows none.
+    assert_eq!(root.capture(CaptureTarget::Space { space: space2.id.clone() }).unwrap().at(320, 240), GREEN);
+    assert_eq!(code(root.capture(CaptureTarget::Space { space: SpaceId::new("space-9").unwrap() })), ErrorCode::NotFound);
+    let persons = root.capture(CaptureTarget::Output { name: "HEADLESS-1".into() }).unwrap();
+    let pixels: Vec<u32> = persons.pixels.chunks_exact(4).map(|p| u32::from_le_bytes(p.try_into().unwrap())).collect();
+    assert!(pixels.contains(&BLUE) && !pixels.contains(&RED) && !pixels.contains(&GREEN));
+
+    // Windows of another desk are not found, whoever's they are.
+    for foreign in [persons_window.clone(), others[0].id.clone()] {
+        assert_eq!(code(one.focus(foreign.clone())), ErrorCode::NotFound);
+        assert_eq!(code(one.close_window(foreign)), ErrorCode::NotFound);
+    }
+    one.focus(own.id.clone()).unwrap();
+
+    // Input lands in its own space; the bindings are the shell's alone.
+    one.input(InputEvent::Key { key: KEY_G, pressed: true }).unwrap();
+    one.input(InputEvent::Key { key: KEY_G, pressed: false }).unwrap();
+    one.input(InputEvent::PointerMotion { x: 100.0, y: 100.0 }).unwrap();
+    one.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: true }).unwrap();
+    one.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: false }).unwrap();
+    assert_eq!(one.pointer().map(|p| (p.x, p.y)).unwrap(), (100.0, 100.0));
+    assert_eq!(code(one.input_as_person(InputEvent::Key { key: KEY_G, pressed: true })), ErrorCode::Forbidden);
+    wait_for(&mut b1, |b| b.state.keys == [KEY_G] && b.state.buttons == [(BTN_LEFT, true), (BTN_LEFT, false)]);
+    b2.roundtrip();
+    a.roundtrip();
+    assert!(b2.state.keys.is_empty() && b2.state.buttons.is_empty() && a.state.keys.is_empty());
+    assert_eq!(two.pointer().map(|p| (p.x, p.y)).unwrap(), (0.0, 0.0));
+
+    // A connection that goes lets go of what it held down, in its space.
+    one.input(InputEvent::Key { key: KEY_G, pressed: true }).unwrap();
+    drop(one);
+    let held = |h: &Harness, session: &'static str| h.with(move |state| state.spaces.iter().find(|s| s.owner.as_str() == session).map(|s| s.desk.seat.get_keyboard().unwrap().pressed_keys().len()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while held(&h, "run-1") != Some(0) {
+        assert!(std::time::Instant::now() < deadline, "the key outlived its connection");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Its own close reaches its window; a space closed with a button down leaves nothing.
+    let (_, mut one) = space_grant(&h, "run-1", None);
+    one.close_window(own.id).unwrap();
+    wait_for(&mut b1, |b| b.state.toplevels[0].closed);
+    two.input(InputEvent::PointerButton { button: BTN_LEFT, pressed: true }).unwrap();
+    root.destroy_space(space2.id).unwrap();
+    assert_eq!(code(two.windows()), ErrorCode::NotFound);
+    spaces_settled(&h);
+    assert_person_untouched(&h, &before);
 }

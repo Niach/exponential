@@ -40,7 +40,6 @@ fn code<T: std::fmt::Debug>(reply: Result<T, Error>) -> ErrorCode {
 }
 
 #[test]
-#[ignore = "until a space grant creates its space and drives it over ede-protocol"]
 fn the_person_types_while_an_agent_works_in_its_space() {
     let (h, _dir) = start_with_spaces(&[(800, 600)]);
 

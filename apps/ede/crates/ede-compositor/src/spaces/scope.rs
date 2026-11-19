@@ -12,8 +12,17 @@ use ede_protocol::{Capability, ErrorCode, Failure, Grant, Request, SessionId};
 
 use crate::{desk::DeskId, ipc::ROOT_SESSION, state::Ede};
 
-/// What [`Ede::space_scope_call`] and the ops answer.
+/// What an op answers.
 pub(crate) type Reply = Result<Option<(serde_json::Value, Option<Vec<u8>>)>, Failure>;
+
+/// What [`Ede::space_scope_call`] made of a space connection's call.
+pub(crate) enum Scoped {
+    /// Answered here.
+    Reply(Option<(serde_json::Value, Option<Vec<u8>>)>),
+    /// Input without bindings, the pointer's position, the clipboard: the
+    /// op's own arm serves it, on this desk, the caller's space (#EDE-125).
+    Through(DeskId, Request),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
@@ -60,7 +69,7 @@ impl Ede {
     /// Every call of a space connection after its hello. Outside the
     /// allowlist: `forbidden`. Unbound, only `create_space` and
     /// `list_spaces` pass, the rest is `not_found`.
-    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request) -> Reply {
+    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request) -> Result<Scoped, Failure> {
         let fail = |code, message: &str| Err(Failure::new(code, message));
         if !request.in_space() {
             return fail(ErrorCode::Forbidden, "not an op of an agent space");
@@ -71,17 +80,19 @@ impl Ede {
         let bound = self.desk_of_scope(&Scope::Space(session.clone()));
         match request {
             Request::Hello { .. } => unreachable!("hello is answered before the scope"),
-            Request::CreateSpace { width, height } => Ok(Some((serde_json::to_value(self.space_create(session, width, height)?).unwrap(), None))),
-            Request::ListSpaces => Ok(Some((serde_json::to_value(self.space_infos(Some(session))).unwrap(), None))),
+            Request::CreateSpace { width, height } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_create(session, width, height)?).unwrap(), None)))),
+            Request::ListSpaces => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_infos(Some(session))).unwrap(), None)))),
             Request::DestroySpace { space } => {
                 self.space_destroy(Some(session), &space)?;
-                Ok(Some((serde_json::Value::Null, None)))
+                Ok(Scoped::Reply(Some((serde_json::Value::Null, None))))
             }
-            Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
-                if bound.is_some() {
-                    return fail(ErrorCode::Unavailable, "not served in a space yet");
+            request @ (Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText) => {
+                let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
+                match request {
+                    Request::Launch { .. } => fail(ErrorCode::Unavailable, "launch is not served yet"),
+                    Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request).map(Scoped::Reply),
+                    through => Ok(Scoped::Through(desk, through)),
                 }
-                fail(ErrorCode::NotFound, "this grant has no space")
             }
             // `in_space` refused these above; named so that a new op has to
             // be placed here by hand.
