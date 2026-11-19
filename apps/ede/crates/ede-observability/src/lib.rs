@@ -192,25 +192,21 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
         stats::init(false);
         return Guard(None);
     };
-    let user_id = plan.user_id.clone();
+    let user = plan.user_id.clone().map(|id| sentry::User { id: Some(id), ..Default::default() });
     let guard = sentry::init(options(&plan));
     sentry::configure_scope(|scope| {
         scope.set_tag("component", component);
-        if let Some(id) = user_id {
-            scope.set_user(Some(sentry::User { id: Some(id), ..Default::default() }));
+        if let Some(user) = user.clone() {
+            scope.set_user(Some(user));
         }
     });
     stats::init(guard.is_enabled());
     if guard.is_enabled() {
         // #ERR-12: the last launches' native crashes, each with its release.
         // Deleted once flushed, off the startup path.
-        let hub = sentry::Hub::current();
+        let hub = reports_hub(sentry::Hub::current().client(), user);
         let _ = std::thread::Builder::new().name("ede-crash-reports".into()).spawn(move || {
-            let sent = crash_monitor::send_pending(
-                &crashes_dir(),
-                |event| capture_as_reported(&hub, event),
-                || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10)))),
-            );
+            let sent = send_pending_reports(&hub, &crashes_dir());
             if sent > 0 {
                 tracing::info!(sent, "native crash reports sent");
             }
@@ -220,16 +216,32 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
     Guard(Some(guard))
 }
 
-/// A report another launch left (a native crash, of whichever binary)
-/// keeps the tags it was written with: this process's `component` is not
-/// the crashed one's (#ERR-29: seven binaries send each other's).
-fn capture_as_reported(hub: &sentry::Hub, event: sentry::protocol::Event<'static>) {
-    hub.with_scope(
-        |scope| scope.remove_tag("component"),
-        || {
+/// The reports another launch left, through `hub`; deleted once flushed.
+/// #ERR-29: and only while its client is still open. A binary that stops
+/// right after its start (the portal without a compositor, a shell that
+/// cannot open its directory) closes the client under this thread: what it
+/// captures then goes nowhere, and a flush of a closed client says "all
+/// sent". Those reports wait for the next launch.
+fn send_pending_reports(hub: &sentry::Hub, dir: &std::path::Path) -> usize {
+    crash_monitor::send_pending(
+        dir,
+        |event| {
             hub.capture_event(event);
         },
-    );
+        || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10))) && client.is_enabled()),
+    )
+}
+
+/// #ERR-29: the hub the reports another launch left go through (a native
+/// crash, of whichever binary): the client and the person's id, and none
+/// of this process's tags, so a report keeps the `component` it was
+/// written with (seven binaries send each other's). Its own hub: a scope
+/// pushed on the process's would hide this process's tag from its own
+/// events meanwhile.
+fn reports_hub(client: Option<std::sync::Arc<sentry::Client>>, user: Option<sentry::User>) -> sentry::Hub {
+    let mut scope = sentry::Scope::default();
+    scope.set_user(user);
+    sentry::Hub::new(client, std::sync::Arc::new(scope))
 }
 
 /// Sends what is queued (up to 2 s): before a `std::process::exit`, which
@@ -294,8 +306,46 @@ mod tests {
         assert_eq!((crumbs[0].level, crumbs[1].level), (sentry::Level::Info, sentry::Level::Warning));
     }
 
+    /// #ERR-29: reports a closed client could not send stay for the next
+    /// launch; an open one sends them and they go.
+    #[test]
+    fn a_report_waits_while_the_client_is_closed() {
+        struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
+        impl sentry::Transport for Collect {
+            fn send_envelope(&self, envelope: sentry::Envelope) {
+                self.0.lock().unwrap().push(envelope);
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let report = dir.path().join("6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11.json");
+        std::fs::write(
+            &report,
+            format!(r#"{{"id":"6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11","release":"exponential-ede@0.2.28","component":"portal","timestamp":{now},"os":"Linux","os_version":null,"arch":"x86_64","kind":"SIGSEGV","reason":"SIGSEGV / SEGV_MAPERR","address":0,"thread_id":7,"thread_name":null,"frames":[{{"address":4096,"module":0,"trust":"context"}}],"modules":[{{"code_file":"/usr/bin/x","base":0,"size":65536,"debug_id":"b0b1b2b3-b4b5-b6b7-b8b9-babbbcbdbebf","code_id":null,"debug_file":null,"main":true}}]}}"#),
+        )
+        .unwrap();
+        let client = |sent: &Arc<Mutex<Vec<sentry::Envelope>>>| {
+            let collected = sent.clone();
+            let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
+            options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
+            Arc::new(sentry::Client::from(options))
+        };
+        // The binary stopped: its client closed before the reports went.
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let closed = client(&sent);
+        closed.close(None);
+        assert_eq!(send_pending_reports(&reports_hub(Some(closed), None), dir.path()), 1);
+        assert!(sent.lock().unwrap().is_empty() && report.exists(), "nothing went, so the report waits");
+        // The next launch sends it.
+        let open = client(&sent);
+        assert_eq!(send_pending_reports(&reports_hub(Some(open), None), dir.path()), 1);
+        assert_eq!(sent.lock().unwrap().len(), 1);
+        assert!(!report.exists(), "sent, then deleted");
+    }
+
     /// #ERR-29: a crash report another binary left is sent under ITS
-    /// component, not the sender's (a scope's tags win over an event's).
+    /// component, with the person's id, while this process's own events
+    /// keep this process's (a scope's tags win over an event's).
     #[test]
     fn a_crash_report_keeps_the_component_it_was_written_with() {
         struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
@@ -308,13 +358,25 @@ mod tests {
         let collected = sent.clone();
         let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
         options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
-        let hub = sentry::Hub::new(Some(Arc::new(sentry::Client::from(options))), Arc::new(sentry::Scope::default()));
-        hub.configure_scope(|scope| scope.set_tag("component", "shell"));
+        let client = Arc::new(sentry::Client::from(options));
+        let person = sentry::User { id: Some("u-1".into()), ..Default::default() };
+        let process = sentry::Hub::new(Some(client.clone()), Arc::new(sentry::Scope::default()));
+        process.configure_scope(|scope| {
+            scope.set_tag("component", "shell");
+            scope.set_user(Some(person.clone()));
+        });
+        let reports = reports_hub(Some(client), Some(person));
         let mut tags = sentry::protocol::Map::new();
         tags.insert("component".to_owned(), "sealed-lock".to_owned());
-        capture_as_reported(&hub, sentry::protocol::Event { message: Some("SIGSEGV".into()), tags, ..Default::default() });
-        hub.capture_message("the shell's own", sentry::Level::Error);
-        let components: Vec<Option<String>> = sent.lock().unwrap().iter().filter_map(|envelope| envelope.event()).map(|event| event.tags.get("component").cloned()).collect();
-        assert_eq!(components, [Some("sealed-lock".to_owned()), Some("shell".to_owned())]);
+        reports.capture_event(sentry::protocol::Event { message: Some("SIGSEGV".into()), tags, ..Default::default() });
+        process.capture_message("the shell's own", sentry::Level::Error);
+        let events: Vec<(Option<String>, Option<String>)> = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|envelope| envelope.event())
+            .map(|event| (event.tags.get("component").cloned(), event.user.as_ref().and_then(|user| user.id.clone())))
+            .collect();
+        assert_eq!(events, [(Some("sealed-lock".to_owned()), Some("u-1".to_owned())), (Some("shell".to_owned()), Some("u-1".to_owned()))]);
     }
 }
