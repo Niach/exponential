@@ -3048,9 +3048,12 @@ enum SealedSuggestionTap {
         deviceId: String? = nil, model: String? = nil
     ) async throws {
         let idents = item.issueIds.filter { UUID(uuidString: $0) == nil }.map(CardItemWire.identifier)
-        let resolved = idents.isEmpty ? [:] : ((try? db.pool(forAccountId: accountId).read { conn in
-            try SessionQueries.issueIds(db: conn, identifiers: idents, sessionId: card.sessionId)
-        }) ?? [:])
+        var resolved: [String: String] = [:]
+        if !idents.isEmpty, let pool = try? db.pool(forAccountId: accountId) {
+            resolved = (try? await pool.read { conn in
+                try SessionQueries.issueIds(db: conn, identifiers: idents, sessionId: card.sessionId)
+            }) ?? [:]
+        }
         try await api.send(
             accountId: accountId,
             CardItemWire.start(
