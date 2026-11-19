@@ -26,6 +26,29 @@ pub(crate) struct Image {
     pub rgba: Vec<u8>,
 }
 
+impl Image {
+    /// #EXP-1994: a capture of 32-bit pixels in B, G, R, A (or X) byte
+    /// order, rows `stride` bytes apart (macOS, Windows, X11's common
+    /// visual, eDE's `argb8888`), as opaque RGBA8: the one conversion of
+    /// every backend. Bytes past a row's pixels are padding; the last row
+    /// needs none. `None` = a row is missing, or wider than `stride`.
+    pub(crate) fn from_bgra(bytes: &[u8], width: u32, height: u32, stride: usize) -> Option<Image> {
+        let row = usize::try_from(width).ok()?.checked_mul(4)?;
+        if stride < row {
+            return None;
+        }
+        let rows = usize::try_from(height).ok()?;
+        let mut rgba = Vec::with_capacity(row.checked_mul(rows)?);
+        for y in 0..rows {
+            let start = y.checked_mul(stride)?;
+            for pixel in bytes.get(start..start.checked_add(row)?)?.chunks_exact(4) {
+                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+            }
+        }
+        Some(Image { width, height, rgba })
+    }
+}
+
 /// One display (monitor) of the screen, in screen units.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DisplayInfo {
@@ -643,6 +666,28 @@ mod tests {
         assert_eq!(display.overlap(150, 50, 100, 100), 50 * 50);
         assert_eq!(display.overlap(0, 0, 100, 100), 0);
         assert_eq!(display.overlap(-1000, -1000, 5000, 5000), 100 * 100);
+    }
+
+    /// #EXP-1994: every backend's capture becomes RGBA8 by one rule: opaque,
+    /// the row padding skipped, a short capture `None` whatever the backend.
+    #[test]
+    fn bgra_rows_become_opaque_rgba_and_skip_the_row_padding() {
+        // 2x2, stride 12 (4 bytes of padding per row).
+        let data = [1, 2, 3, 0, 4, 5, 6, 9, 0xee, 0xee, 0xee, 0xee, 7, 8, 9, 0, 10, 11, 12, 0, 0xee, 0xee, 0xee, 0xee];
+        let image = Image::from_bgra(&data, 2, 2, 12).unwrap();
+        assert_eq!((image.width, image.height), (2, 2));
+        assert_eq!(image.rgba, [3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255]);
+        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
+        assert!(Image::from_bgra(&data[..20], 2, 2, 12).is_some());
+        assert!(Image::from_bgra(&data[..19], 2, 2, 12).is_none());
+        // Packed rows (Windows, X11): the alpha byte never shows.
+        assert_eq!(Image::from_bgra(&[1, 2, 3, 0, 10, 20, 30, 7], 2, 1, 8).unwrap().rgba, [3, 2, 1, 255, 30, 20, 10, 255]);
+        // eDE's `argb8888` words, little-endian.
+        let words: Vec<u8> = [0xff10_2030u32, 0xff00_00ff, 0].iter().flat_map(|word| word.to_le_bytes()).collect();
+        assert_eq!(Image::from_bgra(&words, 2, 1, 12).unwrap().rgba, [0x10, 0x20, 0x30, 255, 0, 0, 0xff, 255]);
+        assert!(Image::from_bgra(&words, 4, 1, 12).is_none(), "a row wider than its stride");
+        assert!(Image::from_bgra(&[], 1, 1, 4).is_none());
+        assert_eq!(Image::from_bgra(&[], 0, 0, 0).unwrap().rgba, Vec::<u8>::new());
     }
 
     #[test]

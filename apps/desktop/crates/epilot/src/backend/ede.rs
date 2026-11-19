@@ -464,17 +464,9 @@ fn rgba_of(capture: &ede_protocol::Capture) -> Result<Image, String> {
     if info.format != "argb8888" {
         return Err(format!("Unsupported eDE capture format {:?}.", info.format));
     }
-    let (width, height, stride) = (info.width.max(0) as usize, info.height.max(0) as usize, info.stride.max(0) as usize);
-    if stride < width * 4 || capture.pixels.len() < stride * height {
-        return Err("The eDE capture is short.".to_string());
-    }
-    let mut rgba = Vec::with_capacity(width * height * 4);
-    for row in capture.pixels.chunks_exact(stride).take(height) {
-        for pixel in row[..width * 4].chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-        }
-    }
-    Ok(Image { width: width as u32, height: height as u32, rgba })
+    // Little-endian `0xAARRGGBB` words are B, G, R, A bytes.
+    let (width, height, stride) = (info.width.max(0) as u32, info.height.max(0) as u32, info.stride.max(0) as usize);
+    Image::from_bgra(&capture.pixels, width, height, stride).ok_or_else(|| "The eDE capture is short.".to_string())
 }
 
 impl Ede {
