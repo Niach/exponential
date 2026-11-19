@@ -313,7 +313,7 @@ extension TreeQuestionOption: ExpressibleByStringLiteral {
 }
 
 /// EXP-1323: one raw `suggestions` card item (domain `SuggestionItem`).
-public struct TreeSuggestionItem: Equatable, Sendable {
+public struct TreeSuggestionItem: Equatable, Sendable, Identifiable {
     public let id: String
     public let title: String
     public let text: String

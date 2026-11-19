@@ -2846,9 +2846,9 @@ struct AgentSessionView: View {
                         try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
                     case .sealed:
                         // #EXP-1958: one sealed Start per open item, in card order.
-                        guard let card else { return }
+                        guard let card else { throw CardItemGone() }
                         for item in card.card?.items ?? [] where item.isOpen {
-                            try await SealedSuggestionTap.start(api: api, accountId: accountId, card: card, item: item)
+                            try await SealedSuggestionTap.start(db: db, api: api, accountId: accountId, card: card, item: item)
                         }
                     case .refused:
                         throw SealRefusal()
@@ -2929,7 +2929,8 @@ struct AgentSessionView: View {
                     deviceId: deviceId, model: model
                 )
             case .sealed:
-                guard let card, let item = card.card?.items?.first(where: { $0.id == itemId }) else { return }
+                guard let card else { throw CardItemGone() }
+                let item = try CardItemWire.item(itemId, in: card.card?.items)
                 if target == .here {
                     try await api.send(
                         accountId: accountId,
@@ -2938,7 +2939,7 @@ struct AgentSessionView: View {
                     )
                 } else {
                     try await SealedSuggestionTap.start(
-                        api: api, accountId: accountId, card: card, item: item, deviceId: deviceId, model: model
+                        db: db, api: api, accountId: accountId, card: card, item: item, deviceId: deviceId, model: model
                     )
                 }
             case .refused:
@@ -2965,7 +2966,7 @@ struct AgentSessionView: View {
                 try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
             case .stamp:
                 // #EXP-1958: the server cannot read the item: it names the issue.
-                guard let item = card?.card?.items?.first(where: { $0.id == itemId }) else { return }
+                let item = try CardItemWire.item(itemId, in: card?.card?.items)
                 try await api.fileSuggestion(
                     accountId: accountId, messageId: rowId, itemId: itemId, title: item.title, text: item.text
                 )
@@ -3040,16 +3041,21 @@ enum SealedSuggestionTap {
         }) ?? nil
     }
 
-    /// Start = a child of the card's session, named by the item's title.
+    /// Start = a child of the card's session, named by the item's title,
+    /// its `#IDENT` issue refs resolved by the issue store.
     static func start(
-        api: SessionsApi, accountId: String, card: TreeMessage, item: TreeSuggestionItem,
+        db: DatabaseManager, api: SessionsApi, accountId: String, card: TreeMessage, item: TreeSuggestionItem,
         deviceId: String? = nil, model: String? = nil
     ) async throws {
+        let idents = item.issueIds.filter { UUID(uuidString: $0) == nil }.map(CardItemWire.identifier)
+        let resolved = idents.isEmpty ? [:] : ((try? db.pool(forAccountId: accountId).read { conn in
+            try SessionQueries.issueIds(db: conn, identifiers: idents, sessionId: card.sessionId)
+        }) ?? [:])
         try await api.send(
             accountId: accountId,
             CardItemWire.start(
                 parentId: card.sessionId, title: item.title, text: item.text, issueIds: item.issueIds,
-                deviceId: deviceId, model: model
+                resolved: resolved, deviceId: deviceId, model: model
             ),
             cardItem: CardItemRef(messageId: card.id, itemId: item.id)
         )

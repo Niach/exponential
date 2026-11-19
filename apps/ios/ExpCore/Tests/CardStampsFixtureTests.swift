@@ -1,5 +1,6 @@
 @testable import ExpCore
 import Foundation
+import GRDB
 import XCTest
 
 // #EXP-1958: sealed-content.json `cardStamps` replayed: `tapCases` through
@@ -75,5 +76,40 @@ final class CardStampsFixtureTests: XCTestCase {
                 XCTAssertEqual(parsed.map(\.sessionId), expected.map { $0["sessionId"] as? String }, name)
             }
         }
+    }
+
+    /// An item the opened card no longer carries fails the tap (the
+    /// failed-action toast), never a silent success.
+    func testAMissingItemThrows() throws {
+        let items = [ComposerReply(id: "r1", text: "Yes")]
+        XCTAssertEqual(try CardItemWire.item("r1", in: items).text, "Yes")
+        XCTAssertThrowsError(try CardItemWire.item("r2", in: items)) { XCTAssertEqual($0 as? CardItemGone, CardItemGone()) }
+        XCTAssertThrowsError(try CardItemWire.item("r1", in: nil as [ComposerReply]?)) { XCTAssertEqual($0 as? CardItemGone, CardItemGone()) }
+        XCTAssertEqual(CardItemGone().localizedDescription, "This item is no longer on the card")
+    }
+
+    /// Start's issue ids: uuids as they are, an `#IDENT` the issue store
+    /// resolves, unknown dropped, the item's order kept.
+    func testStartResolvesIssueRefs() throws {
+        let uuid = "00000000-0000-4000-8000-000000000012"
+        let known = "00000000-0000-4000-8000-000000000077"
+        XCTAssertEqual(CardItemWire.identifier("#exp-7"), "EXP-7")
+        XCTAssertEqual(CardItemWire.issueIds(["exp-7", uuid, "NOPE-1", "#EXP-7"], resolved: ["EXP-7": known]), [known, uuid])
+        XCTAssertNil(CardItemWire.issueIds(["NOPE-1"]))
+
+        let path = NSTemporaryDirectory() + "card-stamps-\(UUID().uuidString).sqlite"
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) } }
+        let queue = try DatabasePool(path: path)
+        try DatabaseManager.runMigrations(on: queue)
+        try queue.write { db in
+            try db.execute(sql: #"INSERT INTO "boards" ("id", "team_id", "name", "slug", "prefix", "created_at", "updated_at") VALUES ('b1', 't1', 'Core', 'core', 'EXP', 'x', 'x'), ('b2', 't2', 'Other', 'other', 'EXP', 'x', 'x')"#)
+            try db.execute(sql: #"INSERT INTO "issues" ("id", "board_id", "identifier", "title", "created_at", "updated_at") VALUES ('i1', 'b1', 'EXP-7', 'Mine', 'x', 'x'), ('i2', 'b2', 'EXP-7', 'Another team', 'x', 'x')"#)
+            let session = #"{"id":"s1","team_id":"t1","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}"#
+            try JSONDecoder().decode(SessionEntity.self, from: Data(session.utf8)).save(db)
+        }
+        let resolved = try queue.read { db in
+            try SessionQueries.issueIds(db: db, identifiers: ["exp-7", "NOPE-1"], sessionId: "s1")
+        }
+        XCTAssertEqual(resolved, ["EXP-7": "i1"])
     }
 }

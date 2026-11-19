@@ -50,11 +50,28 @@ public enum CardItemWire {
         "\(title)\n\n\(text)"
     }
 
-    /// The issue ids a sealed Start names: the item's uuids as they are
-    /// (an #IDENT this store does not resolve is dropped).
-    public static func issueIds(_ ids: [String]) -> [String]? {
-        let uuids = ids.filter { UUID(uuidString: $0) != nil }
-        return uuids.isEmpty ? nil : uuids
+    /// The issue ids a sealed Start names, in the item's order: its uuids
+    /// as they are, an `#IDENT` through `resolved` (UPPERCASED identifier ->
+    /// id, the issue store's answer), anything else dropped.
+    public static func issueIds(_ ids: [String], resolved: [String: String] = [:]) -> [String]? {
+        var out: [String] = []
+        for raw in ids {
+            guard let id = UUID(uuidString: raw) != nil ? raw : resolved[identifier(raw)] else { continue }
+            if !out.contains(id) { out.append(id) }
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// An item's issue ref as the store keys it (`#exp-7` -> `EXP-7`).
+    public static func identifier(_ raw: String) -> String {
+        (raw.hasPrefix("#") ? String(raw.dropFirst()) : raw).uppercased()
+    }
+
+    /// The item a tap names on the card this install opened. An item the
+    /// card no longer carries FAILS (`CardItemGone`), never a silent success.
+    public static func item<Item: Identifiable>(_ id: Item.ID, in items: [Item]?) throws -> Item {
+        guard let item = items?.first(where: { $0.id == id }) else { throw CardItemGone() }
+        return item
     }
 
     /// Reply / Do it here: a message into the card's session.
@@ -68,6 +85,7 @@ public enum CardItemWire {
         title: String,
         text: String,
         issueIds ids: [String],
+        resolved: [String: String] = [:],
         deviceId: String? = nil,
         account: String? = nil,
         model: String? = nil
@@ -78,7 +96,13 @@ public enum CardItemWire {
             options: SessionLaunchOptions(account: account, model: model),
             text: request(title: title, text: text),
             name: title.isEmpty ? nil : title,
-            issueIds: issueIds(ids)
+            issueIds: issueIds(ids, resolved: resolved)
         )
     }
+}
+
+/// A tap on an item the opened card no longer carries: nothing was sent.
+public struct CardItemGone: LocalizedError, Equatable, Sendable {
+    public init() {}
+    public var errorDescription: String? { "This item is no longer on the card" }
 }
