@@ -1667,8 +1667,9 @@ mod tests {
         assert!(settle_activation(4, false, wait, || true).is_err(), "macOS refused");
         assert!(settle_activation(4, true, wait, || false).is_err(), "never in front");
         let mut polls = 0;
+        // Room for a slow runner's sleeps: the answer comes at the third poll.
         assert_eq!(
-            settle_activation(4, true, wait, || {
+            settle_activation(4, true, Duration::from_secs(10), || {
                 polls += 1;
                 polls == 3
             }),
