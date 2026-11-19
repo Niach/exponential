@@ -1000,7 +1000,7 @@ impl HostPlugin for Host {
                         }
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
-                        Some("stop") => {}
+                        Some("stop") => chat_stop(&shell, cx),
                         // EXP-1513: the empty state's Set up Claude Code / Open sign-in.
                         Some("setup") => chat_setup_start(&shell, cx),
                         Some("signIn") => {
@@ -2205,7 +2205,10 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
 /// through `sessions.send` (the IDE's path): the open session, else the
 /// picked agent; the chat then shows the session the server names.
 fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
+    // #EDE-134: the composer emptied its field at the press (composer-send.json):
+    // every exit that did not send hands the text back.
     if shell.borrow().chat_uploading {
+        chat_keep_draft(shell, text, cx);
         return;
     }
     if chat_local(shell) {
@@ -2223,6 +2226,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             Err((landed, e)) => {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(shell, "upload", "the attachment", &e, cx);
+                chat_keep_draft(shell, text, cx);
                 return;
             }
         };
@@ -2235,24 +2239,35 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
                 chat_files_sent(shell, &resolved, cx);
                 chat_clear_draft(shell, cx);
             }
-            Err(e) => failed_action(shell, "send", "the message", &e, cx),
+            Err(e) => {
+                failed_action(shell, "send", "the message", &e, cx);
+                chat_keep_draft(shell, text, cx);
+            }
         }
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else {
+        chat_keep_draft(shell, text, cx);
         launch_app(shell, "at.exponential");
         return;
     };
     let picked = shell.borrow().chat_agent.clone().or_else(|| team_chat::agents(&rows.account, &chat.team_id).first().map(|a| a.id.clone()));
     let jobs = shell.borrow().chat_files.jobs();
-    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else { return };
+    let Some(mut input) = team_chat::send_input(&chat, picked.as_deref(), text, !jobs.is_empty()) else {
+        chat_keep_draft(shell, text, cx);
+        return;
+    };
     let tree = team_chat::send_tree(&rows.account, &input);
-    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else {
+        chat_keep_draft(shell, text, cx);
+        return;
+    };
     let trpc = shell.borrow().workspaces.trpc(&account);
     let transport = shell.borrow().workspaces.attachments(&account);
     let team_id = chat.team_id.clone();
     shell.borrow_mut().chat_uploading = !jobs.is_empty();
     let shell = shell.clone();
+    let typed = text.to_string();
     use api::attachment_upload::{AttachmentTransport as _, UploadSendError};
     cx.spawn(async move |cx| {
         // #EDE-65 lane L: the IDE's path: the staged files upload into the
@@ -2260,17 +2275,23 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
         let sent = cx
             .background_executor()
             .spawn(async move {
-                // #EDE-131: sealed (or refused) before anything uploads.
-                if let Some(text) = input.text.take() {
-                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
-                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
-                        UploadSendError::Send(Vec::new(), no_key())
-                    })?;
-                    input.text = Some(wire);
-                }
+                let refused = |why: String| {
+                    tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                    UploadSendError::Send(Vec::new(), no_key())
+                };
+                // #EDE-131: a tree this shell cannot seal for refuses before anything uploads.
+                let wire = team_chat::wire_for(&team_chat::Server(&trpc), &tree).map_err(refused)?;
                 let resolved = api::attachment_upload::upload_all(jobs, |filename, content_type, bytes| transport.upload_team_session_file(&team_id, filename, content_type, bytes))
                     .map_err(|(landed, e)| UploadSendError::Upload(landed, e))?;
-                input.attachment_ids = Some(chat_files::attachment_ids(&resolved)).filter(|ids| !ids.is_empty());
+                let ids = chat_files::attachment_ids(&resolved);
+                // #EDE-134: sealed with the attachments' lines inside it.
+                if let Some(text) = input.text.take() {
+                    input.text = Some(wire.text(&text, &ids).map_err(|why| match refused(why) {
+                        UploadSendError::Send(_, e) => UploadSendError::Send(resolved.clone(), e),
+                        other => other,
+                    })?);
+                }
+                input.attachment_ids = Some(ids).filter(|ids| !ids.is_empty());
                 match api::sessions::send(&trpc, &input) {
                     Ok(out) => Ok((out, resolved)),
                     Err(e) => Err(UploadSendError::Send(resolved, e)),
@@ -2279,7 +2300,7 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             .await;
         shell.borrow_mut().chat_uploading = false;
         match sent {
-            // The draft goes once the server took it; a failure keeps it.
+            // The draft goes once the server took it; a failure hands it back.
             Ok((out, resolved)) => {
                 if let Some(open) = shell.borrow_mut().chat_team.as_mut().filter(|c| c.team_id == chat.team_id) {
                     open.session_id = Some(out.session_id);
@@ -2293,10 +2314,12 @@ fn chat_send(shell: &SharedShell, text: &str, cx: &mut App) {
             Err(UploadSendError::Upload(landed, e)) => cx.update(|cx| {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(&shell, "upload", "the attachment", &e, cx);
+                chat_keep_draft(&shell, &typed, cx);
             }),
             Err(UploadSendError::Send(landed, e)) => cx.update(|cx| {
                 shell.borrow_mut().chat_files.note_uploaded(&landed);
                 failed_action(&shell, "send", "the message", &e.user_message(), cx);
+                chat_keep_draft(&shell, &typed, cx);
             }),
         }
     })
@@ -2446,16 +2469,27 @@ fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx
     notifications_changed(shell, cx);
 }
 
+/// A toast of the shell's own (`summary`, `body` may be empty).
+fn toast(shell: &SharedShell, summary: &str, body: &str, cx: &mut App) {
+    tracing::warn!("{summary} {body}");
+    shell.borrow_mut().notifications.push(own_toast(summary.to_string(), body.to_string(), now_ms()));
+    notifications_changed(shell, cx);
+}
+
 /// The shell's own ids count down from the top, clear of the bus's.
 static OWN_NOTIFICATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
 
 /// [`failed_action`]'s toast.
 fn failed_toast(verb: &str, thing: &str, message: &str, received_ms: i64) -> dbus::Notification {
+    own_toast(domain::action_error::title(verb, thing), domain::action_error::description_of(message).unwrap_or_default(), received_ms)
+}
+
+fn own_toast(summary: String, body: String, received_ms: i64) -> dbus::Notification {
     dbus::Notification {
         id: OWN_NOTIFICATION.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
         app: "Exponential".into(),
-        summary: domain::action_error::title(verb, thing),
-        body: domain::action_error::description_of(message).unwrap_or_default(),
+        summary,
+        body,
         icon: String::new(),
         actions: Vec::new(),
         urgency: 1,
@@ -2499,6 +2533,58 @@ fn chat_set_draft(shell: &SharedShell, text: &str, cx: &mut App) {
     shell.borrow_mut().feed.set("/chat", json!({"draft": text}));
     refresh(shell, cx);
     shell.borrow_mut().feed.remove("/chat");
+}
+
+/// #EDE-134: a send that did not go hands its text back to the composer,
+/// once its own emptying has landed; a field typed in since keeps what it
+/// holds (composer-send.json `failed`).
+fn chat_keep_draft(shell: &SharedShell, text: &str, cx: &mut App) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (shell, text) = (shell.clone(), text.to_string());
+    cx.defer(move |cx| {
+        if shell.borrow().chat_draft.trim().is_empty() {
+            chat_set_draft(&shell, &text, cx);
+        }
+    });
+}
+
+/// #EDE-134: the busy composer's Stop (chat.json: submit becomes stop):
+/// the open session's turn stops; on a Local desktop its run here, on a
+/// team `sessions.stop` (the IDE's `stop_session`).
+fn chat_stop(shell: &SharedShell, cx: &mut App) {
+    if chat_local(shell) {
+        let stopped = shell.borrow().chat_local.as_ref().and_then(|c| c.stop_session());
+        if let Some((summary, body)) = stopped.and_then(|delivered| stop_toast(Ok(delivered))) {
+            toast(shell, &summary, &body, cx);
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some((chat, _)) = team_chat(shell) else { return };
+    let Some(session_id) = chat.session_id else { return };
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let stopped = cx.background_executor().spawn(async move { api::sessions::stop(&trpc, &session_id) }).await;
+        if let Some((summary, body)) = stop_toast(stopped.map(|out| !out.not_delivered()).map_err(|e| e.user_message())) {
+            cx.update(|cx| toast(&shell, &summary, &body, cx));
+        }
+    })
+    .detach();
+}
+
+/// [`chat_stop`]'s toast (chats.json `copy.stopTurn`, the IDE's): a
+/// refusal = `failed` with the reason, a stop no run got = `notDelivered`.
+fn stop_toast(outcome: Result<bool, String>) -> Option<(String, String)> {
+    let copy = &domain::chats::CHATS.copy.stop_turn;
+    match outcome {
+        Ok(true) => None,
+        Ok(false) => Some((copy.not_delivered.clone(), String::new())),
+        Err(message) => Some((copy.failed.clone(), domain::action_error::description_of(&message).unwrap_or_default())),
+    }
 }
 
 /// THE `/` menu over the composer's draft (`/chatMenu`); shut for the
@@ -3685,6 +3771,8 @@ fn main() {
                 if chat_changed {
                     cx.update(|cx| chatting_changed(&s, cx));
                 }
+                // #EDE-134: the other app's runner wrote (a reply, a status): the rail too.
+                chats_changed |= chat_changed;
                 chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
                 if chats_changed {
                     cx.update(|cx| chats_refresh(&s, cx));
@@ -3995,6 +4083,27 @@ mod layer_sizes {
             walk.extend(node["children"].as_array().into_iter().flatten());
         }
         assert_eq!((composers, rows), (2, 2));
+    }
+
+    /// #EDE-134: a busy composer's submit is `stop` (chat.json), routed to
+    /// `ede_chat {action: stop}`; its toasts are chats.json's `stopTurn`.
+    #[test]
+    fn the_busy_composers_stop_reaches_the_shell_and_says_what_failed() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("chat").unwrap().source).unwrap();
+        let mut stops = 0;
+        let mut walk = vec![&doc["root"]];
+        while let Some(node) = walk.pop() {
+            // The home's composer is never busy (no turn runs there yet).
+            if node["id"] == json!("chat_composer") {
+                assert_eq!(node["on"]["stop"], json!({"functionCall": {"@call": "ede_chat", "args": {"action": "stop"}}}));
+                stops += 1;
+            }
+            walk.extend(node["children"].as_array().into_iter().flatten());
+        }
+        assert_eq!(stops, 1);
+        assert_eq!(super::stop_toast(Ok(true)), None);
+        assert_eq!(super::stop_toast(Ok(false)), Some(("The device didn't get the stop".into(), String::new())));
+        assert_eq!(super::stop_toast(Err(" The session ended. ".into())), Some(("Couldn't stop the turn".into(), "The session ended.".into())));
     }
 }
 
