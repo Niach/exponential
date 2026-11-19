@@ -84,6 +84,17 @@ final class TreeKeyHolderTests: XCTestCase {
         XCTAssertEqual(keys.mineCalls.value, [["root-9"]])
     }
 
+    // #EXP-1941: a call waits on its key: `pull` asks every time, never throttled.
+    func testPullForACallIsNotThrottled() async throws {
+        let crypto = try crypto()
+        let keys = FakeKeys()
+        let holder = make(keys, ring: SealedKeyRing(persistence: .memory), identity: Data(repeating: 7, count: 32), crypto: crypto)
+        await holder.request(accountId: "a", rootId: "root-9")
+        await holder.pull(accountId: "a", rootId: "ROOT-9")
+        await holder.pull(accountId: "a", rootId: "root-9")
+        XCTAssertEqual(keys.mineCalls.value, [["root-9"], ["root-9"], ["root-9"]])
+    }
+
     func testNewChatSealWrapsForThisInstallAndAdopts() async throws {
         let crypto = try crypto()
         let identity = Data(repeating: 3, count: 32)

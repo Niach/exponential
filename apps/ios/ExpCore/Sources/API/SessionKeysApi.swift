@@ -98,12 +98,15 @@ public struct ServerSendTarget: Decodable, Equatable, Sendable {
     /// #EDE-97: the root is an outside MCP client's tree (in clear for
     /// life); absent on an older server = not.
     public let clearTree: Bool?
+    /// #EXP-1941: the root's rotation is due (a call refuses to start on it).
+    public let rotationDue: Bool?
 
-    public init(rootId: String?, epoch: UInt32?, publicKey: String?, clearTree: Bool? = nil) {
+    public init(rootId: String?, epoch: UInt32?, publicKey: String?, clearTree: Bool? = nil, rotationDue: Bool? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.publicKey = publicKey
         self.clearTree = clearTree
+        self.rotationDue = rotationDue
     }
 
     /// The root's current key, when the server names one.

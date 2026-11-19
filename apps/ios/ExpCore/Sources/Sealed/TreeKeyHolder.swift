@@ -157,6 +157,18 @@ public actor TreeKeyHolder {
         _ = await fetch(accountId: accountId, installId: install, rootIds: [root])
     }
 
+    /// #EXP-1941: a call waits on the key of `rootId`: its wraps, asked
+    /// every time (never throttled; the pull nudges the devices that hold it).
+    public func pull(accountId: String, rootId: String) async {
+        guard crypto.isAvailable, let install = await installId(accountId) else { return }
+        _ = await fetch(accountId: accountId, installId: install, rootIds: [rootId.lowercased()])
+    }
+
+    /// The secrets this install holds for `rootId`, by epoch.
+    public nonisolated func held(rootId: String) -> [UInt32: Data] {
+        ring.keys(rootId: rootId)
+    }
+
     @discardableResult
     func fetch(accountId: String, installId: String, rootIds: [String]?) async -> Bool {
         guard let secret = installKey()?.secret else { return false }

@@ -887,7 +887,8 @@ public enum VoiceCall {
     /// dial AS-IS.
     /// EXP-1857: the server picks the target itself and answers it
     /// (`deviceId`, `device` = its name, `fallback`); optional so an older
-    /// server still decodes.
+    /// server still decodes. #EXP-1941: `seal` = the mode the server decided
+    /// for both ends (true only for a caller that claimed it).
     public struct Ticket: Decodable, Equatable, Sendable {
         public let callId: String
         public let ticket: String
@@ -895,10 +896,11 @@ public enum VoiceCall {
         public let deviceId: String?
         public let device: String?
         public let fallback: Bool?
+        public let seal: Bool?
 
         public init(
             callId: String, ticket: String, url: String,
-            deviceId: String? = nil, device: String? = nil, fallback: Bool? = nil
+            deviceId: String? = nil, device: String? = nil, fallback: Bool? = nil, seal: Bool? = nil
         ) {
             self.callId = callId
             self.ticket = ticket
@@ -906,6 +908,112 @@ public enum VoiceCall {
             self.deviceId = deviceId
             self.device = device
             self.fallback = fallback
+            self.seal = seal
+        }
+    }
+
+    // MARK: - #EXP-1941: the call seal's handshake steps (`seal`, `seal.modeCases`)
+
+    /// What a caller reads of `seal` (the sealer is the eNet binding's
+    /// `EnetCallHandshake`, the line is `CallSealLine`).
+    public enum Seal {
+        public static let cap = "call-seal"
+        public static let version: UInt8 = 1
+        public static let roleCaller: UInt8 = 1
+        public static let roleHost: UInt8 = 2
+        public static let typeHello: UInt8 = 1
+        public static let callerHelloBytes = 54
+        public static let hostHelloBytes = 70
+        public static let helloEveryMs = 500
+        public static let handshakeMs = 20_000
+        public static let pullEveryMs = 2_000
+        public static let maxOpenFailures = 50
+        public static let ownDeviceCodes = ["no_microphone", "not_granted", "unsupported"]
+        public static let noKey = "no_key"
+        public static let sealReason = "seal"
+        public static let required = false
+
+        /// A wire code about the caller's OWN device is never taken from the
+        /// wire (`error`, `bye`, a host's `failed`): it reads `dropped`.
+        public static func wireCode(_ code: String) -> String {
+            ownDeviceCodes.contains(code) ? HangUpRules.failedCode : code
+        }
+    }
+
+    public enum SealPhase: String, Sendable { case idle, clear, told, offered, keying, sealed, over }
+
+    public struct SealState: Equatable, Sendable {
+        public var phase: SealPhase
+        /// Sealed audio frames in a row that did not open.
+        public var failures = 0
+
+        public static let idle = SealState(phase: .idle)
+    }
+
+    public enum SealEvent: Equatable, Sendable {
+        /// What `startCall` answered.
+        case start(seal: Bool, required: Bool?)
+        case ready
+        /// The host's hello; `ok` = well-formed (length, version, role), checked before `finish`.
+        case hello(ok: Bool)
+        /// Root or epoch still differ, the rotation is still due, an epoch below the highest held.
+        case noKey
+        case key
+        case finished(ok: Bool)
+        case frame(opens: Bool)
+        case sealed(opens: Bool)
+        /// A `call_event` that is neither `hello`, `sealed` nor `failed`.
+        case clear
+        case failed(code: String)
+        case closed
+        /// `handshake` false = `maxCall` (the host's timer).
+        case timeout(handshake: Bool)
+    }
+
+    /// The CALLER's step of TS `callSealStep`; the actions are the fixture's
+    /// strings (`timer`, `hello`, `helloStop`, `key`, `finish`, `go`, `count`,
+    /// `end:<reason>`, `fail:<code>`, `abandon`).
+    public static func sealStep(_ state: SealState, _ event: SealEvent) -> (state: SealState, actions: [String]) {
+        let dropped = HangUpRules.failedCode
+        let stay = (state, [String]())
+        func to(_ phase: SealPhase, _ actions: String...) -> (state: SealState, actions: [String]) { (SealState(phase: phase), actions) }
+        func over(_ reason: String) -> (state: SealState, actions: [String]) { to(.over, "end:\(reason)", "fail:\(dropped)", "abandon") }
+        if case let .start(seal, required) = event {
+            guard state.phase == .idle else { return stay }
+            if seal { return to(.told) }
+            return required ?? Seal.required ? to(.over, "fail:\(dropped)") : to(.clear)
+        }
+        if case .timeout(handshake: false) = event { return stay }
+        if [.idle, .clear, .over].contains(state.phase) { return stay }
+        let sealed = state.phase == .sealed
+        let keying = state.phase == .keying
+        switch event {
+        case .start: return stay
+        case let .failed(code): return to(.over, "fail:\(Seal.wireCode(code))", "abandon")
+        case .closed: return to(.over, "abandon")
+        case .timeout: return sealed ? stay : over(Seal.noKey)
+        case .ready: return state.phase == .told ? to(.offered, "timer", "hello") : stay
+        case let .hello(ok):
+            // The first well-formed hello is taken on arrival, once.
+            let waiting = state.phase == .offered
+            if waiting && ok { return to(.keying, "helloStop", "key") }
+            return !ok && waiting ? (state, ["count"]) : stay
+        case .noKey: return keying ? over(Seal.noKey) : stay
+        case .key: return keying ? (state, ["finish"]) : stay
+        case let .finished(ok):
+            guard keying else { return stay }
+            return ok ? to(.sealed, "go") : over(Seal.sealReason)
+        case let .frame(opens):
+            guard sealed else { return state.phase == .told ? stay : over(Seal.sealReason) }
+            if opens { return state.failures == 0 ? stay : to(.sealed) }
+            let failures = state.failures + 1
+            if failures >= Seal.maxOpenFailures { return over(Seal.sealReason) }
+            return (SealState(phase: .sealed, failures: failures), ["count"])
+        case let .sealed(opens):
+            if sealed { return opens ? stay : over(Seal.sealReason) }
+            return state.phase == .told ? stay : over(Seal.sealReason)
+        case .clear:
+            return state.phase == .told ? stay : over(Seal.sealReason)
         }
     }
 }
