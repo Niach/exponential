@@ -238,10 +238,13 @@ fn remove_avd_files(name: &str) -> Outcome {
 }
 
 /// Runs `argv` quietly, bounded: `Some(success)`, `None` = never started.
+/// On the login shell's PATH: a macOS app starts with launchd's bare one,
+/// where docker (`/usr/local/bin`, `/opt/homebrew/bin`) never resolves.
 fn run(argv: &[String]) -> Option<bool> {
     let (program, args) = argv.split_first()?;
     let mut child = terminal::process::background_command(program)
         .args(args)
+        .env("PATH", terminal::pty::login_path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

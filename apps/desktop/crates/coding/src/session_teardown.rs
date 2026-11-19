@@ -174,11 +174,13 @@ fn down_compose_stacks(session_id: &str, worktree: &Path) -> Vec<String> {
 }
 
 /// Runs `program args` with stdin closed, killed at `timeout`: `(success,
-/// stdout)`, `None` when it never started or timed out.
+/// stdout)`, `None` when it never started or timed out. On the login
+/// shell's PATH, like the manifest's commands (launchd's has no docker).
 fn run_bounded(program: &str, args: &[&str], timeout: Duration) -> Option<(bool, String)> {
     use std::io::Read as _;
     let mut child = terminal::process::background_command(program)
         .args(args)
+        .env("PATH", terminal::pty::login_path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
