@@ -1199,6 +1199,48 @@ mod tests {
     }
 
 
+    /// #EXP-1962: a 700-character unbroken token after a soft break (a
+    /// base64 trace) wraps inside its box, never widening the leaf past it:
+    /// its lines reach far below the first one and no ink lands right of the
+    /// box.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_long_unbroken_token_after_a_soft_break_wraps_inside_its_box() {
+        use gpui::{size, HeadlessAppContext, Render};
+        use std::sync::Arc;
+        const BOX: f32 = 480.;
+        struct Doc;
+        impl Render for Doc {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let token = "H4sIAAAA+1d63LbOJbuz1bNO".repeat(28);
+                let body = format!("The trace, gzip + base64, for Perfetto:\n{token}");
+                div().size_full().bg(gpui::black()).child(div().w(px(BOX)).child(MarkdownView::new("long-token", body).chat(true)))
+            }
+        }
+        let mut cx = HeadlessAppContext::with_platform(crate::test_text_system(), Arc::new(DiskAssets), gpui_platform::current_headless_renderer);
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let window = cx.open_window(size(px(900.), px(900.)), |_, cx| cx.new(|_| Doc)).expect("a headless window");
+        for _ in 0..3 {
+            cx.update_window(window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })
+            .expect("draws");
+            cx.run_until_parked();
+        }
+        let image = cx.capture_screenshot(window.into()).expect("a picture");
+        std::mem::forget(cx);
+        let scale = image.width() as f32 / 900.;
+        let ink: Vec<(u32, u32)> = image.enumerate_pixels().filter(|(_, _, p)| p[0] > 128 && p[1] > 128 && p[2] > 128).map(|(x, y, _)| (x, y)).collect();
+        let right = ink.iter().map(|(x, _)| *x).max().expect("ink") as f32 / scale;
+        let bottom = ink.iter().map(|(_, y)| *y).max().expect("ink") as f32 / scale;
+        assert!(right <= BOX, "no ink right of the box (rightmost at {right} px)");
+        assert!(bottom > 8. * 20., "the token wraps onto many lines (lowest ink at {bottom} px)");
+    }
+
     /// EXP-521 (#VAPP-258 kept): a sweep selects across two views (two
     /// messages) through the window's TextSelection layer, in reading order.
     /// The layer is mounted directly (a test window has no platform `Root`).
