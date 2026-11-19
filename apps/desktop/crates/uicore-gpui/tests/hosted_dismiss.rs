@@ -143,3 +143,46 @@ fn an_edited_copy_with_the_function_call_dismisses_without_open(cx: &mut TestApp
     assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), None), ("ede_previews".to_string(), None)]);
     assert_eq!(plugin.heard.borrow()[1].1["app"], "firefox");
 }
+
+/// #EDE-124: the compositor's dismissal of the open previews (a press on the
+/// taskbar, heard after its release) is no press on their trigger: the next
+/// click on the FACTORY button still says `ede_taskbar` (it restores a
+/// minimized window), whatever the hover previews were doing.
+#[gpui::test]
+fn a_click_after_the_previews_were_dismissed_reaches_the_button(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
+    let previews = node(&factory["root"], "previews").expect("the previews Popover").clone();
+    assert_eq!(previews["props"]["openOn"], "hover", "the factory's hover previews");
+    let source = json!({
+        "surface": factory["surface"],
+        "data": {"app": "firefox", "name": "Firefox", "icon": "", "minimized": true, "focused": false, "running": true},
+        "root": {"id": "taskbar", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": 800, "height": 48}, "children": [previews]}
+    });
+    let doc = ede_ui::validate_document("taskbar", &source).expect("the document validates");
+    let plugin = Plugin::default();
+    let for_surface = plugin.clone();
+    let surfaces = Surfaces::new(Box::new(WindowedHost), eui_core::themes::builtin_theme("exponential").expect("the theme"), Rc::new(move |_| Rc::new(for_surface.clone()) as Rc<dyn HostPlugin>), Rc::new(|_, _| {}), "test");
+    *plugin.shell.borrow_mut() = Some(surfaces);
+    assert!(cx.update(|cx| plugin.shell.borrow_mut().as_mut().unwrap().open_layer(&doc, &Feed::new(), cx)), "the taskbar opened");
+    let region = plugin.shell.borrow().as_ref().unwrap().region("taskbar").cloned().expect("the taskbar's region");
+    let mut vcx = VisualTestContext::from_window(region.handle.into(), cx);
+    draw(&mut vcx);
+    let button = region.view.read_with(&vcx, |v, _| v.index_of("button").expect("the button"));
+    let presses = |plugin: &Plugin| plugin.heard.borrow().iter().filter(|(name, _)| name == "ede_taskbar").count();
+    // A click: the button's press, and the previews open under the pointer.
+    region.view.update_in(&mut vcx, |v, window, cx| v.press(button, window, cx));
+    draw(&mut vcx);
+    assert_eq!(presses(&plugin), 1, "the first click: {:?}", plugin.heard.borrow());
+    let layers = plugin.hosted.borrow().clone();
+    cx.update(|cx| plugin.shell.borrow_mut().as_mut().unwrap().sync_hosted("taskbar", &layers, cx));
+    // The compositor's popups.dismiss for that press arrives after its release.
+    let hosted = plugin.shell.borrow().as_ref().unwrap().hosted_layers();
+    assert_eq!(hosted.len(), 1, "the previews' window");
+    cx.update(|cx| dismiss_hosted(hosted, cx));
+    draw(&mut vcx);
+    // The next click (the window minimized meanwhile) is the button's.
+    region.view.update_in(&mut vcx, |v, window, cx| v.press(button, window, cx));
+    draw(&mut vcx);
+    assert_eq!(presses(&plugin), 2, "the second click reached the button: {:?}", plugin.heard.borrow());
+}
