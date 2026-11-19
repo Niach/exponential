@@ -21,8 +21,8 @@
 //! `clipboard_snapshot` reads every type the selection offers,
 //! `clipboard_set` makes the compositor own the selection (served to the
 //! focused window only), `clipboard_taken` says whether a window read it.
-//! An eDE older than these ops answers "unknown variant": the tool says to
-//! update eDE.
+//! An eDE older than these ops cannot read them
+//! ([`ede_protocol::Error::Unsupported`]): the tool says to update eDE.
 //!
 //! eDE = `XDG_CURRENT_DESKTOP` names `Exponential` and its socket
 //! (`$XDG_RUNTIME_DIR/exponential-desktop/$WAYLAND_DISPLAY.sock`) is there.
@@ -41,7 +41,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, InputEvent, Request, SessionId, SpaceInfo, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
+use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, ErrorCode, InputEvent, Request, SessionId, SpaceInfo, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
 
 use crate::backend::{finish_ids, Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, Target, WindowInfo};
 use crate::keys::Key;
@@ -206,7 +206,18 @@ impl Session {
     }
 
     fn connect_token(&self, token: Token) -> Result<Client, String> {
-        Client::connect(&self.socket, token).map_err(|err| format!("eDE ({}): {err}", self.socket.display()))
+        self.hello(token).map_err(|err| self.said(err))
+    }
+
+    /// [`Session::connect_token`] with the compositor's answer as it gave
+    /// it: a grant it no longer knows (a restart) is `unauthorized`
+    /// ([`forgotten`]).
+    fn hello(&self, token: Token) -> Result<Client, ede_protocol::Error> {
+        Client::connect(&self.socket, token)
+    }
+
+    fn said(&self, err: ede_protocol::Error) -> String {
+        format!("eDE ({}): {err}", self.socket.display())
     }
 
     /// A connection under `run`'s own grant (#EXP-1925), minted on its
@@ -232,7 +243,8 @@ impl Session {
         if !client.hello.offers_spaces() {
             return Err(NO_SPACES.to_string());
         }
-        if client.hello.capabilities != SPACE_CAPABILITIES || client.hello.session_id.as_str() != run {
+        // Exact: a capability this build does not know is more than `[space]`.
+        if client.hello.capabilities != SPACE_CAPABILITIES || !client.hello.unknown_capabilities.is_empty() || client.hello.session_id.as_str() != run {
             return Err(NO_SPACE_GRANT.to_string());
         }
         Ok(client)
@@ -250,10 +262,10 @@ impl Session {
             .filter(|grant| grant.socket == self.socket && grant.expires_at > fresh)
             .map(|grant| grant.token.clone());
         if let Some(token) = cached {
-            match self.connect_token(token) {
+            match self.hello(token) {
                 Ok(client) => return Ok(Some(client)),
-                Err(err) if !err.contains("unknown or expired token") => return Err(err),
-                Err(_) => {}
+                Err(err) if forgotten(&err) => {}
+                Err(err) => return Err(self.said(err)),
             }
         }
         let mut root = self.connect_token(self.root_token()?)?;
@@ -351,10 +363,10 @@ impl Session {
     fn connect(&self) -> Result<Client, String> {
         let cached = GRANT.lock().unwrap_or_else(|p| p.into_inner()).clone().filter(|(socket, _)| *socket == self.socket).map(|(_, token)| token);
         if let Some(token) = cached {
-            match self.connect_token(token) {
+            match self.hello(token) {
                 Ok(client) => return Ok(client),
-                Err(err) if !err.contains("unknown or expired token") => return Err(err),
-                Err(_) => {}
+                Err(err) if forgotten(&err) => {}
+                Err(err) => return Err(self.said(err)),
             }
         }
         let mut root = self.connect_token(self.root_token()?)?;
@@ -442,6 +454,12 @@ pub(crate) struct Ede {
 
 fn e(what: &str) -> impl Fn(ede_protocol::Error) -> String + '_ {
     move |err| format!("{what}: {err}")
+}
+
+/// #EXP-1994: the compositor no longer knows the grant (it restarted, or
+/// the grant expired): mint a new one. Its code says so, whatever its words.
+fn forgotten(err: &ede_protocol::Error) -> bool {
+    err.has_code(ErrorCode::Unauthorized)
 }
 
 /// evdev `BTN_LEFT` / `BTN_RIGHT` / `BTN_MIDDLE`.
@@ -648,15 +666,12 @@ struct EdeClipboard<'a> {
     set: Mutex<Option<u64>>,
 }
 
-/// An eDE without the clipboard ops cannot parse them.
+/// An eDE without the clipboard ops cannot read them (#EXP-1994: it says
+/// so by answering without the call's id, whatever its words).
 fn clipboard_error(what: &'static str) -> impl Fn(ede_protocol::Error) -> String {
-    move |err| {
-        let text = err.to_string();
-        if text.contains("unknown variant") {
-            "This eDE is too old for the clipboard; update eDE.".to_string()
-        } else {
-            format!("eDE {what}: {text}")
-        }
+    move |err| match err {
+        ede_protocol::Error::Unsupported(_) => "This eDE is too old for the clipboard; update eDE.".to_string(),
+        err => format!("eDE {what}: {err}"),
     }
 }
 
@@ -958,6 +973,9 @@ mod tests {
         log: Arc<Mutex<Vec<String>>>,
         dir: PathBuf,
         end_spaces: Arc<AtomicBool>,
+        /// Forget every grant minted so far (a restart): their hello is
+        /// refused `unauthorized`, in words of its own.
+        forget: Arc<AtomicBool>,
     }
 
     /// #EXP-1925: a fake compositor on a socket of its own: the root token
@@ -980,13 +998,16 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let log = Arc::new(Mutex::new(Vec::new()));
         let end_spaces = Arc::new(AtomicBool::new(false));
+        let forget = Arc::new(AtomicBool::new(false));
         let minted = Arc::new(Mutex::new(HashMap::<String, (SessionId, Vec<Capability>)>::new()));
+        let forgotten = Arc::new(Mutex::new(Vec::<String>::new()));
         let spaces = Arc::new(Mutex::new((0u32, HashMap::<String, SpaceInfo>::new())));
-        let (seen, end) = (log.clone(), end_spaces.clone());
+        let (seen, end, forgets) = (log.clone(), end_spaces.clone(), forget.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
                 let (log, minted, spaces, end, root) = (seen.clone(), minted.clone(), spaces.clone(), end.clone(), root.clone());
+                let (forgets, forgotten) = (forgets.clone(), forgotten.clone());
                 std::thread::spawn(move || {
                     let mut me = SessionId::new("s").unwrap();
                     loop {
@@ -995,9 +1016,15 @@ mod tests {
                         if end.swap(false, Ordering::SeqCst) {
                             spaces.lock().unwrap().1.clear();
                         }
+                        if forgets.swap(false, Ordering::SeqCst) {
+                            forgotten.lock().unwrap().extend(minted.lock().unwrap().drain().map(|(token, _)| token));
+                        }
                         let op = serde_json::to_value(&call.request).unwrap()["op"].as_str().unwrap().to_string();
                         let space = spaces.lock().unwrap().1.get(me.as_str()).cloned();
                         let result = match call.request {
+                            Request::Hello { token, .. } if forgotten.lock().unwrap().contains(&token.as_str().to_string()) => {
+                                Err(Failure::new(ErrorCode::Unauthorized, "this grant means nothing to me"))
+                            }
                             Request::Hello { token, .. } => {
                                 let mut capabilities = vec![Capability::Capture, Capability::InputPerson, Capability::Ui];
                                 if token.as_str() == root && fake.root_system {
@@ -1053,7 +1080,7 @@ mod tests {
                 });
             }
         });
-        Faked { session: Session { socket, token_file, token: None }, log, dir, end_spaces }
+        Faked { session: Session { socket, token_file, token: None }, log, dir, end_spaces, forget }
     }
 
     fn logged(faked: &Faked) -> Vec<String> {
@@ -1285,6 +1312,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
+    /// #EXP-1994: a compositor that forgot the run's grant (a restart)
+    /// refuses it `unauthorized`, in whatever words: a new grant is minted
+    /// and the call goes on.
+    #[test]
+    fn a_forgotten_grant_is_minted_again_by_its_code_not_its_words() {
+        let faked = fake_socket_of(Fake { spaces: false, root_system: true });
+        let run = "epilot-test-run-forgotten";
+        let first = faked.session.connect_as(Some(run)).unwrap().token().clone();
+        assert_eq!(faked.session.connect_as(Some(run)).unwrap().token(), &first, "kept while the compositor knows it");
+        faked.forget.store(true, Ordering::SeqCst);
+        let refused = faked.session.hello(first.clone()).err().expect("forgotten");
+        assert!(forgotten(&refused) && !refused.to_string().contains("unknown or expired token"), "{refused}");
+        let again = faked.session.connect_as(Some(run)).unwrap().token().clone();
+        assert_ne!(again, first, "minted again");
+        assert_eq!(logged(&faked).iter().filter(|line| line.starts_with("mint ")).count(), 2);
+        faked.session.end_run(run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
     /// #EXP-1925: two runs mint two grants (each its own, with an expiry;
     /// a run's next call reuses its grant), and a run's end revokes
     /// exactly its own.
@@ -1351,9 +1397,11 @@ mod tests {
         assert_eq!(seen[7].get("sensitive"), None);
     }
 
+    /// #EXP-1994: an eDE without the clipboard ops answers without the
+    /// call's id, in whatever words.
     #[test]
     fn an_old_ede_says_to_update() {
-        let (ede, _server) = fake_compositor(vec![Err("unknown variant `clipboard_serial`, expected one of `hello`, `list_windows`")]);
+        let (ede, _server) = fake_compositor(vec![Err("this op means nothing to me")]);
         let err = ede.clipboard().unwrap().change_count().unwrap_err();
         assert_eq!(err, "This eDE is too old for the clipboard; update eDE.");
     }

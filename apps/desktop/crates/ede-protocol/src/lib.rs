@@ -28,10 +28,14 @@ use std::{
 use std::{collections::VecDeque, os::unix::net::UnixStream};
 
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub mod process;
 
+/// The hello's version, which both sides must speak. An additive change (an
+/// op, a field, a capability, an error code, a message type, a membership)
+/// never bumps it: each side reads what it does not know (#EXP-1994), and
+/// [`Hello::features`] says what a compositor does beyond v1.
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Largest frame either side accepts (an 8K capture fits).
 pub const MAX_FRAME: usize = 160 << 20;
@@ -267,6 +271,10 @@ pub enum Membership {
     /// Its environment names the space's directory (`XDG_RUNTIME_DIR` or
     /// `WAYLAND_DISPLAY`), as every launch's does.
     Environment,
+    /// A tie this build does not know (a newer compositor's, #EXP-1994):
+    /// still the space's.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A [`Request::SpaceOfProcess`] reply: the asked process, or the process
@@ -519,19 +527,82 @@ pub struct PointerInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
     Reply { id: u64, result: serde_json::Value },
-    Error { id: u64, error: Failure },
+    Error {
+        id: u64,
+        #[serde(deserialize_with = "lenient_failure")]
+        error: Failure,
+    },
     Event { event: Envelope },
+    /// A message type this build does not know (a newer compositor's):
+    /// read and skipped (#EXP-1994).
+    #[serde(other)]
+    Unknown,
+}
+
+/// #EXP-1994: a [`Failure`] with a code this build does not know (a newer
+/// compositor's) still reads: as [`ErrorCode::Internal`], its code kept in
+/// front of the message. `retryable` absent = the code's default.
+fn lenient_failure<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Failure, D::Error> {
+    #[derive(Deserialize)]
+    struct Wire {
+        code: String,
+        message: String,
+        #[serde(default)]
+        retryable: Option<bool>,
+    }
+    let wire = Wire::deserialize(deserializer)?;
+    let (code, message) = match ErrorCode::parse(&wire.code) {
+        Some(code) => (code, wire.message),
+        None => (ErrorCode::Internal, ecore::clamp_message(&format!("{}: {}", wire.code, wire.message))),
+    };
+    Ok(Failure { code, message, retryable: wire.retryable.unwrap_or(code.default_retryable()) })
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "WireHello", into = "WireHello")]
 pub struct Hello {
     pub version: u32,
+    /// What the grant holds, of the capabilities this build knows.
     pub capabilities: Vec<Capability>,
     pub session_id: SessionId,
     /// What this compositor can do beyond v1 ([`FEATURE_SPACES`]); an
     /// older one sends none. Absent on the wire when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
+    /// #EXP-1994: what else the grant holds, capabilities a newer
+    /// compositor names that this build does not know: the hello still
+    /// reads, and a client that needs an exact grant sees it is not.
+    pub unknown_capabilities: Vec<String>,
+}
+
+/// [`Hello`] on the wire: capabilities as their names, so one this build
+/// does not know parses.
+#[derive(Serialize, Deserialize)]
+struct WireHello {
+    version: u32,
+    capabilities: Vec<String>,
+    session_id: SessionId,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    features: Vec<String>,
+}
+
+impl From<WireHello> for Hello {
+    fn from(wire: WireHello) -> Self {
+        let mut hello = Hello { version: wire.version, capabilities: Vec::new(), session_id: wire.session_id, features: wire.features, unknown_capabilities: Vec::new() };
+        for name in wire.capabilities {
+            match Capability::parse(&name) {
+                Some(capability) => hello.capabilities.push(capability),
+                None => hello.unknown_capabilities.push(name),
+            }
+        }
+        hello
+    }
+}
+
+impl From<Hello> for WireHello {
+    fn from(hello: Hello) -> Self {
+        let capabilities = hello.capabilities.iter().map(|capability| capability.as_str().to_string()).chain(hello.unknown_capabilities).collect();
+        WireHello { version: hello.version, capabilities, session_id: hello.session_id, features: hello.features }
+    }
 }
 
 impl Hello {
@@ -748,14 +819,26 @@ pub enum Error {
     Io(std::io::Error),
     /// The compositor said no (or failed).
     Failed(Failure),
+    /// #EXP-1994: the compositor could not read the call (it answered
+    /// without the call's id): an op, or a value in one, it does not know.
+    /// It is older than this client; what it said is kept.
+    Unsupported(Failure),
     Protocol(String),
+}
+
+impl Error {
+    /// The compositor answered the call with `code` ([`Error::Failed`]):
+    /// what a client matches, never the message's words.
+    pub fn has_code(&self, code: ErrorCode) -> bool {
+        matches!(self, Error::Failed(failure) if failure.code == code)
+    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "{e}"),
-            Error::Failed(e) => write!(f, "{e}"),
+            Error::Failed(e) | Error::Unsupported(e) => write!(f, "{e}"),
             Error::Protocol(e) => write!(f, "protocol: {e}"),
         }
     }
@@ -800,7 +883,7 @@ impl Client {
 
     fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![] }, call_timeout };
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -860,11 +943,12 @@ impl Client {
             loop {
                 match client.read_message()? {
                     Message::Event { event } => client.events.push_back(event),
+                    Message::Unknown => {}
                     Message::Reply { id: rid, result } if rid == id => return Ok(result),
                     Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
                     // A call the compositor could not parse (an op it does not
                     // know: an older compositor) comes back without its id.
-                    Message::Error { id: 0, error } => return Err(Error::Failed(error)),
+                    Message::Error { id: 0, error } => return Err(Error::Unsupported(error)),
                     other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
                 }
                 if std::time::Instant::now() >= deadline {
@@ -957,8 +1041,13 @@ impl Client {
         self.call(Request::Input { event, bindings: true }).map(|_| ())
     }
 
+    /// The grant reads with the capabilities this build knows (#EXP-1994).
     pub fn mint(&mut self, session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Grant, Error> {
-        self.call_as(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })
+        let mut grant = self.call(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })?;
+        if let Some(serde_json::Value::Array(capabilities)) = grant.get_mut("capabilities") {
+            capabilities.retain(|capability| capability.as_str().and_then(Capability::parse).is_some());
+        }
+        serde_json::from_value(grant).map_err(|e| Error::Protocol(e.to_string()))
     }
 
     pub fn subscribe(&mut self) -> Result<(), Error> {
@@ -1332,7 +1421,7 @@ mod tests {
     /// an old client reads one that has them.
     #[test]
     fn hello_features_are_additive() {
-        let hello = |features: &[&str]| Hello { version: 1, capabilities: vec![Capability::Space], session_id: SessionId::new("run-1").unwrap(), features: features.iter().map(|f| f.to_string()).collect() };
+        let hello = |features: &[&str]| Hello { version: 1, capabilities: vec![Capability::Space], session_id: SessionId::new("run-1").unwrap(), features: features.iter().map(|f| f.to_string()).collect(), unknown_capabilities: vec![] };
         assert_eq!(serde_json::to_string(&hello(&[])).unwrap(), r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#);
         let old: Hello = serde_json::from_str(r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#).unwrap();
         assert!(old.features.is_empty() && !old.offers_spaces(), "an older compositor offers no spaces");
@@ -1341,6 +1430,116 @@ mod tests {
         let wire = serde_json::to_string(&new).unwrap();
         assert_eq!(serde_json::from_str::<Hello>(&wire).unwrap(), new);
         assert_eq!(serde_json::from_str::<OldHello>(&wire).unwrap().version, 1);
+    }
+
+    /// #EXP-1994: what a NEWER compositor sends reads in this build: a
+    /// capability, a feature, a field, an error code, a message type and a
+    /// membership it does not know.
+    #[test]
+    fn a_newer_compositors_words_parse() {
+        let hello: Hello = serde_json::from_value(serde_json::json!({"version": 1, "capabilities": ["capture", "telepathy", "input:person"], "session_id": "epilot", "features": ["spaces", "teleport"], "motd": "hi"})).unwrap();
+        assert_eq!(hello.capabilities, [Capability::Capture, Capability::InputPerson]);
+        assert_eq!(hello.unknown_capabilities, ["telepathy"], "kept, so an exact grant can tell");
+        assert!(hello.offers_spaces());
+        let wire = serde_json::to_value(&hello).unwrap();
+        assert_eq!(wire["capabilities"], serde_json::json!(["capture", "input:person", "telepathy"]), "written back whole");
+        assert_eq!(serde_json::from_value::<Hello>(wire).unwrap(), hello);
+
+        let error: Message = serde_json::from_value(serde_json::json!({"type": "error", "id": 3, "error": {"code": "overloaded", "message": "try later", "retryable": true}})).unwrap();
+        assert_eq!(error, Message::Error { id: 3, error: Failure { code: ErrorCode::Internal, message: "overloaded: try later".into(), retryable: true } });
+        let known: Message = serde_json::from_value(serde_json::json!({"type": "error", "id": 3, "error": {"code": "timeout", "message": "slow"}})).unwrap();
+        assert_eq!(known, Message::Error { id: 3, error: Failure::new(ErrorCode::Timeout, "slow") }, "a missing retryable is the code's default");
+        assert_eq!(serde_json::from_value::<Message>(serde_json::json!({"type": "progress", "id": 3, "done": 0.5})).unwrap(), Message::Unknown);
+        assert_eq!(serde_json::from_value::<Membership>(serde_json::json!("ptrace")).unwrap(), Membership::Unknown);
+
+        // A failure this build writes reads as before.
+        let failure = Failure::new(ErrorCode::NotFound, "no such window");
+        let wire = serde_json::to_value(Message::Error { id: 4, error: failure.clone() }).unwrap();
+        assert_eq!(wire, serde_json::json!({"type": "error", "id": 4, "error": {"code": "not_found", "message": "no such window", "retryable": false}}));
+        assert_eq!(serde_json::from_value::<Message>(wire).unwrap(), Message::Error { id: 4, error: failure });
+    }
+
+    /// A compositor on a socketpair: it answers each call it reads with
+    /// `answer`'s messages (`None` = it could not read the call).
+    #[cfg(unix)]
+    fn compositor(hello: serde_json::Value, answer: impl Fn(&serde_json::Value) -> Vec<serde_json::Value> + Send + 'static) -> Client {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        std::thread::spawn(move || {
+            let call: serde_json::Value = serde_json::from_slice(&read_frame(&mut theirs).unwrap()).unwrap();
+            let reply = serde_json::json!({"type": "reply", "id": call["id"], "result": hello});
+            write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
+            while let Ok(frame) = read_frame(&mut theirs) {
+                let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+                for message in answer(&call) {
+                    write_frame(&mut theirs, &serde_json::to_vec(&message).unwrap()).unwrap();
+                }
+            }
+        });
+        Client::over(ours, Token::new("0".repeat(64)).unwrap()).unwrap()
+    }
+
+    /// #EXP-1994, this client against a NEWER compositor: its hello with a
+    /// capability we do not know, a message type we do not know before the
+    /// reply, an error code we do not know; the calls go on.
+    #[cfg(unix)]
+    #[test]
+    fn an_older_client_keeps_working_with_a_newer_compositor() {
+        let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["system", "capture", "lend:window"], "session_id": "shell", "features": ["spaces", "later"]});
+        let mut client = compositor(hello, |call| {
+            let id = call["id"].clone();
+            match call["op"].as_str() {
+                Some("list_windows") => vec![serde_json::json!({"type": "progress", "id": id}), serde_json::json!({"type": "reply", "id": id, "result": []})],
+                Some("mint_grant") => vec![serde_json::json!({"type": "reply", "id": id, "result": {"token": "1".repeat(64), "sessionId": "run-1", "capabilities": ["capture", "capture:audio"]}})],
+                _ => vec![serde_json::json!({"type": "error", "id": id, "error": {"code": "busy", "message": "the seat is busy", "retryable": true}})],
+            }
+        });
+        assert!(client.hello.capabilities.contains(&Capability::System) && client.hello.offers_spaces());
+        assert_eq!(client.hello.unknown_capabilities, ["lend:window"]);
+        assert_eq!(client.windows().unwrap(), vec![], "the unknown message is skipped, the reply read");
+        let grant = client.mint(SessionId::new("run-1").unwrap(), vec![Capability::Capture], None).unwrap();
+        assert_eq!(grant.capabilities, [Capability::Capture]);
+        match client.pointer() {
+            Err(Error::Failed(failure)) => assert_eq!((failure.code, failure.retryable, failure.message.as_str()), (ErrorCode::Internal, true, "busy: the seat is busy")),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(client.windows().unwrap(), vec![], "still in step");
+    }
+
+    /// #EXP-1994, this client against an OLDER compositor: a hello without
+    /// features, an op it cannot read (answered without the call's id) is
+    /// `Unsupported`, never a matched text; the connection goes on.
+    #[cfg(unix)]
+    #[test]
+    fn a_newer_client_keeps_working_with_an_older_compositor() {
+        /// What an older compositor reads a call into: no clipboard ops.
+        #[derive(Deserialize)]
+        #[serde(tag = "op", rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum OldRequest {
+            ListWindows,
+            FocusWindow { window: WindowId },
+        }
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct OldCall {
+            id: u64,
+            #[serde(flatten)]
+            request: OldRequest,
+        }
+        let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["capture", "input:person", "ui"], "session_id": "epilot"});
+        let mut client = compositor(hello, |call| match serde_json::from_value::<OldCall>(call.clone()) {
+            Ok(OldCall { id, request: OldRequest::ListWindows }) => vec![serde_json::json!({"type": "reply", "id": id, "result": []})],
+            Ok(OldCall { id, .. }) => vec![serde_json::json!({"type": "error", "id": id, "error": Failure::new(ErrorCode::NotFound, "no such window")})],
+            // As the compositor does: it never read the call, so no id.
+            Err(e) => vec![serde_json::to_value(Message::Error { id: 0, error: Failure::new(ErrorCode::Invalid, &e.to_string()) }).unwrap()],
+        });
+        assert!(!client.hello.offers_spaces() && client.hello.unknown_capabilities.is_empty());
+        let unsupported = client.clipboard_serial().unwrap_err();
+        assert!(matches!(unsupported, Error::Unsupported(_)), "{unsupported:?}");
+        assert!(!unsupported.has_code(ErrorCode::Invalid), "a refusal is a call it read");
+        let missing = client.focus(WindowId::new("w9").unwrap()).unwrap_err();
+        assert!(missing.has_code(ErrorCode::NotFound), "{missing:?}");
+        assert_eq!(client.windows().unwrap(), vec![], "still in step");
     }
 
     /// #EDE-126: what a space grant may ask at all. Every variant is here:
@@ -1455,7 +1654,7 @@ mod tests {
     fn silent_after_hello() -> (UnixStream, UnixStream, Token) {
         let (ours, mut theirs) = UnixStream::pair().unwrap();
         let token = Token::new("0".repeat(64)).unwrap();
-        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![] };
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![], unknown_capabilities: vec![] };
         let reply = Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() };
         write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
         (ours, theirs, token)
