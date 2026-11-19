@@ -83,7 +83,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 
 /// Our tag on every INPUT ("EXP1"): the lock's hooks let these through.
@@ -1059,9 +1059,6 @@ struct WinClipboard {
     set_sequence: Cell<Option<u32>>,
 }
 
-/// Every saved format together stays under this.
-const CLIPBOARD_SAVE_CAP: usize = 32 * 1024 * 1024;
-
 /// Formats whose data is a GDI or other OS handle, not HGLOBAL memory.
 const HANDLE_FORMATS: [u16; 8] = [
     CF_BITMAP,
@@ -1242,7 +1239,7 @@ impl Clipboard for WinClipboard {
             };
             // SAFETY: the clipboard is open and `format` is an HGLOBAL
             // format (`keep_format`).
-            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_CAP - used) };
+            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_MAX - used) };
             match bytes {
                 Some(bytes) => {
                     used += bytes.len();
@@ -1288,13 +1285,8 @@ impl Clipboard for WinClipboard {
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
         // Windows does not tell when a program reads the clipboard: settle.
-        std::thread::sleep(timeout.min(Duration::from_millis(400)));
         // SAFETY: no arguments, reads a counter.
-        let now = unsafe { GetClipboardSequenceNumber() };
-        match self.set_sequence.get() {
-            Some(set) if set == now => Pasted::Settled,
-            _ => Pasted::Missed,
-        }
+        settle_paste(timeout, self.set_sequence.get().map(u64::from), || u64::from(unsafe { GetClipboardSequenceNumber() }))
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {

@@ -300,6 +300,30 @@ pub(crate) enum Pasted {
     Missed,
 }
 
+/// #EXP-1994: the most of the person's clipboard a save keeps, every format
+/// together (macOS, Windows, X11; eDE's compositor caps its own snapshot,
+/// `ede_protocol::CLIPBOARD_TOTAL_MAX`). A format past it is left out: the
+/// save is partial.
+pub(crate) const CLIPBOARD_SAVE_MAX: usize = 32 << 20;
+
+/// Where the OS cannot tell when the focused window read the clipboard
+/// (macOS, Windows): how long a paste settles after its key.
+pub(crate) const PASTE_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// #EXP-1994: [`Clipboard::wait_pasted`] where the OS cannot tell (macOS,
+/// Windows): after the settle (at most `timeout`), `Settled` while the
+/// clipboard's change count (`now`) is still the one our `set_text` left
+/// (`set`); another program's copy since, or no `set_text` at all, is
+/// `Missed`.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn settle_paste(timeout: std::time::Duration, set: Option<u64>, now: impl FnOnce() -> u64) -> Pasted {
+    std::thread::sleep(timeout.min(PASTE_SETTLE));
+    match set {
+        Some(set) if now() == set => Pasted::Settled,
+        _ => Pasted::Missed,
+    }
+}
+
 /// The clipboard, for the agent's own copy and paste only (`tools.rs`):
 /// never an ambient read of the person's clipboard.
 pub(crate) trait Clipboard {
@@ -649,5 +673,20 @@ mod tests {
     fn the_stable_hash_is_fnv1a() {
         assert_eq!(stable_hash(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(stable_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
+
+    /// #EXP-1994: where the OS cannot see the paste (macOS, Windows) it has
+    /// settled while the clipboard still holds our text; another copy since,
+    /// or nothing set, missed; the settle never outlasts the timeout.
+    #[test]
+    fn a_paste_settles_while_the_clipboard_is_still_ours() {
+        let no_wait = std::time::Duration::ZERO;
+        assert_eq!(settle_paste(no_wait, Some(7), || 7), Pasted::Settled);
+        assert_eq!(settle_paste(no_wait, Some(7), || 8), Pasted::Missed, "another program copied since");
+        assert_eq!(settle_paste(no_wait, None, || panic!("nothing set: nothing to read")), Pasted::Missed);
+        let started = std::time::Instant::now();
+        settle_paste(std::time::Duration::from_millis(20), Some(1), || 1);
+        let settled = started.elapsed();
+        assert!(settled >= std::time::Duration::from_millis(20) && settled < PASTE_SETTLE, "{settled:?}");
     }
 }
