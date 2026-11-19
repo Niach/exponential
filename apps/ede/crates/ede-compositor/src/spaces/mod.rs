@@ -17,6 +17,7 @@ pub mod ipc;
 mod members;
 mod windows;
 pub use close::DIR_RETRIES;
+pub mod flatpak;
 pub mod scope;
 pub mod session;
 pub mod slice;
@@ -86,6 +87,8 @@ pub struct Spaces {
     /// The user managers of closed spaces, until they are reaped (the
     /// slice's stop ends them).
     ended_sessions: Vec<std::process::Child>,
+    /// Flatpaks being brought back into their spaces ([`flatpak`]).
+    adoptions: flatpak::Adoptions,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -93,7 +96,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
