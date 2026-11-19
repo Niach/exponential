@@ -741,7 +741,7 @@ impl Ede {
         let focused = self.focused_window(DeskId::PERSON);
         self.all_windows()
             .iter()
-            .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
+            .filter(|w| !x11_override_redirect(w))
             .filter_map(|w| {
                 let st = crate::state::window_state(w);
                 let g = self.desk.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
@@ -758,7 +758,7 @@ impl Ede {
                     focused: focused.as_ref() == Some(w),
                     fullscreen: st.fullscreen.is_some(),
                     protected,
-                    x11: w.x11_surface().is_some(),
+                    x11: is_x11(w),
                     workspace: st.workspace,
                     minimized: st.minimized,
                     // #EDE-91: every window is on the person's desk until spaces land.
@@ -830,6 +830,29 @@ pub fn window_id(window: &Window) -> WindowId {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     window.user_data().get_or_insert(|| WindowId::new(format!("w{}", NEXT.fetch_add(1, Ordering::Relaxed))).unwrap()).clone()
+}
+
+/// An Xwayland window (none without the `xwayland` feature, #EDE-140).
+fn is_x11(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some();
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
+}
+
+/// An X11 override-redirect window (a menu, a tooltip): no window of the
+/// list.
+fn x11_override_redirect(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some_and(|x| x.is_override_redirect());
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
 }
 
 /// The title (else the app id, else nothing) for a frame.
