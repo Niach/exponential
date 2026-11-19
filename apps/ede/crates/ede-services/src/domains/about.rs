@@ -1,5 +1,5 @@
 //! About this machine: the host name, the distribution, the kernel, CPU,
-//! memory, uptime, the Exponential Desktop version, and the system check
+//! memory, boot time, the Exponential Desktop version, and the system check
 //! (#EDE-35): `exponential-compositor doctor --json` (GPU, displays, seat,
 //! Xwayland, NVIDIA), run once in the background and again on `check`.
 
@@ -70,6 +70,12 @@ fn mem_total_kb() -> u64 {
     std::fs::read_to_string("/proc/meminfo").ok().and_then(|t| t.lines().find(|l| l.starts_with("MemTotal:")).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse().ok())).unwrap_or(0)
 }
 
+/// When the machine booted (epoch seconds, `/proc/stat`'s `btime`): a
+/// snapshot that does not move every second (#EDE-135).
+fn booted_at(stat: &str) -> u64 {
+    stat.lines().find_map(|l| l.strip_prefix("btime ")).and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+}
+
 fn cpu_model() -> String {
     std::fs::read_to_string("/proc/cpuinfo").ok().and_then(|t| t.lines().find_map(|l| l.strip_prefix("model name").map(|v| v.trim_start_matches([' ', '\t', ':']).trim().to_string()))).unwrap_or_default()
 }
@@ -80,6 +86,10 @@ impl Service for About {
     }
     fn description(&self) -> &'static str {
         "This machine: host, distribution, kernel, hardware."
+    }
+    /// Only the system check's answer moves.
+    fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(10)
     }
 
     fn snapshot(&self) -> Value {
@@ -93,7 +103,6 @@ impl Service for About {
                 CHECKING.store(false, Ordering::SeqCst);
             });
         }
-        let uptime = std::fs::read_to_string("/proc/uptime").ok().and_then(|t| t.split_whitespace().next().and_then(|v| v.parse::<f64>().ok())).unwrap_or(0.0) as u64;
         json!({
             "available": true,
             "hostname": hostname,
@@ -102,7 +111,7 @@ impl Service for About {
             "cpu": cpu_model(),
             "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
             "memoryMb": mem_total_kb() / 1024,
-            "uptimeSeconds": uptime,
+            "bootedAt": booted_at(&std::fs::read_to_string("/proc/stat").unwrap_or_default()),
             "ede": env!("CARGO_PKG_VERSION"),
             "checks": checks.unwrap_or_else(|| json!([])),
             "checking": CHECKING.load(Ordering::SeqCst),
@@ -129,6 +138,11 @@ impl Service for About {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_boot_time_is_read_once_not_counted_up() {
+        assert_eq!(booted_at("cpu  1 2 3\nbtime 1795000000\nprocesses 9\n"), 1795000000);
+    }
 
     #[test]
     fn the_doctor_rows_get_a_status() {

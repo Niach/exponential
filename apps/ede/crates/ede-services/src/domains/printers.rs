@@ -29,6 +29,10 @@ impl Service for Printers {
     fn description(&self) -> &'static str {
         "Print queues through CUPS."
     }
+    /// Queues come and go rarely.
+    fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
 
     fn snapshot(&self) -> Value {
         let Some(list) = command("lpstat", &["-p"]).or_else(|| command("lpstat", &["-a"]).map(|_| String::new())) else { return unavailable("CUPS (lpstat) is not available") };

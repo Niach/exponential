@@ -4,17 +4,19 @@
 //! action, args} | "subscribe" | "grant" {session, label, capabilities}}`;
 //! replies `{"id", "result"}` or `{"id", "error"}`; after `subscribe`,
 //! `{"event": "services.changed", "domain", "snapshot"}` whenever a
-//! domain's snapshot moves. Same-user processes reach it: the shell, the
+//! domain's snapshot moves (a subscriber subscribes, then gets: the events
+//! heard during its gets wait for it, #EDE-135). Same-user processes reach it: the shell, the
 //! settings pages, ede-tools. `call` from the socket holds every
 //! capability (the shell's own buttons); agents go through the MCP face.
 
 use std::{
+    collections::VecDeque,
     io::Read,
     os::unix::net::{UnixListener, UnixStream},
     path::Path,
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use ede_protocol::{read_frame, write_frame, Capability};
@@ -32,6 +34,35 @@ impl Subscribers {
         let mut subs = self.0.lock().unwrap_or_else(|p| p.into_inner());
         subs.retain_mut(|s| write_frame(s, &bytes).is_ok());
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).is_empty()
+    }
+}
+
+/// How often a domain's poll thread checks for listeners and nudges.
+const POLL_TICK: Duration = Duration::from_millis(200);
+
+/// One domain's poll (#EDE-135): its own thread, so a slow or hung domain
+/// holds up no other; it looks only while someone subscribes, every
+/// [`crate::Service::interval`] or at once after an action.
+fn poll(name: &'static str, registry: &Registry, subscribers: &Subscribers) {
+    let interval = registry.interval(name).unwrap_or(Duration::from_secs(2));
+    let mut last: Option<Instant> = None;
+    loop {
+        if subscribers.is_empty() {
+            thread::sleep(POLL_TICK);
+            continue;
+        }
+        let due = last.is_none_or(|t| t.elapsed() >= interval) | registry.take_nudge(name);
+        if due {
+            last = Some(Instant::now());
+            if let Some(snapshot) = registry.refresh_one(name) {
+                subscribers.broadcast(&json!({"event": "services.changed", "domain": name, "snapshot": snapshot}));
+            }
+        }
+        thread::sleep(POLL_TICK);
+    }
 }
 
 /// Serves until the listener fails; `refresh` runs on its own thread.
@@ -42,16 +73,11 @@ pub fn serve(path: &Path, registry: Arc<Registry>, mcp: Option<Arc<Mcp>>) -> std
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     let subscribers = Subscribers::default();
-    // The poll: snapshots every 2 s, the changed ones to every subscriber.
-    {
+    // The poll: the changed snapshots to every subscriber.
+    for name in registry.names() {
         let registry = registry.clone();
         let subscribers = subscribers.clone();
-        thread::Builder::new().name("ede-services-poll".into()).spawn(move || loop {
-            for (domain, snapshot) in registry.refresh() {
-                subscribers.broadcast(&json!({"event": "services.changed", "domain": domain, "snapshot": snapshot}));
-            }
-            thread::sleep(Duration::from_secs(2));
-        })?;
+        thread::Builder::new().name(format!("ede-services-poll-{name}")).spawn(move || poll(name, &registry, &subscribers))?;
     }
     tracing::info!(path = %path.display(), "services socket");
     for stream in listener.incoming() {
@@ -123,11 +149,13 @@ pub fn handle(call: &Value, registry: &Registry, mcp: Option<&Mcp>) -> Result<Op
 pub struct Client {
     stream: UnixStream,
     next: u64,
+    /// Events heard while a call waited for its reply.
+    pending: VecDeque<Value>,
 }
 
 impl Client {
     pub fn connect(path: &Path) -> std::io::Result<Self> {
-        Ok(Self { stream: UnixStream::connect(path)?, next: 1 })
+        Ok(Self { stream: UnixStream::connect(path)?, next: 1, pending: VecDeque::new() })
     }
 
     pub fn connect_default() -> std::io::Result<Self> {
@@ -143,6 +171,7 @@ impl Client {
             let frame = read_frame(&mut self.stream).map_err(|e| e.to_string())?;
             let reply: Value = serde_json::from_slice(&frame).map_err(|e| e.to_string())?;
             if reply.get("event").is_some() {
+                self.pending.push_back(reply);
                 continue;
             }
             if reply["id"] == json!(id) {
@@ -154,8 +183,12 @@ impl Client {
         }
     }
 
+    /// A fresh snapshot of `domain`; the events of `domain` heard before it
+    /// are older and dropped.
     pub fn get(&mut self, domain: &str) -> Result<Value, String> {
-        self.call(json!({"op": "get", "domain": domain}))
+        let value = self.call(json!({"op": "get", "domain": domain}))?;
+        self.pending.retain(|e| e["domain"] != domain);
+        Ok(value)
     }
 
     pub fn subscribe(&mut self) -> Result<(), String> {
@@ -164,6 +197,9 @@ impl Client {
 
     /// The next `services.changed` event (blocks).
     pub fn next_event(&mut self) -> Result<Value, String> {
+        if let Some(event) = self.pending.pop_front() {
+            return Ok(event);
+        }
         loop {
             let frame = read_frame(&mut self.stream).map_err(|e| e.to_string())?;
             let v: Value = serde_json::from_slice(&frame).map_err(|e| e.to_string())?;

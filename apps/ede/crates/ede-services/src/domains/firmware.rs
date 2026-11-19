@@ -4,7 +4,7 @@
 use ede_protocol::Capability;
 use serde_json::{json, Value};
 
-use super::command;
+use super::{command, command_within};
 use crate::{unavailable, ActionSpec, Service};
 
 pub struct Firmware;
@@ -15,6 +15,10 @@ impl Service for Firmware {
     }
     fn description(&self) -> &'static str {
         "Firmware versions and updates through fwupd."
+    }
+    /// fwupd idles out between looks; an action looks again at once.
+    fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(30 * 60)
     }
 
     fn snapshot(&self) -> Value {
@@ -38,7 +42,7 @@ impl Service for Firmware {
 
     fn call(&self, action: &str, _args: &Value) -> Result<Value, String> {
         match action {
-            "refresh" => command("fwupdmgr", &["refresh", "--force"]).map(|_| json!({"done": "refresh"})).ok_or_else(|| "fwupdmgr refresh failed".into()),
+            "refresh" => command_within("fwupdmgr", &["refresh", "--force"], std::time::Duration::from_secs(10 * 60)).map(|_| json!({"done": "refresh"})).ok_or_else(|| "fwupdmgr refresh failed".into()),
             other => Err(format!("no action {other}")),
         }
     }
