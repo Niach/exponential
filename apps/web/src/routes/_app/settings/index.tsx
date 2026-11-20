@@ -1,10 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Navigate } from "@tanstack/react-router"
 
-// #EXP-2027: placeholder, filled in by the page's own commit.
+// #EXP-2027: bare `/settings` opens the first Personal page, Account. A
+// render-time redirect, so a phone's `/settings` is forwarded by `_app`
+// into its default team's settings instead.
 export const Route = createFileRoute(`/_app/settings/`)({
   component: PersonalSettingsIndex,
 })
 
 function PersonalSettingsIndex() {
-  return null
+  return <Navigate to="/settings/account" replace />
 }
