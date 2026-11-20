@@ -1594,7 +1594,11 @@ mod tests {
         let _ = std::fs::remove_file(&seen);
         let var = |name: &str| env.lines().find_map(|line| line.strip_prefix(&format!("{name}="))).map(str::to_string);
         assert_eq!(var("WAYLAND_DISPLAY"), Some(spaces[0].wayland_display.clone()));
-        assert!(var("XDG_CONFIG_HOME").is_some_and(|home| home.contains("/space-1/home/")), "a profile of the space's own");
+        // #EDE-138: on disk beside the other spaces' homes of this compositor
+        // (`$XDG_CACHE_HOME/exponential-desktop/spaces/p<pid>/space-1/config`),
+        // or in the space's own directory where the compositor has no cache
+        // directory to put it in (a test's bare environment).
+        assert!(var("XDG_CONFIG_HOME").is_some_and(|home| home.contains("/space-1/") && home.ends_with("/config")), "a profile of the space's own: {:?}", var("XDG_CONFIG_HOME"));
         assert_eq!((var("DISPLAY"), var("EDE_TOKEN")), (None, None));
         assert!(Path::new(&format!("/proc/{pid}")).exists());
         if let Ok(app) = std::env::var("EDE_SPACE_APP") {

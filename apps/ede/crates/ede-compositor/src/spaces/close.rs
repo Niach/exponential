@@ -2,6 +2,7 @@
 //! directory, no global, and once nothing refers to it any more, no seat.
 
 use std::{
+    os::unix::fs::DirBuilderExt,
     path::PathBuf,
     process::Child,
     time::{Duration, Instant},
@@ -77,6 +78,28 @@ impl Spaces {
         self.dir = Some(dir);
     }
 
+    /// Sets where this compositor's spaces keep their homes: `p<pid>` in
+    /// `root` (`$XDG_CACHE_HOME/exponential-desktop/spaces`), first removing
+    /// what a compositor that is gone left there: a `p<pid>` whose process
+    /// is no running compositor, and an earlier one with this process id.
+    pub fn open_homes(&mut self, root: std::path::PathBuf) {
+        let me = std::process::id();
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(pid) = name.to_str().and_then(|name| name.strip_prefix('p')).and_then(|pid| pid.parse::<u32>().ok()) else { continue };
+                if pid == me || !slice::is_compositor(pid) {
+                    let _ = (self.remove_dir)(&entry.path());
+                }
+            }
+        }
+        let homes = root.join(format!("p{me}"));
+        match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&homes) {
+            Ok(()) => self.homes = Some(homes),
+            Err(e) => tracing::warn!("{}: {e}: agent spaces keep their homes in the runtime directory", homes.display()),
+        }
+    }
+
     /// No closed space's seat is left to remove.
     pub fn settled(&self) -> bool {
         self.closing.is_empty() && self.leftovers.is_empty() && self.stopping.is_empty()
@@ -94,8 +117,8 @@ impl Drop for Spaces {
     fn drop(&mut self) {
         self.kill_launches();
         // Everything under the spaces' directory is a space's: the live
-        // ones and what a close left behind.
-        if let Some(dir) = &self.dir {
+        // ones and what a close left behind; their homes likewise.
+        for dir in [&self.dir, &self.homes].into_iter().flatten() {
             self.remove(dir);
         }
     }
@@ -127,13 +150,16 @@ impl Ede {
 
         // No new client, no old one, nothing on disk.
         self.loop_handle.remove(listener);
-        // What was launched is told to end first: its home is in `dir`.
+        // What was launched is told to end first: it writes in its home.
+        let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
         if sliced {
             self.space_slice_closed(id.number());
         }
-        if !self.spaces.remove(&dir) {
-            self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+        for dir in std::iter::once(dir).chain(home) {
+            if !self.spaces.remove(&dir) {
+                self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+            }
         }
         for client in clients {
             self.display_handle.backend_handle().kill_client(client.id(), DisconnectReason::ConnectionClosed);
@@ -180,7 +206,7 @@ impl Ede {
                 self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
             }
         }
-        tracing::info!("agent spaces run in systemd scopes (systemd {})", units.version);
+        tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
         self.spaces.units = Some(units);
     }
 

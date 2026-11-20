@@ -7,13 +7,15 @@ use ede_protocol::SessionId;
 
 /// What ran in a space can keep its directory busy at the close (a FUSE
 /// mount that goes a moment later): the removal is tried again on the
-/// tick until the directory is gone, and given up after a while.
+/// tick until the directory is gone, and given up after a while. (Its home,
+/// on disk elsewhere since #EDE-138, is not busy here.)
 #[test]
 fn a_busy_directory_is_removed_later() {
     use std::sync::atomic::{AtomicU32, Ordering};
     static BUSY: AtomicU32 = AtomicU32::new(0);
     fn busy(dir: &std::path::Path) -> std::io::Result<()> {
-        if BUSY.load(Ordering::SeqCst) > 0 {
+        let a_spaces_own = dir.parent().and_then(|parent| parent.file_name()).is_some_and(|name| name == "wayland-test.spaces");
+        if a_spaces_own && BUSY.load(Ordering::SeqCst) > 0 {
             BUSY.fetch_sub(1, Ordering::SeqCst);
             return Err(std::io::ErrorKind::ResourceBusy.into());
         }
