@@ -121,11 +121,13 @@ export function useNotificationToasts(userId: string | null | undefined): void {
           return
         }
       }
-      if (target.kind === `session` && teamSlug) {
-        void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.sessionId } })
+      // #EXP-1987: a session of a team the viewer does not sync (the
+      // Assistant's chat in their personal team) opens from the current team.
+      const slug = teamSlug ?? pathRef.current.split(`/`)[2]
+      if (target.kind === `session` && slug) {
+        void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug: slug, sessionId: target.sessionId } })
         return
       }
-      const slug = teamSlug ?? pathRef.current.split(`/`)[2]
       if (slug) void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug: slug } })
     }
   }, [rows, isReady, navigate])

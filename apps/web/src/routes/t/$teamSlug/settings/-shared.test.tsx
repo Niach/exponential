@@ -111,9 +111,9 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
     expect(entries).toEqual({
       team: [`general`, `members`, `issues`, `repositories`, `prompts`, `widget`, `storage`, `billing`, `import`],
       boards: [`@boards`, `@new-board`, `all-boards`],
-      agents: [`@assistant`, `@agents`, `@new-agent`, `mcp`, `skills`],
+      agents: [`@agents`, `@new-agent`, `mcp`, `skills`],
       apps: [`@apps`, `@new-app`],
-      personal: [`account`, `notifications`, `security`],
+      personal: [`account`, `assistant`, `notifications`, `security`],
     })
   })
 
@@ -158,7 +158,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
       expect(settingsNavListVisible(list, permissionsFor(`member`)), list).toBe(false)
       expect(settingsNavListVisible(list, permissionsFor(`owner`)), list).toBe(true)
     }
-    expect(settingsNavListVisible(`@assistant`, permissionsFor(`member`))).toBe(true)
+    expect(items.find((entry) => entry.id === `assistant`)!.visible(permissionsFor(`member`), team)).toBe(true)
   })
 
   it(`has no Voice page and titles the Assistant page`, () => {

@@ -87,7 +87,7 @@ function ChatsPage() {
   const { list, agentRows, appRows, cliOf, waitingOf, wallOf, marksOf, isReady } = useChatList(team?.id, me, view)
   const needsYou = useNeedsYou(team?.id, me)
   // S-3: the viewer's Assistant exists once the list mounts (first use).
-  useEnsureAssistant(team?.id)
+  useEnsureAssistant()
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
   const unread = useUnreadNotificationCount(team?.id)
   const issueSearch = useIssueSearch()

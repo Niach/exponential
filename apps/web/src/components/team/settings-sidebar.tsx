@@ -28,7 +28,6 @@ import {
   BoardGlyph,
 } from "@exp/ui"
 import {
-  ASSISTANT_LABEL,
   NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
   SETTINGS_AGENTS_GROUP,
@@ -141,15 +140,15 @@ export function SettingsSidebar({
   // EXP-1293: the Agents group lists the team's agents the same way. Every
   // member sees them (their pages read-only); "New agent" is owner-only.
   // S-3: `useAgents` drops other members' Assistants and puts the viewer's
-  // first; the Assistant is its own `@assistant` row (created on first use
-  // while a settings page is open).
+  // first; #EXP-1987: the Assistant is the Personal group's `assistant` page
+  // (created on first use while a settings page is open).
   const { data: authSession } = useSession()
   const { agents } = useAgents(team?.id, authSession?.user?.id)
   const teamAgents = agents.filter((agent) => !agent.assistant)
   const { apps } = useApps(team?.id)
   const newApp = useNewApp(team?.id, teamSlug)
   const onSettings = useRouterState({ select: (state) => state.location.pathname.includes(`/settings`) })
-  useEnsureAssistant(onSettings ? team?.id : null)
+  useEnsureAssistant(onSettings)
 
   const listRows = (list: string): ReactNode => {
     if (!settingsNavListVisible(list, permissions)) return null
@@ -175,17 +174,6 @@ export function SettingsSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         ) : null
-      case `@assistant`:
-        return (
-          <SidebarMenuItem key={list}>
-            <SidebarMenuButton asChild>
-              <Link to="/t/$teamSlug/settings/assistant" params={{ teamSlug }} data-testid="settings-assistant">
-                <AssistantMark />
-                <span>{ASSISTANT_LABEL}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        )
       case `@agents`:
         return teamAgents.map((agent) => (
           <SidebarMenuItem key={agent.agentId}>
@@ -264,8 +252,8 @@ export function SettingsSidebar({
             ) : (
               <SidebarMenuItem key={item.id}>
                 <SidebarMenuButton asChild>
-                  <Link to={item.to} params={{ teamSlug }}>
-                    <item.icon className="h-4 w-4" />
+                  <Link to={item.to} params={{ teamSlug }} data-testid={item.id === `assistant` ? `settings-assistant` : undefined}>
+                    {item.id === `assistant` ? <AssistantMark /> : <item.icon className="h-4 w-4" />}
                     <span>{item.label}</span>
                   </Link>
                 </SidebarMenuButton>

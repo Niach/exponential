@@ -29,6 +29,14 @@ function agentTabInTeam(agent: AgentTeamLike | undefined | null, teamId: string)
   return agent.teamId === teamId || (isAssistant(agent) && teamCollection.get(agent.teamId) === undefined)
 }
 
+// #EXP-1987: a session tab belongs to the team it runs in, and a session of a
+// team the viewer does not sync (the Assistant's tree in their personal team)
+// to every team, like the Assistant's own tab.
+function sessionInTeam(session: { teamId: string } | undefined | null, teamId: string): boolean {
+  if (!session) return false
+  return session.teamId === teamId || teamCollection.get(session.teamId) === undefined
+}
+
 // EXP-870: the ONE writer of the work tabs, mounted once in the team layout
 // (md+ only — the strip is hidden on phones). EXP-1293: ROUTE-DRIVEN, so no
 // other screen calls into the store:
@@ -146,7 +154,7 @@ export function WorkTabsSync({
         ? path
         : null
     }
-    if (!sessionRow || sessionRow.id !== routeSessionId || sessionRow.teamId !== teamId) {
+    if (!sessionRow || sessionRow.id !== routeSessionId || !sessionInTeam(sessionRow, teamId)) {
       return null
     }
     const isRoot = !sessionRow.rootId || sessionRow.rootId === sessionRow.id
@@ -204,7 +212,7 @@ export function WorkTabsSync({
         }
         if (tab.kind === `agent`) return agentTabInTeam(agentCollection.get(tab.agentId) as AgentTeamLike | undefined, teamId)
         const sessionId = tabSessionId(tab)
-        return sessionId !== null && sessionCollection.get(sessionId)?.teamId === teamId
+        return sessionId !== null && sessionInTeam(sessionCollection.get(sessionId), teamId)
       })
     )
   }, [teamId, tabs, boardIds])

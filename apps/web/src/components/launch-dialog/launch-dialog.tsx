@@ -132,7 +132,7 @@ function LaunchDialogBody({
     seededRef.current = null
   }, [])
   // S-3: the viewer's Assistant exists before the agent row lists it.
-  useEnsureAssistant(team.id)
+  useEnsureAssistant()
   // The launcher gets out of the way once the session started (the composer
   // then opens its chat); a failed start keeps the draft and the dialog.
   const model = useLaunchComposer({

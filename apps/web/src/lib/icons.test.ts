@@ -502,7 +502,9 @@ describe(`icon call sites`, () => {
     // section now).
     // #EXP-1659: + Skills (Agents); the desktop's twin (#EXP-1660) adds the
     // shared pair below.
-    expect(webNav.size).toBe(17)
+    // #EXP-1987: + Assistant (Personal, the Agents group's `@assistant` entry
+    // moved there).
+    expect(webNav.size).toBe(18)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).

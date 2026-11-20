@@ -22,14 +22,16 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
 }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useLiveQuery: () => ({ data: mocks.agents }),
+  // Every query reads the page team's agents (#EXP-1987: the page lists them
+  // through agentsInTeam, so each carries the team).
+  useLiveQuery: () => ({ data: (mocks.agents as object[]).map((agent) => ({ teamId: `id-acme`, ...agent })) }),
 }))
-vi.mock(`@/lib/collections`, () => ({ agentCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ agentCollection: {}, teamCollection: {} }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamMemberships: () => ({ myTeams: mocks.teams }),
 }))
 vi.mock(`@/hooks/use-ensure-assistant`, () => ({
-  useEnsureAssistant: (teamId: string) => mocks.ensured.push(teamId),
+  useEnsureAssistant: () => mocks.ensured.push(`account`),
 }))
 vi.mock(`@/lib/last-visited`, () => ({ readLastVisited: () => ({ teamSlug: `acme` }) }))
 
@@ -79,9 +81,9 @@ describe(`ShareTargetsPage`, () => {
     expect(screen.getByText(fixture.copy.newChatSubtitle)).toBeTruthy()
   })
 
-  it(`the viewer's Assistant is ensured on the page's team`, () => {
+  it(`the viewer's Assistant is ensured once per account, without a team`, () => {
     draw()
-    expect(mocks.ensured).toContain(`id-acme`)
+    expect(mocks.ensured).toContain(`account`)
   })
 
   describe(`the preview line`, () => {

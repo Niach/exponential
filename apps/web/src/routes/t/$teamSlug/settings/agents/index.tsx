@@ -20,7 +20,7 @@ function SettingsAgentsIndex() {
   const { teamSlug } = Route.useParams()
   const { session, team, permissions, resolved } = useSettingsPage(teamSlug)
   const { agents, isReady } = useAgents(team?.id, session?.user?.id)
-  useEnsureAssistant(team?.id)
+  useEnsureAssistant()
 
   return (
     // Member-readable: every member sees the team's agents (read-only).

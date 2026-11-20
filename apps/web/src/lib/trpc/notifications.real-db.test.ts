@@ -93,4 +93,32 @@ describe.skipIf(!ready.ok)(`notifications.markAllRead (Chats: one team)`, () => 
     await caller(me).markAllRead()
     expect([await read(bIssue), await read(bTeam)]).toEqual([true, true])
   })
+
+  it(`#EXP-1987: any team's call also clears the rows every team lists (the personal team's, signed out)`, async () => {
+    const me = await user()
+    const a = await team(me)
+    const b = await team(me)
+    // A team the viewer is no member of (their personal team after the move).
+    const [personal] = await db
+      .insert(teams)
+      .values({ name: `Personal`, slug: `personal-${id8()}` })
+      .returning({ id: teams.id })
+    made.teams.push(personal!.id)
+    const insert = async (values: { type: string; teamId?: string }) =>
+      (
+        await db
+          .insert(notifications)
+          .values({ userId: me, title: `t`, ...values } as never)
+          .returning({ id: notifications.id })
+      )[0]!.id
+    const assistant = await insert({ type: `agent_message`, teamId: personal!.id })
+    const signedOut = await insert({ type: `agent_signed_out` })
+    const bTeam = await insert({ type: `agent_message`, teamId: b.teamId })
+    const read = async (id: string) =>
+      (await db.select({ readAt: notifications.readAt }).from(notifications).where(eq(notifications.id, id)))[0]!
+        .readAt !== null
+
+    await caller(me).markAllRead({ teamId: a.teamId })
+    expect([await read(assistant), await read(signedOut), await read(bTeam)]).toEqual([true, true, false])
+  })
 })

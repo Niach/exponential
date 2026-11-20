@@ -45,6 +45,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/skills`
   | `/t/$teamSlug/settings/boards`
   | `/t/$teamSlug/settings/account`
+  | `/t/$teamSlug/settings/assistant`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/security`
 
@@ -180,6 +181,15 @@ const SETTINGS_PAGES: Record<string, Omit<SettingsNavItem, `visible` | `children
     to: `/t/$teamSlug/settings/account`,
     icon: conceptIcon(`settings-account`),
   },
+  // #EXP-1987 (settings-nav.json `assistant`): the viewer's ONE Assistant,
+  // an account page (Personal), whichever team is current; drawn with the
+  // Assistant's brand mark (`SettingsNavGlyph`), the concept is the fallback.
+  assistant: {
+    id: `assistant`,
+    label: `Assistant`,
+    to: `/t/$teamSlug/settings/assistant`,
+    icon: conceptIcon(`settings-agents`),
+  },
   notifications: {
     id: `notifications`,
     label: `Notifications`,
@@ -206,7 +216,7 @@ export function settingsPageItem(id: string): SettingsNavItem | undefined {
 }
 
 /** One entry of a group in order: a page, or an injected `@list` drawn at
- *  render off synced data (`@boards`, `@new-board`, `@assistant`, `@agents`,
+ *  render off synced data (`@boards`, `@new-board`, `@agents`,
  *  `@new-agent`, `@apps`, `@new-app`). */
 export type SettingsNavEntry = { kind: `page`; item: SettingsNavItem } | { kind: `list`; list: string }
 
@@ -268,10 +278,10 @@ export const NEW_AGENT_LABEL = AGENT_SETTINGS_COPY.newAgent
 export const SETTINGS_APPS_GROUP = `Apps`
 export const NEW_APP_LABEL = APPS_COPY.newApp
 
-// S-3 (settings-nav.json `@assistant`, agent-settings.json `assistant`): the
-// viewer's OWN Assistant heads the Agents group and opens its own page,
-// `/settings/assistant` (it resolves the Assistant through
-// `agents.ensureAssistant`), titled `copy.title`.
+// #EXP-1987 (settings-nav.json `assistant`, agent-settings.json `assistant`):
+// the viewer's OWN Assistant is a Personal page, `/settings/assistant` (it
+// resolves the Assistant through `agents.ensureAssistant` without a team),
+// titled `copy.title`.
 export const SETTINGS_ASSISTANT_SECTION = `assistant`
 export const ASSISTANT_LABEL = ASSISTANT_COPY.title
 

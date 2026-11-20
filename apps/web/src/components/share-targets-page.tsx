@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { inArray, useLiveQuery } from "@tanstack/react-db"
+import { useLiveQuery } from "@tanstack/react-db"
 import {
   FAB_CLEARANCE_CLASS,
   AgentAvatar,
@@ -15,13 +15,13 @@ import {
   type MenuEntry,
 } from "@exp/ui"
 import type { IconConcept } from "@exp/icons"
-import { isAssistant } from "@exp/domain-contract/agent-settings"
+import { agentsInTeam, isAssistant } from "@exp/domain-contract/agent-settings"
 import { TEMPORARY_PICK } from "@exp/domain-contract/composer-agent-row"
 import { SHARE_TARGETS, shareTargets } from "@exp/domain-contract/share-targets"
 import type { Team } from "@/db/schema"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useTeamMemberships } from "@/hooks/use-team-data"
-import { agentCollection } from "@/lib/collections"
+import { agentCollection, teamCollection } from "@/lib/collections"
 import { newDraftNavigation } from "@/lib/issue-draft-page"
 import { readLastVisited } from "@/lib/last-visited"
 import { shareImages, type PendingShare } from "@/lib/share/pending-share"
@@ -43,6 +43,7 @@ const MAX_PREVIEW_THUMBS = 4
 
 interface ShareAgent {
   id: string
+  teamId: string
   name: string
   icon: string | null
   color: string | null
@@ -161,14 +162,18 @@ function SharePreview({ share }: { share: PendingShare }) {
 function ShareRows({ team, me }: { team: Team; me: string }) {
   const navigate = useNavigate()
   // The viewer's Assistant exists before the list leads with it.
-  useEnsureAssistant(team.id)
-  const { data: agentRows } = useLiveQuery(
-    (query) =>
-      query.from({ agents: agentCollection }).where(({ agents }) => inArray(agents.teamId, [team.id])),
-    [team.id]
-  )
+  useEnsureAssistant()
+  // #EXP-1987: the team's agents plus the viewer's Assistant wherever it
+  // lives (after the move: their personal team, which never syncs).
+  const { data: agentRows } = useLiveQuery((query) => query.from({ agents: agentCollection }))
+  const { data: teamRows } = useLiveQuery((query) => query.from({ t: teamCollection }).select(({ t }) => ({ id: t.id })))
   const { agents } = shareTargets({
-    agents: (agentRows ?? []) as ShareAgent[],
+    agents: agentsInTeam(
+      (agentRows ?? []) as ShareAgent[],
+      team.id,
+      (teamRows ?? []).map((row) => row.id),
+      me
+    ),
     me,
   })
   const openChat = (pick: string) =>

@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { and, eq, isNull, or, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { issues, notifications } from "@/db/schema"
+import { issues, notifications, teamMembers } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { notificationTypeValues } from "@/lib/domain"
 import { emailEnabled } from "@/lib/email-enabled"
@@ -108,7 +108,12 @@ export const notificationsRouter = router({
               teamId
                 ? or(
                     eq(notifications.teamId, teamId),
-                    sql`EXISTS (SELECT 1 FROM ${issues} WHERE ${issues.id} = ${notifications.issueId} AND ${issues.teamId} = ${teamId})`
+                    sql`EXISTS (SELECT 1 FROM ${issues} WHERE ${issues.id} = ${notifications.issueId} AND ${issues.teamId} = ${teamId})`,
+                    // #EXP-1987 (inbox-route.json `listCases`): the rows every
+                    // team's inbox lists: a device's signed-out login, and a
+                    // session row of a team the viewer is no member of (the
+                    // Assistant's chat in their personal team).
+                    sql`(${notifications.issueId} IS NULL AND (${notifications.type} = 'agent_signed_out' OR (${notifications.type} IN ('agent_message', 'session_blocked') AND (${notifications.teamId} IS NULL OR NOT EXISTS (SELECT 1 FROM ${teamMembers} WHERE ${teamMembers.teamId} = ${notifications.teamId} AND ${teamMembers.userId} = ${userId})))))`
                   )
                 : undefined
             )
