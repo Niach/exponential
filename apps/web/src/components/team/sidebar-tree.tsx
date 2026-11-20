@@ -516,7 +516,7 @@ function SidebarTeamSection({
             tone="attention"
             title={NEEDS_YOU_COPY.entry}
             data-testid="sidebar-team-needs-you"
-            className="group-hover/menu-item:invisible"
+            className="group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible"
           />
         )}
         <ChevronIcon className={cn(`size-4 transition-transform`, open && `rotate-90`)} />
