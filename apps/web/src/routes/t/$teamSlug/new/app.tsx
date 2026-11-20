@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { APPS_COPY, APPS_RUN, APPS_TEST_IDS } from "@exp/domain-contract/apps"
 import { conceptIcon, ListRow, SETTINGS_LIST_CLASS, Separator } from "@exp/ui"
-import { AppImportDialog } from "@/components/apps/app-import-dialog"
+import { AppImportForm } from "@/components/apps/app-import-dialog"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useNewApp } from "@/hooks/use-new-app"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
@@ -11,7 +11,9 @@ import { pageTitle } from "@/lib/page-title"
 // #EXP-2027 (sidebar-tree.json TEAM MENU): New › App opens this PAGE: the
 // apps New menu's entries (apps.json `run.newMenu`) as rows. New app makes
 // the draft and opens its editor in this page's place (VAPP-176); Import…
-// opens the import flow (templates, a file, pasted text). Owner-only: anyone
+// reveals the import flow (templates, a file, pasted text) below the rows,
+// in the page, never a dialog (`AppImportForm`, the import dialog's body); an
+// imported app opens its editor in this page's place. Owner-only: anyone
 // else lands on Home.
 export const Route = createFileRoute(`/t/$teamSlug/new/app`)({
   head: () => ({ meta: [{ title: pageTitle(APPS_COPY.newApp) }] }),
@@ -34,7 +36,7 @@ function NewAppRoute() {
   if (!team || !resolved || refused) return null
   const entries = {
     newApp: { label: APPS_COPY.newApp, icon: UiAddIcon, testId: undefined, onSelect: () => void newApp.create() },
-    import: { label: APPS_COPY.import, icon: UiFileIcon, testId: APPS_TEST_IDS.importApp, onSelect: () => setImporting(true) },
+    import: { label: APPS_COPY.import, icon: UiFileIcon, testId: APPS_TEST_IDS.importApp, onSelect: () => setImporting((open) => !open) },
   } as const
   return (
     <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`}>
@@ -50,6 +52,8 @@ function NewAppRoute() {
             <ListRow
               key={id}
               interactive
+              active={id === `import` && importing}
+              aria-expanded={id === `import` ? importing : undefined}
               aria-disabled={disabled || undefined}
               onClick={disabled ? undefined : entry.onSelect}
               className="gap-3 px-3 py-2 text-sm"
@@ -61,7 +65,16 @@ function NewAppRoute() {
           )
         })}
       </div>
-      <AppImportDialog open={importing} onOpenChange={setImporting} teamId={team.id} teamSlug={teamSlug} />
+      {importing && (
+        <>
+          <Separator />
+          <AppImportForm
+            layout="page"
+            teamId={team.id}
+            onImported={(slug) => void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: slug }, replace: true })}
+          />
+        </>
+      )}
     </div>
   )
 }
