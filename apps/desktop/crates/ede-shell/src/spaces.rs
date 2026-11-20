@@ -414,6 +414,14 @@ mod tests {
         assert_eq!(thumbs[0].pixels, (192, 120), "the thumbnails at the display's scale");
     }
 
+    /// #EXP-2024 (6c): the view's layer carries the namespace the compositor
+    /// keeps out of every capture of the person's output.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_views_layer_has_the_namespace_captures_black_out() {
+        assert_eq!(uicore_gpui::layer_namespace(&uicore_gpui::LayerShellHost::default().namespace, VIEW), ede_protocol::SPACE_VIEW_NAMESPACE);
+    }
+
     fn window(fullscreen: bool, minimized: bool, workspace: usize, x: i32) -> WindowInfo {
         WindowInfo { id: WindowId::new("w1").unwrap(), title: None, app_id: Some("mpv".into()), x, y: 0, width: 1920, height: 1080, focused: true, fullscreen, protected: false, x11: false, workspace, minimized, space: None }
     }

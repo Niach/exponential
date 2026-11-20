@@ -276,7 +276,10 @@ impl Ede {
                 return Err(jobs);
             }
         };
-        self.space_used(desk);
+        // #EXP-2024: the space's own captures are use; a watcher's are not.
+        if jobs.iter().any(|j| j.own) {
+            self.space_used(desk);
+        }
         let (elements, undrawable) = self.space_elements(desk, &mut gpu.renderer);
         let serial = self.spaces.get(desk).map_or(0, |s| s.serial);
         let submitted = gpu.submit(desk, size, clear, elements);
