@@ -4,20 +4,18 @@ import {
   agentLabel,
   AgentRunMark,
   conceptIcon,
-  DeviceAccountPanel,
   GlassSectionHeader,
   ListRow,
   Pill,
   SETTINGS_LIST_CLASS,
 } from "@exp/ui"
 import { deviceIsMine, deviceIsOnline, deviceUpdateAvailable, type SteerDevice } from "@/lib/steer-devices"
-import { loginLabel, persistedLine, usageAge, usageState, type AgentProfileUsageRow } from "@/lib/agent-usage"
+import { loginLabel, usageAge, usageState, type AgentProfileUsageRow } from "@/lib/agent-usage"
 import { addableAgents } from "@/lib/agent-account-add"
 import { AddAccountDialog } from "@/components/add-account-dialog"
-import { AgentUsageWindows, fullUsageWindows } from "@/components/agent-usage-windows"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { accountChipActionable, persistLoginTarget, useAccountActions } from "@/components/device-agent-account"
-import { loginLimitHit, useDeviceLogins, type LoginAttention } from "@/components/device-logins"
+import { AgentUsageWindows } from "@/components/agent-usage-windows"
+import { accountChipActionable } from "@/components/device-agent-account"
+import { LoginPanel, loginLimitHit, useDeviceLogins, type LoginAttention } from "@/components/device-logins"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 
 // #EXP-2027 (sidebar-tree.json DEVICES): the device page's Accounts list, on
@@ -163,49 +161,11 @@ function AccountRow({
           <AgentUsageWindows usage={row.usage} now={now} density="mini" stale={stale} className="shrink-0" />
         )}
       </ListRow>
-      {open && <AccountPanel device={device} row={row} item={item} now={now} />}
-    </div>
-  )
-}
-
-/** THE account panel (the device card's), its actions on the viewer's
- *  online machine. */
-function AccountPanel({
-  device,
-  row,
-  item,
-  now,
-}: {
-  device: SteerDevice
-  row: AgentProfileUsageRow
-  item: LoginAttention | null
-  now: Date
-}) {
-  const ready = usageState(row) === `ready`
-  const actionable = accountChipActionable(device)
-  const actions = useAccountActions({
-    device,
-    row,
-    accountLabel: loginLabel(row),
-    onSignIn: () => requestAgentLogin({ device, agent: row.agent, profileId: row.profileId }),
-    onPersistLogin: () => requestAgentLogin({ device, agent: row.agent, ...persistLoginTarget(row) }),
-  })
-  return (
-    <div className="px-3 pb-3">
-      <DeviceAccountPanel
-        name={row.email || loginLabel(row)}
-        plan={row.email ? row.plan : null}
-        persisted={persistedLine(row)}
-        status={item ? DEVICES_LIST_COPY.status[item.status] : null}
-        windows={ready && row.usage ? fullUsageWindows(row.usage, now) : []}
-        stale={ready && row.usage ? usageAge(row.usage, now) !== null : false}
-        busy={actions.busy}
-        {...(actionable
-          ? { signIn: actions.signIn, persist: actions.persist, signOut: actions.signOut, remove: actions.remove }
-          : {})}
-      >
-        {actionable && actions.confirms}
-      </DeviceAccountPanel>
+      {open && (
+        <div className="px-3 pb-3">
+          <LoginPanel device={device} row={row} item={item} now={now} actionable={accountChipActionable(device)} />
+        </div>
+      )}
     </div>
   )
 }
