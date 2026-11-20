@@ -286,8 +286,8 @@ pub(crate) fn wait_for_person_buttons(held: impl Fn() -> bool, interrupted: impl
 /// #EXP-1921: the start of a lock on its own thread, both ends. `take`
 /// waits a while for the thread's answer; a thread that gets there after
 /// `take` gave up must tear its lock down at once, since no guard will
-/// ever release it.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+/// ever release it. [`LockThread::start`] is both ends at once.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 pub(crate) fn lock_start<T>() -> (LockReady<T>, LockStart<T>) {
     let (tx, rx) = std::sync::mpsc::channel();
     let abandoned = std::sync::Arc::new(std::sync::Mutex::new(false));
@@ -300,7 +300,7 @@ pub(crate) struct LockReady<T> {
     abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 impl<T> LockReady<T> {
     /// Hand `value` to `take`. `false` = `take` gave up: tear the lock down.
     pub(crate) fn send(self, value: T) -> bool {
@@ -315,7 +315,7 @@ pub(crate) struct LockStart<T> {
     abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 impl<T> LockStart<T> {
     /// The thread's answer within `timeout`. On a timeout the thread hears
     /// it was abandoned; an answer sent before it heard is handed to `late`,
@@ -332,9 +332,90 @@ impl<T> LockStart<T> {
     }
 }
 
+/// How long a lock waits for its thread to say the lock is in place.
+pub(crate) const LOCK_START_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// #EXP-1994: the thread a lock lives on, every OS's (macOS' event tap,
+/// Windows' hooks, X11's grabs): named `computer-use-lock`, its start
+/// answered through [`lock_start`] within [`LOCK_START_WAIT`], and joined
+/// when its guard drops, unless the drop runs on it (`on_esc` dropping the
+/// guard: a thread never joins itself).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) struct LockThread(Option<std::thread::JoinHandle<()>>);
+
+/// Why a lock's thread did not say it started.
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) enum LockStartError {
+    /// The OS started no thread (the reason).
+    Spawn(String),
+    /// No answer within the wait; one that comes later is torn down.
+    Timeout,
+    /// The thread ended without an answer.
+    Died,
+}
+
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+impl LockThread {
+    /// Run `body` on a new lock thread and wait for what it hands
+    /// [`LockReady::send`], at most [`LOCK_START_WAIT`]. An answer sent
+    /// just as the wait gave up goes to `late`, which tears that lock down.
+    pub(crate) fn start<T: Send + 'static>(body: impl FnOnce(LockReady<T>) + Send + 'static, late: impl FnOnce(T)) -> Result<(T, LockThread), LockStartError> {
+        Self::start_within(LOCK_START_WAIT, body, late)
+    }
+
+    fn start_within<T: Send + 'static>(wait: std::time::Duration, body: impl FnOnce(LockReady<T>) + Send + 'static, late: impl FnOnce(T)) -> Result<(T, LockThread), LockStartError> {
+        let (ready, start) = lock_start();
+        let thread = std::thread::Builder::new()
+            .name("computer-use-lock".into())
+            .spawn(move || body(ready))
+            .map_err(|err| LockStartError::Spawn(format!("lock thread: {err}")))?;
+        // Without an answer the thread is left to end on its own.
+        match start.wait(wait, late) {
+            Ok(answer) => Ok((answer, LockThread(Some(thread)))),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(LockStartError::Timeout),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(LockStartError::Died),
+        }
+    }
+
+    /// Wait for the thread to end (its lock torn down), unless this is it.
+    pub(crate) fn join(&mut self) {
+        if let Some(thread) = self.0.take() {
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
+        }
+    }
+
+    /// Let the thread go without waiting for it (it never heard its stop).
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub(crate) fn detach(&mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for LockThread {
+    fn drop(&mut self) {
+        self.join();
+    }
+}
+
 /// Released on drop. Dropping from the lock's own thread (inside `on_esc`)
-/// must not join that thread.
+/// must not join that thread ([`LockThread::join`]).
 pub(crate) trait LockGuard: Send {}
+
+/// #EXP-1994: a lock's decision on one of the person's events (macOS' tap,
+/// Windows' hooks; X11's grab takes whole devices).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+pub(crate) enum Verdict {
+    /// On to its window: ours, or the one release of what the person held
+    /// at engage ([`HeldAtEngage`]).
+    Pass,
+    Swallow,
+    /// The person's Esc: swallowed, and the lock ends.
+    Esc,
+}
 
 /// What the clipboard held before a `paste_text` / `copy_selection` took
 /// it: every format the OS let us read, as (the OS's name of the format,
@@ -813,6 +894,57 @@ mod tests {
         let (ready, start) = lock_start::<u32>();
         assert!(ready.send(7));
         assert_eq!(start.wait(std::time::Duration::from_secs(5), |_| panic!("not late")), Ok(7));
+    }
+
+    /// #EXP-1994: every OS's lock thread: named, its answer taken, one that
+    /// never comes or comes late refused (the late one hears it), joined on
+    /// the guard's drop, and never joined by itself.
+    #[test]
+    fn a_lock_thread_answers_once_and_is_joined_unless_it_drops_itself() {
+        use std::sync::mpsc::channel;
+        let (answer, thread) = LockThread::start(|ready| {
+            ready.send(std::thread::current().name().map(str::to_string));
+        }, |_| panic!("not late"))
+        .unwrap();
+        assert_eq!(answer.as_deref(), Some("computer-use-lock"));
+        drop(thread);
+
+        assert_eq!(LockThread::start(|_: LockReady<()>| {}, |_| panic!("not late")).err(), Some(LockStartError::Died));
+
+        let (heard_tx, heard) = channel();
+        let short = std::time::Duration::from_millis(20);
+        let late = LockThread::start_within(short, move |ready| {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            heard_tx.send(ready.send(())).unwrap();
+        }, |_| {});
+        assert_eq!(late.err(), Some(LockStartError::Timeout));
+        assert!(!heard.recv().unwrap(), "the late thread hears it was given up and tears down");
+
+        // The guard's drop waits for the thread to end its lock.
+        let (stop_tx, stop) = channel::<()>();
+        let (ended_tx, ended) = channel();
+        let ((), thread) = LockThread::start(move |ready| {
+            ready.send(());
+            let _ = stop.recv();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            ended_tx.send(()).unwrap();
+        }, |_| panic!("not late"))
+        .unwrap();
+        stop_tx.send(()).unwrap();
+        drop(thread);
+        assert!(ended.try_recv().is_ok(), "joined: the thread had ended");
+
+        // `on_esc` drops the guard on the lock's own thread: no self-join.
+        let (guard_tx, guard) = channel::<LockThread>();
+        let (dropped_tx, dropped) = channel();
+        let ((), thread) = LockThread::start(move |ready| {
+            ready.send(());
+            drop(guard.recv().unwrap());
+            dropped_tx.send(()).unwrap();
+        }, |_| panic!("not late"))
+        .unwrap();
+        guard_tx.send(thread).unwrap();
+        dropped.recv_timeout(std::time::Duration::from_secs(5)).expect("the thread dropped its own guard and went on");
     }
 
     #[test]
