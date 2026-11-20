@@ -63,14 +63,11 @@ public enum AppShortcuts {
     public struct Input: Equatable, Sendable {
         public let assistant: Assistant?
         public let agents: [Agent]
-        /// The viewer's session pins, in sidebar order.
-        public let pins: [String]
         public let chats: [Chat]
 
-        public init(assistant: Assistant?, agents: [Agent], pins: [String], chats: [Chat]) {
+        public init(assistant: Assistant?, agents: [Agent], chats: [Chat]) {
             self.assistant = assistant
             self.agents = agents
-            self.pins = pins
             self.chats = chats
         }
     }
@@ -112,8 +109,8 @@ public enum AppShortcuts {
         Entry(id: agentPrefix + assistant.id, title: assistant.name, icon: Icons.assistant)
     }
 
-    /// #EXP-1830: the chat entries: the Assistant, the session pins in pin
-    /// order, then the recent chats newest first, deduplicated by id. An own
+    /// #EXP-1830: the chat entries: the Assistant, then the recent chats
+    /// newest first, deduplicated by id. An own
     /// agent conversation is its agent's entry; an unknown agent's and an
     /// encrypted plain chat are none.
     public static func chatEntries(_ input: Input) -> [Entry] {
@@ -127,8 +124,6 @@ public enum AppShortcuts {
             if chat.sealed { return nil }
             return Entry(id: recentChatPrefix + chat.id, title: chat.title, icon: Icons.chat)
         }
-        let byId = Dictionary(input.chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let pinned = input.pins.compactMap { byId[$0] }
         // Stable: equal times keep the input order.
         let recent = input.chats.enumerated()
             .sorted { lhs, rhs in
@@ -144,7 +139,6 @@ public enum AppShortcuts {
             out.append(item)
         }
         if let assistant = input.assistant { push(assistantEntry(assistant)) }
-        for chat in pinned { push(entry(chat)) }
         for chat in recent { push(entry(chat)) }
         return out
     }

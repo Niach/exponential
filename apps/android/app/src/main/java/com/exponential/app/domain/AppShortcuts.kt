@@ -4,8 +4,8 @@ package com.exponential.app.domain
  * #EXP-1638 / #EXP-1830: the app icon's long-press menu, the Android mirror of
  * `packages/domain-contract/src/app-shortcuts.ts`, locked by
  * `fixtures/app-shortcuts.json` (`AppShortcutsTest`). The statics live in
- * `res/xml/shortcuts.xml`; the chat entries (the Assistant, pins, recent
- * chats) are dynamic shortcuts (`DirectShareShortcuts`); MainActivity routes a
+ * `res/xml/shortcuts.xml`; the chat entries (the Assistant, recent chats)
+ * are dynamic shortcuts (`DirectShareShortcuts`); MainActivity routes a
  * tapped one by [parseAppShortcut], a sharing shortcut's launcher intent by
  * [launcherShortcutId].
  */
@@ -44,8 +44,6 @@ object AppShortcuts {
     data class Input(
         val assistant: Assistant?,
         val agents: List<Agent>,
-        /** The viewer's session pins, in sidebar order. */
-        val pins: List<String>,
         val chats: List<ShareTargets.Chat>,
     )
 
@@ -64,7 +62,7 @@ object AppShortcuts {
         data class Agent(val id: String) : Target
     }
 
-    /** #EXP-1830: the chat entries: the Assistant, pins, then recent chats, deduplicated. */
+    /** #EXP-1830: the chat entries: the Assistant, then recent chats, deduplicated. */
     fun chatEntries(input: Input): List<Shortcut> {
         val agents = input.agents.associateBy { it.id }
         fun entry(chat: ShareTargets.Chat): Shortcut? {
@@ -77,8 +75,6 @@ object AppShortcuts {
             if (chat.sealed) return null
             return Shortcut("$RECENT_CHAT_PREFIX${chat.id}", chat.title, CHAT_ICON)
         }
-        val byId = input.chats.associateBy { it.id }
-        val pinned = input.pins.mapNotNull { byId[it] }
         val recent = input.chats.sortedByDescending { it.updatedAt }
         val out = ArrayList<Shortcut>()
         val seen = HashSet<String>()
@@ -87,7 +83,6 @@ object AppShortcuts {
             out += item
         }
         input.assistant?.let { push(assistantEntry(it)) }
-        pinned.forEach { push(entry(it)) }
         recent.forEach { push(entry(it)) }
         return out
     }

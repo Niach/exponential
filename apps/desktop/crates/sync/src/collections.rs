@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (38 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (37 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -46,7 +46,7 @@ use crate::store::{ShapeStore, StoreError};
 use domain::rows::{
     AgentDefRow, Attachment, Board, Comment, ComposerDraftRow, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
-    Notification, Pin, PullRequestCheckRow, SidebarLayoutRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
+    Notification, PullRequestCheckRow, SidebarLayoutRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, SkillRow, CiRunRow, CiJobRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 38
+/// A typed row hydratable from the store's snake_case JSON objects. The 37
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -208,7 +208,6 @@ id_shape_row!(IssueStatusRow, "issue_statuses");
 id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(IssueRelation, "issue_relations");
-id_shape_row!(Pin, "pins");
 id_shape_row!(IssueDraftRow, "issue_drafts");
 id_shape_row!(ComposerDraftRow, "composer_drafts");
 id_shape_row!(SessionReadRow, "session_reads");
@@ -629,7 +628,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 38 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 37 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -671,18 +670,15 @@ pub struct Collections {
     /// EXP-736 issue relations (the 20th shape) — blocks / parent /
     /// duplicate / related, scoped by the SOURCE issue's board.
     pub issue_relations: Entity<Collection<IssueRelation>>,
-    /// EXP-778 personal pins (the 21st shape) — per-user, never team/trash
-    /// scoped; the rail filters to the active team and to resolvable targets.
-    pub pins: Entity<Collection<Pin>>,
     /// EXP-878 unfiled create-issue dialogs (the 22nd shape) — per-user and
-    /// static like `pins`; the Drafts page filters to the active team and to
+    /// static, never team/trash scoped; the Drafts page filters to the active team and to
     /// rows whose board still resolves.
     pub issue_drafts: Entity<Collection<IssueDraftRow>>,
     /// #FEED-219 every composer's synced draft (the 35th shape) — per-user
     /// and static like `issue_drafts`; keyed by `<kind>:<id>`.
     pub composer_drafts: Entity<Collection<ComposerDraftRow>>,
     /// EXP-1323 the viewer's session read marks (the 26th shape) — per-user
-    /// and static like `pins`; unread titles + the Chats nav dot.
+    /// and static like `issue_drafts`; unread titles + the Chats nav dot.
     pub session_reads: Entity<Collection<SessionReadRow>>,
     /// NEW-2 the team's agent DEFINITIONS (the 27th shape).
     pub agents: Entity<Collection<AgentDefRow>>,
@@ -705,7 +701,7 @@ pub struct Collections {
     /// device's CI runner section (its recent jobs).
     pub ci_jobs: Entity<Collection<CiJobRow>>,
     /// #EXP-1832 the viewer's sidebar folders + order (the 38th shape) —
-    /// per-user and static like `pins`; [`Collections::sidebar_entries`]
+    /// per-user and static like `issue_drafts`; [`Collections::sidebar_entries`]
     /// reads one team's section.
     pub sidebar_layout: Entity<Collection<SidebarLayoutRow>>,
     /// #PERF-9: the heavy shapes ([`HYDRATE_OFF_MAIN`]) whose startup
@@ -718,7 +714,7 @@ pub struct Collections {
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 38-way fan-out in one
+/// entity — the single dispatch point that keeps the 37-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -769,8 +765,6 @@ macro_rules! for_each_collection {
         let $entity = &$collections.device_worktrees;
         $body;
         let $entity = &$collections.issue_relations;
-        $body;
-        let $entity = &$collections.pins;
         $body;
         let $entity = &$collections.issue_drafts;
         $body;
@@ -828,7 +822,6 @@ impl Collections {
             devices: cx.new(|_| Collection::new()),
             device_worktrees: cx.new(|_| Collection::new()),
             issue_relations: cx.new(|_| Collection::new()),
-            pins: cx.new(|_| Collection::new()),
             issue_drafts: cx.new(|_| Collection::new()),
             composer_drafts: cx.new(|_| Collection::new()),
             session_reads: cx.new(|_| Collection::new()),
@@ -938,7 +931,6 @@ impl Collections {
             "devices" => prepare_for(|c| &c.devices, keys, full_replace, up_to_date, sqlite),
             "device_worktrees" => prepare_for(|c| &c.device_worktrees, keys, full_replace, up_to_date, sqlite),
             "issue_relations" => prepare_for(|c| &c.issue_relations, keys, full_replace, up_to_date, sqlite),
-            "pins" => prepare_for(|c| &c.pins, keys, full_replace, up_to_date, sqlite),
             "issue_drafts" => prepare_for(|c| &c.issue_drafts, keys, full_replace, up_to_date, sqlite),
             "composer_drafts" => prepare_for(|c| &c.composer_drafts, keys, full_replace, up_to_date, sqlite),
             "session_reads" => prepare_for(|c| &c.session_reads, keys, full_replace, up_to_date, sqlite),
@@ -986,7 +978,7 @@ impl Collections {
         }
     }
 
-    /// Full hydrate of all 38 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 37 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). The light shapes run
     /// synchronously on the foreground, so the first frame paints the
     /// last-known board: every batch committed to SQLite has a matching
@@ -1075,7 +1067,7 @@ impl Collections {
         out
     }
 
-    /// Run `on_change` on `V` whenever ANY of the 38 collections notifies
+    /// Run `on_change` on `V` whenever ANY of the 37 collections notifies
     /// (EXP-1326: the IDE's cached dock area re-renders on every synced
     /// change this way, so a screen reading a collection without observing
     /// it never goes stale behind the cache).
@@ -1467,7 +1459,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 38 collection entities,
+    /// Build the store: the shared-state entity, the 37 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -1535,7 +1527,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 38 reactive collections.
+    /// The 37 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -2041,7 +2033,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 38 ShapeRow impls cover the registry exactly (a 39th shape
+        // The 37 ShapeRow impls cover the registry exactly (a 38th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -2068,7 +2060,6 @@ mod tests {
             DeviceRow::spec().name,
             DeviceWorktreeRow::spec().name,
             IssueRelation::spec().name,
-            Pin::spec().name,
             IssueDraftRow::spec().name,
             ComposerDraftRow::spec().name,
             SessionReadRow::spec().name,

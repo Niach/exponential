@@ -383,12 +383,6 @@
       "widget_reporter"
     ]
   },
-  "pinKind": {
-    "values": [
-      "issue",
-      "session"
-    ]
-  },
   "issueEventType": {
     "values": [
       "status_changed",

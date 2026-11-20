@@ -57,9 +57,7 @@ final class AppShortcutsTests: XCTestCase {
                 sealed: row["sealed"] as? Bool ?? false
             )
         }
-        return AppShortcuts.Input(
-            assistant: assistant, agents: agents, pins: try XCTUnwrap(raw["pins"] as? [String]), chats: chats
-        )
+        return AppShortcuts.Input(assistant: assistant, agents: agents, chats: chats)
     }
 
     private func entries(_ raw: Any?) throws -> [AppShortcuts.Entry] {

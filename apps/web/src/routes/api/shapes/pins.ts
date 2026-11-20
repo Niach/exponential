@@ -1,40 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { sqlStringLiteral } from "@/lib/team-membership"
+import { buildWhereClause } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-778: the caller's personal pins — the sidebar's "Pinned" group on every
-// client (issues, sessions). Streams only the requesting
-// user's rows; never anonymous. The where clause is fully STATIC per user
-// (`user_id = me`, no membership id lists), so the shape identity never
-// rotates — not even on team join/leave.
-//
-// Deliberately NOT team- or trash-scoped: the row is a pointer, and clients
-// render only the pins of the active team whose TARGET they can resolve from
-// the other shapes (issues / sessions), which carry the
-// membership and trash predicates already. A pin on a trashed board's issue
-// simply has no target until the board restores, and the purge cascade
-// removes it. Every column is synced — nothing here is server-only.
+// #EXP-2027 compat sentinel: the Pins feature (EXP-778) and its `pins` table
+// are gone, but iOS, Android and desktop builds from before the removal still
+// subscribe to this shape. Like the SLOP-3 workflow sentinels it answers an
+// EMPTY shape (an impossible match on `teams`) instead of a 404, so an old
+// build's sync never stalls; its pin rows simply vanish. Delete once every
+// CLIENT_MIN_VERSION_* floor is past the first release without pins.
 export const Route = createFileRoute(`/api/shapes/pins`)({
   server: {
     handlers: {
       GET: createShapeRouteHandler({
-        table: `pins`,
-        requireAuth: true,
-        columns: [
-          `id`,
-          `user_id`,
-          `team_id`,
-          `kind`,
-          `issue_id`,
-          `session_id`,
-          `sort_order`,
-          `created_at`,
-          `updated_at`,
-        ],
-        getWhere: async (userId) => {
-          if (!userId) return null
-          return `"user_id" = ${sqlStringLiteral(userId)}`
-        },
+        table: `teams`,
+        columns: [`id`],
+        getWhere: async () => buildWhereClause(`id`, []),
       }),
     },
   },

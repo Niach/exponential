@@ -106,7 +106,6 @@ interface Contract {
   }
   toolKind: Section & { editKinds: string[] }
   subscriberSource: Section
-  pinKind: Section
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
   issueRelationSource: Section
@@ -547,7 +546,6 @@ ${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
 ${swiftStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
-${swiftStringArray("pinKindValues", contract.pinKind.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
 ${swiftStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -677,7 +675,6 @@ ${swiftNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${swiftNamedValues("sessionKind", contract.sessionKind.values)}
 ${swiftNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
-${swiftNamedValues("pinKind", contract.pinKind.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 ${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
@@ -727,7 +724,6 @@ ${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
 ${kotlinStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
-${kotlinStringArray("pinKindValues", contract.pinKind.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
 ${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
 ${kotlinStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -857,7 +853,6 @@ ${kotlinNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${kotlinNamedValues("sessionKind", contract.sessionKind.values)}
 ${kotlinNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
-${kotlinNamedValues("pinKind", contract.pinKind.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 ${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
@@ -909,7 +904,6 @@ ${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.wind
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
 ${rustStrSlice("toolKindEditValues", contract.toolKind.editKinds)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
-${rustStrSlice("pinKindValues", contract.pinKind.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
 ${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
 ${rustStrSlice("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
@@ -1044,7 +1038,6 @@ ${rustNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${rustNamedValues("sessionKind", contract.sessionKind.values)}
 ${rustNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
-${rustNamedValues("pinKind", contract.pinKind.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 ${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
