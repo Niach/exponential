@@ -528,7 +528,8 @@ struct DeviceSettingsSheet: View {
                 computerUseModel: computerUseModelBinding,
                 workScreen: computerUseDisplayBinding,
                 workScreenOptions: WorkScreen.options(
-                    displays: doctor.displays, stored: computerUseDisplayId
+                    displays: doctor.displays, stored: computerUseDisplayId,
+                    spaceOffered: WorkScreen.spaceOffered(doctor)
                 ),
                 busyActions: updatingAgents,
                 onAction: { row in runReadinessAction(row, device: device) }
