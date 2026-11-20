@@ -193,6 +193,7 @@ describe(`classifyTeamsForUserDeletion`, () => {
 // ── guardAndCleanupTeamsForUserDeletion ─────────────────────────────────────
 // The select queue must be seeded in the order the helper queries:
 //   1. memberships          2. team names (ONLY when stranded)
+//   2b. the user's personal team (#EXP-1984)
 //   3. the user's email     4. attachment keys (ONLY when a solo team dies)
 //   5. the user's draft attachment keys (EXP-878, always)
 //   6. issues with the address   7. comments with the address
@@ -203,11 +204,15 @@ const EMAIL = `ada@example.com`
 function seedBaseline({
   memberships,
   email = EMAIL,
+  personal = [],
 }: {
   memberships: MembershipRow[]
   email?: string | null
+  /** #EXP-1984: the user's hidden personal team (no membership row). */
+  personal?: Array<{ id: string }>
 }) {
   selectQueue.push(memberships)
+  selectQueue.push(personal)
   selectQueue.push(email === null ? [] : [{ email }])
 }
 
@@ -249,6 +254,20 @@ describe(`guardAndCleanupTeamsForUserDeletion — billing (REV2-55)`, () => {
       { id: `row-solo`, creemSubscriptionId: `sub_1` },
     ])
     expect(result.storageKeys).toEqual([`attachments/a.png`])
+  })
+
+  it(`#EXP-1984: the personal team (the Assistant's, no membership row) goes with the account`, async () => {
+    seedBaseline({ memberships: [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)], personal: [{ id: `ws-personal` }] })
+    selectQueue.push([{ storageKey: `attachments/assistant.png` }])
+    selectQueue.push([])
+    selectQueue.push([])
+    selectQueue.push([])
+    returningQueue.push([{ id: `ws-personal` }])
+
+    const result = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
+
+    expect(result.deletedTeamIds).toEqual([`ws-personal`])
+    expect(result.storageKeys).toEqual([`attachments/assistant.png`])
   })
 
   it(`cancels nothing when the user has no solo team to destroy`, async () => {

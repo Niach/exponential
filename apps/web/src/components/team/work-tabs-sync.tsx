@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from "react"
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, Issue } from "@/db/schema"
-import { agentCollection, issueCollection, sessionCollection } from "@/lib/collections"
+import { isAssistant } from "@exp/domain-contract/agent-settings"
+import { agentCollection, issueCollection, sessionCollection, teamCollection } from "@/lib/collections"
 import {
   isNewRunPath,
   pruneTabs,
@@ -18,6 +19,15 @@ import {
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
+
+/** An agent's tab belongs to the team: the team's own agent, or (#EXP-1984)
+ *  the viewer's Assistant, whose personal team is never a synced team
+ *  (`agentsInTeam`'s rule). */
+type AgentTeamLike = { teamId: string; role?: string | null }
+function agentTabInTeam(agent: AgentTeamLike | undefined | null, teamId: string): boolean {
+  if (!agent) return false
+  return agent.teamId === teamId || (isAssistant(agent) && teamCollection.get(agent.teamId) === undefined)
+}
 
 // EXP-870: the ONE writer of the work tabs, mounted once in the team layout
 // (md+ only — the strip is hidden on phones). EXP-1293: ROUTE-DRIVEN, so no
@@ -132,7 +142,7 @@ export function WorkTabsSync({
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from } : null
     }
     if (path.kind === `agent`) {
-      return routeAgent && routeAgent.id === path.agentId && routeAgent.teamId === teamId
+      return routeAgent && routeAgent.id === path.agentId && agentTabInTeam(routeAgent, teamId)
         ? path
         : null
     }
@@ -192,7 +202,7 @@ export function WorkTabsSync({
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardIds.has(issue.boardId)
         }
-        if (tab.kind === `agent`) return agentCollection.get(tab.agentId)?.teamId === teamId
+        if (tab.kind === `agent`) return agentTabInTeam(agentCollection.get(tab.agentId) as AgentTeamLike | undefined, teamId)
         const sessionId = tabSessionId(tab)
         return sessionId !== null && sessionCollection.get(sessionId)?.teamId === teamId
       })
