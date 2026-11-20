@@ -728,6 +728,10 @@ pub const RUN_PAUSE: ExpIcon = ExpIcon::Pause;
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
+/// Registry concept `search-agent` -> Lucide `bot`.
+pub const SEARCH_AGENT: ExpIcon = ExpIcon::Bot;
+/// Registry concept `search-chat` -> Lucide `message-circle`.
+pub const SEARCH_CHAT: ExpIcon = ExpIcon::MessageCircle;
 /// Registry concept `session-shell` -> Lucide `terminal`.
 pub const SESSION_SHELL: ExpIcon = ExpIcon::Terminal;
 /// Registry concept `session-tree` -> Lucide `workflow`.
@@ -1236,6 +1240,8 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "run-pause" => RUN_PAUSE,
         "run-resume" => RUN_RESUME,
         "sc-push" => SC_PUSH,
+        "search-agent" => SEARCH_AGENT,
+        "search-chat" => SEARCH_CHAT,
         "session-shell" => SESSION_SHELL,
         "session-tree" => SESSION_TREE,
         "settings-about" => SETTINGS_ABOUT,
