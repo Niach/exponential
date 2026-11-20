@@ -118,7 +118,7 @@ impl RepoResolver {
     /// first needed or after a team switch. Idempotent — surfaces call it
     /// at render time; only one network call runs per team.
     pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
-        let team_id = navigation::active_team_id(&self.nav, cx);
+        let team_id = navigation::screen_team_id(&self.nav, cx);
         if team_id.as_deref() != self.team_id.as_deref() {
             self.team_id = team_id;
             self.state = State::Idle;
@@ -207,7 +207,7 @@ impl RepoResolver {
         let State::Ready(repos) = &self.state else {
             return None;
         };
-        let team_id = navigation::active_team_id(&self.nav, cx)?;
+        let team_id = navigation::screen_team_id(&self.nav, cx)?;
         if self.team_id.as_deref() != Some(team_id.as_str()) {
             return None;
         }
@@ -235,7 +235,7 @@ impl RepoResolver {
         let Some(repos) = self.scope_repos(cx) else {
             return RepoLookup::Loading;
         };
-        let picked = navigation::active_team_id(&self.nav, cx).and_then(|team_id| {
+        let picked = navigation::screen_team_id(&self.nav, cx).and_then(|team_id| {
             self.nav.read(cx).picked_repo(&team_id).map(str::to_string)
         });
         match pick_active(&repos, picked.as_deref()) {

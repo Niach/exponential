@@ -4,19 +4,16 @@
 //! Web parity targets: the `routes/t/$teamSlug/settings/` pages and
 //! their `components/team/*-section.tsx` + `components/account/*` cards. The
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
-//! left nav with the groups — **Team** (General, Members, Issues ⟩ Labels, Statuses,
-//! Storage — the EXP-297 owner-only attachment manager), **Boards**
-//! (one entry PER board + New board — EXP-288 flattened the old flat Boards
-//! list into per-board detail pages), **Agents** (EXP-1294: one entry per
-//! agent + New agent, then Repositories — NEW-41, web's `SETTINGS_NAV` — and
-//! Prompts),
-//! **Features** (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
-//! **This device** group (Tools, Coding CLIs, Worktrees, Sessions), and
-//! **Personal** (Account, Notifications, Security, About — EXP-238); the
-//! detail column shows ONE selected pane with the web's `isOwner &&` gating;
-//! each pane mirrors its web card field-for-field — and since EXP-771 sits
-//! under the web route's OWN header ("Settings" + "Manage … and your
-//! account") in a centered `max-w-4xl` column.
+//! left nav and ONE selected pane with the web's `isOwner &&` gating. Since
+//! #EXP-2027 (no current team) the nav is one of TWO (`settings-nav.json`
+//! `desktopNavs`): a team's (General, Members, Issues ⟩ Labels, Statuses,
+//! Repositories, Prompts, MCP, Skills, Widget, Storage, All boards) under
+//! the team's mark + name, or the member's personal one (Account, Assistant,
+//! Notifications, Security, About) under `← Settings`. A board's, agent's
+//! or app's page opens from its sidebar row; the This device pages
+//! ([`DEVICE_PAGES`]) belong to the device page. Each pane mirrors its web
+//! card field-for-field under the web route's OWN header (EXP-771) in a
+//! centered `max-w-4xl` column.
 //!
 //! Navigation INTO these screens: the rail's gear dispatches `OpenSettings`
 //! (see `sidebar.rs` + `navigation::init`); this module only provides the
@@ -112,7 +109,7 @@ use gpui_component::{
 use sync::Store;
 
 use crate::navigation::{
-    active_team_id, go_back, nav_for_window, navigate, set_screen, Navigation, Screen,
+    screen_team_id, go_back, nav_for_window, navigate, set_screen, Navigation, Screen,
 };
 use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
@@ -248,7 +245,7 @@ pub(crate) enum SettingsSection {
     /// variant keeps its name, and so does the `settings-api` icon.
     ApiKeys,
     /// EXP-262: version + third-party licence notices. Since EXP-238 an
-    /// ordinary Personal-group item in [`NAV_GROUPS`] — it sits LAST, so the
+    /// ordinary Personal-group item in [`PERSONAL_NAV`] — it sits LAST, so the
     /// fallback scan (first visible item) still never lands on it. Never
     /// gated.
     About,
@@ -277,17 +274,20 @@ impl NavItem {
 }
 
 /// Every nav entry in order, sub-pages right after their parent (the web's
-/// `flattenSettingsNav`) — what the fallback scan and the tests walk.
+/// `flattenSettingsNav`): the team nav, then the personal nav — what the
+/// fallback scan (first visible item: General / Members) and the tests walk.
 fn flat_nav_items() -> impl Iterator<Item = &'static NavItem> {
-    NAV_GROUPS
-        .iter()
+    [&TEAM_NAV, &PERSONAL_NAV]
+        .into_iter()
         .flat_map(|group| group.items)
         .flat_map(|item| std::iter::once(item).chain(item.children.iter()))
 }
 
 /// #EXP-1674: the section a `settings/<section>` link names: a nav page's id
-/// (`settings-nav.json`) or a web route the desktop folds into one. `None` =
-/// no such page here (Billing, Import, the Boards index): the browser's.
+/// (`settings-nav.json`), a This device page's ([`DEVICE_PAGES`]) or a web
+/// route the desktop folds into one. `None` = no such page here (Billing,
+/// Import): the browser's. Which nav it opens in = [`section_scope`]
+/// ([`open_settings_section`]).
 pub(crate) fn section_for_link(section: &str) -> Option<SettingsSection> {
     match section {
         "agents" => Some(SettingsSection::Agents),
@@ -296,143 +296,176 @@ pub(crate) fn section_for_link(section: &str) -> Option<SettingsSection> {
         "mcp-servers" => Some(SettingsSection::Mcp),
         _ => flat_nav_items()
             .find(|item| item.id == section)
-            .map(|item| item.section.clone()),
+            .map(|item| item.section.clone())
+            .or_else(|| DEVICE_PAGES.iter().find(|(id, _, _)| *id == section).map(|(_, _, page)| page.clone())),
     }
 }
 
 struct NavGroup {
-    /// The fixture's group id (`team`, `boards`, `agents`, `apps`,
-    /// `device`, `personal`).
+    /// The fixture's group id (`desktopNavs.team[].id`, `.personal[].id`).
     id: &'static str,
     label: &'static str,
     items: &'static [NavItem],
 }
 
-/// S-3 (owner 2026-10-28): THE settings nav ×4 = `settings-nav.json` `nav`
-/// on platform `desktop` (the test replays its `navCases`). The injected
-/// lists (`@boards` + `@new-board`, `@agents` + `@new-agent`, `@apps` +
-/// `@new-app`) are drawn at render AHEAD of their
-/// group's static pages; Plan & Billing and Import are web-only. The
-/// Features and Advanced groups are gone, and Voice left Personal: its block
-/// is the Assistant page's Voice section. Order defines both the nav and the
+/// #EXP-2027 THE SPLIT (`settings-nav.json` `nav.desktopNavs`, the test
+/// replays `desktopNavCases`): there is no current team, so Settings is TWO
+/// navs. [`TEAM_NAV`] = a team row's menu › Settings (`settings_team` =
+/// Some): that team's pages only (Plan & Billing and Import are web-only);
+/// [`PERSONAL_NAV`] = the gear next to the member's name (`settings_team` =
+/// None): only what is theirs. The Boards, Agents and Apps groups LEFT
+/// Settings (a board's, agent's or app's own settings open from its sidebar
+/// row; their pages still render here, no row lit), and so did This device
+/// ([`DEVICE_PAGES`], the device page's). Order defines both the nav and the
 /// fallback scan (first visible item).
-const NAV_GROUPS: &[NavGroup] = &[
-    NavGroup {
-        id: "team",
-        label: "Team",
-        items: &[
-            NavItem::leaf("general", "General", SettingsSection::General),
-            NavItem::leaf("members", "Members", SettingsSection::Members),
-            // EXP-630: Issues with Labels and Statuses as its sub-pages.
-            NavItem {
-                id: "issues",
-                label: "Issues",
-                section: SettingsSection::Issues,
-                children: &[
-                    NavItem::leaf("labels", "Labels", SettingsSection::Labels),
-                    NavItem::leaf("statuses", "Statuses", SettingsSection::Statuses),
-                ],
-            },
-            NavItem::leaf("repositories", "Repositories", SettingsSection::Repositories),
-            NavItem::leaf("prompts", prompts::PROMPTS_TITLE, SettingsSection::Prompts),
-            NavItem::leaf("widget", "Widget", SettingsSection::Widget),
-            NavItem::leaf("storage", "Storage", SettingsSection::Storage),
-        ],
-    },
-    // The per-board rows + New board are injected at render.
-    NavGroup {
-        id: "boards",
-        label: "Boards",
-        items: &[NavItem::leaf("all-boards", "All boards", SettingsSection::AllBoards)],
-    },
-    // The team agents and New agent are injected at render (#EXP-1987: the
-    // viewer's Assistant is Personal's `assistant` page); Skills closes the
-    // group.
-    NavGroup {
-        id: "agents",
-        label: AGENTS_GROUP,
-        items: &[
-            NavItem::leaf("mcp", mcp::SETTINGS_MCP.title, SettingsSection::Mcp),
-            // #EXP-1660 (settings-nav.json): Skills right after MCP.
-            NavItem::leaf("skills", domain::skills::TITLE, SettingsSection::Skills),
-        ],
-    },
-    // VAPP-110: the per-app rows + New app are injected at render.
-    NavGroup { id: "apps", label: APPS_GROUP, items: &[] },
-    NavGroup {
-        id: "device",
-        label: "This device",
-        items: &[
-            NavItem::leaf("tools", "Tools", SettingsSection::Tools),
-            NavItem::leaf("coding-clis", "Coding CLIs", SettingsSection::AgentClis),
-            NavItem::leaf("worktrees", "Worktrees", SettingsSection::LocalRepos),
-            NavItem::leaf("sessions", "Sessions", SettingsSection::Sessions),
-        ],
-    },
-    NavGroup {
-        id: "personal",
-        label: "Personal",
-        items: &[
-            NavItem::leaf("account", "Account", SettingsSection::Account),
-            // #EXP-1987: Settings › Assistant is an ACCOUNT page: the
-            // viewer's ONE Assistant whichever team is current (it left the
-            // Agents group). `Voice` resolves to its agent page
-            // (`first_agent_resolved`); the row wears the brand mark.
-            NavItem::leaf("assistant", ASSISTANT_PAGE, SettingsSection::Voice),
-            NavItem::leaf("notifications", "Notifications", SettingsSection::Notifications),
-            NavItem::leaf("security", "Security", SettingsSection::ApiKeys),
-            NavItem::leaf("about", "About", SettingsSection::About),
-        ],
-    },
+const TEAM_NAV: NavGroup = NavGroup {
+    id: "team",
+    label: "Team",
+    items: &[
+        NavItem::leaf("general", "General", SettingsSection::General),
+        NavItem::leaf("members", "Members", SettingsSection::Members),
+        // EXP-630: Issues with Labels and Statuses as its sub-pages.
+        NavItem {
+            id: "issues",
+            label: "Issues",
+            section: SettingsSection::Issues,
+            children: &[
+                NavItem::leaf("labels", "Labels", SettingsSection::Labels),
+                NavItem::leaf("statuses", "Statuses", SettingsSection::Statuses),
+            ],
+        },
+        NavItem::leaf("repositories", "Repositories", SettingsSection::Repositories),
+        NavItem::leaf("prompts", prompts::PROMPTS_TITLE, SettingsSection::Prompts),
+        NavItem::leaf("mcp", mcp::SETTINGS_MCP.title, SettingsSection::Mcp),
+        // #EXP-1660 (settings-nav.json): Skills right after MCP.
+        NavItem::leaf("skills", domain::skills::TITLE, SettingsSection::Skills),
+        NavItem::leaf("widget", "Widget", SettingsSection::Widget),
+        NavItem::leaf("storage", "Storage", SettingsSection::Storage),
+        NavItem::leaf("all-boards", "All boards", SettingsSection::AllBoards),
+    ],
+};
+
+/// #EXP-2027: the personal nav (see [`TEAM_NAV`]).
+const PERSONAL_NAV: NavGroup = NavGroup {
+    id: "personal",
+    label: "Personal",
+    items: &[
+        NavItem::leaf("account", "Account", SettingsSection::Account),
+        // #EXP-1987: Settings › Assistant is an ACCOUNT page: the viewer's
+        // ONE Assistant whichever team (it left the Agents group). `Voice`
+        // resolves to its agent page (`first_agent_resolved`); the row wears
+        // the brand mark.
+        NavItem::leaf("assistant", ASSISTANT_PAGE, SettingsSection::Voice),
+        NavItem::leaf("notifications", "Notifications", SettingsSection::Notifications),
+        NavItem::leaf("security", "Security", SettingsSection::ApiKeys),
+        NavItem::leaf("about", "About", SettingsSection::About),
+    ],
+};
+
+/// #EXP-2027 (`settings-nav.json` `nav.desktopNavs.device`): the This device
+/// pages, which LEFT Settings for the device page of the viewer's THIS
+/// device — `(page id, label, section)` in the fixture's order. Never gated;
+/// [`SettingsView`] still renders their panes and [`section_for_link`] still
+/// resolves their ids.
+pub(crate) const DEVICE_PAGES: &[(&str, &str, SettingsSection)] = &[
+    ("tools", "Tools", SettingsSection::Tools),
+    ("coding-clis", "Coding CLIs", SettingsSection::AgentClis),
+    ("worktrees", "Worktrees", SettingsSection::LocalRepos),
+    ("sessions", "Sessions", SettingsSection::Sessions),
 ];
 
-#[cfg(test)]
-/// The injected `@lists` of a group, in the fixture's order, for a viewer
-/// (`newEntries`: the New rows are the owners').
-fn injected_items(group_id: &str, owner: bool) -> Vec<&'static str> {
-    match group_id {
-        "boards" if owner => vec!["@boards", "@new-board"],
-        "boards" => vec!["@boards"],
-        "agents" if owner => vec!["@agents", "@new-agent"],
-        "agents" => vec!["@agents"],
-        "apps" if owner => vec!["@apps", "@new-app"],
-        "apps" => vec!["@apps"],
-        _ => Vec::new(),
+/// #EXP-2027: which nav a settings page belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SectionScope {
+    /// The personal nav's (`settings_team` = None).
+    Personal,
+    /// A team's (`settings_team` = Some; none set = the fallback team).
+    Team,
+    /// Either: a page opened with its own team (a board's, an agent's, an
+    /// app's: the sidebar sets `settings_team` to the item's team; an agent
+    /// page may be the viewer's Assistant) or a This device page.
+    Either,
+}
+
+/// #EXP-2027: [`SectionScope`] of `section`.
+pub(crate) fn section_scope(section: &SettingsSection) -> SectionScope {
+    use SettingsSection as S;
+    match section {
+        S::Account | S::Voice | S::Notifications | S::ApiKeys | S::About => SectionScope::Personal,
+        S::Board(_) | S::Agent(_) | S::App(_) | S::Tools | S::AgentClis | S::LocalRepos | S::Sessions => SectionScope::Either,
+        S::General
+        | S::Members
+        | S::Issues
+        | S::Labels
+        | S::Statuses
+        | S::Storage
+        | S::AllBoards
+        | S::Repositories
+        | S::Repository(_)
+        | S::Widget
+        | S::Mcp
+        | S::McpActivity
+        | S::Agents
+        | S::NewAgent
+        | S::Prompts
+        | S::Prompt(_)
+        | S::NewPrompt
+        | S::Skills
+        | S::Skill(_)
+        | S::NewSkill => SectionScope::Team,
     }
 }
 
+/// #EXP-2027: the `settings_team` a page shows under, given the one set
+/// (`current`): a personal page none, a team page `current` else the
+/// fallback team (`fallback`), any other page `current`.
+fn scoped_team(scope: SectionScope, current: Option<String>, fallback: impl FnOnce() -> Option<String>) -> Option<String> {
+    match scope {
+        SectionScope::Personal => None,
+        SectionScope::Team => current.or_else(fallback),
+        SectionScope::Either => current,
+    }
+}
+
+/// #EXP-2027: the scope a frame draws: the SELECTED page's (`Voice` is
+/// personal before it resolves to the Assistant's agent page), else the
+/// shown one's (a stale board page falls back to a team page).
+fn nav_scope(selected: &SettingsSection, effective: &SettingsSection) -> SectionScope {
+    match section_scope(selected) {
+        SectionScope::Either => section_scope(effective),
+        scope => scope,
+    }
+}
+
+/// #EXP-2027: open Settings on `section` in the right nav: a personal page
+/// in the personal nav, a team page in `team`'s (`None` = the fallback
+/// team), any other page under `team` when given (else the team set now).
+/// What a `settings/<id>` link, a notification or a checklist step calls.
+pub(crate) fn open_settings_section(window: &mut Window, cx: &mut App, section: SettingsSection, team: Option<String>) {
+    let current = nav_for_window(window, cx).read(cx).settings_team.clone();
+    let team = scoped_team(section_scope(&section), team.or(current), || crate::navigation::fallback_team_id(cx));
+    crate::navigation::open_settings(window, cx, team);
+    select_settings_section(window, cx, section);
+}
+
 #[cfg(test)]
-/// The nav's groups for a viewer: group id → item ids (the injected lists
-/// first, then the visible static pages; children folded under their
-/// parent). Locked by `settings-nav.json` `navCases` (platform desktop).
-fn nav_model(owner: bool) -> Vec<(&'static str, Vec<&'static str>)> {
-    NAV_GROUPS
-        .iter()
-        .map(|group| {
-            let mut items = injected_items(group.id, owner);
-            items.extend(
-                group
-                    .items
-                    .iter()
-                    .filter(|item| section_visible(&item.section, owner))
-                    .map(|item| item.id),
-            );
-            (group.id, items)
-        })
-        .filter(|(_, items)| !items.is_empty())
-        .collect()
+/// The desktop navs for a viewer: (`personal`, `team`, `device`) page ids,
+/// the visible top-level pages (children folded under their parent).
+/// Locked by `settings-nav.json` `desktopNavCases` (platform desktop).
+fn desktop_nav_model(owner: bool) -> (Vec<&'static str>, Vec<&'static str>, Vec<&'static str>) {
+    let visible = |group: &NavGroup| -> Vec<&'static str> {
+        group.items.iter().filter(|item| section_visible(&item.section, owner)).map(|item| item.id).collect()
+    };
+    (
+        visible(&PERSONAL_NAV),
+        visible(&TEAM_NAV),
+        DEVICE_PAGES.iter().filter(|(_, _, section)| section_visible(section, owner)).map(|(id, _, _)| *id).collect(),
+    )
 }
 
 /// #EXP-1987: the Personal group's Assistant page label =
 /// `agent-settings.json` `assistant.copy.title` (a test locks the two).
 pub(crate) const ASSISTANT_PAGE: &str = "Assistant";
-
-/// EXP-1294: the team Agents group's label — `agent-settings.json`
-/// `copy.title` (a test locks the two together).
-const AGENTS_GROUP: &str = "Agents";
-
-/// VAPP-110: the team Apps group's label — `apps.json` `copy.title`.
-const APPS_GROUP: &str = "Apps";
 
 /// Web nav `visible` gating: General/board pages are owner-only.
 /// Repositories is member-visible since EXP-557 (per-user repo sharing:
@@ -463,7 +496,7 @@ fn valid_board_ids(
     if !collections.boards.read(cx).is_ready() {
         return None;
     }
-    let Some(team_id) = active_team_id(nav, cx) else {
+    let Some(team_id) = screen_team_id(nav, cx) else {
         return Some(Default::default());
     };
     Some(
@@ -485,7 +518,7 @@ fn valid_agent_ids(
     if !Store::global(cx).collections().agents.read(cx).is_ready() {
         return None;
     }
-    let Some(team_id) = active_team_id(nav, cx) else {
+    let Some(team_id) = screen_team_id(nav, cx) else {
         return Some(crate::session_data::my_assistant_anywhere(None, cx).map(|agent| agent.id).into_iter().collect());
     };
     Some(
@@ -507,7 +540,7 @@ fn valid_app_ids(
     if !Store::global(cx).collections().apps.read(cx).is_ready() {
         return None;
     }
-    let Some(team_id) = active_team_id(nav, cx) else {
+    let Some(team_id) = screen_team_id(nav, cx) else {
         return Some(Default::default());
     };
     Some(crate::apps_view::app_entries(&team_id, cx).into_iter().map(|app| app.id).collect())
@@ -521,7 +554,7 @@ fn first_agent_resolved(
     cx: &App,
 ) -> SettingsSection {
     match selected {
-        SettingsSection::Agent(id) if id.is_empty() => active_team_id(nav, cx)
+        SettingsSection::Agent(id) if id.is_empty() => screen_team_id(nav, cx)
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
             .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
@@ -529,13 +562,13 @@ fn first_agent_resolved(
         // page's Voice section (the tray / meeting links land there).
         // #EXP-1987: Personal's `assistant` page = the viewer's ONE
         // Assistant whichever team is current.
-        SettingsSection::Voice => crate::session_data::my_assistant_anywhere(active_team_id(nav, cx).as_deref(), cx)
+        SettingsSection::Voice => crate::session_data::my_assistant_anywhere(screen_team_id(nav, cx).as_deref(), cx)
             .map(|assistant| SettingsSection::Agent(assistant.id))
             .unwrap_or(SettingsSection::Voice),
         // VAPP-110: `App("")` = the team's first app; a slug (the dev
         // `app:<slug>`) names its app.
         SettingsSection::App(id) => {
-            let apps = active_team_id(nav, cx)
+            let apps = screen_team_id(nav, cx)
                 .map(|team_id| crate::apps_view::app_entries(&team_id, cx))
                 .unwrap_or_default();
             let hit = if id.is_empty() {
@@ -873,7 +906,7 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SettingsView").entered();
-        let owner = active_team_id(&self.nav, cx)
+        let owner = screen_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
         // Web settings layout route (EXP-146): grouped left nav + one
@@ -898,6 +931,24 @@ impl Render for SettingsView {
                     || app_ids.as_ref().is_none_or(|ids| ids.contains(id))
             },
         );
+
+        // #EXP-2027: the page shows under its own nav: a personal page
+        // under none, a team page under a team (the fallback team when
+        // none is set: a link, a notification, an old caller) — the nav
+        // column follows the same rule ([`nav_scope`]).
+        let current = self.nav.read(cx).settings_team.clone();
+        let wanted = scoped_team(nav_scope(&self.shared.read(cx).settings_section(), &effective), current.clone(), || {
+            crate::navigation::fallback_team_id(cx)
+        });
+        if wanted != current {
+            let nav = self.nav.clone();
+            cx.defer(move |cx| {
+                nav.update(cx, |nav, cx| {
+                    nav.settings_team = wanted;
+                    cx.notify();
+                })
+            });
+        }
 
         // A switch INTO a server-read pane refetches it (the screen-level
         // staleness only fires on Settings entry, not on section clicks
@@ -952,7 +1003,7 @@ impl Render for SettingsView {
             SettingsSection::Board(_) => pane_of(&self.board_detail),
             SettingsSection::Agent(_) => pane_of(&self.agent_detail),
             SettingsSection::NewAgent => {
-                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                let team_id = screen_team_id(&self.nav, cx).unwrap_or_default();
                 if self.new_agent.as_ref().is_none_or(|(id, _)| *id != team_id) {
                     let pane = cx.new(|cx| NewAgentPane::new(team_id.clone(), window, cx));
                     self.new_agent = Some((team_id, pane));
@@ -968,7 +1019,7 @@ impl Render for SettingsView {
             // over to the editor (replace) and Settings falls back to the
             // Apps index; until the apps sync, nothing.
             SettingsSection::App(id) => {
-                let team_id = active_team_id(&self.nav, cx);
+                let team_id = screen_team_id(&self.nav, cx);
                 if let Some(app) = crate::apps_view::find_app(id, team_id.as_deref(), cx) {
                     cx.defer_in(window, move |_, window, cx| {
                         select_settings_section(window, cx, SettingsSection::General);
@@ -985,7 +1036,7 @@ impl Render for SettingsView {
             }
             SettingsSection::Prompts => pane_of(&self.prompts),
             SettingsSection::NewPrompt => {
-                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                let team_id = screen_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
                 if self.prompt_page.as_ref().is_none_or(|(k, _)| *k != key) {
                     let page = cx.new(|cx| PromptPage::new(team_id, None, window, cx));
@@ -999,7 +1050,7 @@ impl Render for SettingsView {
             SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
             SettingsSection::Skills => pane_of(&self.skills),
             SettingsSection::NewSkill => {
-                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                let team_id = screen_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
                 if self.skill_page.as_ref().is_none_or(|(k, _)| *k != key) {
                     let page = cx.new(|cx| SkillPage::new(team_id, None, window, cx));
@@ -1054,12 +1105,14 @@ pub struct SettingsNavPanel {
     #[cfg(test)]
     shot: Option<NavShot>,
     paint: shell::NavPaint,
-    /// What each row's key does and the team it acts in (this frame's).
-    routes: std::rc::Rc<std::cell::RefCell<NavRoutes>>,
+    /// What each row's key does (this frame's).
+    routes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, shell::NavAction>>>,
     list_binding: Entity<eui_gpui::binding::Binding<serde_json::Value>>,
     list_view: Entity<eui_gpui::view::SurfaceView>,
     back_view: Entity<eui_gpui::view::SurfaceView>,
-    _back_binding: Entity<eui_gpui::binding::Binding<serde_json::Value>>,
+    /// #EXP-2027: the header's state (`← Settings`, or `←` + the team's mark
+    /// and name).
+    back_binding: Entity<eui_gpui::binding::Binding<serde_json::Value>>,
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
     _subscriptions: Vec<Subscription>,
@@ -1077,15 +1130,13 @@ impl SettingsNavPanel {
             // Owner gating hides rows — same data the detail view reads.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
-            // EXP-288: the Boards group lists the live synced boards.
+            // A stale board / agent / app page clamps back (the lit row).
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
-            // EXP-1294: the Agents group lists the live agent roots.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.agents, |_, _, cx| cx.notify()),
-            // VAPP-110: the Apps group lists the synced apps.
             cx.observe(&collections.apps, |_, _, cx| cx.notify()),
         ];
-        let routes: std::rc::Rc<std::cell::RefCell<NavRoutes>> = Default::default();
+        let routes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, shell::NavAction>>> = Default::default();
         let handle = window.window_handle();
         let panel = cx.weak_entity();
         let list_binding = cx.new(|_| {
@@ -1093,14 +1144,11 @@ impl SettingsNavPanel {
             let routes = routes.clone();
             binding.on_action("pick", move |_, event, cx| {
                 let key = event.context.get("key").and_then(serde_json::Value::as_str).unwrap_or_default();
-                let (action, team_id) = {
-                    let routes = routes.borrow();
-                    (routes.actions.get(key).cloned()?, routes.team_id.clone())
-                };
+                let action = routes.borrow().get(key).cloned()?;
                 let panel = panel.clone();
                 // Deferred: the binding is mid-update.
                 cx.defer(move |cx| {
-                    let _ = handle.update(cx, |_, window, cx| nav_dispatch(action, team_id, &panel, window, cx));
+                    let _ = handle.update(cx, |_, window, cx| nav_dispatch(action, &panel, window, cx));
                 });
                 None
             });
@@ -1108,7 +1156,7 @@ impl SettingsNavPanel {
         });
         let back_nav = nav.clone();
         let back_binding = cx.new(|_| {
-            let mut binding = eui_gpui::binding::Binding::new("/back", serde_json::Value::Null, |state: &serde_json::Value, _| state.clone());
+            let mut binding = eui_gpui::binding::Binding::new("/back", shell::back_state(None), |state: &serde_json::Value, _| state.clone());
             binding.on_action("back", move |_, _, cx| {
                 let nav = back_nav.clone();
                 // EXP-456: the back affordance — direct calls, not action
@@ -1138,7 +1186,7 @@ impl SettingsNavPanel {
             list_binding,
             list_view,
             back_view,
-            _back_binding: back_binding,
+            back_binding,
             folded: Default::default(),
             #[cfg(test)]
             shot: None,
@@ -1148,20 +1196,44 @@ impl SettingsNavPanel {
 
 }
 
-/// The data one nav frame draws: who looks (owner gating), the team, the
-/// lit section and the injected lists.
+/// The data one nav frame draws: who looks (owner gating), whose nav
+/// (#EXP-2027: `team` = None is the personal nav), the lit section.
 pub(crate) struct NavInputs {
     pub(crate) owner: bool,
-    pub(crate) team_id: Option<String>,
+    pub(crate) team: Option<NavTeam>,
+    /// The team the Assistant row resolves in (the frame's
+    /// [`screen_team_id`], the SettingsView's lookup).
+    pub(crate) scope_team: Option<String>,
     pub(crate) effective: SettingsSection,
-    pub(crate) boards: Vec<domain::rows::Board>,
-    pub(crate) agents: Vec<domain::session_tree::AgentRow>,
-    pub(crate) apps: Vec<crate::apps_view::AppEntry>,
+}
+
+/// #EXP-2027: the team whose settings are open — the header's mark + name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct NavTeam {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    /// The team image's src (`team-image.json` `team_mark`); None = the
+    /// team glyph.
+    pub(crate) image: Option<String>,
+}
+
+impl NavTeam {
+    fn of(team: &domain::rows::Team) -> Self {
+        let image = match domain::team_image::team_mark(team.icon_url.as_deref()) {
+            domain::team_image::TeamMark::Image { src } => Some(src),
+            domain::team_image::TeamMark::Glyph => None,
+        };
+        Self { id: team.id.clone(), name: team.name.clone(), image }
+    }
 }
 
 /// The bench's nav (#EXP-1629): the inputs pinned instead of read off the
 /// store (`selected` still clamps through [`effective_selection`]).
+/// #EXP-2027: `team_id` Some = that team's nav (named after the synced row,
+/// else the id), None = the personal nav. The board / agent / app lists
+/// left the nav: the bench still pins them, nothing draws them.
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) struct NavShot {
     pub(crate) owner: bool,
     pub(crate) team_id: Option<String>,
@@ -1190,16 +1262,21 @@ impl SettingsNavPanel {
         #[cfg(test)]
         if let Some(shot) = self.shot.as_ref() {
             let effective = effective_selection(shot.selected.clone(), shot.owner, |_| true, |_| true);
-            return NavInputs { owner: shot.owner, team_id: shot.team_id.clone(), effective, boards: shot.boards.clone(), agents: shot.agents.clone(), apps: shot.apps.clone() };
+            let team = shot.team_id.as_ref().map(|id| {
+                Store::try_global(cx)
+                    .and_then(|store| store.collections().teams.read(cx).get(id).map(NavTeam::of))
+                    .unwrap_or_else(|| NavTeam { id: id.clone(), name: id.clone(), image: None })
+            });
+            return NavInputs { owner: shot.owner, team, scope_team: shot.team_id.clone(), effective };
         }
-        let owner = active_team_id(&self.nav, cx)
-            .map(|ws| is_owner(cx, &ws))
-            .unwrap_or(false);
+        let scope_team = screen_team_id(&self.nav, cx);
+        let owner = scope_team.as_deref().map(|team_id| is_owner(cx, team_id)).unwrap_or(false);
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
         let app_ids = valid_app_ids(cx, &self.nav);
+        let selected = self.shared.read(cx).settings_section();
         let effective = effective_selection(
-            first_agent_resolved(self.shared.read(cx).settings_section(), &self.nav, cx),
+            first_agent_resolved(selected.clone(), &self.nav, cx),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
             |id| {
@@ -1208,29 +1285,25 @@ impl SettingsNavPanel {
                     || app_ids.as_ref().is_none_or(|ids| ids.contains(id))
             },
         );
-        let team_id = active_team_id(&self.nav, cx);
-        let boards = team_id
-            .as_deref()
-            .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
-            .unwrap_or_default();
-        // S-3: the Agents group mounting creates the viewer's Assistant on
-        // first use (#EXP-1987: with the current team, once per account +
-        // team).
-        if let Some(team_id) = team_id.as_deref() {
-            crate::session_data::ensure_assistant(team_id, cx);
-        }
-        let agents = team_id
-            .as_deref()
-            // #FEED-239: an app's agent is listed under Apps only.
-            .map(|team_id| crate::session_data::sidebar_agents_in_team(team_id, cx))
-            .unwrap_or_default();
-        // VAPP-110: the Apps group's rows = the apps the viewer manages.
-        let apps = team_id
-            .as_deref()
-            .map(|team_id| crate::apps_view::app_entries(team_id, cx))
-            .unwrap_or_default();
-        NavInputs { owner, team_id, effective, boards, agents, apps }
+        // #EXP-2027: the nav the page belongs to (the SettingsView moves
+        // `settings_team` to match): a team nav reads the frame's team (the
+        // one set, or the fallback while a team page waits for it).
+        let team_nav = match nav_scope(&selected, &effective) {
+            SectionScope::Personal => false,
+            SectionScope::Team => true,
+            SectionScope::Either => self.nav.read(cx).settings_team.is_some(),
+        };
+        let team = team_nav
+            .then(|| scope_team.as_deref().and_then(|team_id| active_team_row(cx, team_id)))
+            .flatten()
+            .map(|team| NavTeam::of(&team));
+        NavInputs { owner, team, scope_team, effective }
     }
+}
+
+/// The synced teams row of `team_id`.
+fn active_team_row(cx: &App, team_id: &str) -> Option<domain::rows::Team> {
+    Store::global(cx).collections().teams.read(cx).get(team_id).cloned()
 }
 
 impl Render for SettingsNavPanel {
@@ -1238,8 +1311,14 @@ impl Render for SettingsNavPanel {
         let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
         let inputs = self.inputs(cx);
         let (items, actions) = shell::nav_entries(&inputs, &self.folded, &self.paint, cx);
-        *self.routes.borrow_mut() = NavRoutes { actions, team_id: inputs.team_id };
+        *self.routes.borrow_mut() = actions;
         self.list_binding.update(cx, |binding, cx| binding.update_state(|state| *state = serde_json::json!({"items": items}), cx));
+        let header = shell::back_state(inputs.team.as_ref());
+        self.back_binding.update(cx, |binding, cx| {
+            if *binding.state() != header {
+                binding.update_state(|state| *state = header, cx);
+            }
+        });
         v_flex()
             .size_full()
             .min_w_0()
@@ -1256,32 +1335,12 @@ impl Render for SettingsNavPanel {
     }
 }
 
-/// The nav's routing for one frame: each row key's action, the team.
-#[derive(Default)]
-struct NavRoutes {
-    actions: std::collections::HashMap<String, shell::NavAction>,
-    team_id: Option<String>,
-}
-
 /// A nav row's press.
-fn nav_dispatch(action: shell::NavAction, team_id: Option<String>, panel: &gpui::WeakEntity<SettingsNavPanel>, window: &mut Window, cx: &mut App) {
+fn nav_dispatch(action: shell::NavAction, panel: &gpui::WeakEntity<SettingsNavPanel>, window: &mut Window, cx: &mut App) {
     match action {
         shell::NavAction::Section(section) => {
             select_settings_section(window, cx, section);
             navigate(window, cx, Screen::Settings);
-        }
-        shell::NavAction::App(app_id) => {
-            crate::app_screen::open_app_tab(window, cx, app_id, domain::apps::EditorTab::Settings, false);
-        }
-        shell::NavAction::NewApp => {
-            if let Some(team_id) = team_id {
-                crate::apps_view::new_app(team_id, window, cx);
-            }
-        }
-        shell::NavAction::NewBoard => {
-            if let Some(team_id) = team_id {
-                crate::create_board_dialog::open(window, cx, team_id);
-            }
         }
         shell::NavAction::Fold(label, folded) => {
             let _ = panel.update(cx, |panel, cx| {
@@ -1301,7 +1360,7 @@ pub(crate) fn active_team(
     cx: &App,
     nav: &Entity<Navigation>,
 ) -> Option<domain::rows::Team> {
-    let team_id = active_team_id(nav, cx)?;
+    let team_id = screen_team_id(nav, cx)?;
     Store::global(cx)
         .collections()
         .teams
@@ -1588,21 +1647,21 @@ mod tests {
                 section
             );
         }
-        // EXP-886: the run-history pane closes the This device group
-        // (SLOP-5: labelled "Runs").
-        let device = NAV_GROUPS
-            .iter()
-            .find(|group| group.label == "This device")
-            .expect("This device group");
-        let labels: Vec<&str> = device.items.iter().map(|item| item.label).collect();
+        // EXP-886: the run-history pane closes the This device pages.
+        let labels: Vec<&str> = DEVICE_PAGES.iter().map(|(_, label, _)| *label).collect();
         // EXP-1294: the per-device CLI pane is "Coding CLIs" — "Agents" are
         // the team's agents.
         assert_eq!(labels, vec!["Tools", "Coding CLIs", "Worktrees", "Sessions"]);
+        // #EXP-2027: they LEFT Settings, but their links still resolve.
+        for (id, _, section) in DEVICE_PAGES {
+            assert!(!flat_nav_items().any(|item| item.section == *section), "{id}");
+            assert_eq!(section_for_link(id).as_ref(), Some(section), "{id}");
+        }
     }
 
     /// EXP-262/EXP-238: the Personal sections are never gated and never fall
     /// back — for any owner state the selection sticks. They sit LAST in
-    /// `NAV_GROUPS`, so the fallback scan still lands on General/Members,
+    /// the flat walk, so the fallback scan still lands on General/Members,
     /// never on a personal pane.
     #[test]
     fn personal_sections_never_gated_and_never_fall_back() {
@@ -1737,89 +1796,126 @@ mod tests {
             effective_selection(selected, true, any_board, |_| false),
             SettingsSection::General
         );
-        assert_eq!(AGENTS_GROUP, domain::agent_settings::AGENT_SETTINGS.copy.title);
     }
 
-    /// S-3: THE settings nav = `settings-nav.json` `nav` on platform
-    /// desktop: every `navCases` entry (owner / member) replays through
-    /// [`nav_model`], the group labels and the pages' labels are the
-    /// fixture's.
+    /// #EXP-2027 THE SPLIT: THE desktop settings navs = `settings-nav.json`
+    /// `nav.desktopNavs`: every `desktopNavCases` entry on platform desktop
+    /// (owner / member) replays through [`desktop_nav_model`], whole
+    /// {personal, team, device}; the group and page labels are the
+    /// fixture's. (`navCases` + `groups` stay the phones' until their new
+    /// UI: the desktop no longer replays them.)
     #[test]
-    fn the_nav_replays_the_settings_nav_fixture() {
+    fn the_navs_replay_the_settings_nav_desktop_navs() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../../packages/domain-contract/fixtures/settings-nav.json"
         ))
         .unwrap();
         let nav = &fixture["nav"];
+        let ids = |value: &serde_json::Value| -> Vec<String> {
+            value.as_array().unwrap().iter().map(|item| item.as_str().unwrap().to_string()).collect()
+        };
         let mut replayed = 0;
-        for case in nav["navCases"].as_array().unwrap() {
+        for case in nav["desktopNavCases"].as_array().unwrap() {
             if case["platform"] != "desktop" {
                 continue;
             }
             replayed += 1;
-            let owner = case["role"] == "owner";
-            let expected: Vec<(String, Vec<String>)> = case["expected"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(group, items)| {
-                    (
-                        group.clone(),
-                        items.as_array().unwrap().iter().map(|item| item.as_str().unwrap().to_string()).collect(),
-                    )
-                })
-                .collect();
-            let got: Vec<(String, Vec<String>)> = nav_model(owner)
-                .into_iter()
-                .map(|(group, items)| (group.to_string(), items.into_iter().map(str::to_string).collect()))
-                .collect();
-            // serde_json keeps object keys sorted: compare as maps, then the
-            // group ORDER against `nav.groups`.
-            let sorted = |mut list: Vec<(String, Vec<String>)>| {
-                list.sort();
-                list
-            };
-            assert_eq!(sorted(got.clone()), sorted(expected), "{}", case["name"]);
-            let order: Vec<&str> = nav["groups"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|group| group["id"].as_str().unwrap())
-                .filter(|id| got.iter().any(|(group, _)| group == id))
-                .collect();
-            assert_eq!(got.iter().map(|(group, _)| group.as_str()).collect::<Vec<_>>(), order);
+            // No desktop case sits on a cloud instance: the cloud-only
+            // pages (Plan & Billing) are web-only anyway.
+            assert_eq!(case["cloud"], false, "{}", case["name"]);
+            let (personal, team, device) = desktop_nav_model(case["role"] == "owner");
+            let got = serde_json::json!({"personal": personal, "team": team, "device": device});
+            assert_eq!(got, case["expected"], "{}", case["name"]);
         }
         assert_eq!(replayed, 2);
-        // The labels: the groups', the pages' (`rows` / `pages`), and the
-        // children folded under Issues.
-        for group in NAV_GROUPS {
-            let fixture_group = nav["groups"]
+        // The navs ARE `desktopNavs` on desktop: the ids in order (minus the
+        // web-only pages), the group ids and labels, the pages' labels
+        // (`rows` / `pages`) and the children folded under Issues.
+        let on_desktop = |id: &str| {
+            let platforms = nav["pages"][id]["platforms"].as_array().or_else(|| nav["rowPlatforms"][id].as_array());
+            platforms.is_none_or(|platforms| platforms.iter().any(|platform| platform == "desktop"))
+        };
+        let label_of = |id: &str| {
+            fixture["rows"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|candidate| candidate["id"] == group.id)
-                .expect("a fixture group");
-            assert_eq!(fixture_group["label"], group.label, "{}", group.id);
+                .find(|row| row["id"] == id)
+                .map(|row| row["label"].clone())
+                .unwrap_or_else(|| nav["pages"][id]["label"].clone())
+        };
+        for (key, group) in [("personal", &PERSONAL_NAV), ("team", &TEAM_NAV)] {
+            let groups = nav["desktopNavs"][key].as_array().unwrap();
+            assert_eq!(groups.len(), 1, "{key}");
+            assert_eq!(groups[0]["id"], group.id, "{key}");
+            assert_eq!(groups[0]["label"], group.label, "{key}");
+            let expected: Vec<String> = ids(&groups[0]["items"]).into_iter().filter(|id| on_desktop(id)).collect();
+            assert_eq!(group.items.iter().map(|item| item.id).collect::<Vec<_>>(), expected, "{key}");
             for item in group.items.iter().flat_map(|item| std::iter::once(item).chain(item.children.iter())) {
-                let label = fixture["rows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|row| row["id"] == item.id)
-                    .map(|row| row["label"].clone())
-                    .unwrap_or_else(|| nav["pages"][item.id]["label"].clone());
-                assert_eq!(label, item.label, "{}", item.id);
+                assert_eq!(label_of(item.id), item.label, "{}", item.id);
             }
         }
-        let children: Vec<&str> = NAV_GROUPS[0].items[2].children.iter().map(|item| item.id).collect();
+        assert_eq!(DEVICE_PAGES.iter().map(|(id, _, _)| id.to_string()).collect::<Vec<_>>(), ids(&nav["desktopNavs"]["device"]));
+        for (id, label, _) in DEVICE_PAGES {
+            assert_eq!(label_of(id), *label, "{id}");
+        }
+        let issues = TEAM_NAV.items.iter().find(|item| item.id == "issues").unwrap();
+        let children: Vec<&str> = issues.children.iter().map(|item| item.id).collect();
         assert_eq!(serde_json::json!(children), nav["children"]["issues"]);
-        assert_eq!(APPS_GROUP, domain::apps::APPS.copy.title);
         // The Voice page left the nav (the Assistant page's Voice section):
         // #EXP-1987: only Personal's `assistant` page resolves through it.
         let voice: Vec<&str> = flat_nav_items().filter(|item| item.section == SettingsSection::Voice).map(|item| item.id).collect();
         assert_eq!(voice, vec!["assistant"]);
         assert_eq!(ASSISTANT_PAGE, domain::agent_settings::ASSISTANT.copy.title);
         assert_eq!(section_for_link("assistant"), Some(SettingsSection::Voice));
+    }
+
+    /// #EXP-2027: every page of a nav belongs to it (a personal page shows
+    /// under no team, a team page under one), and the page a frame shows
+    /// moves `settings_team` accordingly: a team page with none set opens
+    /// for the fallback team, a personal page drops the team, a board's,
+    /// agent's or app's page (and a This device page) keeps what is set.
+    #[test]
+    fn every_page_shows_under_its_own_nav() {
+        for item in PERSONAL_NAV.items {
+            assert_eq!(section_scope(&item.section), SectionScope::Personal, "{}", item.id);
+        }
+        for item in TEAM_NAV.items.iter().flat_map(|item| std::iter::once(item).chain(item.children.iter())) {
+            assert_eq!(section_scope(&item.section), SectionScope::Team, "{}", item.id);
+        }
+        for (id, _, section) in DEVICE_PAGES {
+            assert_eq!(section_scope(section), SectionScope::Either, "{id}");
+        }
+        let team = || Some("t1".to_string());
+        let fallback = || Some("t0".to_string());
+        assert_eq!(scoped_team(SectionScope::Team, None, fallback), Some("t0".into()));
+        assert_eq!(scoped_team(SectionScope::Team, team(), fallback), team());
+        assert_eq!(scoped_team(SectionScope::Personal, team(), fallback), None);
+        assert_eq!(scoped_team(SectionScope::Either, team(), fallback), team());
+        assert_eq!(scoped_team(SectionScope::Either, None, fallback), None);
+        // `Voice` is personal before it resolves to the Assistant's agent
+        // page; a stale board page falls back to a team page.
+        let assistant = SettingsSection::Agent("a-0".into());
+        assert_eq!(nav_scope(&SettingsSection::Voice, &assistant), SectionScope::Personal);
+        assert_eq!(nav_scope(&assistant, &assistant), SectionScope::Either);
+        assert_eq!(nav_scope(&SettingsSection::Board("b-1".into()), &SettingsSection::General), SectionScope::Team);
+    }
+
+    /// #EXP-2027: the header: `← Settings` in the personal nav, the team's
+    /// mark (image, else the glyph) + name in a team's.
+    #[test]
+    fn the_header_names_the_team_or_settings() {
+        let personal = shell::back_state(None);
+        assert_eq!(personal["label"], "Settings");
+        assert_eq!((personal["hasImage"].as_bool(), personal["glyph"].as_bool()), (Some(false), Some(false)));
+        let acme = NavTeam { id: "t1".into(), name: "Acme".into(), image: None };
+        let glyph = shell::back_state(Some(&acme));
+        assert_eq!(glyph["label"], "Acme");
+        assert_eq!((glyph["hasImage"].as_bool(), glyph["glyph"].as_bool()), (Some(false), Some(true)));
+        let pictured = NavTeam { image: Some("/api/teams/t1/image".into()), ..acme };
+        let image = shell::back_state(Some(&pictured));
+        assert_eq!((image["hasImage"].as_bool(), image["glyph"].as_bool()), (Some(true), Some(false)));
+        assert_eq!(image["src"], "/api/teams/t1/image");
     }
 
     /// EXP-771: web copy wins — the nav says "Statuses", not the longer
@@ -1838,7 +1934,7 @@ mod tests {
     /// is member-visible.
     #[test]
     fn issues_nests_labels_and_statuses_like_the_web() {
-        let team = NAV_GROUPS.iter().find(|group| group.label == "Team").expect("Team group");
+        let team = &TEAM_NAV;
         let members = team.items.iter().position(|item| item.label == "Members").unwrap();
         let issues = &team.items[members + 1];
         assert_eq!(issues.label, "Issues");

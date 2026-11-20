@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeCount, IdeDeviceInput, IdeItemInput, IdeLayoutEntry, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTeamInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -50,7 +50,7 @@ fn shell_header() {
     let handle = cx
         .open_window(size(px(SIDEBAR.0), px(64.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             crate::shell_regions::HeaderRegion::new(nav, window, cx)
         })
         .expect("a headless window");
@@ -330,7 +330,7 @@ fn seeded(cx: &mut gpui::App) {
 fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::WindowHandle<RailView> {
     cx.open_window(bounds, |window: &mut Window, cx| {
         let nav = nav_for_window(window, cx);
-        nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+        let _ = &nav;
         cx.new(|cx| RailView::new(window, cx))
     })
     .expect("a headless window")
@@ -397,31 +397,41 @@ fn shell_chat_rows() {
     std::mem::forget(cx);
 }
 
-/// Every row kind the sidebar draws: counts, selection, a hover gear.
+/// #EXP-2027: one item of a team's list.
+fn item(kind: &str, id: &str, name: &str) -> IdeItemInput {
+    IdeItemInput { kind: kind.into(), id: id.into(), name: name.into(), icon: if kind == "agent" { "settings-agents".into() } else if kind == "app" { "ui-file".into() } else if kind == "session" { "nav-chats".into() } else { format!("ide:board:{id}") }, slug: (kind == "app").then(|| id.into()), ..Default::default() }
+}
+
+/// #EXP-2027: the owner-approved draft's tree: Devices with three rows,
+/// Acme open (a Mobile folder of a board, an agent, an app and a placed
+/// session; boards, an agent and an app at its top level), Side project
+/// folded with its needs-you count.
 fn sample() -> IdeSidebarInput {
-    let agent = |id: &str, name: &str, needs_you, unread| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, unread };
-    let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
-    let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
     let pr = |id: &str, n: u32, title: &str, subtitle: &str, depth| IdePrInput { id: id.into(), identifier: format!("#{n}"), title: title.into(), subtitle: subtitle.into(), depth, session: None };
+    let device = |id: &str, name: &str, online: bool, team_mark: Option<&str>| IdeDeviceInput { id: id.into(), name: name.into(), icon: if team_mark.is_some() { "ui-server".into() } else { "nav-devices".into() }, online, team_mark: team_mark.map(Into::into) };
     IdeSidebarInput {
-        screen: "board:b1".into(),
-        needs_you: 5,
-        drafts: 2,
-        chats: IdeCount { count: 3, tone: IdeTone::Attention },
-        owner: true,
-        pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash on launch".into() }],
-        agents: vec![agent("a1", "Triage", true, 0), agent("a2", "Release", false, 2), agent("a3", "Designer", false, 0)],
-        apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
-        boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
+        screen: "home".into(),
+        needs_you: 0,
+        drafts: 0,
+        chats: IdeCount { count: 1, tone: IdeTone::Attention },
+        devices: vec![device("d1", "Alex's MacBook Pro", true, None), device("d2", "Mint workstation", true, None), device("d3", "Acme build server", false, Some("ide:team:t1"))],
+        devices_open: true,
+        teams: vec![
+            IdeTeamInput {
+                id: "t1".into(),
+                name: "Acme".into(),
+                mark: "ui-team".into(),
+                open: true,
+                owner: true,
+                needs_you: 0,
+                items: vec![item("board", "b1", "Mobile App"), item("board", "b2", "Launch Marketing"), item("board", "b3", "Product Feedback"), item("agent", "a1", "Triage"), item("agent", "a2", "Release"), item("app", "x1", "CRM"), item("app", "x2", "Release checklist"), item("session", "s1", "Store screenshots")],
+                layout: vec![entry("f1", "folder", None, None, Some("Mobile"), 1.), entry("e1", "item", Some("b1"), Some("f1"), None, 1.), entry("e2", "item", Some("a2"), Some("f1"), None, 2.), entry("e3", "item", Some("x2"), Some("f1"), None, 3.), entry("e4", "item", Some("s1"), Some("f1"), None, 4.)],
+            },
+            IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: false, owner: true, needs_you: 2, items: vec![item("board", "b9", "Site")], layout: Vec::new() },
+        ],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true, team_mark: Some("ui-team".into()) }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
-        // #EXP-1832: an open folder of boards and a folded one of agents.
-        layout: IdeLayout {
-            board: vec![entry("f1", "folder", None, None, Some("Web"), 2.), entry("e2", "item", Some("b2"), Some("f1"), None, 1.), entry("e3", "item", Some("b3"), Some("f1"), None, 2.), entry("e1", "item", Some("b1"), None, None, 1.)],
-            agent: vec![entry("f2", "folder", None, None, Some("Bots"), 2.), entry("e4", "item", Some("a2"), Some("f2"), None, 1.), entry("e5", "item", Some("a3"), Some("f2"), None, 2.), entry("e6", "item", Some("a1"), None, None, 1.)],
-            app: Vec::new(),
-        },
-        closed: vec!["f2".into()],
+        closed: Vec::new(),
         editing_folder: None,
     }
 }
@@ -496,7 +506,7 @@ fn shell_tab_placement() {
     let handle = cx
         .open_window(size(px(1400.), px(860.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
             cx.new(|cx| gpui_component::Root::new(shell, window, cx))
         })
@@ -551,7 +561,7 @@ fn shell_toast_above_fab() {
     let handle = cx
         .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
             cx.new(|cx| gpui_component::Root::new(shell, window, cx))
         })
@@ -626,7 +636,7 @@ fn shell_sidebar_folders() {
 
     // CRM lifted to Release checklist's top edge: a line, before it.
     show(&mut cx, demo(Vec::new(), None));
-    let (from, to) = (bounds(&mut cx, "ide_app_row.x4"), bounds(&mut cx, "ide_app_row.x3"));
+    let (from, to) = (bounds(&mut cx, "ide_item_row.x4"), bounds(&mut cx, "ide_item_row.x3"));
     // Held by its bottom edge: the lifted copy rides above the pointer.
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
@@ -637,7 +647,7 @@ fn shell_sidebar_folders() {
     settle(&mut cx);
 
     // Leave planner held over Ops desk's middle: the row lights, drop INTO.
-    let (from, to) = (bounds(&mut cx, "ide_app_row.x5"), bounds(&mut cx, "ide_app_row.x6"));
+    let (from, to) = (bounds(&mut cx, "ide_item_row.x5"), bounds(&mut cx, "ide_item_row.x6"));
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
     move_to(&mut cx, gpui::point(grab.x, grab.y + px(6.)));
@@ -647,14 +657,14 @@ fn shell_sidebar_folders() {
     settle(&mut cx);
 
     // A folder's right-click menu: Rename puts its name in place, Esc keeps it.
-    let folder = bounds(&mut cx, "ide_app_folder_row.fa");
+    let folder = bounds(&mut cx, "ide_folder_row.fa");
     input(&mut cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
     input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1 }));
-    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_app_folder_menu.fa")), "the folder menu opened");
-    let rename = bounds(&mut cx, "ide_app_folder_menu.fa.item.0").center();
+    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_folder_menu.fa")), "the folder menu opened");
+    let rename = bounds(&mut cx, "ide_folder_menu.fa.item.0").center();
     press(&mut cx, rename);
     input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: rename, modifiers: Modifiers::default(), click_count: 1 }));
-    let name = "ide_app_folder_name.fa.field";
+    let name = "ide_folder_name.fa.field";
     assert_eq!(cx.update(|cx| surface.read(cx).field_text(name, cx)).as_deref(), Some("Ops tools"), "Rename edits the name in place");
     cx.update_window(window, |_, window, cx| {
         assert!(surface.update(cx, |v, cx| v.focus_field(name, window, cx)));
@@ -666,39 +676,37 @@ fn shell_sidebar_folders() {
 
     // That drop: both rows in a new folder, its name an Input in place.
     let mut after = demo(Vec::new(), None);
-    after.layout.app.extend([entry("fn", "folder", None, None, None, 3.), entry("e9", "item", Some("x6"), Some("fn"), None, 1.), entry("e10", "item", Some("x5"), Some("fn"), None, 2.)]);
+    after.teams[0].layout.extend([entry("fn", "folder", None, None, None, 4.), entry("e9", "item", Some("x6"), Some("fn"), None, 1.), entry("e10", "item", Some("x5"), Some("fn"), None, 2.)]);
     show(&mut cx, after);
     cx.update(|cx| region.update(cx, |region, cx| region.show_editing(Some("fn"), cx)));
     settle(&mut cx);
     // The region focuses it on the next frame, which a headless window never
     // requests: focus the same field by hand.
     cx.update_window(window, |_, window, cx| {
-        assert!(surface.update(cx, |v, cx| v.focus_field("ide_app_folder_name.fn.field", window, cx)), "the name Input");
+        assert!(surface.update(cx, |v, cx| v.focus_field("ide_folder_name.fn.field", window, cx)), "the name Input");
     })
     .expect("the window");
     settle(&mut cx);
-    assert_eq!(cx.update(|cx| surface.read(cx).field_text("ide_app_folder_name.fn.field", cx)).as_deref(), Some("New folder"));
+    assert_eq!(cx.update(|cx| surface.read(cx).field_text("ide_folder_name.fn.field", cx)).as_deref(), Some("New folder"));
     shoot(&mut cx, "folders-rename.png");
     std::mem::forget(cx);
 }
 
-/// The seeded demo's rows (seed-screenshots.ts), Mobile App open.
+/// The seeded demo's rows (seed-screenshots.ts) as ONE team list.
 fn demo(closed: Vec<String>, editing: Option<&str>) -> IdeSidebarInput {
-    let agent = |id: &str, name: &str| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you: false, unread: 0 };
-    let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
-    let app = |id: &str, name: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: "ui-file".into() };
     IdeSidebarInput {
         screen: "board:b1".into(),
         chats: IdeCount { count: 0, tone: IdeTone::Muted },
-        owner: true,
-        agents: vec![agent("a1", "Triage"), agent("a2", "Release"), agent("a3", "Designer")],
-        apps: vec![app("x1", "Working hours"), app("x2", "Team dashboard"), app("x3", "Release checklist"), app("x4", "CRM"), app("x5", "Leave planner"), app("x6", "Ops desk")],
-        boards: vec![board("b1", "Mobile App"), board("b2", "Launch Marketing"), board("b3", "Product Feedback")],
-        layout: IdeLayout {
-            board: vec![entry("e1", "item", Some("b1"), None, None, 1.), entry("fb", "folder", None, None, Some("Product"), 2.), entry("e2", "item", Some("b2"), Some("fb"), None, 1.), entry("e3", "item", Some("b3"), Some("fb"), None, 2.)],
-            agent: Vec::new(),
-            app: vec![entry("fa", "folder", None, None, Some("Ops tools"), 1.), entry("e4", "item", Some("x2"), Some("fa"), None, 1.), entry("e5", "item", Some("x1"), Some("fa"), None, 2.)],
-        },
+        teams: vec![IdeTeamInput {
+            id: "t1".into(),
+            name: "Acme".into(),
+            mark: "ui-team".into(),
+            open: true,
+            owner: true,
+            needs_you: 0,
+            items: vec![item("board", "b1", "Mobile App"), item("board", "b2", "Launch Marketing"), item("board", "b3", "Product Feedback"), item("agent", "a1", "Triage"), item("app", "x1", "Working hours"), item("app", "x2", "Team dashboard"), item("app", "x3", "Release checklist"), item("app", "x4", "CRM"), item("app", "x5", "Leave planner"), item("app", "x6", "Ops desk")],
+            layout: vec![entry("e1", "item", Some("b1"), None, None, 1.), entry("fb", "folder", None, None, Some("Product"), 2.), entry("e2", "item", Some("b2"), Some("fb"), None, 1.), entry("e3", "item", Some("b3"), Some("fb"), None, 2.), entry("fa", "folder", None, None, Some("Ops tools"), 3.), entry("e4", "item", Some("x2"), Some("fa"), None, 1.), entry("e5", "item", Some("x1"), Some("fa"), None, 2.)],
+        }],
         closed,
         editing_folder: editing.map(Into::into),
         ..Default::default()

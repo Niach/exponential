@@ -59,7 +59,7 @@ use eui_gpui::view::SurfaceView;
 
 use crate::github_connect::{copy, fetch_github_status, GithubStatus, Prerequisite};
 use crate::native_dialog::{open_alert, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
@@ -413,7 +413,7 @@ impl RepositoriesPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     fn pane_owner(&self, team_id: &str, cx: &gpui::App) -> bool {

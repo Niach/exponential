@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use sync::Store;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 use crate::sidebar::RailShared;
@@ -693,7 +693,7 @@ impl BoardDetailPane {
 impl Render for BoardDetailPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "BoardDetailPane").entered();
-        let team_id = active_team_id(&self.nav, cx);
+        let team_id = screen_team_id(&self.nav, cx);
         if let Some(team_id) = team_id.as_deref() {
             self.ensure_repos(team_id, cx);
         }

@@ -49,7 +49,7 @@ use domain::rows::IssueStatusRow;
 use domain::statuses::{resolve_row, resolve_status_sorted, IssueStatusCategory, ResolvedStatus};
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 
 use super::doc::{empty_state, hex, mount, not, path, IdeToasts, Ink, PillPaint, SM, XS};
 use super::labels::{LABEL_COLORS, STATUS_COLORS};
@@ -229,7 +229,7 @@ impl StatusesPane {
         if self.shot.is_some() {
             return Some("team-shots".to_string());
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// The team's statuses in the canonical order.

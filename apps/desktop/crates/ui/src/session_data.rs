@@ -1565,6 +1565,40 @@ struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>, Option<std::time::Instant>,
 
 impl gpui::Global for ChatsMemo {}
 
+/// #EXP-2027 (sidebar-tree.json): the Chats page spans EVERY member team:
+/// each team's model merged, the rows newest activity first (each carries
+/// its `team_id`, drawn as its team's mark).
+pub(crate) fn chats_model_all(cx: &mut App) -> Rc<ChatsModel> {
+    let Some(store) = Store::try_global(cx) else {
+        return Rc::new(ChatsModel::default());
+    };
+    let teams: Vec<String> = store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect();
+    let models: Vec<Rc<ChatsModel>> = teams.iter().map(|team| chats_model(team, cx)).collect();
+    Rc::new(merge_chats_models(&models))
+}
+
+/// [`chats_model_all`]'s pure merge.
+pub(crate) fn merge_chats_models(models: &[Rc<ChatsModel>]) -> ChatsModel {
+    let mut out = ChatsModel::default();
+    for model in models {
+        out.list.rows.extend(model.list.rows.iter().cloned());
+        out.list.archived += model.list.archived;
+        out.archived.rows.extend(model.archived.rows.iter().cloned());
+        out.archived.archived += model.archived.archived;
+        // A global Assistant lists once.
+        for row in &model.agent_rows {
+            if !out.agent_rows.iter().any(|seen| seen.agent_id == row.agent_id) {
+                out.agent_rows.push(row.clone());
+            }
+        }
+        out.app_rows.extend(model.app_rows.iter().cloned());
+    }
+    let newest = |a: &domain::chats::ChatRow, b: &domain::chats::ChatRow| b.activity_at.cmp(&a.activity_at).then_with(|| a.session_id.cmp(&b.session_id));
+    out.list.rows.sort_by(newest);
+    out.archived.rows.sort_by(newest);
+    out
+}
+
 /// [`ChatsModel`] of `team_id` (`domain::chats::chat_list`), memoised per
 /// store change.
 pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {

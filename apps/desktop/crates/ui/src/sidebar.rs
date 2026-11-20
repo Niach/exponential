@@ -59,7 +59,7 @@ use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::navigation::{
-    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
+    active_board_id, screen_team_id, nav_for_window, navigate, resolved_screen,
     Navigation, Screen,
 };
 
@@ -413,7 +413,7 @@ const SYNCING_LABEL: &str = "Syncing\u{2026}";
 /// rail for every member. `None` = no active team; only an explicit `auto`
 /// hides them, so a pre-column row keeps the rail.
 fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
-    active_team_id(nav, cx).map(|id| {
+    screen_team_id(nav, cx).map(|id| {
         Store::global(cx)
             .collections()
             .teams
@@ -720,7 +720,7 @@ impl RailInputs {
         Self {
             revisions: Store::global(cx).collections().revisions_except(RAIL_UNREAD, cx),
             screen: resolved_screen(nav, cx),
-            team: crate::navigation::active_team_id(nav, cx),
+            team: crate::navigation::screen_team_id(nav, cx),
             board: crate::navigation::active_board_id(nav, cx),
             account: crate::queries::active_account(cx).map(|account| account.id),
             minute: crate::session_data::now_ms() / 60_000,
@@ -1335,7 +1335,7 @@ mod tests {
         });
         let (rail, cx) = cx.add_window_view(|window, cx| {
             let nav = crate::navigation::nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             RailView::new(window, cx)
         });
         let draw = |cx: &mut gpui::VisualTestContext| {

@@ -28,7 +28,7 @@ use domain::session_tree::{chat_in_stack, chat_row_word_on, chat_row_word_waitin
 
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation, Screen};
 use crate::session_data;
 
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
@@ -232,11 +232,9 @@ impl ChatsView {
         }
     }
 
+    /// #EXP-2027: every member team's chats.
     fn model(&self, cx: &mut App) -> std::rc::Rc<session_data::ChatsModel> {
-        active_team_id(&self.nav, cx)
-            .as_deref()
-            .map(|team_id| session_data::chats_model(team_id, cx))
-            .unwrap_or_default()
+        session_data::chats_model_all(cx)
     }
 
     fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
@@ -347,7 +345,7 @@ impl Render for ChatsView {
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         // S-3: the viewer's Assistant is created on first use.
-        if let Some(team_id) = active_team_id(&self.nav, cx) {
+        if let Some(team_id) = screen_team_id(&self.nav, cx) {
             session_data::ensure_assistant(&team_id, cx);
         }
         let model = self.model(cx);

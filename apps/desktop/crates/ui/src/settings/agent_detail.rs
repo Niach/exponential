@@ -41,7 +41,7 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 use crate::sidebar::RailShared;
 use crate::trigger_editor;
@@ -548,7 +548,7 @@ impl AgentDetailPane {
         }
         match self.shared.read(cx).settings_section() {
             SettingsSection::Agent(id) => Some(id),
-            SettingsSection::Voice => active_team_id(&self.nav, cx)
+            SettingsSection::Voice => screen_team_id(&self.nav, cx)
                 .and_then(|team_id| crate::session_data::my_assistant(&team_id, cx))
                 .map(|assistant| assistant.id),
             _ => None,
@@ -693,8 +693,7 @@ impl AgentDetailPane {
         });
         if blocked_new {
             // THE connect link: that team's Settings › MCP servers.
-            crate::navigation::switch_team(window, cx, team_id.to_string());
-            crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+            crate::navigation::open_settings(window, cx, Some(team_id.to_string()));
             crate::sidebar::select_settings_section(window, cx, SettingsSection::Mcp);
             cx.notify();
             return;
@@ -884,7 +883,7 @@ impl AgentDetailPane {
         let Some(agent) = self.loaded_agent.clone().and_then(|id| crate::session_data::agent_def(&id, cx)) else {
             return;
         };
-        let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        let team_id = agent.team_id.clone().or_else(|| screen_team_id(&self.nav, cx)).unwrap_or_default();
         if !self.editor(&agent, &team_id, cx) {
             return;
         }
@@ -1059,7 +1058,7 @@ impl AgentDetailPane {
             return;
         };
         let agent_id = agent.id.clone();
-        let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        let team_id = agent.team_id.clone().or_else(|| screen_team_id(&self.nav, cx)).unwrap_or_default();
         let editor = self.editor(&agent, &team_id, cx);
         // #EXP-1846: THE trigger list's own actions.
         if agent_triggers::ACTIONS.contains(&name) {
@@ -1282,7 +1281,7 @@ impl Render for AgentDetailPane {
         if self.slot.is_none() {
             self.sync_selected_agent(&agent, window, cx);
         }
-        let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        let team_id = agent.team_id.clone().or_else(|| screen_team_id(&self.nav, cx)).unwrap_or_default();
         // #EXP-1988 (`teamPicks`): Settings › Assistant draws one section per
         // synced team by name (case-insensitive, then id), as the team
         // switcher lists them (a personal team never syncs).

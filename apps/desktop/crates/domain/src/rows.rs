@@ -42,6 +42,11 @@ pub struct Team {
     pub slug: Option<String>,
     #[serde(default)]
     pub icon_url: Option<String>,
+    /// #EXP-2027 (sidebar-tree.json): `personal` = the member's personal
+    /// team (the Assistant's home), never a sidebar row; `None` (a shape
+    /// without the column) = an ordinary team.
+    #[serde(default)]
+    pub kind: Option<String>,
     /// EXP-319 PR-open automation target: `Some(id)` pins an
     /// `issue_statuses` row; `None` = the builtin In Review default.
     #[serde(default)]
@@ -111,6 +116,7 @@ impl Team {
             name: name.into(),
             slug,
             icon_url: None,
+            kind: None,
             pr_opened_status_id: None,
             pr_opened_automation: None,
             pr_merged_status_id: None,

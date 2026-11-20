@@ -157,7 +157,7 @@ fn harness_with(cx: &mut gpui::TestAppContext, rail: bool, bulk: bool, phone_pan
         let slot = slot.clone();
         move |window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             let fab = cx.new(|cx| AssistantFab::new(nav.clone(), cx));
             *slot.borrow_mut() = Some((nav, fab.clone()));
             let rail = rail.then(|| cx.new(|_| crate::markdown::ImageCache::new(None)));

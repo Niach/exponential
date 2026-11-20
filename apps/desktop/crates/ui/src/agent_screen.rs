@@ -545,7 +545,7 @@ impl AgentScreenView {
                 if synced || self.agent.is_none() || Store::try_global(cx).is_none() {
                     team_id
                 } else {
-                    crate::navigation::active_team_id(&self.nav, cx)
+                    crate::navigation::screen_team_id(&self.nav, cx)
                 }
             }
         }

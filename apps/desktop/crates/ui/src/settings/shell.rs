@@ -11,10 +11,11 @@
 //! only the content column is capped and centered, the page-scaffold recipe
 //! every other full-page screen uses (`scroll_pane::page_scaffold_with`).
 //!
-//! The nav: the back row over its rule (a fixed document), then the groups
-//! (a second document in the column's scroller): one flat template list of
-//! rules, group labels, the Agents group's index label and rows; the rows'
-//! routing stays the Rust model's ([`super::NavInputs`]).
+//! The nav: the back row over its rule (a fixed document; #EXP-2027: `←
+//! Settings` in the personal nav, `←` + the team's mark + name in a team's),
+//! then the ONE group (a second document in the column's scroller): one flat
+//! template list of the group label and rows; the rows' routing stays the
+//! Rust model's ([`super::NavInputs`]).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -29,7 +30,7 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
 use super::doc::{eq, hex, not, path, LINE, SM, XS};
-use super::{nav_lit, section_visible, NavInputs, NavItem, SettingsSection, AGENTS_GROUP, APPS_GROUP, NAV_GROUPS};
+use super::{nav_lit, section_visible, NavInputs, NavItem, NavTeam, SettingsSection, PERSONAL_NAV, TEAM_NAV};
 
 /// The selected pane, built for the frame that draws it.
 pub(crate) type PaneBuild = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -187,11 +188,6 @@ const LOGO: &str = "ide:logo";
 #[derive(Clone)]
 pub(crate) enum NavAction {
     Section(SettingsSection),
-    /// VAPP-177: the app's editor on its Settings tab.
-    App(String),
-    /// VAPP-176: a draft and its editor.
-    NewApp,
-    NewBoard,
     /// EXP-630: fold `label`'s sub-pages (`true`) or unfold them.
     Fold(&'static str, bool),
 }
@@ -284,10 +280,6 @@ impl Entries<'_> {
         self.items.push(item);
     }
 
-    fn rule(&mut self, group: &str) {
-        self.push(json!({"key": format!("rule:{group}"), "kind": "rule"}));
-    }
-
     fn label(&mut self, group: &str, label: &str) {
         self.push(json!({"key": format!("label:{group}"), "kind": "label", "label": label}));
     }
@@ -306,104 +298,45 @@ impl Entries<'_> {
 /// The nav's list for `inputs`: the entries (in order) and what each
 /// key's press does. `folded` = the nested entries' fold state (unset =
 /// unfolded while the parent or one of its sub-pages is selected).
+/// #EXP-2027 (settings-nav.json `desktopNavs`): ONE group — the team's
+/// (`inputs.team` Some) or the personal one; no board, agent or app rows.
 pub(crate) fn nav_entries(inputs: &NavInputs, folded: &HashMap<&'static str, bool>, paint: &NavPaint, cx: &App) -> (Vec<Value>, HashMap<String, NavAction>) {
-    let NavInputs { owner, team_id, effective, boards, agents, apps } = inputs;
+    let NavInputs { owner, team, scope_team, effective } = inputs;
     let owner = *owner;
     let mut out = Entries { paint, items: Vec::new(), actions: HashMap::new() };
-    let mut first_group = true;
-    for group in NAV_GROUPS {
-        let visible: Vec<&NavItem> = group.items.iter().filter(|item| section_visible(&item.section, owner)).collect();
-        // EXP-288 / S-3 (settings-nav.json): every member sees the board
-        // rows; New board is the owners'.
-        let board_group = group.id == "boards" && team_id.is_some();
-        // EXP-1294: the Agents group is every member's (only an agent's
-        // Delete is owner-only), so it shows whenever a team is active.
-        let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
-        // VAPP-110: the Apps group likewise (every member creates apps).
-        let app_group = group.label == APPS_GROUP && team_id.is_some();
-        if visible.is_empty() && !board_group && !agent_group && !app_group {
+    let group = if team.is_some() { &TEAM_NAV } else { &PERSONAL_NAV };
+    out.label(group.id, group.label);
+    for item in group.items.iter().filter(|item| section_visible(&item.section, owner)) {
+        let lit = nav_lit(&item.section, effective);
+        let children: Vec<&NavItem> = item.children.iter().filter(|child| section_visible(&child.section, owner)).collect();
+        // EXP-630: a nested entry starts unfolded while it or one of its
+        // sub-pages is open; the chevron overrides that.
+        let within = lit || children.iter().any(|child| child.section == *effective);
+        let open = folded.get(item.label).map(|folded| !folded).unwrap_or(within);
+        if item.id == "assistant" {
+            // #EXP-1987 (settings-nav.json `pages.assistant`): the
+            // viewer's ONE Assistant, the brand mark as its glyph; lit on
+            // its agent page (`Voice` resolves to it).
+            let assistant = crate::session_data::my_assistant_anywhere(scope_team.as_deref(), cx);
+            let lit = lit || assistant.is_some_and(|agent| *effective == SettingsSection::Agent(agent.id));
+            out.row(item.id.to_string(), item.label, LOGO, Some(paint.foreground.clone()), lit, false, NavAction::Section(item.section.clone()));
             continue;
         }
-        if !first_group {
-            out.rule(group.id);
+        out.row(item.id.to_string(), item.label, section_icon(&item.section), None, lit, false, NavAction::Section(item.section.clone()));
+        if !children.is_empty() {
+            let last = out.items.last_mut().expect("the row");
+            last["fold"] = json!(if open { "open" } else { "closed" });
+            last["chevron"] = json!(if open { "ui-chevron-down" } else { "ui-chevron-right" });
+            last["foldKey"] = json!(format!("fold:{}", item.id));
+            last["foldOpen"] = json!(open);
+            last["foldLabel"] = json!(if open { format!("Collapse {}", item.label) } else { format!("Expand {}", item.label) });
+            out.actions.insert(format!("fold:{}", item.id), NavAction::Fold(item.label, open));
         }
-        first_group = false;
-        if app_group {
-            // VAPP-242: a plain label (no Apps index page).
-            out.label(group.id, group.label);
-            for app in apps {
-                let tint = app.color.as_deref().and_then(super::parse_hex_color).map(hex);
-                out.row(format!("app:{}", app.id), &app.name, crate::icons::app_icon_name(app.icon.as_deref()), tint, false, false, NavAction::App(app.id.clone()));
-            }
-            out.row("new-app".into(), &domain::apps::APPS.copy.new_app, "ui-add", None, false, true, NavAction::NewApp);
-            continue;
-        }
-        if agent_group {
-            // NEW-6 (web parity): the label opens the Agents page (the list
-            // + Events), lit while it shows.
-            let lit = *effective == SettingsSection::Agents;
-            let key = format!("index:{}", group.id);
-            out.push(json!({"key": key, "kind": "index", "label": group.label, "lit": lit, "color": if lit { &paint.foreground } else { &paint.muted }}));
-            out.actions.insert(key, NavAction::Section(SettingsSection::Agents));
-            // `@agents` = the team agents (#EXP-1987: the viewer's
-            // Assistant left the group for Personal's `assistant` page).
-            for agent in agents.iter().filter(|agent| !agent.assistant) {
-                let section = SettingsSection::Agent(agent.agent_id.clone());
-                let lit = section == *effective;
-                let tint = hex(crate::icons::agent_tint(Some(&agent.color)));
-                out.row(format!("agent:{}", agent.agent_id), &agent.name, crate::icons::agent_icon_name(Some(&agent.icon)), Some(tint), lit, false, NavAction::Section(section));
-            }
-            // EXP-1319: "New agent" is a page (web parity), owner-only.
-            if owner {
-                let lit = *effective == SettingsSection::NewAgent;
-                out.row("new-agent".into(), &domain::agent_settings::AGENT_SETTINGS.copy.new_agent, "ui-add", None, lit, !lit, NavAction::Section(SettingsSection::NewAgent));
-            }
-        } else {
-            out.label(group.id, group.label);
-        }
-        if board_group {
-            for board in boards {
-                let section = SettingsSection::Board(board.id.clone());
-                let lit = section == *effective;
-                let tint = board.color.as_deref().and_then(super::parse_hex_color).unwrap_or(cx.theme().muted_foreground);
-                out.row(format!("board:{}", board.id), &board.name, crate::icons::board_icon_name(board), Some(hex(tint)), lit, false, NavAction::Section(section));
-            }
-            if owner {
-                out.row("new-board".into(), "New board", "ui-add", None, false, true, NavAction::NewBoard);
-            }
-        }
-        for item in visible {
-            let lit = nav_lit(&item.section, effective);
-            let children: Vec<&NavItem> = item.children.iter().filter(|child| section_visible(&child.section, owner)).collect();
-            // EXP-630: a nested entry starts unfolded while it or one of its
-            // sub-pages is open; the chevron overrides that.
-            let within = lit || children.iter().any(|child| child.section == *effective);
-            let open = folded.get(item.label).map(|folded| !folded).unwrap_or(within);
-            if item.id == "assistant" {
-                // #EXP-1987 (settings-nav.json `pages.assistant`): the
-                // viewer's ONE Assistant, the brand mark as its glyph; lit on
-                // its agent page (`Voice` resolves to it).
-                let assistant = crate::session_data::my_assistant_anywhere(team_id.as_deref(), cx);
-                let lit = lit || assistant.is_some_and(|agent| *effective == SettingsSection::Agent(agent.id));
-                out.row(item.id.to_string(), item.label, LOGO, Some(paint.foreground.clone()), lit, false, NavAction::Section(item.section.clone()));
-                continue;
-            }
-            out.row(item.id.to_string(), item.label, section_icon(&item.section), None, lit, false, NavAction::Section(item.section.clone()));
-            if !children.is_empty() {
-                let last = out.items.last_mut().expect("the row");
-                last["fold"] = json!(if open { "open" } else { "closed" });
-                last["chevron"] = json!(if open { "ui-chevron-down" } else { "ui-chevron-right" });
-                last["foldKey"] = json!(format!("fold:{}", item.id));
-                last["foldOpen"] = json!(open);
-                last["foldLabel"] = json!(if open { format!("Collapse {}", item.label) } else { format!("Expand {}", item.label) });
-                out.actions.insert(format!("fold:{}", item.id), NavAction::Fold(item.label, open));
-            }
-            if open {
-                for child in children {
-                    let lit = child.section == *effective;
-                    out.row(child.id.to_string(), child.label, section_icon(&child.section), None, lit, false, NavAction::Section(child.section.clone()));
-                    out.items.last_mut().expect("the row")["indent"] = json!(paint.rem * 1.5);
-                }
+        if open {
+            for child in children {
+                let lit = child.section == *effective;
+                out.row(child.id.to_string(), child.label, section_icon(&child.section), None, lit, false, NavAction::Section(child.section.clone()));
+                out.items.last_mut().expect("the row")["indent"] = json!(paint.rem * 1.5);
             }
         }
     }
@@ -423,22 +356,9 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
     let (sm, xs) = (p.rem * SM, p.rem * XS);
     let glyph = p.rem * 0.75;
     let r = |rems: f32| p.rem * rems;
-    // `group_divider`: `h 1`, `mx_2`, `my_1`, the row stroke.
-    let rule = json!({"id": "nav_rule", "component": "Box", "visible": kind("rule"),
-        "style": {"height": 1, "flexShrink": 0, "marginHorizontal": r(0.5), "marginVertical": r(0.25), "backgroundColor": p.stroke_row}});
     // `group_label`: `px_2` / `pt_2` / `pb_0p5`, `text_xs` SEMIBOLD muted.
-    let label_style = |color: Value| json!({"fontSize": xs, "lineHeight": xs * LINE, "fontWeight": 600, "color": color, "paddingHorizontal": r(0.5), "paddingTop": r(0.5), "paddingBottom": r(0.125) - LABEL_TRIM});
-    let label = json!({"id": "nav_label", "component": "Text", "visible": kind("label"), "props": {"text": path("label")}, "style": label_style(json!(p.muted))});
-    // The Agents label opens the Agents page: lit = the foreground, hover
-    // lights it too.
-    let mut index_style = label_style(path("color"));
-    index_style["cursor"] = json!("pointer");
-    index_style[":hover"] = json!({"color": p.foreground});
-    let index = json!({"id": "nav_index", "component": "Box", "visible": kind("index"), "props": {"pressable": true},
-        "accessibility": {"label": path("label"), "selected": path("lit")},
-        "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
-        "style": {"display": "flex", "flexDirection": "column"},
-        "children": [{"id": "nav_index_text", "component": "Text", "props": {"text": path("label")}, "style": index_style}]});
+    let label = json!({"id": "nav_label", "component": "Text", "visible": kind("label"), "props": {"text": path("label")},
+        "style": {"fontSize": xs, "lineHeight": xs * LINE, "fontWeight": 600, "color": p.muted, "paddingHorizontal": r(0.5), "paddingTop": r(0.5), "paddingBottom": r(0.125) - LABEL_TRIM}});
     // `row`: `px_2` / `py_1`, `gap_2`, the theme radius, `text_sm`; the
     // lit fill, the hover wash; the `xsmall` glyph, the truncated label,
     // the fold chevron (`size_3`, muted).
@@ -458,7 +378,7 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
             chevron,
         ]});
     let item = json!({"id": "nav_item", "component": "Box",
-        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "marginTop": path("gap")}, "children": [rule, label, index, row]});
+        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "marginTop": path("gap")}, "children": [label, row]});
     json!({"id": "nav", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "padding": r(0.5)},
         "children": [{"id": "nav_list", "component": "List", "accessibility": {"label": "Settings"}, "props": {"gap": "none"},
             "template": {"component": "nav_item", "path": "/nav/items", "key": "key"}, "children": [item]}]})
@@ -467,10 +387,16 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
 /// The back row over its rule (web `SidebarBackRow` + its `Separator`,
 /// EXP-870): an 8px inset, the 40px row (the bare 16px back glyph, the
 /// `text_sm` SEMIBOLD label), the hover wash; the sidebar-border rule
-/// under it at the column's inset.
+/// under it at the column's inset. #EXP-2027 (settings-nav.json
+/// `desktopNavs`): a team's nav puts the team's mark (`team-image.json`: its
+/// image, else the team glyph) between the glyph and the label, and the
+/// label is the team's name; the personal nav's label is "Settings"
+/// ([`back_state`]).
 pub(crate) fn back_document(p: &NavPaint) -> Value {
     let sm = p.rem * SM;
     let r = |rems: f32| p.rem * rems;
+    let mark = &domain::team_image::TEAM_IMAGE.mark;
+    let side = 16.;
     json!({"id": "back_root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [
             {"id": "back", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Back"},
@@ -479,11 +405,26 @@ pub(crate) fn back_document(p: &NavPaint) -> Value {
                     "borderRadius": p.radius, "cursor": "pointer", ":hover": {"backgroundColor": p.fill_row}},
                 "children": [
                     {"id": "back_icon", "component": "Icon", "props": {"name": "ui-back"}, "style": {"width": 16, "height": 16, "color": p.ink, "flexShrink": 0}},
-                    {"id": "back_label", "component": "Text", "props": {"text": "Settings", "lines": 1}, "style": {"fontSize": sm, "lineHeight": sm * LINE, "fontWeight": 600, "color": p.ink, "minWidth": 0}},
+                    {"id": "back_team_picture", "component": "Image", "visible": path("/back/hasImage"), "props": {"src": path("/back/src"), "alt": "", "fit": "cover", "fallback": mark.glyph},
+                        "style": {"width": side, "height": side, "flexShrink": 0, "borderRadius": side * mark.radius_fraction}},
+                    {"id": "back_team_glyph", "component": "Icon", "visible": path("/back/glyph"), "props": {"name": mark.glyph}, "style": {"width": side, "height": side, "color": p.ink, "flexShrink": 0}},
+                    {"id": "back_label", "component": "Text", "props": {"text": path("/back/label"), "lines": 1}, "style": {"fontSize": sm, "lineHeight": sm * LINE, "fontWeight": 600, "color": p.ink, "minWidth": 0}},
                 ]},
             {"id": "back_rule_inset", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexShrink": 0, "paddingHorizontal": r(0.5)},
                 "children": [{"id": "back_rule", "component": "Box", "style": {"height": 1, "width": "100%", "flexShrink": 0, "marginVertical": r(0.25), "backgroundColor": p.border}}]},
         ]})
+}
+
+/// The personal nav's header label.
+pub(crate) const BACK_LABEL: &str = "Settings";
+
+/// #EXP-2027: the header's state (the `/back` binding): `team` = the team
+/// whose nav shows (its mark + name), None = `← Settings`.
+pub(crate) fn back_state(team: Option<&NavTeam>) -> Value {
+    match team {
+        Some(team) => json!({"label": team.name, "hasImage": team.image.is_some(), "glyph": team.image.is_none(), "src": team.image.clone().unwrap_or_default()}),
+        None => json!({"label": BACK_LABEL, "hasImage": false, "glyph": false, "src": ""}),
+    }
 }
 
 /// The nav's plugin: the IDE's, plus the brand mark.
@@ -501,6 +442,11 @@ impl HostPlugin for NavPlugin {
 
     fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
         self.inner.on_unknown(node)
+    }
+
+    /// #EXP-2027: the header's team image goes through the IDE's media rule.
+    fn media_allowed(&self, src: &str) -> bool {
+        self.inner.media_allowed(src)
     }
 }
 

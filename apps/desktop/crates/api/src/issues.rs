@@ -537,6 +537,24 @@ pub fn search(
     )
 }
 
+/// #EXP-2027: `issues.search` over SEVERAL member teams (`teamIds`, the
+/// search sheet: there is no active team).
+pub fn search_teams(
+    client: &TrpcClient,
+    team_ids: &[String],
+    query: &str,
+    limit: u32,
+) -> Result<Vec<IssueSearchHit>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_ids: &'a [String],
+        query: &'a str,
+        limit: u32,
+    }
+    client.query_with_input("issues.search", &Input { team_ids, query, limit })
+}
+
 // ---------------------------------------------------------------------------
 // issues.get (EXP-403 — the CLI's identifier→row resolver)
 // ---------------------------------------------------------------------------
