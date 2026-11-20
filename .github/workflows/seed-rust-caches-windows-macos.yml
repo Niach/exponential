@@ -1,0 +1,91 @@
+name: seed-rust-caches-windows-macos
+
+# CI review P1 (c), the twin of seed-rust-caches.yml for the hosted Windows and
+# macOS checks (check-desktop-windows.yml, check-desktop-macos.yml): their
+# rust-cache saves on master only, and nothing of theirs runs on master, so
+# this writes those entries. BUILD only, with what the checks compile.
+#
+# Keys: `key` + `add-job-id-key: false` on both sides, so the job ids here
+# need not match (both checks' jobs are `check`); the runner image, the
+# `workspaces` and the cargo flags must.
+#
+# Not on every master push (macOS minutes): nightly, plus master pushes that
+# move the desktop Cargo.lock. check-eengine-runner-windows.yml is not seeded:
+# its ~1.1 GB would push the Actions cache past its ~8 GB budget.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  push:
+    branches: [master]
+    paths:
+      - apps/desktop/Cargo.lock
+      - .github/workflows/seed-rust-caches-windows-macos.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-rust-caches-windows-macos
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/desktop
+          key: windows-check
+          add-job-id-key: 'false'
+      - uses: ./.github/actions/cargo-fetch
+      - name: cargo check
+        shell: bash
+        run: |
+          cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app
+          cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests
+      - name: Build the tests the check runs
+        shell: bash
+        run: |
+          cargo test --no-run --locked --manifest-path apps/desktop/Cargo.toml -p gpui-pre-windows --lib
+          cargo test --no-run --locked --manifest-path apps/desktop/Cargo.toml -p eagent --lib
+
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/desktop
+          key: macos-check
+          add-job-id-key: 'false'
+      - uses: ./.github/actions/cargo-fetch
+      - name: cargo check
+        run: |
+          cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app -p exp-cli
+          cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests
+
+  # Keep the newest master entry per check (rust-cache never deletes the one
+  # it replaces).
+  prune:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the replaced master entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for prefix in v0-rust-windows-check-Windows_NT- v0-rust-macos-check-Darwin-; do
+            gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "$prefix" --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
+              | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
+          done

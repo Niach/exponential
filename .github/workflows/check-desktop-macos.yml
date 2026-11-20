@@ -39,6 +39,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: macos-check
+          # The seed (seed-rust-caches-windows-macos.yml) has another job id.
+          add-job-id-key: 'false'
       - uses: ./.github/actions/cargo-fetch
       - name: cargo check
         run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app -p exp-cli
