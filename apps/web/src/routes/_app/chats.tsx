@@ -1,5 +1,7 @@
-import { useMemo } from "react"
+import { useMemo, type PointerEvent as ReactPointerEvent } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { startListDrag } from "@exponential_app/eui/web"
+import { SIDEBAR_TREE_MAX_DEPTH } from "@exp/domain-contract/sidebar-tree"
 import { chatSections, CHATS_COPY, type ChatListView, type ChatSelectionRow } from "@exp/domain-contract/chats"
 import { ChatList, conceptIcon, FAB_FOOT_CLASS, TeamAvatar } from "@exp/ui"
 import { ChatSelectionBar } from "@/components/chat/chat-selection-bar"
@@ -9,6 +11,7 @@ import { useMemberTeams } from "@/components/home/use-member-teams"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { useTeamMemberships } from "@/hooks/use-team-data"
+import { SIDEBAR_TEAM_LIST_ATTR, sidebarTeamDrop } from "@/hooks/use-sidebar-tree"
 import { pageTitle } from "@/lib/page-title"
 import { canSteerSession } from "@/lib/session-account-switch"
 import { CHATS_LIST_COPY } from "@/lib/session-tree"
@@ -18,10 +21,42 @@ import { CHATS_LIST_COPY } from "@/lib/session-tree"
 // team. Each row opens in its own team (`/t/<its team>/sessions/<id>`, an
 // agent's chat and an app's editor alike). Selection and the Archived view
 // (`?view=archived`) as on the team's page; phones keep that page (the `_app`
-// layout forwards them).
+// layout forwards them). A root row drags onto its team's list in the
+// sidebar like an Active row (sidebar-tree.json `drop`, `sidebarDropSession`
+// through the list's registered drop); md+ only, never while selecting.
 
 const COPY = CHATS_COPY
 const UiBackIcon = conceptIcon(`ui-back`)
+
+/** The wide layout (md+), where the sidebar's team lists are a drop target. */
+const WIDE_QUERY = `(min-width: 768px)`
+
+/** A Chats row's drag onto its team's list in the sidebar: the rows dropped
+ *  between are that list's (`SIDEBAR_TEAM_LIST_ATTR`), the dragged one this
+ *  row (a list row of the same session steps aside: the drop is then a plain
+ *  move). Another team's list never takes it. */
+function startChatRowDrag(
+  event: ReactPointerEvent<HTMLElement>,
+  session: { id: string; teamId: string; parentId: string | null }
+) {
+  const element = event.currentTarget
+  startListDrag(
+    event.nativeEvent,
+    session.id,
+    {
+      rows: () => {
+        const list = document.querySelector(`[${SIDEBAR_TEAM_LIST_ATTR}="${session.teamId}"]`)
+        const own = [...(list?.querySelectorAll<HTMLElement>(`[data-reorder-key]`) ?? [])].filter(
+          (el) => el.getAttribute(`data-reorder-key`) !== session.id
+        )
+        return [...own, element]
+      },
+      maxDepth: SIDEBAR_TREE_MAX_DEPTH,
+      color: `var(--primary)`,
+    },
+    { move: (context) => sidebarTeamDrop(session.teamId)?.(session, context) }
+  )
+}
 
 export const Route = createFileRoute(`/_app/chats`)({
   head: () => ({ meta: [{ title: pageTitle(CHATS_LIST_COPY.title) }] }),
@@ -88,6 +123,19 @@ function ChatsRoute() {
     })
   }, [selection, sessionRows, list.rows, me, owned])
 
+  const sessionById = useMemo(() => new Map(sessionRows.map((row) => [row.id, row])), [sessionRows])
+  const onRowPointerDown = (sessionId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (selection || !window.matchMedia(WIDE_QUERY).matches) return
+    const session = sessionById.get(sessionId)
+    if (!session || session.parentId) return
+    startChatRowDrag(event, { id: session.id, teamId: session.teamId, parentId: null })
+  }
+  /** A row's team mark (none outside the member teams: the Assistant). */
+  const markOf = (id: string) => {
+    const team = memberTeams.byId.get(teamOf(id) ?? ``)
+    return team ? <TeamAvatar iconUrl={team.iconUrl} size={16} /> : null
+  }
+
   const openApp = (appId: string, appSlug: string) =>
     void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug: slugOf(appId), appSlug } })
   const appIdBySlug = new Map(appRows.map((row) => [row.slug, row.appId]))
@@ -121,10 +169,10 @@ function ChatsRoute() {
               waitingOf={waitingOf}
               wallOf={wallOf}
               marksOf={marksOf}
-              teamOf={(id) => {
-                const team = memberTeams.byId.get(teamOf(id) ?? ``)
-                return team ? <TeamAvatar iconUrl={team.iconUrl} size={16} /> : null
-              }}
+              teamOf={markOf}
+              agentTeamOf={markOf}
+              appTeamOf={markOf}
+              onRowPointerDown={archivedView ? undefined : onRowPointerDown}
               loading={memberTeams.teamIds.length === 0 || !isReady}
               entering={entering}
               emptyTitle={archivedView ? COPY.archived.empty : undefined}

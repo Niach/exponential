@@ -1,4 +1,9 @@
-import { type ComponentProps, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import {
+  type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
 import {
   CHAT_SECTION_KEYS,
   CHATS_COPY,
@@ -321,6 +326,7 @@ export function ChatRow({
   team = null,
   onOpen,
   onRowClick,
+  onRowPointerDown,
   onSelectToggle,
   selecting = false,
   selected = false,
@@ -341,6 +347,10 @@ export function ChatRow({
   /** #EXP-1388: the click with its modifiers (cmd/ctrl toggles, shift
    *  ranges); wins over `onOpen`. */
   onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
+  /** #EXP-2027: the press that may start the row's drag onto a sidebar
+   *  list (set = the row is a reorder source: `data-reorder-key`); a plain
+   *  click still opens. */
+  onRowPointerDown?: (sessionId: string, event: ReactPointerEvent<HTMLButtonElement>) => void
   /** #EXP-1388: the wide checkbox cell's click (shift = the range); set =
    *  the row is selectable. */
   onSelectToggle?: (sessionId: string, event: ReactMouseEvent<HTMLElement>) => void
@@ -358,6 +368,11 @@ export function ChatRow({
       data-selected={selecting ? selected : undefined}
       aria-pressed={selecting ? selected : undefined}
       {...menuProps(`chat`, row.sessionId)}
+      data-reorder-key={onRowPointerDown ? row.sessionId : undefined}
+      data-reorder-depth={onRowPointerDown ? `1` : undefined}
+      data-reorder-indent={onRowPointerDown ? `0` : undefined}
+      onDragStart={onRowPointerDown ? (event) => event.preventDefault() : undefined}
+      onPointerDown={onRowPointerDown ? (event) => onRowPointerDown(row.sessionId, event) : undefined}
       {...props}
       // S-3: a DONE chat (every PR merged, nothing works) stays, dimmed as
       // a whole at `shell.dimOpacity`.
@@ -495,12 +510,15 @@ export const CHAT_AGENT_ROW_TEST_ID = `chat-agent-row`
 export function AgentChatRowButton({
   row,
   onOpen,
+  team = null,
   aligned = false,
   className,
   ...props
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: AgentChatRow
   onOpen?: (agentId: string) => void
+  /** #EXP-2027: the agent's team mark on a cross-team list (md+). */
+  team?: ReactNode
   /** Over selectable rows: the same inset and (wide) the checkbox column's
    *  room, so the discs line up. */
   aligned?: boolean
@@ -531,6 +549,7 @@ export function AgentChatRowButton({
         needsYou={row.needsYou}
         unreadCount={row.unreadCount}
         preview={row.preview}
+        team={team}
       />
     </button>
   )
@@ -552,12 +571,15 @@ export const CHAT_APP_ROW_TEST_ID = CHATS_TEST_IDS.appRow
 export function AppChatRowButton({
   row,
   onOpen,
+  team = null,
   aligned = false,
   className,
   ...props
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: AppChatRow
   onOpen?: (slug: string) => void
+  /** #EXP-2027: the app's team mark on a cross-team list (md+). */
+  team?: ReactNode
   aligned?: boolean
 }) {
   const lead: ChatLead = row.needsYou ? `needs_you` : `waiting`
@@ -586,6 +608,7 @@ export function AppChatRowButton({
         needsYou={row.needsYou}
         unreadCount={row.unreadCount}
         preview={row.preview}
+        team={team}
       />
     </button>
   )
@@ -621,6 +644,9 @@ export function ChatList({
   wallOf,
   marksOf,
   teamOf,
+  agentTeamOf,
+  appTeamOf,
+  onRowPointerDown,
   loading = false,
   entering,
   emptyTitle,
@@ -651,6 +677,12 @@ export function ChatList({
   marksOf?: (sessionId: string) => readonly ChatMark[]
   /** #EXP-2027: a row's team mark on a cross-team list (md+), else null. */
   teamOf?: (sessionId: string) => ReactNode
+  /** #EXP-2027: an agent row's team mark (by agent id), else null. */
+  agentTeamOf?: (agentId: string) => ReactNode
+  /** #EXP-2027: an app row's team mark (by app id), else null. */
+  appTeamOf?: (appId: string) => ReactNode
+  /** #EXP-2027: a chat row's press (its drag onto a sidebar list). */
+  onRowPointerDown?: (sessionId: string, event: ReactPointerEvent<HTMLButtonElement>) => void
   loading?: boolean
   /** The `motion-enter` class for a row that arrived after the first paint. */
   entering?: (sessionId: string) => string
@@ -686,6 +718,7 @@ export function ChatList({
       className={entering?.(row.sessionId)}
       onOpen={onOpen}
       onRowClick={onRowClick}
+      onRowPointerDown={onRowPointerDown}
       onSelectToggle={onSelectToggle}
       selecting={selection !== null}
       selected={selection?.has(row.sessionId) ?? false}
@@ -701,7 +734,13 @@ export function ChatList({
         <>
           <ChatSectionHeader title={CHATS_COPY.sections.agents} />
           {agentRows.map((row) => (
-            <AgentChatRowButton key={row.agentId} row={row} onOpen={onOpenAgent} aligned={aligned} />
+            <AgentChatRowButton
+              key={row.agentId}
+              row={row}
+              onOpen={onOpenAgent}
+              team={agentTeamOf?.(row.agentId) ?? null}
+              aligned={aligned}
+            />
           ))}
         </>
       )}
@@ -709,7 +748,13 @@ export function ChatList({
         <>
           <ChatSectionHeader title={CHATS_COPY.sections.apps} />
           {appRows.map((row) => (
-            <AppChatRowButton key={row.appId} row={row} onOpen={onOpenApp} aligned={aligned} />
+            <AppChatRowButton
+              key={row.appId}
+              row={row}
+              onOpen={onOpenApp}
+              team={appTeamOf?.(row.appId) ?? null}
+              aligned={aligned}
+            />
           ))}
         </>
       )}
