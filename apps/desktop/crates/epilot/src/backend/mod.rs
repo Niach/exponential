@@ -698,14 +698,33 @@ pub(crate) fn end_run(target: Target, run: &str) {
     let _ = run;
 }
 
-/// #EDE-126: can a run get an agent space here? `Err` = why not (not eDE,
-/// or an eDE that makes none).
-pub(crate) fn spaces_offered() -> Result<(), String> {
+/// #EXP-1514: whether this desktop gives a run an agent space now
+/// ([`crate::space_offer`]): not Exponential Desktop is a local fact, an
+/// eDE session's answer comes from its compositor, read without waiting.
+pub(crate) fn space_offer() -> crate::SpaceOffer {
     #[cfg(target_os = "linux")]
-    if let Some(session) = ede::session() {
-        return ede::spaces_offered(&session?);
+    return space_offer_of(ede::session());
+    #[cfg(not(target_os = "linux"))]
+    crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop)
+}
+
+/// [`space_offer`] for this eDE session (`None` = not eDE).
+#[cfg(target_os = "linux")]
+pub(crate) fn space_offer_of(session: Option<Result<ede::Session, String>>) -> crate::SpaceOffer {
+    match session {
+        None => crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop),
+        Some(Ok(session)) => ede::space_offer(&session),
+        Some(Err(reason)) => crate::SpaceOffer::No(crate::SpaceBlock::Unavailable(reason)),
     }
-    Err("Agent spaces need Exponential Desktop.".to_string())
+}
+
+/// #EXP-1514: an eDE session, where a run can be admitted into a space
+/// without asking (its calls ask the desktop, [`crate::grant_space`]).
+pub(crate) fn makes_spaces() -> bool {
+    #[cfg(target_os = "linux")]
+    return ede::session().is_some();
+    #[cfg(not(target_os = "linux"))]
+    false
 }
 
 /// The switch turned off: a grant minted at the desktop ends (eDE).

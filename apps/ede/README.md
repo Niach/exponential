@@ -643,6 +643,7 @@ first; each op needs the Core capability it names:
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 | `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
+| `space_readiness` (#EXP-1514: `{ready, block?, max?}`, whether a person's runs get an agent space now; only a compositor whose hello says `space-readiness` answers it, and none does before the flip, #EXP-2011: a DEBUG build started with `EDE_DEV_SPACE_READINESS=1` says it and answers `ready`, for the headless runs and `serve --space`; a release build ignores it; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to

@@ -60,7 +60,7 @@ epilot::shutdown();                            // the switch went off: every gra
 ```
 
 `examples/host.rs` is this as a runnable host (`cargo run -p epilot --example host`);
-`examples/serve.rs` calls every tool by hand, `examples/work_screen.rs` prints the
+`examples/serve.rs` calls every tool by hand (`--space`: as a space run), `examples/work_screen.rs` prints the
 display picture.
 
 ### The public API
@@ -70,6 +70,7 @@ display picture.
 | `readiness()` / `permissions()` | the state now, never prompting (a doctor line) |
 | `prepare()` / `prepare_in_background()` | ask for the permissions and prove the backend opens |
 | `grant(session_id, label) -> Grant` | start the endpoint once, mint the run's token (an earlier one of the same run dies) |
+| `space_offer() -> SpaceOffer`, `grant_space(session_id, label)` | Exponential Desktop's agent spaces: whether one is offered now (`Offered`, `No(SpaceBlock)`, `Unknown`; from a cache, never waiting), and a run admitted into one (its first call asks the desktop again and makes no space unless it says ready) |
 | `revoke`, `turn_started`, `on_abort`, `shutdown`, `running()` | the run's lifecycle |
 | `set_presence_observer(Fn(Option<String>))` | the host's banner hook; called at once with the current state |
 | `SERVER_NAME` (`"computer"`), `TOKEN_ENV` (`"EXP_COMPUTER_TOKEN"`) | the MCP config key and the env var the config names; a host may use its own env var name, the crate never reads it |
