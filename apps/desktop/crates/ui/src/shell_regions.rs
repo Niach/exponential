@@ -31,6 +31,34 @@ use crate::settings::SettingsSection;
 /// (#EDE-65); the IDE lists its chats under Chats.
 const PRUNED: &[&str] = &["header", "switcher_menu", "chats"];
 
+/// The corner: the IDE's footer (the account, the Computer button and the
+/// personal settings), mounted on its own under the rail's Getting started
+/// entry so the rows above it scroll and the footer stays at the bottom.
+const CORNER: &str = "corner";
+
+/// What the footer's mount leaves out: everything but the corner.
+const FOOTER_PRUNED: &[&str] = &["header", "switcher_menu", "chats", "ide_nav", "scroll"];
+
+/// The footer's account: the avatar's hue key and label, its decoded image
+/// (`None` = signed out: the generic person).
+#[derive(Clone, PartialEq)]
+pub(crate) struct AccountFace {
+    pub(crate) user_id: String,
+    pub(crate) label: String,
+    pub(crate) image: Option<std::sync::Arc<gpui::Image>>,
+}
+
+/// The active account as the footer draws it: the first name only (the full
+/// name and email live in Settings › Account; a name-less account takes its
+/// email), the profile image from the synced users row.
+pub(crate) fn account_face(cx: &mut App) -> Option<AccountFace> {
+    let account = crate::queries::active_account(cx)?;
+    let label = account.name.clone().filter(|name| !name.trim().is_empty()).unwrap_or_else(|| account.email.clone());
+    let image_url = crate::queries::active_user(cx).and_then(|user| user.image);
+    let image = crate::user_avatar::cached_avatar_image(cx, image_url.as_deref());
+    Some(AccountFace { user_id: account.user_id, label, image })
+}
+
 /// A row glyph the IDE paints.
 #[derive(Clone, PartialEq)]
 enum Glyph {
@@ -457,6 +485,11 @@ fn row_key(component: &str) -> Option<&str> {
 /// The sidebar document in the window: one per [`crate::sidebar::RailView`].
 pub(crate) struct SidebarRegion {
     view: Entity<SurfaceView>,
+    /// The corner's own mount (the footer, [`CORNER`]).
+    footer: Entity<SurfaceView>,
+    /// The footer's account.
+    me: Rc<RefCell<Option<AccountFace>>>,
+    footer_shown: Option<Value>,
     team_marks: Rc<RefCell<TeamMarks>>,
     /// The mounted document, for the Pull requests tree's rows.
     doc: uicore_gpui::inline::Document,
@@ -491,16 +524,31 @@ impl SidebarRegion {
             let hover = Rc::new(RefCell::new(None));
             let computer = Rc::new(RefCell::new(None));
             let editing = Rc::new(RefCell::new(None));
+            let me = Rc::new(RefCell::new(None));
             let team_marks = Rc::new(RefCell::new(TeamMarks::new()));
-            let host = Rc::new(RegionHost { team_marks: team_marks.clone(), computer: computer.clone(), glyphs: glyphs.clone(), hover: hover.clone(), editing: editing.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
-            let mut doc = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
+            let host = Rc::new(RegionHost { team_marks: team_marks.clone(), computer: computer.clone(), me: me.clone(), glyphs: glyphs.clone(), hover: hover.clone(), editing: editing.clone(), window: window.window_handle(), region: cx.weak_entity(), nav });
+            let source = uicore_gpui::inline::document(uicore_docs::doc("sidebar").expect("the factory sidebar"));
+            let mut doc = source.clone();
             uicore_gpui::inline::without(&mut doc, PRUNED);
+            uicore_gpui::inline::without(&mut doc, &[CORNER]);
             // #EXP-1741: the IDE's sidebar never folds (eDE's is the rail).
             uicore_gpui::inline::set_prop(&mut doc, "sidebar", "collapsed", json!(false));
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
-            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme.clone(), host.clone(), Mode::Dark, window, cx);
+            // The footer: the corner alone, its row at the rail's bottom
+            // inset (the rail pads under it).
+            let mut corner = source;
+            uicore_gpui::inline::without(&mut corner, FOOTER_PRUNED);
+            uicore_gpui::inline::set_prop(&mut corner, "sidebar", "collapsed", json!(false));
+            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingTop", json!(0));
+            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingBottom", json!(0));
+            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "height", Value::Null);
+            let footer = uicore_gpui::inline::mount(&corner, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self {
                 view,
+                footer,
+                me,
+                footer_shown: None,
                 team_marks,
                 doc,
                 prs_built: json!([]),
@@ -541,16 +589,52 @@ impl SidebarRegion {
         *self.glyphs.borrow_mut() = glyphs;
         self.input = input;
         self.push(cx);
-        if glyphs_changed || std::mem::take(&mut self.computer_changed) {
+        if glyphs_changed {
             self.view.update(cx, |_, cx| cx.notify());
         }
+        self.repaint_computer(cx);
     }
 
     /// #LOGS-11: the rows stand; only the Computer button may have moved.
     pub(crate) fn repaint_computer(&mut self, cx: &mut gpui::Context<Self>) {
         if std::mem::take(&mut self.computer_changed) {
-            self.view.update(cx, |_, cx| cx.notify());
+            self.footer.update(cx, |_, cx| cx.notify());
         }
+    }
+
+    /// The footer (the corner's mount), drawn by the rail under its Getting
+    /// started entry.
+    pub(crate) fn footer(&self) -> Entity<SurfaceView> {
+        self.footer.clone()
+    }
+
+    /// The footer's account, from the rail's render (its avatar image lands
+    /// after the row).
+    pub(crate) fn set_me(&mut self, me: Option<AccountFace>, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.frozen {
+            return;
+        }
+        if *self.me.borrow() != me {
+            *self.me.borrow_mut() = me;
+            self.footer.update(cx, |_, cx| cx.notify());
+        }
+        self.push_footer(cx);
+    }
+
+    /// The corner's data: the account's glyph and first name, the Computer
+    /// button's glyph.
+    fn push_footer(&mut self, cx: &mut gpui::Context<Self>) {
+        let name = self.me.borrow().as_ref().map(|me| crate::user_avatar::first_name(&me.label).to_string()).unwrap_or_else(|| "Not signed in".to_string());
+        let value = json!({"computer": "ide:computer", "me": "ide:me", "meName": name});
+        if self.footer_shown.as_ref() == Some(&value) {
+            return;
+        }
+        self.footer_shown = Some(value.clone());
+        self.footer.update(cx, |view, cx| {
+            let _ = view.set_data("/shell/rail", Some(json!(false)), cx);
+            let _ = view.set_data("/shell/ide", Some(value), cx);
+        });
     }
 
     /// A sample state, for the pictures.
@@ -565,6 +649,8 @@ impl SidebarRegion {
             badge: Some(crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning)),
             active: false,
         });
+        *self.me.borrow_mut() = Some(AccountFace { user_id: "u1".into(), label: "Alex Carter".into(), image: None });
+        self.push_footer(cx);
         self.input = input;
         *self.hover.borrow_mut() = hover.map(str::to_string);
         self.push(cx);
@@ -799,6 +885,7 @@ impl Render for SidebarRegion {
 struct RegionHost {
     team_marks: Rc<RefCell<TeamMarks>>,
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
+    me: Rc<RefCell<Option<AccountFace>>>,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
     editing: Rc<RefCell<Option<String>>>,
@@ -964,6 +1051,14 @@ impl HostPlugin for RegionHost {
         if name == "ide:computer" {
             return self.computer.borrow().as_ref().map(|state| crate::sidebar::computer_button(state, cx));
         }
+        // The footer's account: the profile image or the initials on the
+        // user's hue; signed out, the generic person.
+        if name == "ide:me" {
+            return Some(match self.me.borrow().as_ref() {
+                Some(me) => crate::user_avatar::avatar_element(&me.user_id, &me.label, me.image.clone(), gpui_component::Size::Small),
+                None => gpui_component::avatar::Avatar::new().with_size(gpui_component::Size::Small).into_any_element(),
+            });
+        }
         if let Some(state) = name.strip_prefix("ide:trunk:") {
             let badge = if state == "error" { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_ERROR, cx.theme().danger) } else { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning) };
             return Some(crate::sidebar::rail_badge_element(badge, 12., cx));
@@ -1051,6 +1146,16 @@ impl HostPlugin for RegionHost {
                 (_, Some(value)) => self.in_window(cx, move |window, cx| team_menu(id, &value, region, window, cx)),
                 _ => {}
             },
+            // The footer's account menu: web's, item for item.
+            "ide_account" => {
+                let action = value.unwrap_or_default();
+                self.in_window(cx, move |window, cx| match action.as_str() {
+                    "whats_new" => window.dispatch_action(Box::new(crate::actions::OpenWhatsNew), cx),
+                    "about" => window.dispatch_action(Box::new(crate::actions::OpenAbout), cx),
+                    "sign_out" => window.dispatch_action(Box::new(crate::actions::SignOut), cx),
+                    _ => {}
+                });
+            }
             // #EXP-2027: a placed session's menu: Remove from sidebar.
             "ide_session" if value.as_deref() == Some("remove") => remove_from_sidebar(id, cx),
             "ide_switcher" => {
@@ -1762,7 +1867,7 @@ mod tests {
     #[test]
     fn the_document_prunes_only_nodes_it_has() {
         let doc = uicore_docs::doc("sidebar").expect("the sidebar");
-        for id in PRUNED.iter().chain(HEADER_PRUNED) {
+        for id in PRUNED.iter().chain(HEADER_PRUNED).chain(FOOTER_PRUNED).chain([&CORNER]) {
             assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
         }
     }

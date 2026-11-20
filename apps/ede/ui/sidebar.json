@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new; the switcher keeps Local desktops), the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json; ide_prs = #EXP-1616's Pull requests tree of the team's Exponential repositories, a List{divided:false} like the other sections, the IDE fills with Rows {depth, identifier #n, title, subtitle head → base} from /shell/ide/prs (a Row's depth never binds: the tree guides are computed from its siblings), a press opening the repo's page; it hides while /shell/ide/prs is empty), and the corner: the person's Assistant with the Exponential mark, the Computer button (Terminal, Files, Source control, Version history, the trunk's failure badge) and Settings, #EXP-1741); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds /shell/ide, and the IDE prunes `chats`. #EXP-2027 (domain-contract sidebar-tree.json, ide-sidebar.json): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + = ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind: device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and ONE reorderable List (ide_tree_list over /shell/ide/tree, maxDepth 3, key id, its move = ide_move with the List's {id, before|after|into} as payload) holding every team's rows and, after them, the Active band (its label row `active-head` and one row per running chat, key `active:<root>`, so an Active row drags INTO a team: sidebarDropSession; every row carries `team`): the team Row (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind: item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from sidebar (ide_session {team, id} with {value: remove}). An Active row (kind active) opens its chat (ide_open {kind: active, id: its root}) and wears its team's mark. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new; the switcher keeps Local desktops), the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json; ide_prs = #EXP-1616's Pull requests tree of the team's Exponential repositories, a List{divided:false} like the other sections, the IDE fills with Rows {depth, identifier #n, title, subtitle head → base} from /shell/ide/prs (a Row's depth never binds: the tree guides are computed from its siblings), a press opening the repo's page; it hides while /shell/ide/prs is empty), and the corner, the IDE's footer at the sidebar's bottom under the scrolling rows: the member's account (the avatar `/shell/ide/me`, the first name `/shell/ide/meName`, the switcher chevron; its Menu = web's account menu: What's new, About, Sign out = ide_account {value}), the Computer button (Terminal, Files, Source control, Version history, the trunk's failure badge) and Settings (the personal settings, settings-nav.json `desktopNavs.personal`), #EXP-1741; the IDE mounts the corner on its own below its Getting started entry); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds /shell/ide, and the IDE prunes `chats`. #EXP-2027 (domain-contract sidebar-tree.json, ide-sidebar.json): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + = ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind: device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and ONE reorderable List (ide_tree_list over /shell/ide/tree, maxDepth 3, key id, its move = ide_move with the List's {id, before|after|into} as payload) holding every team's rows and, after them, the Active band (its label row `active-head` and one row per running chat, key `active:<root>`, so an Active row drags INTO a team: sidebarDropSession; every row carries `team`): the team Row (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind: item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from sidebar (ide_session {team, id} with {value: remove}). An Active row (kind active) opens its chat (ide_open {kind: active, id: its root}) and wears its team's mark. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -2810,11 +2810,114 @@
                 },
                 "children": [
                   {
-                    "id": "corner_spacer",
-                    "component": "Box",
+                    "id": "ide_account",
+                    "component": "Menu",
+                    "props": {
+                      "side": "top",
+                      "align": "start",
+                      "items": [
+                        {
+                          "label": "What's new",
+                          "value": "whats_new",
+                          "icon": "nav-changelog"
+                        },
+                        {
+                          "label": "About",
+                          "value": "about",
+                          "icon": "settings-about"
+                        },
+                        {
+                          "kind": "separator"
+                        },
+                        {
+                          "label": "Sign out",
+                          "value": "sign_out",
+                          "icon": "nav-sign-out"
+                        }
+                      ]
+                    },
+                    "on": {
+                      "select": {
+                        "event": {
+                          "name": "ide_account",
+                          "context": {}
+                        }
+                      }
+                    },
                     "style": {
-                      "flexGrow": 1
-                    }
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "children": [
+                      {
+                        "id": "ide_account_trigger",
+                        "component": "Box",
+                        "props": {
+                          "pressable": true
+                        },
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm",
+                          "height": 36,
+                          "paddingLeft": "$spacing.xs",
+                          "paddingRight": "$spacing.xs",
+                          "borderRadius": "$radius.md",
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "children": [
+                          {
+                            "id": "ide_account_avatar",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "/shell/ide/me"
+                              }
+                            },
+                            "style": {
+                              "width": 24,
+                              "height": 24
+                            },
+                            "visible": {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "/shell/ide/me"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          },
+                          {
+                            "id": "ide_account_name",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "@path": "/shell/ide/meName"
+                              },
+                              "variant": "body",
+                              "lines": 1
+                            },
+                            "style": {
+                              "flexGrow": 1,
+                              "minWidth": 0
+                            }
+                          },
+                          {
+                            "id": "ide_account_chevron",
+                            "component": "Icon",
+                            "props": {
+                              "name": "nav-team-switcher",
+                              "size": "sm",
+                              "tone": "neutral"
+                            }
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "id": "ide_computer",
