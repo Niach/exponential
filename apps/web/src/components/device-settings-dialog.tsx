@@ -24,7 +24,6 @@ import { contract } from "@exp/domain-contract"
 import {
   WORK_SCREEN_COPY,
   WORK_SCREEN_TEST_IDS,
-  workScreenOptions,
   workScreenPickedId,
   workScreenPickerKey,
 } from "@exp/domain-contract/work-screen"
@@ -78,6 +77,7 @@ import {
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { RunnerSection } from "@/components/ci/runner-section"
+import { workScreenPickerItems } from "@/lib/work-screen-picker"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
@@ -720,14 +720,9 @@ export function DeviceSettingsBody({
   }
   // NEW-59: the work screen rides the same save. Picker values are the
   // contract's keys (#FEED-164: Auto's key, else `id:` + the display's
-  // stable id); the stored value stays the bare id (#FEED-161).
-  const workScreenItems = workScreenOptions(
-    row?.doctor?.displays,
-    computerUseDisplayId
-  ).map((option) => ({
-    value: workScreenPickerKey(option.value),
-    label: option.label,
-  }))
+  // stable id); the stored value stays the bare id (#FEED-161). #EXP-1514:
+  // the agent space options follow the doctor's `agent_space` row.
+  const workScreenItems = workScreenPickerItems(row?.doctor, computerUseDisplayId)
   const pickWorkScreen = (value: string) => {
     setComputerUseDisplayId(workScreenPickedId(value))
     scheduleDefaults()
