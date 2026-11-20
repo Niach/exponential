@@ -511,12 +511,12 @@ fn login_row(ix: usize, login: &AgentProfileUsageRow, target: LoginTarget, cx: &
                     .pointer_menu(move |menu, _window, cx| {
                         let mut menu = menu;
                         for (action, handler) in handlers.iter().cloned() {
-                            let item = if action.destructive() {
+                            menu = menu.item((if action.destructive() {
                                 crate::controls::danger_menu_item(action.label(), Icon::new(action.icon()), cx)
                             } else {
                                 crate::controls::pointer_label_item(action.label(), false).icon(Icon::new(action.icon()))
-                            };
-                            menu = menu.item(item.on_click(move |_: &gpui::ClickEvent, window, cx| {
+                            })
+                            .on_click(move |_: &gpui::ClickEvent, window, cx| {
                                 if let Some(handler) = handler.as_ref() {
                                     handler(window, cx);
                                 }
