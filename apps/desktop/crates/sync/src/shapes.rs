@@ -1,4 +1,4 @@
-//! The 38 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 37 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -88,13 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 38 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// The 37 shapes, in §5.9 order (#EXP-778's `pins` left with #EXP-2027; #EXP-1656 appended `skills`; #FEED-219
 /// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
 /// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 38] = [
+pub const SHAPES: [ShapeSpec; 37] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -767,31 +767,9 @@ pub const SHAPES: [ShapeSpec; 38] = [
         pk: PkKind::Id,
     },
     ShapeSpec {
-        name: "pins",
-        path: "/api/shapes/pins",
-        // EXP-778: personal pins (issue | session; NEW-8: `action_id` and
-        // the legacy `action` kind are never read), a static
-        // per-user shape (`user_id = me`) that is NOT team/trash scoped —
-        // the rail filters to the active team and hides any row whose
-        // target no longer resolves in the other collections. Byte-matches
-        // the proxy's allowlist (apps/web routes/api/shapes/pins.ts).
-        columns: &[
-            "id",
-            "user_id",
-            "team_id",
-            "kind",
-            "issue_id",
-            "session_id",
-            "sort_order",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
         name: "issue_drafts",
         path: "/api/shapes/issue-drafts",
-        // EXP-878: the caller's unfiled create-issue dialogs. Like `pins` a
+        // EXP-878: the caller's unfiled create-issue dialogs. A
         // STATIC per-user shape (`user_id = me`), neither team- nor
         // trash-scoped: a row renders only once its board resolves from the
         // boards collection (which already carries membership + trash).
@@ -836,7 +814,7 @@ pub const SHAPES: [ShapeSpec; 38] = [
         path: "/api/shapes/session-reads",
         // EXP-1323: the caller's read marks of sessions (`sessions.markRead`),
         // the Chats list's bold rows + nav dot. Static per user like
-        // `pins`. Byte-matches the proxy's allowlist (apps/web
+        // `issue_drafts`. Byte-matches the proxy's allowlist (apps/web
         // routes/api/shapes/session-reads.ts).
         // #EXP-1388: `archived_at` = the viewer's per-chat archive.
         // Still in the shape for old clients (#FEED-191); a later migration
@@ -1040,7 +1018,7 @@ pub const SHAPES: [ShapeSpec; 38] = [
         path: "/api/shapes/sidebar-layout",
         // #EXP-1832: the member's own sidebar folders + the order of their
         // boards, agents and apps (sidebar-folders.json). A STATIC per-user
-        // shape (`user_id = me`) like `pins`, neither team- nor trash-scoped:
+        // shape (`user_id = me`) like `issue_drafts`, neither team- nor trash-scoped:
         // a row only places a target the other shapes already resolve.
         // Byte-matches the proxy's SIDEBAR_LAYOUT_COLUMNS (apps/web
         // routes/api/shapes/sidebar-layout.ts); an older server 404s it
@@ -1075,8 +1053,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_38_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 38);
+    fn registry_has_37_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 37);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1455,18 +1433,6 @@ mod tests {
     }
 
     #[test]
-    fn pins_model_every_target_column() {
-        // EXP-778: the target id `kind` names is set per row; the rail
-        // resolves it. Dropping one silently hides that pin kind. NEW-8: the
-        // legacy `action_id` is never read.
-        let spec = shape_by_name("pins").unwrap();
-        for column in ["user_id", "team_id", "kind", "issue_id", "session_id", "sort_order"] {
-            assert!(spec.columns.contains(&column), "pins needs {column}");
-        }
-        assert!(!spec.columns.contains(&"action_id"));
-    }
-
-    #[test]
     fn issue_drafts_model_every_composed_field() {
         // EXP-878: the create dialog restores itself from these columns —
         // dropping one silently reopens a draft with that field blank.
@@ -1486,7 +1452,7 @@ mod tests {
         ] {
             assert!(spec.columns.contains(&column), "issue_drafts needs {column}");
         }
-        // A static per-user shape like `pins`: no board-trash mirror to
+        // A static per-user shape: no board-trash mirror to
         // filter on (the board join does that job client-side).
         assert!(!spec.columns.contains(&"board_deleted_at"));
     }

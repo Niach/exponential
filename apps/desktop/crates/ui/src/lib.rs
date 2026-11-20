@@ -176,7 +176,6 @@ pub mod talk_host;
 mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;
-mod pins;
 mod plan_card;
 mod plan_page;
 // #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).

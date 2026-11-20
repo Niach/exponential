@@ -1,5 +1,5 @@
 {
-  "id": "4080bd87-6d01-4b17-9567-930d23236cb1",
+  "id": "82be8895-c376-4197-a5db-de499052ffd0",
   "prevId": "4bea749d-49bf-41e9-a9eb-46636e6f6563",
   "version": "7",
   "dialect": "postgresql",
@@ -10456,241 +10456,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.pins": {
-      "name": "pins",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "pin_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uniq_pins_user_issue": {
-          "name": "uniq_pins_user_issue",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "issue_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "uniq_pins_user_session": {
-          "name": "uniq_pins_user_session",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "session_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_pins_user": {
-          "name": "idx_pins_user",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_pins_team": {
-          "name": "idx_pins_team",
-          "columns": [
-            {
-              "expression": "team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_pins_issue": {
-          "name": "idx_pins_issue",
-          "columns": [
-            {
-              "expression": "issue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_pins_session": {
-          "name": "idx_pins_session",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "pins_user_id_users_id_fk": {
-          "name": "pins_user_id_users_id_fk",
-          "tableFrom": "pins",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pins_team_id_teams_id_fk": {
-          "name": "pins_team_id_teams_id_fk",
-          "tableFrom": "pins",
-          "tableTo": "teams",
-          "columnsFrom": [
-            "team_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pins_issue_id_issues_id_fk": {
-          "name": "pins_issue_id_issues_id_fk",
-          "tableFrom": "pins",
-          "tableTo": "issues",
-          "columnsFrom": [
-            "issue_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pins_session_id_sessions_id_fk": {
-          "name": "pins_session_id_sessions_id_fk",
-          "tableFrom": "pins",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "pins_kind_target_check": {
-          "name": "pins_kind_target_check",
-          "value": "(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL) OR (kind = 'session' AND session_id IS NOT NULL AND issue_id IS NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.prompts": {
       "name": "prompts",
       "schema": "",
@@ -13472,7 +13237,7 @@
       "checkConstraints": {
         "sidebar_layout_section_check": {
           "name": "sidebar_layout_section_check",
-          "value": "section IN ('team', 'board', 'agent', 'app')"
+          "value": "section IN ('board', 'agent', 'app')"
         },
         "sidebar_layout_kind_check": {
           "name": "sidebar_layout_kind_check",
@@ -17504,14 +17269,6 @@
         "agent_message",
         "session_blocked",
         "agent_signed_out"
-      ]
-    },
-    "public.pin_kind": {
-      "name": "pin_kind",
-      "schema": "public",
-      "values": [
-        "issue",
-        "session"
       ]
     },
     "public.pr_check_conclusion": {

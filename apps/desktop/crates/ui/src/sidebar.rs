@@ -12,7 +12,7 @@
 //!   EXP-863). Middle (scrolling): the tool-window
 //!   selectors — **Agent / Needs you / Chats / Devices / Drafts**
 //!   (EXP-1192: Agent first, the landing page; EXP-1294: Chats replaced
-//!   Reviews), Pinned, the team's **Agents** (EXP-1294), its boards, the
+//!   Reviews), the team's **Agents** (EXP-1294), its boards, the
 //!   **Running** section (my live chats, hidden while empty), then
 //!   **This device**: **Files / Source Control** (Source Control carries an
 //!   amber badge while the trunk needs attention — a paused conflict, local
@@ -760,9 +760,6 @@ impl RailView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The Inbox dot is a live read over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
-            // EXP-778: the Pinned section's rows (issues are observed
-            // below).
-            cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
             // #EXP-1616: the Pull requests tree.

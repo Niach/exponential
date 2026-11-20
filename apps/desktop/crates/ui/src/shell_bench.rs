@@ -322,9 +322,6 @@ fn seeded(cx: &mut gpui::App) {
     seed(&c.issues, json!([
         {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo"}
     ]), cx);
-    seed(&c.pins, json!([
-        {"id": "p1", "team_id": "t1", "kind": "issue", "issue_id": "i1", "sort_order": 1}
-    ]), cx);
 }
 
 fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::WindowHandle<RailView> {

@@ -36,6 +36,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu.`,
   },
   {
+    id: `2026-11-20-pins-removed`,
+    date: `2026-11-20`,
+    title: `Pins are gone`,
+    summary: `The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.`,
+    body: `- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
+- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
+- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats.`,
+  },
+  {
     id: `2026-11-20-assistant-skills-mcp-per-team`,
     date: `2026-11-20`,
     title: `Your Assistant's skills and MCP servers, per team`,

@@ -319,6 +319,7 @@ impl Ede {
     /// kills what outlived its space by [`TERM_GRACE`].
     pub(crate) fn space_launches_tick(&mut self) {
         self.space_slices_tick();
+        self.write_space_guard_state();
         self.spaces.launches.retain_mut(|launch| {
             if launch.closed.is_some_and(|at| at.elapsed() > TERM_GRACE) && !std::mem::replace(&mut launch.killed, true) {
                 launch.signal(Signal::KILL);

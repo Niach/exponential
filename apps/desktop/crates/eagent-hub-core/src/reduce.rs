@@ -717,8 +717,38 @@ struct SendData {
     fresh_id: Option<String>,
     /// #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams).
     team_id: Option<String>,
-    /// #EXP-1720: the Assistant's teams for this turn (a message to its conversation root): the root's new scope.
+    /// #EXP-1720/#EXP-2027: a Teams pick: the root's new scope (a message to the Assistant's conversation or a plain
+    /// chat's root, or a new plain chat's start).
     scope_team_ids: Option<Vec<String>>,
+}
+
+/// #EXP-2027: a Teams pick lands on a ROOT whose tree has no team agent (the Assistant's conversation, a plain chat or
+/// one the Assistant started), else refused (copy.scopeNotPickable); a calling session picks only teams its own tree
+/// works in (copy.teamOutOfScope). Stored deduplicated, the root's own team dropped.
+fn apply_teams_pick(ctx: &mut Ctx, root_id: &str, picked: &[String], caller: Option<&HubSession>) -> Step<()> {
+    let root = session(&ctx.state, Some(root_id))?;
+    let team_agent = tree_agent_id(&root)
+        .is_some_and(|id| ctx.state.agents.get(&id).is_none_or(|agent| agent.role != AgentRole::Assistant));
+    if root.parent_id.is_some() || team_agent {
+        return refuse(ErrorCode::Invalid, text(&["scopeNotPickable"]));
+    }
+    if let Some(caller) = caller {
+        let allowed = tree_teams(&ctx.state, caller);
+        if picked.iter().any(|team| *team != root.team_id && !allowed.contains(team)) {
+            return refuse(ErrorCode::Forbidden, text(&["teamOutOfScope"]));
+        }
+    }
+    let mut teams: Vec<String> = vec![];
+    for team in picked {
+        if *team != root.team_id && !teams.contains(team) {
+            teams.push(team.clone());
+        }
+    }
+    let now = ctx.now;
+    let row = ctx.row_mut(&root.id);
+    row.scope_team_ids = Some(teams);
+    row.updated_at = now;
+    Ok(())
 }
 
 /// #EXP-1720: the team a new session of a tree starts in: the named one when the tree works there, else refused.
@@ -754,9 +784,10 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
         return refuse(ErrorCode::Invalid, text(&["startNeedsWork"]));
     }
     let id = data.id.clone().or_else(|| data.fresh_id.clone()).unwrap_or_default();
+    // #EXP-2027: every calling session starts roots in its own tree's teams.
     let team_id = match caller {
-        Some(c) if caller_tree_agent(&ctx.state, Some(c)).is_some() => start_team(&ctx.state, Some(c), data.team_id.as_ref(), &c.team_id)?,
-        _ => data.team_id.clone().or_else(|| caller.map(|c| c.team_id.clone())).unwrap_or_else(|| default_session("teamId")),
+        Some(c) => start_team(&ctx.state, Some(c), data.team_id.as_ref(), &c.team_id)?,
+        None => data.team_id.clone().unwrap_or_else(|| default_session("teamId")),
     };
     let root = insert_session(
         ctx,
@@ -779,6 +810,9 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
             row.seal_epoch = Some(1);
         }
     }
+    if let Some(picked) = &data.scope_team_ids {
+        apply_teams_pick(ctx, &root.id, picked, caller)?;
+    }
     let message_id = post_send(ctx, &root.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller)?;
     if let Some(caller) = caller {
         watch_sessions(ctx, &caller.id, std::slice::from_ref(&root.id));
@@ -791,6 +825,9 @@ fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> S
     let parent = session(&ctx.state, data.parent_id.as_deref())?;
     if is_subagent(&parent) {
         return refuse(ErrorCode::Invalid, text(&["subagentNoChildren"]));
+    }
+    if data.scope_team_ids.is_some() {
+        return refuse(ErrorCode::Invalid, text(&["scopeNotPickable"]));
     }
     assert_tree_room(&ctx.state, &parent.root_id, parent.depth + 1)?;
     let root = session(&ctx.state, Some(&parent.root_id))?;
@@ -873,23 +910,10 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         };
         return Ok(StepResult { warning: Some(warning), ..out });
     }
-    if let Some(scope) = &data.scope_team_ids {
-        // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
-        let assistant = target.agent_id.as_ref().and_then(|id| ctx.state.agents.get(id)).is_some_and(|a| a.role == AgentRole::Assistant);
-        if target.parent_id.is_some() || !assistant {
-            return refuse(ErrorCode::Invalid, text(&["scopeAssistantOnly"]));
-        }
-        let mut teams: Vec<String> = vec![];
-        for team in scope {
-            if *team != target.team_id && !teams.contains(team) {
-                teams.push(team.clone());
-            }
-        }
-        let now = ctx.now;
-        let row = ctx.row_mut(&target.id);
-        row.scope_team_ids = Some(teams);
-        row.updated_at = now;
-        target = row.clone();
+    if let Some(picked) = &data.scope_team_ids {
+        // #EXP-1720/#EXP-2027: a Teams pick becomes the root's scope (the Assistant's conversation or a plain chat).
+        apply_teams_pick(ctx, &target.id, picked, caller)?;
+        target = session(&ctx.state, Some(&target.id))?;
     }
     if let Some(caller) = caller {
         if let Some(fresh) = agent_fresh_session(ctx, data, caller, &target)? {

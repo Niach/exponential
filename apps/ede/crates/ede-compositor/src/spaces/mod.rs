@@ -92,14 +92,11 @@ pub struct Spaces {
     pub expiry_grace: u32,
     /// #EDE-146..148: the space guard, as this session decided ([`guard`]).
     pub guard: guard::GuardState,
-    /// Whether the session found its user manager, for the guard's probe
-    /// thread when it writes the state file.
-    pub(crate) guard_units: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default(), guard_units: Default::default() }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default() }
     }
 }
 

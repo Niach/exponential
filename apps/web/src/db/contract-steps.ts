@@ -52,6 +52,13 @@ export const CONTRACT_STEPS: ContractStep[] = [
     drops: [{ table: `pull_requests`, column: `github_updated_at` }],
     sql: `ALTER TABLE "pull_requests" DROP COLUMN IF EXISTS "github_updated_at"`,
   },
+  // #EXP-2027: the Pins feature (EXP-778) is gone; /api/shapes/pins answers
+  // an empty sentinel on `teams`, so nothing reads the table any more.
+  {
+    id: `0289_drop_pins`,
+    drops: [{ table: `pins` }],
+    sql: `DROP TABLE IF EXISTS "pins" CASCADE; DROP TYPE IF EXISTS "public"."pin_kind"`,
+  },
 ]
 
 // A statement that breaks the release still serving during a rollout.

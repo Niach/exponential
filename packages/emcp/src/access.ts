@@ -116,3 +116,27 @@ export function assistantScope(input: AssistantScopeInput): string[] {
   const teams = input.memberTeamIds.filter((id) => picked === null || picked.has(id))
   return [...new Set([input.personalTeamId, ...teams])]
 }
+
+/** #EXP-2027: what a tree's ROOT is: the Assistant's conversation, a team
+ *  agent's tree, or a plain chat (no acting agent, or the Assistant's). */
+export type TreeRootKind = `assistant` | `agent` | `chat`
+
+export interface TreeScopeInput {
+  root: TreeRootKind
+  /** The root's own team (the Assistant's: the personal team). */
+  ownTeamId: string
+  /** The teams the member belongs to now, in their order. */
+  memberTeamIds: readonly string[]
+  /** The root's stored Teams pick (`sessions.scope_team_ids`). */
+  pickedTeamIds: readonly string[] | null
+}
+
+/** #EXP-2027 (access.json `treeScope`): the teams a tree may touch: the
+ *  Assistant's = `assistantScope` (null = all); a team agent's = its own
+ *  team; a chat's = its own team, then its pick ∩ the member's (null =
+ *  none picked). */
+export function treeScope(input: TreeScopeInput): string[] {
+  if (input.root === `agent`) return [input.ownTeamId]
+  const picked = input.root === `chat` ? (input.pickedTeamIds ?? []) : input.pickedTeamIds
+  return assistantScope({ personalTeamId: input.ownTeamId, memberTeamIds: input.memberTeamIds, pickedTeamIds: picked })
+}
