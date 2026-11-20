@@ -190,7 +190,7 @@
     "mcp": "the team has at least one MCP server",
     "mcpPick": "the MCP servers pick can change here (#EXP-1793): launch while temporary; an agent chat, always (its conversation's pick, seeded from `sessions.mcpPicks`, else the agent's `mcpServerIds`; a pick rides the next send as `mcpServerIds`)",
     "skills": "the team has at least one skill (skills.json `menuRow`)",
-    "computerUse": "the picked device can take the pick and computer use runs there (#EXP-1899, `computerUse.offered`): it advertises the `computerUse.cap` capability AND its doctor's computer_use row is `ok` or `action` (the switch is on and it can drive a screen; `action` = an OS permission still missing); a device with no doctor: its launch_defaults.computerUse is true. Switch off (`off`) or cannot drive (`missing`) = no row.",
+    "computerUse": "the picked device can take the pick and computer use runs there (#EXP-1899, `computerUse.offered`): it advertises the `computerUse.cap` capability AND its doctor's computer_use row is `ok` or `action` (the switch is on and it can drive a screen; `action` = an OS permission still missing); a device with no doctor: its launch_defaults.computerUse is true. Switch off (`off`) or cannot drive (`missing`) = no row. #EXP-1514: a device whose Work screen is Agent space only and that offers no space reports the row `missing` (device-doctor.json BLOCKED PICK), so the toggle is not offered there.",
     "prompts": "the team has at least one prompt (the `/` menu lists it)",
     "assistant": "the message goes to the viewer's Assistant (launch: the agent row picks it; agent: its chat)",
     "teams": "the viewer belongs to more than one team"
@@ -218,7 +218,8 @@
       { "name": "switch on, a Wayland session", "caps": ["computer-use-run"], "doctorState": "missing", "launchDefault": true, "offered": false },
       { "name": "an older build without the cap", "caps": [], "doctorState": "ok", "launchDefault": true, "offered": false },
       { "name": "no doctor, switch on", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": true, "offered": true },
-      { "name": "no doctor, switch off", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": false, "offered": false }
+      { "name": "no doctor, switch off", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": false, "offered": false },
+      { "name": "#EXP-1514: switch on, the Work screen is Agent space only and no space is offered", "caps": ["computer-use-run"], "doctorState": "missing", "launchDefault": true, "offered": false }
     ]
   },
   "cases": [
