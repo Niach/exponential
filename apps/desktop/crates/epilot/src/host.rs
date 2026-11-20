@@ -756,6 +756,9 @@ mod tests {
         fn key(&self, key: crate::keys::Key, down: bool) -> Result<(), String> {
             self.inner.key(key, down)
         }
+        fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+            self.inner.char_stroke(ch, down)
+        }
         fn type_char(&self, ch: char) -> Result<(), String> {
             if let Some(hook) = &self.on_type {
                 hook();
