@@ -1045,8 +1045,10 @@ impl Render for RailView {
         let moved = self.derived.as_ref().is_none_or(|derived| (&derived.screen, &derived.team, &derived.board, &derived.account) != (&inputs.screen, &inputs.team, &inputs.board, &inputs.account));
         let stale = self.derived.as_ref() != Some(&inputs) && (moved || self.derive_cycle.ready(cx, |rail| &mut rail.derive_cycle));
         let started = std::time::Instant::now();
+        let me = crate::shell_regions::account_face(cx);
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
+            region.set_me(me, cx);
             if stale {
                 let _span = tracing::trace_span!("rail.derive").entered();
                 region.refresh(&nav, cx);
@@ -1067,6 +1069,7 @@ impl Render for RailView {
 
         // #NEW-97: no tray host = the voice button beside the Computer one.
         let voice_entry = self.rail_voice_entry(cx);
+        let footer = self.region.read(cx).footer();
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -1121,13 +1124,16 @@ impl Render for RailView {
                         }
                     }),
             )
-            // #EXP-1723: the start and chat buttons are the document's corner;
-            // what stays under them is what still needs a person: the
-            // Getting-started entry, the sync spinner, the voice button.
+            // Under the scrolling rows, what still needs a person (the
+            // Getting-started entry, the sync spinner, the voice button), then
+            // the footer at the very bottom: the document's corner (the
+            // account, the Computer button and the personal settings gear),
+            // mounted on its own so a long tree scrolls above it.
             .map(|column| {
                 column.child(
                     v_flex()
                         .w_full()
+                        .flex_shrink_0()
                         .px_2()
                         .gap_1()
                         .children(getting_started_icon)
@@ -1135,6 +1141,7 @@ impl Render for RailView {
                         .children(voice_entry),
                 )
             })
+            .child(div().w_full().flex_shrink_0().child(footer))
             .into_any_element()
     }
 }
