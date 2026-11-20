@@ -33,14 +33,36 @@ use smithay::reexports::rustix::process::{kill_process_group, set_parent_process
 use super::Spaces;
 use crate::{desk::DeskId, state::Ede};
 
-/// What all spaces together may have running.
+/// What all spaces together may have running where launches do not run in
+/// systemd scopes; where they do, one space may have `[spaces] launches`
+/// (#EDE-138).
 pub const MAX_LAUNCHED: usize = 32;
 /// After a space closed its processes get this long to end by themselves.
 const TERM_GRACE: Duration = Duration::from_secs(2);
-/// The person's session: dropped from a launch's environment.
+/// The person's session: never in a launch's environment, and refused in a
+/// caller's `env`.
 const DROPPED: [&str; 6] = ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN"];
 /// The compositor's to set: with [`DROPPED`], refused in a caller's `env`.
-const SET: [&str; 2] = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"];
+const SET: [&str; 5] = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME"];
+/// What a launch takes of the compositor's environment (#EDE-138): who
+/// the person is, their language, where programs and their files are, the
+/// desktop's name and the toolkits' hints. NOTHING else: no agent's socket
+/// (`SSH_AUTH_SOCK`, `GPG_AGENT_INFO`, a keyring's), no terminal
+/// multiplexer of the person's (`TMUX`, `STY`), no service manager's
+/// (`NOTIFY_SOCKET`), no container engine's (`DOCKER_HOST`), whatever the
+/// login put there.
+const KEPT: [&str; 26] = [
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ",
+    "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS", "XDG_MENU_PREFIX",
+    "MOZ_ENABLE_WAYLAND", "QT_QPA_PLATFORM", "QT_QPA_PLATFORMTHEME", "QT_WAYLAND_DISABLE_WINDOWDECORATION", "ELECTRON_OZONE_PLATFORM_HINT", "_JAVA_AWT_WM_NONREPARENTING", "GDK_BACKEND", "SDL_VIDEODRIVER",
+    "XCURSOR_THEME", "XCURSOR_SIZE", "XCURSOR_PATH", "GTK_THEME",
+];
+
+/// Whether the compositor's variable `name` goes into a launch: [`KEPT`],
+/// and the locale's `LC_*`.
+fn kept(name: &str) -> bool {
+    KEPT.contains(&name) || name.starts_with("LC_")
+}
 /// A profile: where an app keeps its settings, caches, data and state.
 const PROFILE: [(&str, &str); 4] = [("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"), ("XDG_DATA_HOME", "data"), ("XDG_STATE_HOME", "state")];
 
@@ -84,12 +106,6 @@ impl Launch {
     }
 }
 
-/// A space's home: `home` in its own directory, so it goes the way that
-/// directory goes at the close (tried again while something of a dying
-/// process is still mounted or written in it).
-pub(crate) fn home_of(dir: &Path) -> PathBuf {
-    dir.join("home")
-}
 
 /// The caller's variables for a launch in a scope, as its standard input:
 /// a JSON object in a file of the space's directory that has no name any
@@ -195,13 +211,25 @@ impl Ede {
                 (cmd, None)
             }
         };
-        for name in DROPPED {
-            cmd.env_remove(name);
+        // An allowlist, not the compositor's environment minus a list:
+        // what the login put there (a tmux server, an ssh agent) stays out.
+        cmd.env_clear();
+        for (name, value) in std::env::vars_os() {
+            if name.to_str().is_some_and(kept) {
+                cmd.env(name, value);
+            }
         }
-        cmd.env("WAYLAND_DISPLAY", space.socket()).env("XDG_RUNTIME_DIR", &space.dir);
+        // The space's own: its socket and runtime directory, a tmux server
+        // and screen sessions of its own (else an agent's `tmux` opens a
+        // window in the PERSON's server, outside the space).
+        let screens = space.dir.join("screen");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&screens).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's directory: {e}")))?;
+        cmd.env("WAYLAND_DISPLAY", space.socket()).env("XDG_RUNTIME_DIR", &space.dir).env("TMUX_TMPDIR", &space.dir).env("SCREENDIR", screens);
         if profile == Profile::Space {
-            let home = home_of(&space.dir);
-            for (var, sub) in PROFILE {
+            let home = self.spaces.home_of(space);
+            // gpg finds the PERSON's agent and keys by `HOME` otherwise: a
+            // signed commit in a space would sign with their key.
+            for (var, sub) in PROFILE.into_iter().chain([("GNUPGHOME", "gnupg")]) {
                 let dir = home.join(sub);
                 std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's home: {e}")))?;
                 cmd.env(var, dir);
@@ -224,8 +252,12 @@ impl Ede {
     pub(crate) fn space_launch(&mut self, desk: DeskId, argv: Vec<String>, env: BTreeMap<String, String>, cwd: Option<String>) -> Result<Launched, Failure> {
         let mut cmd = self.space_command(desk, &argv, &env, cwd.as_deref(), self.launch_profile(desk))?;
         self.space_launches_tick();
-        if self.spaces.launches.len() >= MAX_LAUNCHED {
-            return Err(Failure::new(ErrorCode::Limit, &format!("{MAX_LAUNCHED} launched processes at most")));
+        match &self.spaces.units {
+            None if self.spaces.launches.len() >= MAX_LAUNCHED => return Err(Failure::new(ErrorCode::Limit, &format!("{MAX_LAUNCHED} launched processes at most"))),
+            Some(_) if self.spaces.launches.iter().filter(|launch| launch.desk == desk).count() >= self.config.spaces.launches as usize => {
+                return Err(Failure::new(ErrorCode::Limit, &format!("{} launched processes in this space at most", self.config.spaces.launches)));
+            }
+            _ => {}
         }
         let child = cmd.spawn().map_err(|e| Failure::new(if e.kind() == std::io::ErrorKind::NotFound { ErrorCode::NotFound } else { ErrorCode::Unavailable }, &format!("{}: {e}", argv[0])))?;
         let pid = child.id();

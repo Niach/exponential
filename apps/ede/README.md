@@ -800,6 +800,33 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   'app-exponential_p*.slice'` shows them. The CPU limit is a quota: the
   person's apps are in a sibling of the whole user manager, so a weight
   inside it could not keep spaces below half of a busy machine.
+- **How many, and the memory they share.** `[spaces] max` spaces at once
+  (unset: one per GiB of what all spaces may use: 8 GB of RAM = 4, 16 GB =
+  8, 64 GB = 31, at most 32), `[spaces] launches` programs each (32). The
+  spaces SHARE their memory: one may take up to its 30 % while the others
+  are still, so together they are promised more than the 50 % they have.
+  The fence is room: a new space is made only while what the spaces hold
+  (anonymous and shared memory of their slice) plus one still space (1 GiB:
+  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`;
+  else `create_space` answers `limit`, `no memory for another space: …`.
+  At `MemoryHigh` every space is slowed until memory is freed; at
+  `MemoryMax` the kernel ends programs inside the spaces, the biggest
+  first, never the person's. The log and the doctor's line say the
+  numbers. Without a user manager: 4 spaces and 32 launches in all, as
+  before.
+- **Homes on disk.** A launch's `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
+  `XDG_DATA_HOME`, `XDG_STATE_HOME` and `GNUPGHOME` are in
+  `$XDG_CACHE_HOME/exponential-desktop/spaces/p<compositor pid>/space-<n>/`
+  (a cache: no backup wants an agent's browser profile), removed at the
+  close; the next compositor's start removes what a gone one left. Only
+  sockets and the bus are in the runtime directory, a tmpfs the person's
+  session shares.
+- **The environment is an allowlist**: of the compositor's, a launch gets
+  who the person is, the language, `PATH`, the desktop's name and the
+  toolkits' hints, nothing else (no `SSH_AUTH_SOCK`, `TMUX`, `STY`,
+  `NOTIFY_SOCKET`, `DOCKER_HOST`, keyring or gpg-agent variables). It gets
+  a tmux server (`TMUX_TMPDIR`) and screen sessions (`SCREENDIR`) of the
+  space's own: an agent's `tmux` never opens in the person's server.
 - **The close ends everything.** The space's slice is stopped (SIGTERM,
   SIGKILL two seconds later), then the kernel ends what is left in its
   cgroup (`cgroup.kill`): a process that started a session of its own, a
@@ -869,6 +896,8 @@ lock_after = 600      # seconds without input; 0 = never
 app_ids = ["org.example.Bank"]   # on top of the built-in list
 
 [spaces]              # what agent spaces may take of this machine (#EDE-138); the defaults:
+# max = 8             # spaces at once; unset = one per GiB of memory_max (rounded), at most 32
+launches = 32         # programs one space may have launched at once
 cpu_quota = 50        # percent of all cores, for all spaces together
 memory_max = 50       # percent of the memory, for all spaces together
 space_memory_max = 30 # percent of the memory for one space (at least 2 GiB, never more than memory_max)

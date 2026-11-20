@@ -19,7 +19,7 @@ use ede_compositor::{
     backend::headless::Harness,
     spaces::slice::{Machine, Units},
 };
-use ede_protocol::{Capability, Client, SessionId, SpaceInfo};
+use ede_protocol::{Capability, Client, SessionId, SpaceId, SpaceInfo};
 
 const GIB: u64 = 1 << 30;
 /// A variable only the launch's caller sets.
@@ -317,6 +317,93 @@ fn a_launch_that_gets_no_scope_does_not_run() {
     other.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("the launch with the user manager back never ran", || out.exists());
     drop(h);
+}
+
+/// #EDE-138: with slices the count of spaces is the person's (or one per
+/// GiB of the spaces' memory: 8 on this 16 GiB stand-in), a new space is
+/// made only while a still one fits under the slice's `MemoryHigh`, and a
+/// space may launch `[spaces] launches` processes. A session's own space
+/// is found again before any of it.
+#[test]
+fn spaces_and_launches_are_counted_and_fenced_by_memory() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let tools = Tools::new(dir.path());
+    let units = tools.units();
+    let all_cgroup = units.all_cgroup();
+    h.with(move |state| {
+        state.config.spaces.launches = 2;
+        state.spaces.units = Some(units);
+    });
+    let mut agents: Vec<(Client, SpaceInfo)> = (1..=8).map(|n| agent(&h, &format!("run-{n}"))).collect();
+    let grant = h.ipc().mint(SessionId::new("run-9").unwrap(), vec![Capability::Space], None).unwrap();
+    let mut ninth = h.ipc_with(grant.token).unwrap();
+    let refused = |reply: Result<SpaceInfo, ede_protocol::Error>| match reply {
+        Err(ede_protocol::Error::Failed(failure)) => (failure.code, failure.message),
+        other => panic!("expected a refusal, got {other:?}"),
+    };
+    assert_eq!(refused(ninth.create_space(320, 240)), (ede_protocol::ErrorCode::Limit, "8 spaces at most".to_string()));
+
+    // Room: the spaces hold so much that one still space no longer fits.
+    agents.pop().unwrap().0.destroy_space(SpaceId::new("space-8").unwrap()).unwrap();
+    std::fs::create_dir_all(&all_cgroup).unwrap();
+    let high = pages(8 * GIB / 10 * 9);
+    std::fs::write(all_cgroup.join("memory.stat"), format!("anon {}\nfile 9999999999\nshmem {}\n", high - GIB, 1 << 20)).unwrap();
+    let (code, message) = refused(ninth.create_space(320, 240));
+    assert_eq!(code, ede_protocol::ErrorCode::Limit);
+    assert_eq!(message, format!("no memory for another space: the agent spaces hold {} MiB of their {} MiB", (high - GIB + (1 << 20)) >> 20, high >> 20));
+    // A session's own space is found again whatever the memory.
+    let (first, first_space) = &mut agents[0];
+    assert_eq!(&first.create_space(320, 240).unwrap(), first_space);
+    std::fs::write(all_cgroup.join("memory.stat"), format!("anon {}\nshmem 0\n", high - GIB)).unwrap();
+    ninth.create_space(320, 240).expect("room again");
+
+    // Two launches in a space, then `limit`; another space launches on.
+    let sleep = || vec!["sleep".to_string(), "60".to_string()];
+    for _ in 0..2 {
+        first.launch(sleep(), Default::default(), None).unwrap();
+    }
+    match first.launch(sleep(), Default::default(), None) {
+        Err(ede_protocol::Error::Failed(failure)) => assert_eq!((failure.code, failure.message.as_str()), (ede_protocol::ErrorCode::Limit, "2 launched processes in this space at most")),
+        other => panic!("a third launch answered {other:?}"),
+    }
+    agents[1].0.launch(sleep(), Default::default(), None).expect("another space launches");
+    drop(h);
+}
+
+/// #EDE-138: a space's home is on disk, beside the other spaces' of its
+/// compositor, and what a compositor that is gone left there goes when the
+/// next one opens the place: a `p<pid>` of a process that is no running
+/// compositor, or of an earlier life of this process id.
+#[test]
+fn the_homes_of_a_gone_compositor_go() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("spaces");
+    let me = std::process::id();
+    let compositor = dir.path().join("exponential-compositor");
+    std::fs::write(&compositor, "#!/bin/sh\nsleep 60\n:\n").unwrap();
+    std::fs::set_permissions(&compositor, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut running = std::process::Command::new(&compositor).spawn().unwrap();
+    until("the stand-in compositor never started", || std::fs::read_to_string(format!("/proc/{}/comm", running.id())).is_ok_and(|comm| comm.trim() == "exponential-com"));
+    let mut other_program = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    for pid in [me, running.id(), other_program.id(), 4_194_999] {
+        std::fs::create_dir_all(root.join(format!("p{pid}/space-1/config"))).unwrap();
+    }
+    std::fs::create_dir_all(root.join("not-a-compositors")).unwrap();
+    let mut spaces = ede_compositor::spaces::Spaces::default();
+    spaces.open_homes(root.clone());
+    let mut left: Vec<String> = std::fs::read_dir(&root).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    left.sort();
+    let mut expected = vec![format!("p{me}"), format!("p{}", running.id()), "not-a-compositors".to_string()];
+    expected.sort();
+    assert_eq!(left, expected, "a running compositor's homes stay, and nothing that is not a compositor's");
+    assert_eq!(std::fs::read_dir(root.join(format!("p{me}"))).unwrap().count(), 0, "an earlier life's homes are gone");
+    assert_eq!(spaces.homes.as_deref(), Some(root.join(format!("p{me}")).as_path()));
+    drop(spaces);
+    assert!(!root.join(format!("p{me}")).exists(), "the compositor's end takes its homes along");
+    for child in [&mut running, &mut other_program] {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 /// What a compositor that is gone left behind: slices of all spaces whose

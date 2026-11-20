@@ -12,7 +12,9 @@ use crate::{
     state::Ede,
 };
 
-/// Every space is a desk with a software renderer behind it.
+/// Every space is a desk with a software renderer behind it. Where launches
+/// run in systemd scopes the person's `[spaces] max` (or the memory) says
+/// how many (#EDE-138, [`super::slice::max_spaces`]); elsewhere this many.
 pub const MAX_SPACES: usize = 4;
 
 fn info(space: &AgentSpace) -> SpaceInfo {
@@ -37,8 +39,13 @@ impl Ede {
         if let Some(space) = self.spaces.iter().find(|s| &s.owner == session) {
             return Ok(info(space));
         }
-        if self.spaces.iter().count() >= MAX_SPACES {
-            return Err(Failure::new(ErrorCode::Limit, &format!("{MAX_SPACES} spaces at most")));
+        let max = self.spaces.units.as_ref().map_or(MAX_SPACES, |units| super::slice::max_spaces(&self.config.spaces, units.machine) as usize);
+        if self.spaces.iter().count() >= max {
+            return Err(Failure::new(ErrorCode::Limit, &format!("{max} spaces at most")));
+        }
+        // The stronger fence: room under the slice's `MemoryHigh`.
+        if let Some(units) = &self.spaces.units {
+            units.room(&self.config.spaces).map_err(|refused| Failure::new(ErrorCode::Limit, &refused))?;
         }
         let desk = self.create_space(session.clone(), width, height)?;
         Ok(info(self.spaces.get(desk).expect("just made")))
