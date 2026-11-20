@@ -399,3 +399,389 @@ fn _agent_windows(h: &Harness, desk: DeskId) -> Vec<(bool, i32, i32)> {
         }).collect()
     })
 }
+
+const UTF8: &str = "text/plain;charset=utf-8";
+
+/// An atom of `conn`'s server.
+fn atom(conn: &impl Connection, name: &str) -> u32 {
+    conn.intern_atom(false, name.as_bytes()).unwrap().reply().unwrap().atom
+}
+
+/// Waits until the X11 window `win` of space `desk` holds the space's keyboard.
+fn wait_for_space_keyboard(h: &Harness, desk: DeskId, win: u32) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| {
+        use smithay::wayland::seat::WaylandFocus;
+        let Some(d) = state.try_desk(desk) else { return false };
+        let surface = d.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).and_then(|w| w.wl_surface().map(|s| s.into_owned()));
+        surface.is_some() && d.seat.get_keyboard().unwrap().current_focus() == surface
+    }) {
+        assert!(Instant::now() < deadline, "the space's X11 window never took the space's keyboard");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The X11 client of `win` pastes CLIPBOARD as UTF8_STRING (retried until
+/// an owner answers); `pump` runs the source's client meanwhile.
+fn x11_paste(conn: &impl Connection, win: u32, pump: &mut dyn FnMut()) -> Vec<u8> {
+    use x11rb::protocol::Event;
+    let (clipboard, utf8, prop) = (atom(conn, "CLIPBOARD"), atom(conn, "UTF8_STRING"), atom(conn, "EDE_TEST"));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "the X11 client never got the selection");
+        conn.convert_selection(win, clipboard, utf8, prop, x11rb::CURRENT_TIME).unwrap();
+        conn.flush().unwrap();
+        let wait = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < wait {
+            match conn.poll_for_event().unwrap() {
+                Some(Event::SelectionNotify(n)) if n.property == prop => return conn.get_property(true, win, prop, AtomEnum::ANY, 0, u32::MAX).unwrap().reply().unwrap().value,
+                Some(Event::SelectionNotify(_)) => break,
+                _ => {
+                    pump();
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Answers the SelectionRequests waiting on `conn`: TARGETS, and
+/// UTF8_STRING with `text` (`None` = never: a hung owner).
+fn serve_x11(conn: &impl Connection, text: Option<&[u8]>) {
+    use x11rb::protocol::{
+        xproto::{SelectionNotifyEvent, SELECTION_NOTIFY_EVENT},
+        Event,
+    };
+    let (targets, utf8) = (atom(conn, "TARGETS"), atom(conn, "UTF8_STRING"));
+    while let Some(event) = conn.poll_for_event().unwrap() {
+        let Event::SelectionRequest(r) = event else { continue };
+        let property = if r.target == targets {
+            conn.change_property32(PropMode::REPLACE, r.requestor, r.property, AtomEnum::ATOM, &[targets, utf8]).unwrap();
+            r.property
+        } else if r.target == utf8 {
+            let Some(text) = text else { continue };
+            conn.change_property8(PropMode::REPLACE, r.requestor, r.property, utf8, text).unwrap();
+            r.property
+        } else {
+            x11rb::NONE
+        };
+        let notify = SelectionNotifyEvent { response_type: SELECTION_NOTIFY_EVENT, sequence: 0, time: r.time, requestor: r.requestor, selection: r.selection, target: r.target, property };
+        conn.send_event(false, r.requestor, EventMask::NO_EVENT, notify).unwrap();
+        conn.flush().unwrap();
+    }
+}
+
+/// The owner of CLIPBOARD on `conn`'s server.
+fn x11_clipboard_owner(conn: &impl Connection) -> u32 {
+    conn.get_selection_owner(atom(conn, "CLIPBOARD")).unwrap().reply().unwrap().owner
+}
+
+/// #EDE-138: a space's clipboard crosses the space's own Xwayland both
+/// ways. A Wayland copy in the space pastes in its X11 app, and so does
+/// the agent's own selection (taken on the space's clipboard); the X11
+/// app's copy reaches the agent's read and the space's Wayland client. The
+/// person's serial, owner, paste and X11 CLIPBOARD stay as they were.
+#[test]
+fn a_spaces_clipboard_crosses_its_own_xwayland_both_ways() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(person_x) = xwayland(&h) else { return };
+    // The person's Wayland window, focused, with a copy of its own, which
+    // the person's Xwayland follows.
+    let mut a = Session::connect(h.connect());
+    let person = a.toplevel("a");
+    a.draw(&person, 100, 80, BLUE);
+    a.keyboard();
+    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
+    let device_a = a.data_device();
+    let _copied_a = a.set_selection(&device_a, &[(UTF8, Some(b"person"))]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while x11_clipboard_owner(&person_x) == x11rb::NONE {
+        assert!(Instant::now() < deadline, "the person's Xwayland never took the person's copy");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let person_owner = x11_clipboard_owner(&person_x);
+    let before = common::space::person_snapshot(&h);
+
+    let (mut agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
+    let desk = space_desk(&space);
+    // The space's Wayland client copies.
+    let socket = h.with(move |state| state.spaces.get(desk).unwrap().socket());
+    let mut b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+    b.keyboard();
+    let window = b.toplevel("b");
+    b.draw(&window, 640, 480, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
+    let device_b = b.data_device();
+    let _copied_b = b.set_selection(&device_b, &[(UTF8, Some(b"from wayland"))]);
+
+    // The space's X11 app, with the space's keyboard, pastes it.
+    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let conn = Arc::new(conn);
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE)).unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    wait_for_space_keyboard(&h, desk, win);
+    assert_eq!(x11_paste(&*conn, win, &mut || b.roundtrip()), b"from wayland");
+
+    // The agent's own selection: pasted in X11, taken on the space's clipboard.
+    let serial = agent.clipboard_set(vec![ede_protocol::ClipboardItem { mime: UTF8.into(), data: b"from agent".to_vec() }], false).unwrap();
+    assert_eq!(x11_paste(&*conn, win, &mut || {}), b"from agent");
+    assert!(agent.clipboard_taken(serial).unwrap().taken, "the X11 paste is not counted on the space's clipboard");
+
+    // The X11 app copies: the agent reads it, and so does the space's
+    // Wayland client once it has the keyboard again.
+    let stop = Arc::new(AtomicBool::new(false));
+    let server = {
+        let (conn, stop) = (conn.clone(), stop.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                serve_x11(&*conn, Some(b"from x11"));
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        })
+    };
+    conn.set_selection_owner(win, atom(&*conn, "CLIPBOARD"), x11rb::CURRENT_TIME).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while agent.clipboard_serial().unwrap() == serial {
+        assert!(Instant::now() < deadline, "the space's X11 copy never reached the space's clipboard");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(agent.clipboard_text().unwrap().text.as_deref(), Some("from x11"));
+    let offers = b.state.offers.len();
+    h.with(move |state| {
+        let wayland = state.spaces.get(desk).unwrap().desk.space.elements().find(|w| w.x11_surface().is_none()).cloned();
+        state.space_focus(desk, wayland);
+    });
+    wait_for(&mut b, |b| b.state.offers.len() > offers && b.selection_types().is_some_and(|types| types.iter().any(|t| t == UTF8)));
+    assert_eq!(b.read_selection(UTF8), b"from x11");
+    stop.store(true, Ordering::Relaxed);
+    server.join().unwrap();
+
+    // The person's desk, paste and X11 CLIPBOARD: as they were.
+    common::space::assert_person_untouched(&h, &before);
+    a.roundtrip();
+    assert_eq!(a.read_selection(UTF8), b"person");
+    assert_eq!(x11_clipboard_owner(&person_x), person_owner, "the person's X11 CLIPBOARD changed hands");
+}
+
+/// #EDE-138: what the agent copied before its space's Xwayland ran (the
+/// text for an X11 app it is about to launch) pastes in that app.
+#[test]
+fn an_agents_copy_from_before_its_xwayland_ran_pastes_in_x11() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return;
+    }
+    let grant = h.ipc().mint(SessionId::new("run-1").unwrap(), vec![ede_protocol::Capability::Space], None).unwrap();
+    let mut agent = h.ipc_with(grant.token).unwrap();
+    let space = agent.create_space(640, 480).unwrap();
+    let desk = space_desk(&space);
+    agent.clipboard_set(vec![ede_protocol::ClipboardItem { mime: UTF8.into(), data: b"early".to_vec() }], false).unwrap();
+    h.with(|state| state.spaces.x11 = true);
+    let out = dir.path().join("early.display");
+    agent.launch(vec!["sh".into(), "-c".into(), format!("echo \"$DISPLAY\" > {0}.tmp && mv {0}.tmp {0}; exec sleep 60", out.display())], Default::default(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| state.space_xwm_ready(desk)) || !out.exists() {
+        assert!(Instant::now() < deadline, "the space's Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let display = std::fs::read_to_string(&out).unwrap().trim().trim_start_matches(':').to_string();
+    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE)).unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    wait_for_space_keyboard(&h, desk, win);
+    assert_eq!(x11_paste(&conn, win, &mut || {}), b"early");
+}
+
+/// #EDE-138: a drag the space's X11 app starts is the space's: it runs on
+/// the space's seat, also when the person pressed a button after the
+/// agent did (smithay would take the newest press). It enters the space's
+/// Wayland client; the person's pointer stays theirs and their client
+/// hears of no drag.
+#[test]
+fn a_spaces_x11_drag_stays_on_the_spaces_seat() {
+    use x11rb::protocol::xproto::ClientMessageEvent;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(_person_x) = xwayland(&h) else { return };
+    // The person's Wayland client A, at the top left.
+    let mut a = Session::connect(h.connect());
+    let target = a.toplevel("a");
+    a.draw(&target, 100, 80, BLUE);
+    a.keyboard();
+    a.pointer();
+    a.data_device();
+    h.with(|state| {
+        let window = state.desk.space.elements().next().cloned().unwrap();
+        state.move_window(&window, (0, 40).into(), false);
+    });
+
+    let (_agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
+    let desk = space_desk(&space);
+    // B fills the space.
+    let socket = h.with(move |state| state.spaces.get(desk).unwrap().socket());
+    let mut b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+    b.keyboard();
+    b.pointer();
+    b.data_device();
+    let window = b.toplevel("b");
+    b.draw_configured(&window, 64, 64, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
+
+    // The space's X11 dialog (transient, so centred at its own size over
+    // B), which offers one type to drag.
+    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    let aux = CreateWindowAux::new().background_pixel(0x0000_ff00).event_mask(EventMask::BUTTON_PRESS);
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &aux).unwrap();
+    conn.change_property32(PropMode::REPLACE, win, AtomEnum::WM_TRANSIENT_FOR, AtomEnum::WINDOW, &[root]).unwrap();
+    conn.change_property32(PropMode::REPLACE, win, atom(&conn, "XdndAware"), AtomEnum::ATOM, &[5]).unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    wait_for_space_keyboard(&h, desk, win);
+    let dialog = h.with(move |state| {
+        let d = &state.spaces.get(desk).unwrap().desk;
+        d.space.element_geometry(d.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).unwrap()).unwrap()
+    });
+    assert!(dialog.loc.x > 100 && dialog.loc.y > 100, "the dialog is centred: {dialog:?}");
+
+    // The agent presses on the dialog; the person's button goes down after it, on A.
+    let (x, y) = (dialog.loc.x as f64 + 100.0, dialog.loc.y as f64 + 75.0);
+    h.with(move |state| {
+        state.drive_pointer_motion(desk, (x, y).into(), 0).unwrap();
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Pressed, 0).unwrap();
+        state.person_pointer_motion_to((50.0, 80.0).into(), 0);
+        state.person_pointer_button(BTN_LEFT, ButtonState::Pressed, 0);
+    });
+    wait_for(&mut a, |a| a.state.buttons == [(BTN_LEFT, true)]);
+
+    // The X11 app starts its drag: smithay maps its drop proxy over the
+    // space's screen, and the app tells the proxy what it offers.
+    let children = |conn: &x11rb::rust_connection::RustConnection| conn.query_tree(root).unwrap().reply().unwrap().children;
+    let before = children(&conn);
+    conn.set_selection_owner(win, atom(&conn, "XdndSelection"), x11rb::CURRENT_TIME).unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let proxy = loop {
+        if let Some(proxy) = children(&conn).into_iter().find(|w| !before.contains(w)) {
+            break proxy;
+        }
+        assert!(Instant::now() < deadline, "the space's X11 drag never started");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let enter = ClientMessageEvent::new(32, proxy, atom(&conn, "XdndEnter"), [win, 5 << 24, atom(&conn, "text/plain"), 0, 0]);
+    conn.send_event(false, proxy, EventMask::NO_EVENT, enter).unwrap();
+    conn.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+
+    // The agent moves off the dialog onto B: the drag enters B, with the type.
+    h.with(move |state| state.drive_pointer_motion(desk, (20.0, 20.0).into(), 0).unwrap());
+    wait_for(&mut b, |b| b.state.drag_enters == 1);
+    assert!(b.state.offers.iter().any(|(_, types)| types.iter().any(|t| t == "text/plain")), "B's drag offer: {:?}", b.state.offers.iter().map(|(_, t)| t).collect::<Vec<_>>());
+
+    // The person's pointer is still a pointer: its moves reach A as moves,
+    // and A hears of no drag and no offer.
+    let moved = a.state.pointer_motions;
+    h.with(|state| {
+        state.person_pointer_motion_to((60.0, 90.0).into(), 0);
+        state.person_pointer_motion_to((70.0, 100.0).into(), 0);
+    });
+    wait_for(&mut a, |a| a.state.pointer_motions == moved + 2);
+    assert!(a.state.offers.is_empty() && a.state.drag_enters == 0, "the person heard of the space's drag");
+
+    h.with(move |state| {
+        state.drive_pointer_button(desk, BTN_LEFT, ButtonState::Released, 0).unwrap();
+        state.person_pointer_button(BTN_LEFT, ButtonState::Released, 0);
+        assert!(state.focused_window(DeskId::PERSON).is_some());
+    });
+}
+
+/// #EDE-138: spaces closed in the middle of a paste through their
+/// Xwayland, both ways (an X11 app reading a Wayland client that never
+/// answers; the agent reading an X11 owner that never answers), leave the
+/// compositor running: the agent's read ends `unavailable`, and the hung
+/// client giving up its pipe after its space's window manager is gone
+/// reaches nothing of it. The person types on.
+#[test]
+fn spaces_closed_mid_paste_leave_the_compositor_running() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(_person_x) = xwayland(&h) else { return };
+    let mut a = Session::connect(h.connect());
+    let person = a.toplevel("a");
+    a.draw(&person, 100, 80, BLUE);
+    a.keyboard();
+    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
+    let before = common::space::person_snapshot(&h);
+
+    // Space 1: its Wayland client copies and never answers; its X11 app pastes.
+    let (_agent1, space1, display1) = space_with_x11(&h, dir.path(), "run-1");
+    let desk1 = space_desk(&space1);
+    let socket = h.with(move |state| state.spaces.get(desk1).unwrap().socket());
+    let mut b = Session::connect(UnixStream::connect(&socket).expect("the space's socket"));
+    b.keyboard();
+    let window = b.toplevel("b");
+    b.draw(&window, 640, 480, RED);
+    wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
+    let device_b = b.data_device();
+    let _hung = b.set_selection(&device_b, &[(UTF8, None)]);
+    let (x1, _) = x11rb::connect(Some(&format!(":{display1}"))).expect("space 1's display");
+    let win1 = x11_window(&x1, 0x0000_00ff);
+    wait_for_space_keyboard(&h, desk1, win1);
+    x1.convert_selection(win1, atom(&x1, "CLIPBOARD"), atom(&x1, "UTF8_STRING"), atom(&x1, "EDE_TEST"), x11rb::CURRENT_TIME).unwrap();
+    x1.flush().unwrap();
+    wait_for(&mut b, |b| !b.state.held.is_empty());
+
+    // Space 2: its X11 app copies and never hands over the text; the agent reads.
+    let (agent2, space2, display2) = space_with_x11(&h, dir.path(), "run-2");
+    let desk2 = space_desk(&space2);
+    let (x2, _) = x11rb::connect(Some(&format!(":{display2}"))).expect("space 2's display");
+    let win2 = x11_window(&x2, 0x00ff_00ff);
+    wait_for_space_keyboard(&h, desk2, win2);
+    let serial = h.with(move |state| state.desk(desk2).clipboard.serial);
+    x2.set_selection_owner(win2, atom(&x2, "CLIPBOARD"), x11rb::CURRENT_TIME).unwrap();
+    x2.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.with(move |state| state.desk(desk2).clipboard.serial) == serial {
+        assert!(Instant::now() < deadline, "space 2's X11 copy never reached its clipboard");
+        serve_x11(&x2, None);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut agent2 = agent2;
+    let read = std::thread::spawn(move || agent2.clipboard_text());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.with(move |state| state.desk(desk2).clipboard.pending()) == 0 {
+        assert!(Instant::now() < deadline, "the agent's read never went to the X11 owner");
+        serve_x11(&x2, None);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    // Both spaces close mid-paste.
+    h.with(move |state| {
+        assert!(state.close_space(desk1));
+        assert!(state.close_space(desk2));
+    });
+    let answer = read.join().unwrap();
+    assert!(matches!(&answer, Err(ede_protocol::Error::Failed(f)) if f.code == ede_protocol::ErrorCode::Unavailable), "{answer:?}");
+    common::space::spaces_settled(&h);
+    // The hung client lets go of its pipe only now.
+    b.state.held.clear();
+    std::thread::sleep(Duration::from_millis(ede_protocol::CLIPBOARD_READ_MS + 300));
+
+    const KEY_A: u32 = 30;
+    common::space::person_key(&h, KEY_A);
+    wait_for(&mut a, |a| a.state.keys == [KEY_A]);
+    common::space::assert_person_untouched(&h, &before);
+    drop((x1, x2));
+}

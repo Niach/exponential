@@ -432,67 +432,56 @@ impl XwmHandler for Ede {
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
-        // #EDE-138: never the person's clipboard to a space's X11 client.
-        if self.desk_of_xwm(xwm) != XwmDesk::Person {
-            return false;
+        match self.desk_of_xwm(xwm) {
+            // Only the focused X11 client may read the clipboard.
+            XwmDesk::Person => self.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm),
+            // #EDE-138: a space's, the space's (never the person's).
+            XwmDesk::Space(desk) => self.space_x11_focused(desk, xwm),
+            XwmDesk::Gone => false,
         }
-        // Only the focused X11 client may read the clipboard.
-        self.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
     }
 
+    /// An X11 client reads its desk's clipboard (#EDE-138: a space's
+    /// client the space's).
     fn send_selection(&mut self, xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
-        match self.desk_of_xwm(xwm) {
-            XwmDesk::Person => {}
-            XwmDesk::Space(_desk) => {
-                drop((selection, mime_type, fd));
-                return;
-            }
-            XwmDesk::Gone => return,
-        }
+        let Some(desk) = self.desk_of_xwm(xwm).desk() else { return };
         if selection != SelectionTarget::Clipboard {
             return;
         }
+        let Some(seat) = self.try_desk(desk).map(|d| d.seat.clone()) else { return };
         // Ours ([`crate::clipboard`]) is served from memory; a Wayland
         // client's through its source.
-        let ours = match current_data_device_selection_userdata(&self.desk.seat).as_deref() {
+        let ours = match current_data_device_selection_userdata(&seat).as_deref() {
             Some(crate::clipboard::Selection::Ours(owned)) => Some(owned.clone()),
             _ => None,
         };
         if let Some(owned) = ours {
-            self.serve_owned(DeskId::PERSON, &owned, &mime_type, fd);
-        } else if let Err(e) = request_data_device_client_selection(&self.desk.seat, mime_type, fd) {
+            self.serve_owned(desk, &owned, &mime_type, fd);
+        } else if let Err(e) = request_data_device_client_selection(&seat, mime_type, fd) {
             tracing::warn!("clipboard to X11: {e:?}");
         }
     }
 
+    /// An X11 client copied: its desk's clipboard is the X11 client's.
     fn new_selection(&mut self, xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
-        match self.desk_of_xwm(xwm) {
-            XwmDesk::Person => {}
-            XwmDesk::Space(_desk) => {
-                let _ = (selection, mime_types);
-                return;
-            }
-            XwmDesk::Gone => return,
+        let Some(desk) = self.desk_of_xwm(xwm).desk() else { return };
+        if selection != SelectionTarget::Clipboard {
+            return;
         }
-        if selection == SelectionTarget::Clipboard {
-            self.desk.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
-            set_data_device_selection(&self.display_handle, &self.desk.seat, mime_types, crate::clipboard::Selection::X11);
-        }
+        let Some(d) = self.try_desk_mut(desk) else { return };
+        d.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
+        let seat = d.seat.clone();
+        set_data_device_selection(&self.display_handle, &seat, mime_types, crate::clipboard::Selection::X11);
     }
 
     fn cleared_selection(&mut self, xwm: XwmId, selection: SelectionTarget) {
-        match self.desk_of_xwm(xwm) {
-            XwmDesk::Person => {}
-            XwmDesk::Space(_desk) => {
-                let _ = selection;
-                return;
-            }
-            XwmDesk::Gone => return,
-        }
-        let x11 = matches!(current_data_device_selection_userdata(&self.desk.seat).as_deref(), Some(crate::clipboard::Selection::X11));
+        let Some(desk) = self.desk_of_xwm(xwm).desk() else { return };
+        let Some(d) = self.try_desk_mut(desk) else { return };
+        let x11 = matches!(current_data_device_selection_userdata(&d.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
-            self.desk.clipboard.changed(crate::clipboard::Owner::Empty);
-            clear_data_device_selection(&self.display_handle, &self.desk.seat);
+            d.clipboard.changed(crate::clipboard::Owner::Empty);
+            let seat = d.seat.clone();
+            clear_data_device_selection(&self.display_handle, &seat);
         }
     }
 }
