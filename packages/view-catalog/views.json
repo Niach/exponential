@@ -203,6 +203,18 @@
     {
       "route": "/t/$teamSlug/issues/$identifier",
       "reason": "#EXP-1674: the short issue route (app-link.json `issueRef`) resolves the board and replaces itself with the issue page; nothing of its own to photograph."
+    },
+    {
+      "route": "/needs-you",
+      "reason": "#EXP-2027: the team-less Needs you list (live rows of every team); the `needs-you` view shoots the specimen so ×5 show the same state."
+    },
+    {
+      "route": "/settings",
+      "reason": "#EXP-2027: bare personal settings forwards to Account (`settings-account`)."
+    },
+    {
+      "route": "/t/$teamSlug/drafts",
+      "reason": "#EXP-2027: md+ forwards it to the team-less /drafts (the `drafts` view); phones list drafts on the board's Drafts chip."
     }
   ],
   "views": [
@@ -805,6 +817,15 @@
       "blurb": "THE search list (SLOP-28, search-list.json): typing `#` in any editor opens it with a focused input prefilled with the token, no result cap, the list scrolls with a bottom fade; ↑↓ Enter inserts `#IDENT`. A popover at the caret on a pointer, a bottom sheet on phones; the + menu’s submenus and global search draw the same rows.",
       "order": 11,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "search-list",
+          "timeoutMs": 20000
+        },
+        "recipe": "typeIssueRef",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "search-list",
@@ -813,7 +834,6 @@
         "recipe": "typeIssueRef",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_search-list",
         "lane": "styleguide"
@@ -920,7 +940,7 @@
       "blurb": "Issues that were started and not filed: leaving the new-issue page with anything in it keeps a draft, and a row reopens that page on it.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/drafts",
+        "route": "/drafts",
         "anchor": {
           "text": "Offline queue for issue edits",
           "timeoutMs": 30000
@@ -963,6 +983,14 @@
       "blurb": "Every plan and question waiting on me and every PR ready to merge across the team (needs-you.json): one reading column, newest first; a press opens the chat on the right tab.",
       "order": 4,
       "web": {
+        "route": "/home?dev=needs-you",
+        "anchor": {
+          "testId": "needs-you-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=needs-you",
         "anchor": {
           "testId": "needs-you-specimen",
@@ -970,7 +998,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -999,14 +1026,6 @@
       "title": "Devices",
       "blurb": "The machines that can run a coding session (devices-list.json, EXP-1560): a grid of device cards, one per desktop or headless server: name, version and status on top, a ⋯ overflow (the update, Device settings), and its agent logins as brand-mark icons along the bottom, the amber badge on a login that needs a fix (limits and Sign in on hover or tap); offline machines sink under an Offline label. On a teammate's shared server, a team owner gets Remove in the ⋯.",
       "order": 1,
-      "web": {
-        "route": "/t/$teamSlug/devices",
-        "anchor": {
-          "text": "Alex's MacBook Pro",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
       "webMobile": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
@@ -1024,7 +1043,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-1654: nothing hovered: the login chip's limits preview stays closed, the state the other platforms photograph.",
+        "web": "#EXP-2027: the Devices page is gone from md+ (each device is a sidebar row opening its device page, the `device` view); web-mobile keeps it.",
         "web-mobile": "See web.",
         "desktop": "EXP-1654: the seeded fleet only, as on web and the natives: the capture launch sets `EXP_DEV_NO_REGISTER`, so the capture Mac never registers itself as a second My devices card."
       },
@@ -1056,6 +1075,14 @@
       "blurb": "The Agent page, HOME on every client (EXP-1253): the dawn (EXP-1293: the big Exponential mark's top half, no greeting) over the agent row and the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository; nothing renders under the options line (no Recent, no suggestion rows, no watermark); what is RUNNING is a section of the sidebar.",
       "order": 4,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "agent-page",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "agent-page",
@@ -1063,7 +1090,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat",
         "lane": "styleguide"
@@ -1126,6 +1152,14 @@
       "blurb": "The composer with work attached: one chip per picked issue above the prompt, the machine and agent pickers under it. Two issues off the board, handed to one session.",
       "order": 5,
       "web": {
+        "route": "/home?issues=$issueA,$issueB",
+        "anchor": {
+          "testId": "agent-composer-chip-issue-APP-3",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?issues=$issueA,$issueB",
         "anchor": {
           "testId": "agent-composer-chip-issue-APP-3",
@@ -1133,7 +1167,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-issues",
         "lane": "styleguide"
@@ -1298,12 +1331,11 @@
       "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, the Computer use card, its per-agent defaults, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings → Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
       "order": 9,
       "web": {
-        "route": "/t/$teamSlug/devices",
+        "route": "/devices/screenshot-demo-desktop/settings",
         "anchor": {
-          "text": "Device settings",
+          "text": "Sharing",
           "timeoutMs": 30000
         },
-        "recipe": "openMachineSettings",
         "settleMs": 800
       },
       "desktop": {
@@ -1316,7 +1348,15 @@
           "EXP_DEV_SCREEN": "devices"
         }
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/devices",
+        "anchor": {
+          "text": "Device settings",
+          "timeoutMs": 30000
+        },
+        "recipe": "openMachineSettings",
+        "settleMs": 800
+      },
       "ios": {
         "shot": "sg_machine-settings",
         "lane": "styleguide"
@@ -1324,6 +1364,9 @@
       "android": {
         "shot": "sg_machine-settings",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web": "#EXP-2027: the device settings PAGE (sidebar-tree.json: a device row's hover gear), the old dialog's body; web-mobile keeps the dialog over the Devices page."
       }
     },
     {
@@ -1333,6 +1376,15 @@
       "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server. The same device-setup block as the onboarding step.",
       "order": 10,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "text": "Download the desktop app",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAddServer",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
           "text": "Download the desktop app",
@@ -1341,7 +1393,6 @@
         "recipe": "openAddServer",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_add-server",
         "lane": "styleguide"
@@ -1354,7 +1405,8 @@
         "web-mobile": "Inherits web (EXP-1169): `openAddServer` opens the same dialog with the shared device-setup block at the phone's width.",
         "ios": "EXP-1169: AddDeviceSheet (Devices tab pill, readiness fix) holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill.",
         "android": "EXP-1169: AddDeviceSheet holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill, gated on the install one-liner.",
-        "desktop": "EXP-1654: the Devices page behind the dialog holds the seeded fleet only: the capture launch sets `EXP_DEV_NO_REGISTER`, so the capture Mac is never a second My devices card."
+        "desktop": "EXP-1654: the Devices page behind the dialog holds the seeded fleet only: the capture launch sets `EXP_DEV_NO_REGISTER`, so the capture Mac is never a second My devices card.",
+        "web": "#EXP-2027: the sidebar Devices row's hover + opens the same dialog over Home."
       },
       "desktop": {
         "drive": {
@@ -1789,6 +1841,14 @@
       "blurb": "Personal identity, sign-in methods (a changeable primary email, Google/Apple/OIDC linking, passkeys) and timezone. Never gated.",
       "order": 10,
       "web": {
+        "route": "/settings/account",
+        "anchor": {
+          "text": "Account",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/settings/account",
         "anchor": {
           "text": "Account",
@@ -1796,7 +1856,6 @@
         },
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1819,6 +1878,14 @@
       "blurb": "Email and push preferences, including the digest hour. Never gated.",
       "order": 11,
       "web": {
+        "route": "/settings/notifications",
+        "anchor": {
+          "text": "Notifications",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/settings/notifications",
         "anchor": {
           "text": "Notifications",
@@ -1826,7 +1893,6 @@
         },
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1845,6 +1911,14 @@
       "blurb": "S-3: the member's own Assistant (agent-settings.json `assistant`), first in the settings nav's Agents group with the Exponential brand mark: its name beside the mark, Runs on (device, account, model, skills, MCP servers), Triggers (Check in preset first, then any triggers; #EXP-1846: the same page as a team agent's), the Voice block moved here from Personal (minus Voice device and Agent). No instructions (#EXP-1439: its prompt is built in), no Delete. Replaces Settings · Voice.",
       "order": 28,
       "web": {
+        "route": "/settings/assistant",
+        "anchor": {
+          "text": "Push to talk",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/settings/assistant",
         "anchor": {
           "text": "Push to talk",
@@ -1852,7 +1926,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1878,6 +1951,15 @@
       "blurb": "NEW-57 + FEED-163 (meeting.json): the Assistant's Voice block scrolled to its Meeting mode rows: Meeting mode, Stop after (the auto-stop hours) and Desktop audio.",
       "order": 29,
       "web": {
+        "route": "/settings/assistant",
+        "anchor": {
+          "text": "Stop after",
+          "timeoutMs": 20000
+        },
+        "recipe": "scrollToMeetingMode",
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/settings/assistant",
         "anchor": {
           "text": "Stop after",
@@ -1886,7 +1968,6 @@
         "recipe": "scrollToMeetingMode",
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_settings-assistant-meeting",
         "lane": "styleguide"
@@ -1917,6 +1998,14 @@
       "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). FEED-76: the mint dialog offers the consent screen's team/board scope picker; a scoped key is MCP-only and its row wears the pick as a caption. Passkeys sat here from EXP-862 until EXP-1126 moved them to Account under Sign-in methods; the section keeps the Security name.",
       "order": 12,
       "web": {
+        "route": "/settings/security",
+        "anchor": {
+          "text": "API keys",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/settings/security",
         "anchor": {
           "text": "API keys",
@@ -1924,7 +2013,6 @@
         },
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -6280,6 +6368,14 @@
       "blurb": "ONE PrRow (EXP-1248): a one-line PR row with the ring lead, nested with tree guides for a PR tree and railed top-first down to the base branch for a stack (the Guide's stack card and the Reviews list share it).",
       "order": 6,
       "web": {
+        "route": "/home?dev=pr-row",
+        "anchor": {
+          "testId": "pr-row-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=pr-row",
         "anchor": {
           "testId": "pr-row-specimen",
@@ -6287,7 +6383,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_pr-row",
         "lane": "styleguide"
@@ -6316,6 +6411,14 @@
       "blurb": "Merge status and CI on the chat's PR ×4 (#EXP-1710 merge-train.json, #EXP-1611 pr-checks.json): THE header merge STATUS pill in every `statusPill` case (Draft, Checks running, Queued · 2nd, Testing with 3, Merged, Conflict, Checks failing, On hold, Auto-merge stuck, the primary Needs approval) and the `…` menu's Checks submenu: one row per check, its status glyph, name and duration, a tap opens the logs.",
       "order": 7,
       "web": {
+        "route": "/home?dev=pr-checks",
+        "anchor": {
+          "testId": "pr-checks-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=pr-checks",
         "anchor": {
           "testId": "pr-checks-specimen",
@@ -6323,7 +6426,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_pr-checks",
         "lane": "styleguide"
@@ -6354,6 +6456,14 @@
       "blurb": "One run of our own CI (#EXP-1617, ci-run.json), the page every check's Details link opens: status, duration, runner and commit tiles, the jobs (a list beside the selected job on wide screens, folds on phones), the job's steps as a trace and its log tailing live, Re-run failed and Cancel.",
       "order": 8,
       "web": {
+        "route": "/home?dev=ci-run",
+        "anchor": {
+          "testId": "ci-run",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=ci-run",
         "anchor": {
           "testId": "ci-run",
@@ -6361,7 +6471,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_ci-run",
         "lane": "styleguide"
@@ -6392,6 +6501,14 @@
       "blurb": "The CI runner section of a device's settings (#EXP-1617, runner-settings.json): the Run CI jobs switch, labels, parallel jobs, the job timeout and the device's recent jobs; phones set a runner up but never run jobs, an old app is told to update.",
       "order": 9,
       "web": {
+        "route": "/home?dev=runner-settings",
+        "anchor": {
+          "testId": "runner-settings",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=runner-settings",
         "anchor": {
           "testId": "runner-settings",
@@ -6399,7 +6516,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_runner-settings",
         "lane": "styleguide"
@@ -6430,6 +6546,15 @@
       "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › (SLOP-28: THE search list) and Message an agent › (NEW-3: the team’s agents, a DM), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
       "order": 12,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerMenuTemporary",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "agent-composer-menu",
@@ -6438,7 +6563,6 @@
         "recipe": "openComposerMenuTemporary",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_composer-menu",
         "lane": "styleguide"
@@ -6470,6 +6594,15 @@
       "blurb": "#EXP-1715: the Assistant's Teams pick (composer-menu.json row `teams`, `teamsPick`): the teams the viewer belongs to as multi picker rows (team mark + name), nothing picked = every team; a narrowed pick rides as the composer's removable team chips and the row reads its value.",
       "order": 87,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerTeamsMenu",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "agent-composer-menu",
@@ -6478,7 +6611,6 @@
         "recipe": "openComposerTeamsMenu",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -6503,6 +6635,15 @@
       "blurb": "#EXP-1659: the + menu's Skills submenu (composer-menu.json row `skills`, after MCP servers, temporary sessions only): the team's skills as multi picker rows (name, the description as caption), the enabled-by-default pair preselected, the count as the row's value.",
       "order": 59,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerSkillsMenu",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "agent-composer-menu",
@@ -6511,7 +6652,6 @@
         "recipe": "openComposerSkillsMenu",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -6559,6 +6699,15 @@
       "blurb": "The launch composer's `/` menu (NEW-2): the team's prompts, icon and name, and nothing else before a session exists. Typing `/name` filters, Enter or a click makes the prompt the new session's subject (its chip is the headline) and the send runs it.",
       "order": 26,
       "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "slash-menu",
+          "timeoutMs": 30000
+        },
+        "recipe": "typeSlashInComposer",
+        "settleMs": 600
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
           "testId": "slash-menu",
@@ -6567,7 +6716,6 @@
         "recipe": "typeSlashInComposer",
         "settleMs": 600
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_composer-slash-menu",
         "lane": "styleguide"
@@ -7362,6 +7510,14 @@
       "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json, the `tasks` sheet's body) at the bottom: the todo items with no title line of their own (the sheet header carries “n to do”), then “n completed” folded.",
       "order": 21,
       "web": {
+        "route": "/home?dev=trace",
+        "anchor": {
+          "testId": "trace-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=trace",
         "anchor": {
           "testId": "trace-specimen",
@@ -7369,7 +7525,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_trace",
         "lane": "styleguide"
@@ -7400,6 +7555,14 @@
       "blurb": "THE ask dock ×4 (ask-dock.json): the question/plan cards waiting on you take the composer's slot in a session and a chat alike. One card = THE big card; several = compact cards stacked oldest first (icon, label, the asking session, the plan's first line), a tap grows one into the big card with a back arrow. THE plan options: Yes · Yes, and start with a fresh context · No, keep planning.",
       "order": 23,
       "web": {
+        "route": "/home?dev=ask-dock",
+        "anchor": {
+          "testId": "ask-dock-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=ask-dock",
         "anchor": {
           "testId": "ask-dock-specimen",
@@ -7407,7 +7570,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_ask-dock",
         "lane": "styleguide"
@@ -7438,6 +7600,14 @@
       "blurb": "N-12: THE DockCard ×4 (dock.json): one card, a banner with its action, the pile (the front card whole, the rest peeking out above it), the pile fanned and the sheet's face (the pinned header, the scrolling body, the pinned footer). ONE gray: every card and the sheet wear the opaque card fill.",
       "order": 29,
       "web": {
+        "route": "/home?dev=dock-card",
+        "anchor": {
+          "testId": "dock-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=dock-card",
         "anchor": {
           "testId": "dock-card-specimen",
@@ -7445,7 +7615,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_dock-card",
         "lane": "styleguide"
@@ -7476,6 +7645,14 @@
       "blurb": "THE rich plan / question card ×4 (EXP-1280, plan-card.json): plan mode posts ONE card through exponential_plan_propose: the markdown with pictures, the agent's genUI surface in its Preview frame, one block per question (THE option rows, or picture tiles once any option has a picture; Choose one / Choose any; Other…), THE plan options + the feedback field, approving only once every question is answered. Answered = closed: the picks highlighted, the decision and the feedback.",
       "order": 25,
       "web": {
+        "route": "/home?dev=plan-card",
+        "anchor": {
+          "testId": "plan-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=plan-card",
         "anchor": {
           "testId": "plan-card-specimen",
@@ -7483,7 +7660,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_plan-card",
         "lane": "styleguide"
@@ -7514,6 +7690,14 @@
       "blurb": "THE plan tab ×4 (#EXP-1662, plan-page.json): the chat's header and strip stay, the plan replaces the content. Wide: THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
       "order": 6,
       "web": {
+        "route": "/home?dev=plan-page",
+        "anchor": {
+          "testId": "plan-page-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=plan-page",
         "anchor": {
           "testId": "plan-page-specimen",
@@ -7521,7 +7705,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_plan-page",
         "lane": "styleguide"
@@ -7552,6 +7735,14 @@
       "blurb": "THE CodeBlock ×4 (EXP-1324, trace.json geometry.codeBlock): a tool's Output inside a Trace line at size sm, the title and the copy action over the mono code, coloured by the catalog's one tokenizer (`ansi` for command output); a failed call's block is destructive.",
       "order": 22,
       "web": {
+        "route": "/home?dev=code-block",
+        "anchor": {
+          "testId": "code-block-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=code-block",
         "anchor": {
           "testId": "code-block-specimen",
@@ -7559,7 +7750,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_code-block",
         "lane": "styleguide"
@@ -7590,6 +7780,14 @@
       "blurb": "The six feedback kinds ×4 (EXP-1275, feedback-states.json): the inline spinner with its progressive word, the pending button, skeleton rows, the mark’s stroke sweep, the blocking backdrop, and a failed action as an error toast with Retry.",
       "order": 16,
       "web": {
+        "route": "/home?dev=feedback-states",
+        "anchor": {
+          "testId": "feedback-states-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=feedback-states",
         "anchor": {
           "testId": "feedback-states-specimen",
@@ -7597,7 +7795,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_feedback-states",
         "lane": "styleguide"
@@ -7626,7 +7823,7 @@
       "blurb": "Every chat of the team (chats.json, EXP-1373): the agents, then the chats under their section headers: one row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
       "order": 18,
       "web": {
-        "route": "/t/$teamSlug/chats",
+        "route": "/chats",
         "anchor": {
           "testId": "chat-list",
           "timeoutMs": 30000
@@ -7752,6 +7949,14 @@
       "blurb": "The phone Chats list ×3 (chats.json #FEED-191): the Chats headline with search + inbox circles, the Agents section, then the chats grouped under Needs you · Working · Unread · Chats, flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
       "order": 32,
       "web": {
+        "route": "/home?dev=chat-list",
+        "anchor": {
+          "testId": "chat-list-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=chat-list",
         "anchor": {
           "testId": "chat-list-specimen",
@@ -7759,7 +7964,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-list",
         "lane": "styleguide"
@@ -7790,6 +7994,14 @@
       "blurb": "The phone bottom bar (chats.json shell): Board (the active board's glyph + name, the caret on the board view) · Chats · Apps · Team (the team avatar + name), label-sized tabs on the glass capsule with the drag lens, beside the new chat / new issue capsule.",
       "order": 33,
       "web": {
+        "route": "/home?dev=phone-tab-bar",
+        "anchor": {
+          "testId": "phone-tab-bar-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=phone-tab-bar",
         "anchor": {
           "testId": "phone-tab-bar-specimen",
@@ -7797,7 +8009,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_phone-tab-bar",
         "lane": "styleguide"
@@ -7828,6 +8039,14 @@
       "blurb": "The phone's only board switch (chats.json shell.boardMenu): on the board view the Board tab morphs the bottom strip into one glass menu, the team's boards (the active one lit with the check) then New board.",
       "order": 38,
       "web": {
+        "route": "/home?dev=phone-board-menu",
+        "anchor": {
+          "testId": "phone-board-menu-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=phone-board-menu",
         "anchor": {
           "testId": "phone-board-menu-specimen",
@@ -7835,7 +8054,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_phone-board-menu",
         "lane": "styleguide"
@@ -7866,6 +8084,14 @@
       "blurb": "The phone page header on every top-level page (chats.json shell.header): the large title and the round search + inbox circles, the inbox's sky dot while a notification is unread.",
       "order": 39,
       "web": {
+        "route": "/home?dev=phone-page-header",
+        "anchor": {
+          "testId": "phone-page-header-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=phone-page-header",
         "anchor": {
           "testId": "phone-page-header-specimen",
@@ -7873,7 +8099,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_phone-page-header",
         "lane": "styleguide"
@@ -7904,6 +8129,14 @@
       "blurb": "The chat header on a phone (chats.json shell.chatHeader): one leading row: ghost back, the lead disc, the title over one subtitle line; trailing an agent chat's telephone and the `…`.",
       "order": 83,
       "web": {
+        "route": "/home?dev=chat-header",
+        "anchor": {
+          "testId": "chat-header-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=chat-header",
         "anchor": {
           "testId": "chat-header-specimen",
@@ -7911,7 +8144,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-header",
         "lane": "styleguide"
@@ -7942,6 +8174,14 @@
       "blurb": "The chat transcript pieces ×4 (chats.json TRANSCRIPT + SURFACE CARD): the person’s and the agent’s bubbles, the /compact and /new divider pills, an agent’s inline genUI preview, a superseded plan line.",
       "order": 34,
       "web": {
+        "route": "/home?dev=chat-transcript",
+        "anchor": {
+          "testId": "chat-transcript-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=chat-transcript",
         "anchor": {
           "testId": "chat-transcript-specimen",
@@ -7949,7 +8189,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-transcript",
         "lane": "styleguide"
@@ -7980,6 +8219,14 @@
       "blurb": "The chat and agent menus ×4 (chats.json MENUS): Delete (S-3: no Stop), the agent menu (Compact conversation, New conversation, Agent settings) and the delete confirm.",
       "order": 35,
       "web": {
+        "route": "/home?dev=chat-menus",
+        "anchor": {
+          "testId": "chat-menus-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=chat-menus",
         "anchor": {
           "testId": "chat-menus-specimen",
@@ -7987,7 +8234,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-menus",
         "lane": "styleguide"
@@ -8018,6 +8264,14 @@
       "blurb": "The Chats multi-selection ×4 (chats.json SELECTION + ARCHIVE), the issue list's bulk selection on chats (board-bulk-edit beside it): long-press (touch) or the checkbox column / Select / cmd-click / shift-click / cmd-A (pointers), the issue rows' selection control and selected-row look, the Archived entry and THE bulk action bar (the count, Mark read/unread, Archive/Unarchive, Delete).",
       "order": 36,
       "web": {
+        "route": "/home?dev=chat-selection",
+        "anchor": {
+          "testId": "chat-selection-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=chat-selection",
         "anchor": {
           "testId": "chat-selection-specimen",
@@ -8025,7 +8279,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-selection",
         "lane": "styleguide"
@@ -8056,6 +8309,14 @@
       "blurb": "End-to-end encrypted session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
       "order": 53,
       "web": {
+        "route": "/home?dev=sealed-locked",
+        "anchor": {
+          "testId": "sealed-locked-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=sealed-locked",
         "anchor": {
           "testId": "sealed-locked-specimen",
@@ -8063,7 +8324,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_sealed-locked",
         "lane": "styleguide"
@@ -8092,6 +8352,14 @@
       "blurb": "THE schedule rows ×4 (schedule-picker.json): Repeat (Every few minutes · hour · day · week · month), Every / Minute / Time / Days / Day, Time zone only from daily up.",
       "order": 37,
       "web": {
+        "route": "/home?dev=schedule-picker",
+        "anchor": {
+          "testId": "schedule-picker-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=schedule-picker",
         "anchor": {
           "testId": "schedule-picker-specimen",
@@ -8099,7 +8367,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_schedule-picker",
         "lane": "styleguide"
@@ -8130,6 +8397,14 @@
       "blurb": "THE round @member pill ×4 in every chat's text (session e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
       "order": 40,
       "web": {
+        "route": "/home?dev=mention-pill",
+        "anchor": {
+          "testId": "mention-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=mention-pill",
         "anchor": {
           "testId": "mention-pill-specimen",
@@ -8137,7 +8412,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_mention-pill",
         "lane": "styleguide"
@@ -8259,6 +8533,14 @@
       "blurb": "THE in-call view (NEW-69, voice-call.json): full screen on the phones, a glass card holding VoiceWave (xl) with the brand mark, the state, the line, End call primary + Mute. Opens from the telephone in the agent chat's header; the call streams to the member's voice device.",
       "order": 44,
       "web": {
+        "route": "/home?dev=voice-call",
+        "anchor": {
+          "testId": "voice-call-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=voice-call",
         "anchor": {
           "testId": "voice-call-specimen",
@@ -8266,7 +8548,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_voice-call",
         "lane": "styleguide"
@@ -8297,6 +8578,14 @@
       "blurb": "THE round icon-only call buttons (S-3, voice-call.json PHONE-CALL UI, eUI `CallButton`): mute (toggled = the inverted fill), speaker (phones), the red end (Cancel under it while ringing) at 56 px, and the compact row of the desktop's floating call pill.",
       "order": 49,
       "web": {
+        "route": "/home?dev=call-controls",
+        "anchor": {
+          "testId": "call-controls-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=call-controls",
         "anchor": {
           "testId": "call-controls-specimen",
@@ -8304,7 +8593,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_call-controls",
         "lane": "styleguide"
@@ -8335,6 +8623,14 @@
       "blurb": "THE floating call pill (EXP-1681, voice-call.json `pill`): a running call small and floating, one per `surfaceSpecimens` row: drag handle, avatar sm, name over timer (ringing: the status), VoiceWave sm, mute, red end. The desktop shows it while no IDE window is focused, the phones while a call is minimized.",
       "order": 60,
       "web": {
+        "route": "/home?dev=call-pill",
+        "anchor": {
+          "testId": "voice-call-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=call-pill",
         "anchor": {
           "testId": "voice-call-pill-specimen",
@@ -8342,7 +8638,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_call-pill",
         "lane": "styleguide"
@@ -8373,6 +8668,14 @@
       "blurb": "THE voice overlay (NEW-77): the push-to-talk capsule's four states (voice.json `overlaySpecimens`), then S-3's floating call pill (fixed `pill.width` × `pill.height`: drag handle, avatar, name over timer, VoiceWave sm, mute, red end) for each `surfaceSpecimens` row.",
       "order": 50,
       "web": {
+        "route": "/home?dev=voice-call-overlay",
+        "anchor": {
+          "testId": "voice-call-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=voice-call-overlay",
         "anchor": {
           "testId": "voice-call-pill-specimen",
@@ -8380,7 +8683,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -8403,6 +8705,14 @@
       "blurb": "THE device readiness block (device-doctor.json), here its Storage band (EXP-1375): the Disk row (amber below 10 GB free) with the worktrees the cleanup kept indented under it, each with why, and the composer's low-disk row (a warning with no pill; the start stays enabled).",
       "order": 45,
       "web": {
+        "route": "/home?dev=device-readiness",
+        "anchor": {
+          "testId": "device-readiness-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=device-readiness",
         "anchor": {
           "testId": "device-readiness-specimen",
@@ -8410,7 +8720,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_device-readiness",
         "lane": "styleguide"
@@ -8484,6 +8793,14 @@
       "blurb": "THE session screen's Results tab body ×4 (results-tab.json): one section per result, newest first: the title with its age, the description, a row of picture thumbnails with a short caption under each, or the surface card.",
       "order": 82,
       "web": {
+        "route": "/home?dev=results-tab",
+        "anchor": {
+          "testId": "results-tab-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/agent?dev=results-tab",
         "anchor": {
           "testId": "results-tab-specimen",
@@ -8491,7 +8808,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -9161,6 +9477,134 @@
         "web-mobile": "No capture of its own: see web.",
         "desktop": "No capture of its own: the desktop styleguide's record-form entry draws the same three Inputs.",
         "ipad": "No capture: the iPhone specimen stands for the iPad."
+      }
+    },
+    {
+      "id": "sidebar-tree",
+      "group": "coding",
+      "title": "Sidebar",
+      "blurb": "#EXP-2027 (sidebar-tree.json): ONE tree, no active team: Home, Needs you and Drafts while they count, Chats, Devices (each device a row), then the Teams label and one folder row per team holding its boards, agents, apps and placed chats in the member's own folders; Active across every team at the bottom.",
+      "order": 89,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "notes": {
+        "web": "md+ only: phones keep their tab bar until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      }
+    },
+    {
+      "id": "sidebar-team-menu",
+      "group": "coding",
+      "title": "Sidebar · team menu",
+      "blurb": "#EXP-2027 (sidebar-tree.json `teamMenu`): a team row's … (or a right-click): New › Board, Agent, App (owners) and Session, New folder, Settings.",
+      "order": 90,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSidebarTeamMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      }
+    },
+    {
+      "id": "device",
+      "group": "coding",
+      "title": "Device",
+      "blurb": "#EXP-2027: one device's page, opened from its sidebar row: name, version and status, its accounts with their limits, and the sessions running on it across every team (each with its team).",
+      "order": 91,
+      "web": {
+        "route": "/devices/screenshot-demo-desktop",
+        "anchor": {
+          "testId": "device-page-settings",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "notes": {
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      }
+    },
+    {
+      "id": "new-board",
+      "group": "issues",
+      "title": "New board",
+      "blurb": "#EXP-2027: the team menu's New › Board as a page: name, prefix, icon and colour, the repository.",
+      "order": 16,
+      "web": {
+        "route": "/t/$teamSlug/new/board",
+        "anchor": {
+          "text": "New board",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      }
+    },
+    {
+      "id": "new-agent",
+      "group": "coding",
+      "title": "New agent",
+      "blurb": "#EXP-2027: the team menu's New › Agent as a page: the agent's own settings in create mode.",
+      "order": 93,
+      "web": {
+        "route": "/t/$teamSlug/new/agent",
+        "anchor": {
+          "text": "New agent",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      }
+    },
+    {
+      "id": "new-app",
+      "group": "coding",
+      "title": "New app",
+      "blurb": "#EXP-2027: the team menu's New › App as a page: a new draft app or an import.",
+      "order": 94,
+      "web": {
+        "route": "/t/$teamSlug/new/app",
+        "anchor": {
+          "text": "New app",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
+        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
       }
     }
   ]

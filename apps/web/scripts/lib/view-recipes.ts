@@ -920,6 +920,21 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
   await page.getByText(/EXP_INSTANCE=/).first().waitFor({ timeout: 15_000 })
 }
 
+/**
+ * #EXP-2027 (sidebar-tree.json `teamMenu`): a team row's `…` opens THE team
+ * menu; hovering New opens its submenu (Board, Agent, App, Session).
+ */
+async function recipeOpenSidebarTeamMenu(page: Page): Promise<void> {
+  const button = page.getByTestId(`sidebar-team-menu-button`).first()
+  await button.waitFor({ state: `attached`, timeout: 30_000 })
+  await page.getByTestId(`sidebar-team-row`).first().hover()
+  await button.click()
+  const next = page.getByRole(`menuitem`, { name: `New`, exact: true }).first()
+  await next.waitFor({ timeout: 15_000 })
+  await next.hover()
+  await page.getByRole(`menuitem`, { name: `Session`, exact: true }).first().waitFor({ timeout: 15_000 })
+}
+
 // ---------------------------------------------------------------- actions
 // --------------------------------------------------------------- settings
 
@@ -1075,6 +1090,7 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   previewDeviceLimits: recipePreviewDeviceLimits,
   openAddServer: recipeOpenAddServer,
+  openSidebarTeamMenu: recipeOpenSidebarTeamMenu,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
   openGettingStartedPhone: recipeOpenGettingStartedPhone,
