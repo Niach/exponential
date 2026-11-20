@@ -1284,9 +1284,12 @@ impl Render for AgentDetailPane {
         }
         let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
         // #EXP-1988 (`teamPicks`): Settings › Assistant draws one section per
-        // synced team, team switcher order (a personal team never syncs).
+        // synced team by name (case-insensitive, then id), as the team
+        // switcher lists them (a personal team never syncs).
         let teams: Vec<(String, String)> = if agent.is_assistant() && self.slot.is_none() {
-            Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| (team.id, team.name)).collect()
+            let mut teams: Vec<(String, String)> = Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| (team.id, team.name)).collect();
+            teams.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()).then_with(|| a.0.cmp(&b.0)));
+            teams
         } else {
             Vec::new()
         };
