@@ -50,6 +50,7 @@ Requires: dbus-daemon
 Requires: systemd
 Requires: glib2
 Recommends: exponential-repo
+# Also lavapipe, the software Vulkan an agent space's apps draw with (#EDE-138).
 Recommends: mesa-vulkan-drivers
 Recommends: vulkan-tools
 Recommends: gnome-keyring
