@@ -5,14 +5,23 @@
 //! a profile of the space's own, never the person's displays, session bus
 //! or token.
 //!
+//! #EDE-138: with a systemd user manager a launch runs in a scope of its
+//! space's own slice ([`super::slice`]): under the person's limits, out
+//! of their login session scope, and ended with the space also when it
+//! started a session of its own.
+//!
 //! What a launch is NOT: contained. It runs as the person's user with
-//! their `HOME`; a process that starts a session of its own outlives the
-//! group kill. Grants and filters guard against accidents, not against a
-//! hostile holder of a space token.
+//! their `HOME`; without a user manager a process that starts a session
+//! of its own outlives the group kill. Grants, filters and slices guard
+//! against accidents, not against a hostile holder of a space token.
 
 use std::{
     collections::BTreeMap,
-    os::unix::{fs::DirBuilderExt, process::CommandExt},
+    io::{Seek, Write},
+    os::unix::{
+        fs::{DirBuilderExt, OpenOptionsExt},
+        process::CommandExt,
+    },
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -82,6 +91,19 @@ pub(crate) fn home_of(dir: &Path) -> PathBuf {
     dir.join("home")
 }
 
+/// The caller's variables for a launch in a scope, as its standard input:
+/// a JSON object in a file of the space's directory that has no name any
+/// more. `space-exec` reads it inside the scope, so no program before the
+/// scope (the launch's first two stages, `busctl`) runs with a variable
+/// the caller chose, and none is on an argument.
+fn callers_environment(dir: &Path, launch: u32, env: &BTreeMap<String, String>) -> std::io::Result<std::fs::File> {
+    let path = dir.join(format!(".launch-{launch}"));
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path)?;
+    let written = file.write_all(serde_json::to_string(env).expect("an environment is JSON").as_bytes()).and_then(|()| file.rewind());
+    std::fs::remove_file(&path)?;
+    written.map(|()| file)
+}
+
 /// `program` as the launch will find it: a path as it is, a name on `PATH`.
 fn found(program: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -100,6 +122,17 @@ impl Spaces {
 
     /// The compositor ends: nothing launched outlives it.
     pub(crate) fn kill_launches(&mut self) {
+        // #EDE-138: first what is in the slices, whatever group or session
+        // it is in by now (a launch that left its group would be waited
+        // for without end below): everything at once, then the user
+        // manager takes the units away, which is waited for, for a moment.
+        // The user manager may linger after the person's logout: nothing
+        // else would end what a space left.
+        if let Some(units) = self.units.as_ref().filter(|_| self.sliced) {
+            if !units.end() {
+                tracing::warn!("the slice of all spaces was not stopped within {:?}", super::slice::EXIT_STOP);
+            }
+        }
         for mut launch in self.launches.drain(..) {
             launch.signal(Signal::KILL);
             let _ = launch.child.wait();
@@ -122,7 +155,9 @@ impl Ede {
     /// `XDG_RUNTIME_DIR` (so nothing found through the runtime directory
     /// is the person's: the bus, PipeWire, per-user sockets), a session
     /// bus of its own when `dbus-run-session` is installed and none
-    /// otherwise, and its `profile`. The caller's `env` goes on top.
+    /// otherwise, and its `profile`. The caller's `env` goes on top. With
+    /// a user manager ([`Spaces::units`]) all of that starts in a scope of
+    /// the space's slice.
     pub fn space_command(&self, desk: DeskId, argv: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>, profile: Profile) -> Result<Command, Failure> {
         let fail = |code, message: &str| Failure::new(code, message);
         let space = self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
@@ -137,14 +172,28 @@ impl Ede {
         if !cwd.is_dir() {
             return Err(fail(ErrorCode::NotFound, &format!("no such directory: {}", cwd.display())));
         }
-        let mut cmd = if found("dbus-run-session") {
-            let mut cmd = Command::new("dbus-run-session");
-            cmd.arg("--").args(argv);
-            cmd
-        } else {
-            let mut cmd = Command::new(program);
-            cmd.args(&argv[1..]);
-            cmd
+        let mut inner: Vec<String> = Vec::with_capacity(argv.len() + 2);
+        if found("dbus-run-session") {
+            inner.extend(["dbus-run-session".to_string(), "--".to_string()]);
+        }
+        inner.extend(argv.iter().cloned());
+        // In a scope the caller's variables go in through the launch's
+        // standard input, for the last of its three stages alone.
+        let (mut cmd, callers) = match &self.spaces.units {
+            // Never outside a scope once launches run in scopes: the
+            // person's login session is no place for a space's process.
+            Some(units) if !units.reachable() => return Err(fail(ErrorCode::Unavailable, "the systemd user manager is gone: nothing starts in a space without it")),
+            Some(units) => {
+                let launch = self.spaces.launch_serial.get() + 1;
+                self.spaces.launch_serial.set(launch);
+                let callers = callers_environment(&space.dir, launch, env).map_err(|e| fail(ErrorCode::Unavailable, &format!("the launch's environment: {e}")))?;
+                (units.command(&self.config.spaces, desk.number(), launch, &space.dir, &inner), Some(callers))
+            }
+            None => {
+                let mut cmd = Command::new(&inner[0]);
+                cmd.args(&inner[1..]);
+                (cmd, None)
+            }
         };
         for name in DROPPED {
             cmd.env_remove(name);
@@ -158,7 +207,11 @@ impl Ede {
                 cmd.env(var, dir);
             }
         }
-        cmd.envs(env).current_dir(cwd).stdin(Stdio::null()).process_group(0);
+        match callers {
+            Some(callers) => cmd.stdin(callers),
+            None => cmd.envs(env).stdin(Stdio::null()),
+        };
+        cmd.current_dir(cwd).process_group(0);
         // SAFETY: between fork and exec only prctl runs, which is
         // async-signal-safe: a compositor that dies takes its launches along.
         unsafe {
@@ -176,6 +229,11 @@ impl Ede {
         }
         let child = cmd.spawn().map_err(|e| Failure::new(if e.kind() == std::io::ErrorKind::NotFound { ErrorCode::NotFound } else { ErrorCode::Unavailable }, &format!("{}: {e}", argv[0])))?;
         let pid = child.id();
+        let scoped = self.spaces.units.is_some();
+        if let Some(space) = self.spaces.get_mut(desk).filter(|_| scoped) {
+            space.sliced = true;
+            self.spaces.sliced = true;
+        }
         self.spaces.launches.push(Launch { desk, child, closed: None, killed: false });
         Ok(Launched { pid })
     }
@@ -192,6 +250,7 @@ impl Ede {
     /// Once a second (and before a launch counts): reaps what ended, and
     /// kills what outlived its space by [`TERM_GRACE`].
     pub(crate) fn space_launches_tick(&mut self) {
+        self.space_slices_tick();
         self.spaces.launches.retain_mut(|launch| {
             if launch.closed.is_some_and(|at| at.elapsed() > TERM_GRACE) && !std::mem::replace(&mut launch.killed, true) {
                 launch.signal(Signal::KILL);

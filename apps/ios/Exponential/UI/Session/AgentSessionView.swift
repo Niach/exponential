@@ -223,6 +223,13 @@ struct AgentSessionView: View {
     /// person inputs, oldest first, drawn as the viewer's bubbles under a
     /// no-feed placeholder.
     @State private var noFeedInputs: [NoFeedInput] = []
+    /// #EXP-1998 (find-in-chat.json LANDING): how many sent inputs are read
+    /// and drawn (find landing on an older one widens it one `inputsMax` at
+    /// a time, until the chat closes), the ids read, older ones unread, and
+    /// a bump per widened read landed.
+    @State private var noFeedInputsLimit = SteerNoFeed.inputsMax
+    @State private var noFeedInputsRead: (ids: [String], more: Bool) = ([], false)
+    @State private var noFeedInputsPage = 0
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
@@ -454,7 +461,8 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
-            .task(id: session.id) { await observeNoFeedInputs() }
+            .task(id: "\(session.id)#\(noFeedInputsLimit)") { await observeNoFeedInputs() }
+            .onChange(of: session.id) { _, _ in noFeedInputsLimit = SteerNoFeed.inputsMax }
             .task(id: session.id) { await observeCallSessions() }
             // #EXP-1380: a widened message limit (Load earlier) re-reads.
             .task(id: "\(session.id)#\(messageLimit)") { await observeTranscriptSenders() }
@@ -640,8 +648,30 @@ struct AgentSessionView: View {
             .modifier(TranscriptFindDriver(
                 find: chatFind, transcriptFind: transcriptFind, model: model,
                 inputs: noFeedPlaceholder(model) == nil || model.sessionEnded ? [] : noFeedInputs,
+                synced: findSynced(model),
                 accountId: accountId, rootId: session.rootId, sessionId: session.id
             ))
+            // #EXP-1998: the chat closed: the synced tail draws its newest again.
+            .onDisappear { model.resetFindTail() }
+    }
+
+    /// #EXP-1998 (find-in-chat.json `olderCases`): the synced messages the
+    /// screen draws as bubbles: none for a live transcript (its own rows
+    /// hold them) or an ended placeholder, the sent inputs above a
+    /// placeholder, else the synced tail after the feed.
+    private func findSynced(_ model: AgentSessionModel) -> FindInChat.Synced? {
+        guard model.phase != .live else { return nil }
+        guard noFeedPlaceholder(model) != nil else { return model.findSyncedTail }
+        guard !model.sessionEnded else { return nil }
+        return FindInChat.Synced(loaded: noFeedInputsRead.ids, drawable: noFeedInputs.map(\.id), more: noFeedInputsRead.more)
+    }
+
+    /// #EXP-1998: find lands on a sent input older than those drawn: read
+    /// and draw one `inputsMax` more; false = none older.
+    private func widenNoFeedInputs() -> Bool {
+        guard noFeedInputsRead.more else { return false }
+        noFeedInputsLimit += SteerNoFeed.inputsMax
+        return true
     }
 
     @ViewBuilder
@@ -780,7 +810,11 @@ struct AgentSessionView: View {
                         highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
                         targetFrame: findFrame, proxy: proxy,
                         ready: true, found: { transcriptFind.itemId($0) != nil },
-                        centre: { key in proxy.scrollTo(key, anchor: .center) }
+                        // #EXP-1998: an older sent input pages in here.
+                        more: noFeedInputsRead.more,
+                        arrival: "\(noFeedInputsPage)",
+                        page: { widenNoFeedInputs() },
+                        centre: { key, anchor in proxy.scrollTo(key, anchor: anchor) }
                     ))
                 }
             }
@@ -1186,14 +1220,20 @@ struct AgentSessionView: View {
                     highlight: Binding(get: { transcriptFind.ringKey }, set: { transcriptFind.ringKey = $0 }),
                     targetFrame: findFrame, proxy: proxy,
                     ready: true, found: { findEntryId($0, model: model) != nil || ownFindKey($0, model: model) },
-                    more: model.canLoadEarlier,
-                    arrival: "\(model.transcript.first?.id ?? -1)",
-                    page: { model.loadEarlier() },
-                    centre: { key in
+                    // #EXP-1998: an older synced message widens the tail;
+                    // an older event pages the feed (the landing's own key:
+                    // the link is taken before this body sees it).
+                    more: transcriptFind.focus?.id.hasPrefix("m:") == true
+                        ? model.findSyncedTail?.more == true : model.canLoadEarlier,
+                    arrival: "\(model.transcript.first?.id ?? -1)|\(model.findTailPage)",
+                    page: {
+                        transcriptFind.focus?.id.hasPrefix("m:") == true ? model.widenFindTail() : model.loadEarlier()
+                    },
+                    centre: { key, anchor in
                         if let entry = findEntryId(key, model: model) {
-                            proxy.scrollTo(entry, anchor: .center)
+                            proxy.scrollTo(entry, anchor: anchor)
                         } else if ownFindKey(key, model: model) {
-                            proxy.scrollTo(key, anchor: .center)
+                            proxy.scrollTo(key, anchor: anchor)
                         }
                     },
                     onTake: {
@@ -2015,13 +2055,15 @@ struct AgentSessionView: View {
     private func observeNoFeedInputs() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let id = session.id
+        let limit = noFeedInputsLimit
         let observation = ValueObservation.tracking { db in
-            try SessionQueries.consumedInputRows(db: db, sessionId: id, limit: SteerNoFeed.inputsMax)
+            try SessionQueries.consumedInputRows(db: db, sessionId: id, limit: limit)
                 .map(TreeMessage.init(messageRow:))
         }
+        var widened = limit != SteerNoFeed.inputsMax
         do {
             for try await rows in observation.values(in: pool) {
-                let picked = SteerNoFeed.inputs(rows) { m in
+                let picked = SteerNoFeed.inputs(rows, max: limit) { m in
                     SteerNoFeed.InputRow(
                         id: m.id, authorKind: m.authorKind, hasCard: m.card != nil,
                         consumedAt: m.consumedAt, createdAt: m.createdAt
@@ -2032,6 +2074,13 @@ struct AgentSessionView: View {
                     return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
                 }
                 if inputs != noFeedInputs { noFeedInputs = inputs }
+                let read = (ids: rows.map(\.id), more: rows.count >= limit)
+                if read.ids != noFeedInputsRead.ids || read.more != noFeedInputsRead.more { noFeedInputsRead = read }
+                // #EXP-1998: a widened read landed (find pages on).
+                if widened {
+                    widened = false
+                    noFeedInputsPage &+= 1
+                }
             }
         } catch {}
     }

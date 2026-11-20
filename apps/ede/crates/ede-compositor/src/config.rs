@@ -21,6 +21,7 @@ pub struct Config {
     pub lock: Lock,
     pub idle: Idle,
     pub protected: Protected,
+    pub spaces: Spaces,
     /// Per-output settings (#EDE-18): `[[outputs]]` with the connector name
     /// (`DP-1`, `HEADLESS-1`); an output not listed takes its preferred
     /// mode, scale 1 and the next place to the right.
@@ -105,6 +106,29 @@ pub struct Protected {
     pub app_ids: Vec<String>,
 }
 
+/// `[spaces]`: what agent spaces may take of this machine (#EDE-138).
+/// The person's to set; no grant and no agent's call carries a limit.
+/// Read when a space starts its first program.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Spaces {
+    /// Percent of all cores that all spaces together may use.
+    pub cpu_quota: u32,
+    /// Percent of the memory that all spaces together may use.
+    pub memory_max: u32,
+    /// Percent of the memory for one space: at least 2 GiB, never more
+    /// than all of them together.
+    pub space_memory_max: u32,
+    /// How many processes and threads one space may have.
+    pub tasks_max: u32,
+}
+
+impl Default for Spaces {
+    fn default() -> Self {
+        Self { cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Keyboard {
@@ -149,6 +173,7 @@ impl Default for Config {
             lock: Lock::default(),
             idle: Idle::default(),
             protected: Protected::default(),
+            spaces: Spaces::default(),
             outputs: Vec::new(),
             diagnostics: Diagnostics::default(),
             theme: toml::Table::new(),
@@ -243,6 +268,14 @@ impl Config {
         if cfg.windows.panel_margin < 0 {
             return Err("[windows] panel_margin must be 0 or more".into());
         }
+        for (name, percent) in [("cpu_quota", cfg.spaces.cpu_quota), ("memory_max", cfg.spaces.memory_max), ("space_memory_max", cfg.spaces.space_memory_max)] {
+            if !(1..=100).contains(&percent) {
+                return Err(format!("[spaces] {name} is a percentage from 1 to 100, got {percent}"));
+            }
+        }
+        if cfg.spaces.tasks_max < 64 {
+            return Err(format!("[spaces] tasks_max must be 64 or more, got {}", cfg.spaces.tasks_max));
+        }
         for o in &cfg.outputs {
             if o.name.is_empty() {
                 return Err("[[outputs]] needs a name".into());
@@ -327,6 +360,17 @@ mod tests {
         assert!(cfg.lock.on_suspend);
         assert_eq!(cfg.idle.lock_after, 0);
         assert_eq!(cfg.protected.app_ids, ["org.example.Bank"]);
+    }
+
+    /// #EDE-138: the person sets what agent spaces may take.
+    #[test]
+    fn spaces_take_half_of_the_machine_unless_the_person_says() {
+        assert_eq!(Config::parse("").unwrap().spaces, Spaces { cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 });
+        let cfg = Config::parse("[spaces]\ncpu_quota = 25\nspace_memory_max = 10\n").unwrap();
+        assert_eq!(cfg.spaces, Spaces { cpu_quota: 25, space_memory_max: 10, ..Spaces::default() });
+        for wrong in ["cpu_quota = 0", "cpu_quota = 101", "memory_max = 0", "space_memory_max = 200", "tasks_max = 8", "cpu_weight = 3"] {
+            assert!(Config::parse(&format!("[spaces]\n{wrong}\n")).is_err(), "{wrong}");
+        }
     }
 
     #[test]

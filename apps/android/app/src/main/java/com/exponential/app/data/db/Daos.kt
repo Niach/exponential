@@ -688,6 +688,11 @@ abstract class MessageDao {
     fun observeTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>> =
         rawObserveTailMessages(sessionId, limit).openedMessages()
 
+    // #EXP-1998 (find-in-chat.json): the ids of a session's messages created
+    // at or after [mark] ("" = every one): what find in chat calls loaded.
+    @Query("SELECT id FROM messages WHERE session_id = :sessionId AND created_at >= :mark")
+    abstract fun observeIdsSince(sessionId: String, mark: String): Flow<List<String>>
+
     // #EDE-114 (chat-store.json): the chat store's message feed, RAW (the
     // store opens them itself): the rows of a session created at or after
     // [mark], oldest first, one page at a time.

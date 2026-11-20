@@ -155,8 +155,17 @@ fn run(mut safe_mode: bool) -> ExitCode {
                 }
             }
         };
-        let status = cmd.spawn().and_then(|child| wait_or_terminate(child, || held(&mut policy)));
+        let mut pid = None;
+        let status = cmd.spawn().and_then(|child| {
+            pid = Some(child.id());
+            wait_or_terminate(child, || held(&mut policy))
+        });
         let ran = started.elapsed();
+        // #EDE-138: however it ended (the session's SIGTERM, a crash), what
+        // its agent spaces left in their systemd slice ends with it.
+        if let Some(pid) = pid {
+            end_spaces(&compositor, pid);
+        }
         if TERMINATED.load(Ordering::SeqCst) {
             tracing::info!("the session was ended; stopping");
             stop_session_units();
@@ -202,6 +211,20 @@ fn run(mut safe_mode: bool) -> ExitCode {
                 tracing::warn!("restarting exponential-compositor{}", if safe_mode { " in safe mode" } else { "" });
             }
         }
+    }
+}
+
+/// #EDE-138: `exponential-compositor space-end <pid>` for the compositor
+/// that just ended. It was told to end with SIGTERM (or it crashed), so it
+/// stopped nothing itself; the systemd user manager may linger after the
+/// person's logout, and what a space's launch left in the slice of that
+/// compositor's spaces would run on. A few seconds at most; nothing to do
+/// without a user manager.
+fn end_spaces(compositor: &str, pid: u32) {
+    match Command::new(compositor).args(["space-end", &pid.to_string()]).stdin(std::process::Stdio::null()).status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => tracing::warn!("the agent spaces of compositor {pid} were not ended: {status}"),
+        Err(e) => tracing::warn!("{compositor} space-end: {e}"),
     }
 }
 

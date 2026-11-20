@@ -464,17 +464,9 @@ fn rgba_of(capture: &ede_protocol::Capture) -> Result<Image, String> {
     if info.format != "argb8888" {
         return Err(format!("Unsupported eDE capture format {:?}.", info.format));
     }
-    let (width, height, stride) = (info.width.max(0) as usize, info.height.max(0) as usize, info.stride.max(0) as usize);
-    if stride < width * 4 || capture.pixels.len() < stride * height {
-        return Err("The eDE capture is short.".to_string());
-    }
-    let mut rgba = Vec::with_capacity(width * height * 4);
-    for row in capture.pixels.chunks_exact(stride).take(height) {
-        for pixel in row[..width * 4].chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-        }
-    }
-    Ok(Image { width: width as u32, height: height as u32, rgba })
+    // Little-endian `0xAARRGGBB` words are B, G, R, A bytes.
+    let (width, height, stride) = (info.width.max(0) as u32, info.height.max(0) as u32, info.stride.max(0) as usize);
+    Image::from_bgra(&capture.pixels, width, height, stride).ok_or_else(|| "The eDE capture is short.".to_string())
 }
 
 impl Ede {
@@ -512,6 +504,12 @@ impl Ede {
 impl Backend for Ede {
     fn target(&self) -> Target {
         self.target
+    }
+
+    // #EDE-80: the compositor releases what a run drove when its hold or
+    // its connection ends (and refuses a release after the person's Esc).
+    fn lets_go_itself(&self) -> bool {
+        true
     }
 
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
@@ -608,11 +606,8 @@ impl Backend for Ede {
         self.keysym(super::linux::keysym_of(key), down)
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let keysym = super::linux::char_keysym(ch);
-        self.keysym(keysym, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.keysym(keysym, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.keysym(super::linux::char_keysym(ch), down)
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
@@ -1629,7 +1624,8 @@ mod tests {
 
     /// #EDE-23 against a real headless `exponential-compositor` (pixman, no
     /// seat, no GPU): `EDE_COMPOSITOR=<path to the binary> cargo test -p
-    /// epilot headless_ede`. Skipped without it (the desktop CI builds no
+    /// epilot headless_ede`. Skipped without it (the gate's `ede` job builds
+    /// the compositor and sets it, #EDE-140; its desktop job builds no
     /// eDE). Checks the grant too: the connection holds `capture`,
     /// `input:person` and `ui` only, never the root's `system`. #EDE-140:
     /// with windows of its own (listed, activated, typed into, a protected

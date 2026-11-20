@@ -319,3 +319,32 @@ fn an_edit_undone_before_its_frame_is_no_rollback() {
     assert_eq!(text(&dir), "factory");
     assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
 }
+
+/// #EDE-153: a git operation that fails while the supervisor carries out
+/// an effect (here its rollback: another git holds the repository past the
+/// wait) does not end it: the next edit is still supervised. Before, `run`
+/// ended on the error and nothing was supervised for the rest of the session.
+#[test]
+fn a_failed_rollback_does_not_end_the_supervisor() {
+    let (_tmp, dir, factory) = setup();
+    let run = Run::start(&dir, &factory);
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
+    cli_set(&dir, &factory, &panel("silent"));
+    run.wait(Duration::from_secs(5), |r| matches!(r, Report::Edit { name, .. } if name == "panel"));
+    // Another git holds the repository past the rollback's due time and git's own wait.
+    let locks = [dir.join(".git/index.lock"), dir.join(".git/HEAD.lock")];
+    for lock in &locks {
+        fs::write(lock, b"").unwrap();
+    }
+    std::thread::sleep(Duration::from_secs(6));
+    for lock in &locks {
+        fs::remove_file(lock).unwrap();
+    }
+    // Another silent edit: still supervised, so rolled back.
+    let mut again = panel("silent");
+    again["root"]["children"][0]["id"] = json!("clock-2");
+    cli_set(&dir, &factory, &again);
+    run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(text(&dir), "factory");
+}

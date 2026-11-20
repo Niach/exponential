@@ -301,12 +301,10 @@ impl Backend for Mac {
         if image.bits_per_pixel() != 32 || image.bits_per_component() != 8 {
             return Err(format!("Unsupported screen format: {} bits per pixel.", image.bits_per_pixel()));
         }
-        let (width, height) = (image.width(), image.height());
+        let width = u32::try_from(image.width()).map_err(|_| "The screen capture is too wide.".to_string())?;
+        let height = u32::try_from(image.height()).map_err(|_| "The screen capture is too tall.".to_string())?;
         let data = image.data();
-        let rgba = bgra_to_rgba(data.bytes(), width, height, image.bytes_per_row()).ok_or("The screen capture came back short.")?;
-        let width = u32::try_from(width).map_err(|_| "The screen capture is too wide.".to_string())?;
-        let height = u32::try_from(height).map_err(|_| "The screen capture is too tall.".to_string())?;
-        Ok(Image { width, height, rgba })
+        Image::from_bgra(data.bytes(), width, height, image.bytes_per_row()).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -462,11 +460,8 @@ impl Backend for Mac {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let text = ch.to_string();
-        self.unicode(&text, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.unicode(&text, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.unicode(&ch.to_string(), down)
     }
 
     fn person_holds_button(&self) -> bool {
@@ -736,20 +731,6 @@ fn front_window(windows: &[WindowInfo]) -> Option<u64> {
 /// window (`listed`).
 fn window_in_front(id: u64, app_in_front: bool, named: Option<&[u64]>, listed: impl FnOnce() -> Option<u64>) -> bool {
     app_in_front && named.map_or_else(|| listed() == Some(id), |named| named.contains(&id))
-}
-
-/// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
-/// RGBA8, opaque; `None` when `data` is short.
-fn bgra_to_rgba(data: &[u8], width: usize, height: usize, stride: usize) -> Option<Vec<u8>> {
-    let row = width.checked_mul(4)?;
-    let mut rgba = Vec::with_capacity(row.checked_mul(height)?);
-    for y in 0..height {
-        let start = y.checked_mul(stride)?;
-        for pixel in data.get(start..start.checked_add(row)?)?.chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-        }
-    }
-    Some(rgba)
 }
 
 /// The window list's keys we read.
@@ -2060,18 +2041,5 @@ mod tests {
         assert_eq!(stroke(Key::Char('0'), None, Under::Nothing), Stroke::Code(29, false));
         assert_eq!(stroke(Key::Char('?'), None, Under::Nothing), Stroke::Code(44, true));
         assert_eq!(stroke(Key::Char('€'), None, Under::Nothing), Stroke::Unicode('€'));
-    }
-
-    #[test]
-    fn bgra_rows_become_opaque_rgba_and_skip_the_row_padding() {
-        // 2x2, stride 12 (4 bytes of padding per row).
-        let data = [1, 2, 3, 0, 4, 5, 6, 9, 0xee, 0xee, 0xee, 0xee, 7, 8, 9, 0, 10, 11, 12, 0, 0xee, 0xee, 0xee, 0xee];
-        assert_eq!(
-            bgra_to_rgba(&data, 2, 2, 12),
-            Some(vec![3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255])
-        );
-        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
-        assert!(bgra_to_rgba(&data[..20], 2, 2, 12).is_some());
-        assert_eq!(bgra_to_rgba(&data[..19], 2, 2, 12), None);
     }
 }

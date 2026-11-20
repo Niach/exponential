@@ -51,7 +51,7 @@ func button(_ v: Any?) -> TalkCallButton {
 func event(_ e: [String: Any]) -> TalkCallEvent {
     let text = str(e["text"]) ?? ""
     switch str(e["t"])! {
-    case "start": return .start(device: str(e["device"])!, language: str(e["language"]))
+    case "start": return .start(device: str(e["device"])!, language: str(e["language"]), fallback: (e["fallback"] as? Bool) ?? false)
     case "rang": return .rang
     case "ready": return .ready
     case "noSound": return .noSound
@@ -103,6 +103,7 @@ for c in flows {
         guard let view else { check(false, "\(name): hidden"); continue }
         check(view.activity == str(expected["activity"]), "\(name): activity \(view.activity)")
         check(view.status == str(expected["status"]), "\(name): status \(String(describing: view.status))")
+        check(view.via == str(expected["via"]), "\(name): via \(String(describing: view.via))")
         check(view.caption == str(expected["caption"]), "\(name): caption \(view.caption)")
         check(view.muted == expected["muted"] as! Bool, "\(name): muted")
         check(view.speaker == expected["speaker"] as! Bool, "\(name): speaker")
@@ -112,6 +113,37 @@ for c in flows {
         check(view == nil, "\(name): expected hidden")
     }
     check(state.toast == str(c["toast"]), "\(name): toast \(String(describing: state.toast))")
+}
+
+// EXP-1857 / EXP-1858: where the call rings; #EXP-1878: what a tap does
+func devices(_ v: Any?) -> [TalkCallTargetDevice] {
+    ((v as? [[String: Any]]) ?? []).map { d in
+        TalkCallTargetDevice(
+            id: str(d["id"])!, name: str(d["name"])!, online: d["online"] as! Bool, speech: str(d["speech"]).map(speech),
+            meeting: (d["meeting"] as? Bool) ?? false)
+    }
+}
+for c in fixture["targetCases"] as! [[String: Any]] {
+    let i = c["input"] as! [String: Any]
+    let e = c["expected"] as! [String: Any]
+    let name = str(c["name"])!
+    let target = callTarget(input: TalkCallTargetInput(
+        here: str(i["here"]), agentDevice: str(i["agentDevice"]), desktops: devices(i["desktops"]), servers: devices(i["servers"]),
+        busy: i["busy"] as! Bool))
+    check(target.enabled == e["enabled"] as! Bool, "target \(name): enabled")
+    check(target.reason == str(e["reason"]), "target \(name): reason \(String(describing: target.reason))")
+    check(target.device == str(e["device"]), "target \(name): device \(String(describing: target.device))")
+    check(target.name == str(e["name"]), "target \(name): name")
+    check(target.fallback == e["fallback"] as! Bool, "target \(name): fallback")
+    check(target.local == e["local"] as! Bool, "target \(name): local")
+}
+for c in fixture["tapCases"] as! [[String: Any]] {
+    let i = c["input"] as! [String: Any]
+    let e = c["expected"] as! [String: Any]
+    let availability = i["availability"] as! [String: Any]
+    let tap = callTap(platform: platform(i["platform"]), reason: str(availability["reason"]))
+    check(tap.call == e["call"] as! Bool, "tap \(c["name"]!): call")
+    check(tap.toast == str(e["toast"]), "tap \(c["name"]!): toast \(String(describing: tap.toast))")
 }
 
 // the ring + the timer

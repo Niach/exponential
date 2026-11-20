@@ -6,7 +6,7 @@ name: test
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
-# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
+# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests (and ePilot's live tests against it) when it touches apps/ede or what it builds from, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI, with eui-gpui's full `cargo test`) when it touches eUI, a short eDE golden check
 # (`ede-goldens-lite`: ede-chat, ede-settings, ede-panel-menu) when it touches what eDE paints with, and
@@ -115,7 +115,10 @@ jobs:
           # catalog/themes it embeds. A PR touching these REQUIRES eui-swift.
           swift='^(packages/exponential-ui-swift/|packages/exponential-ui/(generated|catalog|conformance|fixtures)/|apps/desktop/crates/(eui-core|exponential-ui-ffi)/|\.github/workflows/exponential-ui\.yml$)'
           echo "swift=$(grep -qE "$swift" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
+          # #EDE-140: + what apps/ede builds from outside it (the path crates, the
+          # files their sources include; apps/ede/crates/ede-session/tests/ci_filter.rs
+          # fails while one is missing here) and epilot, whose live tests run in the job.
+          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol|emcp|crash-monitor|epilot)/|apps/desktop/assets/fonts/|packages/design-tokens/tokens\.json$|packages/exponential-ui/themes/|packages/emcp/fixtures/|packages/domain-contract/fixtures/app-actions\.json$|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
           ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
@@ -335,8 +338,8 @@ jobs:
       # #EXP-1905: Computer Use (epilot, epilot-screen: fake backends and a
       # fake capturer, no display, no seat) and the MCP Proxy (emcp with code
       # mode: its contract replay, the loopback server, the hub). epilot's
-      # live test `headless_ede_drives_and_captures` needs a built compositor
-      # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
+      # live tests (`headless_ede`) need a built compositor (EDE_COMPOSITOR)
+      # and return early here: the ede job runs them (#EDE-140).
       # #EXP-1941: P2P's core (enet-core) for the call seal: its unit tests
       # replay voice-call.json `seal` byte for byte; its node tests (real
       # endpoints over localhost UDP) stay in the release suite. Its phone
@@ -567,7 +570,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
-          workspaces: apps/ede
+          workspaces: |
+            apps/ede
+            apps/desktop
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
@@ -578,6 +583,59 @@ jobs:
       - name: Cargo check (udev backend)
         working-directory: apps/ede
         run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
+      # #EDE-140: without Xwayland and the nested window it still builds.
+      - name: Cargo check (no default features)
+        working-directory: apps/ede
+        run: cargo check --locked -p ede-compositor --no-default-features
+      # #EDE-140: Computer Use against the compositor `Cargo test` built
+      # (`headless_ede`: its grant, capture, input, the hold and the person's
+      # Esc, the clipboard, a re-minted grant, a space run). Without
+      # EDE_COMPOSITOR both tests skip; EDE_COMPOSITOR_REQUIRED fails them.
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
+      - name: Computer Use on the real compositor
+        working-directory: apps/desktop
+        run: |
+          EDE_COMPOSITOR="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" EDE_COMPOSITOR_REQUIRED=1 \
+            cargo test --locked -p epilot --lib headless_ede
+
+  # #EDE-138: what an agent space launches runs in a systemd scope of the
+  # space's own slice. The `ede` job's runner is a container without systemd
+  # and tests that with stand-ins; this one asks a REAL user manager where a
+  # launch ends up (its cgroup, the limits the kernel holds, nothing left
+  # after the close or after the compositor's end, with lingering on).
+  # `EDE_EXPECT_USER_MANAGER=1`: a skip is a failure here.
+  # Pinned as `desktop-scope` is; only the compositor's one test target.
+  ede-scope:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (smithay) and the user's session bus
+        run: |
+          sudo apt-get install -y libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config dbus dbus-user-session
+          # `busctl --user` reaches the user manager over the session bus.
+          [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
+          busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
+          # As the installed daemon does: the user manager outlives a
+          # logout, so only the compositor's own end stops what a space left.
+          sudo loginctl enable-linger "$(id -un)"
+          loginctl show-user "$(id -un)" --property=Linger
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - name: A space's launches under a real user manager
+        working-directory: apps/ede
+        env:
+          EDE_EXPECT_USER_MANAGER: '1'
+        run: cargo test --locked -p ede-compositor --test space_slice_real
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is
@@ -899,7 +957,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-scope, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:

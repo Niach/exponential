@@ -996,6 +996,7 @@ dependencies = [
  "ede-observability",
  "ede-theme",
  "libc",
+ "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",
