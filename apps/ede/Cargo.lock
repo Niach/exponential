@@ -930,6 +930,7 @@ name = "ede-observability"
 version = "0.2.29"
 dependencies = [
  "crash-monitor",
+ "log",
  "reqwest",
  "rustls",
  "sentry",
@@ -937,6 +938,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
 ]
 

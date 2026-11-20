@@ -215,7 +215,7 @@ strip = true
 
 # #VAPP-266: the desktop runner's release assets (release-eengine.yml):
 # symbols stripped, thin LTO; `log`'s release_max_level_off (the runner's
-# Cargo.toml) compiles every log macro out.
+# `runner` feature, #ERR-32) compiles every log macro out.
 [profile.runner]
 inherits = "release"
 lto = "thin"
