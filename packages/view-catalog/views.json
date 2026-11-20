@@ -9496,9 +9496,16 @@
       "notes": {
         "web": "md+ only: phones keep their tab bar until their own redesign.",
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "anchorDelayMs": 800
       }
     },
     {
@@ -9518,9 +9525,14 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the team row's … and right-click open the same genUI Menu; no automated drive opens a menu, capture it with --manual.",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
       }
     },
     {
@@ -9539,9 +9551,16 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "device:$device"
+        },
+        "anchorDelayMs": 1200
       }
     },
     {
@@ -9560,9 +9579,16 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "new-board:$team"
+        },
+        "anchorDelayMs": 800
       }
     },
     {
@@ -9581,9 +9607,16 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "new-agent:$team"
+        },
+        "anchorDelayMs": 800
       }
     },
     {
@@ -9602,9 +9635,16 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the desktop IDE builds the same screen from the same fixtures in its own change; its capture lands there.",
+        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "new-app:$team"
+        },
+        "anchorDelayMs": 800
       }
     }
   ]

@@ -59,6 +59,32 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_341: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-cli-0-14-171",
+    date: "2026-11-20",
+    title: "Calls in their own session, computer use on every keyboard, chats in global search",
+    summary: "Desktop and CLI 0.14.171: every call gets its own session, computer use works on non-US keyboards, global search finds chats, long words wrap, outside pictures show as links, and find in chat reaches older messages, with eDE 0.2.30.",
+    body: r##"- **Calls**: each call gets its own session again, and the agent's opening line no longer crashes it.
+- **Computer use**: keys and shortcuts work on non-US keyboard layouts, and bringing a window to the front works on macOS and Windows.
+- **Global search finds chats**: matching chats show under the issues; pick one and it opens on that message.
+- **Long words wrap**: a long unbroken word or link in a chat bubble wraps instead of being cut off.
+- **Pictures from other websites** in an issue description show as a link and are never loaded.
+- **Find in chat reaches older messages**: matches further back in a chat are found too.
+- **eDE 0.2.30** comes with this release."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_340: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-agent-entry",
+    date: "2026-11-20",
+    title: "Agent is back in the desktop sidebar",
+    summary: "The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.",
+    body: r##"- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_339: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-pins-removed",
     date: "2026-11-20",

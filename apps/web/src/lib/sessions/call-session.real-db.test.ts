@@ -131,10 +131,18 @@ describe.skipIf(!ready.ok)(`#EXP-1961 call sessions`, () => {
     expect((await callOf(call.sessionId)).voiceCall!.summaryPending).toBe(false)
 
     // Called back within the window: the same session, a resume line.
+    // #EXP-2014: typed in the chat meanwhile: never beside the resume line
+    // (its reply is the opening), copied in before the next utterance.
+    await sendSession({ userId: w.owner, input: { sessionId: chat.sessionId, text: `typed while away` } })
     const t2 = new Date(t1.getTime() + 60_000)
     const again = (await startCallSession({ userId: w.owner, agentId: w.agentId, callId: `c2`, now: t2 }))!
     expect(again).toEqual({ sessionId: call.sessionId, chatId: chat.sessionId, resumed: true })
-    expect((await rowsOf(call.sessionId)).at(-1)!.body).toBe(VOICE_CALL_SESSION.resumeText.replace(`{language}`, `German`))
+    const resumed = await rowsOf(call.sessionId)
+    expect(resumed.at(-1)!.body).toBe(VOICE_CALL_SESSION.resumeText.replace(`{language}`, `German`))
+    expect(resumed.map((row) => row.body)).not.toContain(`typed while away`)
+    await sendSession({ userId: w.owner, input: { sessionId: call.sessionId, text: `back again` } })
+    const after = (await rowsOf(call.sessionId)).map((row) => row.body)
+    expect(after.slice(-2)).toEqual([`typed while away`, `back again`])
     // A reconnect of that running call says nothing new.
     const count = (await rowsOf(call.sessionId)).length
     await startCallSession({ userId: w.owner, agentId: w.agentId, callId: `c2`, now: t2 })

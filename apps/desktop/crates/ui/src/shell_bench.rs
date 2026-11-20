@@ -709,3 +709,140 @@ fn demo(closed: Vec<String>, editing: Option<&str>) -> IdeSidebarInput {
         ..Default::default()
     }
 }
+
+/// #EXP-2027: the whole IDE window over a seeded two-team account, each new
+/// screen pictured: Home with the sidebar tree, the team menu (its New
+/// submenu open), a device's page and settings page, the team's settings,
+/// the personal settings and New board. `EXP_SKIP_ONBOARDING=1`.
+#[test]
+#[ignore]
+fn shell_sidebar_tree_pages() {
+    use crate::navigation::{NewItemKind, Screen};
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let dir = PathBuf::from(dir);
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Alex Carter", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    let now = chrono::Utc::now().to_rfc3339();
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Acme", "slug": "acme"}, {"id": "t2", "name": "Side project", "slug": "side"}]), cx);
+        seed(&c.team_members, json!([{"id": "m1", "team_id": "t1", "user_id": "u1", "role": "owner"}, {"id": "m2", "team_id": "t2", "user_id": "u1", "role": "owner"}]), cx);
+        seed(&c.boards, json!([
+            {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#8b5cf6", "icon": "code", "sort_order": 1},
+            {"id": "b2", "team_id": "t1", "name": "Launch Marketing", "slug": "launch", "prefix": "MKT", "color": "#f59e0b", "sort_order": 2},
+            {"id": "b3", "team_id": "t1", "name": "Product Feedback", "slug": "feedback", "prefix": "FB", "color": "#22c55e", "icon": "megaphone", "sort_order": 3},
+            {"id": "b9", "team_id": "t2", "name": "Site", "slug": "site", "prefix": "SITE", "color": "#3b82f6", "sort_order": 1}
+        ]), cx);
+        seed(&c.agents, json!([
+            {"id": "as1", "team_id": "t1", "name": "Assistant", "role": "assistant", "owner_id": "u1"},
+            {"id": "a1", "team_id": "t1", "name": "Triage", "role": "agent", "icon": "bug", "color": "#a855f7", "sort_order": 1},
+            {"id": "a2", "team_id": "t1", "name": "Release", "role": "agent", "icon": "package", "color": "#22c55e", "sort_order": 2}
+        ]), cx);
+        seed(&c.devices, json!([
+            {"id": "d1", "user_id": "u1", "device_id": "dev-1", "label": "Alex's MacBook Pro", "kind": "desktop", "platform": "macos", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
+            {"id": "d2", "user_id": "u1", "device_id": "dev-2", "label": "Mint workstation", "kind": "desktop", "platform": "linux", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
+            {"id": "d3", "user_id": "u2", "device_id": "dev-3", "label": "Acme build server", "kind": "server", "platform": "linux", "version": "0.14.170", "last_seen_at": "2026-11-01T00:00:00Z", "shared_team_ids": "{t1}"}
+        ]), cx);
+        seed(&c.sidebar_layout, json!([
+            {"id": "f1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "folder", "name": "Mobile", "sort_order": 1},
+            {"id": "e1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "item", "target_id": "b1", "parent_id": "f1", "sort_order": 1},
+            {"id": "e2", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "item", "target_id": "a2", "parent_id": "f1", "sort_order": 2}
+        ]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let settle = |cx: &mut HeadlessAppContext| {
+        for _ in 0..5 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    };
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(dir.join(name)).expect("the PNG");
+    };
+    let go = |cx: &mut HeadlessAppContext, screen: Screen| {
+        cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, screen)).unwrap();
+    };
+    go(&mut cx, Screen::Home);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-sidebar-tree.png");
+    go(&mut cx, Screen::Device { device_id: "d1".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-device.png");
+    go(&mut cx, Screen::DeviceSettings { device_id: "d1".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-device-settings.png");
+    cx.update_window(window, |_, window, cx| crate::navigation::open_settings(window, cx, Some("t1".into()))).unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-team-settings.png");
+    cx.update_window(window, |_, window, cx| crate::navigation::open_settings(window, cx, None)).unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-personal-settings.png");
+    go(&mut cx, Screen::NewItem { team_id: "t1".into(), kind: NewItemKind::Board });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-new-board.png");
+    go(&mut cx, Screen::NewItem { team_id: "t1".into(), kind: NewItemKind::App });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-new-app.png");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
+/// #EXP-2027: the sidebar tree's sample (the approved draft's rows) at rest
+/// and with the team menu open (a right-click on the team row).
+#[test]
+#[ignore]
+fn shell_sidebar_tree_menu() {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let dir = PathBuf::from(dir);
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = open(&mut cx, size(px(SIDEBAR.0 + 300.), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region());
+    let surface = cx.update(|cx| region.read(cx).surface());
+    cx.update(|cx| surface.update(cx, |v, _| v.record_bounds(true)));
+    let settle = |cx: &mut HeadlessAppContext| {
+        for _ in 0..3 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    };
+    cx.update(|cx| region.update(cx, |region, cx| region.show(sample(), None, cx)));
+    settle(&mut cx);
+    cx.capture_screenshot(window).expect("the frame").save(dir.join("desktop-sidebar-sample.png")).expect("the PNG");
+    let at = cx.update(|cx| surface.read(cx).painted_bounds("ide_team_row.t1")).expect("the team row").center();
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }), cx);
+        window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
+    })
+    .unwrap();
+    settle(&mut cx);
+    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_team_menu.t1")), "the team menu opened");
+    // Hover New: its submenu opens.
+    if let Some(new) = cx.update(|cx| surface.read(cx).painted_bounds("ide_team_menu.t1.item.0")) {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(PlatformInput::MouseMove(gpui::MouseMoveEvent { position: new.center(), pressed_button: None, modifiers: Modifiers::default() }), cx);
+        })
+        .unwrap();
+        settle(&mut cx);
+    }
+    cx.capture_screenshot(window).expect("the frame").save(dir.join("desktop-sidebar-team-menu.png")).expect("the PNG");
+    std::mem::forget(cx);
+}

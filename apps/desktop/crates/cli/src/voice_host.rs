@@ -943,6 +943,89 @@ fn unstored(plain: bool, err: &api::ApiError) -> bool {
     plain && matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
 }
 
+/// What one utterance's send asks of the server (tests fake it).
+trait UtteranceWire {
+    /// `sessions.sendTarget`: the member's conversation with the agent now.
+    fn target(&self, agent_id: &str) -> Result<Option<String>, String>;
+    fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError>;
+    fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError>;
+}
+
+struct DaemonWire<'a>(&'a Deps);
+
+impl UtteranceWire for DaemonWire<'_> {
+    fn target(&self, agent_id: &str) -> Result<Option<String>, String> {
+        api::sessions::send_target(&self.0.trpc, Some(agent_id), None).map(|target| target.root_id).map_err(|err| err.to_string())
+    }
+
+    fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError> {
+        coding::sealing::seal_body_for_tree(root, text)
+    }
+
+    fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
+        api::sessions::send(&self.0.trpc, input)
+    }
+}
+
+/// What became of one utterance's send.
+#[derive(Debug, PartialEq, Eq)]
+enum Delivered {
+    /// Stored in this session (the conversation, new or known).
+    Sent(String),
+    /// #EXP-1982: refused in clear for good: the call ends.
+    Unstored,
+    /// Failed otherwise: logged, the call goes on.
+    Failed,
+}
+
+/// One utterance to the agent: sealed into a known conversation (`root`,
+/// the call's own `session` in its tree), plain as a first send by agentId.
+/// #EXP-2013: a first send refused in clear may have raced the chat's first
+/// message (the conversation the answer read as missing exists by now):
+/// the target is read again and, named, the words go sealed into it once
+/// more before the call ends.
+fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Delivered {
+    // The call's own session is in the chat's tree: the chat's key.
+    let body = utterance_body(root, text, &|root, text| wire.seal(root, text));
+    let plain = body == text;
+    let input = match session.or(root) {
+        Some(target) => api::sessions::SendInput::message(target, &body, Vec::new()),
+        None => api::sessions::SendInput { team_id: Some(agent.team_id.clone()), agent_id: Some(agent.id.clone()), text: Some(body), ..Default::default() },
+    };
+    let err = match wire.send(&input) {
+        Ok(out) => return Delivered::Sent(out.session_id),
+        Err(err) => err,
+    };
+    if !unstored(plain, &err) {
+        // The call goes on; the words are in the log, never lost silently.
+        log::warn!("[voice] call {call_id}: the send failed: {err}");
+        return Delivered::Failed;
+    }
+    log::warn!("[voice] call {call_id}: the send was refused in clear: {err}");
+    if root.is_none() {
+        match wire.target(&agent.id) {
+            Ok(Some(found)) => {
+                let body = utterance_body(Some(&found), text, &|root, text| wire.seal(root, text));
+                if body != text {
+                    log::info!("[voice] call {call_id}: the conversation {found} exists now: the utterance goes sealed into it");
+                    match wire.send(&api::sessions::SendInput::message(&found, &body, Vec::new())) {
+                        Ok(out) => return Delivered::Sent(out.session_id),
+                        Err(err) if unstored(true, &err) => log::warn!("[voice] call {call_id}: the sealed send was refused too: {err}"),
+                        Err(err) => {
+                            log::warn!("[voice] call {call_id}: the sealed send failed: {err}");
+                            return Delivered::Failed;
+                        }
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(err) => log::warn!("[voice] call {call_id}: the conversation could not be read again: {err}"),
+        }
+    }
+    // #EXP-1982: words that can never be stored end the call.
+    Delivered::Unstored
+}
+
 impl Net for DaemonNet {
     fn answer(&self, call_id: String, agent_id: String) {
         let (ring, tx) = (DaemonNet { deps: Arc::clone(&self.deps), tx: self.tx.clone() }, self.tx.clone());
@@ -965,30 +1048,13 @@ impl Net for DaemonNet {
     fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String) {
         let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-send".into()).spawn(move || {
-            // The call's own session is in the chat's tree: the chat's key.
-            let body = utterance_body(root.as_deref(), &text, &coding::sealing::seal_body_for_tree);
-            let plain = body == text;
-            let input = match session.as_deref().or(root.as_deref()) {
-                Some(target) => api::sessions::SendInput::message(target, &body, Vec::new()),
-                None => api::sessions::SendInput {
-                    team_id: Some(agent.team_id.clone()),
-                    agent_id: Some(agent.id.clone()),
-                    text: Some(body),
-                    ..Default::default()
-                },
+            let wire = DaemonWire(&deps);
+            let input = match deliver_utterance(&wire, &call_id, &agent, root.as_deref(), session.as_deref(), &text) {
+                Delivered::Sent(session_id) => Input::Sent { call_id, session_id },
+                Delivered::Unstored => Input::Unstored { call_id },
+                Delivered::Failed => return,
             };
-            match api::sessions::send(&deps.trpc, &input) {
-                Ok(out) => {
-                    let _ = tx.send(Input::Sent { call_id, session_id: out.session_id });
-                }
-                // #EXP-1982: words that can never be stored end the call.
-                Err(err) if unstored(plain, &err) => {
-                    log::warn!("[voice] call {call_id}: the send was refused in clear: {err}");
-                    let _ = tx.send(Input::Unstored { call_id });
-                }
-                // The call goes on; the words are in the log, never lost silently.
-                Err(err) => log::warn!("[voice] call {call_id}: the send failed: {err}"),
-            }
+            let _ = tx.send(input);
         });
     }
 
@@ -2166,5 +2232,54 @@ mod tests {
         assert!(rig.host.call.is_none());
         rig.handle(Input::Ring { call_id: "c2".into(), agent_id: "agent-1".into() });
         assert_eq!(rig.net.take(), ["answer c2 agent-1"]);
+    }
+
+    /// #EXP-2013: a call answered before the chat's first message was read
+    /// (no conversation yet) sends its first utterance in clear by agentId;
+    /// refused (the new chat is keyed), the target is read again, names the
+    /// conversation now, and the words go sealed into it: stored, the call
+    /// lives. A target still missing ends the call as before.
+    #[test]
+    fn a_first_utterance_refused_in_clear_goes_sealed_into_the_chat_that_exists_now() {
+        use std::cell::RefCell;
+        struct Wire {
+            target: Option<String>,
+            sends: RefCell<Vec<String>>,
+            reads: RefCell<u32>,
+        }
+        impl UtteranceWire for Wire {
+            fn target(&self, _: &str) -> Result<Option<String>, String> {
+                *self.reads.borrow_mut() += 1;
+                Ok(self.target.clone())
+            }
+            fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError> {
+                Ok(format!("sealed({root}):{text}"))
+            }
+            fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
+                let to = input.session_id.clone().or(input.agent_id.clone().map(|agent| format!("agent:{agent}"))).unwrap_or_default();
+                self.sends.borrow_mut().push(format!("{to} {}", input.text.clone().unwrap_or_default()));
+                match input.session_id.clone() {
+                    Some(session_id) => Ok(api::sessions::SendOutput { session_id, ..Default::default() }),
+                    None => Err(api::ApiError::Http { status: 400, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() }),
+                }
+            }
+        }
+        let wire = Wire { target: Some("root-1".into()), sends: RefCell::default(), reads: RefCell::default() };
+        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, "hello"), Delivered::Sent("root-1".into()));
+        assert_eq!(*wire.sends.borrow(), ["agent:agent-1 hello", "root-1 sealed(root-1):hello"]);
+        assert_eq!(*wire.reads.borrow(), 1, "read again once");
+
+        let gone = Wire { target: None, sends: RefCell::default(), reads: RefCell::default() };
+        assert_eq!(deliver_utterance(&gone, "c1", &agent(), None, None, "hello"), Delivered::Unstored, "nothing to seal for: the call ends");
+
+        let known = Wire { target: Some("root-1".into()), sends: RefCell::default(), reads: RefCell::default() };
+        assert_eq!(deliver_utterance(&known, "c1", &agent(), Some("root-1"), Some("call-s"), "hi"), Delivered::Sent("call-s".into()));
+        assert_eq!(*known.reads.borrow(), 0, "a known conversation reads nothing");
+
+        // The host adopts the conversation: the next utterance is sealed into it.
+        let mut rig = Rig::ready();
+        answered_sealed(&mut rig);
+        rig.handle(Input::Sent { call_id: "c1".into(), session_id: "root-1".into() });
+        assert_eq!(rig.host.call.as_ref().and_then(|call| call.root.as_deref()), Some("root-1"));
     }
 }
