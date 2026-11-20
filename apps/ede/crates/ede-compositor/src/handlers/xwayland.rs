@@ -117,9 +117,11 @@ impl XWaylandShellHandler for Ede {
     }
 
     fn surface_associated(&mut self, xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
-        // #EDE-138: a space's X11 window is no business of the person's keyboard.
-        if self.desk_of_xwm(xwm) != XwmDesk::Person {
-            return;
+        // #EDE-138: a space's X11 window takes its space's keyboard.
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(desk) => return self.space_x11_associated(desk, wl_surface, surface),
+            XwmDesk::Gone => return,
         }
         let keyboard = self.desk.seat.get_keyboard().unwrap();
         // #EDE-122: restored right after its minimize, the window was given

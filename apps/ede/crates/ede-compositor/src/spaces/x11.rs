@@ -163,9 +163,56 @@ impl Ede {
                 return None;
             }
         };
+        // X's input focus goes with a seat no client binds: the space's
+        // own (its X11 windows take keys through Xwayland, never a
+        // wl_keyboard of this seat).
+        if self.spaces.get(desk).is_some_and(|space| space.desk.x11_focus.0 == space.desk.seat) {
+            let mut seat = self.seat_state.new_seat(format!("x11-focus-{}", self.spaces.get(desk)?.id.as_str()));
+            seat.user_data().insert_if_missing(|| DeskTag(desk));
+            seat.add_keyboard(smithay::input::keyboard::XkbConfig::default(), 600, 25).expect("default xkb keymap");
+            self.spaces.get_mut(desk)?.desk.x11_focus = (seat, None);
+        }
         let space = self.spaces.get_mut(desk)?;
         space.x11 = Some(SpaceX11 { token, client, display, xwm: None });
         Some(display)
+    }
+
+    /// The X11 window of desk `desk` whose surface `focused` is, if any,
+    /// takes X's input focus in its server; the one that had it gives it
+    /// up. The space's twin of [`Ede::sync_x11_focus`].
+    pub(crate) fn space_sync_x11_focus(&mut self, desk: DeskId, focused: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>) {
+        use smithay::input::keyboard::KeyboardTarget;
+        let Some(d) = self.try_desk(desk) else { return };
+        let x11 = focused.and_then(|f| d.space.elements().find_map(|w| w.x11_surface().filter(|x| x.wl_surface().as_ref() == Some(f)).cloned()));
+        if d.x11_focus.1 == x11 {
+            return;
+        }
+        let seat = d.x11_focus.0.clone();
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        let old = std::mem::replace(&mut self.desk_mut(desk).x11_focus.1, x11.clone());
+        if let Some(old) = old {
+            KeyboardTarget::leave(&old, &seat, self, serial);
+        }
+        if let Some(new) = x11 {
+            KeyboardTarget::enter(&new, &seat, self, Vec::new(), serial);
+            // On top in its own server too: what X finds under a point (a
+            // drop target, a transient's parent) is what the space shows.
+            if let Some(xwm) = self.spaces.get_mut(desk).and_then(|space| space.x11.as_mut()?.xwm.as_mut()) {
+                let _ = xwm.raise_window(&new);
+            }
+        }
+    }
+
+    /// A space's X11 window got its surface: it takes the space's keyboard
+    /// if it was given it before (its map comes before its surface).
+    pub(crate) fn space_x11_associated(&mut self, desk: DeskId, wl_surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, surface: X11Surface) {
+        let Some(d) = self.try_desk_mut(desk) else { return };
+        if d.pending_x11_focus.as_ref() != Some(&surface) {
+            return;
+        }
+        d.pending_x11_focus = None;
+        let keyboard = d.seat.get_keyboard().unwrap();
+        keyboard.set_focus(self, Some(wl_surface), smithay::utils::SERIAL_COUNTER.next_serial());
     }
 
     /// Space `desk`'s Xwayland on `display` ended (or never started): its
@@ -220,32 +267,60 @@ impl Ede {
         }
     }
 
-    /// A space's X11 window asks to be shown: it fills the space's output
-    /// as a space's Wayland toplevel does, an override-redirect one (a
-    /// menu, a tooltip) shows where it asks.
+    /// A space's X11 window asks to be shown: one without a parent fills
+    /// the space's output as a space's Wayland toplevel does, a dialog
+    /// (transient for another) is centred on it at its own size, and takes
+    /// the space's keyboard; an override-redirect one (a menu, a tooltip)
+    /// shows where it asks and takes nothing.
     pub(crate) fn space_x11_map(&mut self, desk: DeskId, surface: X11Surface) {
         let Some(size) = self.try_desk(desk).and_then(|d| d.space.outputs().next().cloned()).and_then(|o| o.current_mode()).map(|m| m.size) else { return };
-        if !surface.is_override_redirect() {
-            let _ = surface.configure(Rectangle::new((0, 0).into(), (size.w, size.h).into()));
+        let override_redirect = surface.is_override_redirect();
+        let loc = if override_redirect {
+            surface.geometry().loc
+        } else {
+            let geometry = if surface.is_transient_for().is_some() {
+                let own = surface.geometry().size;
+                let (w, h) = (own.w.clamp(1, size.w), own.h.clamp(1, size.h));
+                Rectangle::new(((size.w - w) / 2, (size.h - h) / 2).into(), (w, h).into())
+            } else {
+                Rectangle::new((0, 0).into(), (size.w, size.h).into())
+            };
+            let _ = surface.configure(geometry);
             if let Err(e) = surface.set_mapped(true) {
                 tracing::warn!("X11 map in a space: {e}");
                 return;
             }
-        }
-        let loc = if surface.is_override_redirect() { surface.geometry().loc } else { (0, 0).into() };
-        let window = Window::new_x11_window(surface);
+            geometry.loc
+        };
+        let window = Window::new_x11_window(surface.clone());
         window.user_data().insert_if_missing(|| DeskTag(desk));
         let Some(d) = self.try_desk_mut(desk) else { return };
-        d.space.map_element(window, loc, true);
+        d.space.map_element(window.clone(), loc, true);
+        if !override_redirect {
+            // Its surface may come after its map: the keyboard waits for it.
+            if smithay::wayland::seat::WaylandFocus::wl_surface(&window).is_none() {
+                d.pending_x11_focus = Some(surface);
+            }
+            self.space_focus(desk, Some(window));
+        }
         self.space_schedule(desk);
     }
 
-    /// A space's X11 window is gone from the screen.
+    /// A space's X11 window is gone from the screen; the keyboard goes to
+    /// the space's window below it (never an override-redirect one).
     pub(crate) fn space_x11_unmap(&mut self, desk: DeskId, surface: &X11Surface) {
         let Some(d) = self.try_desk_mut(desk) else { return };
+        if d.pending_x11_focus.as_ref() == Some(surface) {
+            d.pending_x11_focus = None;
+        }
         let window = d.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned();
         if let Some(window) = window {
+            let had_focus = smithay::wayland::seat::WaylandFocus::wl_surface(&window).is_some_and(|s| d.seat.get_keyboard().unwrap().current_focus().as_ref() == Some(&*s));
             d.space.unmap_elem(&window);
+            if had_focus {
+                let next = d.space.elements().rev().find(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).cloned();
+                self.space_focus(desk, next);
+            }
         }
         self.space_schedule(desk);
     }
