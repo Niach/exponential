@@ -93,6 +93,7 @@ impl Tools {
             app_slice: self.dir.join("cgroup"),
             manager: self.dir.join("systemd"),
             dbus_daemon: "/usr/bin/dbus-daemon".into(),
+            guard: None,
         }
     }
 
@@ -511,4 +512,151 @@ fn the_slices_of_a_gone_compositor_are_found() {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+/// #EDE-146..148: a space guard of the test's own on a socket: answers
+/// every request with `answer`, and hands the test each request with the
+/// asking process's id.
+fn fake_guard(dir: &Path, answer: &'static str) -> (PathBuf, std::sync::mpsc::Receiver<(String, u32)>) {
+    use std::io::{BufRead, Write};
+    use std::os::fd::AsFd;
+    let socket = dir.join(format!("guard-{}.sock", answer.split_whitespace().next().unwrap()));
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(&stream).read_line(&mut line);
+            let (pid, _) = ede_space_guard::sys::peer(stream.as_fd()).unwrap();
+            let _ = (&stream).write_all(format!("{answer}\n").as_bytes());
+            if tx.send((line, pid)).is_err() {
+                return;
+            }
+        }
+    });
+    (socket, rx)
+}
+
+/// `space-enter --guard` asks the guard to guard the space slice it is in
+/// and becomes its program only on `ok`; a refusal, or no guard, and the
+/// program does not run.
+#[test]
+fn space_enter_runs_its_program_only_when_the_guard_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let spaces = "/run/user/1000/exponential-desktop/wayland-1.spaces";
+    let enter = |socket: &Path| std::process::Command::new(env!("CARGO_BIN_EXE_exponential-compositor")).args(["space-enter", "--guard"]).arg(socket).args([spaces, "--", "sh", "-c", "echo ran $$"]).output().unwrap();
+
+    let (yes, asked) = fake_guard(dir.path(), "ok");
+    let out = enter(&yes);
+    assert!(out.status.success(), "{out:?}");
+    let (line, pid) = asked.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(line, format!("enter {spaces}\n"));
+    // Asked by the process that then became the program.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), format!("ran {pid}"));
+
+    let (no, _asked) = fake_guard(dir.path(), "no this kernel refuses the device program");
+    let out = enter(&no);
+    assert_eq!(out.status.code(), Some(127), "{out:?}");
+    assert!(out.stdout.is_empty(), "the program ran: {out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("the space guard: this kernel refuses the device program"), "{out:?}");
+
+    let out = enter(&dir.path().join("no-guard-here.sock"));
+    assert_eq!(out.status.code(), Some(127), "{out:?}");
+    assert!(out.stdout.is_empty(), "the program ran without its guard: {out:?}");
+}
+
+/// A compositor whose guard answered puts it in front of every launch:
+/// the space's own user manager (#EDE-138) and each launch ask from inside
+/// their scopes, and a program runs only after the guard said so.
+#[test]
+fn a_guarded_compositors_launch_asks_the_guard_from_inside_its_scope() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let tools = Tools::new(dir.path());
+    let (socket, asked) = fake_guard(dir.path(), "ok");
+    let units = Units { guard: Some(socket.clone()), ..tools.units() };
+    h.with(move |state| state.spaces.units = Some(units));
+    let (mut agent, space) = agent(&h, "run-1");
+    let spaces_dir = Path::new(&space.wayland_display).parent().unwrap().parent().unwrap().to_path_buf();
+
+    let out = dir.path().join("guarded.env");
+    let pid = agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
+    until("the guarded program never ran", || out.exists());
+    // The space's first launch starts its user manager: that one asks
+    // first, then the launch.
+    let manager = tools.manager("space-1");
+    let asks: Vec<(String, u32)> = (0..2).map(|_| asked.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+    let enter = format!("enter {}\n", spaces_dir.display());
+    assert_eq!(asks, [(enter.clone(), manager), (enter, pid)], "asked by someone else than the manager and the launch, or for something else");
+    let scopes: Vec<String> = tools.log().into_iter().filter(|line| line.starts_with("systemd-run [--user] [--scope]")).collect();
+    assert_eq!(scopes.len(), 2, "{scopes:#?}");
+    for scope in &scopes {
+        assert!(scope.contains(&format!("] [space-enter] [--guard] [{}] [{}] [--] [", socket.display(), spaces_dir.display())), "{scope}");
+    }
+
+    // The guard says no: the program does not run.
+    let (refusing, _asked) = fake_guard(dir.path(), "no not a space slice");
+    let units = Units { guard: Some(refusing), ..tools.units() };
+    h.with(move |state| state.spaces.units = Some(units));
+    let out = dir.path().join("refused.env");
+    let pid = agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
+    until("a launch the guard refused did not end", || !alive(pid));
+    assert!(!out.exists(), "the program ran although the guard said no");
+    drop(h);
+}
+
+/// #EDE-146..148 (review B1): an installed guard is asked by every launch,
+/// whatever it answered at the session's start. A guard that says `busy`
+/// (another user holding it, a slow start) means the launch does not run;
+/// no user manager or no guard socket means `unavailable`; never a space
+/// without the guard.
+#[test]
+fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let tools = Tools::new(dir.path());
+    let (socket, asked) = fake_guard(dir.path(), "no busy");
+    // The one test of this file that names the guard: debug builds only.
+    std::env::set_var("EDE_SPACE_GUARD_SOCKET", &socket);
+    h.with(|state| state.start_space_guard());
+    until("the session never asked the guard", || h.with(|state| state.spaces.guard.probe.lock().unwrap().is_some()));
+    assert!(asked.try_iter().any(|(line, _)| line == "probe\n"));
+    assert_eq!(h.with(|state| state.spaces.guard.required.clone()), Some(socket.clone()), "the guard's busy probe decided against it");
+    let (mut agent, space) = agent(&h, "run-1");
+
+    // No user manager: nothing starts.
+    let out = dir.path().join("unwrapped.env");
+    match agent.launch(writes_its_environment(&out), Default::default(), None) {
+        Err(ede_protocol::Error::Failed(failure)) => assert_eq!((failure.code, failure.message.as_str()), (ede_protocol::ErrorCode::Unavailable, "the space guard needs the systemd user manager: nothing starts in a space without both")),
+        answer => panic!("a launch without a user manager answered {answer:?}"),
+    }
+    assert_eq!(h.with(|state| state.space_readiness()), Err("no_user_manager"));
+
+    // A user manager: the space's own manager asks from its scope, gets
+    // `busy` until its time is up and never runs; the launch waits for the
+    // space's bus that never comes, and its program never runs.
+    let required = h.with(|state| state.spaces.guard.required.clone());
+    let units = Units { guard: required, ..tools.units() };
+    h.with(move |state| {
+        state.spaces.units = Some(units);
+        state.write_space_guard_state();
+    });
+    let pid = agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
+    until("a launch the guard would not take did not end", || !alive(pid));
+    assert!(!out.exists(), "the program ran although the guard was busy");
+    let spaces_dir = Path::new(&space.wayland_display).parent().unwrap().parent().unwrap().to_path_buf();
+    assert!(asked.try_iter().any(|(line, _)| line == format!("enter {}\n", spaces_dir.display())), "the space's manager never asked the guard");
+    assert!(!tools.dir.join("manager-space-1.pid").exists(), "the space's user manager ran although the guard was busy");
+    assert_eq!(h.with(|state| state.space_readiness()), Err("guard"));
+    // The doctor reads what the session decided.
+    let state = std::fs::read_to_string(ede_compositor::spaces::guard::state_file(&spaces_dir)).unwrap();
+    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\n");
+
+    // The guard's socket is gone (stopped, removed): `unavailable` at once.
+    std::fs::remove_file(&socket).unwrap();
+    match agent.launch(writes_its_environment(&out), Default::default(), None) {
+        Err(ede_protocol::Error::Failed(failure)) => assert_eq!(failure.code, ede_protocol::ErrorCode::Unavailable, "{failure:?}"),
+        answer => panic!("a launch without the guard's socket answered {answer:?}"),
+    }
+    std::env::remove_var("EDE_SPACE_GUARD_SOCKET");
+    drop(h);
 }

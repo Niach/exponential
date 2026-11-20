@@ -20,8 +20,8 @@
 //! 2. `systemd-run --user --scope`, which asks the person's user manager
 //!    for the scope and, inside it, becomes
 //! 3. `exponential-compositor space-enter <spaces> -- …` ([`enter_main`]),
-//!    the first program of every scope into a space (#EDE-146's guard
-//!    goes there; until then it only becomes the next), which becomes
+//!    the first program of every scope into a space (with `--guard` it
+//!    asks the space guard first, #EDE-146..148), which becomes
 //! 4. `exponential-compositor space-exec` ([`exec_main`]), which takes
 //!    the caller's environment from its standard input and becomes the
 //!    program.
@@ -119,6 +119,10 @@ pub struct Units {
     pub manager: PathBuf,
     /// `dbus-daemon`, the space's bus under that manager.
     pub dbus_daemon: PathBuf,
+    /// #EDE-146..148: the space guard's socket when the guard is installed
+    /// ([`super::guard`]). Then every scope into a space asks it first and
+    /// nothing runs in a space it did not guard, for the whole run.
+    pub guard: Option<PathBuf>,
 }
 
 /// The machine's size.
@@ -273,6 +277,9 @@ pub struct Run {
     pub no_expand: bool,
     /// The space's directory: the program's `XDG_RUNTIME_DIR`.
     pub space_dir: PathBuf,
+    /// The space guard `space-enter` asks before anything runs ([`Units::guard`]).
+    #[serde(default)]
+    pub guard: Option<PathBuf>,
 }
 
 impl Units {
@@ -345,6 +352,7 @@ impl Units {
             app_slice: PathBuf::new(),
             manager,
             dbus_daemon,
+            guard: None,
         })
     }
 
@@ -407,6 +415,7 @@ impl Units {
             wait_bus,
             no_expand: self.no_expand(),
             space_dir: space_dir.to_path_buf(),
+            guard: self.guard.clone(),
         };
         let mut cmd = Command::new(&self.shim);
         cmd.arg0("exponential-compositor").arg("space-run").arg(serde_json::to_string(&run).expect("a launch is JSON")).arg("--").args(inner);
@@ -639,22 +648,51 @@ pub fn run_main(args: impl Iterator<Item = String>) -> ! {
     let image = image.unwrap_or_else(|e| failed("space-run", format!("this program's image: {e}")));
     let image_path = format!("/proc/self/fd/{image}");
     let spaces = run.space_dir.parent().unwrap_or(&run.space_dir).to_string_lossy().into_owned();
-    let mut inside = vec![image_path.clone(), "space-enter".to_string(), spaces, "--".to_string(), image_path, "space-exec".to_string(), image.to_string(), "--".to_string()];
+    let mut inside = vec![image_path.clone(), "space-enter".to_string()];
+    if let Some(guard) = &run.guard {
+        inside.extend(["--guard".to_string(), guard.to_string_lossy().into_owned()]);
+    }
+    inside.extend([spaces, "--".to_string(), image_path, "space-exec".to_string(), image.to_string(), "--".to_string()]);
     inside.extend(argv.iter().cloned());
     failed("space-run", format!("{}: {}", run.systemd_run.display(), scope(&run, &inside).exec()))
 }
 
-/// `exponential-compositor space-enter <spaces> -- argv…`: the first
-/// program in every systemd scope into a space (a launch's, and the
-/// space's own user manager's), `<spaces>` = the compositor's directory of
-/// spaces. #EDE-146's guard goes here; until then it becomes `argv` and
-/// does nothing else. Never returns.
+/// `exponential-compositor space-enter [--guard <socket>] <spaces> -- argv…`:
+/// the first program in every systemd scope into a space (a launch's, and
+/// the space's own user manager's), `<spaces>` = the compositor's
+/// directory of spaces. With `--guard` it first asks the space guard
+/// (#EDE-146..148) to guard the space slice it is in, and becomes `argv`
+/// only when the guard says so: a space's first program runs with the
+/// guard's programs on its slice, or not at all. Never returns.
 pub fn enter_main(args: impl Iterator<Item = String>) -> ! {
-    let args: Vec<String> = args.collect();
-    let (Some(_spaces), Some("--"), Some(argv)) = (args.first(), args.get(1).map(String::as_str), args.get(2..).filter(|argv| !argv.is_empty())) else {
-        failed("space-enter", "usage: space-enter <spaces> -- program [arguments]".into())
+    let mut args: Vec<String> = args.collect();
+    let guard = match args.first().map(String::as_str) {
+        Some("--guard") if args.len() > 1 => {
+            let socket = args.remove(1);
+            args.remove(0);
+            Some(PathBuf::from(socket))
+        }
+        _ => None,
     };
+    let (Some(spaces), Some("--"), Some(argv)) = (args.first(), args.get(1).map(String::as_str), args.get(2..).filter(|argv| !argv.is_empty())) else {
+        failed("space-enter", "usage: space-enter [--guard <socket>] <spaces> -- program [arguments]".into())
+    };
+    if let Some(socket) = guard {
+        if let Err(reason) = ede_space_guard::client::ask(&socket, &ede_space_guard::Request::Enter { spaces: spaces.clone() }) {
+            failed("space-enter", reason);
+        }
+    }
     failed("space-enter", format!("{}: {}", argv[0], Command::new(&argv[0]).args(&argv[1..]).exec()))
+}
+
+/// Does the space guard answer at `socket` (it loads its programs on this
+/// kernel)? `Err` says why not. Blocks for at most the guard client's
+/// timeout: in the session's probe thread and in `space-enter` only.
+pub fn guard_probe(socket: &Path) -> Result<(), String> {
+    if !socket.exists() {
+        return Err("the space guard is not installed (exponential-space-guard.socket)".into());
+    }
+    ede_space_guard::client::ask(socket, &ede_space_guard::Request::Probe)
 }
 
 /// `… space-exec <descriptor> -- argv…`, in the launch's scope: closes
@@ -717,6 +755,7 @@ mod tests {
             app_slice: "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice".into(),
             manager: "/usr/lib/systemd/systemd".into(),
             dbus_daemon: "/usr/bin/dbus-daemon".into(),
+            guard: None,
         }
     }
 
