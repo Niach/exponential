@@ -563,6 +563,7 @@ export const SEMANTIC_ICONS = {
   "nav-drafts": `file-pen-line`,
   "nav-files": `folder`,
   "nav-getting-started": `sparkles`,
+  "nav-home": `house`,
   "nav-inbox": `inbox`,
   "nav-issues": `list`,
   "nav-my-issues": `list`,

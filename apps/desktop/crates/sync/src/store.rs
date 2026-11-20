@@ -599,8 +599,7 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// * the pre-SLOP-2 `automations` table;
 /// * EXP-1294: `coding_sessions`, `threads` and `thread_items`
 ///   (superseded by the `sessions` tree, `messages` and `pull_requests`);
-/// * NEW-8: `actions` (prompts replaced them; the server drops the shape);
-/// * #EXP-2027: `pins` (the personal Pins feature is gone everywhere).
+/// * NEW-8: `actions` (prompts replaced them; the server drops the shape).
 fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
     for table in LEGACY_TABLES {
         conn.execute_batch(&format!(r#"DROP TABLE IF EXISTS "{table}""#))?;

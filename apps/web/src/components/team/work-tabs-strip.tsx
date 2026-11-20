@@ -42,12 +42,15 @@ import {
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { ChatRunMark, chatRunMarkState } from "@/components/team/sidebar-running"
 import { AgentIcon } from "@/components/team/sidebar-agents"
+import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
 // the content card, md+ only (the desktop's title-band strip; phones keep
 // their tab bar). The model is `lib/work-tabs.ts`, the writer
 // `work-tabs-sync.tsx` (route-driven, EXP-1293); this only draws it:
 //
+//   * #EXP-2027: ONE strip across every member team (md+ has no active
+//     team); each tab links with its own team's slug;
 //   * a FLAT chip list in stored order: issues (status glyph + identifier +
 //     title), chats (the agent mark — the spark while it works, amber
 //     while it needs you — + the chat title), agents' channels (the
@@ -99,16 +102,29 @@ function ChipTitle({ title }: { title: string | null }) {
 }
 
 export function WorkTabsStrip({
-  teamId,
-  teamSlug,
+  teams,
   boards,
 }: {
-  teamId: string
-  teamSlug: string
+  /** Every member team. */
+  teams: readonly WorkTabsTeam[]
+  /** Every member team's boards. */
   boards: Board[] | undefined
 }) {
   const navigate = useNavigate()
-  const state = useWorkTabs(teamId)
+  const state = useWorkTabs()
+  // The teams the open tabs belong to: the chats and agents lists read
+  // only those.
+  const tabTeamIds = useMemo(
+    () =>
+      [
+        ...new Set(state.tabs.flatMap((tab) => (tab.kind === `new` ? [] : [tab.teamId]))),
+      ].sort(),
+    [state.tabs]
+  )
+  const slugByTeam = useMemo(
+    () => new Map(teams.map((team) => [team.id, team.slug])),
+    [teams]
+  )
 
   const issueIds = useMemo(
     () =>
@@ -163,7 +179,7 @@ export function WorkTabsStrip({
   // query runs while no such tab is open.
   const hasChatTabs = state.tabs.some((tab) => tab.kind === `chat`)
   const hasAgentTabs = state.tabs.some((tab) => tab.kind === `agent`)
-  const { groups } = useChatsList(hasChatTabs ? teamId : null)
+  const { groups } = useChatsList(hasChatTabs ? tabTeamIds : null)
   const chatsById = useMemo(() => {
     const map = new Map<string, { row: ChatsListRow; live: boolean }>()
     for (const group of groups) {
@@ -174,7 +190,7 @@ export function WorkTabsStrip({
     return map
   }, [groups])
   const { data: authSession } = useSession()
-  const { agents } = useAgents(hasAgentTabs ? teamId : null, authSession?.user?.id)
+  const { agents } = useAgents(hasAgentTabs ? tabTeamIds : null, authSession?.user?.id)
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.agentId, agent])),
     [agents]
@@ -183,6 +199,9 @@ export function WorkTabsStrip({
     () => new Map((boards ?? []).map((board) => [board.id, board.slug])),
     [boards]
   )
+  /** A tab's team slug: the team's current one, else the one it opened under. */
+  const tabTeamSlug = (tab: WorkTab): string | null =>
+    tab.kind === `new` ? null : (slugByTeam.get(tab.teamId) ?? (tab.teamSlug || null))
 
   const tabs = state.tabs
 
@@ -209,13 +228,16 @@ export function WorkTabsStrip({
           const issue = issuesById.get(tab.issueId)
           return (
             issue?.identifier === path.identifier &&
-            boardSlugById.get(issue.boardId) === path.boardSlug
+            boardSlugById.get(issue.boardId) === path.boardSlug &&
+            tabTeamSlug(tab) === path.teamSlug
           )
         }
       }
     })
     return match ? tabKey(match) : null
-  }, [pathname, tabs, issuesById, boardSlugById])
+    // `tabTeamSlug` reads `slugByTeam`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, tabs, issuesById, boardSlugById, slugByTeam])
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
@@ -369,20 +391,24 @@ export function WorkTabsStrip({
   const hidden = chips.filter((_, index) => !visibleSet.has(index))
 
   const close = (keys: string[]) =>
-    updateWorkTabs(teamId, (current) => closeTabs(current, keys))
+    updateWorkTabs((current) => closeTabs(current, keys))
 
   const open = (tab: WorkTab) => {
-    const href = tabHref(teamSlug, tab, (issueId) => {
-      const issue = issuesById.get(issueId)
-      const boardSlug = issue ? boardSlugById.get(issue.boardId) : undefined
-      return issue && boardSlug
-        ? { boardSlug, identifier: issue.identifier }
-        : null
-    })
+    const href = tabHref(
+      tab,
+      (issueId) => {
+        const issue = issuesById.get(issueId)
+        const boardSlug = issue ? boardSlugById.get(issue.boardId) : undefined
+        return issue && boardSlug
+          ? { boardSlug, identifier: issue.identifier }
+          : null
+      },
+      (teamId) => slugByTeam.get(teamId) ?? null
+    )
     if (href) void navigate(href as never)
   }
 
-  const openNewRun = () => openNewRunPage(teamId, teamSlug, navigate)
+  const openNewRun = () => openNewRunPage(navigate)
 
   const allKeys = chips.map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {

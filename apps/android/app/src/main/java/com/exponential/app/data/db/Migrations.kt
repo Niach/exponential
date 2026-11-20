@@ -491,8 +491,7 @@ val MIGRATION_131_132: Migration = object : Migration(131, 132) {
 }
 
 /**
- * v133 (#EXP-2027): the personal Pins feature (#EXP-778) is deleted
- * everywhere, so the local `pins` table drops with its shape offset (the
+ * v133 (#EXP-2027): a retired local table drops with its shape offset (the
  * v121 `conversations` precedent). Nothing refetches.
  */
 val MIGRATION_132_133: Migration = object : Migration(132, 133) {

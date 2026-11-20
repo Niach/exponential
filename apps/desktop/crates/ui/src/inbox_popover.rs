@@ -297,7 +297,7 @@ impl InboxPopoverBody {
             mark_read(&unread_ids, cx);
             set_open(false, window, cx);
             if let Some(device_id) = device_id.clone() {
-                navigate(window, cx, Screen::Devices);
+                navigate(window, cx, Screen::Device { device_id: String::new() });
                 crate::device_settings::open(window, cx, device_id);
                 return;
             }
@@ -315,7 +315,8 @@ impl InboxPopoverBody {
 impl Render for InboxPopoverBody {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "InboxPopoverBody").entered();
-        let team = crate::navigation::active_team_id(&self.nav, cx);
+        // #EXP-2027: the inbox spans every member team.
+        let team: Option<String> = None;
         let data = {
             let app: &App = cx;
             self.data.get_or_insert_with(queries::inbox_data_key(team.as_deref(), app), || queries::inbox(team.as_deref(), app))
@@ -384,8 +385,8 @@ impl InboxButton {
 impl RenderOnce for InboxButton {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let open = self.nav.read(cx).inbox_open;
-        let team = crate::navigation::active_team_id(&self.nav, cx);
-        let unread = queries::inbox_unread_count(team.as_deref(), cx);
+        // #EXP-2027: every member team's unread rows.
+        let unread = queries::inbox_unread_count(None, cx);
         let body = window.use_keyed_state("inbox-popover-body", cx, {
             let nav = self.nav.clone();
             move |_, cx| InboxPopoverBody::new(nav, cx)

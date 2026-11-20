@@ -324,7 +324,7 @@ fn open_new_issue_deep_link(team_id: Option<String>, cx: &mut App) {
         window
             .update(cx, |_, window, cx| {
                 if let Some(team) = team.clone() {
-                    crate::navigation::switch_team(window, cx, team);
+                    crate::navigation::reveal_team(window, cx, team);
                 }
                 let nav = crate::navigation::nav_for_window(window, cx);
                 let first = || team.as_ref().and_then(|t| collections.boards_in_team(t, cx).first().map(|b| b.id.clone()));
@@ -379,7 +379,7 @@ fn open_team_deep_link(team_id: String, cx: &mut App) {
         crate::local_desktops::leave(cx);
         match crate::navigation::active_or_primary_window(cx) {
             Some(window) => {
-                let _ = window.update(cx, |_, window, cx| crate::navigation::switch_team(window, cx, team_id));
+                let _ = window.update(cx, |_, window, cx| crate::navigation::reveal_team(window, cx, team_id));
             }
             None => crate::navigation::remember_team(cx, team_id),
         }
@@ -391,7 +391,7 @@ fn open_team_deep_link(team_id: String, cx: &mut App) {
     }
     match crate::navigation::active_or_primary_window(cx) {
         Some(window) => {
-            let _ = window.update(cx, |_, window, cx| crate::navigation::switch_team(window, cx, team_id));
+            let _ = window.update(cx, |_, window, cx| crate::navigation::reveal_team(window, cx, team_id));
         }
         None => crate::navigation::remember_team(cx, team_id),
     }

@@ -26,7 +26,7 @@ use domain::rows::EventRow;
 use domain::session_tree::AgentRow;
 
 use crate::icons::registry;
-use crate::navigation::{active_team_id, navigate, Navigation, Screen};
+use crate::navigation::{screen_team_id, navigate, Navigation, Screen};
 use crate::sidebar::select_settings_section;
 
 use super::doc::{empty_state, hex, path, IdeToasts, Ink, SM};
@@ -231,7 +231,7 @@ impl AgentsIndexPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     fn owner(&self, team_id: &str, cx: &App) -> bool {
@@ -609,7 +609,7 @@ fn document(ink: &Ink, list_hover: &str, skeleton_fill: &str) -> Value {
     let page = json!({"id": "page", "component": "Box", "visible": path("/pane/hasTeam"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%", "minWidth": 0},
         "children": [
             ink.group("lead_group", vec![lead]),
-            band_section(ink, "agents", super::AGENTS_GROUP, Some(new_agent), "agents", "settings-agents", AGENTS_EMPTY, skeleton_fill, agent_row),
+            band_section(ink, "agents", "Agents", Some(new_agent), "agents", "settings-agents", AGENTS_EMPTY, skeleton_fill, agent_row),
             band_section(ink, "events", EVENTS_TITLE, None, "events", "trigger-event", EVENTS_EMPTY, skeleton_fill, event_row),
         ]});
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},

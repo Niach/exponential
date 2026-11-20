@@ -1,10 +1,10 @@
 import { useMemo } from "react"
 import { useParams } from "@tanstack/react-router"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import { issueCollection, issueDraftCollection } from "@/lib/collections"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { boardCollection, issueCollection, issueDraftCollection } from "@/lib/collections"
 import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
 import { resolveDraftEntries, type DraftEntry } from "@/lib/issue-drafts"
-import type { Issue, IssueDraft } from "@/db/schema"
+import type { Board, Issue, IssueDraft } from "@/db/schema"
 
 // EXP-878: the React surface over the per-user `issue_drafts` shape. The
 // collection only ever holds the caller's rows (static `user_id = me`), so
@@ -111,4 +111,47 @@ export function useDraftEntriesWithReady(teamId: string | undefined): {
     [drafts, boards, teamId]
   )
   return { entries, isReady: draftsReady && boardsReady }
+}
+
+/**
+ * #EXP-2027 (sidebar-tree.json ROOT `drafts`): the caller's drafts in EVERY
+ * listed team (the team-less Drafts page of web md+), each resolved like
+ * `useDraftEntriesWithReady` against its own team's boards, newest first.
+ */
+export function useCrossTeamDraftEntriesWithReady(teamIds: readonly string[]): {
+  entries: DraftEntry[]
+  isReady: boolean
+} {
+  const key = teamIds.join(`,`)
+  const { data: draftRows, isReady: draftsReady } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query.from({ d: issueDraftCollection }).where(({ d }) => inArray(d.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  const { data: boardRows, isReady: boardsReady } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query.from({ boards: boardCollection }).where(({ boards }) => inArray(boards.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  const entries = useMemo(() => {
+    const drafts = (draftRows ?? []) as IssueDraft[]
+    const boards = (boardRows ?? []) as Board[]
+    return teamIds
+      .flatMap((teamId) => resolveDraftEntries(drafts, boards, teamId))
+      .sort((left, right) => new Date(right.draft.updatedAt).getTime() - new Date(left.draft.updatedAt).getTime())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftRows, boardRows, key])
+  return { entries, isReady: teamIds.length > 0 && draftsReady && boardsReady }
+}
+
+/** #EXP-2027: the root Drafts row's count over every listed team (the
+ *  draft open on the New issue page right now excluded, EXP-1170). */
+export function useCrossTeamDraftCount(teamIds: readonly string[]): number {
+  const { draftId } = useParams({ strict: false }) as { draftId?: string }
+  const { entries } = useCrossTeamDraftEntriesWithReady(teamIds)
+  return draftId ? entries.filter((entry) => entry.draft.id !== draftId).length : entries.length
 }

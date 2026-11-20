@@ -25,14 +25,24 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-sidebar-tree`,
+    date: `2026-11-20`,
+    title: `One sidebar for all your teams`,
+    summary: `The sidebar shows every team at once: Home, Chats, your devices, then each team with its boards, agents, apps and the chats you placed there, in your own folders.`,
+    body: `- **No team switcher**: Home, Chats, Needs you and Drafts cover all your teams; each row shows its team.
+- **Devices**: each device is a row that opens its accounts, limits and running sessions; its gear opens its settings.
+- **Teams**: each team is a folder with its boards, agents and apps in one list; drag a chat from Active into it, and right-click a team for New, New folder and Settings.
+- **New board, agent and app** open as pages.
+- **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu.`,
+  },
+  {
     id: `2026-11-20-phones-calls-find-search`,
     date: `2026-11-20`,
     title: `Calls, find in chat and sharing on phones`,
-    summary: `Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, global search finds chats, and Pins are gone.`,
+    summary: `Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, and global search finds chats.`,
     body: `- **Calls**: a call from your phone follows the same rules as on the desktop: it reaches the device you picked, falls back the same way, and an opening line that arrives late is said at pickup instead of crashing the app.
 - **Find in chat**: finds and lands on every message of the chat, older synced messages and the ones already shown included.
 - **Global search finds chats**: the search tab lists the chats that mention your words; a pick opens the chat on that message.
-- **Pins are gone**: no Pin or Unpin buttons; the app icon's long-press menu lists your Assistant and your newest chats.
 - **iOS sharing**: sharing pictures into Exponential stages them like the chat's composer: the same limits, and removing one renumbers the rest.
 - **iOS settings**: values in settings rows draw in the muted value colour.`,
   },
@@ -55,15 +65,6 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Agent is back in the desktop sidebar`,
     summary: `The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.`,
     body: `- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat.`,
-  },
-  {
-    id: `2026-11-20-pins-removed`,
-    date: `2026-11-20`,
-    title: `Pins are gone`,
-    summary: `The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.`,
-    body: `- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
-- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
-- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats.`,
   },
   {
     id: `2026-11-20-assistant-skills-mcp-per-team`,
@@ -3523,13 +3524,6 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Phones**: the chat and New issue split button shows on every tab, and Android names a stacked run's issues from the same data the stack is built from.`,
   },
   {
-    id: `2026-09-19-phone-switcher-no-pins`,
-    date: `2026-09-19`,
-    title: `No Pinned group in the phone board switcher`,
-    summary: `The board switcher on iOS and Android lists teams and boards only; pins stay a sidebar feature on the web and the desktop app.`,
-    body: `- **Board switcher**: the Pinned group at the top of the switcher sheet is gone on iOS and Android. A pin belongs to a sidebar, and the phone has none: pins are made and opened on the web and the desktop app, where the sidebar shows them.`,
-  },
-  {
     id: `2026-09-18-release-train`,
     date: `2026-09-18`,
     title: `Release train 2026-09-18`,
@@ -3722,7 +3716,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
 - **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
 - **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
-- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
+- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
 - **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript.`,
   },
   {
@@ -3747,9 +3741,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-09-email-signup-and-mobile-tidy`,
     date: `2026-09-12`,
     title: `Sign up with your email, and the mobile apps drop what they cannot use`,
-    summary: `Continue with email now creates your account on Exponential Cloud, pin buttons are gone from iOS, Android and the phone-width web app, Android's Accounts and Devices pages match the other clients, and a retired agent never shows up again.`,
+    summary: `Continue with email now creates your account on Exponential Cloud, Android's Accounts and Devices pages match the other clients, and a retired agent never shows up again.`,
     body: `- **Sign up with email**: on Exponential Cloud, Continue with email creates an account for a new address the moment you enter the code. Until today a new address silently got no mail, because only Google and Apple could create accounts.
-- **No pin buttons where there is no sidebar**: iOS, Android and the phone-width web app no longer offer Pin on issues, sessions and actions. Pins made on the desktop or the wide web app still show in the board switcher's Pinned group.
 - **Accounts and Devices on Android**: the Accounts page keeps only quiet machine chips (an online dot, a check on the active login). Signing in, re-login and "use this account here" moved to the machine row under Devices, as on web, desktop and iOS. On iOS a machine chip now offers the right repair: re-login for an expired login, use this account here for one the machine is not using.
 - **Retired agents stay gone**: a machine still on an older build that reports the removed pi agent no longer produces a row, a tab or a picker entry anywhere. The server strips it from every heartbeat and the stored device data was cleaned up.`,
   },
@@ -3776,18 +3769,17 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Switch account mid-run**: a Claude run that hits its limit can continue on another account from the usage sheet or the rate-limit notice. It carries on as a new run linked to the old one; the first message after a switch is a little slower.
 - **The machine you clicked**: a machine's play button opens the composer with that machine selected, and the composer says why when a machine cannot take the run.
 - **Sessions that remember where you came from**: Back from a session returns to the issue, board or inbox it was opened from, resume and remote start jump straight into the run, sub-sessions nest under their parent, and an issue band inside the session opens the issue.
-- **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, pin buttons on iOS, pin on Android action rows, a Pinned section on the phone web sidebar, and flat rows under filled group headers on every list.
+- **Mobile parity**: Stop in the session header, a Watch pill instead of the Coding now card, suggestion chips on a new chat, and flat rows under filled group headers on every list.
 - **Desktop polish**: an icon-only send button, a device settings dialog that fits, Usage as a round button next to Switch account, action icons in the automation picker, and dragging the window no longer selects text in a session.
 - **Leaner agent context**: issue lists returned to agents default to open work with short descriptions, and batch runs are told to share exploration instead of repeating it.
 - **pi retired**: the pi agent is gone. Any ACP binary still runs through the external agent option, with two caveats: pi does not speak ACP natively, so it is not a drop-in there, and an external agent runs without the MCP bridge, plan mode, usage and account reporting, the slash-command catalog and remote start.`,
   },
   {
-    id: `2026-09-pins-shared-machines-and-video`,
+    id: `2026-09-shared-machines-and-video`,
     date: `2026-09-11`,
-    title: `Pins, machines shared with several teams, and video that plays inline`,
-    summary: `Pin issues, sessions and actions to the sidebar, share a build server with every team that needs it, watch a clip right inside a description or comment, and connect a second GitHub organisation.`,
-    body: `- **Pinned**: pin an issue, a session or an action from its menu and it sits in a Pinned group at the top of the sidebar on web, desktop, iOS and Android. Pins are yours alone and follow you across devices.
-- **A machine shared with several teams**: a build server's device settings now show one switch per team instead of a single picker, so one runner can serve every team you belong to. Withdrawing a share still ends that team's runs on it and pauses its automations.
+    title: `Machines shared with several teams, and video that plays inline`,
+    summary: `Share a build server with every team that needs it, watch a clip right inside a description or comment, and connect a second GitHub organisation.`,
+    body: `- **A machine shared with several teams**: a build server's device settings now show one switch per team instead of a single picker, so one runner can serve every team you belong to. Withdrawing a share still ends that team's runs on it and pauses its automations.
 - **Video and audio inline**: drop a clip into a description or a comment and it plays in place, with a poster, a duration chip and a lightbox, on every client. Uploads are normalised on your device (H.264 MP4, 720p on mobile); older apps show the same clip as a plain link.
 - **Connect another GitHub account**: team settings list every connected GitHub account with a Configure link and offer Connect another account separately from Refresh access, so a second organisation can be installed even when you already control one. An organisation waiting on the App's approval is named on the claim page with an approve link.
 - **Accounts on mobile**: the iOS and Android Devices pages carry the Accounts section (one row per agent account, machines as chips, a check on the active login) that web and desktop got last release.

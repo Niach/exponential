@@ -637,7 +637,7 @@ impl SessionBar {
         // EXP-1025: the shell rides the active team's prompt (a shell has no
         // session row to name its team).
         let nav = navigation::nav_for_window(window, cx);
-        let team_id = navigation::active_team_id(&nav, cx);
+        let team_id = navigation::screen_team_id(&nav, cx);
         let request = coding::AgentShellRequest {
             options,
             repository_id,

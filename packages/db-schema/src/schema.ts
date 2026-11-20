@@ -3052,7 +3052,7 @@ export const messages = pgTable(
 // EXP-1323: per-user read state of a session (a chat = its root's row).
 // Opening a chat or a session upserts `read_at` (`sessions.markRead`); a
 // list row is bold while its tree's newest agent message is newer. Synced
-// like `pins`: a STATIC per-user shape (`user_id = me`), never trash-scoped;
+// like `issue_drafts`: a STATIC per-user shape (`user_id = me`), never trash-scoped;
 // a row renders only beside a synced session.
 export const sessionReads = pgTable(
   `session_reads`,
@@ -3565,7 +3565,10 @@ export const composerDrafts = pgTable(
 
 // #EXP-1832: the member's own SIDEBAR LAYOUT (sidebar-folders.json): folders
 // and the placement of every board, agent and app they dragged in the Boards,
-// Agents and Apps groups. Per USER like `pins` (the shape is the static
+// Agents and Apps groups. #EXP-2027 (sidebar-tree.json): section `team` = ONE
+// mixed list per team (boards, agents, apps and the root sessions the member
+// placed; the target's table is resolved from its uuid, never stored); the
+// per-kind sections were folded into it and stay valid for old clients. Per USER like the drafts (the shape is the static
 // `user_id = me`), team-scoped for the cascade and for grouping. One row per
 // node: a FOLDER (`name`, top level only: two layers max) or an ITEM placing
 // `target_id` (a board / agent / app id; no FK, the section names the table:
@@ -3593,7 +3596,7 @@ export const sidebarLayout = pgTable(
     ...timestamps,
   },
   (table) => [
-    check(`sidebar_layout_section_check`, sql`section IN ('board', 'agent', 'app')`),
+    check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app')`),
     check(
       `sidebar_layout_kind_check`,
       sql`(kind = 'folder' AND target_id IS NULL AND parent_id IS NULL) OR (kind = 'item' AND target_id IS NOT NULL)`

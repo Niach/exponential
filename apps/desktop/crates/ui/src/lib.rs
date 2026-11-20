@@ -138,7 +138,9 @@ mod links;
 mod login;
 mod device_readiness;
 mod device_settings;
-mod devices_view;
+mod device_page;
+mod new_item_page;
+
 mod device_setup;
 mod drafts;
 mod drafts_view;

@@ -28,7 +28,7 @@ use domain::session_tree::{chat_in_stack, chat_row_word_on, chat_row_word_waitin
 
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation, Screen};
 use crate::session_data;
 
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
@@ -232,11 +232,9 @@ impl ChatsView {
         }
     }
 
+    /// #EXP-2027: every member team's chats.
     fn model(&self, cx: &mut App) -> std::rc::Rc<session_data::ChatsModel> {
-        active_team_id(&self.nav, cx)
-            .as_deref()
-            .map(|team_id| session_data::chats_model(team_id, cx))
-            .unwrap_or_default()
+        session_data::chats_model_all(cx)
     }
 
     fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
@@ -301,12 +299,26 @@ type OnSelect = std::rc::Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 /// its click toggles), the flat hover / selected fill; a click opens the
 /// chat (or toggles it while selecting), a right-click its menu: Select,
 /// then the chat's entries.
+/// #EXP-2027 (sidebar-tree.json): the Chats page spans every team: a row
+/// wears its team's mark (its image, else the team glyph), as in the
+/// sidebar; the viewer's Assistant wears none.
+type TeamMarks = std::rc::Rc<std::collections::HashMap<String, Option<crate::markdown::CachedImage>>>;
+
+/// The size of a Chats row's team mark (the sidebar's row glyph).
+const TEAM_MARK_PX: f32 = 16.;
+
+fn team_mark(marks: &TeamMarks, team_id: Option<&str>) -> Option<gpui::AnyElement> {
+    let image = marks.get(team_id?)?.clone();
+    Some(crate::user_avatar::team_avatar_of(image, TEAM_MARK_PX))
+}
+
 fn chats_page_row(
     row: &ChatRow,
     selected: bool,
     selecting: bool,
     on_click: OnRowClick,
     on_select: OnSelect,
+    marks: &TeamMarks,
     cx: &App,
 ) -> gpui::AnyElement {
     use crate::controls::PointerContextMenuExt as _;
@@ -322,7 +334,7 @@ fn chats_page_row(
         &row.session_id,
         Some((selected, selecting)),
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
-        crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx),
+        crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), team_mark(marks, Some(&row.team_id)), cx),
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
@@ -347,7 +359,7 @@ impl Render for ChatsView {
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         // S-3: the viewer's Assistant is created on first use.
-        if let Some(team_id) = active_team_id(&self.nav, cx) {
+        if let Some(team_id) = screen_team_id(&self.nav, cx) {
             session_data::ensure_assistant(&team_id, cx);
         }
         let model = self.model(cx);
@@ -365,6 +377,15 @@ impl Render for ChatsView {
         }
         let view_kind = self.view;
         let rows = self.visible_rows(&model);
+        // #EXP-2027: each team's mark, loaded once per render.
+        let marks: TeamMarks = std::rc::Rc::new(
+            sync::Store::try_global(cx)
+                .map(|store| store.collections().teams_sorted(cx))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|team| (team.id.clone(), crate::user_avatar::team_image(team.icon_url.as_deref(), cx)))
+                .collect(),
+        );
         // The selection keeps only rows still in the list, in list order.
         if ready && !self.selected.is_empty() {
             let kept: Vec<String> = rows
@@ -441,7 +462,7 @@ impl Render for ChatsView {
                             &row.agent_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::agent_chat_row(row, cx),
+                            crate::chat_list::agent_chat_row_in_team(row, (!row.assistant).then(|| team_mark(&marks, agent_team(&row.agent_id, cx).as_deref())).flatten(), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -473,7 +494,7 @@ impl Render for ChatsView {
                             &row.app_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::app_chat_row(row, cx),
+                            crate::chat_list::app_chat_row_in_team(row, team_mark(&marks, app_team(&row.app_id, cx).as_deref()), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -485,7 +506,7 @@ impl Render for ChatsView {
             });
             let paint = |row: &ChatRow, cx: &mut gpui::Context<Self>| {
                 let selected = self.selected.contains(&row.session_id);
-                chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
+                chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), &marks, cx)
             };
             let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() && apps_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
@@ -696,4 +717,14 @@ mod tests {
         assert_eq!(ChatRowWord::Stack.text(), Some("stack"));
         assert_eq!(ChatRowWord::Question.text(), Some("question"));
     }
+}
+
+/// #EXP-2027: an agent row's team (its definition's).
+fn agent_team(agent_id: &str, cx: &App) -> Option<String> {
+    sync::Store::try_global(cx)?.collections().agents.read(cx).get(agent_id)?.team_id.clone()
+}
+
+/// #EXP-2027: an app row's team.
+fn app_team(app_id: &str, cx: &App) -> Option<String> {
+    sync::Store::try_global(cx)?.collections().apps.read(cx).get(app_id)?.team_id.clone()
 }

@@ -139,10 +139,10 @@ class VoiceCallMigrationTest {
     }
 }
 
-/** #EXP-2027: v133 drops the `pins` table with its shape offset; nothing refetches. */
-class DropPinsMigrationTest {
+/** #EXP-2027: v133 drops a retired table with its shape offset; nothing refetches. */
+class DropRetiredTableMigrationTest {
     @Test
-    fun `v133 drops pins and its offset only`() {
+    fun `v133 drops the retired table and its offset only`() {
         assertEquals(132, MIGRATION_132_133.startVersion)
         assertEquals(133, MIGRATION_132_133.endVersion)
         val statements = mutableListOf<String>()
