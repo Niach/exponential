@@ -46,8 +46,8 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-19-global-search-chats",
-    date: "2026-11-19",
+    id: "2026-11-20-global-search-chats",
+    date: "2026-11-20",
     title: "Global search finds chats",
     summary: "Search now finds your chats too: a Chats section under the issues, each chat with the matching line highlighted; pick one and it opens on that message with find in chat on your words.",
     body: r##"- **Chats under Issues**: the global search (the search button, or ⌘F / Ctrl+F outside a chat; the phones' search tab) lists the chats that mention your words after the matching issues, newest first.
