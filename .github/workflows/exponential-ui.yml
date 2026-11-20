@@ -284,6 +284,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Core + facade tests (core conformance)
@@ -394,6 +395,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the xcframework (iOS device + simulator + macOS)
@@ -536,6 +538,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Set up JDK 21
@@ -626,6 +629,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Host build of the facade (the JVM tests load it through JNA)

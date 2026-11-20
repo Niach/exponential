@@ -309,9 +309,13 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
       # Self-hosted keeps its own sccache (.github/runners/README.md).
+      # Every rust-cache here saves on master only (P1): PR and train refs
+      # restore the master entry seed-rust-caches.yml writes, and no longer
+      # churn the 10 GB Actions cache with entries nobody else can read.
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -384,6 +388,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: The scope wrap keeps secrets off the argv
@@ -424,6 +429,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -477,6 +483,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the Engine facade for the JVM unit tests
@@ -570,6 +577,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
             apps/ede
             apps/desktop
@@ -627,6 +635,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/ede
       - uses: ./.github/actions/cargo-fetch
         with:
@@ -662,6 +671,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -693,6 +703,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
             apps/ede
             apps/desktop
