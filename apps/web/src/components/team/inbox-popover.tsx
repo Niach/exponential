@@ -17,8 +17,9 @@ import { markAllNotificationsRead, useUnreadNotificationCount } from "@/hooks/us
 import { cn } from "@/lib/utils"
 
 // #FEED-191 (owner-approved draft): the WIDE Inbox: an icon in the sidebar's
-// header row, (#FEED-232) THE count badge of the active team's unread
-// notifications on its corner (muted), opening a menu-surface popover over
+// header row, (#FEED-232) THE count badge of the viewer's unread
+// notifications across EVERY team on its corner (muted; #EXP-2027: there is
+// no active team), opening a menu-surface popover over
 // the page: the `Inbox` caption with the mark-all-read glyph, then THE inbox's
 // groups (`InboxView compact`), scrolling past `max-h`. A row marks read,
 // navigates by its target and closes the popover. Phones keep the pushed page.
@@ -26,11 +27,10 @@ import { cn } from "@/lib/utils"
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
-export function InboxPopover({ teamId }: { teamId: string }) {
+export function InboxPopover() {
   const open = useInboxPopoverOpen()
-  const unread = useUnreadNotificationCount(teamId)
-  // The popover lists every team's rows; Mark all read follows the list.
-  const unreadAnywhere = useUnreadNotificationCount()
+  // The popover lists every team's rows; the badge and Mark all read follow.
+  const unread = useUnreadNotificationCount()
   return (
     <Popover open={open} onOpenChange={setInboxPopoverOpen}>
       <Tooltip>
@@ -63,7 +63,7 @@ export function InboxPopover({ teamId }: { teamId: string }) {
       >
         <div className="flex h-8 items-center justify-between px-2">
           <span className="text-xs font-medium text-muted-foreground">{CHATS_COPY.inbox}</span>
-          {unreadAnywhere > 0 && (
+          {unread > 0 && (
             <Button
               variant="ghost"
               size="icon"

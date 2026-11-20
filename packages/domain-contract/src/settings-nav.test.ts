@@ -4,6 +4,7 @@ import {
   SETTINGS_NAV_GROUPS,
   SETTINGS_NAV_PHONE_ROWS,
   SETTINGS_NAV_ROWS,
+  settingsDesktopNavs,
   settingsNavGroups,
   settingsNavPage,
   settingsNavPhoneRows,
@@ -34,5 +35,17 @@ describe(`settings-nav.json`, () => {
   it(`every nav page id resolves`, () => {
     const ids = [...SETTINGS_NAV_GROUPS.flatMap((g) => g.items), ...Object.values(fixture.nav.children).flat()]
     for (const id of ids.filter((item) => !item.startsWith(`@`))) expect(settingsNavPage(id)).toBeDefined()
+  })
+  for (const c of fixture.nav.desktopNavCases) {
+    it(`desktopNavCases: ${c.name}`, () => {
+      expect(
+        settingsDesktopNavs({ platform: c.platform as SettingsNavPlatform, isOwner: c.role === `owner`, isCloud: c.cloud })
+      ).toEqual(c.expected)
+    })
+  }
+  it(`every desktop nav page id resolves`, () => {
+    const navs = fixture.nav.desktopNavs
+    const ids = [...navs.personal.flatMap((g) => g.items), ...navs.team.flatMap((g) => g.items), ...navs.device]
+    for (const id of ids) expect(settingsNavPage(id)).toBeDefined()
   })
 })

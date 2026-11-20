@@ -1,7 +1,9 @@
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
   SETTINGS_NAV_CHILDREN,
+  SETTINGS_DESKTOP_NAV_GROUPS,
   SETTINGS_NAV_GROUPS,
+  settingsDesktopNavs,
   settingsNavItemVisible,
   settingsNavPage,
   settingsNavRow,
@@ -22,6 +24,7 @@ import {
 import { getRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config"
 import { conceptIcon } from "@exp/ui"
 import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
+import { PERSONAL_SETTINGS_PAGES, type PersonalSettingsPage } from "@/lib/app-paths"
 
 export interface SettingsNavContext {
   isCloud: boolean
@@ -254,6 +257,52 @@ export const SETTINGS_NAV: SettingsNavGroupDef[] = SETTINGS_NAV_GROUPS.filter(
     entries,
   }
 })
+
+// #EXP-2027 (settings-nav.json `desktopNavs`, web md+): there is no current
+// team, so Settings is TWO navs. Personal (`/settings/<id>`) = only what is
+// the member's own; a team's (`/t/$teamSlug/settings/<id>`) = that team's
+// pages, Issues keeping Labels + Statuses folded. The Boards, Agents and Apps
+// groups are gone from it (their rows' own menus open their settings).
+export interface PersonalSettingsNavItem {
+  id: PersonalSettingsPage
+  label: string
+  to: `/settings/${PersonalSettingsPage}`
+  icon: LucideIcon
+}
+
+export interface DesktopSettingsNav {
+  personal: { label: string; items: PersonalSettingsNavItem[] }
+  team: { label: string; items: SettingsNavItem[] }
+}
+
+export const PERSONAL_SETTINGS_LABEL = SETTINGS_DESKTOP_NAV_GROUPS.personal[0]?.label ?? `Personal`
+export const TEAM_SETTINGS_LABEL = SETTINGS_DESKTOP_NAV_GROUPS.team[0]?.label ?? `Team`
+
+const isPersonalPage = (id: string): id is PersonalSettingsPage =>
+  (PERSONAL_SETTINGS_PAGES as readonly string[]).includes(id)
+
+/** The two md+ navs a viewer sees (`settingsDesktopNavs`, platform `web`). */
+export function desktopSettingsNav(viewer: { isOwner: boolean; isCloud: boolean }): DesktopSettingsNav {
+  const ids = settingsDesktopNavs({ platform: `web`, ...viewer })
+  const personal = ids.personal.flatMap((id): PersonalSettingsNavItem[] => {
+    const page = SETTINGS_PAGES[id]
+    if (!page || !isPersonalPage(id)) return []
+    return [{ id, label: page.label, to: `/settings/${id}`, icon: page.icon }]
+  })
+  const team = ids.team
+    .map((id) => settingsPageItem(id))
+    .filter((item): item is SettingsNavItem => item !== undefined)
+  return {
+    personal: { label: PERSONAL_SETTINGS_LABEL, items: personal },
+    team: { label: TEAM_SETTINGS_LABEL, items: team },
+  }
+}
+
+/** md+ bare `/t/$teamSlug/settings`: the team nav's first page (owners →
+ *  General, members → Members). */
+export function firstTeamSettingsPage(viewer: { isOwner: boolean; isCloud: boolean }): SettingsNavItem | undefined {
+  return desktopSettingsNav(viewer).team.items[0]
+}
 
 /** Whether an injected `@list` shows for the viewer (`nav.newEntries`: the
  *  New board / New agent / New app entries are owners'). */

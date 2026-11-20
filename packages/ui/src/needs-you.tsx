@@ -40,10 +40,13 @@ export function NeedsYouList<Row extends NeedsYouRow>({
   rows,
   onOpen,
   actions,
+  teamOf,
   className,
 }: {
   rows: readonly Row[]
   onOpen?: (row: Row) => void
+  /** #EXP-2027: a row's team mark on the cross-team list (md+), else null. */
+  teamOf?: (row: Row) => ReactNode
   /** #EXP-1710: a row's THE Button sm row under its meta (a stuck PR's
    *  Retry / Merge now / Close PR); null = none. */
   actions?: (row: Row) => ReactNode
@@ -72,6 +75,7 @@ export function NeedsYouList<Row extends NeedsYouRow>({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium">{row.title}</span>
+                {teamOf?.(row)}
                 <span className="ml-auto shrink-0 pl-2 text-right text-xs text-muted-foreground">{row.age}</span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">

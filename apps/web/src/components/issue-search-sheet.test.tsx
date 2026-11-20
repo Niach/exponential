@@ -20,7 +20,7 @@ Element.prototype.scrollIntoView ??= function scrollIntoView() {}
 
 const mockState = vi.hoisted(() => {
   const boards = [
-    { id: `b-1`, slug: `core`, name: `Core`, icon: null, color: null },
+    { id: `b-1`, teamId: `team-1`, slug: `core`, name: `Core`, icon: null, color: null },
   ]
   const issues = [
     {
@@ -61,14 +61,13 @@ vi.mock(`@tanstack/react-db`, () => ({
   useLiveQuery: () => ({ data: mockState.issues }),
   inArray: () => true,
 }))
-vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ issueCollection: {}, userCollection: {} }))
 vi.mock(`@/hooks/use-team-data`, () => ({
-  useTeamBoards: () => mockState.boards,
-  useTeamUsers: () => ({ userMap: new Map() }),
+  useBoardsForTeams: () => ({ boards: mockState.boards, boardsReady: true }),
 }))
 // The engine has its own fixtures; here it only has to rank, so the stub hands
 // back whatever the test put in front of it, in order.
-vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRows: () => [] }))
+vi.mock(`@/hooks/use-agent-row`, () => ({ useAllAgentRows: () => [] }))
 // #EDE-99: the Chats section's hook (its store has its own suite).
 vi.mock(`@/hooks/use-global-chat-search`, () => ({ useGlobalChatSearch: () => mockState.chats }))
 vi.mock(`@/hooks/use-issue-search-results`, () => ({
@@ -99,8 +98,7 @@ function open() {
     <IssueSearchSheet
       open
       onOpenChange={vi.fn()}
-      teamId="team-1"
-      teamSlug="acme"
+      teams={[{ id: `team-1`, slug: `acme` }]}
     />
   )
 }
