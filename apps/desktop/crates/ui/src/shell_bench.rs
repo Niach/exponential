@@ -765,8 +765,12 @@ fn shell_sidebar_tree_pages() {
         })
         .expect("a headless window");
     let window: gpui::AnyWindowHandle = handle.into();
+    // The left column slides between the rail and the settings nav on the
+    // wall clock: let every transition finish.
     let settle = |cx: &mut HeadlessAppContext| {
-        for _ in 0..5 {
+        for _ in 0..14 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            cx.advance_clock(std::time::Duration::from_millis(50));
             draw(window, cx);
             cx.run_until_parked();
         }
@@ -827,16 +831,18 @@ fn shell_sidebar_tree_menu() {
     cx.update(|cx| region.update(cx, |region, cx| region.show(sample(), None, cx)));
     settle(&mut cx);
     cx.capture_screenshot(window).expect("the frame").save(dir.join("desktop-sidebar-sample.png")).expect("the PNG");
-    let at = cx.update(|cx| surface.read(cx).painted_bounds("ide_team_row.t1")).expect("the team row").center();
+    let row = cx.update(|cx| surface.read(cx).placed_nodes().iter().map(|n| n.id.clone()).find(|id| id.starts_with("ide_team_row") && id.ends_with("t1"))).expect("the team row node");
+    let menu = row.replacen("ide_team_row", "ide_team_menu", 1);
+    let at = cx.update(|cx| surface.read(cx).painted_bounds(&row)).expect("the team row").center();
     cx.update_window(window, |_, window, cx| {
         window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }), cx);
         window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
     })
     .unwrap();
     settle(&mut cx);
-    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_team_menu.t1")), "the team menu opened");
+    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == menu)), "the team menu opened");
     // Hover New: its submenu opens.
-    if let Some(new) = cx.update(|cx| surface.read(cx).painted_bounds("ide_team_menu.t1.item.0")) {
+    if let Some(new) = cx.update(|cx| surface.read(cx).painted_bounds(&format!("{menu}.item.0"))) {
         cx.update_window(window, |_, window, cx| {
             window.dispatch_event(PlatformInput::MouseMove(gpui::MouseMoveEvent { position: new.center(), pressed_button: None, modifiers: Modifiers::default() }), cx);
         })
