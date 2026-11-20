@@ -592,6 +592,8 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
     match kind {
         "nav" => {
             let screen = match id.as_str() {
+                // #EDE-171: Agent = the composer page.
+                "home" => Screen::Home,
                 "needs-you" => Screen::NeedsYou,
                 "chats" => Screen::Chats,
                 "devices" => Screen::Devices,
@@ -1312,11 +1314,14 @@ mod tests {
             ..Default::default()
         };
         let value = shaped(&input, &HashMap::new(), Some("b1"));
-        assert_eq!(value["nav"][0]["dotIcon"], "ide:count:attention:2");
+        // #EDE-171: Agent leads the nav (no count), lit on home.
+        assert_eq!(value["nav"][0]["id"], "home");
+        assert_eq!(value["nav"][0]["selected"], true);
+        assert_eq!(value["nav"][1]["dotIcon"], "ide:count:attention:2");
         let counted = IdeSidebarInput { needs_you: 5, drafts: 120, ..input.clone() };
         let counted = shaped(&counted, &HashMap::new(), None);
-        assert_eq!(counted["nav"][0]["dotIcon"], "ide:count:attention:5");
-        assert_eq!(counted["nav"][3]["dotIcon"], "ide:count:muted:99+");
+        assert_eq!(counted["nav"][1]["dotIcon"], "ide:count:attention:5");
+        assert_eq!(counted["nav"][4]["dotIcon"], "ide:count:muted:99+");
         assert_eq!(value["boards"]["rows"][0]["hover"], true);
 
     }
