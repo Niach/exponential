@@ -9147,8 +9147,9 @@ impl SteerSessionView {
         if let Some(notice) = self.notice.clone() {
             out.push(banner("notice", "ui-warning", "Notice", notice.to_string(), DockTint::Warning, None));
         }
-        // NEW-53 (voice.json): this conversation's reply is being read aloud.
-        if let Some(speaking) = etalk_gpui::speak_replies::speaking(cx).filter(|speaking| speaking.session_id == self.session_id) {
+        // NEW-53 (voice.json): this conversation's reply is being read aloud
+        // (#EXP-2015: or, in a chat, its call session's).
+        if let Some(speaking) = etalk_gpui::speak_replies::speaking(cx).filter(|speaking| speaking.shows_in(&self.session_id)) {
             let copy = &etalk::voice::VOICE.copy;
             out.push(banner("speaking", "media-volume-up", &copy.speaking, speaking.title, DockTint::Muted, Some(&copy.stop)));
         }
@@ -9463,7 +9464,7 @@ impl SteerSessionView {
             out.push(("banner:offline".to_string(), action));
         }
         // NEW-53: the Speaking banner's Stop ends the voice.
-        if etalk_gpui::speak_replies::speaking(cx).is_some_and(|speaking| speaking.session_id == self.session_id) {
+        if etalk_gpui::speak_replies::speaking(cx).is_some_and(|speaking| speaking.shows_in(&self.session_id)) {
             out.push((
                 "banner:speaking".to_string(),
                 Button::new("steer-dock-stop-speaking")
