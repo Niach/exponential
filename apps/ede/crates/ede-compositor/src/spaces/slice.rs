@@ -61,6 +61,11 @@ use smithay::reexports::rustix::io::{fcntl_setfd, FdFlags};
 
 use crate::config;
 
+/// Where systemd's manager is, merged `/usr` or not.
+const MANAGERS: [&str; 2] = ["/usr/lib/systemd/systemd", "/lib/systemd/systemd"];
+/// How long a launch waits for its space's bus at the space's start.
+const BUS_SECONDS: u64 = 5;
+
 /// The oldest systemd whose user manager is asked: 252 delegates the cpu
 /// controller to it, so the CPU limit is real (Debian 12 has 252, Ubuntu
 /// 22.04 has 249 and runs its spaces as before).
@@ -110,6 +115,10 @@ pub struct Units {
     /// of the compositor's own found it ([`Units::probe`]): where the
     /// slices' cgroups are. Never taken from a launch.
     pub app_slice: PathBuf,
+    /// `systemd`, run as a space's own user manager ([`super::session`]).
+    pub manager: PathBuf,
+    /// `dbus-daemon`, the space's bus under that manager.
+    pub dbus_daemon: PathBuf,
 }
 
 /// The machine's size.
@@ -253,6 +262,14 @@ pub struct Run {
     pub cgroup: PathBuf,
     /// The launch's scope.
     pub unit: String,
+    /// A scope whose cgroup is handed to its program (`Delegate=yes`): the
+    /// space's own user manager.
+    #[serde(default)]
+    pub delegate: bool,
+    /// The space's bus: the program starts once it answers (a launch at the
+    /// space's start waits for its manager in its own process).
+    #[serde(default)]
+    pub wait_bus: Option<PathBuf>,
     pub no_expand: bool,
     /// The space's directory: the program's `XDG_RUNTIME_DIR`.
     pub space_dir: PathBuf,
@@ -306,7 +323,8 @@ impl Units {
             return Err(format!("no systemd user manager in {}", runtime.display()));
         }
         let tool = |name: &str| on_path(name).ok_or(format!("{name} is not installed"));
-        let (systemd_run, busctl, systemctl) = (tool("systemd-run")?, tool("busctl")?, tool("systemctl")?);
+        let (systemd_run, busctl, systemctl, dbus_daemon) = (tool("systemd-run")?, tool("busctl")?, tool("systemctl")?, tool("dbus-daemon")?);
+        let manager = MANAGERS.iter().map(PathBuf::from).find(|path| path.is_file()).ok_or("systemd's manager (/usr/lib/systemd/systemd) is not there")?;
         let mut asked = Command::new(&systemd_run);
         asked.arg("--version");
         let output = output_within(asked, Duration::from_secs(u64::from(ASK_SECONDS))).ok_or_else(|| format!("{} --version does not answer", systemd_run.display()))?;
@@ -325,6 +343,8 @@ impl Units {
             compositor: std::process::id(),
             machine: Machine::read(),
             app_slice: PathBuf::new(),
+            manager,
+            dbus_daemon,
         })
     }
 
@@ -363,6 +383,17 @@ impl Units {
     /// its standard input as a JSON object ([`exec_main`] reads it in the
     /// scope). None of either is on an argument, here or later.
     pub fn command(&self, spaces: &config::Spaces, space: u32, launch: u32, space_dir: &Path, inner: &[String]) -> Command {
+        self.scoped(spaces, space, launch_scope(self.compositor, space, launch), false, Some(space_dir.join("bus")), space_dir, inner)
+    }
+
+    /// The space's own user manager (`inner`), start number `start`, in a
+    /// `Delegate=yes` scope of its slice ([`super::session`]).
+    pub fn session_command(&self, spaces: &config::Spaces, space: u32, start: u32, space_dir: &Path, inner: &[String]) -> Command {
+        self.scoped(spaces, space, super::session::session_scope(self.compositor, space, start), true, None, space_dir, inner)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scoped(&self, spaces: &config::Spaces, space: u32, unit: String, delegate: bool, wait_bus: Option<PathBuf>, space_dir: &Path, inner: &[String]) -> Command {
         let (all, one) = limits(spaces, self.machine);
         let run = Run {
             systemd_run: self.systemd_run.clone(),
@@ -371,7 +402,9 @@ impl Units {
             bus: self.bus.clone(),
             slices: vec![Slice { name: spaces_slice(self.compositor), properties: all }, Slice { name: space_slice(self.compositor, space), properties: one }],
             cgroup: self.space_cgroup(space),
-            unit: launch_scope(self.compositor, space, launch),
+            unit,
+            delegate,
+            wait_bus,
             no_expand: self.no_expand(),
             space_dir: space_dir.to_path_buf(),
         };
@@ -534,12 +567,34 @@ pub fn scope(run: &Run, argv: &[String]) -> Command {
         cmd.arg(format!("--slice={}", slice.name));
     }
     cmd.arg(format!("--unit={}", run.unit)).args(["-p", &format!("TimeoutStopSec={STOP_SECONDS}")]);
+    if run.delegate {
+        cmd.args(["-p", "Delegate=yes"]);
+    }
     if run.no_expand {
         cmd.arg("--expand-environment=no");
     }
     cmd.arg(format!("--setenv=XDG_RUNTIME_DIR={}", run.space_dir.display())).arg("--").args(argv);
     cmd.env("XDG_RUNTIME_DIR", &run.runtime);
     cmd
+}
+
+/// Whether the bus at socket `bus` answers with its user manager on it
+/// (`org.freedesktop.systemd1` has an owner: what `snap run` asks for)
+/// within `limit`. Before that, the systemd package's `Exec=/bin/false`
+/// activation file for that name would answer `snap run`.
+fn bus_answers(busctl: &Path, bus: &Path, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        let mut ask = Command::new(busctl);
+        ask.args([&format!("--address=unix:path={}", bus.display()), "--timeout=1", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner", "s", "org.freedesktop.systemd1"]);
+        if bus.exists() && output_within(ask, Duration::from_secs(2)).is_some_and(|output| output.status.success()) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn failed(stage: &str, reason: String) -> ! {
@@ -557,7 +612,14 @@ pub fn run_main(args: impl Iterator<Item = String>) -> ! {
         failed("space-run", "usage: space-run <launch> -- program [arguments]".into())
     };
     let run: Run = serde_json::from_str(spec).unwrap_or_else(|e| failed("space-run", format!("the launch is not JSON: {e}")));
-    // The space's first launch (or its slice was taken away since): the
+    // A launch waits for its space's bus, which its manager brings (that
+    // one is started first and makes the slices).
+    if let Some(bus) = &run.wait_bus {
+        if !bus_answers(&run.busctl, bus, Duration::from_secs(BUS_SECONDS)) {
+            failed("space-run", format!("the space's session did not start within {BUS_SECONDS} s"));
+        }
+    }
+    // The space's first start (or its slice was taken away since): the
     // slice of all spaces gets the person's limits of now, the space's
     // own is made. Asked of what is there, not remembered.
     if !run.cgroup.is_dir() {
@@ -653,6 +715,8 @@ mod tests {
             compositor: 41,
             machine: Machine { cpus: 8, memory: 16 * GIB },
             app_slice: "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice".into(),
+            manager: "/usr/lib/systemd/systemd".into(),
+            dbus_daemon: "/usr/bin/dbus-daemon".into(),
         }
     }
 
@@ -764,6 +828,7 @@ mod tests {
         assert_eq!(run.unit, "exponential-p41-s3-7.scope");
         assert_eq!(run.cgroup, units().space_cgroup(3));
         assert!(run.no_expand, "systemd 255 knows the switch");
+        assert_eq!((run.delegate, run.wait_bus.as_deref()), (false, Some(Path::new("/run/user/1000/exponential-desktop/wayland-1.spaces/space-3/bus"))), "a launch waits for its space's bus");
         assert_eq!(cmd.get_envs().count(), 0, "the caller sets the space's environment");
 
         let scope = scope(&run, &inner);
@@ -778,6 +843,18 @@ mod tests {
         let old = Units { version: 253, ..units() };
         let run: Run = serde_json::from_str(&args(&old.command(&config::Spaces::default(), 1, 1, Path::new("/s"), &inner))[1]).unwrap();
         assert!(!run.no_expand && !args(&super::scope(&run, &inner)).iter().any(|arg| arg.starts_with("--expand-environment")));
+    }
+
+    /// The space's own user manager: a scope of the space's slice whose
+    /// cgroup is its own to manage, waiting for no bus (it is the bus's).
+    #[test]
+    fn a_spaces_manager_has_a_delegated_scope() {
+        let cmd = units().session_command(&config::Spaces::default(), 3, 2, Path::new("/s/space-3"), &["/usr/lib/systemd/systemd".to_string(), "--user".to_string()]);
+        let run: Run = serde_json::from_str(&args(&cmd)[1]).unwrap();
+        assert_eq!((run.unit.as_str(), run.delegate, run.wait_bus.as_deref()), ("exponential-p41-s3-session2.scope", true, None));
+        let scope = args(&scope(&run, &["systemd".to_string()]));
+        assert!(scope.windows(2).any(|pair| pair == ["-p", "Delegate=yes"]), "{scope:?}");
+        assert_eq!(args(&cmd)[3..], ["/usr/lib/systemd/systemd", "--user"]);
     }
 
     #[test]

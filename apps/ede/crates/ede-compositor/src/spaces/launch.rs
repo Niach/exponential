@@ -120,6 +120,17 @@ fn callers_environment(dir: &Path, launch: u32, env: &BTreeMap<String, String>) 
     written.map(|()| file)
 }
 
+/// Its own process group, ended with the compositor: a launch, and a
+/// space's user manager.
+pub(crate) fn own_group_dying_with_us(cmd: &mut Command) {
+    cmd.process_group(0);
+    // SAFETY: between fork and exec only prctl runs, which is
+    // async-signal-safe: a compositor that dies takes its launches along.
+    unsafe {
+        cmd.pre_exec(|| Ok(set_parent_process_death_signal(Some(Signal::TERM))?));
+    }
+}
+
 /// `program` as the launch will find it: a path as it is, a name on `PATH`.
 fn found(program: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -164,6 +175,40 @@ impl Ede {
         Profile::Space
     }
 
+    /// What a program in space `desk` starts with (a launch, the space's
+    /// own user manager): an allowlist of the compositor's environment,
+    /// not the compositor's minus a list (what the login put there, a tmux
+    /// server or an ssh agent, stays out); the space's socket, runtime
+    /// directory and bus; a tmux server and screen sessions of its own
+    /// (else an agent's `tmux` opens a window in the PERSON's server,
+    /// outside the space); and its `profile`.
+    pub(crate) fn space_environment(&self, desk: DeskId, profile: Profile) -> Result<Vec<(std::ffi::OsString, std::ffi::OsString)>, Failure> {
+        let fail = |code, message: &str| Failure::new(code, message);
+        let space = self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
+        let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = std::env::vars_os().filter(|(name, _)| name.to_str().is_some_and(kept)).collect();
+        let mut set = |name: &str, value: &dyn AsRef<std::ffi::OsStr>| env.push((name.into(), value.as_ref().to_os_string()));
+        let screens = space.dir.join("screen");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&screens).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's directory: {e}")))?;
+        set("WAYLAND_DISPLAY", &space.socket());
+        set("XDG_RUNTIME_DIR", &space.dir);
+        set("TMUX_TMPDIR", &space.dir);
+        set("SCREENDIR", &screens);
+        if self.spaces.units.is_some() {
+            set("DBUS_SESSION_BUS_ADDRESS", &space.session.address(&space.dir));
+        }
+        if profile == Profile::Space {
+            let home = self.spaces.home_of(space);
+            // gpg finds the PERSON's agent and keys by `HOME` otherwise: a
+            // signed commit in a space would sign with their key.
+            for (var, sub) in PROFILE.into_iter().chain([("GNUPGHOME", "gnupg")]) {
+                let dir = home.join(sub);
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's home: {e}")))?;
+                set(var, &dir);
+            }
+        }
+        Ok(env)
+    }
+
     /// `argv` as a command for a client of space `desk`, the one place
     /// that decides what a launch into a space gets: the compositor's
     /// environment without the person's session ([`DROPPED`]), the space's
@@ -188,13 +233,15 @@ impl Ede {
         if !cwd.is_dir() {
             return Err(fail(ErrorCode::NotFound, &format!("no such directory: {}", cwd.display())));
         }
+        // A space with its own session has its bus; else one per launch
+        // when `dbus-run-session` is there (no user manager, as before).
         let mut inner: Vec<String> = Vec::with_capacity(argv.len() + 2);
-        if found("dbus-run-session") {
+        if self.spaces.units.is_none() && found("dbus-run-session") {
             inner.extend(["dbus-run-session".to_string(), "--".to_string()]);
         }
         inner.extend(argv.iter().cloned());
         // In a scope the caller's variables go in through the launch's
-        // standard input, for the last of its three stages alone.
+        // standard input, for the last of its stages alone.
         let (mut cmd, callers) = match &self.spaces.units {
             // Never outside a scope once launches run in scopes: the
             // person's login session is no place for a space's process.
@@ -211,40 +258,13 @@ impl Ede {
                 (cmd, None)
             }
         };
-        // An allowlist, not the compositor's environment minus a list:
-        // what the login put there (a tmux server, an ssh agent) stays out.
-        cmd.env_clear();
-        for (name, value) in std::env::vars_os() {
-            if name.to_str().is_some_and(kept) {
-                cmd.env(name, value);
-            }
-        }
-        // The space's own: its socket and runtime directory, a tmux server
-        // and screen sessions of its own (else an agent's `tmux` opens a
-        // window in the PERSON's server, outside the space).
-        let screens = space.dir.join("screen");
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&screens).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's directory: {e}")))?;
-        cmd.env("WAYLAND_DISPLAY", space.socket()).env("XDG_RUNTIME_DIR", &space.dir).env("TMUX_TMPDIR", &space.dir).env("SCREENDIR", screens);
-        if profile == Profile::Space {
-            let home = self.spaces.home_of(space);
-            // gpg finds the PERSON's agent and keys by `HOME` otherwise: a
-            // signed commit in a space would sign with their key.
-            for (var, sub) in PROFILE.into_iter().chain([("GNUPGHOME", "gnupg")]) {
-                let dir = home.join(sub);
-                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| fail(ErrorCode::Unavailable, &format!("the space's home: {e}")))?;
-                cmd.env(var, dir);
-            }
-        }
+        cmd.env_clear().envs(self.space_environment(desk, profile)?);
         match callers {
             Some(callers) => cmd.stdin(callers),
             None => cmd.envs(env).stdin(Stdio::null()),
         };
-        cmd.current_dir(cwd).process_group(0);
-        // SAFETY: between fork and exec only prctl runs, which is
-        // async-signal-safe: a compositor that dies takes its launches along.
-        unsafe {
-            cmd.pre_exec(|| Ok(set_parent_process_death_signal(Some(Signal::TERM))?));
-        }
+        cmd.current_dir(cwd);
+        own_group_dying_with_us(&mut cmd);
         Ok(cmd)
     }
 
@@ -259,6 +279,9 @@ impl Ede {
             }
             _ => {}
         }
+        // The space's session: started at its first launch, the launch waits
+        // for its bus in its own process.
+        self.space_session(desk)?;
         let child = cmd.spawn().map_err(|e| Failure::new(if e.kind() == std::io::ErrorKind::NotFound { ErrorCode::NotFound } else { ErrorCode::Unavailable }, &format!("{}: {e}", argv[0])))?;
         let pid = child.id();
         let scoped = self.spaces.units.is_some();

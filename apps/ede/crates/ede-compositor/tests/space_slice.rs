@@ -57,12 +57,17 @@ impl Tools {
         // `StartTransientUnit` fails for a slice that is there, as the real
         // one does; `refuse-slices` fails every call.
         let busctl = format!(
-            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-slices\" ] && {{ echo 'Call failed: Access denied' >&2; exit 1; }}\nunit=$9\n{place}\nif [ \"$7\" = StartTransientUnit ]; then\n  [ -d \"$place\" ] && {{ echo \"Call failed: Unit $unit was already loaded or has a fragment file.\" >&2; exit 1; }}\n  mkdir -p \"$place\"\nfi\nexit 0\n"
+            "#!/bin/sh\ncase \"$*\" in *GetNameOwner*) exit 0;; esac\n{log}\n[ -e \"$d/refuse-slices\" ] && {{ echo 'Call failed: Access denied' >&2; exit 1; }}\nunit=$9\n{place}\nif [ \"$7\" = StartTransientUnit ]; then\n  [ -d \"$place\" ] && {{ echo \"Call failed: Unit $unit was already loaded or has a fragment file.\" >&2; exit 1; }}\n  mkdir -p \"$place\"\nfi\nexit 0\n"
         );
         let systemctl = format!(
             "#!/bin/sh\n{log}\n[ \"$2\" = list-units ] && [ -e \"$d/units\" ] && cat \"$d/units\"\nif [ \"$2\" = stop ]; then\n  [ -e \"$d/slow\" ] && sleep 3\n  unit=$3\n  {place}\n  [ -e \"$d/stubborn\" ] || rm -rf \"$place\"\nfi\nexit 0\n"
         );
-        for (name, script) in [("systemd-run", systemd_run), ("busctl", busctl), ("systemctl", systemctl)] {
+        // The space's own user manager: brings the bus (a file stands for
+        // its socket), writes its environment and its process id, stays.
+        let systemd = format!(
+            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec sleep 300\n"
+        );
+        for (name, script) in [("systemd-run", systemd_run), ("busctl", busctl), ("systemctl", systemctl), ("systemd", systemd)] {
             let path = dir.join(name);
             std::fs::write(&path, script).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -86,7 +91,18 @@ impl Tools {
             compositor: std::process::id(),
             machine: Machine { cpus: 8, memory: 16 * GIB },
             app_slice: self.dir.join("cgroup"),
+            manager: self.dir.join("systemd"),
+            dbus_daemon: "/usr/bin/dbus-daemon".into(),
         }
+    }
+
+    /// The process id of space `space`'s user manager (the latest start).
+    fn manager(&self, space: &str) -> u32 {
+        let file = self.dir.join(format!("manager-{space}.pid"));
+        until("the space's user manager never started", || std::fs::read_to_string(&file).is_ok_and(|pid| pid.trim().parse::<u32>().is_ok()));
+        let pid = std::fs::read_to_string(&file).unwrap().trim().parse().unwrap();
+        std::fs::remove_file(file).unwrap();
+        pid
     }
 
     fn flag(&self, name: &str, on: bool) {
@@ -143,7 +159,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     let pid = agent.launch(writes_its_environment(&out), callers.into(), None).unwrap();
     until("the launched program never ran", || out.exists());
     let log = tools.log();
-    assert_eq!(log.len(), 3, "{log:#?}");
+    assert_eq!(log.len(), 5, "{log:#?}");
     // Whose user manager, and nothing of the caller's: its variables reach
     // no program that runs before the scope.
     let whose = format!(" XDG_RUNTIME_DIR={} BUS=unix:path=/persons/bus MARK=", runtime.display());
@@ -166,17 +182,37 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
             pages(pages(16 * GIB * 30 / 100) / 10 * 9)
         )
     );
-    // Then the scope, asked of the PERSON's user manager. In it the last
-    // stage of the launch, found through a descriptor, then the program.
+    // The first program in every scope is `space-enter` with the
+    // compositor's directory of spaces (#EDE-146's guard goes there).
+    let enter = format!("] [space-enter] [{}] [--] [/proc/self/fd/", space_dir.parent().unwrap().display());
+    // The space's first launch starts its own user manager, in a scope of
+    // its own whose cgroup is the manager's to manage.
+    let session = format!(
+        "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-session1.scope] [-p] [TimeoutStopSec=2] [-p] [Delegate=yes] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
+        space_dir.display()
+    );
+    assert!(log[2].starts_with(&session) && log[2].contains(&enter) && log[2].contains("] [space-exec] [") && log[2].contains(&format!("] [--] [{}] [--user] XDG_RUNTIME_DIR=", tools.dir.join("systemd").display())), "{}", log[2]);
+    let address = format!("unix:path={};unix:abstract=/tmp/dbus-ede-", space_dir.join("bus").display());
+    assert!(log[3].starts_with(&format!("systemd [--user] XDG_RUNTIME_DIR={} BUS={address}", space_dir.display())), "the manager has the space's runtime directory and its bus: {}", log[3]);
+    let manager_env = std::fs::read_to_string(tools.dir.join("manager-space-1.env")).unwrap();
+    for line in [format!("SYSTEMD_UNIT_PATH={}", space_dir.join("units").display()), format!("SYSTEMD_GENERATOR_PATH={}", space_dir.join("nothing").display()), format!("SYSTEMD_ENVIRONMENT_GENERATOR_PATH={}", space_dir.join("nothing").display())] {
+        assert!(manager_env.lines().any(|l| l == line), "{line} is not the manager's: {manager_env}");
+    }
+    for unit in ["default.target", "basic.target", "dbus.socket", "dbus.service"] {
+        assert!(space_dir.join("units").join(unit).is_file(), "{unit}");
+    }
+    assert!(std::fs::read_to_string(space_dir.join("dbus.conf")).unwrap().contains("<listen>unix:abstract=/tmp/dbus-ede-"));
+    let home_config = manager_env.lines().find_map(|line| line.strip_prefix("XDG_CONFIG_HOME=")).unwrap();
+    assert!(Path::new(home_config).join("xdg-desktop-portal/exponential-portals.conf").is_file(), "the space's portals");
+    // Then the launch's scope, asked of the PERSON's user manager once the
+    // space's bus answers. In it the launch's last stage, found through a
+    // descriptor, then the program: no `dbus-run-session` (the space has a bus).
     let scope = format!(
         "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-1.scope] [-p] [TimeoutStopSec=2] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
         space_dir.display()
     );
-    // The first program in the scope is `space-enter` with the
-    // compositor's directory of spaces (#EDE-146's guard goes there).
-    let enter = format!("] [space-enter] [{}] [--] [/proc/self/fd/", space_dir.parent().unwrap().display());
-    assert!(log[2].starts_with(&scope) && log[2].contains(&enter) && log[2].contains("] [space-exec] [") && log[2].contains(" [sh] [-c] "), "{}", log[2]);
-    assert!(log[2].ends_with(&format!(" XDG_RUNTIME_DIR={} BUS= MARK=", runtime.display())), "systemd-run reaches the person's user manager, with no bus of the person's and nothing of the caller's: {}", log[2]);
+    assert!(log[4].starts_with(&scope) && log[4].contains(&enter) && log[4].contains("] [space-exec] [") && log[4].contains("] [--] [sh] [-c] ") && !log[4].contains("dbus-run-session"), "{}", log[4]);
+    assert!(log[4].contains(&format!(" XDG_RUNTIME_DIR={} BUS={address}", runtime.display())) && log[4].ends_with(" MARK="), "systemd-run reaches the person's user manager, and has nothing of the caller's: {}", log[4]);
     assert!(!log.iter().any(|line| line.contains("secret-never-on-an-argument") || line.contains("the-callers")), "the caller's environment is on an argument or in a program before the scope");
     // The program has it, with the space's runtime directory, and its
     // standard input is nothing, as a launch's always was.
@@ -184,6 +220,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     for line in [format!("XDG_RUNTIME_DIR={}", space_dir.display()), format!("WAYLAND_DISPLAY={}", space.wayland_display), "TOKEN=secret-never-on-an-argument".to_string(), format!("{MARK}=the-callers"), "STDIN=/dev/null".to_string()] {
         assert!(env.lines().any(|l| l == line), "{line} is not what the program has: {env}");
     }
+    assert!(env.lines().any(|l| l.starts_with(&format!("DBUS_SESSION_BUS_ADDRESS={address}"))), "the space's bus: {env}");
     assert!(!std::fs::read_dir(&space_dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with(".launch")), "the caller's environment is still a file");
     // One process from the spawn to the program: the launch's stages are gone.
     let cmdline = String::from_utf8_lossy(&std::fs::read(format!("/proc/{pid}/cmdline")).unwrap()).into_owned();
@@ -194,8 +231,8 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     agent.launch(writes_its_environment(&second), Default::default(), None).unwrap();
     until("the second program never ran", || second.exists());
     let log = tools.log();
-    assert_eq!(log.len(), 4, "{log:#?}");
-    assert!(log[3].starts_with(&format!("systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-2.scope] ")), "{}", log[3]);
+    assert_eq!(log.len(), 6, "one manager per space: {log:#?}");
+    assert!(log[5].starts_with(&format!("systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-2.scope] ")), "{}", log[5]);
 
     // A second space: the slice of all spaces is there, so its limits are
     // set again (the person's of now); the space's own slice is made.
@@ -204,11 +241,12 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     let other_pid = other.launch(writes_its_environment(&third), Default::default(), None).unwrap();
     until("the other space's program never ran", || third.exists());
     let log = tools.log();
-    assert_eq!(log.len(), 8, "{log:#?}");
-    assert!(log[4].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}.slice] ")), "{}", log[4]);
-    assert!(log[5].contains(&format!(" [SetUnitProperties] [sba(sv)] [app-exponential_p{me}.slice] [true] [5] [CPUQuotaPerSecUSec] [t] [4000000] ")) && !log[5].contains("] [0] XDG"), "{}", log[5]);
-    assert!(log[6].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}-s2.slice] ")), "{}", log[6]);
-    assert!(log[7].contains(&format!(" [--slice=app-exponential_p{me}-s2.slice] [--unit=exponential-p{me}-s2-3.scope] ")), "{}", log[7]);
+    assert_eq!(log.len(), 12, "{log:#?}");
+    assert!(log[6].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}.slice] ")), "{}", log[6]);
+    assert!(log[7].contains(&format!(" [SetUnitProperties] [sba(sv)] [app-exponential_p{me}.slice] [true] [5] [CPUQuotaPerSecUSec] [t] [4000000] ")) && !log[7].contains("] [0] XDG"), "{}", log[7]);
+    assert!(log[8].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}-s2.slice] ")), "{}", log[8]);
+    assert!(log[9].contains(&format!(" [--unit=exponential-p{me}-s2-session1.scope] ")) && log[10].starts_with("systemd [--user] "), "{log:#?}");
+    assert!(log[11].contains(&format!(" [--slice=app-exponential_p{me}-s2.slice] [--unit=exponential-p{me}-s2-3.scope] ")), "{}", log[11]);
 
     // The close tells the user manager to stop the space's slice and does
     // not wait for it: the stand-in takes 3 s, the compositor answers at once.
@@ -217,11 +255,11 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     agent.destroy_space(space.id.clone()).unwrap();
     h.ipc().windows().unwrap();
     assert!(asked.elapsed() < Duration::from_secs(2), "the close waited for the user manager: {:?}", asked.elapsed());
-    until("the user manager was never told to stop the space's slice", || tools.log().len() == 9);
-    assert!(tools.log()[8].starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s1.slice] XDG_RUNTIME_DIR={} BUS=", runtime.display())), "{}", tools.log()[8]);
+    until("the user manager was never told to stop the space's slice", || tools.log().len() == 13);
+    assert!(tools.log()[12].starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s1.slice] XDG_RUNTIME_DIR={} BUS=", runtime.display())), "{}", tools.log()[12]);
     until("the closed space's launches outlived it", || !alive(pid));
     until("the closed space's slice was never done with", || h.with(|state| state.spaces.settled()));
-    assert!(!first_cgroup.exists() && tools.log().len() == 9, "a slice that the stop ended is not ended again: {:#?}", tools.log());
+    assert!(!first_cgroup.exists() && tools.log().len() == 13, "a slice that the stop ended is not ended again: {:#?}", tools.log());
     tools.flag("slow", false);
 
     // A slice that outlives its stop (a scope in it asked to be left
@@ -275,18 +313,20 @@ fn a_launch_that_gets_no_scope_does_not_run() {
     let tools = Tools::new(dir.path());
     let units = tools.units();
     h.with(move |state| state.spaces.units = Some(units));
+    let me = std::process::id();
     let (mut agent, _space) = agent(&h, "run-1");
 
+    // No scope: neither the space's manager nor the launch runs.
     tools.flag("refuse-scope", true);
     let out = dir.path().join("refused-scope.env");
     let pid = agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("a launch without its scope did not end", || !alive(pid));
     assert!(!out.exists(), "the program ran without a scope");
-    assert!(tools.log().iter().any(|line| line.starts_with("systemd-run ")));
+    assert!(tools.log().iter().any(|line| line.contains(&format!("[--unit=exponential-p{me}-s1-session1.scope]"))));
+    assert!(!tools.log().iter().any(|line| line.starts_with("systemd [")), "the manager ran without its scope");
     until("the ended launch still counts", || h.with(|state| state.spaces.launched()) == 0);
 
-    // No slices: the scope is not even asked for. (A new space: the first
-    // one's slice is there.)
+    // No slices: no scope is even asked for, for the manager or the launch.
     let (mut other, _other_space) = self::agent(&h, "run-2");
     tools.flag("refuse-scope", false);
     tools.flag("refuse-slices", true);
@@ -296,26 +336,60 @@ fn a_launch_that_gets_no_scope_does_not_run() {
     until("a launch without its slices did not end", || !alive(pid));
     assert!(!out.exists(), "the program ran without its slices");
     let log = tools.log().split_off(asked);
-    assert_eq!(log.len(), 2, "made, then set, then nothing more: {log:#?}");
-    assert!(log[0].contains("[StartTransientUnit]") && log[1].contains("[SetUnitProperties]") && !log.iter().any(|line| line.starts_with("systemd-run ")), "{log:#?}");
+    assert!(log.iter().any(|line| line.contains("[StartTransientUnit]")) && log.iter().any(|line| line.contains("[SetUnitProperties]")), "made, then set: {log:#?}");
+    assert!(!log.iter().any(|line| line.contains(&format!("[--slice=app-exponential_p{me}-s2.slice]"))), "a scope was asked for without its slices: {log:#?}");
+    tools.flag("refuse-slices", false);
 
     // The user manager is gone: a compositor whose launches run in scopes
     // starts nothing, and says so. It does not fall back to a launch in
     // the person's login session. With the user manager back it launches.
-    tools.flag("refuse-slices", false);
-    until("the ended launches still count", || h.with(|state| state.spaces.launched()) == 0);
+    let (mut third, _third_space) = self::agent(&h, "run-3");
     let socket = tools.runtime().join("systemd/private");
     std::fs::remove_file(&socket).unwrap();
-    let asked = tools.log().len();
     let out = dir.path().join("no-manager.env");
-    match other.launch(writes_its_environment(&out), Default::default(), None) {
+    match third.launch(writes_its_environment(&out), Default::default(), None) {
         Err(ede_protocol::Error::Failed(failure)) => assert_eq!(failure.code, ede_protocol::ErrorCode::Unavailable, "{failure:?}"),
         answer => panic!("a launch without a user manager answered {answer:?}"),
     }
-    assert_eq!((tools.log().len(), h.with(|state| state.spaces.launched())), (asked, 0), "something was started");
+    assert!(!tools.log().iter().any(|line| line.contains(&format!("app-exponential_p{me}-s3"))), "something of the third space was started: {:#?}", tools.log());
     std::fs::write(&socket, "").unwrap();
-    other.launch(writes_its_environment(&out), Default::default(), None).unwrap();
+    third.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("the launch with the user manager back never ran", || out.exists());
+    drop(h);
+}
+
+/// A space whose user manager ends gets it once more; when that one ends
+/// too, the space closes (its session's next call reads "new and empty"),
+/// instead of keeping a desk on which nothing can start.
+#[test]
+fn a_space_whose_manager_ends_twice_closes() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let tools = Tools::new(dir.path());
+    let units = tools.units();
+    h.with(move |state| state.spaces.units = Some(units));
+    let me = std::process::id();
+    let (mut agent, space) = agent(&h, "run-1");
+    let out = dir.path().join("first.env");
+    agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
+    until("the launch never ran", || out.exists());
+    let kill = |pid: u32| assert!(std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap().success());
+
+    kill(tools.manager("space-1"));
+    until("the ended manager was not started once more", || tools.log().iter().any(|line| line.contains(&format!("[--unit=exponential-p{me}-s1-session2.scope]"))));
+    let again = tools.manager("space-1");
+    assert_eq!(agent.spaces().unwrap(), [space.clone()], "the space lives on with its second manager");
+    let second = dir.path().join("second.env");
+    agent.launch(writes_its_environment(&second), Default::default(), None).unwrap();
+    until("a launch after the restart never ran", || second.exists());
+
+    kill(again);
+    until("a space whose manager ended twice is still there", || agent.spaces().unwrap().is_empty());
+    assert!(!tools.log().iter().any(|line| line.contains("-session3.scope")), "a third start");
+    match agent.launch(vec!["true".into()], Default::default(), None) {
+        Err(ede_protocol::Error::Failed(failure)) => assert_eq!(failure.code, ede_protocol::ErrorCode::NotFound, "{failure:?}"),
+        answer => panic!("a launch into the closed space answered {answer:?}"),
+    }
+    assert_ne!(agent.create_space(640, 480).unwrap().id, space.id, "a new space, new and empty");
     drop(h);
 }
 
