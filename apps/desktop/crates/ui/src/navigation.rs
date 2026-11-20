@@ -2151,8 +2151,8 @@ pub(crate) fn team_of_screen(screen: &Screen, nav: &Entity<Navigation>, cx: &App
 }
 
 /// #EXP-2027: the team a screen with none of its own falls back to (the
-/// dev captures' `EXP_DEV_TEAM`, else the member's first team by name, the
-/// personal team last).
+/// dev captures' `EXP_DEV_TEAM`, else the member's first team by name with a
+/// board).
 pub fn fallback_team_id(cx: &App) -> Option<String> {
     let collections = Store::try_global(cx)?.collections();
     if let Some(dev) = dev_team().filter(|id| collections.teams.read(cx).get(id).is_some()) {
@@ -2161,8 +2161,7 @@ pub fn fallback_team_id(cx: &App) -> Option<String> {
     let teams = collections.teams_sorted(cx);
     teams
         .iter()
-        .find(|team| team.kind.as_deref() != Some("personal") && !collections.boards_in_team(&team.id, cx).is_empty())
-        .or_else(|| teams.iter().find(|team| team.kind.as_deref() != Some("personal")))
+        .find(|team| !collections.boards_in_team(&team.id, cx).is_empty())
         .or_else(|| teams.first())
         .map(|team| team.id.clone())
 }

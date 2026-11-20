@@ -1113,8 +1113,8 @@ impl Render for RailView {
                             let Some(id) = region.hovered() else { return menu };
                             if region.is_agent(&id) {
                                 crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &id, cx)
-                            } else if region.is_active(&id) {
-                                crate::chat_actions::chat_menu_items(menu, &id, false, cx)
+                            } else if let Some(root) = region.active_root(&id) {
+                                crate::chat_actions::chat_menu_items(menu, &root, false, cx)
                             } else {
                                 menu
                             }

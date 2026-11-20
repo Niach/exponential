@@ -426,7 +426,7 @@ fn sample() -> IdeSidebarInput {
             },
             IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: false, owner: true, needs_you: 2, items: vec![item("board", "b9", "Site")], layout: Vec::new() },
         ],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true, team_mark: Some("ui-team".into()) }],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true, team_mark: Some("ui-team".into()), team: Some("t1".into()) }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
         closed: Vec::new(),
         editing_folder: None,
@@ -752,6 +752,10 @@ fn shell_sidebar_tree_pages() {
             {"id": "d2", "user_id": "u1", "device_id": "dev-2", "label": "Mint workstation", "kind": "desktop", "platform": "linux", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
             {"id": "d3", "user_id": "u2", "device_id": "dev-3", "label": "Acme build server", "kind": "server", "platform": "linux", "version": "0.14.170", "last_seen_at": "2026-11-01T00:00:00Z", "shared_team_ids": "{t1}"}
         ]), cx);
+        seed(&c.sessions, json!([
+            {"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "running", "shared": true, "title": "Store screenshots", "device_id": "dev-1", "created_at": now, "updated_at": now},
+            {"id": "s2", "team_id": "t2", "root_id": "s2", "user_id": "u1", "status": "running", "shared": true, "title": "Landing page copy", "created_at": now, "updated_at": now}
+        ]), cx);
         seed(&c.sidebar_layout, json!([
             {"id": "f1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "folder", "name": "Mobile", "sort_order": 1},
             {"id": "e1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "item", "target_id": "b1", "parent_id": "f1", "sort_order": 1},
@@ -785,6 +789,23 @@ fn shell_sidebar_tree_pages() {
     go(&mut cx, Screen::Home);
     settle(&mut cx);
     shoot(&mut cx, "desktop-sidebar-tree.png");
+    // The `sidebar-team-menu` drive (`EXP_DEV_TEAM_MENU`): the first team's
+    // `…` opens its menu on the next derive.
+    go(&mut cx, Screen::Chats);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-chats.png");
+    std::env::set_var("EXP_DEV_TEAM_MENU", "1");
+    go(&mut cx, Screen::Drafts);
+    settle(&mut cx);
+    go(&mut cx, Screen::Home);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-sidebar-team-menu.png");
+    std::env::remove_var("EXP_DEV_TEAM_MENU");
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_event(gpui::PlatformInput::KeyDown(gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse("escape").unwrap(), is_held: false, prefer_character_input: false }), cx);
+    })
+    .unwrap();
+    settle(&mut cx);
     go(&mut cx, Screen::Device { device_id: "d1".into() });
     settle(&mut cx);
     shoot(&mut cx, "desktop-device.png");
@@ -807,48 +828,3 @@ fn shell_sidebar_tree_pages() {
     std::mem::forget(root);
 }
 
-/// #EXP-2027: the sidebar tree's sample (the approved draft's rows) at rest
-/// and with the team menu open (a right-click on the team row).
-#[test]
-#[ignore]
-fn shell_sidebar_tree_menu() {
-    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
-    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
-    let dir = PathBuf::from(dir);
-    let mut cx = headless();
-    cx.update(seeded);
-    let handle = open(&mut cx, size(px(SIDEBAR.0 + 300.), px(SIDEBAR.1)));
-    let window: gpui::AnyWindowHandle = handle.into();
-    let region = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region());
-    let surface = cx.update(|cx| region.read(cx).surface());
-    cx.update(|cx| surface.update(cx, |v, _| v.record_bounds(true)));
-    let settle = |cx: &mut HeadlessAppContext| {
-        for _ in 0..3 {
-            draw(window, cx);
-            cx.run_until_parked();
-        }
-    };
-    cx.update(|cx| region.update(cx, |region, cx| region.show(sample(), None, cx)));
-    settle(&mut cx);
-    cx.capture_screenshot(window).expect("the frame").save(dir.join("desktop-sidebar-sample.png")).expect("the PNG");
-    let row = cx.update(|cx| surface.read(cx).placed_nodes().iter().map(|n| n.id.clone()).find(|id| id.starts_with("ide_team_row") && id.ends_with("t1"))).expect("the team row node");
-    let menu = row.replacen("ide_team_row", "ide_team_menu", 1);
-    let at = cx.update(|cx| surface.read(cx).painted_bounds(&row)).expect("the team row").center();
-    cx.update_window(window, |_, window, cx| {
-        window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }), cx);
-        window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
-    })
-    .unwrap();
-    settle(&mut cx);
-    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == menu)), "the team menu opened");
-    // Hover New: its submenu opens.
-    if let Some(new) = cx.update(|cx| surface.read(cx).painted_bounds(&format!("{menu}.item.0"))) {
-        cx.update_window(window, |_, window, cx| {
-            window.dispatch_event(PlatformInput::MouseMove(gpui::MouseMoveEvent { position: new.center(), pressed_button: None, modifiers: Modifiers::default() }), cx);
-        })
-        .unwrap();
-        settle(&mut cx);
-    }
-    cx.capture_screenshot(window).expect("the frame").save(dir.join("desktop-sidebar-team-menu.png")).expect("the PNG");
-    std::mem::forget(cx);
-}

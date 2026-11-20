@@ -117,6 +117,9 @@ pub struct IdeActiveInput {
     /// #EXP-2027: Active spans every team: each row wears its team's mark.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_mark: Option<String>,
+    /// #EXP-2027: the chat's team (a drop into a team checks it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
 }
 
 /// #EXP-1616: one open PR of an Exponential repository, already placed in

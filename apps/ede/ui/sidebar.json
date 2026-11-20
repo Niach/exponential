@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new; the switcher keeps Local desktops), the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json; ide_prs = #EXP-1616's Pull requests tree of the team's Exponential repositories, a List{divided:false} like the other sections, the IDE fills with Rows {depth, identifier #n, title, subtitle head → base} from /shell/ide/prs (a Row's depth never binds: the tree guides are computed from its siblings), a press opening the repo's page; it hides while /shell/ide/prs is empty), and the corner: the person's Assistant with the Exponential mark, the Computer button (Terminal, Files, Source control, Version history, the trunk's failure badge) and Settings, #EXP-1741); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds /shell/ide, and the IDE prunes `chats`. #EXP-2027 (domain-contract sidebar-tree.json, ide-sidebar.json): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + = ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind: device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and a List over /shell/ide/teams, each team ONE reorderable List (ide_team_list, maxDepth 3, key id, its move = ide_move {team} with the List's {id, before|after|into} as payload) over the team's rows (every row carries `team`): the team Row (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind: item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from sidebar (ide_session {team, id} with {value: remove}). ide_active rows wear their team's mark. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher.",
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons). No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first: /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that session, on a Local desktop and on a team alike; the Exponential app's session (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new; the switcher keeps Local desktops), the ide_* sections it fills from /shell/ide (packages/uicore/fixtures/ide-sidebar.json; ide_prs = #EXP-1616's Pull requests tree of the team's Exponential repositories, a List{divided:false} like the other sections, the IDE fills with Rows {depth, identifier #n, title, subtitle head → base} from /shell/ide/prs (a Row's depth never binds: the tree guides are computed from its siblings), a press opening the repo's page; it hides while /shell/ide/prs is empty), and the corner: the person's Assistant with the Exponential mark, the Computer button (Terminal, Files, Source control, Version history, the trunk's failure badge) and Settings, #EXP-1741); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds /shell/ide, and the IDE prunes `chats`. #EXP-2027 (domain-contract sidebar-tree.json, ide-sidebar.json): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + = ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind: device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and ONE reorderable List (ide_tree_list over /shell/ide/tree, maxDepth 3, key id, its move = ide_move with the List's {id, before|after|into} as payload) holding every team's rows and, after them, the Active band (its label row `active-head` and one row per running chat, key `active:<root>`, so an Active row drags INTO a team: sidebarDropSession; every row carries `team`): the team Row (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind: item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from sidebar (ide_session {team, id} with {value: remove}). An Active row (kind active) opens its chat (ide_open {kind: active, id: its root}) and wears its team's mark. The host functions: ede_chat, ede_start_menu, ede_launch, ede_switcher.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -1269,19 +1269,29 @@
                                 }
                               },
                               {
-                                "id": "ide_teams_list",
+                                "id": "ide_tree_list",
                                 "component": "List",
                                 "props": {
-                                  "gap": "none"
+                                  "gap": "none",
+                                  "reorderable": true,
+                                  "maxDepth": 3
                                 },
                                 "template": {
-                                  "component": "ide_team_box",
-                                  "path": "/shell/ide/teams",
+                                  "component": "ide_tree_node",
+                                  "path": "/shell/ide/tree",
                                   "key": "id"
+                                },
+                                "on": {
+                                  "move": {
+                                    "event": {
+                                      "name": "ide_move",
+                                      "context": {}
+                                    }
+                                  }
                                 },
                                 "children": [
                                   {
-                                    "id": "ide_team_box",
+                                    "id": "ide_tree_node",
                                     "component": "Box",
                                     "style": {
                                       "display": "flex",
@@ -1289,111 +1299,159 @@
                                     },
                                     "children": [
                                       {
-                                        "id": "ide_team_list",
-                                        "component": "List",
+                                        "id": "ide_team_menu",
+                                        "component": "Menu",
                                         "props": {
-                                          "gap": "none",
-                                          "reorderable": true,
-                                          "maxDepth": 3
-                                        },
-                                        "template": {
-                                          "component": "ide_team_node",
-                                          "path": "rows",
-                                          "key": "id"
+                                          "openOn": "contextmenu",
+                                          "side": "bottom",
+                                          "align": "start",
+                                          "items": [
+                                            {
+                                              "kind": "submenu",
+                                              "label": "New",
+                                              "icon": "ui-add",
+                                              "items": {
+                                                "@path": "newItems"
+                                              }
+                                            },
+                                            {
+                                              "label": "New folder",
+                                              "value": "new-folder",
+                                              "icon": "ui-folder"
+                                            },
+                                            {
+                                              "kind": "separator"
+                                            },
+                                            {
+                                              "label": "Settings",
+                                              "value": "settings",
+                                              "icon": "nav-settings"
+                                            }
+                                          ]
                                         },
                                         "on": {
-                                          "move": {
+                                          "select": {
                                             "event": {
-                                              "name": "ide_move",
+                                              "name": "ide_team",
                                               "context": {
-                                                "team": {
+                                                "id": {
                                                   "@path": "id"
                                                 }
                                               }
                                             }
                                           }
                                         },
+                                        "visible": {
+                                          "@call": "eq",
+                                          "args": {
+                                            "a": {
+                                              "@path": "kind"
+                                            },
+                                            "b": "team"
+                                          }
+                                        },
                                         "children": [
                                           {
-                                            "id": "ide_team_node",
-                                            "component": "Box",
-                                            "style": {
-                                              "display": "flex",
-                                              "flexDirection": "column"
+                                            "id": "ide_team_row",
+                                            "component": "Row",
+                                            "props": {
+                                              "title": {
+                                                "@path": "title"
+                                              },
+                                              "icon": {
+                                                "@path": "icon"
+                                              },
+                                              "density": "compact",
+                                              "pressable": true
                                             },
-                                            "children": [
-                                              {
-                                                "id": "ide_team_menu",
-                                                "component": "Menu",
+                                            "on": {
+                                              "press": {
+                                                "event": {
+                                                  "name": "ide_team",
+                                                  "context": {
+                                                    "action": "fold",
+                                                    "id": {
+                                                      "@path": "id"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "slots": {
+                                              "trailing": {
+                                                "id": "ide_team_trailing",
+                                                "component": "Stack",
                                                 "props": {
-                                                  "openOn": "contextmenu",
-                                                  "side": "bottom",
-                                                  "align": "start",
-                                                  "items": [
-                                                    {
-                                                      "kind": "submenu",
-                                                      "label": "New",
-                                                      "icon": "ui-add",
-                                                      "items": {
-                                                        "@path": "newItems"
-                                                      }
-                                                    },
-                                                    {
-                                                      "label": "New folder",
-                                                      "value": "new-folder",
-                                                      "icon": "ui-folder"
-                                                    },
-                                                    {
-                                                      "kind": "separator"
-                                                    },
-                                                    {
-                                                      "label": "Settings",
-                                                      "value": "settings",
-                                                      "icon": "nav-settings"
-                                                    }
-                                                  ]
-                                                },
-                                                "on": {
-                                                  "select": {
-                                                    "event": {
-                                                      "name": "ide_team",
-                                                      "context": {
-                                                        "id": {
-                                                          "@path": "id"
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "eq",
-                                                  "args": {
-                                                    "a": {
-                                                      "@path": "kind"
-                                                    },
-                                                    "b": "team"
-                                                  }
+                                                  "direction": "horizontal",
+                                                  "gap": "xs",
+                                                  "align": "center"
                                                 },
                                                 "children": [
                                                   {
-                                                    "id": "ide_team_row",
-                                                    "component": "Row",
+                                                    "id": "ide_team_dot",
+                                                    "component": "Icon",
                                                     "props": {
-                                                      "title": {
-                                                        "@path": "title"
+                                                      "name": {
+                                                        "@path": "dotIcon"
                                                       },
-                                                      "icon": {
-                                                        "@path": "icon"
-                                                      },
-                                                      "density": "compact",
-                                                      "pressable": true
+                                                      "size": "sm"
+                                                    },
+                                                    "visible": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "dotIcon"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "id": "ide_team_more",
+                                                    "component": "Menu",
+                                                    "props": {
+                                                      "side": "bottom",
+                                                      "align": "start",
+                                                      "items": [
+                                                        {
+                                                          "kind": "submenu",
+                                                          "label": "New",
+                                                          "icon": "ui-add",
+                                                          "items": {
+                                                            "@path": "newItems"
+                                                          }
+                                                        },
+                                                        {
+                                                          "label": "New folder",
+                                                          "value": "new-folder",
+                                                          "icon": "ui-folder"
+                                                        },
+                                                        {
+                                                          "kind": "separator"
+                                                        },
+                                                        {
+                                                          "label": "Settings",
+                                                          "value": "settings",
+                                                          "icon": "nav-settings"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "visible": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "hover"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
                                                     },
                                                     "on": {
-                                                      "press": {
+                                                      "select": {
                                                         "event": {
                                                           "name": "ide_team",
                                                           "context": {
-                                                            "action": "fold",
                                                             "id": {
                                                               "@path": "id"
                                                             }
@@ -1401,332 +1459,414 @@
                                                         }
                                                       }
                                                     },
-                                                    "slots": {
-                                                      "trailing": {
-                                                        "id": "ide_team_trailing",
-                                                        "component": "Stack",
+                                                    "children": [
+                                                      {
+                                                        "id": "ide_team_more_button",
+                                                        "component": "Button",
                                                         "props": {
-                                                          "direction": "horizontal",
-                                                          "gap": "xs",
-                                                          "align": "center"
+                                                          "icon": "ui-more",
+                                                          "variant": "ghost",
+                                                          "size": "icon",
+                                                          "label": "Team actions"
                                                         },
-                                                        "children": [
-                                                          {
-                                                            "id": "ide_team_dot",
-                                                            "component": "Icon",
-                                                            "props": {
-                                                              "name": {
-                                                                "@path": "dotIcon"
-                                                              },
-                                                              "size": "sm"
-                                                            },
-                                                            "visible": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "dotIcon"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          },
-                                                          {
-                                                            "id": "ide_team_more",
-                                                            "component": "Menu",
-                                                            "props": {
-                                                              "side": "bottom",
-                                                              "align": "start",
-                                                              "items": [
-                                                                {
-                                                                  "kind": "submenu",
-                                                                  "label": "New",
-                                                                  "icon": "ui-add",
-                                                                  "items": {
-                                                                    "@path": "newItems"
-                                                                  }
-                                                                },
-                                                                {
-                                                                  "label": "New folder",
-                                                                  "value": "new-folder",
-                                                                  "icon": "ui-folder"
-                                                                },
-                                                                {
-                                                                  "kind": "separator"
-                                                                },
-                                                                {
-                                                                  "label": "Settings",
-                                                                  "value": "settings",
-                                                                  "icon": "nav-settings"
-                                                                }
-                                                              ]
-                                                            },
-                                                            "visible": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "hover"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            },
-                                                            "on": {
-                                                              "select": {
-                                                                "event": {
-                                                                  "name": "ide_team",
-                                                                  "context": {
-                                                                    "id": {
-                                                                      "@path": "id"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              }
-                                                            },
-                                                            "children": [
-                                                              {
-                                                                "id": "ide_team_more_button",
-                                                                "component": "Button",
-                                                                "props": {
-                                                                  "icon": "ui-more",
-                                                                  "variant": "ghost",
-                                                                  "size": "icon",
-                                                                  "label": "Team actions"
-                                                                },
-                                                                "style": {
-                                                                  "width": 20,
-                                                                  "height": 20
-                                                                }
-                                                              }
-                                                            ]
-                                                          },
-                                                          {
-                                                            "id": "ide_team_fold",
-                                                            "component": "Icon",
-                                                            "props": {
-                                                              "name": {
-                                                                "@path": "foldIcon"
-                                                              },
-                                                              "size": "sm",
-                                                              "tone": "neutral"
-                                                            }
-                                                          }
-                                                        ],
-                                                        "visible": {
-                                                          "@call": "not",
-                                                          "args": {
-                                                            "value": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "/shell/rail"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              },
-                                              {
-                                                "id": "ide_folder_menu",
-                                                "component": "Menu",
-                                                "props": {
-                                                  "openOn": "contextmenu",
-                                                  "side": "bottom",
-                                                  "align": "start",
-                                                  "items": [
-                                                    {
-                                                      "label": "Rename",
-                                                      "value": "rename",
-                                                      "icon": "ui-edit"
-                                                    },
-                                                    {
-                                                      "label": "Ungroup",
-                                                      "value": "ungroup",
-                                                      "icon": "ui-folder-open"
-                                                    }
-                                                  ]
-                                                },
-                                                "on": {
-                                                  "select": {
-                                                    "event": {
-                                                      "name": "ide_folder",
-                                                      "context": {
-                                                        "section": "team",
-                                                        "team": {
-                                                          "@path": "team"
-                                                        },
-                                                        "id": {
-                                                          "@path": "id"
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "and",
-                                                  "args": {
-                                                    "values": [
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "kind"
-                                                          },
-                                                          "b": "folder"
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "not",
-                                                        "args": {
-                                                          "value": {
-                                                            "@call": "cond",
-                                                            "args": {
-                                                              "if": {
-                                                                "@path": "editing"
-                                                              },
-                                                              "then": true,
-                                                              "else": false
-                                                            }
-                                                          }
+                                                        "style": {
+                                                          "width": 20,
+                                                          "height": 20
                                                         }
                                                       }
                                                     ]
-                                                  }
-                                                },
-                                                "children": [
+                                                  },
                                                   {
-                                                    "id": "ide_folder_row",
-                                                    "component": "Row",
+                                                    "id": "ide_team_fold",
+                                                    "component": "Icon",
                                                     "props": {
-                                                      "title": {
-                                                        "@path": "title"
+                                                      "name": {
+                                                        "@path": "foldIcon"
                                                       },
-                                                      "icon": {
-                                                        "@path": "icon"
-                                                      },
-                                                      "density": "compact",
-                                                      "pressable": true,
-                                                      "depth": 1
-                                                    },
-                                                    "on": {
-                                                      "press": {
-                                                        "event": {
-                                                          "name": "ide_folder",
-                                                          "context": {
-                                                            "section": "team",
-                                                            "team": {
-                                                              "@path": "team"
-                                                            },
-                                                            "id": {
-                                                              "@path": "id"
-                                                            },
-                                                            "action": "fold"
-                                                          }
-                                                        }
-                                                      }
-                                                    },
-                                                    "slots": {
-                                                      "trailing": {
-                                                        "id": "ide_folder_trailing",
-                                                        "component": "Stack",
-                                                        "props": {
-                                                          "direction": "horizontal",
-                                                          "gap": "xs",
-                                                          "align": "center"
+                                                      "size": "sm",
+                                                      "tone": "neutral"
+                                                    }
+                                                  }
+                                                ],
+                                                "visible": {
+                                                  "@call": "not",
+                                                  "args": {
+                                                    "value": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "/shell/rail"
                                                         },
-                                                        "children": [
-                                                          {
-                                                            "id": "ide_folder_count",
-                                                            "component": "Text",
-                                                            "props": {
-                                                              "text": {
-                                                                "@path": "meta"
-                                                              },
-                                                              "variant": "caption"
-                                                            },
-                                                            "visible": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "meta"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            },
-                                                            "style": {
-                                                              "color": "$color.mutedForeground"
-                                                            }
-                                                          },
-                                                          {
-                                                            "id": "ide_folder_fold",
-                                                            "component": "Icon",
-                                                            "props": {
-                                                              "name": {
-                                                                "@path": "foldIcon"
-                                                              },
-                                                              "size": "sm",
-                                                              "tone": "neutral"
-                                                            }
-                                                          }
-                                                        ],
-                                                        "visible": {
-                                                          "@call": "not",
-                                                          "args": {
-                                                            "value": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "/shell/rail"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          }
-                                                        }
+                                                        "then": true,
+                                                        "else": false
                                                       }
                                                     }
                                                   }
-                                                ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "ide_folder_menu",
+                                        "component": "Menu",
+                                        "props": {
+                                          "openOn": "contextmenu",
+                                          "side": "bottom",
+                                          "align": "start",
+                                          "items": [
+                                            {
+                                              "label": "Rename",
+                                              "value": "rename",
+                                              "icon": "ui-edit"
+                                            },
+                                            {
+                                              "label": "Ungroup",
+                                              "value": "ungroup",
+                                              "icon": "ui-folder-open"
+                                            }
+                                          ]
+                                        },
+                                        "on": {
+                                          "select": {
+                                            "event": {
+                                              "name": "ide_folder",
+                                              "context": {
+                                                "section": "team",
+                                                "team": {
+                                                  "@path": "team"
+                                                },
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "kind"
+                                                  },
+                                                  "b": "folder"
+                                                }
                                               },
                                               {
-                                                "id": "ide_folder_edit",
-                                                "component": "Box",
+                                                "@call": "not",
+                                                "args": {
+                                                  "value": {
+                                                    "@call": "cond",
+                                                    "args": {
+                                                      "if": {
+                                                        "@path": "editing"
+                                                      },
+                                                      "then": true,
+                                                      "else": false
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "ide_folder_row",
+                                            "component": "Row",
+                                            "props": {
+                                              "title": {
+                                                "@path": "title"
+                                              },
+                                              "icon": {
+                                                "@path": "icon"
+                                              },
+                                              "density": "compact",
+                                              "pressable": true,
+                                              "depth": 1
+                                            },
+                                            "on": {
+                                              "press": {
+                                                "event": {
+                                                  "name": "ide_folder",
+                                                  "context": {
+                                                    "section": "team",
+                                                    "team": {
+                                                      "@path": "team"
+                                                    },
+                                                    "id": {
+                                                      "@path": "id"
+                                                    },
+                                                    "action": "fold"
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "slots": {
+                                              "trailing": {
+                                                "id": "ide_folder_trailing",
+                                                "component": "Stack",
+                                                "props": {
+                                                  "direction": "horizontal",
+                                                  "gap": "xs",
+                                                  "align": "center"
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "ide_folder_count",
+                                                    "component": "Text",
+                                                    "props": {
+                                                      "text": {
+                                                        "@path": "meta"
+                                                      },
+                                                      "variant": "caption"
+                                                    },
+                                                    "visible": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "meta"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    },
+                                                    "style": {
+                                                      "color": "$color.mutedForeground"
+                                                    }
+                                                  },
+                                                  {
+                                                    "id": "ide_folder_fold",
+                                                    "component": "Icon",
+                                                    "props": {
+                                                      "name": {
+                                                        "@path": "foldIcon"
+                                                      },
+                                                      "size": "sm",
+                                                      "tone": "neutral"
+                                                    }
+                                                  }
+                                                ],
+                                                "visible": {
+                                                  "@call": "not",
+                                                  "args": {
+                                                    "value": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "/shell/rail"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "ide_folder_edit",
+                                        "component": "Box",
+                                        "style": {
+                                          "display": "flex",
+                                          "flexDirection": "row",
+                                          "alignItems": "center",
+                                          "gap": "$spacing.sm",
+                                          "minHeight": "$control.rowCompact",
+                                          "paddingLeft": "$spacing.xl",
+                                          "paddingRight": "$spacing.md",
+                                          "borderRadius": "$radius.md"
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "kind"
+                                                  },
+                                                  "b": "folder"
+                                                }
+                                              },
+                                              {
+                                                "@call": "cond",
+                                                "args": {
+                                                  "if": {
+                                                    "@path": "editing"
+                                                  },
+                                                  "then": true,
+                                                  "else": false
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "ide_folder_edit_icon",
+                                            "component": "Icon",
+                                            "props": {
+                                              "name": {
+                                                "@path": "icon"
+                                              },
+                                              "size": "sm"
+                                            }
+                                          },
+                                          {
+                                            "id": "ide_folder_name",
+                                            "component": "Input",
+                                            "props": {
+                                              "label": "Folder name",
+                                              "name": "folderName",
+                                              "variant": "box",
+                                              "size": "sm",
+                                              "value": {
+                                                "@path": "title"
+                                              }
+                                            },
+                                            "style": {
+                                              "flexGrow": 1,
+                                              "minWidth": 0
+                                            },
+                                            "on": {
+                                              "submit": {
+                                                "event": {
+                                                  "name": "ide_folder",
+                                                  "context": {
+                                                    "section": "team",
+                                                    "team": {
+                                                      "@path": "team"
+                                                    },
+                                                    "id": {
+                                                      "@path": "id"
+                                                    },
+                                                    "action": "save"
+                                                  }
+                                                }
+                                              },
+                                              "blur": {
+                                                "event": {
+                                                  "name": "ide_folder",
+                                                  "context": {
+                                                    "section": "team",
+                                                    "team": {
+                                                      "@path": "team"
+                                                    },
+                                                    "id": {
+                                                      "@path": "id"
+                                                    },
+                                                    "action": "leave"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "ide_item_row",
+                                        "component": "Row",
+                                        "props": {
+                                          "title": {
+                                            "@path": "title"
+                                          },
+                                          "icon": {
+                                            "@path": "icon"
+                                          },
+                                          "density": "compact",
+                                          "pressable": true,
+                                          "selected": {
+                                            "@path": "selected"
+                                          },
+                                          "depth": 1
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_open",
+                                              "context": {
+                                                "kind": {
+                                                  "@path": "item"
+                                                },
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "slots": {
+                                          "trailing": {
+                                            "id": "ide_item_trailing",
+                                            "component": "Stack",
+                                            "props": {
+                                              "direction": "horizontal",
+                                              "gap": "none",
+                                              "align": "center"
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "ide_item_dot",
+                                                "component": "Icon",
+                                                "props": {
+                                                  "name": {
+                                                    "@path": "dotIcon"
+                                                  },
+                                                  "size": "sm"
+                                                },
+                                                "visible": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "dotIcon"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "id": "ide_item_gear",
+                                                "component": "Button",
+                                                "props": {
+                                                  "icon": "nav-settings",
+                                                  "variant": "ghost",
+                                                  "size": "icon",
+                                                  "label": "Settings"
+                                                },
                                                 "style": {
-                                                  "display": "flex",
-                                                  "flexDirection": "row",
-                                                  "alignItems": "center",
-                                                  "gap": "$spacing.sm",
-                                                  "minHeight": "$control.rowCompact",
-                                                  "paddingLeft": "$spacing.xl",
-                                                  "paddingRight": "$spacing.md",
-                                                  "borderRadius": "$radius.md"
+                                                  "width": 20,
+                                                  "height": 20
                                                 },
                                                 "visible": {
                                                   "@call": "and",
                                                   "args": {
                                                     "values": [
                                                       {
-                                                        "@call": "eq",
+                                                        "@call": "cond",
                                                         "args": {
-                                                          "a": {
-                                                            "@path": "kind"
+                                                          "if": {
+                                                            "@path": "hover"
                                                           },
-                                                          "b": "folder"
+                                                          "then": true,
+                                                          "else": false
                                                         }
                                                       },
                                                       {
                                                         "@call": "cond",
                                                         "args": {
                                                           "if": {
-                                                            "@path": "editing"
+                                                            "@path": "gear"
                                                           },
                                                           "then": true,
                                                           "else": false
@@ -1735,89 +1875,10 @@
                                                     ]
                                                   }
                                                 },
-                                                "children": [
-                                                  {
-                                                    "id": "ide_folder_edit_icon",
-                                                    "component": "Icon",
-                                                    "props": {
-                                                      "name": {
-                                                        "@path": "icon"
-                                                      },
-                                                      "size": "sm"
-                                                    }
-                                                  },
-                                                  {
-                                                    "id": "ide_folder_name",
-                                                    "component": "Input",
-                                                    "props": {
-                                                      "label": "Folder name",
-                                                      "name": "folderName",
-                                                      "variant": "box",
-                                                      "size": "sm",
-                                                      "value": {
-                                                        "@path": "title"
-                                                      }
-                                                    },
-                                                    "style": {
-                                                      "flexGrow": 1,
-                                                      "minWidth": 0
-                                                    },
-                                                    "on": {
-                                                      "submit": {
-                                                        "event": {
-                                                          "name": "ide_folder",
-                                                          "context": {
-                                                            "section": "team",
-                                                            "team": {
-                                                              "@path": "team"
-                                                            },
-                                                            "id": {
-                                                              "@path": "id"
-                                                            },
-                                                            "action": "save"
-                                                          }
-                                                        }
-                                                      },
-                                                      "blur": {
-                                                        "event": {
-                                                          "name": "ide_folder",
-                                                          "context": {
-                                                            "section": "team",
-                                                            "team": {
-                                                              "@path": "team"
-                                                            },
-                                                            "id": {
-                                                              "@path": "id"
-                                                            },
-                                                            "action": "leave"
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              },
-                                              {
-                                                "id": "ide_item_row",
-                                                "component": "Row",
-                                                "props": {
-                                                  "title": {
-                                                    "@path": "title"
-                                                  },
-                                                  "icon": {
-                                                    "@path": "icon"
-                                                  },
-                                                  "density": "compact",
-                                                  "pressable": true,
-                                                  "selected": {
-                                                    "@path": "selected"
-                                                  },
-                                                  "depth": 1
-                                                },
                                                 "on": {
                                                   "press": {
                                                     "event": {
-                                                      "name": "ide_open",
+                                                      "name": "ide_gear",
                                                       "context": {
                                                         "kind": {
                                                           "@path": "item"
@@ -1828,720 +1889,815 @@
                                                       }
                                                     }
                                                   }
-                                                },
-                                                "slots": {
-                                                  "trailing": {
-                                                    "id": "ide_item_trailing",
-                                                    "component": "Stack",
-                                                    "props": {
-                                                      "direction": "horizontal",
-                                                      "gap": "none",
-                                                      "align": "center"
-                                                    },
-                                                    "children": [
-                                                      {
-                                                        "id": "ide_item_dot",
-                                                        "component": "Icon",
-                                                        "props": {
-                                                          "name": {
-                                                            "@path": "dotIcon"
-                                                          },
-                                                          "size": "sm"
-                                                        },
-                                                        "visible": {
-                                                          "@call": "cond",
-                                                          "args": {
-                                                            "if": {
-                                                              "@path": "dotIcon"
-                                                            },
-                                                            "then": true,
-                                                            "else": false
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "id": "ide_item_gear",
-                                                        "component": "Button",
-                                                        "props": {
-                                                          "icon": "nav-settings",
-                                                          "variant": "ghost",
-                                                          "size": "icon",
-                                                          "label": "Settings"
-                                                        },
-                                                        "style": {
-                                                          "width": 20,
-                                                          "height": 20
-                                                        },
-                                                        "visible": {
-                                                          "@call": "and",
-                                                          "args": {
-                                                            "values": [
-                                                              {
-                                                                "@call": "cond",
-                                                                "args": {
-                                                                  "if": {
-                                                                    "@path": "hover"
-                                                                  },
-                                                                  "then": true,
-                                                                  "else": false
-                                                                }
-                                                              },
-                                                              {
-                                                                "@call": "cond",
-                                                                "args": {
-                                                                  "if": {
-                                                                    "@path": "gear"
-                                                                  },
-                                                                  "then": true,
-                                                                  "else": false
-                                                                }
-                                                              }
-                                                            ]
-                                                          }
-                                                        },
-                                                        "on": {
-                                                          "press": {
-                                                            "event": {
-                                                              "name": "ide_gear",
-                                                              "context": {
-                                                                "kind": {
-                                                                  "@path": "item"
-                                                                },
-                                                                "id": {
-                                                                  "@path": "id"
-                                                                }
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    ],
-                                                    "visible": {
-                                                      "@call": "not",
-                                                      "args": {
-                                                        "value": {
-                                                          "@call": "cond",
-                                                          "args": {
-                                                            "if": {
-                                                              "@path": "/shell/rail"
-                                                            },
-                                                            "then": true,
-                                                            "else": false
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "and",
+                                                }
+                                              }
+                                            ],
+                                            "visible": {
+                                              "@call": "not",
+                                              "args": {
+                                                "value": {
+                                                  "@call": "cond",
                                                   "args": {
-                                                    "values": [
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "kind"
-                                                          },
-                                                          "b": "item"
-                                                        }
+                                                    "if": {
+                                                      "@path": "/shell/rail"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "kind"
+                                                  },
+                                                  "b": "item"
+                                                }
+                                              },
+                                              {
+                                                "@call": "not",
+                                                "args": {
+                                                  "value": {
+                                                    "@call": "eq",
+                                                    "args": {
+                                                      "a": {
+                                                        "@path": "item"
                                                       },
-                                                      {
-                                                        "@call": "not",
-                                                        "args": {
-                                                          "value": {
-                                                            "@call": "eq",
-                                                            "args": {
-                                                              "a": {
-                                                                "@path": "item"
-                                                              },
-                                                              "b": "session"
-                                                            }
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "depth"
-                                                          },
-                                                          "b": 1
-                                                        }
-                                                      }
-                                                    ]
+                                                      "b": "session"
+                                                    }
                                                   }
                                                 }
                                               },
                                               {
-                                                "id": "ide_session_menu",
-                                                "component": "Menu",
-                                                "props": {
-                                                  "openOn": "contextmenu",
-                                                  "side": "bottom",
-                                                  "align": "start",
-                                                  "items": [
-                                                    {
-                                                      "label": "Remove from sidebar",
-                                                      "value": "remove",
-                                                      "icon": "ui-close"
-                                                    }
-                                                  ]
-                                                },
-                                                "on": {
-                                                  "select": {
-                                                    "event": {
-                                                      "name": "ide_session",
-                                                      "context": {
-                                                        "team": {
-                                                          "@path": "team"
-                                                        },
-                                                        "id": {
-                                                          "@path": "id"
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "and",
-                                                  "args": {
-                                                    "values": [
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "item"
-                                                          },
-                                                          "b": "session"
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "depth"
-                                                          },
-                                                          "b": 1
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
-                                                },
-                                                "children": [
-                                                  {
-                                                    "id": "ide_session_row",
-                                                    "component": "Row",
-                                                    "props": {
-                                                      "title": {
-                                                        "@path": "title"
-                                                      },
-                                                      "icon": {
-                                                        "@path": "icon"
-                                                      },
-                                                      "density": "compact",
-                                                      "pressable": true,
-                                                      "selected": {
-                                                        "@path": "selected"
-                                                      },
-                                                      "depth": 1
-                                                    },
-                                                    "on": {
-                                                      "press": {
-                                                        "event": {
-                                                          "name": "ide_open",
-                                                          "context": {
-                                                            "kind": {
-                                                              "@path": "item"
-                                                            },
-                                                            "id": {
-                                                              "@path": "id"
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    },
-                                                    "slots": {
-                                                      "trailing": {
-                                                        "id": "ide_session_trailing",
-                                                        "component": "Stack",
-                                                        "props": {
-                                                          "direction": "horizontal",
-                                                          "gap": "none",
-                                                          "align": "center"
-                                                        },
-                                                        "children": [
-                                                          {
-                                                            "id": "ide_session_dot",
-                                                            "component": "Icon",
-                                                            "props": {
-                                                              "name": {
-                                                                "@path": "dotIcon"
-                                                              },
-                                                              "size": "sm"
-                                                            },
-                                                            "visible": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "dotIcon"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          },
-                                                          {
-                                                            "id": "ide_session_gear",
-                                                            "component": "Button",
-                                                            "props": {
-                                                              "icon": "nav-settings",
-                                                              "variant": "ghost",
-                                                              "size": "icon",
-                                                              "label": "Settings"
-                                                            },
-                                                            "style": {
-                                                              "width": 20,
-                                                              "height": 20
-                                                            },
-                                                            "visible": {
-                                                              "@call": "and",
-                                                              "args": {
-                                                                "values": [
-                                                                  {
-                                                                    "@call": "cond",
-                                                                    "args": {
-                                                                      "if": {
-                                                                        "@path": "hover"
-                                                                      },
-                                                                      "then": true,
-                                                                      "else": false
-                                                                    }
-                                                                  },
-                                                                  {
-                                                                    "@call": "cond",
-                                                                    "args": {
-                                                                      "if": {
-                                                                        "@path": "gear"
-                                                                      },
-                                                                      "then": true,
-                                                                      "else": false
-                                                                    }
-                                                                  }
-                                                                ]
-                                                              }
-                                                            },
-                                                            "on": {
-                                                              "press": {
-                                                                "event": {
-                                                                  "name": "ide_gear",
-                                                                  "context": {
-                                                                    "kind": {
-                                                                      "@path": "item"
-                                                                    },
-                                                                    "id": {
-                                                                      "@path": "id"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              }
-                                                            }
-                                                          }
-                                                        ],
-                                                        "visible": {
-                                                          "@call": "not",
-                                                          "args": {
-                                                            "value": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "/shell/rail"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              },
-                                              {
-                                                "id": "ide_item_child_row",
-                                                "component": "Row",
-                                                "props": {
-                                                  "title": {
-                                                    "@path": "title"
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "depth"
                                                   },
-                                                  "icon": {
-                                                    "@path": "icon"
-                                                  },
-                                                  "density": "compact",
-                                                  "pressable": true,
-                                                  "selected": {
-                                                    "@path": "selected"
-                                                  },
-                                                  "depth": 2
-                                                },
-                                                "on": {
-                                                  "press": {
-                                                    "event": {
-                                                      "name": "ide_open",
-                                                      "context": {
-                                                        "kind": {
-                                                          "@path": "item"
-                                                        },
-                                                        "id": {
-                                                          "@path": "id"
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "slots": {
-                                                  "trailing": {
-                                                    "id": "ide_item_child_trailing",
-                                                    "component": "Stack",
-                                                    "props": {
-                                                      "direction": "horizontal",
-                                                      "gap": "none",
-                                                      "align": "center"
-                                                    },
-                                                    "children": [
-                                                      {
-                                                        "id": "ide_item_child_dot",
-                                                        "component": "Icon",
-                                                        "props": {
-                                                          "name": {
-                                                            "@path": "dotIcon"
-                                                          },
-                                                          "size": "sm"
-                                                        },
-                                                        "visible": {
-                                                          "@call": "cond",
-                                                          "args": {
-                                                            "if": {
-                                                              "@path": "dotIcon"
-                                                            },
-                                                            "then": true,
-                                                            "else": false
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "id": "ide_item_child_gear",
-                                                        "component": "Button",
-                                                        "props": {
-                                                          "icon": "nav-settings",
-                                                          "variant": "ghost",
-                                                          "size": "icon",
-                                                          "label": "Settings"
-                                                        },
-                                                        "style": {
-                                                          "width": 20,
-                                                          "height": 20
-                                                        },
-                                                        "visible": {
-                                                          "@call": "and",
-                                                          "args": {
-                                                            "values": [
-                                                              {
-                                                                "@call": "cond",
-                                                                "args": {
-                                                                  "if": {
-                                                                    "@path": "hover"
-                                                                  },
-                                                                  "then": true,
-                                                                  "else": false
-                                                                }
-                                                              },
-                                                              {
-                                                                "@call": "cond",
-                                                                "args": {
-                                                                  "if": {
-                                                                    "@path": "gear"
-                                                                  },
-                                                                  "then": true,
-                                                                  "else": false
-                                                                }
-                                                              }
-                                                            ]
-                                                          }
-                                                        },
-                                                        "on": {
-                                                          "press": {
-                                                            "event": {
-                                                              "name": "ide_gear",
-                                                              "context": {
-                                                                "kind": {
-                                                                  "@path": "item"
-                                                                },
-                                                                "id": {
-                                                                  "@path": "id"
-                                                                }
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    ],
-                                                    "visible": {
-                                                      "@call": "not",
-                                                      "args": {
-                                                        "value": {
-                                                          "@call": "cond",
-                                                          "args": {
-                                                            "if": {
-                                                              "@path": "/shell/rail"
-                                                            },
-                                                            "then": true,
-                                                            "else": false
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "and",
-                                                  "args": {
-                                                    "values": [
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "kind"
-                                                          },
-                                                          "b": "item"
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "not",
-                                                        "args": {
-                                                          "value": {
-                                                            "@call": "eq",
-                                                            "args": {
-                                                              "a": {
-                                                                "@path": "item"
-                                                              },
-                                                              "b": "session"
-                                                            }
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "depth"
-                                                          },
-                                                          "b": 2
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
+                                                  "b": 1
                                                 }
-                                              },
-                                              {
-                                                "id": "ide_session_child_menu",
-                                                "component": "Menu",
-                                                "props": {
-                                                  "openOn": "contextmenu",
-                                                  "side": "bottom",
-                                                  "align": "start",
-                                                  "items": [
-                                                    {
-                                                      "label": "Remove from sidebar",
-                                                      "value": "remove",
-                                                      "icon": "ui-close"
-                                                    }
-                                                  ]
-                                                },
-                                                "on": {
-                                                  "select": {
-                                                    "event": {
-                                                      "name": "ide_session",
-                                                      "context": {
-                                                        "team": {
-                                                          "@path": "team"
-                                                        },
-                                                        "id": {
-                                                          "@path": "id"
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                "visible": {
-                                                  "@call": "and",
-                                                  "args": {
-                                                    "values": [
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "item"
-                                                          },
-                                                          "b": "session"
-                                                        }
-                                                      },
-                                                      {
-                                                        "@call": "eq",
-                                                        "args": {
-                                                          "a": {
-                                                            "@path": "depth"
-                                                          },
-                                                          "b": 2
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
-                                                },
-                                                "children": [
-                                                  {
-                                                    "id": "ide_session_child_row",
-                                                    "component": "Row",
-                                                    "props": {
-                                                      "title": {
-                                                        "@path": "title"
-                                                      },
-                                                      "icon": {
-                                                        "@path": "icon"
-                                                      },
-                                                      "density": "compact",
-                                                      "pressable": true,
-                                                      "selected": {
-                                                        "@path": "selected"
-                                                      },
-                                                      "depth": 2
-                                                    },
-                                                    "on": {
-                                                      "press": {
-                                                        "event": {
-                                                          "name": "ide_open",
-                                                          "context": {
-                                                            "kind": {
-                                                              "@path": "item"
-                                                            },
-                                                            "id": {
-                                                              "@path": "id"
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    },
-                                                    "slots": {
-                                                      "trailing": {
-                                                        "id": "ide_session_child_trailing",
-                                                        "component": "Stack",
-                                                        "props": {
-                                                          "direction": "horizontal",
-                                                          "gap": "none",
-                                                          "align": "center"
-                                                        },
-                                                        "children": [
-                                                          {
-                                                            "id": "ide_session_child_dot",
-                                                            "component": "Icon",
-                                                            "props": {
-                                                              "name": {
-                                                                "@path": "dotIcon"
-                                                              },
-                                                              "size": "sm"
-                                                            },
-                                                            "visible": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "dotIcon"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          },
-                                                          {
-                                                            "id": "ide_session_child_gear",
-                                                            "component": "Button",
-                                                            "props": {
-                                                              "icon": "nav-settings",
-                                                              "variant": "ghost",
-                                                              "size": "icon",
-                                                              "label": "Settings"
-                                                            },
-                                                            "style": {
-                                                              "width": 20,
-                                                              "height": 20
-                                                            },
-                                                            "visible": {
-                                                              "@call": "and",
-                                                              "args": {
-                                                                "values": [
-                                                                  {
-                                                                    "@call": "cond",
-                                                                    "args": {
-                                                                      "if": {
-                                                                        "@path": "hover"
-                                                                      },
-                                                                      "then": true,
-                                                                      "else": false
-                                                                    }
-                                                                  },
-                                                                  {
-                                                                    "@call": "cond",
-                                                                    "args": {
-                                                                      "if": {
-                                                                        "@path": "gear"
-                                                                      },
-                                                                      "then": true,
-                                                                      "else": false
-                                                                    }
-                                                                  }
-                                                                ]
-                                                              }
-                                                            },
-                                                            "on": {
-                                                              "press": {
-                                                                "event": {
-                                                                  "name": "ide_gear",
-                                                                  "context": {
-                                                                    "kind": {
-                                                                      "@path": "item"
-                                                                    },
-                                                                    "id": {
-                                                                      "@path": "id"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              }
-                                                            }
-                                                          }
-                                                        ],
-                                                        "visible": {
-                                                          "@call": "not",
-                                                          "args": {
-                                                            "value": {
-                                                              "@call": "cond",
-                                                              "args": {
-                                                                "if": {
-                                                                  "@path": "/shell/rail"
-                                                                },
-                                                                "then": true,
-                                                                "else": false
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                ]
                                               }
                                             ]
                                           }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_session_menu",
+                                        "component": "Menu",
+                                        "props": {
+                                          "openOn": "contextmenu",
+                                          "side": "bottom",
+                                          "align": "start",
+                                          "items": [
+                                            {
+                                              "label": "Remove from sidebar",
+                                              "value": "remove",
+                                              "icon": "ui-close"
+                                            }
+                                          ]
+                                        },
+                                        "on": {
+                                          "select": {
+                                            "event": {
+                                              "name": "ide_session",
+                                              "context": {
+                                                "team": {
+                                                  "@path": "team"
+                                                },
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "item"
+                                                  },
+                                                  "b": "session"
+                                                }
+                                              },
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "depth"
+                                                  },
+                                                  "b": 1
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "ide_session_row",
+                                            "component": "Row",
+                                            "props": {
+                                              "title": {
+                                                "@path": "title"
+                                              },
+                                              "icon": {
+                                                "@path": "icon"
+                                              },
+                                              "density": "compact",
+                                              "pressable": true,
+                                              "selected": {
+                                                "@path": "selected"
+                                              },
+                                              "depth": 1
+                                            },
+                                            "on": {
+                                              "press": {
+                                                "event": {
+                                                  "name": "ide_open",
+                                                  "context": {
+                                                    "kind": {
+                                                      "@path": "item"
+                                                    },
+                                                    "id": {
+                                                      "@path": "id"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "slots": {
+                                              "trailing": {
+                                                "id": "ide_session_trailing",
+                                                "component": "Stack",
+                                                "props": {
+                                                  "direction": "horizontal",
+                                                  "gap": "none",
+                                                  "align": "center"
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "ide_session_dot",
+                                                    "component": "Icon",
+                                                    "props": {
+                                                      "name": {
+                                                        "@path": "dotIcon"
+                                                      },
+                                                      "size": "sm"
+                                                    },
+                                                    "visible": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "dotIcon"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "id": "ide_session_gear",
+                                                    "component": "Button",
+                                                    "props": {
+                                                      "icon": "nav-settings",
+                                                      "variant": "ghost",
+                                                      "size": "icon",
+                                                      "label": "Settings"
+                                                    },
+                                                    "style": {
+                                                      "width": 20,
+                                                      "height": 20
+                                                    },
+                                                    "visible": {
+                                                      "@call": "and",
+                                                      "args": {
+                                                        "values": [
+                                                          {
+                                                            "@call": "cond",
+                                                            "args": {
+                                                              "if": {
+                                                                "@path": "hover"
+                                                              },
+                                                              "then": true,
+                                                              "else": false
+                                                            }
+                                                          },
+                                                          {
+                                                            "@call": "cond",
+                                                            "args": {
+                                                              "if": {
+                                                                "@path": "gear"
+                                                              },
+                                                              "then": true,
+                                                              "else": false
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    },
+                                                    "on": {
+                                                      "press": {
+                                                        "event": {
+                                                          "name": "ide_gear",
+                                                          "context": {
+                                                            "kind": {
+                                                              "@path": "item"
+                                                            },
+                                                            "id": {
+                                                              "@path": "id"
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                ],
+                                                "visible": {
+                                                  "@call": "not",
+                                                  "args": {
+                                                    "value": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "/shell/rail"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
                                         ]
+                                      },
+                                      {
+                                        "id": "ide_item_child_row",
+                                        "component": "Row",
+                                        "props": {
+                                          "title": {
+                                            "@path": "title"
+                                          },
+                                          "icon": {
+                                            "@path": "icon"
+                                          },
+                                          "density": "compact",
+                                          "pressable": true,
+                                          "selected": {
+                                            "@path": "selected"
+                                          },
+                                          "depth": 2
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_open",
+                                              "context": {
+                                                "kind": {
+                                                  "@path": "item"
+                                                },
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "slots": {
+                                          "trailing": {
+                                            "id": "ide_item_child_trailing",
+                                            "component": "Stack",
+                                            "props": {
+                                              "direction": "horizontal",
+                                              "gap": "none",
+                                              "align": "center"
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "ide_item_child_dot",
+                                                "component": "Icon",
+                                                "props": {
+                                                  "name": {
+                                                    "@path": "dotIcon"
+                                                  },
+                                                  "size": "sm"
+                                                },
+                                                "visible": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "dotIcon"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "id": "ide_item_child_gear",
+                                                "component": "Button",
+                                                "props": {
+                                                  "icon": "nav-settings",
+                                                  "variant": "ghost",
+                                                  "size": "icon",
+                                                  "label": "Settings"
+                                                },
+                                                "style": {
+                                                  "width": 20,
+                                                  "height": 20
+                                                },
+                                                "visible": {
+                                                  "@call": "and",
+                                                  "args": {
+                                                    "values": [
+                                                      {
+                                                        "@call": "cond",
+                                                        "args": {
+                                                          "if": {
+                                                            "@path": "hover"
+                                                          },
+                                                          "then": true,
+                                                          "else": false
+                                                        }
+                                                      },
+                                                      {
+                                                        "@call": "cond",
+                                                        "args": {
+                                                          "if": {
+                                                            "@path": "gear"
+                                                          },
+                                                          "then": true,
+                                                          "else": false
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                },
+                                                "on": {
+                                                  "press": {
+                                                    "event": {
+                                                      "name": "ide_gear",
+                                                      "context": {
+                                                        "kind": {
+                                                          "@path": "item"
+                                                        },
+                                                        "id": {
+                                                          "@path": "id"
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ],
+                                            "visible": {
+                                              "@call": "not",
+                                              "args": {
+                                                "value": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "/shell/rail"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "kind"
+                                                  },
+                                                  "b": "item"
+                                                }
+                                              },
+                                              {
+                                                "@call": "not",
+                                                "args": {
+                                                  "value": {
+                                                    "@call": "eq",
+                                                    "args": {
+                                                      "a": {
+                                                        "@path": "item"
+                                                      },
+                                                      "b": "session"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "depth"
+                                                  },
+                                                  "b": 2
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "id": "ide_session_child_menu",
+                                        "component": "Menu",
+                                        "props": {
+                                          "openOn": "contextmenu",
+                                          "side": "bottom",
+                                          "align": "start",
+                                          "items": [
+                                            {
+                                              "label": "Remove from sidebar",
+                                              "value": "remove",
+                                              "icon": "ui-close"
+                                            }
+                                          ]
+                                        },
+                                        "on": {
+                                          "select": {
+                                            "event": {
+                                              "name": "ide_session",
+                                              "context": {
+                                                "team": {
+                                                  "@path": "team"
+                                                },
+                                                "id": {
+                                                  "@path": "id"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "item"
+                                                  },
+                                                  "b": "session"
+                                                }
+                                              },
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "depth"
+                                                  },
+                                                  "b": 2
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "ide_session_child_row",
+                                            "component": "Row",
+                                            "props": {
+                                              "title": {
+                                                "@path": "title"
+                                              },
+                                              "icon": {
+                                                "@path": "icon"
+                                              },
+                                              "density": "compact",
+                                              "pressable": true,
+                                              "selected": {
+                                                "@path": "selected"
+                                              },
+                                              "depth": 2
+                                            },
+                                            "on": {
+                                              "press": {
+                                                "event": {
+                                                  "name": "ide_open",
+                                                  "context": {
+                                                    "kind": {
+                                                      "@path": "item"
+                                                    },
+                                                    "id": {
+                                                      "@path": "id"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "slots": {
+                                              "trailing": {
+                                                "id": "ide_session_child_trailing",
+                                                "component": "Stack",
+                                                "props": {
+                                                  "direction": "horizontal",
+                                                  "gap": "none",
+                                                  "align": "center"
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "ide_session_child_dot",
+                                                    "component": "Icon",
+                                                    "props": {
+                                                      "name": {
+                                                        "@path": "dotIcon"
+                                                      },
+                                                      "size": "sm"
+                                                    },
+                                                    "visible": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "dotIcon"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "id": "ide_session_child_gear",
+                                                    "component": "Button",
+                                                    "props": {
+                                                      "icon": "nav-settings",
+                                                      "variant": "ghost",
+                                                      "size": "icon",
+                                                      "label": "Settings"
+                                                    },
+                                                    "style": {
+                                                      "width": 20,
+                                                      "height": 20
+                                                    },
+                                                    "visible": {
+                                                      "@call": "and",
+                                                      "args": {
+                                                        "values": [
+                                                          {
+                                                            "@call": "cond",
+                                                            "args": {
+                                                              "if": {
+                                                                "@path": "hover"
+                                                              },
+                                                              "then": true,
+                                                              "else": false
+                                                            }
+                                                          },
+                                                          {
+                                                            "@call": "cond",
+                                                            "args": {
+                                                              "if": {
+                                                                "@path": "gear"
+                                                              },
+                                                              "then": true,
+                                                              "else": false
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    },
+                                                    "on": {
+                                                      "press": {
+                                                        "event": {
+                                                          "name": "ide_gear",
+                                                          "context": {
+                                                            "kind": {
+                                                              "@path": "item"
+                                                            },
+                                                            "id": {
+                                                              "@path": "id"
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                ],
+                                                "visible": {
+                                                  "@call": "not",
+                                                  "args": {
+                                                    "value": {
+                                                      "@call": "cond",
+                                                      "args": {
+                                                        "if": {
+                                                          "@path": "/shell/rail"
+                                                        },
+                                                        "then": true,
+                                                        "else": false
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "ide_active_head",
+                                        "component": "Box",
+                                        "style": {
+                                          "display": "flex",
+                                          "flexDirection": "row",
+                                          "alignItems": "center",
+                                          "height": 24,
+                                          "marginTop": "$spacing.sm",
+                                          "paddingLeft": "$spacing.xs"
+                                        },
+                                        "visible": {
+                                          "@call": "and",
+                                          "args": {
+                                            "values": [
+                                              {
+                                                "@call": "eq",
+                                                "args": {
+                                                  "a": {
+                                                    "@path": "kind"
+                                                  },
+                                                  "b": "active-head"
+                                                }
+                                              },
+                                              {
+                                                "@call": "not",
+                                                "args": {
+                                                  "value": {
+                                                    "@call": "cond",
+                                                    "args": {
+                                                      "if": {
+                                                        "@path": "/shell/rail"
+                                                      },
+                                                      "then": true,
+                                                      "else": false
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "ide_active_label",
+                                            "component": "Text",
+                                            "props": {
+                                              "text": "Active",
+                                              "variant": "caption"
+                                            },
+                                            "style": {
+                                              "flexGrow": 1,
+                                              "color": "$color.mutedForeground"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "ide_active_row",
+                                        "component": "Row",
+                                        "props": {
+                                          "title": {
+                                            "@path": "title"
+                                          },
+                                          "icon": {
+                                            "@path": "icon"
+                                          },
+                                          "density": "compact",
+                                          "pressable": true,
+                                          "selected": {
+                                            "@path": "selected"
+                                          }
+                                        },
+                                        "on": {
+                                          "press": {
+                                            "event": {
+                                              "name": "ide_open",
+                                              "context": {
+                                                "kind": "active",
+                                                "id": {
+                                                  "@path": "session"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "slots": {
+                                          "trailing": {
+                                            "id": "ide_active_trailing",
+                                            "component": "Stack",
+                                            "props": {
+                                              "direction": "horizontal",
+                                              "gap": "xs",
+                                              "align": "center"
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "ide_active_team",
+                                                "component": "Icon",
+                                                "props": {
+                                                  "name": {
+                                                    "@path": "teamMark"
+                                                  },
+                                                  "size": "sm"
+                                                },
+                                                "visible": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "teamMark"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "id": "ide_active_unread",
+                                                "component": "Icon",
+                                                "props": {
+                                                  "name": {
+                                                    "@path": "unreadIcon"
+                                                  },
+                                                  "size": "sm"
+                                                },
+                                                "visible": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "unreadIcon"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "id": "ide_active_device",
+                                                "component": "Icon",
+                                                "props": {
+                                                  "name": {
+                                                    "@path": "deviceIcon"
+                                                  },
+                                                  "size": "sm"
+                                                },
+                                                "visible": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "deviceIcon"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              }
+                                            ],
+                                            "visible": {
+                                              "@call": "not",
+                                              "args": {
+                                                "value": {
+                                                  "@call": "cond",
+                                                  "args": {
+                                                    "if": {
+                                                      "@path": "/shell/rail"
+                                                    },
+                                                    "then": true,
+                                                    "else": false
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "visible": {
+                                          "@call": "eq",
+                                          "args": {
+                                            "a": {
+                                              "@path": "kind"
+                                            },
+                                            "b": "active"
+                                          }
+                                        }
                                       }
                                     ]
                                   }
@@ -2560,208 +2716,6 @@
                             }
                           }
                         ]
-                      },
-                      {
-                        "id": "ide_active",
-                        "component": "Box",
-                        "style": {
-                          "display": "flex",
-                          "flexDirection": "column",
-                          "gap": "$spacing.xxs"
-                        },
-                        "children": [
-                          {
-                            "id": "ide_active_head",
-                            "component": "Box",
-                            "style": {
-                              "display": "flex",
-                              "flexDirection": "row",
-                              "alignItems": "center",
-                              "height": 24,
-                              "paddingLeft": "$spacing.xs"
-                            },
-                            "children": [
-                              {
-                                "id": "ide_active_label",
-                                "component": "Text",
-                                "props": {
-                                  "text": "Active",
-                                  "variant": "caption"
-                                },
-                                "style": {
-                                  "flexGrow": 1,
-                                  "color": "$color.mutedForeground"
-                                }
-                              }
-                            ],
-                            "visible": {
-                              "@call": "not",
-                              "args": {
-                                "value": {
-                                  "@call": "cond",
-                                  "args": {
-                                    "if": {
-                                      "@path": "/shell/rail"
-                                    },
-                                    "then": true,
-                                    "else": false
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "id": "ide_active_list",
-                            "component": "List",
-                            "props": {
-                              "gap": "none"
-                            },
-                            "template": {
-                              "component": "ide_active_row",
-                              "path": "/shell/ide/active",
-                              "key": "id"
-                            },
-                            "children": [
-                              {
-                                "id": "ide_active_row",
-                                "component": "Row",
-                                "props": {
-                                  "title": {
-                                    "@path": "title"
-                                  },
-                                  "icon": {
-                                    "@path": "icon"
-                                  },
-                                  "density": "compact",
-                                  "pressable": true,
-                                  "selected": {
-                                    "@path": "selected"
-                                  }
-                                },
-                                "on": {
-                                  "press": {
-                                    "event": {
-                                      "name": "ide_open",
-                                      "context": {
-                                        "kind": "active",
-                                        "id": {
-                                          "@path": "id"
-                                        }
-                                      }
-                                    }
-                                  }
-                                },
-                                "slots": {
-                                  "trailing": {
-                                    "id": "ide_active_trailing",
-                                    "component": "Stack",
-                                    "props": {
-                                      "direction": "horizontal",
-                                      "gap": "xs",
-                                      "align": "center"
-                                    },
-                                    "children": [
-                                      {
-                                        "id": "ide_active_team",
-                                        "component": "Icon",
-                                        "props": {
-                                          "name": {
-                                            "@path": "teamMark"
-                                          },
-                                          "size": "sm"
-                                        },
-                                        "visible": {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "teamMark"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        }
-                                      },
-                                      {
-                                        "id": "ide_active_unread",
-                                        "component": "Icon",
-                                        "props": {
-                                          "name": {
-                                            "@path": "unreadIcon"
-                                          },
-                                          "size": "sm"
-                                        },
-                                        "visible": {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "unreadIcon"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        }
-                                      },
-                                      {
-                                        "id": "ide_active_device",
-                                        "component": "Icon",
-                                        "props": {
-                                          "name": {
-                                            "@path": "deviceIcon"
-                                          },
-                                          "size": "sm"
-                                        },
-                                        "visible": {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "deviceIcon"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        }
-                                      }
-                                    ],
-                                    "visible": {
-                                      "@call": "not",
-                                      "args": {
-                                        "value": {
-                                          "@call": "cond",
-                                          "args": {
-                                            "if": {
-                                              "@path": "/shell/rail"
-                                            },
-                                            "then": true,
-                                            "else": false
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            ]
-                          }
-                        ],
-                        "visible": {
-                          "@call": "not",
-                          "args": {
-                            "value": {
-                              "@call": "eq",
-                              "args": {
-                                "a": {
-                                  "@call": "len",
-                                  "args": {
-                                    "value": {
-                                      "@path": "/shell/ide/active"
-                                    }
-                                  }
-                                },
-                                "b": 0
-                              }
-                            }
-                          }
-                        }
                       },
                       {
                         "id": "ide_prs",

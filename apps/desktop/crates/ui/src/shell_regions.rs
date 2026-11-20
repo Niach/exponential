@@ -246,11 +246,11 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
     let mut input = IdeSidebarInput { screen: screen_key(screen.as_ref(), board.as_deref(), cx), devices_open: crate::ui_prefs::sidebar_folder_open(domain::sidebar_tree::SIDEBAR_DEVICES_OPEN_KEY), ..Default::default() };
     let Some(store) = Store::try_global(cx) else { return (input, glyphs) };
     let collections = store.collections().clone();
-    // #EXP-2027: every member team (the personal team never shows a row,
-    // its sessions still count).
+    // #EXP-2027: every member team (the teams shape never syncs the
+    // personal team: `getMemberTeamIds`).
     let all_teams = collections.teams_sorted(cx);
     let shown: Vec<String> = domain::sidebar_tree::sidebar_teams(
-        &all_teams.iter().map(|t| domain::sidebar_tree::SidebarTeamInput { id: t.id.clone(), name: t.name.clone(), kind: t.kind.clone().unwrap_or_else(|| "team".into()) }).collect::<Vec<_>>(),
+        &all_teams.iter().map(|t| domain::sidebar_tree::SidebarTeamInput { id: t.id.clone(), name: t.name.clone(), kind: "team".into() }).collect::<Vec<_>>(),
     );
     input.devices = gather_devices(&shown, &mut glyphs, cx);
     let mut chats_attention = false;
@@ -348,7 +348,7 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
             }
             let team_mark = shown.contains(&team.id).then(|| team_mark_icon(&team.id));
 
-            input.active.push(IdeActiveInput { id: row.root_id, title: row.title, icon, session_ids: row.session_ids, unread: row.unread, team_mark });
+            input.active.push(IdeActiveInput { id: row.root_id, title: row.title, icon, session_ids: row.session_ids, unread: row.unread, team_mark, team: Some(team.id.clone()) });
         }
     }
     (input, glyphs)
@@ -380,7 +380,37 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
         let device = format!("ide:device:{}", row["id"].as_str().unwrap_or_default());
         row["deviceIcon"] = if glyphs.contains_key(&device) { json!(device) } else { Value::Null };
     }
+    value["tree"] = Value::Array(tree_rows(input, &value, hover));
     value
+}
+
+/// The key an Active row takes in the tree's List (a placed session's own
+/// row keeps the bare id).
+const ACTIVE_KEY: &str = "active:";
+
+/// #EXP-2027: the teams and the Active band as ONE List's rows (so an
+/// Active row drags into a team): every team's rows, then the Active label
+/// row and one row per running chat (key `active:<root>`, depth 1, its
+/// team).
+fn tree_rows(input: &IdeSidebarInput, value: &Value, hover: Option<&str>) -> Vec<Value> {
+    let mut rows: Vec<Value> = value["teams"].as_array().into_iter().flatten().flat_map(|team| team["rows"].as_array().cloned().unwrap_or_default()).collect();
+    let active = value["active"].as_array().cloned().unwrap_or_default();
+    if !active.is_empty() {
+        rows.push(json!({"kind": "active-head", "id": "active", "depth": 0, "group": true, "open": true, "title": "Active"}));
+        for (row, source) in active.into_iter().zip(&input.active) {
+            let key = format!("{ACTIVE_KEY}{}", source.id);
+            let mut row = row;
+            row["kind"] = json!("active");
+            row["session"] = json!(source.id);
+            row["hover"] = json!(hover == Some(key.as_str()));
+            row["id"] = json!(key);
+            row["depth"] = json!(1);
+            row["group"] = json!(false);
+            row["team"] = json!(source.team.clone());
+            rows.push(row);
+        }
+    }
+    rows
 }
 
 /// #EXP-1616: the Pull requests tree's rows as nodes. A Row's `depth`
@@ -444,6 +474,8 @@ pub(crate) struct SidebarRegion {
     /// that Input still waits for the focus.
     editing: Rc<RefCell<Option<String>>>,
     focus_pending: bool,
+    /// The dev team-menu capture opened its menu ([`Self::dev_open_team_menu`]).
+    dev_team_menu_done: bool,
     window: AnyWindowHandle,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
@@ -478,6 +510,7 @@ impl SidebarRegion {
                 computer_changed: true,
                 editing,
                 focus_pending: false,
+                dev_team_menu_done: false,
                 window: window.window_handle(),
                 #[cfg(test)]
                 frozen: false,
@@ -546,12 +579,47 @@ impl SidebarRegion {
         self.edit_folder(id.map(str::to_string), cx);
     }
 
+    /// DEV-ONLY (`EXP_DEV_TEAM_MENU=1`, the `sidebar-team-menu` capture):
+    /// once the first team row is drawn, its `…` opens its menu (the row
+    /// hovered, then the button pressed, as a pointer would).
+    fn dev_open_team_menu(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.dev_team_menu_done || std::env::var("EXP_DEV_TEAM_MENU").map_or(true, |v| v.trim().is_empty() || v == "0") {
+            return;
+        }
+        let Some(team) = self.input.teams.first().map(|team| team.id.clone()) else { return };
+        self.dev_team_menu_done = true;
+        *self.hover.borrow_mut() = Some(team.clone());
+        let (view, handle) = (self.view.clone(), self.window);
+        // Once the row and its `…` are laid out (a few frames; no frame
+        // callback, a headless window never requests one).
+        cx.spawn(async move |_, cx| {
+            for _ in 0..40 {
+                cx.background_executor().timer(std::time::Duration::from_millis(50)).await;
+                let pressed = handle
+                    .update(cx, |_, window, cx| {
+                        view.update(cx, |view, cx| {
+                            let trigger = view.placed_nodes().iter().find(|n| n.trigger_for.as_deref().is_some_and(|t| t.starts_with("ide_team_more") && t.ends_with(&team))).map(|n| n.index);
+                            let button = trigger.or_else(|| view.placed_nodes().iter().find(|n| n.id.starts_with("ide_team_more_button") && n.id.ends_with(&team)).map(|n| n.index));
+                            button.map(|index| view.press(index, window, cx)).is_some()
+                        })
+                    })
+                    .unwrap_or(true);
+                if pressed {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
+        self.dev_open_team_menu(cx);
         self.input.editing_folder = self.editing.borrow().clone();
         let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref());
         if self.focus_pending {
             self.focus_editing(&value, cx);
         }
+
         if self.shown.as_ref() == Some(&value) {
             return;
         }
@@ -645,8 +713,10 @@ impl SidebarRegion {
         self.input.teams.iter().flat_map(|t| &t.items).any(|i| i.kind == "agent" && i.id == id)
     }
 
-    pub(crate) fn is_active(&self, id: &str) -> bool {
-        self.input.active.iter().any(|a| a.id == id)
+    /// #EXP-2027: an Active row's chat (its tree key `active:<root>`).
+    pub(crate) fn active_root(&self, id: &str) -> Option<String> {
+        let root = id.strip_prefix(ACTIVE_KEY)?;
+        self.input.active.iter().any(|a| a.id == root).then(|| root.to_string())
     }
 }
 
@@ -779,6 +849,52 @@ fn new_folder_writes(entries: &[SidebarEntry], id: &str) -> SidebarWrites {
     }
 }
 
+/// #EXP-2027: the team a tree row belongs to: a team row's own id, an
+/// item of its list, one of its folders.
+fn row_team<'a>(input: &'a IdeSidebarInput, id: &str) -> Option<&'a str> {
+    input.teams.iter().find(|team| team.id == id || team.items.iter().any(|item| item.id == id) || team.layout.iter().any(|entry| entry.kind == "folder" && entry.id == id)).map(|team| team.id.as_str())
+}
+
+/// #EXP-2027: one drop on the tree's List as the team and its writes; `None`
+/// = refused (another team's target, an Active row onto an Active row, a
+/// session of another team, a child). A drop INTO a team row lands after
+/// its last top-level row.
+fn tree_move(
+    input: &IdeSidebarInput,
+    mv: &SidebarMove,
+    entries: impl Fn(&str) -> Vec<SidebarEntry>,
+    session: impl Fn(&str) -> Option<domain::rows::SessionRow>,
+    new_folder: &str,
+) -> Option<(String, SidebarWrites)> {
+    let target = mv.before.as_deref().or(mv.after.as_deref()).or(mv.into.as_deref())?;
+    let team_id = row_team(input, target)?.to_string();
+    let team = input.teams.iter().find(|t| t.id == team_id)?;
+    let items: Vec<String> = team.items.iter().map(|i| i.id.clone()).collect();
+    let entries = entries(&team_id);
+    let mut mv = mv.clone();
+    if mv.into.as_deref() == Some(team_id.as_str()) {
+        let tree = domain::sidebar_folders::sidebar_tree(&items, &entries);
+        mv.into = None;
+        mv.after = Some(tree.last()?.id().to_string());
+    } else if target == team_id {
+        return None;
+    }
+    match mv.id.strip_prefix(ACTIVE_KEY) {
+        Some(root) => {
+            let row = session(root)?;
+            mv.id = root.to_string();
+            let source = domain::sidebar_tree::SidebarSessionInput { id: row.id.clone(), team_id: row.team_id.clone().unwrap_or_default(), parent_id: row.parent_id.clone() };
+            Some((team_id.clone(), domain::sidebar_tree::sidebar_drop_session(&team_id, &items, &entries, &source, &mv, new_folder)?))
+        }
+        None => {
+            if row_team(input, &mv.id)? != team_id {
+                return None;
+            }
+            Some((team_id.clone(), sidebar_move(&items, &entries, &mv, new_folder)?))
+        }
+    }
+}
+
 impl HostPlugin for RegionHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
         crate::exponential_ui_host::icon_path(name)
@@ -885,22 +1001,15 @@ impl HostPlugin for RegionHost {
                     _ => {}
                 });
             }
-            // #EXP-1832 / #EXP-2027: a row dropped in its team's List; a root
-            // session of the team dropped from elsewhere joins the tree.
+            // #EXP-1832 / #EXP-2027: a row dropped in the tree's List: a
+            // team's row moves within its team (sidebarMove), an Active row
+            // dropped into a team joins it (sidebarDropSession: another
+            // team's session is refused); anything across teams is refused.
             "ide_move" => {
                 let Some(mv) = event.payload.as_ref().and_then(SidebarMove::from_context).or_else(|| SidebarMove::from_context(&event.context)) else { return };
                 cx.defer(move |cx| {
-                    let Some(items) = region.read_with(cx, |region, _| team_items(&team, &region.input)).ok() else { return };
-                    let entries = layout_entries(&team, cx);
-                    let new_folder = uuid::Uuid::new_v4().to_string();
-                    let writes = if items.contains(&mv.id) {
-                        sidebar_move(&items, &entries, &mv, &new_folder)
-                    } else {
-                        let Some(session) = crate::session_data::session(&mv.id, cx) else { return };
-                        let input = domain::sidebar_tree::SidebarSessionInput { id: session.id.clone(), team_id: session.team_id.clone().unwrap_or_default(), parent_id: session.parent_id.clone() };
-                        domain::sidebar_tree::sidebar_drop_session(&team, &items, &entries, &input, &mv, &new_folder)
-                    };
-                    let Some(writes) = writes else { return };
+                    let Some(input) = region.read_with(cx, |region, _| region.input.clone()).ok() else { return };
+                    let Some((team, writes)) = tree_move(&input, &mv, |team| layout_entries(team, cx), |id| crate::session_data::session(id, cx), &uuid::Uuid::new_v4().to_string()) else { return };
                     let created = writes.created_folder_id.clone();
                     save_layout(team, writes, cx);
                     if created.is_some() {
@@ -1479,6 +1588,35 @@ mod tests {
         assert_eq!(writes.upserts[0].sort_order, 4.);
         assert_eq!(writes.upserts[0].name.as_deref(), Some("New folder"));
         assert_eq!(new_folder_writes(&[], "fn").upserts[0].sort_order, 1.);
+    }
+
+    /// #EXP-2027: one List for the teams and Active: an Active row joins
+    /// the team it is dropped into (its own team only); a row never moves
+    /// to another team.
+    #[test]
+    fn a_tree_drop_stays_in_its_team() {
+        let item = |kind: &str, id: &str| IdeItemInput { kind: kind.into(), id: id.into(), name: id.into(), icon: String::new(), ..Default::default() };
+        let team = |id: &str, items: Vec<IdeItemInput>| IdeTeamInput { id: id.into(), name: id.into(), mark: String::new(), open: true, owner: true, needs_you: 0, items, layout: Vec::new() };
+        let input = IdeSidebarInput { teams: vec![team("t1", vec![item("board", "b1"), item("agent", "a1")]), team("t2", vec![item("board", "b9")])], ..Default::default() };
+        let session = |id: &str| -> Option<domain::rows::SessionRow> {
+            let team = if id == "s1" { "t1" } else { "t2" };
+            serde_json::from_value(json!({"id": id, "team_id": team, "status": "idle"})).ok()
+        };
+        let mv = |id: &str, after: Option<&str>, into: Option<&str>| SidebarMove { id: id.into(), before: None, after: after.map(Into::into), into: into.map(Into::into) };
+        // An Active row of t1 after a t1 row: appended, then moved there.
+        let (to, writes) = tree_move(&input, &mv("active:s1", Some("b1"), None), |_| Vec::new(), session, "f").expect("the drop");
+        assert_eq!(to, "t1");
+        assert!(writes.upserts.iter().any(|w| w.target_id.as_deref() == Some("s1") && w.sort_order == 2.));
+        // Into the team row: after its last row.
+        let (_, writes) = tree_move(&input, &mv("active:s1", None, Some("t1")), |_| Vec::new(), session, "f").expect("into the team");
+        assert!(writes.upserts.iter().any(|w| w.target_id.as_deref() == Some("s1") && w.sort_order == 3.));
+        // Another team's session, a row across teams, an Active row onto Active.
+        assert!(tree_move(&input, &mv("active:s9", Some("b1"), None), |_| Vec::new(), session, "f").is_none());
+        assert!(tree_move(&input, &mv("b9", Some("b1"), None), |_| Vec::new(), session, "f").is_none());
+        assert!(tree_move(&input, &mv("active:s1", Some("active:s9"), None), |_| Vec::new(), session, "f").is_none());
+        // Inside a team: a plain move.
+        assert!(tree_move(&input, &mv("a1", None, None).clone(), |_| Vec::new(), session, "f").is_none());
+        assert!(tree_move(&input, &SidebarMove { id: "a1".into(), before: Some("b1".into()), after: None, into: None }, |_| Vec::new(), session, "f").is_some());
     }
 
     /// #FEED-232: a glyph name reads back as THE count badge.

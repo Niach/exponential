@@ -9525,14 +9525,19 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the team row's … and right-click open the same genUI Menu; no automated drive opens a menu, capture it with --manual.",
+        "desktop": "#EXP-2027: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too.",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
       },
       "desktop": {
         "drive": {
-          "kind": "manual"
-        }
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_TEAM_MENU": "1"
+        },
+        "anchorDelayMs": 1200
       }
     },
     {

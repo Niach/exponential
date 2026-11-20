@@ -60,7 +60,7 @@ export interface IdeSidebarInput {
   devicesOpen?: boolean
   /** #EXP-2027: one entry per team (`sidebarTeams`). */
   teams?: IdeTeamInput[]
-  active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean; teamMark?: string | null }[]
+  active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean; teamMark?: string | null; team?: string | null }[]
   /** #EXP-1832: the folders this device keeps folded (none = open). */
   closed?: string[]
   /** #EXP-1832: the folder whose name is being edited in place. */
