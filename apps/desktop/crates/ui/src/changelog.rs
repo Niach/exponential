@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-account-settings",
+    date: "2026-11-20",
+    title: "Your Assistant has its own place in Settings",
+    summary: "Settings › Assistant moves to your personal settings, next to Account, and your Assistant's notifications show in every team's inbox.",
+    body: r##"- **Settings › Assistant**: your Assistant's page is now under Personal, right after Account, on every app. The team's Agents list shows the team's agents only.
+- **Inbox**: notifications from your Assistant show and count in the inbox of every team you are in, and open its chat.
+- **iOS**: a chat that briefly disappeared while syncing gets its message field back without restarting the app."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_335: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-desktop-description-foreign-pictures",
     date: "2026-11-20",
     title: "A picture from another website in an issue description is a link",
