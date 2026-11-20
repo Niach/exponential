@@ -218,6 +218,17 @@ pub fn image_source_allowed(src: &str, origin: &str) -> bool {
     image_source(src, "", origin) == ImageSource::Load
 }
 
+/// #EXP-1968 (`editModeSource`): what an image block shows in a desktop
+/// editor's EDIT mode: [`image_source`], except a refused `text` source
+/// with no alt shows its src (trimmed) as plain text, so the block can be
+/// found and removed.
+pub fn edit_mode_source(src: &str, alt: &str, origin: &str) -> ImageSource {
+    match image_source(src, alt, origin) {
+        ImageSource::Text(text) if text.is_empty() => ImageSource::Text(src.trim_matches(edge_space).to_string()),
+        verdict => verdict,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,6 +325,22 @@ mod tests {
             };
             assert_eq!(image_source(src, alt, origin), want, "{src:?}: {}", c["$why"]);
             assert_eq!(image_source_allowed(src, origin), want == ImageSource::Load, "{src:?}");
+        }
+    }
+
+    #[test]
+    fn edit_mode_cases_replay() {
+        let f = fixture();
+        let origin = f["sourcePolicy"]["origin"].as_str().unwrap();
+        for c in f["editModeCases"].as_array().unwrap() {
+            let (src, alt) = (c["src"].as_str().unwrap(), c["alt"].as_str().unwrap());
+            let e = &c["expected"];
+            let want = match e["kind"].as_str().unwrap() {
+                "load" => ImageSource::Load,
+                "link" => ImageSource::Link { href: e["href"].as_str().unwrap().into(), text: e["text"].as_str().unwrap().into() },
+                _ => ImageSource::Text(e["text"].as_str().unwrap().into()),
+            };
+            assert_eq!(edit_mode_source(src, alt, origin), want, "{src:?}: {}", c["$why"]);
         }
     }
 

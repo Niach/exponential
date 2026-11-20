@@ -38,7 +38,7 @@ impl Block {
             alt: syntax.alt.clone(),
             src: resolved_target.src.clone(),
             title: resolved_target.title.clone(),
-            resolved_source: self.resolve_image_source_with_env(&resolved_target.src, base_dir),
+            resolved_source: self.resolve_image_source_with_env(&resolved_target.src, &syntax.alt, base_dir),
             media: None,
         })
     }
@@ -64,7 +64,7 @@ impl Block {
         let (src, info) = self.standalone_media()?;
         Some(ImageRuntime {
             alt: info.label.clone(),
-            resolved_source: self.resolve_image_source_with_env(&src, self.image_base_dir.as_deref()),
+            resolved_source: self.resolve_image_source_with_env(&src, "", self.image_base_dir.as_deref()),
             src,
             title: None,
             media: Some(info),
@@ -78,11 +78,21 @@ impl Block {
     /// EXP-261 vendoring: consult the host's ImageSourceResolver before the
     /// default local/remote classification (relative attachment URLs would
     /// otherwise be treated as filesystem paths).
+    /// #EXP-1968 vendoring: a source the host refuses is its stand-in first.
     pub(crate) fn resolve_image_source_with_env(
         &self,
         src: &str,
+        alt: &str,
         base_dir: Option<&Path>,
     ) -> ImageResolvedSource {
+        if let Some(stand_in) = self
+            .environment
+            .image_source_resolver
+            .as_ref()
+            .and_then(|resolver| resolver.stand_in(src, alt))
+        {
+            return ImageResolvedSource::StandIn(stand_in);
+        }
         if let Some(resolver) = self.environment.image_source_resolver.as_ref()
             && let Some(resolution) = resolver.resolve(src)
         {
