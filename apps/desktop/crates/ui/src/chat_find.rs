@@ -6,10 +6,14 @@
 //! plain tool line's title + its output's stop, a folded run's members)
 //! plus the chat store's older hits, the current stop kept while answers
 //! arrive, and the landing (open the run, page an older one in, centre).
+//! #EDE-99: a global search pick SEEDS it ([`request_find_at`]): the bar
+//! opens on the pick's query and starts at the hit's stop
+//! (`domain::search_list::global_chat_start`) instead of the newest.
 
 use std::time::Duration;
 
-use domain::find_in_chat::{self as find, FindOlderHit, FindRow, FindSearchPhase, FindStep, FindStop};
+use domain::find_in_chat::{self as find, FindRow, FindSearchPhase, FindStep, FindStop, FindStoreHit, FindSynced};
+use domain::search_list::GlobalChatTarget;
 use gpui::{div, px, AnyElement, App, AppContext as _, Entity, Focusable as _, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
@@ -47,6 +51,20 @@ pub(crate) fn request_find(session_id: Option<String>, window: &mut Window, cx: 
     window.refresh();
 }
 
+/// #EDE-99: a global search pick meant for `session`'s view: its bar opens
+/// on `query`, starting at `target`.
+#[derive(Default)]
+struct FindSeed(Option<(String, String, GlobalChatTarget)>);
+
+impl gpui::Global for FindSeed {}
+
+/// #EDE-99 (search-list.json `pickCases`): the pick's session view opens
+/// find in chat on `query` with its start = `target`'s stop.
+pub(crate) fn request_find_at(session_id: String, query: String, target: GlobalChatTarget, window: &mut Window, cx: &mut App) {
+    cx.set_global(FindSeed(Some((session_id, query, target))));
+    window.refresh();
+}
+
 /// The `…` entry's trailing shortcut hint.
 pub(crate) fn find_shortcut_hint(cx: &App) -> AnyElement {
     div()
@@ -62,7 +80,8 @@ pub(crate) struct ChatFind {
     query: String,
     stops: Vec<FindStop>,
     current: Option<FindStop>,
-    older: Vec<FindOlderHit>,
+    /// The chat store's hits (#EXP-1998: events and synced messages).
+    older: Vec<FindStoreHit>,
     store: FindSearchPhase,
     /// The last query landed on (a new one starts at the newest stop).
     started: String,
@@ -71,16 +90,31 @@ pub(crate) struct ChatFind {
     counted: String,
     /// A step asked for a landing the next frame runs.
     land: bool,
+    /// #EDE-99: a pick's start, re-resolved as stops arrive until it is
+    /// found or the store answered; dropped at the first step or edit.
+    target: Option<GlobalChatTarget>,
     debounce: Option<gpui::Task<()>>,
     _subscription: gpui::Subscription,
 }
 
 /// A loaded row's find facts: its stop row, its list row (`None` = a
-/// placeholder's bubble, no list to scroll), its run.
+/// placeholder's bubble, no list), its run, and (#EXP-1998) its place in
+/// the placeholder's scrolling column.
 struct Located {
     row: FindRow,
     ix: Option<usize>,
     run: Option<FeedItemId>,
+    slot: Option<usize>,
+}
+
+/// #EXP-1998: how many of `ids` (oldest first) a capped list skips: all but
+/// the newest `max`, or none before `from` when that reaches further back.
+pub(crate) fn widened_skip(ids: &[&str], max: usize, from: Option<&str>) -> usize {
+    let newest = ids.len().saturating_sub(max);
+    match from.and_then(|from| ids.iter().position(|id| *id == from)) {
+        Some(at) if at < newest => at,
+        _ => newest,
+    }
 }
 
 /// #EXP-1975: an own bubble's key: its stored row's (`m:`), else its
@@ -161,6 +195,7 @@ impl SteerSessionView {
             started: String::new(),
             counted: String::new(),
             land: false,
+            target: None,
             debounce: None,
             _subscription: subscription,
         });
@@ -189,6 +224,21 @@ impl SteerSessionView {
                 self.set_find_query(find::query(&query), cx);
             }
         }
+        let seed = cx.try_global::<FindSeed>().and_then(|seed| seed.0.clone()).filter(|(id, ..)| *id == self.session_id);
+        if let Some((_, query, target)) = seed {
+            cx.set_global(FindSeed(None));
+            self.open_find(window, cx);
+            if let Some(open) = &self.find {
+                let input = open.input.clone();
+                input.update(cx, |state, cx| state.set_value(query.clone(), window, cx));
+            }
+            self.set_find_query(find::query(&query), cx);
+            if let Some(open) = self.find.as_mut() {
+                open.target = Some(target);
+                open.started.clear();
+            }
+            cx.notify();
+        }
         let wanted = cx.try_global::<FindRequest>().and_then(|request| request.0.clone());
         let Some(target) = wanted else { return };
         if target.as_deref().is_some_and(|id| id != self.session_id) {
@@ -216,6 +266,7 @@ impl SteerSessionView {
         }
         open.query = query.clone();
         open.current = None;
+        open.target = None;
         open.older.clear();
         open.store = FindSearchPhase::None;
         if !query.is_empty() {
@@ -233,9 +284,11 @@ impl SteerSessionView {
                             .unwrap_or_default()
                             .into_iter()
                             .filter(|hit| hit.session_id == session_id)
-                            .filter_map(|hit| {
-                                let seq = hit.seq?;
-                                Some(FindOlderHit { key: find::event_key(&session_id, seq as i64), output: hit.kind == chat_store::DocKind::ToolOutput })
+                            .map(|hit| FindStoreHit {
+                                session_id: hit.session_id,
+                                seq: hit.seq.map(|seq| seq as i64),
+                                message_id: hit.message_id,
+                                kind: hit.kind.as_str().to_string(),
                             })
                             .collect();
                         cx.notify();
@@ -264,6 +317,7 @@ impl SteerSessionView {
                 },
                 ix: Some(ix),
                 run,
+                slot: None,
             })
         };
         // #EXP-1975 (find-in-chat.json NO TRANSCRIPT): with neither feed
@@ -273,12 +327,14 @@ impl SteerSessionView {
             if !self.row_ended() {
                 for (id, text, _) in self.no_feed_input_rows(cx) {
                     let count = eui_gpui::paint::highlight::markdown_highlight_count(&text, query);
-                    out.push(Located { row: FindRow { key: find::message_key(&id), count, group: None, output_hit: false }, ix: None, run: None });
+                    let slot = Some(out.len());
+                    out.push(Located { row: FindRow { key: find::message_key(&id), count, group: None, output_hit: false }, ix: None, run: None, slot });
                 }
             }
             for bubble in &self.own_tail {
                 let count = eui_gpui::paint::highlight::markdown_highlight_count(&bubble.text, query);
-                out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: None, run: None });
+                let slot = Some(out.len());
+                out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: None, run: None, slot });
             }
             return out;
         }
@@ -297,7 +353,7 @@ impl SteerSessionView {
                     };
                     if let Some(text) = text {
                         let count = eui_gpui::paint::highlight::markdown_highlight_count(text, query);
-                        out.push(Located { row: FindRow { key: item_key(&self.session_id, item), count, group: None, output_hit: false }, ix: Some(ix), run: None });
+                        out.push(Located { row: FindRow { key: item_key(&self.session_id, item), count, group: None, output_hit: false }, ix: Some(ix), run: None, slot: None });
                     } else if item.is_tool() && !matches!(&item.kind, FeedKind::Tool { diff: Some(diff), .. } if !diff.is_empty()) {
                         out.extend(tool(item, ix, None));
                     }
@@ -313,14 +369,14 @@ impl SteerSessionView {
         // #FEED-260: the synced tail's bubbles (a not-live feed), after it.
         for (offset, row) in self.synced_tail.iter().enumerate() {
             let count = eui_gpui::paint::highlight::markdown_highlight_count(&row.text, query);
-            out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: Some(self.rows.len() + offset), run: None });
+            out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: Some(self.rows.len() + offset), run: None, slot: None });
         }
         // #EXP-1975: then the viewer's own bubbles (the unconsumed rows, the
         // outbox), after the orphan and trailing cards.
         let before_own = self.rows.len() + self.synced_tail.len() + self.orphan_workflows.len() + self.conv_tail().len();
         for (offset, bubble) in self.own_tail.iter().enumerate() {
             let count = eui_gpui::paint::highlight::markdown_highlight_count(&bubble.text, query);
-            out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: Some(before_own + offset), run: None });
+            out.push(Located { row: FindRow { key: own_bubble_key(bubble), count, group: None, output_hit: false }, ix: Some(before_own + offset), run: None, slot: None });
         }
         out
     }
@@ -331,19 +387,28 @@ impl SteerSessionView {
         let query = self.find.as_ref().map(|open| open.query.clone()).filter(|query| !query.is_empty())?;
         let located = self.find_located(&query, cx);
         let rows: Vec<FindRow> = located.iter().map(|located| located.row.clone()).collect();
-        let lowest = self.feed.items().iter().find_map(|item| item.seq);
+        let lowest = self.feed.items().iter().find_map(|item| item.seq).map(|seq| seq as i64);
+        let synced = self.find_synced(cx);
         let open = self.find.as_mut()?;
-        let below = |hit: &&FindOlderHit| {
-            let seq: Option<u64> = hit.key.rsplit(':').next().and_then(|seq| seq.parse().ok());
-            matches!((seq, lowest), (Some(seq), Some(lowest)) if seq < lowest) || lowest.is_none()
-        };
-        let older: Vec<FindOlderHit> = open.older.iter().filter(below).cloned().collect();
+        // #EXP-1998 (`olderCases`): events below the loaded stretch and the
+        // synced messages this view would draw but does not show.
+        let older = find::older(&self.session_id, lowest, &open.older, &[], synced.as_ref());
         let stops = find::stops(&rows, &older);
         let mut index = open
             .current
             .as_ref()
             .and_then(|was| stops.iter().position(|stop| stop.key == was.key && stop.local == was.local && stop.output == was.output));
-        if open.started != query && !stops.is_empty() {
+        if let Some(target) = open.target.clone() {
+            // #EDE-99: a pick starts on its hit once that is a stop, else on
+            // the newest once the store has answered (`startCases`).
+            let found = stops.iter().any(|stop| stop.key == target.key && stop.output == target.output);
+            if !stops.is_empty() && (found || open.store != FindSearchPhase::Searching) {
+                open.target = None;
+                open.started = query.clone();
+                index = domain::search_list::global_chat_start(&stops, &target);
+                open.land = true;
+            }
+        } else if open.started != query && !stops.is_empty() {
             open.started = query.clone();
             index = find::step(None, stops.len(), FindStep::Start);
             open.land = true;
@@ -367,7 +432,20 @@ impl SteerSessionView {
                 if landing.page_in {
                     // Older rows page in; the next frames land once it is loaded.
                     open.land = true;
-                    if self.can_grow_window() {
+                    if let Some(id) = stop.key.strip_prefix("m:") {
+                        // #EXP-1998: an older synced message: the drawn tail
+                        // (or sent inputs) widens to it, or older ones load.
+                        if synced.as_ref().is_some_and(|synced| synced.drawable.iter().any(|drawable| drawable == id)) {
+                            if self.find_widen.as_deref() != Some(id) {
+                                self.find_widen = Some(id.to_string());
+                                self.synced_tail_key = None;
+                            }
+                        } else if !self.find_load_older_messages(cx) {
+                            if let Some(open) = self.find.as_mut() {
+                                open.land = false;
+                            }
+                        }
+                    } else if self.can_grow_window() {
                         self.extend_window = true;
                     } else {
                         self.request_older_page();
@@ -385,6 +463,20 @@ impl SteerSessionView {
                         self.chat.pin(true);
                         self.chat.reveal(ix, "center");
                     }
+                    // #EXP-1998: a placeholder bubble centres in its column
+                    // (once laid out: a widened column mounts next frame).
+                    if let Some(slot) = at.slot {
+                        if !self.centre_no_feed_row(slot) {
+                            if let Some(open) = self.find.as_mut() {
+                                open.land = true;
+                            }
+                            cx.spawn(async move |this, cx| {
+                                cx.background_executor().timer(Duration::from_millis(16)).await;
+                                let _ = this.update(cx, |_, cx| cx.notify());
+                            })
+                            .detach();
+                        }
+                    }
                 }
             }
         }
@@ -397,8 +489,54 @@ impl SteerSessionView {
         Some(crate::chat_tab_transcript::FindPaint { query, current })
     }
 
+    /// #EXP-1998 (`olderCases` `synced`): the synced messages this view
+    /// draws as bubbles: the not-live transcript's tail, or the sent inputs
+    /// above the no-transcript placeholder (`None` = a live transcript, or
+    /// an ended placeholder that draws none).
+    fn find_synced(&self, cx: &App) -> Option<FindSynced> {
+        let placeholder = self.feed.is_empty() && self.synced_tail.is_empty();
+        let drawable: Vec<String> = if placeholder {
+            if self.row_ended() {
+                return None;
+            }
+            let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+            super::no_feed_inputs(&messages, usize::MAX).into_iter().map(|message| message.id.clone()).collect()
+        } else if self.phase != super::ViewerPhase::Live {
+            self.synced_tail_all.clone()
+        } else {
+            return None;
+        };
+        let loaded = crate::session_data::messages_of_session(&self.session_id, cx).iter().map(|message| message.id.clone()).collect();
+        // A root's messages are its chat's newest page; a child's all load.
+        let root = crate::session_data::session(&self.session_id, cx).is_some_and(|row| row.root_id_or_self() == self.session_id);
+        let more = root && crate::chat_window::chat_messages(&self.session_id, cx).more;
+        Some(FindSynced { loaded, drawable, more })
+    }
+
+    /// #EXP-1998: one page more of the chat's synced messages (false = none
+    /// older; a child session's are all loaded).
+    fn find_load_older_messages(&mut self, cx: &App) -> bool {
+        crate::chat_window::load_earlier(&self.session_id, cx)
+    }
+
+    /// #EXP-1998: centres the placeholder column's `slot`-th bubble; false
+    /// while it is not laid out yet.
+    fn centre_no_feed_row(&self, slot: usize) -> bool {
+        let handle = &self.no_feed_scroll;
+        if handle.children_count() <= slot {
+            return false;
+        }
+        let Some(item) = handle.bounds_for_item(slot) else { return false };
+        let view = handle.bounds();
+        // Child bounds are unscrolled: the offset puts its centre at the view's.
+        let y = (view.center().y - item.center().y).min(px(0.)).max(-handle.max_offset().y);
+        handle.set_offset(gpui::point(handle.offset().x, y));
+        true
+    }
+
     fn find_step(&mut self, step: FindStep, cx: &mut gpui::Context<Self>) {
         let Some(open) = self.find.as_mut() else { return };
+        open.target = None;
         let index = open
             .current
             .as_ref()
@@ -497,7 +635,7 @@ impl SteerSessionView {
 
 #[cfg(test)]
 mod tests {
-    use super::own_bubble_key;
+    use super::{own_bubble_key, widened_skip};
     use crate::session_outbox::OwnBubble;
     use domain::message_delivery::DeliveryState;
 
@@ -511,6 +649,17 @@ mod tests {
             message_id: message_id.map(str::to_string),
             client_id: client_id.map(str::to_string),
         }
+    }
+
+    /// #EXP-1998: a landing on an older synced message widens the drawn list.
+    #[test]
+    fn widened_skip_reaches_back_to_the_landed_message() {
+        let ids = ["m1", "m2", "m3", "m4", "m5"];
+        assert_eq!(widened_skip(&ids, 2, None), 3);
+        assert_eq!(widened_skip(&ids, 2, Some("m2")), 1);
+        assert_eq!(widened_skip(&ids, 2, Some("m5")), 3);
+        assert_eq!(widened_skip(&ids, 2, Some("x")), 3);
+        assert_eq!(widened_skip(&ids, 9, None), 0);
     }
 
     /// #EXP-1975 (find-in-chat.json): an own bubble's stored row is `m:`,

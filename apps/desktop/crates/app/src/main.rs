@@ -64,6 +64,11 @@ fn main() {
     // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
     // per app): the voice model and the audio device, killable by the host.
     if etalk::requested() {
+        // #ERR-29: its native crashes reach the app's next report (the
+        // panics reach the app on its stdout, etalk-engine).
+        if let Some(data_dir) = etalk::data_dir_arg() {
+            observability::watch_helper_crashes(observability::Product::Desktop, domain::client_version::current_version(), &data_dir, "speech-worker");
+        }
         etalk_engine::run_and_exit();
     }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`

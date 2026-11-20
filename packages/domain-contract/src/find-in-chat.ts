@@ -41,6 +41,59 @@ export interface FindOlderHit {
   output?: boolean
 }
 
+/** #EXP-1998: a store hit as `findInChatOlder` reads it (an event's carries
+ *  its `seq`, a synced message's its `messageId`). */
+export interface FindStoreHit {
+  sessionId: string
+  seq?: number | null
+  messageId?: string | null
+  kind: string
+}
+
+/** #EXP-1998: the synced messages the host draws as bubbles (null = a live
+ *  transcript, which holds them as its own rows): `loaded` = every loaded
+ *  synced message of the session, `drawable` = those it would draw with no
+ *  cap, `more` = older ones exist unloaded. */
+export interface FindSynced {
+  loaded: readonly string[]
+  drawable: readonly string[]
+  more: boolean
+}
+
+/** #EXP-1998 (`olderCases`): the store's and the device's hits that are
+ *  OLDER than the loaded rows, store first, first key wins. */
+export function findInChatOlder(input: {
+  sessionId: string
+  lowestSeq: number | null | undefined
+  store: readonly FindStoreHit[]
+  device: readonly { seq: number; kind: string }[]
+  synced: FindSynced | null
+}): FindOlderHit[] {
+  const { sessionId, lowestSeq, synced } = input
+  const loaded = new Set(synced?.loaded ?? [])
+  const drawable = new Set(synced?.drawable ?? [])
+  const seen = new Set<string>()
+  const out: FindOlderHit[] = []
+  const push = (key: string, output: boolean) => {
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ key, output })
+  }
+  const event = (seq: number, kind: string) => {
+    if (lowestSeq === null || lowestSeq === undefined || seq < lowestSeq) push(findEventKey(sessionId, seq), kind === `tool_output`)
+  }
+  for (const hit of input.store) {
+    if (hit.sessionId !== sessionId) continue
+    if (typeof hit.seq === `number`) event(hit.seq, hit.kind)
+    else if (hit.messageId && synced) {
+      const id = hit.messageId
+      if (loaded.has(id) ? drawable.has(id) : synced.more) push(findMessageKey(id), false)
+    }
+  }
+  for (const hit of input.device) event(hit.seq, hit.kind)
+  return out
+}
+
 /** One stop of the counter. */
 export interface FindStop {
   key: string

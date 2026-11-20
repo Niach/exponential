@@ -18,6 +18,7 @@ mod members;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
+pub mod slice;
 
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
 
@@ -52,8 +53,13 @@ pub struct Spaces {
     next: u32,
     /// Where the spaces' directories live
     /// (`<runtime>/exponential-desktop/<wayland-N>.spaces`); `None` = no
-    /// space can be made.
+    /// space can be made. Sockets and the bus only: the runtime directory
+    /// is a tmpfs the person's session shares.
     pub dir: Option<PathBuf>,
+    /// Where this compositor's spaces keep their homes, on disk
+    /// (`$XDG_CACHE_HOME/exponential-desktop/spaces/p<pid>`, [`Spaces::open_homes`]);
+    /// `None` = in each space's directory.
+    pub homes: Option<PathBuf>,
     /// The seats of closed spaces, until they can go ([`close`]).
     closing: Vec<close::Closing>,
     /// The directories of closed spaces that could not be removed yet.
@@ -65,6 +71,17 @@ pub struct Spaces {
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
+    /// The person's user manager: `Some` = a launch runs in a systemd
+    /// scope of its space's slice ([`slice`], #EDE-138). `None` (also in
+    /// the headless harness) = as before, in the compositor's own cgroup.
+    pub units: Option<slice::Units>,
+    /// The launches so far: each scope's name has its number.
+    launch_serial: std::cell::Cell<u32>,
+    /// The slices of closed spaces that are being stopped ([`close`]).
+    stopping: Vec<close::Stopping>,
+    /// A launch of this run went into a scope: there are slices to stop
+    /// when the compositor ends.
+    sliced: bool,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -72,7 +89,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
@@ -111,6 +128,8 @@ pub struct AgentSpace {
     pub(crate) last_use: Option<std::time::Instant>,
     /// The ticks in a row that found its owner without a live space grant.
     pub(crate) expired_ticks: u32,
+    /// A launch of it went into a scope: its slice is stopped at the close.
+    pub(crate) sliced: bool,
 }
 
 impl AgentSpace {
@@ -131,6 +150,18 @@ impl Spaces {
 
     pub(crate) fn get_mut(&mut self, desk: DeskId) -> Option<&mut AgentSpace> {
         self.list.iter_mut().find(|s| s.desk.id == desk)
+    }
+
+    /// Space `space`'s home: its profile (`XDG_CONFIG_HOME` and the other
+    /// three), what a browser, pip or Playwright keeps. On disk, beside
+    /// the other spaces' of this compositor (#EDE-138): in the runtime
+    /// directory it would be memory nobody sees and a full tmpfs the
+    /// person's apps share. Removed when the space closes.
+    pub(crate) fn home_of(&self, space: &AgentSpace) -> PathBuf {
+        match &self.homes {
+            Some(homes) => homes.join(space.id.as_str()),
+            None => space.dir.join("home"),
+        }
     }
 }
 
@@ -266,7 +297,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0 });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false });
         Ok(id)
     }
 }

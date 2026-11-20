@@ -12,8 +12,11 @@ import {
   SheetTitle,
   issueSearchItems,
   useIsMobile,
+  type PickerItem,
   type SearchListDensity,
+  type SearchListSection,
 } from "@exp/ui"
+import { globalSections, SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
 import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
@@ -79,7 +82,20 @@ interface IssuePickerBodyBase<R extends IssuePickerRow> {
   onBackspaceEmpty?: () => void
   inputTestId?: string
   className?: string
+  /** #EDE-99 (search-list.json CHATS): the global search's Chats section;
+   *  null = no chat store here (today's list). */
+  chats?: GlobalChatsSection | null
 }
+
+/** The Chats section's rows (built by the host) and their pick. */
+export interface GlobalChatsSection {
+  items: readonly PickerItem<string>[]
+  loading: boolean
+  onPick: (value: string) => void
+}
+
+// search-list.json `chats.row`: 52px on a pointer, 64 on a phone (literal for Tailwind).
+const CHAT_ROW_CLASS = { pointer: `h-[52px]`, phone: `h-16` }
 
 export type IssuePickerBodyProps<R extends IssuePickerRow> =
   IssuePickerBodyBase<R> &
@@ -125,6 +141,7 @@ export function IssuePickerBody<R extends IssuePickerRow>(
     onBackspaceEmpty,
     inputTestId,
     className,
+    chats,
   } = props
   const { resolve } = useTeamStatusesContext()
   const checked = props.mode === `multi` ? props.checked : (NO_ROWS as R[])
@@ -169,14 +186,38 @@ export function IssuePickerBody<R extends IssuePickerRow>(
       ),
     [ordered, resolve]
   )
+  // #EDE-99: Issues then Chats as titled sections (globalSections).
+  const isPhone = (density ?? `pointer`) === `phone`
+  const layout = chats
+    ? globalSections({ query, issues: items.length, chats: { rows: chats.items.length, loading: chats.loading } })
+    : null
+  const sections: SearchListSection<string>[] | undefined =
+    chats && layout?.titled
+      ? layout.sections.map((section) =>
+          section.key === `issues`
+            ? { key: `issues`, title: SEARCH_LIST_CHATS.copy.issues, count: section.count, items, testId: SEARCH_LIST_CHATS.testIds.issues }
+            : {
+                key: `chats`,
+                title: SEARCH_LIST_CHATS.copy.chats,
+                count: section.count,
+                loading: section.loading,
+                items: chats.items,
+                rowClassName: isPhone ? CHAT_ROW_CLASS.phone : CHAT_ROW_CLASS.pointer,
+                rowTestId: SEARCH_LIST_CHATS.testIds.chatRow,
+                testId: SEARCH_LIST_CHATS.testIds.chats,
+              }
+        )
+      : undefined
   const shared = {
     items,
+    sections,
     // The engine already ranked and capped the rows (EXP-892).
     shouldFilter: false,
     query,
     onQueryChange,
     placeholder: searchPlaceholder,
-    emptyText: emptyText?.(query),
+    // The empty state waits for the store's answer (search-list.json SECTIONS).
+    emptyText: layout?.titled && !layout.empty && layout.count === 0 ? null : emptyText?.(query),
     leading,
     maxVisibleRows,
     footer,
@@ -223,6 +264,7 @@ export function IssuePickerBody<R extends IssuePickerRow>(
       onChange={(id) => {
         const row = byId.get(id)
         if (row) props.onPick(row)
+        else if (chats && chats.items.some((item) => item.value === id)) chats.onPick(id)
       }}
       {...shared}
     />
@@ -243,6 +285,8 @@ export type IssuePickerHostProps<R extends IssuePickerRow> =
     closeOnPick?: boolean
     /** Extra classes on the shell's content. */
     contentClassName?: string
+    /** #EDE-99: hears every query (the global search's Chats section). */
+    onQueryInput?: (query: string) => void
     "data-testid"?: string
   }
 
@@ -264,11 +308,17 @@ export function IssuePickerHost<R extends IssuePickerRow>(
   } = props
   const testId = props[`data-testid`]
   const isMobile = useIsMobile()
-  const [query, setQuery] = useState(``)
+  const [query, setQueryState] = useState(``)
+  const onQueryInput = props.onQueryInput
+  const setQuery = (next: string) => {
+    setQueryState(next)
+    onQueryInput?.(next)
+  }
   const handleOpenChange = (next: boolean) => {
     onOpenChange(next)
     if (!next) setQuery(``)
   }
+  const chats = props.chats
   const bodyProps: IssuePickerBodyProps<R> =
     props.mode === `single`
       ? {
@@ -277,6 +327,16 @@ export function IssuePickerHost<R extends IssuePickerRow>(
             if (closeOnPick) handleOpenChange(false)
             props.onPick(row)
           },
+          // #EDE-99: a chat pick closes the search too.
+          chats: chats
+            ? {
+                ...chats,
+                onPick: (value: string) => {
+                  if (closeOnPick) handleOpenChange(false)
+                  chats.onPick(value)
+                },
+              }
+            : chats,
         }
       : props
   // Pickers off the shell never call the server.

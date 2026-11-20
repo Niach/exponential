@@ -81,7 +81,7 @@ mod wakeword_fixtures;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -425,10 +425,68 @@ impl log::Log for StderrLog {
     fn flush(&self) {}
 }
 
+/// #ERR-29: set by [`report_panics`]: a panic that ends one of the
+/// engine's threads ends the worker ([`EndsWorker`]). Unset in tests that
+/// drive [`serve`] in their own process.
+static ENDS_WORKER: AtomicBool = AtomicBool::new(false);
+
+/// #ERR-29: held by each of the worker's long-lived threads (the engine,
+/// the listener). A panic that unwinds out of one ends the worker with
+/// [`etalk::PANIC_EXIT`]: the host reads the crash, reports it and starts
+/// a new one, where the worker used to stay up without that engine and
+/// drop every request after. An exit, no abort: the panic is the host's
+/// report (its `Panicked` line), never a second, native one of a stack
+/// that has unwound; on unix at once (`_exit`), with no `atexit` of the
+/// model runtime while its other threads still run.
+pub struct EndsWorker;
+
+impl Drop for EndsWorker {
+    fn drop(&mut self) {
+        if std::thread::panicking() && ENDS_WORKER.load(Ordering::SeqCst) {
+            // SAFETY: `_exit` only ends the process.
+            #[cfg(unix)]
+            unsafe {
+                libc::_exit(etalk::PANIC_EXIT)
+            }
+            #[cfg(not(unix))]
+            std::process::exit(etalk::PANIC_EXIT)
+        }
+    }
+}
+
+/// `file:line` of a panic, a registry crate's path from its crate name on
+/// (never the build machine's home).
+fn panic_location(location: Option<&std::panic::Location<'_>>) -> String {
+    let Some(location) = location else { return "unknown".to_string() };
+    let file = location.file();
+    let file = file.split_once("/registry/src/").and_then(|(_, rest)| rest.split_once('/')).map_or(file, |(_, path)| path);
+    format!("{file}:{}", location.line())
+}
+
+/// #ERR-29: the worker's panics reach the host: a hook that writes
+/// [`Event::Panicked`] (where and on which thread), and [`EndsWorker`]
+/// armed. A panic's MESSAGE can quote what was being spoken or heard, and
+/// the host's log lines ride along with its error reports: it goes out as
+/// debug lines only (the host's log file at `EXP_LOG=debug`, never a
+/// report), in place of the default hook's output. The worker's native
+/// crashes are its host's `observability` (the binary's `main`).
+pub fn report_panics() {
+    std::panic::set_hook(Box::new(|info| {
+        let (at, thread) = (panic_location(info.location()), std::thread::current().name().unwrap_or("unnamed").to_string());
+        eprintln!("panicked at {at} on thread {thread}");
+        let payload = info.payload();
+        let message = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("(no message)");
+        message.lines().for_each(debug);
+        emit(&Event::Panicked { at, thread });
+    }));
+    ENDS_WORKER.store(true, Ordering::SeqCst);
+}
+
 fn run(data_dir: PathBuf) {
     if log::set_logger(&StderrLog).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
+    report_panics();
     emit(&Event::Ready { protocol: etalk::PROTOCOL });
     remove_retired_voices(&data_dir);
     let ears = data_dir.clone();
@@ -469,6 +527,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
     let engine = std::thread::Builder::new()
         .name("voice-engine".into())
         .spawn(move || {
+            let _ends = EndsWorker;
             engine_loop(&data_dir, rx, &engine_shared);
             let _ = engine_done.send(());
         })

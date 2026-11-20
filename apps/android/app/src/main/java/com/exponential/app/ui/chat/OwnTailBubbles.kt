@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.MessageDelivery
@@ -22,7 +23,9 @@ import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.session.LocalFindBubbleLanding
 import com.exponential.app.ui.session.LocalFindPaint
+import com.exponential.app.ui.session.findRing
 import com.exponential.app.ui.session.ownBubbleFindKey
 
 /**
@@ -69,13 +72,23 @@ private fun OwnTailBubble(
     findKey: String,
 ) {
     val highlight = LocalFindPaint.current?.highlight(findKey)
+    // #EXP-1998: under the no-transcript placeholder find in chat centres
+    // and rings a bubble.
+    val landing = LocalFindBubbleLanding.current
     val actions = bubble.actions
     var open by remember { mutableStateOf(false) }
     // #FEED-239: aligned with the transcript's own bubbles, the viewer's
     // avatar column on the right; #EXP-1854: a bubble that opens the own
     // group ([tail]) wears the viewer's avatar there, as on iOS, the web and
     // the desktop (the no-feed placeholder has no transcript row to carry it).
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    Row(
+        if (landing == null) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier.fillMaxWidth().onGloballyPositioned { landing.onPlaced(findKey, it) }.findRing(landing.ring == findKey)
+        },
+        verticalAlignment = Alignment.Top,
+    ) {
         Box(Modifier.weight(1f)) {
             MessageBubble(
                 own = true,

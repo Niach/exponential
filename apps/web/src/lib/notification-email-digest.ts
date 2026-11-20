@@ -12,6 +12,7 @@
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
+import { isTeamMemberSql } from "@/lib/auth/membership"
 import { boardVisible } from "@/lib/board-visibility"
 import {
   emailDeliveries,
@@ -100,7 +101,9 @@ export async function runEmailDigestSweep(
       // REV2-51: issue-less rows carry their own team_id — the column that
       // exists so they can be routed to the right team. Without it they
       // rendered as unlinked text.
-      notificationTeamSlug: notificationTeams.slug,
+      // #EXP-1984: a personal team has no page; its rows (the Assistant's
+      // chat) link through the recipient's first joined team.
+      notificationTeamSlug: sql<string | null>`case when ${notificationTeams.kind} = 'personal' then (select t.slug from ${teamMembers} m join ${teams} t on t.id = m.team_id where m.user_id = ${notifications.userId} order by m.created_at, t.id limit 1) else ${notificationTeams.slug} end`,
       // EXP-980: the run a `session_blocked` row links to.
       sessionId: notifications.sessionId,
       // REV2-14: mirror of the notifications shape's membership scoping —
@@ -108,7 +111,8 @@ export async function runEmailDigestSweep(
       // for issue-anchored rows, the app-written notifications.team_id for
       // issue-less rows). A row with no team identity
       // at all passes, matching the shape's defensive "board_id IS NULL" arm.
-      isMember: sql<boolean>`(coalesce(${boards.teamId}, ${notifications.teamId}) is null or exists (select 1 from ${teamMembers} where ${teamMembers.userId} = ${notifications.userId} and ${teamMembers.teamId} = coalesce(${boards.teamId}, ${notifications.teamId})))`,
+      // #EXP-1984: a personal team's owner (their Assistant's chat) counts.
+      isMember: sql<boolean>`(coalesce(${boards.teamId}, ${notifications.teamId}) is null or ${isTeamMemberSql(notifications.userId, sql`coalesce(${boards.teamId}, ${notifications.teamId})`)})`,
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.userId))

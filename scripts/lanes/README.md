@@ -37,6 +37,31 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   build output from the shared target (#EXP-1865, the daemon's rule), else
   nothing.
 
+## Screen captures: `capture.sh` only (#EXP-2022)
+
+A Linux screen capture goes through `capture.sh`, never a bare `import`,
+`xwd`, `scrot`, `grim` or `gnome-screenshot`: on 2026-11-19 an
+`import -window root` with the inherited `DISPLAY=:0` photographed the
+person's live desktop.
+
+```sh
+Xvfb :77 -screen 0 1280x800x24 -nolisten tcp &   # your own display
+scripts/lanes/capture.sh :77 /tmp/s/shot.png [1280x800]
+scripts/lanes/capture.sh --window "$W" :77 /tmp/s/win.png
+```
+
+It refuses (exit 2, writes nothing) an empty display, `:0`, `wayland-*`, a
+`host:N`, the caller's inherited `$DISPLAY`/`$WAYLAND_DISPLAY`, and any display
+not served by an Xvfb (its `/tmp/.X<N>-lock` pid). It captures with the
+inherited variables unset and compares the picture with the expected geometry
+(the argument, else the Xvfb's or the window's own); a mismatch deletes it
+unviewed (exit 3). Inside `xvfb-run`, pass `"$DISPLAY"` with the variables
+unset: `D=$DISPLAY; env -u DISPLAY -u WAYLAND_DISPLAY capture.sh "$D" out.png`.
+A headless Wayland compositor uses its own capture (`exponential-ctl
+capture`); grim only with an explicit socket that is neither `wayland-0` nor
+the inherited one (the check is in the script's header). iOS `simctl` and
+Android `adb` captures can't see the desktop and stay as they are.
+
 ## Own target for anything that must be YOUR code
 
 Dev machines export one shared `CARGO_TARGET_DIR` so worktrees share a build

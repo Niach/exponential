@@ -1,7 +1,12 @@
 //! #EDE-125: a space closes and leaves nothing: no client, no socket, no
 //! directory, no global, and once nothing refers to it any more, no seat.
 
-use std::time::{Duration, Instant};
+use std::{
+    os::unix::fs::DirBuilderExt,
+    path::PathBuf,
+    process::Child,
+    time::{Duration, Instant},
+};
 
 use smithay::{
     backend::input::{ButtonState, InputTime, KeyState},
@@ -10,7 +15,7 @@ use smithay::{
     utils::SERIAL_COUNTER,
 };
 
-use super::{scope::Scope, AgentSpace, Spaces};
+use super::{scope::Scope, slice, AgentSpace, Spaces};
 use crate::{
     desk::{Desk, DeskId},
     state::Ede,
@@ -41,6 +46,30 @@ pub(crate) struct Leftover {
 /// How many 1 s ticks a closed space's directory is tried again.
 pub const DIR_RETRIES: u32 = 30;
 
+/// The slice of a closed space (or of a compositor that is gone) while
+/// it ends (#EDE-138). The user manager stops it: SIGTERM to every process
+/// of every unit in it, SIGKILL two seconds later. A scope that asked to
+/// be left alone at a stop (`KillMode=none`) keeps running, and a launch
+/// that was still on its way into its scope arrives after the stop: what
+/// is in the slice's cgroup after [`STOP_GRACE`] is ended by the kernel,
+/// and the slice is stopped once more.
+pub(crate) struct Stopping {
+    unit: String,
+    /// `systemctl stop`, until it is reaped; never waited for.
+    stop: Option<Child>,
+    /// The slice's cgroup directory.
+    cgroup: PathBuf,
+    /// It was there when the stop was asked for.
+    seen: bool,
+    since: Instant,
+    /// The grace is over (or was not needed): nothing more is done.
+    done: bool,
+}
+
+/// After a space closed, how long its slice's processes get to end by the
+/// user manager's stop before the kernel ends what is left.
+const STOP_GRACE: Duration = Duration::from_millis(2500);
+
 impl Spaces {
     /// Sets where the spaces' directories live, first removing what a
     /// crashed compositor of the same name left there.
@@ -49,9 +78,31 @@ impl Spaces {
         self.dir = Some(dir);
     }
 
+    /// Sets where this compositor's spaces keep their homes: `p<pid>` in
+    /// `root` (`$XDG_CACHE_HOME/exponential-desktop/spaces`), first removing
+    /// what a compositor that is gone left there: a `p<pid>` whose process
+    /// is no running compositor, and an earlier one with this process id.
+    pub fn open_homes(&mut self, root: std::path::PathBuf) {
+        let me = std::process::id();
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(pid) = name.to_str().and_then(|name| name.strip_prefix('p')).and_then(|pid| pid.parse::<u32>().ok()) else { continue };
+                if pid == me || !slice::is_compositor(pid) {
+                    let _ = (self.remove_dir)(&entry.path());
+                }
+            }
+        }
+        let homes = root.join(format!("p{me}"));
+        match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&homes) {
+            Ok(()) => self.homes = Some(homes),
+            Err(e) => tracing::warn!("{}: {e}: agent spaces keep their homes in the runtime directory", homes.display()),
+        }
+    }
+
     /// No closed space's seat is left to remove.
     pub fn settled(&self) -> bool {
-        self.closing.is_empty() && self.leftovers.is_empty()
+        self.closing.is_empty() && self.leftovers.is_empty() && self.stopping.is_empty()
     }
 
     /// Removes `dir`; `true` = it is gone.
@@ -66,8 +117,8 @@ impl Drop for Spaces {
     fn drop(&mut self) {
         self.kill_launches();
         // Everything under the spaces' directory is a space's: the live
-        // ones and what a close left behind.
-        if let Some(dir) = &self.dir {
+        // ones and what a close left behind; their homes likewise.
+        for dir in [&self.dir, &self.homes].into_iter().flatten() {
             self.remove(dir);
         }
     }
@@ -79,7 +130,7 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
-        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, .. } = self.spaces.list.remove(at);
+        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, .. } = self.spaces.list.remove(at);
 
         // Its seat lets go of everything: what is held down, a grab, the focus.
         let time = InputTime::from_millis(crate::ipc::now_ms() as u32);
@@ -99,10 +150,16 @@ impl Ede {
 
         // No new client, no old one, nothing on disk.
         self.loop_handle.remove(listener);
-        // What was launched is told to end first: its home is in `dir`.
+        // What was launched is told to end first: it writes in its home.
+        let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
-        if !self.spaces.remove(&dir) {
-            self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+        if sliced {
+            self.space_slice_closed(id.number());
+        }
+        for dir in std::iter::once(dir).chain(home) {
+            if !self.spaces.remove(&dir) {
+                self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+            }
         }
         for client in clients {
             self.display_handle.backend_handle().kill_client(client.id(), DisconnectReason::ConnectionClosed);
@@ -120,6 +177,77 @@ impl Ede {
         self.spaces.closing.push(Closing { seat, since: Instant::now(), logged: false });
         tracing::info!("{} closed", name.as_str());
         true
+    }
+
+    /// #EDE-138, at the session's start: finds the person's user manager,
+    /// so launches run in scopes of their spaces' slices, and stops the
+    /// slices a compositor that is gone left behind (their spaces'
+    /// processes would run on). Without a user manager the reason is
+    /// logged once and launches run as before, for the whole run.
+    pub fn start_space_units(&mut self) {
+        let units = match slice::Units::probe() {
+            Ok(units) => units,
+            Err(reason) => {
+                tracing::warn!("agent spaces run in the login session, without limits: {reason} (a systemd user manager from {} on is needed)", slice::SYSTEMD_FLOOR);
+                return;
+            }
+        };
+        let own = ede_protocol::process::spaces_slice(units.compositor);
+        for unit in units.stale() {
+            tracing::warn!("{unit} is a gone compositor's: its spaces' processes are stopped");
+            let cgroup = units.app_slice.join(&unit);
+            if unit == own {
+                // An earlier compositor had this process id: gone before
+                // this one makes a slice of that name.
+                slice::kill_cgroup(&cgroup);
+                units.stop_now(&unit, Duration::from_secs(10));
+            } else {
+                let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
+                self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
+            }
+        }
+        tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
+        self.spaces.units = Some(units);
+    }
+
+    /// Space number `space` closed and had launches in scopes: its slice
+    /// is stopped with all in it. Nothing here waits for the user manager.
+    fn space_slice_closed(&mut self, space: u32) {
+        let Some(units) = &self.spaces.units else { return };
+        let unit = ede_protocol::process::space_slice(units.compositor, space);
+        let cgroup = units.space_cgroup(space);
+        let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
+        self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
+    }
+
+    /// Once a second: what a stopped slice still holds after its grace is
+    /// ended by the kernel, and the slice is stopped once more.
+    pub(crate) fn space_slices_tick(&mut self) {
+        let Some(units) = &self.spaces.units else { return };
+        self.spaces.stopping.retain_mut(|stopping| {
+            if stopping.stop.as_mut().is_some_and(|stop| !matches!(stop.try_wait(), Ok(None))) {
+                stopping.stop = None;
+            }
+            if stopping.done {
+                return stopping.stop.is_some();
+            }
+            // The stop is done and the slice that was there is gone: no
+            // need to wait for the grace. (One that was not there yet may
+            // still come: a launch on its way into its scope.)
+            if stopping.seen && stopping.stop.is_none() && !stopping.cgroup.is_dir() {
+                return false;
+            }
+            if stopping.since.elapsed() > STOP_GRACE {
+                stopping.done = true;
+                if slice::kill_cgroup(&stopping.cgroup) {
+                    tracing::info!("{} outlived its stop: the kernel ended what was left in it", stopping.unit);
+                    if stopping.stop.is_none() {
+                        stopping.stop = units.stop(&stopping.unit);
+                    }
+                }
+            }
+            true
+        });
     }
 
     /// Does `session` hold a `[space]` grant that has not expired?

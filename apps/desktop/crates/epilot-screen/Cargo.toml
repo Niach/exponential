@@ -84,3 +84,7 @@ x11rb = "0.13"
 [features]
 # The Linux ScreenCast portal + PipeWire capturer (the IDE's build).
 portal = ["dep:ashpd", "dep:async-io", "dep:pipewire"]
+
+[dev-dependencies]
+# #ERR-29: epilot's log capture, for the tests of the dead ends.
+epilot = { path = "../epilot", features = ["test-support"] }

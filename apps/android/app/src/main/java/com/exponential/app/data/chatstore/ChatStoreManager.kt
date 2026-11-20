@@ -366,6 +366,19 @@ class ChatStoreManager internal constructor(
         runCatching { ChatStoreCodec.parseHits(opened.store.searchChat(rootId, query, limit.toUInt())) }.getOrNull()
     }
 
+    /** #EDE-99: whether this client has a chat store open (the global search's Chats section). */
+    val hasStore: Boolean get() = open.value != null
+
+    /**
+     * #EDE-99 GLOBAL (`chat-store.json` SEARCH `searchAll`): every chat the
+     * store holds searched for [query], newest chat first, at most [limit].
+     * Null = no store open (or it failed).
+     */
+    suspend fun searchAll(query: String, limit: Int): List<com.exponential.app.domain.SearchList.ChatMatch>? = withContext(Dispatchers.IO) {
+        val opened = open.value ?: return@withContext null
+        runCatching { ChatStoreCodec.parseAll(opened.store.searchAll(query, limit.toUInt())) }.getOrNull()
+    }
+
     /** Reads every old #PERF-9 tail of the account into the store (those that open here). */
     private suspend fun migrateTails(opened: Opened) {
         for (sessionId in tailFiles.sessions(opened.accountId)) {

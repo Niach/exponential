@@ -484,8 +484,8 @@ pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     // NEW-55 review: a worker crash ends a running call too
     // (Speak replies then restarts the worker as before).
-    if matches!(event, etalk::Event::Exited) {
-        crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
+    if matches!(event, etalk::Event::Exited { .. }) {
+        crate::voice_call::on_worker_event(event.clone(), cx);
     }
     // FEED-276: a Prepare's `Voices` may be the one a ringing call waits
     // for (Speak replies reads it too).
@@ -1005,7 +1005,7 @@ impl SpeakReplies {
                     self.speaking = None;
                 }
             }
-            etalk::Event::Exited => {
+            etalk::Event::Exited { .. } => {
                 self.on_exited(cx);
                 // #NEW-56: a new worker is told the wake word again.
                 crate::push_to_talk::worker_changed(false, cx);
@@ -1063,6 +1063,9 @@ impl SpeakReplies {
         self.crashes += 1;
         if self.crashes >= MAX_CRASHES {
             log::warn!("[ui] speak replies: the speech worker crashed {} times in a row; giving up", self.crashes);
+            // #ERR-29: the voice stays off until the setting changes: an
+            // error (a GlitchTip event), its text fixed so they group.
+            log::error!("[ui] speak replies: the speech worker kept crashing; voice given up");
             self.download = Download::Unavailable;
             if let Some(client) = self.client.as_ref() {
                 client.shutdown();
@@ -1222,6 +1225,20 @@ mod tests {
         });
         rig.message("r2", "agent", "Shipped.", 6, cx);
         assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
+    }
+
+    /// #ERR-29: the crash that gives the voice up is an error, the level
+    /// GlitchTip sends (the ones before it restart quietly).
+    #[gpui::test]
+    async fn the_crash_that_gives_the_voice_up_is_an_error(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{settings, Rig};
+        etalk::log_capture::start();
+        let rig = Rig::install(settings(), cx);
+        for _ in 0..MAX_CRASHES {
+            rig.worker(etalk::Event::Exited { code: None, signal: Some(11) }, cx);
+        }
+        assert!(rig.notices().iter().any(|notice| matches!(notice, Notice::Error(_))), "the person is told");
+        assert!(etalk::log_capture::error_logged("[ui] speak replies: the speech worker kept crashing; voice given up"), "{:?}", etalk::log_capture::records());
     }
 
     #[test]

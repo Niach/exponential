@@ -164,7 +164,7 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
     let open = match opened {
         Ok(handle) => view_out.borrow().clone().map(|view| Open { handle, view }),
         Err(e) => {
-            tracing::error!("window: {e}");
+            tracing::error!(error = %e, "a sealed window could not open");
             None
         }
     };
@@ -233,6 +233,15 @@ fn user_name() -> String {
 fn usage() -> ! {
     eprintln!("usage: exponential-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
     std::process::exit(2)
+}
+
+/// #ERR-29: a dialog's failure exits: what is queued for GlitchTip gets out
+/// first (the exit skips the diagnostics guard's drop). An answer's exit
+/// does not wait on the network, nor does the lock's (the compositor
+/// starts it again, and reports its end itself).
+fn exit(code: i32) -> ! {
+    ede_observability::flush();
+    std::process::exit(code)
 }
 
 fn run_app(f: impl FnOnce(&mut App) + 'static) {
@@ -349,7 +358,7 @@ fn lock() {
                                 return;
                             }
                             Err(e) => {
-                                tracing::error!("unlock refused: {e}");
+                                tracing::error!(error = %e, "the compositor refused the unlock");
                                 cx.update(|cx| {
                                     for s in &shown {
                                         set(&s.open, "/busy", json!(false), cx);
@@ -501,7 +510,7 @@ fn consent(args: &[String]) {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         let open = open(CONSENT, json!({"title": title, "body": body, "allow": allow, "deny": deny}), acts_tx, cx);
         if open.is_none() {
-            std::process::exit(1);
+            exit(1);
         }
         cx.spawn(async move |cx| {
             loop {
@@ -548,7 +557,7 @@ fn share() {
         let data = json!({"title": title, "body": body, "outputs": outputs.clone(), "windows": windows.clone(), "remoteControl": remote, "allow": false});
         let open = Rc::new(open(SHARE, data, acts_tx, cx));
         if open.is_none() {
-            std::process::exit(1);
+            exit(1);
         }
         let mut picks: Vec<String> = Vec::new();
         let mut allow = false;
@@ -609,14 +618,27 @@ fn share() {
 }
 
 fn main() {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    // A crash-monitor process (ede-observability) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("lock") => lock(),
-        Some("polkit") => polkit_agent(),
-        Some("consent") => consent(&args[1..]),
-        Some("share") => share(),
+    let mode = args.first().map(String::as_str).unwrap_or_default();
+    let component = match mode {
+        "lock" => "sealed-lock",
+        "polkit" => "sealed-polkit",
+        "consent" => "sealed-consent",
+        "share" => "sealed-share",
         _ => usage(),
+    };
+    // #ERR-29: the compositor's diagnostics (panics, errors, native
+    // crashes), tagged per mode; stdout is consent's and share's answer. A
+    // report says where a line was logged, never what it said.
+    let _diagnostics = ede_observability::init_with(component, "info", ede_observability::Output::Stderr, ede_observability::Trail::Places);
+    ede_observability::watch_native_crashes(component);
+    match mode {
+        "lock" => lock(),
+        "polkit" => polkit_agent(),
+        "consent" => consent(&args[1..]),
+        _ => share(),
     }
 }
 
