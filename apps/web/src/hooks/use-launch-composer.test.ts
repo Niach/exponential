@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/composer-home.json" with { type: "json" }
 import type { SteerDevice } from "@/lib/steer-devices"
+import { TEMPORARY_PICK } from "@exp/domain-contract/composer-agent-row"
 
 // EXP-825 / EXP-1293: the composer's model: swap rules, submit labels, the
 // blocked matrix, seed consumption and THE start, ONE `sessions.send` that
@@ -78,6 +79,8 @@ vi.mock(`sonner`, async (importOriginal) => ({
 
 import {
   buildSendInput,
+  homeEffectiveTeamId,
+  plainChatTeamIds,
   submitLabelFor,
   useLaunchComposer,
   type LaunchSeed,
@@ -582,5 +585,80 @@ describe(`useLaunchComposer start`, () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe(`#EXP-2027 Home: the composer over every member team`, () => {
+  const teams = [
+    { id: `t2`, name: `Alpha`, iconUrl: null },
+    { id: `t1`, name: `Beta`, iconUrl: null },
+  ]
+
+  it(`plainChatTeamIds: the pick in team order, else the first team`, () => {
+    expect(plainChatTeamIds(null, teams, `t1`)).toEqual([`t2`])
+    expect(plainChatTeamIds([`t1`, `t2`], teams, `t1`)).toEqual([`t2`, `t1`])
+    expect(plainChatTeamIds([`gone`], teams, `t1`)).toEqual([`t2`])
+    expect(plainChatTeamIds(null, [], `t1`)).toEqual([`t1`])
+  })
+
+  it(`homeEffectiveTeamId: a team agent's team, the Assistant's as before, a plain chat's first pick`, () => {
+    expect(homeEffectiveTeamId({ teamId: `t1`, recipient: null, toAssistant: false, plainTeamIds: [`t2`] })).toBe(`t2`)
+    expect(homeEffectiveTeamId({ teamId: `t1`, recipient: { teamId: `t2` }, toAssistant: false, plainTeamIds: [`t1`] })).toBe(`t2`)
+    expect(homeEffectiveTeamId({ teamId: `t1`, recipient: { teamId: `personal` }, toAssistant: true, plainTeamIds: [`t2`] })).toBe(`t1`)
+  })
+
+  function mountHome(seedTeam: { id: string } | null = null) {
+    return renderHook(() =>
+      useLaunchComposer({
+        teamId: `t1`,
+        devices: [device],
+        seed: null,
+        onSeedConsumed: vi.fn(),
+        agentRow: true,
+        me: `u-me`,
+        home: { teams, seedTeam },
+      })
+    )
+  }
+
+  it(`a plain chat carries the Teams pick (the first team by default) and sends into its first team`, async () => {
+    const { result } = mountHome()
+    act(() => result.current.pickRecipient(TEMPORARY_PICK))
+    expect(result.current.recipient).toBeNull()
+    expect(result.current.teams?.picked).toEqual([`t2`])
+    expect(result.current.teamId).toBe(`t2`)
+    act(() => result.current.teams!.onChange([`t1`]))
+    expect(result.current.teamId).toBe(`t1`)
+    // Every team checked again (null) = every team, still a list.
+    act(() => result.current.teams!.onChange(null))
+    expect(result.current.teams?.picked).toEqual([`t2`, `t1`])
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const input = mockState.send.mock.calls[0]![0]
+    expect(input).toMatchObject({ teamId: `t2`, deviceId: `dev-1` })
+    expect(input).not.toHaveProperty(`scopeTeamIds`)
+  })
+
+  it(`?team= presets the plain chat's team and picks Temporary session`, () => {
+    const { result } = mountHome({ id: `t1` })
+    expect(result.current.recipient).toBeNull()
+    expect(result.current.teams?.picked).toEqual([`t1`])
+    expect(result.current.teamId).toBe(`t1`)
+  })
+
+  it(`a team agent sends into its own team; the Assistant keeps its Teams pick`, async () => {
+    mockState.rows.agents = [
+      { ...agentRow(`ag-2`, `Ops`), teamId: `t2` },
+      agentRow(`ag-me`, `Assistant`, `assistant`, `u-me`),
+    ]
+    const { result } = mountHome()
+    expect(result.current.recipient?.id).toBe(`ag-me`)
+    expect(result.current.teamId).toBe(`t1`)
+    act(() => result.current.pickRecipient(`ag-2`))
+    expect(result.current.teams).toBeNull()
+    expect(result.current.teamId).toBe(`t2`)
+    act(() => result.current.setText(`status?`))
+    await act(() => result.current.submit())
+    expect(mockState.send.mock.calls[0]![0]).toEqual({ teamId: `t2`, agentId: `ag-2`, text: `status?` })
   })
 })
