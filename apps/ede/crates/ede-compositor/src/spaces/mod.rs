@@ -14,6 +14,7 @@ pub mod frames;
 pub mod guard;
 mod input;
 pub mod launch;
+pub mod render;
 pub mod ipc;
 mod members;
 mod windows;
@@ -141,6 +142,10 @@ pub struct AgentSpace {
     pub(crate) sliced: bool,
     /// Its own user manager and bus ([`session`]), from its first launch.
     pub(crate) session: session::Session,
+    /// Its programs draw in software ([`render`]): Vulkan sees lavapipe
+    /// alone. On for every space; #EDE-162 (F7) turns it off for a space
+    /// whose GPU path is ready, before its first launch.
+    pub software_rendering: bool,
 }
 
 impl AgentSpace {
@@ -308,7 +313,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new() });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true });
         Ok(id)
     }
 }
