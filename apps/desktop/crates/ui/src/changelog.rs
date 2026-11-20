@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-skills-mcp-per-team",
+    date: "2026-11-20",
+    title: "Your Assistant's skills and MCP servers, per team",
+    summary: "Settings › Assistant now shows Skills and MCP servers for each of your teams, and work in a team uses that team's picks.",
+    body: r##"- **Settings › Assistant**: one section per team, each with its own Skills and MCP servers rows.
+- **Work in a team**: your Assistant's chats and sessions in a team start with the skills and MCP servers you picked for that team."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_337: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-assistant-account-settings",
     date: "2026-11-20",
     title: "Your Assistant has its own place in Settings",

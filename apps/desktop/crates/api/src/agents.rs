@@ -191,6 +191,11 @@ pub struct UpdateInput {
     /// #EXP-1793: the agent page's MCP servers pick (`Some(vec![])` = none).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_server_ids: Option<Vec<String>>,
+    /// #EXP-1988 (agent-settings.json `assistant.teamPicks`): the team whose
+    /// picks `skill_ids` / `mcp_server_ids` replace (Settings › Assistant's
+    /// per-team sections); unset = the flat merge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pick_team_id: Option<String>,
     /// #EXP-1847 (agent-settings.json `voice`): the agent's own voice; the
     /// clip is written only through its route.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -361,6 +366,14 @@ mod tests {
         let text = request(&captured);
         assert!(text.starts_with("POST /api/trpc/agents.update HTTP/1.1"), "{text}");
         assert!(text.ends_with(r#"{"id":"ag-1","name":"Docs","account":null,"model":"opus"}"#), "{text}");
+
+        // #EXP-1988: a Settings › Assistant team section's pick names its team.
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"agent":{"id":"ag-1","teamId":"t-1","name":"Docs"},"txid":2}}}"#);
+        let input = UpdateInput { skill_ids: Some(vec!["sk-1".into()]), pick_team_id: Some("t-2".into()), ..UpdateInput::new("ag-1") };
+        update(&client(&base), &input).unwrap();
+        let text = request(&captured);
+        assert!(text.ends_with(r#"{"id":"ag-1","skillIds":["sk-1"],"pickTeamId":"t-2"}"#), "{text}");
 
         // #EXP-1850: a triggers write names every kind.
         let (base, captured) =

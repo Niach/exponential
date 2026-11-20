@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-assistant-skills-mcp-per-team`,
+    date: `2026-11-20`,
+    title: `Your Assistant's skills and MCP servers, per team`,
+    summary: `Settings › Assistant now shows Skills and MCP servers for each of your teams, and work in a team uses that team's picks.`,
+    body: `- **Settings › Assistant**: one section per team, each with its own Skills and MCP servers rows.
+- **Work in a team**: your Assistant's chats and sessions in a team start with the skills and MCP servers you picked for that team.`,
+  },
+  {
     id: `2026-11-20-assistant-account-settings`,
     date: `2026-11-20`,
     title: `Your Assistant has its own place in Settings`,

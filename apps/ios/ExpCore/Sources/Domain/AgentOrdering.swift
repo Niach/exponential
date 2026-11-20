@@ -62,6 +62,18 @@ public enum AgentOrdering {
             isMyAssistant: { me != nil && isAssistant(role: $0.agentRole) && $0.agentOwnerId == me }
         )
     }
+
+    /// #EXP-1988 (`assistant.teamPicks.pickAgentCases`): the agent a team's
+    /// section of Settings › Assistant edits: the viewer's Assistant that
+    /// `agentsInTeam` lists in that team (switch off: that team's own; on:
+    /// the global one), else the page's.
+    public static func assistantPickAgent<T: AgentTeamScoped>(
+        _ agents: [T], teamId: String, teamIds: [String], me: String?, pageAgentId: String?
+    ) -> String? {
+        let listed = agentsInTeam(agents, teamId: teamId, teamIds: teamIds, me: me)
+            .first { isAssistant(role: $0.agentRole) && $0.agentOwnerId == me }
+        return listed?.agentId ?? pageAgentId
+    }
 }
 
 /// #EXP-1714: an agent row with its team (`agentsInTeam`).
