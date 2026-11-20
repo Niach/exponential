@@ -67,6 +67,8 @@ describe(`#EDE-129 the bar`, () => {
     go: vi.fn(),
     setReport: vi.fn(),
     focusNonce: 1,
+    target: null,
+    dropTarget: () => {},
     ...over,
   })
   it(`shows the counter and status; Enter = previous, Shift+Enter = next, Escape closes`, () => {

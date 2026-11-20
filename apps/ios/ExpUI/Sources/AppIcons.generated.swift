@@ -581,6 +581,8 @@ public enum AppIcons {
         "run-pause": "pause",
         "run-resume": "rotate-ccw",
         "sc-push": "upload",
+        "search-agent": "bot",
+        "search-chat": "message-circle",
         "session-shell": "terminal",
         "session-tree": "workflow",
         "settings-about": "info",
@@ -1090,6 +1092,10 @@ public enum AppIcons {
     public static let runResume: String = "rotate-ccw"
     /// Concept `sc-push`.
     public static let scPush: String = "upload"
+    /// Concept `search-agent`.
+    public static let searchAgent: String = "bot"
+    /// Concept `search-chat`.
+    public static let searchChat: String = "message-circle"
     /// Concept `session-shell`.
     public static let sessionShell: String = "terminal"
     /// Concept `session-tree`.

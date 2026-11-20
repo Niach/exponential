@@ -867,6 +867,15 @@ private fun AuthenticatedNav(
             SearchScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
+                // #EDE-99 (search-list.json A PICK): closes the search, opens
+                // the hit's session (a root = its chat, a child = its view)
+                // with find in chat seeded on the query at the hit.
+                onOpenChatHit = { pick, isRoot ->
+                    com.exponential.app.ui.chat.FindInChatSeeds.put(pick)
+                    navController.navigate(if (isRoot) Routes.chat(pick.sessionId) else Routes.session(pick.sessionId)) {
+                        popUpTo("search") { inclusive = true }
+                    }
+                },
             )
         }
         composable(

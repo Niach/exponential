@@ -165,7 +165,7 @@ public struct TraceTitleMarks: Equatable, Sendable {
     }
 
     /// `title` with the fills behind its matches.
-    func painted(_ title: String) -> AttributedString {
+    public func painted(_ title: String) -> AttributedString {
         var out = AttributedString(title)
         for (k, range) in ranges.enumerated() {
             guard let r = Range(range, in: title), let a = Range(r, in: out) else { continue }

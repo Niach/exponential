@@ -322,6 +322,9 @@ struct ChatSessionsTab: View {
 /// back (the pushed page's own) over the item's body.
 struct SessionScreenItemPage<Content: View>: View {
     let title: String
+    /// #EDE-99: find in chat over this page's transcript; while open its bar
+    /// REPLACES the header (find-in-chat.json COMPACT).
+    var find: ChatFind? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -334,16 +337,22 @@ struct SessionScreenItemPage<Content: View>: View {
             // at Back's centre found a feed row. The band's strip still fades
             // the body's top edge.
             VStack(spacing: 0) {
-                ChatHeader {
-                    Text(title)
-                        .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("session-item-title")
-                } trailing: {
-                    EmptyView()
+                Group {
+                    if let find, find.open {
+                        FindInChatHeader(find: find)
+                    } else {
+                        ChatHeader {
+                            Text(title)
+                                .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .accessibilityAddTraits(.isHeader)
+                                .accessibilityIdentifier("session-item-title")
+                        } trailing: {
+                            EmptyView()
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .headerEdgeChrome()

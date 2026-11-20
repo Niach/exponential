@@ -9695,6 +9695,8 @@ public object ExpIcons {
         "run-pause" -> `pause`
         "run-resume" -> `rotate-ccw`
         "sc-push" -> `upload`
+        "search-agent" -> `bot`
+        "search-chat" -> `message-circle`
         "session-shell" -> `terminal`
         "session-tree" -> `workflow`
         "settings-about" -> `info`
@@ -10170,6 +10172,10 @@ public object ExpIcons {
     public val runResume: ImageVector get() = `rotate-ccw`
     /** Concept `sc-push`. */
     public val scPush: ImageVector get() = `upload`
+    /** Concept `search-agent`. */
+    public val searchAgent: ImageVector get() = `bot`
+    /** Concept `search-chat`. */
+    public val searchChat: ImageVector get() = `message-circle`
     /** Concept `session-shell`. */
     public val sessionShell: ImageVector get() = `terminal`
     /** Concept `session-tree`. */
