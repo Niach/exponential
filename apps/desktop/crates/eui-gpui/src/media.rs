@@ -302,8 +302,198 @@ pub fn remember_size(src: &str, size: (f32, f32)) -> bool {
 /// media schemes and hosts (a custom hook cannot widen them), fetched and
 /// decoded by [`MediaLoader`] under the media limits.
 pub fn image_source(host: &dyn HostPlugin, src: &str) -> Option<ImageSource> {
-    let key = image_key(host, src)?;
-    Some(ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| window.use_asset::<MediaLoader>(&key, cx))))
+    image_key(host, src).map(key_source)
+}
+
+/// The source `img()` paints for a [`MediaKey`] (gpui's asset cache).
+pub fn key_source(key: MediaKey) -> ImageSource {
+    ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| window.use_asset::<MediaLoader>(&key, cx)))
+}
+
+/// A `data:` url (any case).
+pub fn is_data_url(src: &str) -> bool {
+    src.len() >= 5 && src.as_bytes()[..5].eq_ignore_ascii_case(b"data:")
+}
+
+// #EXP-2024 (6a): gpui's asset cache keeps every load by its key for the
+// app's life, and the sprite atlas every picture painted. A `data:` url is
+// its own key, so a live picture fed as one `data:` url a frame (the
+// switcher's and the taskbar previews' thumbnails, a pinned space view)
+// added an entry and a tile per frame and never let one go. An Image now
+// releases the `data:` picture it no longer wants or shows: its asset and
+// its atlas tile go once no Image of any view holds it. An http(s) or
+// app-file picture stays cached (it is the same picture the next time).
+
+/// A `data:` picture Images hold: its key (to remove the asset), how many
+/// holds (an Image's wanted src and its shown picture each count) and the
+/// decoded picture (its atlas tile drops with it).
+struct DataHold {
+    key: MediaKey,
+    holds: usize,
+    image: Option<Arc<RenderImage>>,
+}
+
+thread_local! {
+    /// Every held `data:` picture, by its key's hash (gpui paints on one
+    /// thread; the hash spares a second copy of a megabyte url).
+    static DATA_HOLDS: std::cell::RefCell<std::collections::HashMap<u64, DataHold>> = Default::default();
+    /// Pictures no Image holds any more, released at the next paint (a
+    /// dropped view has no `App` to release them with).
+    static LET_GO: std::cell::RefCell<Vec<DataHold>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn data_id(key: &MediaKey) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut h);
+    h.finish()
+}
+
+fn take_hold(id: u64, key: &MediaKey) {
+    DATA_HOLDS.with(|m| m.borrow_mut().entry(id).or_insert_with(|| DataHold { key: key.clone(), holds: 0, image: None }).holds += 1);
+}
+
+fn give_hold(id: u64) {
+    DATA_HOLDS.with(|m| {
+        let mut m = m.borrow_mut();
+        let Some(hold) = m.get_mut(&id) else { return };
+        hold.holds = hold.holds.saturating_sub(1);
+        if hold.holds == 0 {
+            if let Some(hold) = m.remove(&id) {
+                LET_GO.with(|l| l.borrow_mut().push(hold));
+            }
+        }
+    });
+}
+
+fn remember_picture(id: u64, image: &Arc<RenderImage>) {
+    DATA_HOLDS.with(|m| {
+        if let Some(hold) = m.borrow_mut().get_mut(&id) {
+            hold.image = Some(image.clone());
+        }
+    });
+}
+
+/// Release every `data:` picture no Image holds any more: its asset leaves
+/// gpui's cache and its tile every window's sprite atlas.
+pub fn release_let_go(window: &mut Window, cx: &mut App) {
+    let gone = LET_GO.with(|l| std::mem::take(&mut *l.borrow_mut()));
+    for hold in gone {
+        cx.remove_asset::<MediaLoader>(&hold.key);
+        if let Some(image) = hold.image {
+            cx.drop_image(image, Some(window));
+        }
+    }
+}
+
+/// How many `data:` pictures Images hold now (tests, diagnostics).
+pub fn held_data_pictures() -> usize {
+    DATA_HOLDS.with(|m| m.borrow().len())
+}
+
+/// One Image's pictures: the `data:` asset its src asks for now and the
+/// decoded picture on screen (with the `data:` asset it came from).
+#[derive(Default)]
+struct HeldImage {
+    wants: Option<u64>,
+    shows: Option<(Arc<RenderImage>, Option<u64>)>,
+}
+
+impl HeldImage {
+    fn let_go(self) {
+        if let Some(id) = self.wants {
+            give_hold(id);
+        }
+        if let Some(id) = self.shows.and_then(|(_, id)| id) {
+            give_hold(id);
+        }
+    }
+}
+
+/// A view's Images' last decoded pictures, by painted id: a new `src`
+/// keeps the last picture on screen until its own decode lands, as a
+/// browser's `<img>` does (#EDE-65: live thumbnails blanked at every
+/// refresh); a `data:` picture an Image no longer wants or shows is let
+/// go (#EXP-2024, [`release_let_go`]).
+#[derive(Default)]
+pub struct HeldImages {
+    by_id: std::collections::HashMap<SharedString, HeldImage>,
+}
+
+impl HeldImages {
+    /// Image `id` paints `key` whose decode is `decoded` (`Some(Err)` = it
+    /// failed; `None` = still loading). Answers the held picture to paint
+    /// while it loads (`None` = paint `key`'s own, or the placeholder).
+    pub fn paint(&mut self, id: &SharedString, key: &MediaKey, decoded: Option<Result<Arc<RenderImage>, ()>>) -> Option<Arc<RenderImage>> {
+        let entry = self.by_id.entry(id.clone()).or_default();
+        let wants = is_data_url(&key.url).then(|| data_id(key));
+        if wants != entry.wants {
+            if let Some(id) = wants {
+                take_hold(id, key);
+            }
+            if let Some(old) = std::mem::replace(&mut entry.wants, wants) {
+                give_hold(old);
+            }
+        }
+        match decoded {
+            Some(Ok(image)) => {
+                if let Some(id) = wants {
+                    remember_picture(id, &image);
+                }
+                let same = entry.shows.as_ref().is_some_and(|(_, shown)| *shown == wants);
+                if !same {
+                    if let Some(id) = wants {
+                        take_hold(id, key);
+                    }
+                }
+                if let Some((_, Some(old))) = std::mem::replace(&mut entry.shows, Some((image, wants))) {
+                    if !same {
+                        give_hold(old);
+                    }
+                }
+                None
+            }
+            Some(Err(())) => {
+                if let Some((_, Some(old))) = entry.shows.take() {
+                    give_hold(old);
+                }
+                None
+            }
+            None => entry.shows.as_ref().map(|(image, _)| image.clone()),
+        }
+    }
+
+    /// Image `id` has nothing to load (no src, or one the policy refuses).
+    pub fn forget(&mut self, id: &str) {
+        if let Some(held) = self.by_id.remove(id) {
+            held.let_go();
+        }
+    }
+
+    /// Keep the Images `keep` answers true for (a node still in the tree).
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        let gone: Vec<SharedString> = self.by_id.keys().filter(|id| !keep(id.as_ref())).cloned().collect();
+        for id in gone {
+            self.forget(&id);
+        }
+    }
+
+    /// How many Images hold a picture (tests).
+    pub fn len(&self) -> usize {
+        self.by_id.values().filter(|h| h.shows.is_some()).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Drop for HeldImages {
+    fn drop(&mut self) {
+        for (_, held) in self.by_id.drain() {
+            held.let_go();
+        }
+    }
 }
 
 /// The [`MediaLoader`] key for an image `src` (`None` = nothing loads): an
@@ -326,7 +516,7 @@ pub fn image_key(host: &dyn HostPlugin, src: &str) -> Option<MediaKey> {
 /// ORIGINAL picture, never a thumbnail), any other parameter and the
 /// fragment kept; a `data:` url as it is.
 pub fn original_src(src: &str) -> String {
-    if src.len() >= 5 && src.as_bytes()[..5].eq_ignore_ascii_case(b"data:") {
+    if is_data_url(src) {
         return src.to_string();
     }
     let (head, fragment) = src.split_at(src.find('#').unwrap_or(src.len()));
@@ -531,6 +721,70 @@ pub fn play(host: std::rc::Rc<dyn HostPlugin>, src: &str, fallback: &'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn picture(shade: u8) -> Arc<RenderImage> {
+        Arc::new(RenderImage::new([image::Frame::new(image::RgbaImage::from_pixel(2, 2, image::Rgba([shade, 0, 0, 255])))]))
+    }
+
+    fn data(n: u32) -> MediaKey {
+        MediaKey { url: format!("data:image/bmp;base64,{n}"), ..Default::default() }
+    }
+
+    fn let_go() -> Vec<String> {
+        LET_GO.with(|l| l.borrow_mut().drain(..).map(|h| h.key.url).collect())
+    }
+
+    /// #EDE-65: a changed `src` keeps the last picture until its own lands.
+    /// #EXP-2024 (6a): the `data:` picture it moves off is let go.
+    #[test]
+    fn an_image_holds_its_last_picture_while_the_next_loads_then_lets_it_go() {
+        let (id, mut held) = (SharedString::from("thumb"), HeldImages::default());
+        assert!(held.paint(&id, &data(1), None).is_none(), "nothing yet: the placeholder");
+        let first = picture(1);
+        assert!(held.paint(&id, &data(1), Some(Ok(first.clone()))).is_none(), "decoded: paint it");
+        assert!(held.paint(&id, &data(1), Some(Ok(first.clone()))).is_none(), "painted again: nothing moves");
+        assert_eq!(held_data_pictures(), 1);
+        assert!(Arc::ptr_eq(&held.paint(&id, &data(2), None).unwrap(), &first), "the next one loading: the first stays");
+        assert_eq!((held_data_pictures(), let_go().len()), (2, 0), "the shown one and the wanted one");
+        let second = picture(2);
+        assert!(held.paint(&id, &data(2), Some(Ok(second.clone()))).is_none());
+        assert!(Arc::ptr_eq(&held.paint(&id, &data(2), None).unwrap(), &second));
+        assert_eq!((held_data_pictures(), let_go()), (1, vec![data(1).url]), "the first is let go, once");
+        // A src that moves on before its decode lands: the never-shown one goes too.
+        assert!(Arc::ptr_eq(&held.paint(&id, &data(3), None).unwrap(), &second));
+        assert!(Arc::ptr_eq(&held.paint(&id, &data(4), None).unwrap(), &second));
+        assert_eq!(let_go(), vec![data(3).url]);
+        assert!(held.paint(&id, &data(4), Some(Err(()))).is_none() && held.is_empty(), "a failed one drops the held picture");
+        assert_eq!(let_go(), vec![data(2).url]);
+        held.forget(&id);
+        assert_eq!((held_data_pictures(), let_go()), (0, vec![data(4).url]));
+    }
+
+    /// #EXP-2024 (6a): one `data:` picture two Images show stays until both
+    /// let go; an http picture is never counted (it stays cached); a dropped
+    /// view lets go of everything it held.
+    #[test]
+    fn a_shared_data_picture_stays_until_its_last_image_lets_go() {
+        let (a, b) = (SharedString::from("a"), SharedString::from("b"));
+        let mut one = HeldImages::default();
+        let mut two = HeldImages::default();
+        let shared = picture(7);
+        one.paint(&a, &data(7), Some(Ok(shared.clone())));
+        two.paint(&b, &data(7), Some(Ok(shared.clone())));
+        assert_eq!(held_data_pictures(), 1);
+        one.forget(&a);
+        assert!(let_go().is_empty(), "the other view still shows it");
+        drop(two);
+        assert_eq!(let_go(), vec![data(7).url], "the dropped view's picture goes at the next paint");
+        let http = MediaKey { url: "https://example.com/a.png".into(), ..Default::default() };
+        let mut three = HeldImages::default();
+        three.paint(&a, &http, Some(Ok(picture(1))));
+        three.paint(&a, &data(8), Some(Ok(picture(2))));
+        three.paint(&a, &http, Some(Ok(picture(1))));
+        assert_eq!(let_go(), vec![data(8).url], "only the data: picture is released");
+        three.retain(|_| false);
+        assert!(three.is_empty() && let_go().is_empty() && held_data_pictures() == 0);
+    }
 
     #[test]
     fn formats_sniff_from_magic_bytes() {
