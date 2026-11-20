@@ -67,6 +67,7 @@ import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.WorkScreen
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
 // styled like the Start-coding sheet (EXP-208/EXP-211 chrome: full height,
@@ -404,6 +405,8 @@ fun DeviceSettingsSheet(
                         workScreenDisplays = doctor.displays,
                         computerUseDisplayId = computerUseDisplayId,
                         onComputerUseDisplayChange = ::pickComputerUseDisplayId,
+                        // #EXP-1514: its `agent_space` row is `ok`.
+                        workScreenSpaceOffered = WorkScreen.spaceOffered(doctor),
                     )
                 } else {
                     OptionGroup {
@@ -428,7 +431,8 @@ fun DeviceSettingsSheet(
                                     queueDefaults(nextComputerUseModel = next)
                                 },
                             )
-                            // NEW-59: the Work screen under the model row.
+                            // NEW-59: the Work screen under the model row
+                            // (#EXP-1514: no doctor = no space offered).
                             GroupDivider()
                             WorkScreenPickerRow(
                                 displays = null,
