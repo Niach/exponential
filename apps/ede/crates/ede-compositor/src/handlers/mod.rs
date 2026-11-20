@@ -7,7 +7,7 @@ mod input_method;
 pub(crate) mod layer_shell;
 mod xdg_shell;
 #[cfg(feature = "xwayland")]
-mod xwayland;
+pub(crate) mod xwayland;
 
 use smithay::{
     input::{

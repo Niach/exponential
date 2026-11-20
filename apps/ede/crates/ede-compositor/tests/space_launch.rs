@@ -75,7 +75,7 @@ fn until(what: &str, mut ok: impl FnMut() -> bool) {
 fn persons_environment() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        for (name, value) in [("DISPLAY", ":77"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
+        for (name, value) in [("DISPLAY", ":77"), ("XAUTHORITY", "/nonexistent/persons-xauthority"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
             .into_iter()
             .chain(LOGIN_ONLY)
         {
@@ -133,7 +133,7 @@ fn a_launch_opens_in_its_space_with_the_spaces_own_environment_and_ends_with_it(
     assert_eq!(got["WAYLAND_DISPLAY"], space.wayland_display);
     assert_eq!(Path::new(&got["XDG_RUNTIME_DIR"]), runtime);
     // Nothing of the person's session.
-    for gone in ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
+    for gone in ["DISPLAY", "XAUTHORITY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
         assert!(!got.contains_key(gone), "{gone} reached the launch");
     }
     // What a launch keeps of the compositor's, and a tmux server, screen
@@ -176,7 +176,7 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     let (mut agent, _space) = agent(&h, "run-1");
     let sleep = || vec!["sleep".to_string(), "30".to_string()];
     // The names the compositor sets or drops are not the caller's.
-    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
+    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "XAUTHORITY", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
         assert_eq!(code(agent.launch(sleep(), [(name.to_string(), "x".to_string())].into(), None)), ErrorCode::Invalid, "{name}");
     }
     assert_eq!(code(agent.launch(vec![], Default::default(), None)), ErrorCode::Invalid);
@@ -297,4 +297,36 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     for pid in [group, env] {
         let _ = smithay::reexports::rustix::process::kill_process(smithay::reexports::rustix::process::Pid::from_raw(pid as i32).unwrap(), smithay::reexports::rustix::process::Signal::KILL);
     }
+}
+
+/// #EDE-138: a browser launched into a space gets the space's profile and
+/// the switches of a space that renders in software (here a stand-in
+/// `chromium` of the system that writes down its arguments); a launch that
+/// names a profile itself is refused; the profile goes with the space.
+#[test]
+fn a_browser_in_a_space_gets_the_spaces_profile() {
+    use std::os::unix::fs::PermissionsExt;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let chromium = bin.join("chromium");
+    let args = dir.path().join("chromium.args");
+    std::fs::write(&chromium, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}.tmp && mv {0}.tmp {0}\nexec sleep 60\n", args.display())).unwrap();
+    std::fs::set_permissions(&chromium, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let chromium = chromium.to_string_lossy().into_owned();
+
+    agent.launch(vec![chromium.clone(), "https://example.org".into()], Default::default(), None).unwrap();
+    until("the browser never ran", || args.exists());
+    let got: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+    let profile = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str()).join("browsers/chromium");
+    assert_eq!(got, [format!("--user-data-dir={}", profile.display()), "--enable-unsafe-swiftshader".into(), "--use-angle=swiftshader".into(), "https://example.org".into()]);
+    assert!(profile.is_dir(), "the profile was not made");
+
+    // The caller's own profile is not the space's to take.
+    let refused = agent.launch(vec![chromium.clone(), "--user-data-dir=/tmp/mine".into()], Default::default(), None);
+    assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Invalid), "{refused:?}");
+
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("the browser's profile outlived its space", || !profile.exists());
 }

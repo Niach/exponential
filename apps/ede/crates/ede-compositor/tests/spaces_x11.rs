@@ -41,7 +41,7 @@ fn xwayland(h: &Harness) -> Option<x11rb::rust_connection::RustConnection> {
         assert!(Instant::now() < deadline, "Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     };
-    Some(x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland").0)
+    Some(common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"))
 }
 
 /// The person presses on an X11 window, then an agent presses in its
@@ -224,7 +224,7 @@ fn a_spaces_x11_apps_get_a_display_and_a_desk_of_their_own() {
     assert_eq!(on_person, 0, "the space's Xwayland bound the person's seat or output");
 
     // Ten windows on each server, one after the other.
-    let (in_space, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let in_space = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
     let mut theirs = Vec::new();
     for _ in 0..10 {
         theirs.push((true, x11_window(&person, 0x00ff_0000)));
@@ -320,7 +320,7 @@ fn an_x11_window_in_a_space_gets_the_agents_keys_while_the_person_types() {
 
     let (_agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
     let desk = space_desk(&space);
-    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let conn = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
     let root = conn.setup().roots[0].root;
     let win = conn.generate_id().unwrap();
     let aux = CreateWindowAux::new().background_pixel(0x0000_00ff).event_mask(EventMask::KEY_PRESS | EventMask::FOCUS_CHANGE);
@@ -520,7 +520,7 @@ fn a_spaces_clipboard_crosses_its_own_xwayland_both_ways() {
     let _copied_b = b.set_selection(&device_b, &[(UTF8, Some(b"from wayland"))]);
 
     // The space's X11 app, with the space's keyboard, pastes it.
-    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let conn = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
     let conn = Arc::new(conn);
     let root = conn.setup().roots[0].root;
     let win = conn.generate_id().unwrap();
@@ -594,8 +594,8 @@ fn an_agents_copy_from_before_its_xwayland_ran_pastes_in_x11() {
         assert!(Instant::now() < deadline, "the space's Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     }
-    let display = std::fs::read_to_string(&out).unwrap().trim().trim_start_matches(':').to_string();
-    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let display: u32 = std::fs::read_to_string(&out).unwrap().trim().trim_start_matches(':').parse().unwrap();
+    let conn = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
     let root = conn.setup().roots[0].root;
     let win = conn.generate_id().unwrap();
     conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE)).unwrap();
@@ -641,7 +641,7 @@ fn a_spaces_x11_drag_stays_on_the_spaces_seat() {
 
     // The space's X11 dialog (transient, so centred at its own size over
     // B), which offers one type to drag.
-    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let conn = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
     let root = conn.setup().roots[0].root;
     let win = conn.generate_id().unwrap();
     let aux = CreateWindowAux::new().background_pixel(0x0000_ff00).event_mask(EventMask::BUTTON_PRESS);
@@ -736,7 +736,7 @@ fn spaces_closed_mid_paste_leave_the_compositor_running() {
     wait_for(&mut b, |b| b.state.keyboard_focus.is_some());
     let device_b = b.data_device();
     let _hung = b.set_selection(&device_b, &[(UTF8, None)]);
-    let (x1, _) = x11rb::connect(Some(&format!(":{display1}"))).expect("space 1's display");
+    let x1 = common::x11_connect(display1, h.with(move |state| state.xauthority(desk1)).as_deref()).expect("space 1's display");
     let win1 = x11_window(&x1, 0x0000_00ff);
     wait_for_space_keyboard(&h, desk1, win1);
     x1.convert_selection(win1, atom(&x1, "CLIPBOARD"), atom(&x1, "UTF8_STRING"), atom(&x1, "EDE_TEST"), x11rb::CURRENT_TIME).unwrap();
@@ -746,7 +746,7 @@ fn spaces_closed_mid_paste_leave_the_compositor_running() {
     // Space 2: its X11 app copies and never hands over the text; the agent reads.
     let (agent2, space2, display2) = space_with_x11(&h, dir.path(), "run-2");
     let desk2 = space_desk(&space2);
-    let (x2, _) = x11rb::connect(Some(&format!(":{display2}"))).expect("space 2's display");
+    let x2 = common::x11_connect(display2, h.with(move |state| state.xauthority(desk2)).as_deref()).expect("space 2's display");
     let win2 = x11_window(&x2, 0x00ff_00ff);
     wait_for_space_keyboard(&h, desk2, win2);
     let serial = h.with(move |state| state.desk(desk2).clipboard.serial);
@@ -784,4 +784,95 @@ fn spaces_closed_mid_paste_leave_the_compositor_running() {
     wait_for(&mut a, |a| a.state.keys == [KEY_A]);
     common::space::assert_person_untouched(&h, &before);
     drop((x1, x2));
+}
+
+/// #EDE-138: each Xwayland admits its own cookie alone. A client without
+/// one, or with the other side's, is refused by the person's server and by
+/// a space's; each side's programs are given their own file as
+/// `XAUTHORITY` (the person's children by the compositor, a space's
+/// launches by the space).
+#[test]
+fn each_xwayland_admits_only_its_own_cookie() {
+    use ede_compositor::desk::DeskId;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(_person) = xwayland(&h) else { return };
+    let person_display = h.with(|state| state.xdisplay).unwrap();
+    let person_file = h.with(|state| state.xauthority(DeskId::PERSON)).expect("the person's X authority");
+    let (mut agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
+    let desk = space_desk(&space);
+    let space_file = h.with(move |state| state.xauthority(desk)).expect("the space's X authority");
+    assert_ne!(person_file, space_file);
+    assert_ne!(ede_compositor::xauth::cookie_for(&person_file, person_display), ede_compositor::xauth::cookie_for(&space_file, display));
+
+    for (number, own, other, whose) in [(person_display, &person_file, &space_file, "the person's"), (display, &space_file, &person_file, "the space's")] {
+        assert!(common::x11_connect(number, Some(own)).is_ok(), "{whose} server refused its own cookie");
+        assert!(common::x11_connect(number, None).is_err(), "{whose} server admitted a client without a cookie");
+        // The other side's file has no entry for this display, and its
+        // cookie is not this server's.
+        let theirs = ede_compositor::xauth::cookie_for(other, if number == display { person_display } else { display }).unwrap();
+        let stream = x11rb::rust_connection::DefaultStream::connect(&x11rb::reexports::x11rb_protocol::parse_display::ConnectAddress::Socket(format!("/tmp/.X11-unix/X{number}").into())).unwrap().0;
+        let with_theirs = x11rb::rust_connection::RustConnection::connect_to_stream_with_auth_info(stream, 0, ede_compositor::xauth::MIT_MAGIC_COOKIE.to_vec(), theirs);
+        assert!(with_theirs.is_err(), "{whose} server admitted the other side's cookie");
+    }
+
+    // What each side's programs are given.
+    let out = dir.path().join("space.env");
+    agent.launch(vec!["sh".into(), "-c".into(), format!("env > {0}.tmp && mv {0}.tmp {0}; exec sleep 60", out.display())], Default::default(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !out.exists() {
+        assert!(Instant::now() < deadline, "the launch never ran");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let env = std::fs::read_to_string(&out).unwrap();
+    assert!(env.lines().any(|line| line == format!("XAUTHORITY={}", space_file.display())), "{env}");
+    assert!(env.lines().any(|line| line == format!("DISPLAY=:{display}")), "{env}");
+    let person_env: Vec<(String, String)> = h.with(|state| {
+        let cmd = state.client_command(&["true".to_string()]).unwrap();
+        cmd.get_envs().filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string()))).collect()
+    });
+    assert!(person_env.contains(&("XAUTHORITY".to_string(), person_file.to_string_lossy().into_owned())), "{person_env:?}");
+    assert!(person_env.contains(&("DISPLAY".to_string(), format!(":{person_display}"))), "{person_env:?}");
+}
+
+/// #EDE-138: the person's Xwayland that dies starts again on the same
+/// display with the same cookie file: its windows were let go of, an X11
+/// app that connects afterwards with the cookie works, one without is
+/// refused, and what the session was given (`DISPLAY`, `XAUTHORITY`)
+/// stays right.
+#[test]
+fn the_persons_xwayland_starts_again_when_it_dies() {
+    use ede_compositor::desk::DeskId;
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let display = h.with(|state| state.xdisplay).unwrap();
+    let file = h.with(|state| state.xauthority(DeskId::PERSON)).unwrap();
+    let before = h.with(|state| state.xwm.as_ref().map(|wm| wm.id())).unwrap();
+    let win = x11_window(&conn, 0x00ff_0000);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| state.desk.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win))) {
+        assert!(Instant::now() < deadline, "the X11 window never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let pid = xwayland_pid(display).expect("the person's Xwayland process");
+    assert!(std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap().success());
+    drop(conn);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while h.with(move |state| state.xwm.as_ref().map(|wm| wm.id()).is_none_or(|id| id == before)) {
+        assert!(Instant::now() < deadline, "the person's Xwayland never started again");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(h.with(|state| state.desk.space.elements().all(|w| w.x11_surface().is_none())), "a window of the dead server stayed");
+    assert_eq!(h.with(|state| state.xdisplay), Some(display), "another display");
+    assert_eq!(h.with(|state| state.xauthority(DeskId::PERSON)).as_deref(), Some(file.as_path()), "another cookie file");
+    assert_ne!(xwayland_pid(display), Some(pid));
+
+    assert!(common::x11_connect(display, None).is_err(), "the new server admitted a client without a cookie");
+    let again = common::x11_connect(display, Some(&file)).expect("the new server refused the cookie");
+    let win = x11_window(&again, 0x0000_ff00);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| state.desk.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.window_id() == win))) {
+        assert!(Instant::now() < deadline, "an X11 window on the new server never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

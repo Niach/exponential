@@ -83,6 +83,9 @@ pub struct Ede {
     /// Xwayland's display number (`DISPLAY=:N`).
     #[cfg(feature = "xwayland")]
     pub xdisplay: Option<u32>,
+    /// #EDE-138: the person's Xwayland's source, X authority and deaths.
+    #[cfg(feature = "xwayland")]
+    pub(crate) person_x11: crate::handlers::xwayland::PersonX11,
 
     /// ext-session-lock: while locked only the lock client is shown and
     /// gets input ([`crate::lock`]).
@@ -248,6 +251,8 @@ impl Ede {
             xwm: None,
             #[cfg(feature = "xwayland")]
             xdisplay: None,
+            #[cfg(feature = "xwayland")]
+            person_x11: Default::default(),
             session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, on_person),
             lock: crate::lock::LockState::default(),
             idle_notifier,
@@ -351,13 +356,17 @@ impl Ede {
     pub fn client_command(&self, argv: &[String]) -> Option<std::process::Command> {
         let (program, args) = argv.split_first()?;
         let mut cmd = std::process::Command::new(program);
-        cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+        cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").env_remove("XAUTHORITY");
         if let Some(socket) = &self.socket_name {
             cmd.env("WAYLAND_DISPLAY", socket);
         }
         #[cfg(feature = "xwayland")]
         if let Some(n) = self.xdisplay {
             cmd.env("DISPLAY", format!(":{n}"));
+            // #EDE-138: the cookie our Xwayland asks for.
+            if let Some(xauthority) = self.xauthority(DeskId::PERSON) {
+                cmd.env("XAUTHORITY", xauthority);
+            }
         }
         Some(cmd)
     }
