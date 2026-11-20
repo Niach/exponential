@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-sidebar-tree",
+    date: "2026-11-20",
+    title: "One sidebar for all your teams",
+    summary: "The sidebar shows every team at once: Home, Chats, your devices, then each team with its boards, agents, apps and the chats you placed there, in your own folders.",
+    body: r##"- **No team switcher**: Home, Chats, Needs you and Drafts cover all your teams; each row shows its team.
+- **Devices**: each device is a row that opens its accounts, limits and running sessions; its gear opens its settings.
+- **Teams**: each team is a folder with its boards, agents and apps in one list; drag a chat from Active into it, and right-click a team for New, New folder and Settings.
+- **New board, agent and app** open as pages.
+- **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_338: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-assistant-skills-mcp-per-team",
     date: "2026-11-20",
     title: "Your Assistant's skills and MCP servers, per team",
