@@ -48,8 +48,13 @@ impl SeatHandler for Ede {
         let dh = &self.display_handle;
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client);
-        // A space's seat: the person's text input and X11 focus stay.
-        if crate::spaces::space_of_seat(seat).is_some() {
+        // A space's seat: the person's text input and X11 focus stay; the
+        // space's own X11 focus follows its keyboard (#EDE-138).
+        if let Some(_desk) = crate::spaces::space_of_seat(seat) {
+            #[cfg(feature = "xwayland")]
+            if self.try_desk(_desk).is_some_and(|d| d.seat == *seat) {
+                self.space_sync_x11_focus(_desk, focused);
+            }
             return;
         }
         self.keep_text_input_off_protected(focused);
