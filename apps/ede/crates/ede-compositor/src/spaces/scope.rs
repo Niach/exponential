@@ -97,7 +97,13 @@ impl Ede {
             request @ (Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText) => {
                 let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
                 match request {
-                    Request::Launch { argv, env, cwd } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_launch(desk, argv, env, cwd)?).unwrap(), None)))),
+                    Request::Launch { argv, env, cwd } => {
+                        let app = argv.first().cloned().unwrap_or_default();
+                        let launched = self.space_launch(desk, argv, env, cwd)?;
+                        // #EDE-162: a GPU space watches how it starts.
+                        self.space_net_launched(desk, launched.pid, &app);
+                        Ok(Scoped::Reply(Some((serde_json::to_value(launched).unwrap(), None))))
+                    }
                     Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request, caller).map(Scoped::Reply),
                     through => Ok(Scoped::Through(desk, through)),
                 }

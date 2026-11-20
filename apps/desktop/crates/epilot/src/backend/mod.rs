@@ -597,6 +597,11 @@ pub(crate) trait Backend: Send {
     fn launch(&self, _argv: &[String], _cwd: Option<&str>) -> Result<u32, String> {
         Err("Only a run in an agent space starts programs.".to_string())
     }
+    /// #EDE-162: what the desktop said with the last screenshot that the
+    /// agent must read, once (an app whose GPU path failed in its space).
+    fn take_notice(&self) -> Option<String> {
+        None
+    }
     /// The clipboard (`paste_text`, `copy_selection`, `read_clipboard`).
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
         Err("This desktop has no clipboard computer use can drive.".to_string())

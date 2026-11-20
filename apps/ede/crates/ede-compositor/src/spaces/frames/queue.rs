@@ -47,6 +47,8 @@ pub(super) struct Waiting {
     pub(super) caller: Caller,
     desk: DeskId,
     since: Option<u64>,
+    /// The space's own grant asks: its notice goes with the reply.
+    pub(super) own: bool,
     /// It had to wait at least once (counted once in the stats).
     waited: bool,
 }
@@ -71,8 +73,16 @@ pub fn next_pass(now: Instant, last: Option<Instant>, passes: &VecDeque<(Instant
     floor.max(budget)
 }
 
-fn unchanged(serial: u64) -> serde_json::Value {
-    serde_json::to_value(CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial, unchanged: true }).unwrap()
+fn unchanged(serial: u64, notice: Option<String>) -> serde_json::Value {
+    serde_json::to_value(CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial, unchanged: true, notice }).unwrap()
+}
+
+/// A capture's reply with the space's notice when its own agent asks.
+pub(super) fn with_notice(mut info: serde_json::Value, notice: Option<&String>) -> serde_json::Value {
+    if let (Some(notice), Some(map)) = (notice, info.as_object_mut()) {
+        map.insert("notice".into(), notice.clone().into());
+    }
+    info
 }
 
 impl Ede {
@@ -80,12 +90,13 @@ impl Ede {
     /// caller's last one. Nothing changed since: answered now, no pixels.
     /// Else the reply comes after the person's frames, when the space's turn
     /// has come ([`Self::spaces_after_frames`]).
-    pub(crate) fn space_capture(&mut self, desk: DeskId, since: Option<u64>, caller: Caller) -> Reply {
+    pub(crate) fn space_capture(&mut self, desk: DeskId, since: Option<u64>, caller: Caller, own: bool) -> Reply {
         let serial = self.space_serial(desk).ok_or_else(|| Failure::new(ErrorCode::NotFound, "no such space"))?;
         if since == Some(serial) {
-            return Ok(Some((unchanged(serial), None)));
+            let notice = if own { self.space_take_notice(desk) } else { None };
+            return Ok(Some((unchanged(serial, notice), None)));
         }
-        self.spaces.frames.queue.waiting.push(Waiting { caller, desk, since, waited: false });
+        self.spaces.frames.queue.waiting.push(Waiting { caller, desk, since, own, waited: false });
         Ok(None)
     }
 
@@ -114,7 +125,8 @@ impl Ede {
             let mut draw = Vec::new();
             for job in jobs {
                 if job.since == Some(serial) {
-                    self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((unchanged(serial), None)));
+                    let notice = if job.own { self.space_take_notice(desk) } else { None };
+                    self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((unchanged(serial, notice), None)));
                 } else {
                     draw.push(job);
                 }
@@ -171,11 +183,13 @@ impl Ede {
             let serial = self.spaces.get(desk).map_or(serial, |s| s.serial);
             match frame {
                 Ok(frame) => {
-                    let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial, unchanged: false };
+                    let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial, unchanged: false, notice: None };
                     let info = serde_json::to_value(info).unwrap();
                     let bytes: Vec<u8> = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
+                    let notice = draw.iter().any(|j| j.own).then(|| self.space_take_notice(desk)).flatten();
                     for job in draw {
-                        self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((info.clone(), Some(bytes.clone()))));
+                        let info = with_notice(info.clone(), notice.as_ref().filter(|_| job.own));
+                        self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((info, Some(bytes.clone()))));
                     }
                 }
                 Err(e) => {

@@ -123,7 +123,7 @@ impl Ede {
                     CaptureTarget::Space { .. } => return Err(Failure::new(ErrorCode::Forbidden, "another session's space")),
                     CaptureTarget::Window { .. } => return Err(Failure::new(ErrorCode::Forbidden, "not an op of an agent space")),
                 }
-                self.space_capture(desk, since, caller)
+                self.space_capture(desk, since, caller, true)
             }
             _ => Err(Failure::new(ErrorCode::Forbidden, "not an op of an agent space")),
         }
