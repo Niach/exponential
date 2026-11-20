@@ -43,6 +43,7 @@ import {
   useTeamBySlug,
   useTeamBoards,
   useTeamMemberships,
+  useBoardsForTeams,
 } from "@/hooks/use-team-data"
 import { compareTeams } from "@/hooks/use-cross-team-scope"
 
@@ -149,6 +150,15 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isMobile, teamsKey, team?.id, teamSlug]
   )
+  // #EXP-2027: the work tabs span every member team (md+ only), each tab
+  // linking into its own entity's team.
+  const tabTeams = useMemo(
+    () => (isMobile ? [] : [...myTeams].sort(compareTeams).map((row) => ({ id: row.id, slug: row.slug }))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isMobile, teamsKey]
+  )
+  const tabTeamIds = useMemo(() => tabTeams.map((row) => row.id), [tabTeams])
+  const { boards: tabBoards } = useBoardsForTeams(tabTeamIds)
 
   return (
     <SidebarProvider ref={setSidebarWrapper}>
@@ -199,18 +209,12 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
                 whole page (flex children default to min-width:auto);
                 `overflow-x-clip` contains stragglers inside the content
                 region. */}
-            {team && !isMobile && (
-              <WorkTabsSync teamId={team.id} boards={boards} />
-            )}
+            {!isMobile && <WorkTabsSync teams={tabTeams} boards={tabBoards} />}
             <div className={MAIN_COLUMN_CLASS}>
               {showWorkTabs && team && (
                 <div className={WORK_TABS_BAND_CLASS}>
                   {occupant.kind === `main` && (
-                    <WorkTabsStrip
-                      teamId={team.id}
-                      teamSlug={teamSlug}
-                      boards={boards}
-                    />
+                    <WorkTabsStrip teams={tabTeams} boards={tabBoards} />
                   )}
                 </div>
               )}

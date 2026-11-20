@@ -15,20 +15,25 @@ import type { WorkTab } from "@/lib/work-tabs"
 // EXP-894: what a work tab remembers across a switch — the store is pure, so
 // its rules are pinned here rather than through a mounted route.
 
+const team = { teamId: `t1`, teamSlug: `acme` }
+
 const issueTab = (issueId: string): WorkTab => ({
   kind: `issue`,
   issueId,
   from: null,
+  ...team,
 })
 const chatTab = (chatId: string): WorkTab => ({
   kind: `chat`,
   chatId,
   from: null,
+  ...team,
 })
 const sessionTab = (sessionId: string): WorkTab => ({
   kind: `session`,
   sessionId,
   from: null,
+  ...team,
 })
 
 beforeEach(() => resetTabMemory())

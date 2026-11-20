@@ -21,36 +21,50 @@
 //     it only focuses a tab that is already open;
 //   * every tab closes; closing never stops a session.
 //
+// #EXP-2027: md+ has NO active team, so the tabs are the PERSON's, one
+// list across every member team: each work-item tab carries the team of its
+// entity (`/t/<slug>` of the route that opened it: an issue's board's team,
+// a session's, an agent's) and links with that team's slug. The New session
+// tab is Home's (`/home`), team-less.
+//
 // Pure: no React, no storage, no router — every rule is a test
 // (`work-tabs.test.ts`). The store is `hooks/use-work-tabs.ts`, the URL→tab
 // wiring `components/team/work-tabs-sync.tsx`.
 
+/** #EXP-2027: the team a work-item tab belongs to. `teamSlug` is the slug
+ *  it was opened under (`""` for a tab migrated from a per-team store);
+ *  links prefer the team's current slug by id. */
+export interface TabTeam {
+  teamId: string
+  teamSlug: string
+}
+
 export type WorkTab =
-  | {
+  | ({
       kind: `issue`
       issueId: string
       /** The `?from=` token the tab reopens with. */
       from: string | null
-    }
-  | {
+    } & TabTeam)
+  | ({
       /** A chat = a root session (`/sessions/$id`, no agent). */
       kind: `chat`
       chatId: string
       from: string | null
-    }
-  | {
+    } & TabTeam)
+  | ({
       /** A team agent's page (NEW-2: an `agents` row id; the page shows
        *  the caller's conversation session with it). */
       kind: `agent`
       agentId: string
       from: string | null
-    }
-  | {
+    } & TabTeam)
+  | ({
       /** One raw session (any node of a tree). */
       kind: `session`
       sessionId: string
       from: string | null
-    }
+    } & TabTeam)
   | {
       /** EXP-1255: the New session tab — the home composer, no work item. */
       kind: `new`
@@ -101,11 +115,12 @@ export function tabSessionId(tab: WorkTab): string | null {
 
 // ── The route side ───────────────────────────────────────────────────────────
 
-/** What the current URL names, before any collection lookup. */
+/** What the current URL names, before any collection lookup. `teamSlug` =
+ *  the route's `/t/<slug>`, the entity's team (#EXP-2027). */
 export type RoutePath =
-  | { kind: `issue`; boardSlug: string; identifier: string; from: string | null }
-  | { kind: `agent`; agentId: string; from: string | null }
-  | { kind: `session`; sessionId: string; from: string | null }
+  | { kind: `issue`; teamSlug: string; boardSlug: string; identifier: string; from: string | null }
+  | { kind: `agent`; teamSlug: string; agentId: string; from: string | null }
+  | { kind: `session`; teamSlug: string; sessionId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
  * full pages, settings, the Agent page). `view` = the `?view=` search value:
@@ -117,8 +132,9 @@ export function routePathFromLocation(
   from: string | null | undefined,
   view?: string | null
 ): RoutePath | null {
-  const rest = pathname.match(/^\/t\/[^/]+(\/.*)?$/)?.[1]?.replace(/\/$/, ``)
-  if (!rest) return null
+  const match = pathname.match(/^\/t\/([^/]+)(\/.*)?$/)
+  const rest = match?.[2]?.replace(/\/$/, ``)
+  if (!match || !rest) return null
   const token = from ? from : null
   // A hand-typed path with a broken `%` escape is simply not a work item —
   // never an exception in the team layout.
@@ -129,31 +145,29 @@ export function routePathFromLocation(
       return null
     }
   }
+  const teamSlug = decode(match[1])
+  if (teamSlug === null) return null
   const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
   if (issue) {
     const boardSlug = decode(issue[1])
     const identifier = decode(issue[2])
     if (boardSlug === null || identifier === null) return null
-    return { kind: `issue`, boardSlug, identifier, from: token }
+    return { kind: `issue`, teamSlug, boardSlug, identifier, from: token }
   }
   const single = rest.match(/^\/(agents|sessions)\/([^/]+)$/)
   if (single) {
     const id = decode(single[2])
     if (id === null) return null
-    if (single[1] === `agents`) return { kind: `agent`, agentId: id, from: token }
+    if (single[1] === `agents`) return { kind: `agent`, teamSlug, agentId: id, from: token }
     if (view === `guide`) return null
-    return { kind: `session`, sessionId: id, from: token }
+    return { kind: `session`, teamSlug, sessionId: id, from: token }
   }
   return null
 }
 
 /** A route resolved against the collections — an issue's id; a session
- *  route's row exists in this team. */
-export type RouteTab =
-  | { kind: `issue`; issueId: string; from: string | null }
-  | { kind: `chat`; chatId: string; from: string | null }
-  | { kind: `agent`; agentId: string; from: string | null }
-  | { kind: `session`; sessionId: string; from: string | null }
+ *  route's row exists in the route's team, which the tab carries. */
+export type RouteTab = Exclude<WorkTab, { kind: `new` }>
 
 /** The tab a resolved route shows. */
 export function routeTab(route: RouteTab): Exclude<WorkTab, { kind: `new` }> {
@@ -165,10 +179,14 @@ export function routeTabKey(route: RouteTab): string {
   return tabKey(routeTab(route))
 }
 
-/** Whether the URL is the New session tab's page (the Agent page). */
+/** Whether the URL is the New session tab's page: Home (#EXP-2027), or
+ *  the old team-scoped Agent page that forwards there. */
 export function isNewRunPath(pathname: string): boolean {
-  return /^\/t\/[^/]+\/agent\/?$/.test(pathname)
+  return /^\/home\/?$/.test(pathname) || /^\/t\/[^/]+\/agent\/?$/.test(pathname)
 }
+
+/** The New session tab's page. */
+export const NEW_RUN_PATH = `/home`
 
 /** EXP-923: the `?from=` token the sidebar's Running rows navigate with. A
  * navigation carrying it creates NO tab — the sidebar row IS the affordance.
@@ -216,11 +234,17 @@ export function upsertFromRoute(
   }
 
   if (at >= 0) {
-    const current = tabs[at]!
-    if (!creates || route.from === null || current.from === route.from) {
-      return state
-    }
-    tabs[at] = { ...current, from: route.from } as WorkTab
+    const current = tabs[at] as RouteTab
+    const restamp = creates && route.from !== null && current.from !== route.from
+    // #EXP-2027: a tab migrated without its slug (or whose team was renamed)
+    // takes the route's.
+    const reteam = current.teamId !== route.teamId || current.teamSlug !== route.teamSlug
+    if (!restamp && !reteam) return state
+    tabs[at] = {
+      ...current,
+      ...(restamp ? { from: route.from } : {}),
+      ...(reteam ? { teamId: route.teamId, teamSlug: route.teamSlug } : {}),
+    } as WorkTab
     return { ...state, tabs }
   }
   if (!creates) return state
@@ -258,17 +282,20 @@ export function pruneTabs(
   return tabs.length === state.tabs.length ? state : { ...state, tabs }
 }
 
-/** Where a tab click goes. `resolveIssue` resolves an issue id to its board
- * slug and identifier (null while it syncs — the tab then waits). */
+/** Where a tab click goes — with the TAB's own team (#EXP-2027).
+ * `resolveIssue` resolves an issue id to its board slug and identifier (null
+ * while it syncs — the tab then waits); `teamSlugOf` a team id to its current
+ * slug (null = unknown: the slug the tab was opened under, if any). */
 export function tabHref(
-  teamSlug: string,
   tab: WorkTab,
-  resolveIssue: (issueId: string) => { boardSlug: string; identifier: string } | null
+  resolveIssue: (issueId: string) => { boardSlug: string; identifier: string } | null,
+  teamSlugOf: (teamId: string) => string | null = () => null
 ): { to: string; params: Record<string, string>; search: { from?: string } } | null {
+  if (tab.kind === `new`) return { to: NEW_RUN_PATH, params: {}, search: {} }
   const search = tab.from ? { from: tab.from } : {}
+  const teamSlug = teamSlugOf(tab.teamId) ?? (tab.teamSlug || null)
+  if (!teamSlug) return null
   switch (tab.kind) {
-    case `new`:
-      return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
     case `chat`:
       return {
         to: `/t/$teamSlug/sessions/$sessionId`,
@@ -315,9 +342,14 @@ export { partitionTabs } from "@exp/domain-contract/session-tree"
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 /** EXP-1293: v2 — the v1 blobs named coding-session runs, which are gone.
- *  EXP-1733: v3 — chat tabs are `chat` tabs (the old kind is dropped). */
-export function workTabsStorageKey(teamId: string): string {
-  return `exp:work-tabs:v3:${teamId}`
+ *  EXP-1733: v3 — chat tabs are `chat` tabs (the old kind is dropped).
+ *  #EXP-2027: v4 — ONE store for the person, every tab carrying its team. */
+export const WORK_TABS_STORAGE_KEY = `exp:work-tabs:v4`
+
+/** The v3 per-team keys `migrateLegacyWorkTabs` merges. */
+export const LEGACY_WORK_TABS_PREFIX = `exp:work-tabs:v3:`
+export function legacyWorkTabsStorageKey(teamId: string): string {
+  return `${LEGACY_WORK_TABS_PREFIX}${teamId}`
 }
 
 function str(value: unknown): value is string {
@@ -328,25 +360,33 @@ function optStr(value: unknown): string | null {
   return str(value) ? value : null
 }
 
-function parseTab(value: unknown): WorkTab | null {
+/** One stored tab. `team` = the team a v3 per-team blob was keyed on (its
+ *  tabs carried none); a v4 tab without its team is dropped. */
+function parseTab(value: unknown, team?: string): WorkTab | null {
   if (typeof value !== `object` || value === null) return null
   const raw = value as Record<string, unknown>
+  const teamId = team ?? (str(raw.teamId) ? raw.teamId : null)
+  if (raw.kind !== `new` && !teamId) return null
+  const owner: TabTeam = {
+    teamId: teamId ?? ``,
+    teamSlug: team === undefined && str(raw.teamSlug) ? raw.teamSlug : ``,
+  }
   switch (raw.kind) {
     case `issue`:
       return str(raw.issueId)
-        ? { kind: `issue`, issueId: raw.issueId, from: optStr(raw.from) }
+        ? { kind: `issue`, issueId: raw.issueId, from: optStr(raw.from), ...owner }
         : null
     case `chat`:
       return str(raw.chatId)
-        ? { kind: `chat`, chatId: raw.chatId, from: optStr(raw.from) }
+        ? { kind: `chat`, chatId: raw.chatId, from: optStr(raw.from), ...owner }
         : null
     case `agent`:
       return str(raw.agentId)
-        ? { kind: `agent`, agentId: raw.agentId, from: optStr(raw.from) }
+        ? { kind: `agent`, agentId: raw.agentId, from: optStr(raw.from), ...owner }
         : null
     case `session`:
       return str(raw.sessionId)
-        ? { kind: `session`, sessionId: raw.sessionId, from: optStr(raw.from) }
+        ? { kind: `session`, sessionId: raw.sessionId, from: optStr(raw.from), ...owner }
         : null
     case `new`:
       return NEW_RUN_TAB
@@ -359,22 +399,43 @@ function parseTab(value: unknown): WorkTab | null {
  * foreign blob is an empty strip, never a crash. Duplicate keys keep the
  * first. */
 export function parseWorkTabsState(raw: string | null | undefined): WorkTabsState {
-  if (!raw) return EMPTY_WORK_TABS
+  return mergeTabs([{ raw }])
+}
+
+function rawTabs(raw: string | null | undefined): unknown[] {
+  if (!raw) return []
   let json: unknown
   try {
     json = JSON.parse(raw)
   } catch {
-    return EMPTY_WORK_TABS
+    return []
   }
-  if (typeof json !== `object` || json === null) return EMPTY_WORK_TABS
-  const source = json as { tabs?: unknown }
+  if (typeof json !== `object` || json === null) return []
+  const tabs = (json as { tabs?: unknown }).tabs
+  return Array.isArray(tabs) ? tabs : []
+}
+
+function mergeTabs(sources: readonly { raw: string | null | undefined; teamId?: string }[]): WorkTabsState {
   const seen = new Set<string>()
   const tabs: WorkTab[] = []
-  for (const entry of Array.isArray(source.tabs) ? source.tabs : []) {
-    const tab = parseTab(entry)
-    if (!tab || seen.has(tabKey(tab))) continue
-    seen.add(tabKey(tab))
-    tabs.push(tab)
+  for (const source of sources) {
+    for (const entry of rawTabs(source.raw)) {
+      const tab = parseTab(entry, source.teamId)
+      if (!tab || seen.has(tabKey(tab))) continue
+      seen.add(tabKey(tab))
+      tabs.push(tab)
+    }
   }
-  return { tabs }
+  return tabs.length === 0 ? EMPTY_WORK_TABS : { tabs }
+}
+
+/** #EXP-2027: the one store from the v4 blob plus every v3 per-team blob
+ *  (`legacy`, each tagged with the team it was keyed on): the v4 tabs first,
+ *  then each team's in the given order; duplicates keep the first, so there
+ *  is still one New session tab. */
+export function migrateLegacyWorkTabs(
+  current: string | null | undefined,
+  legacy: readonly { teamId: string; raw: string | null | undefined }[]
+): WorkTabsState {
+  return mergeTabs([{ raw: current }, ...legacy.filter((entry) => entry.teamId !== ``)])
 }
