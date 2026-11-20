@@ -44,14 +44,31 @@ fn left(deadline: Instant) -> Result<Duration, String> {
 }
 
 fn ask_once(socket: &Path, request: &Request, deadline: Instant) -> Result<(), String> {
-    let stream = connect(socket, deadline)?;
+    exchange(&connect(socket, deadline)?, request, deadline)
+}
+
+/// Writes `request` and reads the guard's answer. A guard with no room
+/// for this user answers `busy` and closes without reading: the write can
+/// fail then (EPIPE) while the answer waits to be read, so it is read all
+/// the same; with no answer the write's error is the reason.
+fn exchange(stream: &UnixStream, request: &Request, deadline: Instant) -> Result<(), String> {
     stream.set_write_timeout(Some(left(deadline)?)).map_err(|e| e.to_string())?;
-    (&stream).write_all(request.line().as_bytes()).map_err(|e| e.to_string())?;
+    let written = (&*stream).write_all(request.line().as_bytes());
+    match (read_answer(stream, deadline), written) {
+        (Ok(line), _) if !line.is_empty() => parse_reply(&String::from_utf8_lossy(&line)),
+        (_, Err(e)) => Err(e.to_string()),
+        (Ok(line), Ok(())) => parse_reply(&String::from_utf8_lossy(&line)),
+        (Err(reason), Ok(())) => Err(reason),
+    }
+}
+
+/// The answer's line (empty when the guard closed without one).
+fn read_answer(stream: &UnixStream, deadline: Instant) -> Result<Vec<u8>, String> {
     let mut line = Vec::new();
     let mut buf = [0u8; 64];
     while !line.contains(&b'\n') {
         stream.set_read_timeout(Some(left(deadline)?)).map_err(|e| e.to_string())?;
-        match (&stream).read(&mut buf) {
+        match (&*stream).read(&mut buf) {
             Ok(0) => break,
             Ok(n) => line.extend_from_slice(&buf[..n]),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => return Err("no answer in time".into()),
@@ -61,7 +78,7 @@ fn ask_once(socket: &Path, request: &Request, deadline: Instant) -> Result<(), S
             return Err("an answer too long".into());
         }
     }
-    parse_reply(&String::from_utf8_lossy(&line))
+    Ok(line)
 }
 
 /// Connects to `socket` before `deadline`, also when the guard's backlog
@@ -100,5 +117,32 @@ fn connect(socket: &Path, deadline: Instant) -> Result<UnixStream, String> {
         }
         left(deadline)?;
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::reply;
+
+    /// A guard with no room for the caller answers `busy` and closes
+    /// without reading (review B1): the request's write can come after the
+    /// close and fail (EPIPE) while the answer waits to be read. It is read
+    /// all the same, so the question is asked again.
+    #[test]
+    fn a_busy_guard_that_closed_before_the_request_is_answered_busy() {
+        let (ours, guard) = UnixStream::pair().unwrap();
+        (&guard).write_all(reply(&Err("busy".into())).as_bytes()).unwrap();
+        drop(guard);
+        assert_eq!(exchange(&ours, &Request::Probe, Instant::now() + Duration::from_secs(1)), Err("busy".to_string()));
+    }
+
+    /// A guard that is gone without an answer is no answer.
+    #[test]
+    fn a_guard_gone_without_an_answer_says_so() {
+        let (ours, guard) = UnixStream::pair().unwrap();
+        drop(guard);
+        let answer = exchange(&ours, &Request::Probe, Instant::now() + Duration::from_secs(1));
+        assert!(answer.as_ref().is_err_and(|reason| reason != "busy"), "{answer:?}");
     }
 }
