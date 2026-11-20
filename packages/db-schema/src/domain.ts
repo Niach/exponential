@@ -592,11 +592,6 @@ export const subscriberSourceValues = [
   `widget_reporter`,
 ] as const
 
-// EXP-778: what a personal pin points at (pins.kind, pg enum). One nullable
-// target column per kind (issue_id / session_id) with an FK cascade, so a
-// pin dies with its target instead of dangling.
-export const pinKindValues = [`issue`, `session`] as const
-
 // Activity-log event kinds (issue_events.type, pg enum). Drives the
 // Linear-style timeline on every client.
 export const issueEventTypeValues = [
@@ -668,7 +663,6 @@ export type CommentAudience = (typeof commentAudienceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
-export type PinKind = (typeof pinKindValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
 export type CodingSessionBlockedKind =
   (typeof codingSessionBlockedKindValues)[number]
@@ -692,7 +686,6 @@ export const commentAudienceSchema = z.enum(commentAudienceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
-export const pinKindSchema = z.enum(pinKindValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 export const issueRelationTypeSchema = z.enum(issueRelationTypeValues)
 export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)

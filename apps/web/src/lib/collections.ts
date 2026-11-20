@@ -37,7 +37,6 @@ import {
   selectIssueStatusRowSchema,
   selectLabelSchema,
   selectNotificationSchema,
-  selectPinSchema,
   selectSidebarLayoutSchema,
   selectBoardSchema,
   selectUserSchema,
@@ -311,18 +310,6 @@ export const issueEventCollection = createCollection(
 )
 
 // Subscription rows, for the per-issue subscribe toggle's live state.
-// EXP-778: the caller's personal pins (issues / sessions), the
-// sidebar's Pinned group. Static per user; the target resolves from the
-// scoped collections.
-export const pinCollection = createCollection(
-  electricCollectionOptions({
-    id: `pins`,
-    shapeOptions: shapeOptions(`/api/shapes/pins`),
-    schema: selectPinSchema,
-    getKey: (item) => item.id,
-  })
-)
-
 // #EXP-1832: the caller's sidebar layout (folders + the order of their
 // boards, agents and apps; sidebar-folders.json). Static per user; the
 // sidebar narrows to the active team and section.

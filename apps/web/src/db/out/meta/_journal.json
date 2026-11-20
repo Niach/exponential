@@ -2024,6 +2024,13 @@
       "when": 1795008146456,
       "tag": "0288_exp1961_voice_call",
       "breakpoints": true
+    },
+    {
+      "idx": 289,
+      "version": "7",
+      "when": 1795160377005,
+      "tag": "0289_exp2027_drop_pins",
+      "breakpoints": true
     }
   ]
 }
