@@ -2031,6 +2031,13 @@
       "when": 1795160377005,
       "tag": "0289_exp2027_drop_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 290,
+      "version": "7",
+      "when": 1795164702857,
+      "tag": "0290_exp2027_sidebar_tree",
+      "breakpoints": true
     }
   ]
 }
