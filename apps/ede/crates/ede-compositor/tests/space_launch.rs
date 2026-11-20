@@ -242,11 +242,12 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
 
     // The person's: this process (the compositor's own) and a child of it,
     // both in the compositor's own cgroup (#EDE-143: the session's); pid 1
-    // and a process that does not exist are nobody's.
+    // is no space's (in a container it may share the cgroup), a process
+    // that does not exist is nobody's.
     let person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
     assert_eq!(answer(&mut root, std::process::id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
     assert_eq!(answer(&mut root, person.id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
-    assert_eq!(answer(&mut root, 1), ede_protocol::ProcessAnswer::default());
+    assert_eq!(answer(&mut root, 1).space, None);
     assert_eq!(answer(&mut root, u32::MAX), ede_protocol::ProcessAnswer::default(), "no such process");
 
     // A shell in the space that starts three processes: a child, one that
