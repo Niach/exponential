@@ -76,14 +76,16 @@ impl SelectionHandler for Ede {
         let mimes = source.map(|s| s.mime_types());
         // #EDE-126: a space's copy is the space's: the person's serial,
         // owner and Xwayland stay (nobody's once its space is gone).
+        // #EDE-138: the space's own Xwayland follows it.
         if let Some(id) = crate::spaces::space_of_seat(&seat) {
             if let Some(desk) = self.try_desk_mut(id) {
-                desk.clipboard.changed(mimes.map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+                desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
+                self.xwm_selection(id, mimes);
             }
             return;
         }
         self.desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
-        self.xwm_selection(mimes);
+        self.xwm_selection(crate::desk::DeskId::PERSON, mimes);
     }
 
     /// A Wayland client reads a compositor-side selection.
@@ -94,11 +96,11 @@ impl SelectionHandler for Ede {
         let space = crate::spaces::space_of_seat(&seat);
         match user_data {
             crate::clipboard::Selection::Ours(owned) => self.serve_owned(space.unwrap_or(crate::desk::DeskId::PERSON), owned, &mime_type, fd),
-            // Xwayland's selection is the person's: no space's seat holds it.
-            crate::clipboard::Selection::X11 if space.is_some() => drop(fd),
+            // #EDE-138: the seat's desk's own Xwayland holds it (a space's
+            // seat a space's, gone with a closed space).
             #[cfg(feature = "xwayland")]
             crate::clipboard::Selection::X11 => {
-                if let Some(xwm) = self.xwm.as_mut() {
+                if let Some(xwm) = self.desk_xwm(space.unwrap_or(crate::desk::DeskId::PERSON)) {
                     if let Err(e) = xwm.send_selection(ty, mime_type, fd) {
                         tracing::warn!("clipboard from X11: {e:?}");
                     }

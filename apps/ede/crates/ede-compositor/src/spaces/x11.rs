@@ -25,7 +25,10 @@ use smithay::{
     xwayland::{xwm::XwmId, X11Surface, X11Wm, XWayland, XWaylandEvent},
 };
 
+use smithay::wayland::selection::data_device::clear_data_device_selection;
+
 use crate::{
+    clipboard::Owner,
     desk::{DeskId, DeskTag},
     state::Ede,
 };
@@ -80,6 +83,17 @@ pub(crate) enum XwmDesk {
     Gone,
 }
 
+impl XwmDesk {
+    /// The desk it acts on, `None` for a gone one.
+    pub(crate) fn desk(self) -> Option<DeskId> {
+        match self {
+            XwmDesk::Person => Some(DeskId::PERSON),
+            XwmDesk::Space(desk) => Some(desk),
+            XwmDesk::Gone => None,
+        }
+    }
+}
+
 impl Ede {
     /// Whose window manager `xwm` is.
     pub(crate) fn desk_of_xwm(&self, xwm: XwmId) -> XwmDesk {
@@ -90,6 +104,23 @@ impl Ede {
             Some(space) => XwmDesk::Space(space.desk.id),
             None => XwmDesk::Gone,
         }
+    }
+
+    /// Desk `desk`'s X11 window manager: the person's, or the space's own
+    /// once its Xwayland is ready.
+    pub(crate) fn desk_xwm(&mut self, desk: DeskId) -> Option<&mut X11Wm> {
+        if desk == DeskId::PERSON {
+            return self.xwm.as_mut();
+        }
+        self.spaces.get_mut(desk)?.x11.as_mut()?.xwm.as_mut()
+    }
+
+    /// The X11 window holding space `desk`'s keyboard is one of window
+    /// manager `xwm`'s: only that client reads the space's clipboard.
+    pub(crate) fn space_x11_focused(&self, desk: DeskId, xwm: XwmId) -> bool {
+        let Some(d) = self.try_desk(desk) else { return false };
+        let Some(focus) = d.seat.get_keyboard().and_then(|keyboard| keyboard.current_focus()) else { return false };
+        d.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.xwm_id() == Some(xwm) && x.wl_surface().as_ref() == Some(&focus)))
     }
 
     /// Space `desk`'s Xwayland runs and its window manager with it.
@@ -145,6 +176,16 @@ impl Ede {
                         tracing::info!("{}: Xwayland ready on :{number}", space.id.as_str());
                         if let Some(x11) = &mut space.x11 {
                             x11.xwm = Some(wm);
+                        }
+                        // What the space copied before its Xwayland ran (the
+                        // agent's text for an X11 app it launches next).
+                        let mimes = match &space.desk.clipboard.owner {
+                            Owner::Client(mimes) => Some(mimes.clone()),
+                            Owner::Ours(owned) => Some(owned.items.iter().map(|item| item.mime.clone()).collect()),
+                            Owner::Empty | Owner::X11(_) => None,
+                        };
+                        if mimes.is_some() {
+                            state.xwm_selection(desk, mimes);
                         }
                     }
                     Err(e) => tracing::warn!("{}: X11 window manager failed: {e}", space.id.as_str()),
@@ -231,6 +272,12 @@ impl Ede {
         space.desk.pending_x11_focus = None;
         let focused = space.desk.x11_focus.1.take();
         let seat = space.desk.x11_focus.0.clone();
+        // An X11 copy went with its server.
+        if matches!(space.desk.clipboard.owner, Owner::X11(_)) {
+            space.desk.clipboard.changed(Owner::Empty);
+            let main = space.desk.seat.clone();
+            clear_data_device_selection(&self.display_handle, &main);
+        }
         // The client first: nothing it buffered reaches a handler of a
         // window manager that is gone.
         self.loop_handle.remove(x11.token);
