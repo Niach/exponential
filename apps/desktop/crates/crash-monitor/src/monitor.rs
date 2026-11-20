@@ -62,7 +62,14 @@ impl minidumper::ServerHandler for Handler {
     fn create_minidump_file(&self) -> Result<(std::fs::File, PathBuf), std::io::Error> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(format!("{}.dmp", uuid::Uuid::new_v4()));
-        Ok((std::fs::File::create(&path)?, path))
+        // #ERR-29: the dump holds the crashed process's memory (since the
+        // lock screen reports too, a password's): the person's alone, for
+        // the moment it exists.
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        Ok((options.open(&path)?, path))
     }
 
     /// Runs while the crashed process still waits for the ack: its
