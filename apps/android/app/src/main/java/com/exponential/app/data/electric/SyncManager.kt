@@ -34,7 +34,6 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.ComposerDraftEntity
-import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestCheckEntity
 import com.exponential.app.data.db.CiJobEntity
@@ -427,7 +426,6 @@ class SyncManager @Inject constructor(
         val issueEventDao = db.issueEventDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
-        val pinDao = db.pinDao()
         val sidebarLayoutDao = db.sidebarLayoutDao()
         val issueDraftDao = db.issueDraftDao()
         val composerDraftDao = db.composerDraftDao()
@@ -602,20 +600,8 @@ class SyncManager @Inject constructor(
                 onDelete = { deviceWorktreeDao.deleteById(it.id) },
                 onRefetch = { deviceWorktreeDao.clear() },
             ),
-            // EXP-778: personal pins — static per user, never team/trash
-            // scoped (the client resolves targets against the other shapes).
-            // NEW-8: a legacy `action` pin is ignored (actions are gone).
-            launchShape(
-                shape = "pins", path = "/api/shapes/pins", tableName = "pins",
-                serializer = PinEntity.serializer(),
-                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("pins"),
-                onInsert = { if (it.isKept) pinDao.upsert(it) else pinDao.deleteById(it.id) },
-                onDelete = { pinDao.deleteById(it.id) },
-                onRefetch = { pinDao.clear() },
-            ),
             // #EXP-1832: the member's sidebar layout (folders + order) —
-            // static per user like pins; the phone shows it read-only.
+            // static per user; the phone shows it read-only.
             launchShape(
                 shape = "sidebar_layout", path = "/api/shapes/sidebar-layout", tableName = "sidebar_layout",
                 serializer = SidebarLayoutEntity.serializer(),
@@ -625,7 +611,7 @@ class SyncManager @Inject constructor(
                 onDelete = { sidebarLayoutDao.deleteById(it.id) },
                 onRefetch = { sidebarLayoutDao.clear() },
             ),
-            // EXP-878: unsent issue drafts — static per user like pins, never
+            // EXP-878: unsent issue drafts — static per user, never
             // team/trash scoped (a row renders once its board resolves).
             launchShape(
                 shape = "issue_drafts", path = "/api/shapes/issue-drafts", tableName = "issue_drafts",
@@ -730,7 +716,7 @@ class SyncManager @Inject constructor(
                 onDelete = { ciJobDao.deleteById(it.id) },
                 onRefetch = { ciJobDao.clear() },
             ),
-            // EXP-1323: the viewer's read marks — static per user like pins.
+            // EXP-1323: the viewer's read marks — static per user.
             launchShape(
                 shape = "session_reads", path = "/api/shapes/session-reads", tableName = "session_reads",
                 serializer = SessionReadEntity.serializer(),

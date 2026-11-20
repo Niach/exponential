@@ -96,12 +96,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/apt-mirror
-      - name: Linux system deps (smithay)
+      # The ede job's set plus ede-goldens-lite's (the lock client links
+      # fontconfig and xcb).
+      - name: Linux system deps (smithay + wgpu/gpui)
         run: |
           sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev xwayland libegl1 \
-            libpipewire-0.3-dev libclang-dev pipewire wireplumber dbus
+            libpipewire-0.3-dev libclang-dev pipewire wireplumber dbus \
+            libxcb1-dev libssl-dev libfontconfig1-dev clang
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

@@ -73,6 +73,9 @@ install -Dm755 "$target/$profile/exponential-space-guard" "$stage/usr/libexec/ex
 for f in "$here"/system/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/system/$(basename "$f")"; done
 mkdir -p "$stage/usr/lib/systemd/system/sockets.target.wants"
 ln -sf ../exponential-space-guard.socket "$stage/usr/lib/systemd/system/sockets.target.wants/exponential-space-guard.socket"
+# #EDE-146: polkit refuses every action to a process of an agent space.
+install -Dm644 "$here/polkit/00-00-exponential-agent-spaces.rules" "$stage/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules"
+install -Dm644 "$here/polkit/at.exponential.desktop.space-probe.policy" "$stage/usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy"
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/licenses/exponential-desktop/LICENSE"
 sed -n 's/^version = "\(.*\)"/\1/p' "$ede/Cargo.toml" | head -1 > "$stage/.version"
 echo "$stage"

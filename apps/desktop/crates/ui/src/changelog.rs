@@ -59,6 +59,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_339: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-pins-removed",
+    date: "2026-11-20",
+    title: "Pins are gone",
+    summary: "The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.",
+    body: r##"- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
+- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
+- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_338: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-assistant-skills-mcp-per-team",
     date: "2026-11-20",

@@ -166,8 +166,7 @@ fun IssueMenuActions(
     val context = LocalContext.current
     var overflowOpen by remember { mutableStateOf(false) }
     val url = shareUrl
-    // EXP-858: no pin toggle here — a pin only lands in a sidebar, and the
-    // phone has none. The Box stays: it anchors the dropdown to the button.
+    // The Box anchors the dropdown to the button.
     Box {
         CircleIconButton(
             ExpIcons.uiMore,

@@ -148,7 +148,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree", "v112_session_voice_call"]
+             "v111_session_clear_tree", "v112_session_voice_call",
+             "v113_drop_pins"]
         )
     }
 
@@ -218,7 +219,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree", "v112_session_voice_call"]
+             "v111_session_clear_tree", "v112_session_voice_call",
+             "v113_drop_pins"]
         )
     }
 
@@ -760,7 +762,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree", "v112_session_voice_call"]
+             "v111_session_clear_tree", "v112_session_voice_call",
+             "v113_drop_pins"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -878,7 +881,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
-             "v111_session_clear_tree", "v112_session_voice_call"]
+             "v111_session_clear_tree", "v112_session_voice_call",
+             "v113_drop_pins"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1824,7 +1828,7 @@ final class DatabaseMigrationTests: XCTestCase {
         for table in ["teams", "boards", "issues", "labels", "issue_labels",
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
-                      "issue_events", "issue_statuses", "pins",
+                      "issue_events", "issue_statuses",
                       "issue_drafts", "sessions", "session_issues", "messages",
                       "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
                       "sidebar_layout", "electric_offsets"] {
@@ -1837,7 +1841,7 @@ final class DatabaseMigrationTests: XCTestCase {
         // the session tree.
         for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases",
                       "automations", "workflows", "workflow_nodes", "workflow_events",
-                      "coding_sessions", "threads", "thread_items", "actions"] {
+                      "coding_sessions", "threads", "thread_items", "actions", "pins"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertFalse(exists, "legacy table \(table) must not exist")
         }
@@ -1887,15 +1891,6 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "issues").contains("due_date"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("due_time"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("end_time"))
-
-        // EXP-778: pins are per-user (21st shape) — team_id + kind + the
-        // nullable target columns (NEW-8: `action_id` left with actions).
-        let pinCols = try columnNames(pool, "pins")
-        XCTAssertEqual(
-            pinCols,
-            ["id", "user_id", "team_id", "kind", "issue_id", "session_id",
-             "sort_order", "created_at", "updated_at"]
-        )
 
         // EXP-878: issue drafts are per-user (22nd shape) — the board the
         // draft files into, the fields the compose page owns, and the uuid[]
@@ -3495,6 +3490,49 @@ final class DatabaseMigrationTests: XCTestCase {
         // The synced row still decodes and saves without the dropped columns.
         let row = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
         XCTAssertEqual(row?.deviceId, "d")
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-2027: v113 drops the `pins` table and its cursor (pins are gone
+    // everywhere); every other cursor stays, and a re-run converges.
+    func testPinsTableAndCursorDropped() throws {
+        let pool = try makePool("exp2027-drop-pins")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v112_session_voice_call")
+        try pool.write { db in
+            XCTAssertTrue(try db.tableExists("pins"))
+            for shape in ["issues", "pins"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+            try db.execute(sql: """
+                INSERT INTO "pins" ("id", "user_id", "team_id", "kind", "issue_id",
+                    "sort_order", "created_at", "updated_at")
+                VALUES ('p-issue', 'u', 't', 'issue', 'i-1', 0, 'x', 'x')
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v113_drop_pins"))
+        try pool.read { db in
+            XCTAssertFalse(try db.tableExists("pins"))
+            XCTAssertEqual(
+                try String.fetchAll(
+                    db,
+                    sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"shape\" IN ('issues', 'pins')"
+                ),
+                ["issues"]
+            )
+            let issues = try Row.fetchOne(
+                db,
+                sql: "SELECT \"handle\", \"needs_refetch\" FROM \"electric_offsets\" WHERE \"shape\" = 'issues'"
+            )
+            XCTAssertEqual(issues?["handle"] as String?, "h")
+            XCTAssertEqual(issues?["needs_refetch"] as Bool?, false)
+        }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

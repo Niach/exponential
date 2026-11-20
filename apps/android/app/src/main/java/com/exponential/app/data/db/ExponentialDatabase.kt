@@ -23,7 +23,6 @@ import androidx.room.TypeConverters
         IssueEventEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
-        PinEntity::class,
         SidebarLayoutEntity::class,
         IssueDraftEntity::class,
         ComposerDraftEntity::class,
@@ -117,7 +116,10 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_130_131]; only the sessions shape refetches.
     // v132 (#EXP-1943): sessions.voice_call (a call session's call), explicit
     //      [MIGRATION_131_132]; only the sessions shape refetches.
-    version = 132,
+    // v133 (#EXP-2027): the personal Pins feature is gone; the local `pins`
+    //      table drops with its shape offset, explicit [MIGRATION_132_133];
+    //      nothing refetches.
+    version = 133,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -139,7 +141,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueEventDao(): IssueEventDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
-    abstract fun pinDao(): PinDao
     abstract fun sidebarLayoutDao(): SidebarLayoutDao
     abstract fun issueDraftDao(): IssueDraftDao
     abstract fun composerDraftDao(): ComposerDraftDao

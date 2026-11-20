@@ -13,7 +13,6 @@ import {
   composerDrafts,
   issues,
   messages,
-  pins,
   sidebarLayout,
   prompts,
   skills,
@@ -134,7 +133,6 @@ describe(`sessions allowlist`, () => {
       expect(names(sessions)).not.toContain(legacy)
     }
     expect(names(sessionIssues)).not.toContain(`assigned_session_id`)
-    expect(names(pins)).not.toContain(`action_id`)
   })
   it(`keeps an agent's instructions and trigger bookkeeping server-only`, () => {
     expect(AGENT_COLUMNS).not.toContain(`instructions`)

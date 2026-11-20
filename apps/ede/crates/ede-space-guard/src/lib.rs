@@ -7,13 +7,16 @@
 //! (`exponential-space-guard.socket`) with three capabilities and no root
 //! that, when a process INSIDE a space slice asks, attaches fixed eBPF
 //! programs to that slice. The person's uid can neither load, detach nor
-//! replace them. What they refuse: [`devices::RULES`].
+//! replace them. What they refuse: [`devices::RULES`] (every open of a
+//! device node), [`connect::Policy`] (every connect of a unix socket).
 //!
 //! A hostile caller can only make the guard restrict a cgroup of its own
 //! user's: it writes no file, touches no other user, detaches nothing.
 
+pub mod btf;
 pub mod cgroup;
 pub mod client;
+pub mod connect;
 pub mod devices;
 pub mod ebpf;
 pub mod guard;

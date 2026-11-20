@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -322,9 +322,6 @@ fn seeded(cx: &mut gpui::App) {
     seed(&c.issues, json!([
         {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo"}
     ]), cx);
-    seed(&c.pins, json!([
-        {"id": "p1", "team_id": "t1", "kind": "issue", "issue_id": "i1", "sort_order": 1}
-    ]), cx);
 }
 
 fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::WindowHandle<RailView> {
@@ -409,7 +406,6 @@ fn sample() -> IdeSidebarInput {
         drafts: 2,
         chats: IdeCount { count: 3, tone: IdeTone::Attention },
         owner: true,
-        pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash on launch".into() }],
         agents: vec![agent("a1", "Triage", true, 0), agent("a2", "Release", false, 2), agent("a3", "Designer", false, 0)],
         apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
         boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
