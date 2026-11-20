@@ -415,7 +415,7 @@ impl Ede {
                 c.token = Some(grant.token.clone());
                 c.scope = Some(scope);
             }
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect() };
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect(), unknown_capabilities: vec![] };
             return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
