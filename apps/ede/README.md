@@ -879,7 +879,13 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   "new and empty"). Needs `dbus-daemon` (the packages depend on it).
   A Flatpak installed for the person alone (`flatpak install --user`) is
   not there in a space: its installation is under `XDG_DATA_HOME`, and a
-  space has its own; system-wide ones are (#EDE-158).
+  space has its own; system-wide ones are (#EDE-158). `flatpak run` asks
+  the person's user manager for its scope whatever the environment says,
+  so the compositor finds such a scope of a space's (its first process is
+  a launch of the space's, or a child of one) within a second and moves
+  its processes into a scope of the space's own manager. They are then
+  under the space's limits and end with it, and what is still outside at
+  the close is ended by the kernel.
 - **Drawing in a space: on the CPU.** A space takes shared-memory buffers
   only, so a frame drawn on the GPU cannot reach it until spaces have a
   GPU path (#EDE-162). OpenGL and EGL apps get Mesa's software driver
