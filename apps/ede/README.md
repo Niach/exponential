@@ -928,6 +928,7 @@ way to (`crates/ede-space-guard/src/connect.rs`):
 | `/tmp/tmux-<uid>/…`, `/run/screen/…` | the person's tmux and screen servers run what they are sent outside the space |
 | `/run/wpa_supplicant/…`, `/run/hostapd/…`, `/run/tailscale/…`, `/run/mullvad-vpn`, `/run/cloudflare-warp/…` | `wpa_cli disconnect` (a member of `netdev`), `tailscale down` and the like |
 | `/run/docker.sock`, `/run/user/<uid>/docker.sock`, `/run/libvirt/…`, `/run/incus/…`, `/var/lib/incus/…`, `/var/lib/lxd/…`, `/var/snap/lxd/…` | daemons that act for their group as root, and a rootless docker of the person's |
+| `/run/…/pulse/native`, `/run/…/pipewire-<n>[-manager]`, `/dev/shm/jack…` | the person's sound servers: the microphone (a space has no speakers either), also as a snap's launch helper spells them (`/run/user/<uid>/snap.<name>/../pulse/native`) |
 | any path with `/../` | so no other rule is walked around by spelling |
 
 It reads the address as the caller passed it, bounded by its length

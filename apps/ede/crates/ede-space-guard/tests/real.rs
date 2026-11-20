@@ -2,9 +2,10 @@
 //! `ede-scope` leg): the guard, run as root, guards a space-named slice of
 //! this user when a process inside it asks; then nothing in that slice opens
 //! a sound, camera, uinput or (for writing) rfkill node, nor connects or
-//! sends to the system bus, the person's session bus or user manager (with
-//! the NUL in the address's length, without it as libdbus connects, and the
-//! whole struct as libpulse and GLib pass it); outside it everything is as
+//! sends to the system bus, the person's session bus, user manager, sound
+//! servers or tmux server (with the NUL in the address's length, without
+//! it as libdbus connects, and the whole struct as libpulse and GLib pass
+//! it), while the space's own tmux server is reached; outside it everything is as
 //! before, and the user cannot take the programs off. polkit, with the
 //! package's rule installed, challenges the probe action for a process of
 //! the slice of all spaces and allows it outside.
@@ -14,7 +15,10 @@
 //! passes. Run it with `--test-threads=1`.
 
 use std::{
-    os::{fd::AsFd, unix::fs::OpenOptionsExt},
+    os::{
+        fd::AsFd,
+        unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -104,6 +108,10 @@ struct Run {
     guard: Child,
     slice: String,
     runtime_dirs: Vec<PathBuf>,
+    /// Files, then directories, the test made outside its own directories.
+    leftovers: Vec<PathBuf>,
+    /// The polkit files the test installed where none was (an installed
+    /// package's stay).
     polkit_files: Vec<PathBuf>,
 }
 
@@ -115,6 +123,9 @@ impl Drop for Run {
         let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&self.dir).arg(&self.socket_dir).args(&self.polkit_files).status();
         for dir in &self.runtime_dirs {
             let _ = std::fs::remove_dir_all(dir);
+        }
+        for path in &self.leftovers {
+            let _ = std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path));
         }
     }
 }
@@ -145,26 +156,40 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     // The guard's socket where any user can reach it (the flood below).
     let socket_dir = PathBuf::from(format!("/tmp/ede-space-guard-{me}"));
     std::fs::create_dir_all(&socket_dir).unwrap();
+    // Whatever the umask (a 077 one made it the test user's only).
+    std::fs::set_permissions(&socket_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     let socket = socket_dir.join("guard.sock");
     let guard = Command::new("sudo").args(["-n", GUARD, "--socket"]).arg(&socket).spawn().unwrap();
     let slice = format!("app-exponential_p{me}.slice");
-    // Stand-ins in the runtime directory: a socket of the space's own.
+    // Stand-ins in the runtime directory: one of the person's sound servers
+    // (an unused name), and a socket of the space's own.
     let runtime = PathBuf::from(format!("/run/user/{uid}"));
     let test_dir = runtime.join(format!("ede-guard-test-{me}"));
     let spaces_dir = runtime.join(format!("exponential-desktop/ede-guard-test-{me}.spaces"));
     // The package's polkit rule and probe action, installed for the test.
     let rule = PathBuf::from("/etc/polkit-1/rules.d/00-00-exponential-agent-spaces.rules");
     let action = PathBuf::from("/usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy");
-    let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice, runtime_dirs: vec![test_dir.clone(), spaces_dir.clone()], polkit_files: vec![rule.clone(), action.clone()] };
-    std::fs::create_dir_all(&test_dir).unwrap();
-    std::fs::create_dir_all(spaces_dir.join("space-1")).unwrap();
-    let listeners: Vec<std::os::unix::net::UnixListener> = [spaces_dir.join("space-1/bus")].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
+    // The person's tmux server by its default directory (a stand-in in
+    // it), and the space's own where a launch's TMUX_TMPDIR puts it
+    // (#EDE-138): `tmux` in a space works, the person's is out of reach.
+    let tmux_dir = PathBuf::from(format!("/tmp/tmux-{uid}"));
+    let person_tmux = tmux_dir.join(format!("ede-guard-test-{me}"));
+    let space_tmux = spaces_dir.join(format!("space-1/tmux-{uid}/default"));
+    let mut leftovers = vec![person_tmux.clone()];
+    if !tmux_dir.exists() {
+        leftovers.push(tmux_dir.clone());
+    }
+    let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice, runtime_dirs: vec![test_dir.clone(), spaces_dir.clone()], leftovers, polkit_files: [&rule, &action].into_iter().filter(|p| !p.exists()).cloned().collect() };
+    std::fs::create_dir_all(test_dir.join("pulse")).unwrap();
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&tmux_dir).unwrap();
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(space_tmux.parent().unwrap()).unwrap();
+    let listeners: Vec<std::os::unix::net::UnixListener> = [test_dir.join("pulse/native"), test_dir.join("pipewire-0"), spaces_dir.join("space-1/bus"), person_tmux.clone(), space_tmux.clone()].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
     let person = |p: &Path| p.to_string_lossy().into_owned();
-    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir))]
+    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir)), person(&test_dir.join("pulse/native")), person(&test_dir.join("pipewire-0")), format!("{}/../pulse/native", person(&test_dir)), person(&person_tmux)]
         .into_iter()
         .filter(|p| Path::new(p).exists() || p.contains("/../"))
         .collect();
-    let reached = vec![person(&spaces_dir.join("space-1/bus")), "/run/systemd/journal/stdout".to_string()];
+    let reached = vec![person(&spaces_dir.join("space-1/bus")), person(&space_tmux), "/run/systemd/journal/stdout".to_string()];
     let deadline = Instant::now() + Duration::from_secs(10);
     while !socket.exists() {
         assert!(Instant::now() < deadline, "the guard never listened");
@@ -230,9 +255,9 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     for (name, mode) in [("null", "rw"), ("rfkill", "r")] {
         assert_ne!(errno(&lines, name, mode), libc::EPERM, "{name} {mode} is closed in a space: {lines:?}");
     }
-    // The person's buses and user manager, every way of passing the
+    // The person's buses, user manager and sound servers, every way of passing the
     // address; the space's own socket and journald reachable.
-    assert!(refused.len() >= 3, "too few of the person's sockets on this machine: {refused:?}");
+    assert!(refused.len() >= 6, "too few of the person's sockets on this machine: {refused:?}");
     for path in &refused {
         for how in ["nul", "bare", "full", "send"] {
             assert_eq!(errno(&connected, path, how), libc::EPERM, "{path} ({how}) is reachable from a space: {connected:?}");

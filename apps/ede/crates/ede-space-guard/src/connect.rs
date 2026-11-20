@@ -1,9 +1,9 @@
-//! #EDE-146: the connect program. Attached to a space's slice (for
+//! #EDE-146, #EDE-147: the connect program. Attached to a space's slice (for
 //! `connect()` and for a datagram's `sendto()`) it decides every connect of
 //! a unix socket CREATED in the space (stream, seqpacket, datagram) by the
 //! path string the caller passed, before the kernel looks the path up. It cannot follow links or `..`; it keeps
 //! ordinary programs, whatever their environment, off the person's system
-//! bus, user manager, session bus and eDE's own sockets.
+//! bus, sound servers, user manager, session bus and eDE's own sockets.
 
 use crate::ebpf::{Asm, Cond, Size, PROBE_READ_KERNEL, R0, R1, R2, R3, R6, R7, R8, R10};
 
@@ -72,7 +72,8 @@ impl Policy {
     /// screen servers (they run what they are sent outside the space);
     /// VPN daemons, wpa_supplicant and hostapd (`wpa_cli disconnect` for
     /// a member of `netdev`); the daemons whose group is root (docker,
-    /// libvirt, lxd, incus) and a rootless docker of the person's]
+    /// libvirt, lxd, incus) and a rootless docker of the person's; JACK2's
+    /// servers, which a client tries when it finds no PulseAudio]
     pub fn prefixes(&self) -> Vec<String> {
         let u = self.uid;
         let mut list = both_runs(&[
@@ -91,13 +92,15 @@ impl Policy {
             "/run/libvirt/".into(),
             "/run/incus/".into(),
         ]);
-        list.extend([format!("/tmp/tmux-{u}/"), "/var/snap/lxd/".into(), "/var/lib/lxd/".into(), "/var/lib/incus/".into()]);
+        list.extend([format!("/tmp/tmux-{u}/"), "/var/snap/lxd/".into(), "/var/lib/lxd/".into(), "/var/lib/incus/".into(), "/dev/shm/jack".into()]);
         list
     }
 
-    /// Under `/run` (or `/var/run`), paths ending in these are refused.
+    /// Under `/run` (or `/var/run`), paths ending in these are refused:
+    /// the person's sound servers by every default name, also as a snap's
+    /// launch helper spells it (`/run/user/U/snap.x/../pulse/native`). [#147]
     pub fn sound(&self) -> Vec<&'static str> {
-        vec![]
+        vec!["/pulse/native", "/pipewire-#", "/pipewire-#-manager"]
     }
 
     /// The reference: does the program allow a connect to `path` (the
@@ -358,7 +361,7 @@ mod tests {
     #[test]
     fn a_space_reaches_its_own_sockets_and_none_of_the_persons() {
         let policy = policy();
-        for refused in ["/run/dbus/system_bus_socket", "/run/user/1000/snap.firefox/../bus", "/run/user/1000/systemd/private", "/run/user/1000/bus", "/run/user/1000/exponential-desktop/services.sock", "/tmp/tmux-1000/default", "/run/systemd/io.systemd.Login", "/run/systemd/private"] {
+        for refused in ["/run/dbus/system_bus_socket", "/run/user/1000/snap.firefox/../bus", "/run/user/1000/pulse/native", "/run/user/1000/snap.firefox/pulse/native", "/run/user/1000/pipewire-0", "/run/user/1000/pipewire-0-manager", "/run/pulse/native", "/dev/shm/jack_default_1000_0/jack_0", "/run/user/1000/systemd/private", "/run/user/1000/bus", "/run/user/1000/exponential-desktop/services.sock", "/tmp/tmux-1000/default", "/run/systemd/io.systemd.Login", "/run/systemd/private"] {
             assert!(!policy.allows(refused.as_bytes()), "{refused}");
         }
         for refused in ["/run/wpa_supplicant/wlan0", "/run/docker.sock", "/run/libvirt/libvirt-sock", "/var/snap/lxd/common/lxd/unix.socket"] {
