@@ -930,6 +930,30 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   reach a space's either. A snap app in a space that the space's Wayland
   socket refuses (its AppArmor admits only `/run/user/<uid>/wayland-N`)
   draws through the space's Xwayland.
+- **Browsers get the space's profile.** Snaps and Flatpaks keep their data
+  under the person's `HOME`, which a space's own directories do not
+  change. Without a profile of the space, its Chromium would hand its
+  window to the person's running one (a window on the person's desk), or
+  browse in the person's signed-in profile, and Firefox would say "already
+  running". So a known browser started in a space gets a profile of its
+  own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi) gets
+  `--user-data-dir=`; Firefox and LibreWolf get
+  `--profile <dir> --new-instance`. For a browser of the system the
+  directory is in the space's home. For a snap or a Flatpak (its command,
+  `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
+  runs the snap) it is in the app's own data, the one place it may write:
+  `~/snap/<name>/common/exponential-space/p<pid>-<space>` or
+  `~/.var/app/<id>/exponential-space/p<pid>-<space>`. It is removed when
+  the space closes, and what a crashed session left there goes at the next
+  start. A launch that names a profile itself is refused. Chromium and
+  Electron apps (VS Code, VSCodium) also always get
+  `--enable-unsafe-swiftshader`, so their WebGL can fall back to software,
+  and `--use-angle=swiftshader` while the space renders in software. Firefox
+  gets nothing more: it switches to software WebRender by itself. A browser
+  that is not on the list runs like any other program. A browser of the
+  system then keeps its data in the space's own directories, but a snap or
+  Flatpak one uses the person's profile and may open on the person's desk
+  (#EDE-166).
 - **The person's Xwayland starts again** when it dies, on the same display
   and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
   session was given stay right. Its X11 windows are let go of, and its

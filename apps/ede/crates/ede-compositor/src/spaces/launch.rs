@@ -306,6 +306,8 @@ impl Ede {
     pub(crate) fn space_launch(&mut self, desk: DeskId, argv: Vec<String>, env: BTreeMap<String, String>, cwd: Option<String>) -> Result<Launched, Failure> {
         // What is refused is refused before anything starts.
         self.space_launch_valid(desk, &argv, &env, cwd.as_deref())?;
+        // A known browser: the space's profile and its switches.
+        let argv = self.space_browser(desk, argv)?;
         // The space's Xwayland, at its first launch: the launch gets its display.
         #[cfg(feature = "xwayland")]
         self.space_x11(desk);

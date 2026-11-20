@@ -219,7 +219,7 @@ impl Ede {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
         #[cfg(feature = "xwayland")]
         let x11 = self.spaces.list[at].x11.take();
-        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, .. } = self.spaces.list.remove(at);
+        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, browser_dirs, .. } = self.spaces.list.remove(at);
         // Its Xwayland goes now; its window manager when its connection does.
         #[cfg(feature = "xwayland")]
         self.space_x11_closed(x11);
@@ -251,7 +251,8 @@ impl Ede {
             self.space_flatpaks_closed(id.number());
             self.space_slice_closed(id.number());
         }
-        for dir in std::iter::once(dir).chain(home) {
+        // Its browsers' profiles in snaps' and Flatpaks' data too.
+        for dir in std::iter::once(dir).chain(home).chain(browser_dirs) {
             if !self.spaces.remove(&dir) {
                 self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
             }
