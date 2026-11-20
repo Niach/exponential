@@ -613,9 +613,14 @@ mod tests {
         ];
         for (bin, path, init, tag, components) in long_running {
             let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{bin}: {}: {e}", path.display()));
+            // `main` alone: the crash monitor's dispatch is in it, before
+            // anything there starts diagnostics or the program (other
+            // dispatches of their own argv may come first, #EDE-138's).
             let main = &source[source.find("\nfn main(").unwrap_or_else(|| panic!("{bin}: no main")) + 1..];
-            let first = main.lines().skip(1).map(str::trim).find(|l| !l.is_empty() && !l.starts_with("//") && !l.starts_with("#["));
-            assert_eq!(first, Some("ede_observability::run_crash_monitor_if_requested();"), "{bin}: the crash monitor's dispatch comes first");
+            let main = &main[..main.find("\n}\n").unwrap_or(main.len())];
+            let dispatch = main.find("ede_observability::run_crash_monitor_if_requested();").unwrap_or_else(|| panic!("{bin}: main dispatches no crash monitor"));
+            let starts = ["ede_observability::init", "watch_native_crashes(", "diagnostics::start", "run()", "run(dir", "parse_args("].iter().filter_map(|call| main.find(call)).min();
+            assert!(starts.is_none_or(|at| dispatch < at), "{bin}: the crash monitor's dispatch comes before diagnostics and the program start");
             assert!(source.contains(&format!("ede_observability::{init}({tag},")), "{bin} starts diagnostics as {tag}");
             assert_eq!(init == "init_with", source.contains("ede_observability::Trail::Places)"), "{bin}: where a line was logged, never its text, exactly where the person's content passes through");
             assert!(source.contains(&format!("ede_observability::watch_native_crashes({tag})")), "{bin} reports its native crashes as {tag}");
