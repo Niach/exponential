@@ -567,8 +567,8 @@ fn space_enter_runs_its_program_only_when_the_guard_says_so() {
 }
 
 /// A compositor whose guard answered puts it in front of every launch:
-/// the launch's own process asks from inside its scope, and the program
-/// runs only after the guard said so.
+/// the space's own user manager (#EDE-138) and each launch ask from inside
+/// their scopes, and a program runs only after the guard said so.
 #[test]
 fn a_guarded_compositors_launch_asks_the_guard_from_inside_its_scope() {
     let (h, dir) = start_with_spaces(&[(800, 600)]);
@@ -582,10 +582,17 @@ fn a_guarded_compositors_launch_asks_the_guard_from_inside_its_scope() {
     let out = dir.path().join("guarded.env");
     let pid = agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("the guarded program never ran", || out.exists());
-    let (line, asker) = asked.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert_eq!((line, asker), (format!("enter {}\n", spaces_dir.display()), pid), "asked by someone else than the launch, or for something else");
-    let log = tools.log();
-    assert!(log[2].contains(&format!("] [space-enter] [--guard] [{}] [{}] [--] [", socket.display(), spaces_dir.display())), "{}", log[2]);
+    // The space's first launch starts its user manager: that one asks
+    // first, then the launch.
+    let manager = tools.manager("space-1");
+    let asks: Vec<(String, u32)> = (0..2).map(|_| asked.recv_timeout(Duration::from_secs(5)).unwrap()).collect();
+    let enter = format!("enter {}\n", spaces_dir.display());
+    assert_eq!(asks, [(enter.clone(), manager), (enter, pid)], "asked by someone else than the manager and the launch, or for something else");
+    let scopes: Vec<String> = tools.log().into_iter().filter(|line| line.starts_with("systemd-run [--user] [--scope]")).collect();
+    assert_eq!(scopes.len(), 2, "{scopes:#?}");
+    for scope in &scopes {
+        assert!(scope.contains(&format!("] [space-enter] [--guard] [{}] [{}] [--] [", socket.display(), spaces_dir.display())), "{scope}");
+    }
 
     // The guard says no: the program does not run.
     let (refusing, _asked) = fake_guard(dir.path(), "no not a space slice");
@@ -624,8 +631,9 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     }
     assert_eq!(h.with(|state| state.space_readiness()), Err("no_user_manager"));
 
-    // A user manager: the launch asks from its scope, gets `busy` until its
-    // time is up, and its program never runs.
+    // A user manager: the space's own manager asks from its scope, gets
+    // `busy` until its time is up and never runs; the launch waits for the
+    // space's bus that never comes, and its program never runs.
     let required = h.with(|state| state.spaces.guard.required.clone());
     let units = Units { guard: required, ..tools.units() };
     h.with(move |state| {
@@ -636,7 +644,8 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     until("a launch the guard would not take did not end", || !alive(pid));
     assert!(!out.exists(), "the program ran although the guard was busy");
     let spaces_dir = Path::new(&space.wayland_display).parent().unwrap().parent().unwrap().to_path_buf();
-    assert!(asked.try_iter().any(|(line, asker)| line == format!("enter {}\n", spaces_dir.display()) && asker == pid));
+    assert!(asked.try_iter().any(|(line, _)| line == format!("enter {}\n", spaces_dir.display())), "the space's manager never asked the guard");
+    assert!(!tools.dir.join("manager-space-1.pid").exists(), "the space's user manager ran although the guard was busy");
     assert_eq!(h.with(|state| state.space_readiness()), Err("guard"));
     // The doctor reads what the session decided.
     let state = std::fs::read_to_string(ede_compositor::spaces::guard::state_file(&spaces_dir)).unwrap();
