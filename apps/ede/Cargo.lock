@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "ede-compositor"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "bitflags 2.13.2",
  "ede-observability",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ctl"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-compositor",
  "ede-protocol",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "crash-monitor",
  "reqwest",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "ede-portal"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "blocking",
  "ede-compositor",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "ede-session"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-observability",
  "ede-theme",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "ede-space-guard"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-protocol",
  "libc",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-observability",
  "eui-core",
