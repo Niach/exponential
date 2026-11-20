@@ -31,7 +31,6 @@ class AppShortcutsTest {
             val a = it.jsonObject
             AppShortcuts.Agent(a.str("id")!!, a.str("name")!!, a.str("icon"), a.str("color"))
         },
-        pins = json.getValue("pins").jsonArray.map { it.jsonPrimitive.content },
         chats = json.getValue("chats").jsonArray.map {
             val c = it.jsonObject
             ShareTargets.Chat(c.str("id")!!, c.str("title")!!, c.str("updatedAt")!!, c.str("agentId"), c["sealed"]?.jsonPrimitive?.booleanOrNull == true)

@@ -138,3 +138,28 @@ class VoiceCallMigrationTest {
         assertEquals(null, com.exponential.app.domain.SessionTree.parseVoiceCall(json.decodeFromString(SessionEntity.serializer(), """{"id":"s1"}""").voiceCall))
     }
 }
+
+/** #EXP-2027: v133 drops the `pins` table with its shape offset; nothing refetches. */
+class DropPinsMigrationTest {
+    @Test
+    fun `v133 drops pins and its offset only`() {
+        assertEquals(132, MIGRATION_132_133.startVersion)
+        assertEquals(133, MIGRATION_132_133.endVersion)
+        val statements = mutableListOf<String>()
+        val db = Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            if (method.name == "execSQL") statements += args!![0] as String else error("unexpected ${method.name}")
+            null
+        } as SupportSQLiteDatabase
+        MIGRATION_132_133.migrate(db)
+        assertEquals(
+            listOf(
+                "DROP TABLE IF EXISTS `pins`",
+                "DELETE FROM `electric_offsets` WHERE `shape` = 'pins'",
+            ),
+            statements,
+        )
+    }
+}

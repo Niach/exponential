@@ -37,7 +37,6 @@ object DomainContract {
     val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other")
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val pinKindValues: List<String> = listOf("issue", "session")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed", "title_changed")
     val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
     val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
@@ -255,8 +254,6 @@ object DomainContract {
     const val subscriberSourceManual: String = "manual"
     const val subscriberSourceMention: String = "mention"
     const val subscriberSourceWidgetReporter: String = "widget_reporter"
-    const val pinKindIssue: String = "issue"
-    const val pinKindSession: String = "session"
     const val issueEventTypeStatusChanged: String = "status_changed"
     const val issueEventTypeAssigneeChanged: String = "assignee_changed"
     const val issueEventTypeLabelAdded: String = "label_added"

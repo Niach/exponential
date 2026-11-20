@@ -27,8 +27,6 @@ export interface AppShortcutAgent {
 export interface AppShortcutsInput {
   assistant: { id: string; name: string } | null
   agents: AppShortcutAgent[]
-  /** The viewer's session pins, in sidebar order. */
-  pins: string[]
   chats: AppShortcutChat[]
 }
 
@@ -45,7 +43,7 @@ const STATIC: Record<string, AppShortcut> = {
   search: { id: `search`, title: fixture.copy.search, icon: fixture.icons.search, color: null },
 }
 
-/** #EXP-1830: the chat entries: the Assistant, pins, then recent chats, deduplicated. */
+/** #EXP-1830: the chat entries: the Assistant, then recent chats, deduplicated. */
 export function chatEntries(input: AppShortcutsInput): AppShortcut[] {
   const agents = new Map(input.agents.map((agent) => [agent.id, agent]))
   const entry = (chat: AppShortcutChat): AppShortcut | null => {
@@ -63,11 +61,6 @@ export function chatEntries(input: AppShortcutsInput): AppShortcut[] {
     if (chat.sealed) return null
     return { id: `${fixture.recentChatPrefix}${chat.id}`, title: chat.title, icon: fixture.icons.chat, color: null }
   }
-  const byId = new Map(input.chats.map((chat) => [chat.id, chat]))
-  const pinned = input.pins.flatMap((id) => {
-    const chat = byId.get(id)
-    return chat ? [chat] : []
-  })
   const recent = [...input.chats].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const out: AppShortcut[] = []
   const seen = new Set<string>()
@@ -77,7 +70,6 @@ export function chatEntries(input: AppShortcutsInput): AppShortcut[] {
     out.push(item)
   }
   if (input.assistant) push(assistantEntry(input.assistant))
-  for (const chat of pinned) push(entry(chat))
   for (const chat of recent) push(entry(chat))
   return out
 }

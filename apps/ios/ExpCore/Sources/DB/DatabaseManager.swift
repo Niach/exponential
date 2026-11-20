@@ -3456,6 +3456,16 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v113 (#EXP-2027): personal pins (EXP-778) are gone everywhere. The
+        // `pins` table drops with its cursor (the shape is no longer
+        // subscribed); guarded so fresh installs and re-runs converge.
+        migrator.registerMigration("v113_drop_pins") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS \"pins\"")
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: "DELETE FROM \"electric_offsets\" WHERE \"shape\" = 'pins'")
+            }
+        }
+
         return migrator
     }
 
@@ -3865,8 +3875,6 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
-            // EXP-778: pins point at issues/sessions — first.
-            try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
             // #FEED-219: the composers' drafts.

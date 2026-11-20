@@ -293,27 +293,6 @@ interface CommentDao {
     suspend fun clear()
 }
 
-// EXP-778: the caller's personal pins. The per-account DB only ever holds
-// the signed-in user's rows (the shape is `user_id = me`), so no user filter.
-// Sync-only since EXP-976 (the phone has no sidebar); #EXP-1830 reads the
-// session pins for the long-press chat entries.
-@Dao
-interface PinDao {
-    // #EXP-1830: the viewer's session pins of a team, in sidebar order (the
-    // long-press chat entries).
-    @Query("SELECT * FROM pins WHERE kind = 'session' AND team_id = :teamId AND session_id IS NOT NULL ORDER BY sort_order ASC, created_at ASC")
-    fun observeSessionPins(teamId: String): Flow<List<PinEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: PinEntity)
-
-    @Query("DELETE FROM pins WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM pins")
-    suspend fun clear()
-}
-
 // #EXP-1832: the caller's sidebar layout (the shape is `user_id = me`), read
 // per team + section by the phone's read-only folders.
 @Dao
@@ -334,7 +313,7 @@ interface SidebarLayoutDao {
     suspend fun clear()
 }
 
-// EXP-878: the caller's unsent issue drafts. Like pins, the per-account DB
+// EXP-878: the caller's unsent issue drafts. The per-account DB
 // only ever holds the signed-in user's rows (the shape is `user_id = me`), so
 // there is no user filter — and the list is account-wide (every team), because
 // a draft is personal, not board state.
@@ -418,17 +397,16 @@ abstract class SessionDao(private val db: RoomDatabase) {
 
     // #EXP-1830 (app-shortcuts.json): the long-press chat entries' candidates:
     // a team's newest roots that are a plain chat or the viewer's OWN agent
-    // conversation (never an app's editor, never archived), plus the pinned
-    // roots ([pinned]) whatever their age. Encrypted plain chats are filtered
-    // by the model (an agent conversation's entry reads the agent's name).
+    // conversation (never an app's editor, never archived). Encrypted plain
+    // chats are filtered by the model (an agent conversation's entry reads the agent's name).
     @Query(
         """SELECT * FROM sessions WHERE parent_id IS NULL AND app_id IS NULL
         AND (agent_id IS NULL OR user_id = :me)
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
-        AND (team_id = :teamId OR id IN (:pinned))
+        AND team_id = :teamId
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    abstract fun observeShortcutChats(teamId: String, me: String, pinned: List<String>, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeShortcutChats(teamId: String, me: String, limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1642 (system-search.json): every team's newest plain chats, the same
     // filter (never an agent's conversation, an app's editor or an encrypted chat).
@@ -733,7 +711,7 @@ fun ExponentialDatabase.keyedMessages(rows: Flow<List<MessageEntity>>): Flow<Lis
     rows.map { SessionTree.messages(it) }
 
 // EXP-1323: the viewer's read marks (the per-account DB only holds the
-// signed-in user's rows, like pins).
+// signed-in user's rows).
 @Dao
 interface SessionReadDao {
     @Query("SELECT * FROM session_reads")

@@ -102,8 +102,10 @@ pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     }
 }
 
-/// What the guard closes in this build (#EDE-148).
-pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB";
+/// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
+pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
+/// What stays open to a space in this build.
+pub const GUARD_LEAVES: &str = "your Xwayland (X11)";
 
 /// #EDE-146..148: what the RUNNING compositor decided about the space
 /// guard: `state` = its state file's text (`None` = no Exponential Desktop
@@ -114,7 +116,7 @@ pub fn check_space_guard(state: Option<&str>) -> Check {
         return Check { name, level: Level::Warn, detail: "no Exponential Desktop session runs here: the guard is the session's to ask".into() };
     };
     let field = |key: &str| state.lines().find_map(|line| line.strip_prefix(key).map(str::trim)).unwrap_or_default().to_string();
-    let (guard, probe, units) = (field("guard "), field("probe "), field("user-manager "));
+    let (guard, probe, units, polkit) = (field("guard "), field("probe "), field("user-manager "), field("polkit "));
     if guard != "required" {
         return Check { name, level: Level::Warn, detail: "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into() };
     }
@@ -122,7 +124,9 @@ pub fn check_space_guard(state: Option<&str>) -> Check {
         return Check { name, level: Level::Warn, detail: "no systemd user manager: nothing starts in an agent space".into() };
     }
     match probe.as_str() {
-        "ok" => Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}") },
+        "ok" if polkit == "ok" => Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}") },
+        "ok" if polkit == "pending" => Check { name, level: Level::Warn, detail: "this session is still asking polkit".into() },
+        "ok" => Check { name, level: Level::Warn, detail: format!("{polkit}: programs in an agent space may get polkit's yes without a prompt") },
         "pending" => Check { name, level: Level::Warn, detail: "this session is still asking it".into() },
         reason => Check { name, level: Level::Warn, detail: format!("{reason}: nothing starts in an agent space until it answers") },
     }
@@ -1101,15 +1105,18 @@ mod tests {
     #[test]
     fn doctor_says_what_the_running_session_decided_about_the_space_guard() {
         use crate::spaces::guard::state_text;
-        let ok = check_space_guard(Some(&state_text(true, Some(&Ok(())), true)));
+        let ok_ = Ok(());
+        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&ok_))));
         assert_eq!(ok.level, Level::Ok);
-        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}"));
+        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}"));
         for (state, says) in [
             (None, "no Exponential Desktop session runs here: the guard is the session's to ask".to_string()),
-            (Some(state_text(false, None, true)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into()),
-            (Some(state_text(true, Some(&Ok(())), false)), "no systemd user manager: nothing starts in an agent space".into()),
-            (Some(state_text(true, None, true)), "this session is still asking it".into()),
-            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
+            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into()),
+            (Some(state_text(true, Some(&ok_), false, None)), "no systemd user manager: nothing starts in an agent space".into()),
+            (Some(state_text(true, None, true, None)), "this session is still asking it".into()),
+            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
+            (Some(state_text(true, Some(&ok_), true, None)), "this session is still asking polkit".into()),
+            (Some(state_text(true, Some(&ok_), true, Some(&Err("polkit authorizes a space's programs".into())))), "polkit authorizes a space's programs: programs in an agent space may get polkit's yes without a prompt".into()),
         ] {
             let check = check_space_guard(state.as_deref());
             assert_eq!((check.level, check.detail), (Level::Warn, says));

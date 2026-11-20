@@ -4,7 +4,6 @@ import type { Board, Issue } from "@/db/schema"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { CollapsedTitle } from "@exp/ui"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
-import { PinToggleButton } from "@/components/pin-toggle-button"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
@@ -86,13 +85,6 @@ export function IssueMobileHeader({
         menu={
           <div className="flex shrink-0 items-center gap-1">
             {graphBadge}
-            {/* EXP-850 §10: ghost everywhere a pin toggle renders. */}
-            <PinToggleButton
-              teamId={teamId}
-              kind="issue"
-              targetId={issue.id}
-              variant="ghost"
-            />
             {/* THE issue `…` (the md+ header's, a bottom sheet here):
                 Share · Add relation · Move to board · Unmark duplicate
                 · Close PR · Delete. */}

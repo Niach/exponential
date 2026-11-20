@@ -29,7 +29,6 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -82,16 +81,13 @@ class DirectShareShortcuts @Inject constructor(
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     /** [recent] = a long-press chat entry (#EXP-1830: the Assistant, an
-     *  agent, a pinned or recent chat), not a sharing shortcut. */
+     *  agent, a recent chat), not a sharing shortcut. */
     private data class Row(
         val entry: ShareTargets.Entry,
         val rank: Int,
         val agent: SessionTree.AgentRow?,
         val recent: Boolean = false,
     )
-
-    /** #EXP-1830: the long-press chat entries' inputs (pins in sidebar order). */
-    private data class ShortcutChats(val pins: List<String>, val sessions: List<SessionEntity>)
 
     fun start() {
         scope.launch {
@@ -108,16 +104,11 @@ class DirectShareShortcuts @Inject constructor(
                 .distinctUntilChanged()
                 .flatMapLatest { (team, me) ->
                     if (team == null || me == null) {
-                        flowOf(ShortcutChats(emptyList(), emptyList()))
+                        flowOf(emptyList<SessionEntity>())
                     } else {
-                        dbFlow.scopedQuery(emptyList<PinEntity>()) { it.pinDao().observeSessionPins(team) }
-                            .map { pins -> pins.mapNotNull { it.sessionId } }
-                            .distinctUntilChanged()
-                            .flatMapLatest { pins ->
-                                dbFlow.scopedQuery(emptyList<SessionEntity>()) {
-                                    it.sessionDao().observeShortcutChats(team, me, pins, SHORTCUT_CHAT_LIMIT)
-                                }.map { ShortcutChats(pins, it) }
-                            }
+                        dbFlow.scopedQuery(emptyList<SessionEntity>()) {
+                            it.sessionDao().observeShortcutChats(team, me, SHORTCUT_CHAT_LIMIT)
+                        }
                     }
                 }
             // #EXP-1987: the synced teams ride along so the viewer's global
@@ -145,7 +136,7 @@ class DirectShareShortcuts @Inject constructor(
         agents: List<AgentDefinitionEntity>,
         teamIds: List<String>,
         sessions: List<SessionEntity>,
-        shortcut: ShortcutChats,
+        shortcut: List<SessionEntity>,
         team: String?,
         me: String?,
         signedIn: Boolean,
@@ -170,8 +161,7 @@ class DirectShareShortcuts @Inject constructor(
             val input = AppShortcuts.Input(
                 assistant = assistant?.let { AppShortcuts.Assistant(it.agentId, it.name) },
                 agents = listed.map { AppShortcuts.Agent(it.agentId, it.name, it.icon.ifEmpty { null }, it.color.ifEmpty { null }) },
-                pins = shortcut.pins,
-                chats = shortcut.sessions.map(::chat),
+                chats = shortcut.map(::chat),
             )
             val agentById = listed.associateBy { "${AppShortcuts.AGENT_PREFIX}${it.agentId}" }
             AppShortcuts.appShortcuts(input)
@@ -320,7 +310,7 @@ class DirectShareShortcuts @Inject constructor(
     private companion object {
         const val CATEGORY = "com.exponential.app.category.SHARE_TARGET"
         const val DEBOUNCE_MS = 2_000L
-        /** The long-press candidates read per team (pins ride along). */
+        /** The long-press candidates read per team. */
         const val SHORTCUT_CHAT_LIMIT = 12
         const val PREFS = "direct_share_shortcuts"
         const val PREF_INTENT_VERSION = "intent_version"
