@@ -196,6 +196,11 @@ impl Ede {
         if self.spaces.units.is_some() {
             set("DBUS_SESSION_BUS_ADDRESS", &space.session.address(&space.dir));
         }
+        if space.software_rendering {
+            for (name, value) in super::render::software_environment(&super::render::lavapipe_icds(Path::new("/"), std::env::var_os("XDG_DATA_DIRS").as_deref())) {
+                set(name, &value);
+            }
+        }
         if profile == Profile::Space {
             let home = self.spaces.home_of(space);
             // gpg finds the PERSON's agent and keys by `HOME` otherwise: a
@@ -223,7 +228,7 @@ impl Ede {
         let fail = |code, message: &str| Failure::new(code, message);
         let space = self.spaces.get(desk).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
         let Some(program) = argv.first() else { return Err(fail(ErrorCode::Invalid, "argv is empty")) };
-        if let Some(name) = env.keys().find(|name| DROPPED.contains(&name.as_str()) || SET.contains(&name.as_str()) || PROFILE.iter().any(|(var, _)| var == name)) {
+        if let Some(name) = env.keys().find(|name| DROPPED.contains(&name.as_str()) || SET.contains(&name.as_str()) || super::render::SET.contains(&name.as_str()) || PROFILE.iter().any(|(var, _)| var == name)) {
             return Err(fail(ErrorCode::Invalid, &format!("{name} is the compositor's to set")));
         }
         if !found(program) {

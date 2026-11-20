@@ -28,7 +28,8 @@ install -Dm644 "$here/pam/exponential-desktop" "$stage/etc/pam.d/exponential-des
 # The compositor's, then the shell's (gpui on Wayland: Vulkan through the
 # loader, fontconfig/freetype) and exponential-ui's history (git). The
 # Vulkan driver is a Recommends: Mesa's for AMD and Intel, NVIDIA's comes
-# with its own driver packages (#EDE-59).
+# with its own driver packages (#EDE-59). Mesa's also brings lavapipe, the
+# software Vulkan an agent space's apps draw with (#EDE-138).
 depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, libfontconfig1, libfreetype6, git"
 if [ -n "$xwl" ]; then
   cp -a "$xwl/usr" "$stage/"

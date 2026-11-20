@@ -617,6 +617,9 @@ jobs:
       - name: Linux system deps (smithay) and the user's session bus
         run: |
           sudo apt-get install -y libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config dbus dbus-user-session
+          # A space's apps that ask for the GPU draw in software: lavapipe,
+          # vkcube/vulkaninfo, eglinfo.
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools mesa-utils
           # `busctl --user` reaches the user manager over the session bus.
           [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
           busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
@@ -631,11 +634,12 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
-      - name: A space's launches under a real user manager
+      - name: A space's launches under a real user manager; its GPU-asking apps draw in software
         working-directory: apps/ede
         env:
           EDE_EXPECT_USER_MANAGER: '1'
-        run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real
+          EDE_EXPECT_SOFTWARE_RENDERING: '1'
+        run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real --test space_render
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is

@@ -176,7 +176,7 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     let (mut agent, _space) = agent(&h, "run-1");
     let sleep = || vec!["sleep".to_string(), "30".to_string()];
     // The names the compositor sets or drops are not the caller's.
-    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME"] {
+    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
         assert_eq!(code(agent.launch(sleep(), [(name.to_string(), "x".to_string())].into(), None)), ErrorCode::Invalid, "{name}");
     }
     assert_eq!(code(agent.launch(vec![], Default::default(), None)), ErrorCode::Invalid);
