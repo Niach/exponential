@@ -5,7 +5,7 @@ import GRDB
 // its issue; an issue-less row naming a session opens that session (an
 // agent's question or plan, a mention, a wall); #EXP-1534: an
 // `agent_signed_out` row opens its device's settings; `sessionTarget` is the S-3
-// session-open rule. fixtures/inbox-route.json; mirrors: TS
+// session-open rule; #EXP-1987 `inboxRowListed`: which team's inbox lists it. fixtures/inbox-route.json; mirrors: TS
 // `src/inbox-route.ts`, desktop `domain::inbox_route`, Android
 // `domain/InboxRoute.kt`.
 public enum InboxRoute {
@@ -38,6 +38,27 @@ public enum InboxRoute {
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
+    }
+
+    /// #EXP-1987: whether team `teamId`'s inbox (nil = every team) lists a
+    /// row, its badge and Mark all read alike. `rowTeamId` = the row's own
+    /// team, else its issue's board's team (nil = unknown); `teamIds` = the
+    /// synced teams rows (never a personal team). `agent_signed_out` and a
+    /// session row of a team the viewer does not sync (the Assistant's chat
+    /// in the personal team) list in every team. fixtures/inbox-route.json
+    /// `listCases`.
+    public static func inboxRowListed<Teams: Collection<String>>(
+        type: String, rowTeamId: String?, issueId: String?, teamId: String?, teamIds: Teams
+    ) -> Bool {
+        if nonEmpty(issueId) != nil {
+            guard let rowTeamId else { return false }
+            return teamId == nil || rowTeamId == teamId
+        }
+        if type == DomainContract.notificationTypeAgentSignedOut { return true }
+        guard sessionRowTypes.contains(type) else { return false }
+        guard let teamId else { return true }
+        guard let rowTeamId else { return true }
+        return rowTeamId == teamId || !teamIds.contains(rowTeamId)
     }
 
     public static func inboxRowTarget(

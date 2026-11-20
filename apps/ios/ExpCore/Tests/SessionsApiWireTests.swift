@@ -361,4 +361,13 @@ final class AgentsApiWireTests: XCTestCase {
         let none = try JSONDecoder().decode(EnsureAssistantResult.self, from: Data(#"{"agent":null}"#.utf8))
         XCTAssertNil(none.agent)
     }
+
+    // #EXP-1987: a screen with a current team sends it; one with no team
+    // (Settings › Assistant) sends none (`{}`).
+    func testEnsureAssistantSendsTheTeamOnlyWhenThereIsOne() throws {
+        let none = try JSONEncoder().encode(EnsureAssistantInput(teamId: nil))
+        XCTAssertEqual(String(decoding: none, as: UTF8.self), "{}")
+        let team = try JSONEncoder().encode(EnsureAssistantInput(teamId: "t-1"))
+        XCTAssertEqual(String(decoding: team, as: UTF8.self), #"{"teamId":"t-1"}"#)
+    }
 }

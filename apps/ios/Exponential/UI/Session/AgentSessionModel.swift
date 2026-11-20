@@ -2151,6 +2151,7 @@ final class AgentSessionModel {
                         // never report.
                         // #EXP-1623: only what moved is written; an equal
                         // write still re-renders every view that reads it.
+                        let wasGone = self.session == nil
                         if row != self.session {
                             self.session = row
                             // #FEED-260: an ending moves the synced tail's rule.
@@ -2165,6 +2166,7 @@ final class AgentSessionModel {
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
                         self.liftRowEndedIfRunBack()
+                        if wasGone, let row { self.reviveIfRowReturned(row) }
                         self.rebuildHostDevice()
                     }
                     // The sequence only finishes cleanly on cancellation.
@@ -2702,6 +2704,27 @@ final class AgentSessionModel {
         guard case .ended = phase else { return }
         phase = .live
         reconnectAttempts = 0
+    }
+
+    /// #EXP-2020 (`SteerReconnectPolicy.rowReturned`): the row vanished (a
+    /// shape refetch, the Assistant's conversation moving into the personal
+    /// team) and came back live: the `ended` it read while gone is lifted,
+    /// so the composer returns without a cold start.
+    private func reviveIfRowReturned(_ row: SessionEntity) {
+        let ended: Bool = if case .ended = phase { true } else { false }
+        switch SteerReconnectPolicy.rowReturned(
+            wasGone: true, rowLive: row.isLive, ended: ended, connected: connected, stopped: stopped
+        ) {
+        case .reopen:
+            logger.info("row back: reopen")
+            if history == .deviceOffline { history = nil }
+            connect(force: true)
+        case .lift:
+            phase = .live
+            reconnectAttempts = 0
+        case .nothing:
+            break
+        }
     }
 
     /// Queue a frame and arm one flush for the batch (EXP-582). The flush is a
