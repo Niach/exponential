@@ -310,8 +310,8 @@ struct NavGroup {
 
 /// S-3 (owner 2026-10-28): THE settings nav ×4 = `settings-nav.json` `nav`
 /// on platform `desktop` (the test replays its `navCases`). The injected
-/// lists (`@boards` + `@new-board`, `@assistant` + `@agents` +
-/// `@new-agent`, `@apps` + `@new-app`) are drawn at render AHEAD of their
+/// lists (`@boards` + `@new-board`, `@agents` + `@new-agent`, `@apps` +
+/// `@new-app`) are drawn at render AHEAD of their
 /// group's static pages; Plan & Billing and Import are web-only. The
 /// Features and Advanced groups are gone, and Voice left Personal: its block
 /// is the Assistant page's Voice section. Order defines both the nav and the
@@ -345,8 +345,9 @@ const NAV_GROUPS: &[NavGroup] = &[
         label: "Boards",
         items: &[NavItem::leaf("all-boards", "All boards", SettingsSection::AllBoards)],
     },
-    // The viewer's Assistant, the team agents and New agent are injected at
-    // render; MCP closes the group.
+    // The team agents and New agent are injected at render (#EXP-1987: the
+    // viewer's Assistant is Personal's `assistant` page); Skills closes the
+    // group.
     NavGroup {
         id: "agents",
         label: AGENTS_GROUP,
@@ -373,6 +374,11 @@ const NAV_GROUPS: &[NavGroup] = &[
         label: "Personal",
         items: &[
             NavItem::leaf("account", "Account", SettingsSection::Account),
+            // #EXP-1987: Settings › Assistant is an ACCOUNT page: the
+            // viewer's ONE Assistant whichever team is current (it left the
+            // Agents group). `Voice` resolves to its agent page
+            // (`first_agent_resolved`); the row wears the brand mark.
+            NavItem::leaf("assistant", ASSISTANT_PAGE, SettingsSection::Voice),
             NavItem::leaf("notifications", "Notifications", SettingsSection::Notifications),
             NavItem::leaf("security", "Security", SettingsSection::ApiKeys),
             NavItem::leaf("about", "About", SettingsSection::About),
@@ -387,8 +393,8 @@ fn injected_items(group_id: &str, owner: bool) -> Vec<&'static str> {
     match group_id {
         "boards" if owner => vec!["@boards", "@new-board"],
         "boards" => vec!["@boards"],
-        "agents" if owner => vec!["@assistant", "@agents", "@new-agent"],
-        "agents" => vec!["@assistant", "@agents"],
+        "agents" if owner => vec!["@agents", "@new-agent"],
+        "agents" => vec!["@agents"],
         "apps" if owner => vec!["@apps", "@new-app"],
         "apps" => vec!["@apps"],
         _ => Vec::new(),
@@ -416,6 +422,10 @@ fn nav_model(owner: bool) -> Vec<(&'static str, Vec<&'static str>)> {
         .filter(|(_, items)| !items.is_empty())
         .collect()
 }
+
+/// #EXP-1987: the Personal group's Assistant page label =
+/// `agent-settings.json` `assistant.copy.title` (a test locks the two).
+pub(crate) const ASSISTANT_PAGE: &str = "Assistant";
 
 /// EXP-1294: the team Agents group's label — `agent-settings.json`
 /// `copy.title` (a test locks the two together).
@@ -476,12 +486,14 @@ fn valid_agent_ids(
         return None;
     }
     let Some(team_id) = active_team_id(nav, cx) else {
-        return Some(Default::default());
+        return Some(crate::session_data::my_assistant_anywhere(None, cx).map(|agent| agent.id).into_iter().collect());
     };
     Some(
         crate::session_data::agents_in_team(&team_id, cx)
             .into_iter()
             .map(|agent| agent.agent_id)
+            // #EXP-1987: the account page's Assistant, whatever its team.
+            .chain(crate::session_data::my_assistant_anywhere(Some(&team_id), cx).map(|agent| agent.id))
             .collect(),
     )
 }
@@ -515,8 +527,9 @@ fn first_agent_resolved(
             .unwrap_or(SettingsSection::Agent(id)),
         // S-3: the Voice page left the nav; its block is the Assistant
         // page's Voice section (the tray / meeting links land there).
-        SettingsSection::Voice => active_team_id(nav, cx)
-            .and_then(|team_id| crate::session_data::my_assistant(&team_id, cx))
+        // #EXP-1987: Personal's `assistant` page = the viewer's ONE
+        // Assistant whichever team is current.
+        SettingsSection::Voice => crate::session_data::my_assistant_anywhere(active_team_id(nav, cx).as_deref(), cx)
             .map(|assistant| SettingsSection::Agent(assistant.id))
             .unwrap_or(SettingsSection::Voice),
         // VAPP-110: `App("")` = the team's first app; a slug (the dev
@@ -1195,11 +1208,9 @@ impl SettingsNavPanel {
             .as_deref()
             .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
             .unwrap_or_default();
-        // S-3: the Agents group mounting creates the viewer's Assistant on
-        // first use.
-        if let Some(team_id) = team_id.as_deref() {
-            crate::session_data::ensure_assistant(team_id, cx);
-        }
+        // S-3: the nav mounting creates the viewer's Assistant on first use
+        // (#EXP-1987: Personal's Assistant page, once per account).
+        crate::session_data::ensure_my_assistant(cx);
         let agents = team_id
             .as_deref()
             // #FEED-239: an app's agent is listed under Apps only.
@@ -1315,6 +1326,20 @@ pub(crate) fn my_membership(cx: &App, team_id: &str) -> Option<(String, String)>
 /// menu read it (web chat route `permissions.isMember`).
 pub(crate) fn is_member(cx: &App, team_id: &str) -> bool {
     my_membership(cx, team_id).is_some()
+}
+
+/// #EXP-1987 (agent-settings.json `assistant`: THE ASSISTANT'S CHAT IS THE
+/// MEMBER'S OWN): [`is_member`] for a chat of `team_id` started by
+/// `starter`: a member of the team, or the starter themselves in a team the
+/// viewer does not sync (their hidden personal team: no teams row, no
+/// `team_members` rows). Nothing counts as personal before the teams sync.
+pub(crate) fn is_chat_member(cx: &App, team_id: &str, starter: Option<&str>) -> bool {
+    if is_member(cx, team_id) {
+        return true;
+    }
+    let me = queries::active_account(cx).map(|account| account.user_id);
+    let team_ids = crate::session_data::synced_team_ids(cx);
+    me.is_some() && starter == me.as_deref() && !team_ids.is_empty() && !team_ids.iter().any(|id| id == team_id)
 }
 
 /// Web `isOwner` gate (settings route: `currentMember?.role === 'owner'`).
@@ -1781,8 +1806,12 @@ mod tests {
         let children: Vec<&str> = NAV_GROUPS[0].items[2].children.iter().map(|item| item.id).collect();
         assert_eq!(serde_json::json!(children), nav["children"]["issues"]);
         assert_eq!(APPS_GROUP, domain::apps::APPS.copy.title);
-        // The Voice page left the nav (the Assistant page's Voice section).
-        assert!(!flat_nav_items().any(|item| item.section == SettingsSection::Voice));
+        // The Voice page left the nav (the Assistant page's Voice section):
+        // #EXP-1987: only Personal's `assistant` page resolves through it.
+        let voice: Vec<&str> = flat_nav_items().filter(|item| item.section == SettingsSection::Voice).map(|item| item.id).collect();
+        assert_eq!(voice, vec!["assistant"]);
+        assert_eq!(ASSISTANT_PAGE, domain::agent_settings::ASSISTANT.copy.title);
+        assert_eq!(section_for_link("assistant"), Some(SettingsSection::Voice));
     }
 
     /// EXP-771: web copy wins — the nav says "Statuses", not the longer

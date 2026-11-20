@@ -69,18 +69,28 @@ fn mark_read(unread_ids: &[String], cx: &mut App) {
         .detach();
 }
 
-/// The header's mark-all-read: every unread row of the viewer; the cleared
-/// `read_at`s stream back over the notifications shape. A failure is the
-/// failed-action toast with Retry (the call is idempotent).
-fn mark_all_read(cx: &mut App) {
+/// The header's mark-all-read: #EXP-1987 (inbox-route.json) exactly the
+/// unread rows `team_id`'s inbox lists (`None` = every team: all of the
+/// viewer's, one `markAllRead`); the cleared `read_at`s stream back over the
+/// notifications shape. A failure is the failed-action toast with Retry
+/// (the calls are idempotent).
+fn mark_all_read(team_id: Option<String>, cx: &mut App) {
     let Some(trpc) = queries::trpc_client(cx) else {
         crate::action_error::failed_action(MARK_ALL_VERB, MARK_ALL_THING, None, cx);
         return;
     };
+    let ids = team_id.as_deref().map(|team| queries::inbox_unread_ids(Some(team), cx));
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::notifications::notifications_mark_all_read(&trpc) })
+            .spawn(async move {
+                match ids {
+                    None => api::notifications::notifications_mark_all_read(&trpc).map(|_| ()),
+                    Some(ids) => ids
+                        .iter()
+                        .try_for_each(|id| api::notifications::notifications_mark_read(&trpc, id).map(|_| ())),
+                }
+            })
             .await;
         if let Err(err) = result {
             log::warn!("[ui] notifications.markAllRead failed: {err}");
@@ -90,7 +100,7 @@ fn mark_all_read(cx: &mut App) {
                     MARK_ALL_VERB,
                     MARK_ALL_THING,
                     description,
-                    |_, cx| mark_all_read(cx),
+                    move |_, cx| mark_all_read(team_id.clone(), cx),
                     cx,
                 )
             });
@@ -179,23 +189,28 @@ fn time_of(created_at: Option<&str>) -> String {
 
 /// The popover's body: its own view, so a sync moves the rows while it is up.
 pub(crate) struct InboxPopoverBody {
+    /// #EXP-1987: the window's navigation: the inbox lists its active
+    /// team's rows (inbox-route.json `listCases`).
+    nav: Entity<Navigation>,
     scroll: ScrollHandle,
     data: queries::Memo<queries::InboxDataKey, queries::InboxData>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl InboxPopoverBody {
-    fn new(cx: &mut gpui::Context<Self>) -> Self {
+    fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         let collections = Store::global(cx).collections().clone();
         Self {
-            scroll: ScrollHandle::new(),
-            data: queries::Memo::default(),
             _subscriptions: vec![
+                cx.observe(&nav, |_, _, cx| cx.notify()),
                 cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
                 cx.observe(&collections.issues, |_, _, cx| cx.notify()),
                 cx.observe(&collections.boards, |_, _, cx| cx.notify()),
                 cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             ],
+            nav,
+            scroll: ScrollHandle::new(),
+            data: queries::Memo::default(),
         }
     }
 
@@ -300,16 +315,17 @@ impl InboxPopoverBody {
 impl Render for InboxPopoverBody {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "InboxPopoverBody").entered();
+        let team = crate::navigation::active_team_id(&self.nav, cx);
         let data = {
             let app: &App = cx;
-            self.data.get_or_insert_with(queries::inbox_data_key(app), || queries::inbox(app))
+            self.data.get_or_insert_with(queries::inbox_data_key(team.as_deref(), app), || queries::inbox(team.as_deref(), app))
         };
         let copy = domain::chats::CHATS.copy.inbox.clone();
         let muted = cx.theme().muted_foreground;
         let mark_all = (data.total_unread > 0).then(|| {
             crate::controls::ghost_icon_button("inbox-mark-all-read", Icon::from(registry::NOTIFICATION_MARK_READ), cx)
                 .tooltip("Mark all read")
-                .on_click(|_: &ClickEvent, _, cx: &mut App| mark_all_read(cx))
+                .on_click(move |_: &ClickEvent, _, cx: &mut App| mark_all_read(team.clone(), cx))
         });
         let body: AnyElement = if !data.is_ready {
             crate::feedback::skeleton_rows("inbox-skeleton", crate::feedback::SKELETON_ROWS, eui_gpui::controls::FLAT_ROW_COMPACT_H, cx).into_any_element()
@@ -370,7 +386,10 @@ impl RenderOnce for InboxButton {
         let open = self.nav.read(cx).inbox_open;
         let team = crate::navigation::active_team_id(&self.nav, cx);
         let unread = queries::inbox_unread_count(team.as_deref(), cx);
-        let body = window.use_keyed_state("inbox-popover-body", cx, |_, cx| InboxPopoverBody::new(cx));
+        let body = window.use_keyed_state("inbox-popover-body", cx, {
+            let nav = self.nav.clone();
+            move |_, cx| InboxPopoverBody::new(nav, cx)
+        });
         let trigger = Button::new("nav-inbox")
             .ghost()
             .web_icon_sm()

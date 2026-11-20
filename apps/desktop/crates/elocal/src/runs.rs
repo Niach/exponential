@@ -1658,7 +1658,7 @@ mod tests {
         assert_eq!(claude.lock().unwrap().as_slice(), ["On the default"]);
 
         // An agent's CLI when the session names none.
-        let agent = api::agents::ensure_assistant(&client, desktop.executor.team_id()).unwrap().expect("the assistant");
+        let agent = api::agents::ensure_assistant(&client, None).unwrap().expect("the assistant");
         desktop.store.modify("agents", &agent.id, |row| {
             let mut row = row.clone();
             row.insert("cli".into(), json!("codex"));

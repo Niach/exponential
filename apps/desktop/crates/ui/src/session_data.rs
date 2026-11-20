@@ -80,42 +80,90 @@ pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     store.collections().sessions.read(cx).get(session_id).cloned()
 }
 
-/// S-3: the teams whose Assistant this app run already ensured.
+/// S-3 / #EXP-1987: the ACCOUNTS whose Assistant this app run already
+/// ensured, with the agent id the server answered (`None` = asked, no answer
+/// yet or no device; agent-settings.json `assistant.copy.noDevice`).
 #[derive(Default)]
-struct EnsuredAssistants(HashSet<String>);
+struct EnsuredAssistants(HashMap<String, Option<String>>);
 
 impl gpui::Global for EnsuredAssistants {}
 
-/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats list
-/// and the Settings Agents group call it on mount; it runs ONCE per team per
-/// app run (fire-and-forget, the synced `agents` row is the answer; a
-/// failure only logs and re-arms).
-pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
-    if team_id.is_empty() {
+/// S-3 `agents.ensureAssistant`: the composer home, the chats list, the
+/// Settings Agents group and Settings › Assistant call it on mount.
+/// #EXP-1987 (agent-settings.json `assistant`): WITHOUT a team, ONCE per
+/// signed-in ACCOUNT per app run, never per team (fire-and-forget: the
+/// synced `agents` row is the answer, its id is kept for
+/// [`ensured_assistant_id`]; a failure only logs and re-arms). `_team_id`
+/// is the caller's current team, kept so a call site reads the same.
+pub(crate) fn ensure_assistant(_team_id: &str, cx: &mut App) {
+    ensure_my_assistant(cx);
+}
+
+/// [`ensure_assistant`] with no team at hand (Settings › Assistant, the FAB).
+pub(crate) fn ensure_my_assistant(cx: &mut App) {
+    let Some(account) = signed_in_user(cx) else {
         return;
-    }
-    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains(team_id)) {
+    };
+    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains_key(&account)) {
         return;
     }
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return;
     };
-    cx.default_global::<EnsuredAssistants>().0.insert(team_id.to_string());
-    let team = team_id.to_string();
+    cx.default_global::<EnsuredAssistants>().0.insert(account.clone(), None);
     cx.spawn(async move |cx| {
-        let probe = team.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { api::agents::ensure_assistant(&trpc, &probe) })
+            .spawn(async move { api::agents::ensure_assistant(&trpc, None) })
             .await;
-        if let Err(err) = result {
-            log::warn!("[ui] agents.ensureAssistant failed: {err}");
-            let _ = cx.update(|cx| {
-                cx.default_global::<EnsuredAssistants>().0.remove(&team);
-            });
-        }
+        let _ = cx.update(|cx| match result {
+            Ok(agent) => {
+                cx.default_global::<EnsuredAssistants>().0.insert(account, agent.map(|agent| agent.id));
+                cx.refresh_windows();
+            }
+            Err(err) => {
+                log::warn!("[ui] agents.ensureAssistant failed: {err}");
+                cx.default_global::<EnsuredAssistants>().0.remove(&account);
+            }
+        });
     })
     .detach();
+}
+
+/// #EXP-1987: the id `agents.ensureAssistant` answered for the signed-in
+/// account this app run, if any.
+pub(crate) fn ensured_assistant_id(cx: &App) -> Option<String> {
+    let account = signed_in_user(cx)?;
+    cx.try_global::<EnsuredAssistants>()?.0.get(&account).cloned().flatten()
+}
+
+/// #EXP-1987: the viewer's own Assistant WHATEVER team is current: the one
+/// `team_id` lists (its own row before the move, the global one after),
+/// else the one `agents.ensureAssistant` answered, else any synced
+/// Assistant of theirs (the personal team's first). Settings › Assistant,
+/// the FAB and voice read it.
+pub(crate) fn my_assistant_anywhere(team_id: Option<&str>, cx: &App) -> Option<domain::rows::AgentDefRow> {
+    if let Some(found) = team_id.and_then(|team| my_assistant(team, cx)) {
+        return Some(found);
+    }
+    let store = Store::try_global(cx)?;
+    let me = signed_in_user(cx)?;
+    let agents = store.collections().agents.read(cx);
+    if let Some(found) = ensured_assistant_id(cx)
+        .and_then(|id| agents.get(id.as_str()).cloned())
+        .filter(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me.as_str()))
+    {
+        return Some(found);
+    }
+    let team_ids = synced_team_ids(cx);
+    let mine: Vec<&domain::rows::AgentDefRow> = agents
+        .iter()
+        .filter(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me.as_str()))
+        .collect();
+    mine.iter()
+        .find(|agent| agent.team_id.as_deref().is_none_or(|team| !team_ids.iter().any(|id| id == team)))
+        .or(mine.first())
+        .map(|agent| (*agent).clone())
 }
 
 /// #EXP-1714: the synced teams' ids (`collections().teams_sorted()`; a

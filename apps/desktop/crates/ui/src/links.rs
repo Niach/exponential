@@ -357,6 +357,9 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
             match agent {
                 None => Target::NotFound(Some(Landing::Screen(screen))),
                 Some(row) if row.team_id.as_deref().is_none_or(|team| team == team_id) => found(screen),
+                // #EXP-1987: the viewer's own Assistant opens from every team
+                // (after the move it lives in their personal team).
+                Some(row) if crate::teams_pick::is_my_assistant(&row, cx) => found(screen),
                 Some(_) => Target::NotFound(None),
             }
         }
@@ -403,6 +406,18 @@ fn session_target(session_id: &str, team_id: &str, landing: Landing, cx: &App) -
     match crate::session_data::session(session_id, cx) {
         None => Target::NotFound(Some(landing)),
         Some(row) if row.team_id.as_deref().is_none_or(|team| team == team_id) => Target::Found(landing),
+        // #EXP-1987: the viewer's own session in a team that does not sync
+        // (the Assistant's chat in their personal team) opens from every team.
+        Some(row)
+            if crate::session_data::in_team_or_personal(
+                &row,
+                team_id,
+                &crate::session_data::synced_team_ids(cx),
+                crate::session_data::signed_in_user(cx).as_deref(),
+            ) =>
+        {
+            Target::Found(landing)
+        }
         Some(_) => Target::NotFound(None),
     }
 }
