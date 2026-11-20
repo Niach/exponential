@@ -104,7 +104,7 @@ use crate::apps_view::{find_app, version_pill, AppEntry};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
+use crate::navigation::{screen_team_id, nav_for_window, resolved_screen, Navigation, Screen};
 
 /// The header glyph in its lead disc (the chat header's `disc`, `size-4`).
 const HEADER_GLYPH_PX: f32 = 16.;
@@ -627,7 +627,7 @@ impl AppScreenView {
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let team_id = active_team_id(&self.nav, cx);
+        let team_id = screen_team_id(&self.nav, cx);
         // VAPP-176: by id once resolved, so a slug change never loses it.
         let key = self.app_id.clone().unwrap_or_else(|| self.requested.clone());
         self.app = find_app(&key, team_id.as_deref(), cx);

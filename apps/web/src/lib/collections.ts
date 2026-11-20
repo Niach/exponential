@@ -425,7 +425,7 @@ export const messageCollection = createCollection(
 )
 
 // EXP-1323: the caller's read marks (`sessions.markRead`), the Chats
-// list's bold rows. Static per user like `pins`; a row renders only beside a
+// list's bold rows. Static per user like the drafts; a row renders only beside a
 // synced session.
 export const sessionReadsCollection = createCollection(
   electricCollectionOptions({

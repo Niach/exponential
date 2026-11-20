@@ -46,14 +46,27 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-sidebar-tree",
+    date: "2026-11-20",
+    title: "One sidebar for all your teams",
+    summary: "The sidebar shows every team at once: Home, Chats, your devices, then each team with its boards, agents, apps and the chats you placed there, in your own folders.",
+    body: r##"- **No team switcher**: Home, Chats, Needs you and Drafts cover all your teams; each row shows its team.
+- **Devices**: each device is a row that opens its accounts, limits and running sessions; its gear opens its settings.
+- **Teams**: each team is a folder with its boards, agents and apps in one list; drag a chat from Active into it, and right-click a team for New, New folder and Settings.
+- **New board, agent and app** open as pages.
+- **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_342: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-phones-calls-find-search",
     date: "2026-11-20",
     title: "Calls, find in chat and sharing on phones",
-    summary: "Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, global search finds chats, and Pins are gone.",
+    summary: "Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, and global search finds chats.",
     body: r##"- **Calls**: a call from your phone follows the same rules as on the desktop: it reaches the device you picked, falls back the same way, and an opening line that arrives late is said at pickup instead of crashing the app.
 - **Find in chat**: finds and lands on every message of the chat, older synced messages and the ones already shown included.
 - **Global search finds chats**: the search tab lists the chats that mention your words; a pick opens the chat on that message.
-- **Pins are gone**: no Pin or Unpin buttons; the app icon's long-press menu lists your Assistant and your newest chats.
 - **iOS sharing**: sharing pictures into Exponential stages them like the chat's composer: the same limits, and removing one renumbers the rest.
 - **iOS settings**: values in settings rows draw in the muted value colour."##,
 };
@@ -82,18 +95,6 @@ const PREVIOUS_340: ChangelogEntry = ChangelogEntry {
     title: "Agent is back in the desktop sidebar",
     summary: "The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.",
     body: r##"- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_339: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-20-pins-removed",
-    date: "2026-11-20",
-    title: "Pins are gone",
-    summary: "The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.",
-    body: r##"- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
-- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
-- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

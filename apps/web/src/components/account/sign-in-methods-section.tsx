@@ -87,13 +87,15 @@ export function emailCodeCaption(email: string, enabled: boolean): string {
 
 export function SignInMethodsSection({
   initialMethods,
-  teamSlug,
+  accountPath,
   linkReturn,
   onLinkReturnConsumed,
   onChanged,
 }: {
   initialMethods: SignInMethods
-  teamSlug: string
+  /** #EXP-2027: the Account page's own path (`/settings/account` on md+,
+   *  `/t/<slug>/settings/account` on phones): the link round trip lands there. */
+  accountPath: string
   linkReturn: LinkReturn
   onLinkReturnConsumed: () => void
   // EXP-1209: the Passkeys band below gates its last Remove on `waysIn` too.
@@ -132,8 +134,6 @@ export function SignInMethodsSection({
     onLinkReturnConsumed()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkReturn.linked, linkReturn.linkError])
-
-  const accountPath = `/t/${teamSlug}/settings/account`
 
   const link = async (provider: SignInProvider) => {
     if (pendingLink) return

@@ -48,14 +48,23 @@ type RepoSelection =
   | { kind: `registry`; repositoryId: string; fullName: string }
   | { kind: `inline`; repo: PickerRepo }
 
-export function CreateBoardDialog({
-  open,
-  onOpenChange,
+/** #EXP-2027: the form both hosts render: the dialog (phones, settings,
+ *  getting started) and the New board PAGE (`/t/$teamSlug/new/board`, the
+ *  team menu's New › Board on md+). `layout` only picks the frame: the
+ *  dialog's scrolling body over a pinned footer, or the page's plain stack
+ *  ending on the Create button. */
+export function CreateBoardForm({
   team,
+  layout = `dialog`,
+  onCreated,
+  onPlanLimit,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
   team: Team
+  layout?: `dialog` | `page`
+  /** The board exists (its slug + the write's txid). */
+  onCreated: (board: { slug: string; txId: number }) => void
+  /** The plan's board cap refused it: the host opens the upgrade dialog. */
+  onPlanLimit: () => void
 }) {
   const teamId = team.id
   const { createBoard } = useCreateBoard()
@@ -64,11 +73,6 @@ export function CreateBoardDialog({
   const [color, setColor] = useState(`#6366f1`)
   const [icon, setIcon] = useState<BoardIcon>(`code`)
   const [submitting, setSubmitting] = useState(false)
-  const [upgradeOpen, setUpgradeOpen] = useState(false)
-  const [productIds, setProductIds] = useState<{
-    team: string | null
-    teamYearly: string | null
-  }>({ team: null, teamYearly: null })
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
   // EXP-712: the board's own branch; null = the repo's default. Reset with
@@ -78,25 +82,6 @@ export function CreateBoardDialog({
     field: `name` | `prefix`
     message: string
   } | null>(null)
-
-  useEffect(() => {
-    void getRuntimeConfig().then((config) => {
-      setProductIds({
-        team: config.creemTeamProductId,
-        teamYearly: config.creemTeamYearlyProductId,
-      })
-    })
-  }, [])
-
-  const resetAll = () => {
-    setName(``)
-    setPrefix(``)
-    setColor(`#6366f1`)
-    setIcon(`code`)
-    setSelection(null)
-    setBranch(null)
-    setFieldError(null)
-  }
 
   const handleNameChange = (value: string) => {
     setName(value)
@@ -142,109 +127,166 @@ export function CreateBoardDialog({
     })
     setSubmitting(false)
     if (result.ok) {
-      resetAll()
-      onOpenChange(false)
+      onCreated({ slug: result.slug, txId: result.txId })
       return
     }
     if (result.error.kind === `planLimit`) {
-      onOpenChange(false)
-      setUpgradeOpen(true)
+      onPlanLimit()
     } else {
       const invalid = boardCreateFieldError(result.error.message)
       if (invalid) setFieldError(invalid)
-      // A create can duplicate, so no Retry; the dialog stays open.
+      // A create can duplicate, so no Retry; the form stays.
       else failedAction(`create`, `the board`, result.error.message)
     }
   }
 
+  // EXP-862: one grouped form — identity (icon, colour, name) in ONE row,
+  // then the prefix; the repository block brings its own group. No captions
+  // above any field.
+  const fields = (
+    <>
+      <GlassGroup>
+        <BoardIdentityRow
+          name={name}
+          onNameChange={handleNameChange}
+          autoFocus
+          icon={icon}
+          onIconChange={setIcon}
+          color={color}
+          onColorChange={setColor}
+          invalid={fieldError?.field === `name`}
+        />
+        <BoardPrefixField
+          value={prefix}
+          onChange={handlePrefixChange}
+          invalid={fieldError?.field === `prefix`}
+        />
+      </GlassGroup>
+      {fieldError && (
+        <FieldError className="-mt-2 px-1">{fieldError.message}</FieldError>
+      )}
+
+      <BoardRepoField
+        teamId={teamId}
+        repositoryId={
+          selection?.kind === `registry` ? selection.repositoryId : null
+        }
+        inlineRepo={selection?.kind === `inline` ? selection.repo : null}
+        onSelectRegistry={(repo) =>
+          changeSelection(
+            repo
+              ? {
+                  kind: `registry`,
+                  repositoryId: repo.id,
+                  fullName: repo.fullName,
+                }
+              : null
+          )
+        }
+        onConnectNew={(repo: PickerRepo) =>
+          changeSelection({ kind: `inline`, repo })
+        }
+        branch={branch}
+        onBranchChange={setBranch}
+      />
+    </>
+  )
+  const submit = (
+    <Button type="submit" disabled={!canSubmit} pending={submitting}>
+      Create board
+    </Button>
+  )
+
+  if (layout === `page`) {
+    return (
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {fields}
+        <div className="flex justify-end">{submit}</div>
+      </form>
+    )
+  }
+  // The form is the flex middle of the panel: its fields scroll in the
+  // DialogBody while the submit button rides the pinned footer — still
+  // inside the form, so Enter and the click both submit.
+  return (
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
+      <DialogBody className="space-y-4">{fields}</DialogBody>
+      <DialogFooter>{submit}</DialogFooter>
+    </form>
+  )
+}
+
+/** The plan-cap nudge a refused create opens (both hosts). */
+export function BoardLimitUpgradeDialog({
+  open,
+  onOpenChange,
+  teamId,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  teamId: string
+}) {
+  const [productIds, setProductIds] = useState<{
+    team: string | null
+    teamYearly: string | null
+  }>({ team: null, teamYearly: null })
+
+  useEffect(() => {
+    void getRuntimeConfig().then((config) => {
+      setProductIds({
+        team: config.creemTeamProductId,
+        teamYearly: config.creemTeamYearlyProductId,
+      })
+    })
+  }, [])
+
+  return (
+    <UpgradeDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Board limit reached"
+      description="You've reached the maximum number of boards for your plan. Upgrade to create more."
+      teamProductId={productIds.team}
+      teamYearlyProductId={productIds.teamYearly}
+      teamId={teamId}
+    />
+  )
+}
+
+export function CreateBoardDialog({
+  open,
+  onOpenChange,
+  team,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  team: Team
+}) {
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  // The form lives inside DialogContent, which unmounts on close: a reopened
+  // dialog starts blank.
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) resetAll()
-          onOpenChange(next)
-        }}
-      >
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create board</DialogTitle>
           </DialogHeader>
-
-          {/* The form is the flex middle of the panel: its fields scroll in
-              the DialogBody while the submit button rides the pinned footer —
-              still inside the form, so Enter and the click both submit. */}
-          <form
-            onSubmit={handleSubmit}
-            className="flex min-h-0 flex-1 flex-col gap-4"
-          >
-            {/* EXP-862: one grouped form — identity (icon, colour, name) in
-                ONE row, then the prefix; the repository block brings its own
-                group. No captions above any field. */}
-            <DialogBody className="space-y-4">
-              <GlassGroup>
-                <BoardIdentityRow
-                  name={name}
-                  onNameChange={handleNameChange}
-                  autoFocus
-                  icon={icon}
-                  onIconChange={setIcon}
-                  color={color}
-                  onColorChange={setColor}
-                  invalid={fieldError?.field === `name`}
-                />
-                <BoardPrefixField
-                  value={prefix}
-                  onChange={handlePrefixChange}
-                  invalid={fieldError?.field === `prefix`}
-                />
-              </GlassGroup>
-              {fieldError && (
-                <FieldError className="-mt-2 px-1">{fieldError.message}</FieldError>
-              )}
-
-              <BoardRepoField
-                teamId={teamId}
-                repositoryId={
-                  selection?.kind === `registry` ? selection.repositoryId : null
-                }
-                inlineRepo={selection?.kind === `inline` ? selection.repo : null}
-                onSelectRegistry={(repo) =>
-                  changeSelection(
-                    repo
-                      ? {
-                          kind: `registry`,
-                          repositoryId: repo.id,
-                          fullName: repo.fullName,
-                        }
-                      : null
-                  )
-                }
-                onConnectNew={(repo: PickerRepo) =>
-                  changeSelection({ kind: `inline`, repo })
-                }
-                branch={branch}
-                onBranchChange={setBranch}
-              />
-            </DialogBody>
-
-            <DialogFooter>
-              <Button type="submit" disabled={!canSubmit} pending={submitting}>
-                Create board
-              </Button>
-            </DialogFooter>
-          </form>
+          <CreateBoardForm
+            team={team}
+            onCreated={() => onOpenChange(false)}
+            onPlanLimit={() => {
+              onOpenChange(false)
+              setUpgradeOpen(true)
+            }}
+          />
         </DialogContent>
       </Dialog>
 
-      <UpgradeDialog
+      <BoardLimitUpgradeDialog
         open={upgradeOpen}
         onOpenChange={setUpgradeOpen}
-        title="Board limit reached"
-        description="You've reached the maximum number of boards for your plan. Upgrade to create more."
-        teamProductId={productIds.team}
-        teamYearlyProductId={productIds.teamYearly}
-        teamId={teamId}
+        teamId={team.id}
       />
     </>
   )

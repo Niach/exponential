@@ -248,7 +248,7 @@ fn rail_bench() {
     let handle = cx
         .open_window(size(px(272.), px(900.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t0".into()));
+            let _ = &nav;
             let rail = cx.new(|cx| RailView::new(window, cx));
             let region = cx.new(|_| eui_gpui::controls::GlyphRegion::new(vec![rail.clone().into()]));
             let layer = cx.new(|_| eui_gpui::controls::GlyphLayer);
@@ -278,7 +278,7 @@ fn rail_bench() {
         let rail = root.read(cx).rail.clone();
         let region = rail.read(cx).region();
         let input = &region.read(cx).input;
-        println!("[LOGS-11] rail rows: {} active · {} agents · {} boards · needs you {}", input.active.len(), input.agents.len(), input.boards.len(), input.needs_you);
+        println!("[LOGS-11] rail rows: {} active · {} teams · {} items · needs you {}", input.active.len(), input.teams.len(), input.teams.iter().map(|t| t.items.len()).sum::<usize>(), input.needs_you);
     });
 
     // `LOGS11_PROFILE=<phase>`: loop it for a sampler.

@@ -121,3 +121,46 @@ fn a_plain_list_never_drags() {
     s.list_drag(x, &ListDragInput::Start { x: 1.0, y: 1.0 });
     assert!(!s.list_dragging());
 }
+
+#[test]
+fn a_row_from_outside_drops_between_the_named_rows() {
+    // #EXP-2027: an outside row (the desktop's Chats row) over the List:
+    // only the named rows take the drop, a List row with its key steps
+    // aside, the paint is the drop alone and the release fires the List's
+    // own `move` with the outside key.
+    let items = json!([{"id": "t", "group": true}, {"id": "f", "depth": 1, "group": true}, {"id": "s", "depth": 1}, {"id": "o", "group": true}, {"id": "o1", "depth": 1}]);
+    let mut s = surface(items, 3.0);
+    let row = eui_core::surface::Frame { x: 400.0, y: 500.0, w: 200.0, h: 30.0 };
+    let keys = Some(vec!["t".to_string(), "f".to_string(), "s".to_string()]);
+    assert!(s.list_drag_external("l", "s", row, keys.clone(), &ListDragInput::Start { x: 410.0, y: 510.0 }).is_empty());
+    assert!(s.list_dragging());
+    // Into the folder f (30..60, middle).
+    s.list_drag(0, &ListDragInput::Move { x: 10.0, y: 45.0 });
+    let p = s.list_drag_paint().remove(0);
+    assert!(p.external);
+    assert_eq!(p.drop.as_ref().map(|d| (d.key.as_str(), d.position)), Some(("f", ListDropPosition::Into)));
+    assert_eq!(p.into, s.last_frame(s.index_of("row.f").unwrap()));
+    // Over the List's own row of the same key (60..90): it stepped aside
+    // (the pointer is past the named rows: no slot).
+    s.list_drag(0, &ListDragInput::Move { x: 10.0, y: 75.0 });
+    assert_eq!(s.list_drag_paint().remove(0).drop, None);
+    // Another team's rows (o, o1) never take it.
+    s.list_drag(0, &ListDragInput::Move { x: 10.0, y: 135.0 });
+    assert_eq!(s.list_drag_paint().remove(0).drop, None);
+    // After t's edge, before f.
+    s.list_drag(0, &ListDragInput::Move { x: 10.0, y: 31.0 });
+    assert_eq!(s.list_drag_paint().remove(0).drop.map(|d| (d.key, d.position)), Some(("f".to_string(), ListDropPosition::Before)));
+    // The release fires the List's move with the outside key.
+    s.list_drag(0, &ListDragInput::Move { x: 10.0, y: 45.0 });
+    let fired = moves(&s.list_drag(0, &ListDragInput::End { x: 10.0, y: 45.0 }));
+    assert_eq!(fired, vec![json!({"id": "s", "into": "f"})]);
+    assert!(!s.list_dragging());
+    // Over the outside row itself: no slot, nothing fires.
+    s.list_drag_external("l", "s", row, keys, &ListDragInput::Start { x: 410.0, y: 510.0 });
+    s.list_drag(0, &ListDragInput::Move { x: 410.0, y: 515.0 });
+    assert!(s.list_drag_paint().remove(0).drop.is_none());
+    assert!(moves(&s.list_drag(0, &ListDragInput::End { x: 410.0, y: 515.0 })).is_empty());
+    // Not a reorderable List: nothing starts.
+    assert!(s.list_drag_external("row.t", "s", row, None, &ListDragInput::Start { x: 0.0, y: 0.0 }).is_empty());
+    assert!(!s.list_dragging());
+}

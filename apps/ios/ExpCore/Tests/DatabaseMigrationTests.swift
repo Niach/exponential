@@ -1334,10 +1334,9 @@ final class DatabaseMigrationTests: XCTestCase {
     // and get the coding-sessions shape offset reset (the key has A DASH —
     // the proxy route name, not the table name) so already-synced rows
     // re-arrive carrying the host machine's deviceId.
-    // v33 (EXP-778 pins): a store created before the `pins` table existed
-    // must gain it on upgrade. A brand-new shape has no offset row, so no
-    // shape offset is touched.
-    func testPinsTableAddedToExistingStore() throws {
+    // v33: a store created before its table existed gains it on upgrade. A
+    // brand-new shape has no offset row, so no shape offset is touched.
+    func testV33TableAddedToExistingStore() throws {
         let pool = try makePool("pins")
         let migrator = DatabaseManager.makeMigrator()
         try migrator.migrate(pool, upTo: "v32_action_prompt_placeholder")
@@ -3422,8 +3421,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
-    // NEW-8: v78 drops the `actions` table and its cursor, the action pins
-    // and `pins.action_id`, the legacy `sessions` columns and
+    // NEW-8: v78 drops the `actions` table and its cursor, the v33 table's
+    // `action` rows and `action_id`, the legacy `sessions` columns and
     // `session_issues.assigned_session_id`; surviving rows and every other
     // cursor stay.
     func testActionsAndLegacySessionColumnsDropped() throws {
@@ -3493,9 +3492,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
-    // #EXP-2027: v113 drops the `pins` table and its cursor (pins are gone
-    // everywhere); every other cursor stays, and a re-run converges.
-    func testPinsTableAndCursorDropped() throws {
+    // #EXP-2027: v113 drops the v33 table and its cursor; every other cursor
+    // stays, and a re-run converges.
+    func testV33TableAndCursorDropped() throws {
         let pool = try makePool("exp2027-drop-pins")
         let migrator = DatabaseManager.makeMigrator()
         try migrator.migrate(pool, upTo: "v112_session_voice_call")

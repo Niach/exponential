@@ -835,7 +835,7 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
         // #EXP-1534: the inbox row's own landing — the Devices page, the
         // device's settings dialog on top.
         Route::Device { device_id } => {
-            navigation::navigate(window, cx, Screen::Devices);
+            navigation::navigate(window, cx, Screen::Device { device_id: String::new() });
             crate::device_settings::open(window, cx, device_id);
         }
         // #EXP-1662: a session waiting on its own plan = its chat's plan tab.
@@ -867,7 +867,7 @@ fn land_issue(issue_id: String, window: &mut Window, cx: &mut App) {
         return;
     };
     let nav = navigation::nav_for_window(window, cx);
-    let same_team = team_id.is_some() && navigation::active_team_id(&nav, cx) == team_id;
+    let same_team = team_id.is_some() && navigation::screen_team_id(&nav, cx) == team_id;
     if same_team {
         navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
     } else {

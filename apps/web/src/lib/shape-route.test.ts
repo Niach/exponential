@@ -11,7 +11,7 @@ import { Route as issueRelationsRoute } from "@/routes/api/shapes/issue-relation
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
-import { Route as pinsRoute } from "@/routes/api/shapes/pins"
+import { Route as retiredRoute } from "@/routes/api/shapes/$"
 import { Route as sessionReadsRoute } from "@/routes/api/shapes/session-reads"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
 import { Route as composerDraftsRoute } from "@/routes/api/shapes/composer-drafts"
@@ -720,15 +720,13 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     }
   })
 
-  // #EXP-2027: the pins table is gone; the route stays for old builds as an
-  // EMPTY sentinel shape (impossible match on teams), never a 404.
-  it(`pins is an empty compat sentinel for old builds`, async () => {
+  it(`a shape no longer served answers empty, never a 404`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
 
-    await shapeHandler(pinsRoute)({
-      request: new Request(`https://example.com/api/shapes/pins`, {
+    await shapeHandler(retiredRoute)({
+      request: new Request(`https://example.com/api/shapes/retired`, {
         headers: { authorization: `Bearer t` },
       }),
     })
@@ -1025,7 +1023,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`issues`, issuesRoute],
     [`labels`, labelsRoute],
     [`notifications`, notificationsRoute],
-    [`pins`, pinsRoute],
     [`pull-request-issues`, pullRequestIssuesRoute],
     [`pull-request-checks`, pullRequestChecksRoute],
     [`pull-requests`, pullRequestsRoute],
