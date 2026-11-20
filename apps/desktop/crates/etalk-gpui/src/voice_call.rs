@@ -1980,6 +1980,8 @@ mod tests {
         assert!(rig.spoken().is_empty(), "never said during the ring");
         answered(&rig, &id, cx);
         assert_eq!(rig.spoken(), ["o1"]);
+        let speaking = cx.update(|cx| crate::speak_replies::speaking(cx)).unwrap();
+        assert!(!speaking.shows_in("call-s") && !speaking.shows_in(crate::test_support::CONVERSATION), "the opening line has no banner");
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Speaking);
         finished(&rig, "o1", cx);
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);
@@ -1989,6 +1991,10 @@ mod tests {
         assert!(rig.spoken().is_empty(), "the chat's replies are not the call's");
         rig.call_message("r1", "Anything else?", 3, cx);
         assert_eq!(rig.spoken(), ["r1"]);
+        // #EXP-2015: the call session's reply shows its Speaking banner in
+        // the chat's Dock (the call session's view has none).
+        let speaking = cx.update(|cx| crate::speak_replies::speaking(cx)).unwrap();
+        assert_eq!((speaking.session_id.as_str(), speaking.chat_id.as_deref()), ("call-s", Some(crate::test_support::CONVERSATION)));
         cx.update(end);
         assert_eq!(rig.call_log().1, ["call-s"]);
     }
@@ -2030,6 +2036,9 @@ mod tests {
         assert!(rig.spoken().is_empty(), "a card is shown, never spoken");
         rig.message("r1", "agent", "All green. Ship it.", 5, cx);
         assert_eq!(rig.spoken(), ["r1"]);
+        // #EXP-2015: a call without its own session speaks in the chat: its own Dock.
+        let speaking = cx.update(|cx| crate::speak_replies::speaking(cx)).unwrap();
+        assert_eq!((speaking.session_id.as_str(), speaking.chat_id.as_deref()), (crate::test_support::CONVERSATION, None));
         assert_eq!(cx.update(|cx| (phase(cx), face(cx).unwrap().view.caption)), (CallPhase::Speaking, "All green.".to_string()));
         finished(&rig, "r1", cx);
         assert_eq!(cx.update(|cx| phase(cx)), CallPhase::Listening);

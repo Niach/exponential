@@ -880,6 +880,19 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   A Flatpak installed for the person alone (`flatpak install --user`) is
   not there in a space: its installation is under `XDG_DATA_HOME`, and a
   space has its own; system-wide ones are (#EDE-158).
+- **Drawing in a space: on the CPU.** A space takes shared-memory buffers
+  only, so a frame drawn on the GPU cannot reach it until spaces have a
+  GPU path (#EDE-162). OpenGL and EGL apps get Mesa's software driver
+  (llvmpipe) by themselves. Vulkan apps would pick the GPU and then fail,
+  so while a space renders in software (every space, until #EDE-162 turns
+  it off for a space) its programs see lavapipe, Mesa's software Vulkan,
+  alone (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`; a launch may not set
+  them). The packages recommend `mesa-vulkan-drivers` (Arch:
+  `vulkan-swrast`); without it a Vulkan app does not start in a space, and
+  the doctor says so. The cost: 3D apps and games are slow or do not run
+  in a space, and every frame is drawn on the processor. A WebGL page or a
+  spinning 3D view keeps one or more cores busy; the space's share of the
+  processor (`[spaces] cpu_quota`) caps it.
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice

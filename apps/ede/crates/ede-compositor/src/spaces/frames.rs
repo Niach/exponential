@@ -4,10 +4,15 @@
 //! [`damage`], #EDE-162), counts that in the space's serial and sends the
 //! frame callbacks. An idle space arms nothing. A capture is drawn when it
 //! is asked for, in software, on the thread that serves the person's
-//! frames: hence the size limit and the slow clock of a space nobody looks
-//! at.
+//! frames: hence the size limit, the slow clock of a space nobody looks
+//! at, and the captures' turns after the person's frames ([`queue`]).
 
 mod damage;
+mod queue;
+mod stats;
+
+pub use queue::{BUDGET, FLOOR, WINDOW};
+pub use stats::PROBE;
 
 use std::time::{Duration, Instant};
 
@@ -28,6 +33,13 @@ use crate::{
     desk::DeskId,
     state::Ede,
 };
+
+/// What the spaces' clock and captures keep between turns of the loop.
+#[derive(Default)]
+pub(crate) struct Frames {
+    queue: queue::Queue,
+    stats: stats::Stats,
+}
 
 /// A tick this long after a commit while the space is in use: driven or
 /// captured within [`IN_USE`].
@@ -61,6 +73,12 @@ impl Ede {
     }
 
     fn space_tick(&mut self, id: DeskId) {
+        let cpu = stats::thread_cpu();
+        self.space_tick_inner(id);
+        self.spaces.frames.stats.tick(stats::thread_cpu().saturating_sub(cpu));
+    }
+
+    fn space_tick_inner(&mut self, id: DeskId) {
         // The space may have closed since the tick was armed.
         let Some(space) = self.spaces.get_mut(id) else { return };
         space.scheduled = false;
@@ -75,6 +93,17 @@ impl Ede {
         space.desk.space.refresh();
         self.popups.cleanup();
         let _ = self.display_handle.flush_clients();
+    }
+
+    /// The loop fired a timer `by` late (`EXP_FRAME_STATS=1`): the delay a
+    /// person's vblank would wait behind everything else on this thread.
+    pub fn spaces_loop_late(&mut self, by: std::time::Duration) {
+        self.spaces.frames.stats.late(by);
+    }
+
+    /// Whether space stats are being kept (`EXP_FRAME_STATS=1`).
+    pub fn spaces_stats_on(&self) -> bool {
+        self.spaces.frames.stats.on
     }
 
     /// Did space `id`'s scene change since this was last asked? Then its

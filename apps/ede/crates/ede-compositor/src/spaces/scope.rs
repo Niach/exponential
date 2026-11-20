@@ -15,6 +15,14 @@ use crate::{desk::DeskId, ipc::ROOT_SESSION, state::Ede};
 /// What an op answers.
 pub(crate) type Reply = Result<Option<(serde_json::Value, Option<Vec<u8>>)>, Failure>;
 
+/// The call an op serves: its reply can come later
+/// ([`Ede::ipc_reply_later`]), when a space's capture waits its turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Caller {
+    pub conn: u64,
+    pub call: u64,
+}
+
 /// What [`Ede::space_scope_call`] made of a space connection's call.
 pub(crate) enum Scoped {
     /// Answered here.
@@ -69,7 +77,7 @@ impl Ede {
     /// Every call of a space connection after its hello. Outside the
     /// allowlist: `forbidden`. Unbound, only `create_space` and
     /// `list_spaces` pass, the rest is `not_found`.
-    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request) -> Result<Scoped, Failure> {
+    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request, caller: Caller) -> Result<Scoped, Failure> {
         let fail = |code, message: &str| Err(Failure::new(code, message));
         if !request.in_space() {
             return fail(ErrorCode::Forbidden, "not an op of an agent space");
@@ -90,7 +98,7 @@ impl Ede {
                 let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
                 match request {
                     Request::Launch { argv, env, cwd } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_launch(desk, argv, env, cwd)?).unwrap(), None)))),
-                    Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request).map(Scoped::Reply),
+                    Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request, caller).map(Scoped::Reply),
                     through => Ok(Scoped::Through(desk, through)),
                 }
             }

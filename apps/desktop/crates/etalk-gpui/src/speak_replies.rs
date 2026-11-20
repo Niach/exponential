@@ -148,8 +148,19 @@ pub fn push_to_talk_here(cx: &App) -> bool {
 pub struct Speaking {
     pub message_id: String,
     pub session_id: String,
+    /// #EXP-2015: a call session's reply: the call's chat (where the call
+    /// runs: the call session's own view has no Dock).
+    pub chat_id: Option<String>,
     /// The spoken text's first sentence (the banner's title).
     pub title: String,
+}
+
+impl Speaking {
+    /// #EXP-2015: the Dock of `session_id` shows the Speaking banner: its own
+    /// reply, or (a call with its own session) the reply of its call.
+    pub fn shows_in(&self, session_id: &str) -> bool {
+        !session_id.is_empty() && (self.session_id == session_id || self.chat_id.as_deref() == Some(session_id))
+    }
 }
 
 /// The voice download, for the Language row's detail (S-3).
@@ -555,15 +566,22 @@ pub fn speaking(cx: &App) -> Option<Speaking> {
 /// DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_SPEAKING=<session
 /// uuid>|<language>|<reply body>` draws that session's Speaking banner as if
 /// the reply were being read aloud, title = the spoken text's first sentence
-/// (`spokenText` in that language), so a capture needs no GPU voice.
+/// (`spokenText` in that language), so a capture needs no GPU voice. A
+/// session written `<call session>><chat>` is a call session's reply
+/// (#EXP-2015: drawn in its chat's Dock).
 static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock::new(|| {
     let spec = std::env::var("EXP_DEV_SPEAKING").ok()?;
     let mut parts = spec.splitn(3, '|');
     let (session_id, language, body) = (parts.next()?, parts.next()?, parts.next()?);
+    let (session_id, chat_id) = match session_id.split_once('>') {
+        Some((session, chat)) => (session, Some(chat.to_string())),
+        None => (session_id, None),
+    };
     let spoken = etalk::voice::spoken_text(body, VOICE.max_chars, language);
     Some(Speaking {
         message_id: "dev-speaking".into(),
         session_id: session_id.to_string(),
+        chat_id,
         title: etalk::voice::first_sentence(&spoken).to_string(),
     })
 });
@@ -667,7 +685,7 @@ pub fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
         }
         client.speak(id.clone(), text.clone());
         let title = etalk::voice::first_sentence(&text).to_string();
-        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), title });
+        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), chat_id: None, title });
         cx.notify();
         true
     });
@@ -680,6 +698,9 @@ pub fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
 /// nothing here can speak it.
 pub(crate) fn speak_reply(id: String, text: String, session_id: String, agent_id: &str, cx: &mut App) -> bool {
     let Some(entity) = global(cx) else { return false };
+    // #EXP-2015: a call session's reply shows its Speaking banner in the
+    // call's chat too.
+    let chat_id = host::conversation(agent_id, cx).filter(|chat| *chat != session_id);
     entity.update(cx, |this, cx| {
         let _ = this.ensure_voice(Some(agent_id), cx);
         let Some(client) = this.client.as_ref() else { return false };
@@ -689,7 +710,7 @@ pub(crate) fn speak_reply(id: String, text: String, session_id: String, agent_id
             this.voice_turn = None;
         }
         let title = etalk::voice::first_sentence(&text).to_string();
-        this.speaking = Some(Speaking { message_id: id, session_id, title });
+        this.speaking = Some(Speaking { message_id: id, session_id, chat_id, title });
         cx.notify();
         true
     })
@@ -960,7 +981,7 @@ impl SpeakReplies {
         client.speak(id.clone(), spoken.clone());
         // The turn got its reply.
         self.voice_turn = None;
-        self.speaking = Some(Speaking { message_id: id, session_id: conversation, title: etalk::voice::first_sentence(&spoken).to_string() });
+        self.speaking = Some(Speaking { message_id: id, session_id: conversation, chat_id: None, title: etalk::voice::first_sentence(&spoken).to_string() });
         cx.notify();
         None
     }
@@ -1398,4 +1419,16 @@ mod tests {
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
     }
 
+    /// #EXP-2015: a call session's reply shows its Speaking banner in the
+    /// call's chat (the call session's view has no Dock); a chat reply in
+    /// its own Dock; the opening line (no session) nowhere.
+    #[test]
+    fn a_call_sessions_reply_speaks_in_its_chats_dock() {
+        let reply = |session: &str, chat: Option<&str>| Speaking { message_id: "m1".into(), session_id: session.into(), chat_id: chat.map(str::to_string), title: "Sure.".into() };
+        let call = reply("call-s", Some("chat-1"));
+        assert!(call.shows_in("chat-1") && call.shows_in("call-s"));
+        assert!(!call.shows_in("chat-2"));
+        assert!(reply("chat-1", None).shows_in("chat-1"));
+        assert!(!reply("", None).shows_in(""), "the opening line has no banner");
+    }
 }

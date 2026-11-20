@@ -298,16 +298,22 @@ impl Ede {
     /// The reply to a call [`Ede::ipc_call`] deferred; the connection's
     /// next calls are served after it.
     pub(crate) fn ipc_reply_later(&mut self, id: u64, call_id: u64, outcome: Result<serde_json::Value, Failure>) {
+        self.ipc_reply_later_with(id, call_id, outcome.map(|result| (result, None)));
+    }
+
+    /// [`Self::ipc_reply_later`] with a capture's pixels (#EDE-162: a
+    /// space's capture that waited its turn).
+    pub(crate) fn ipc_reply_later_with(&mut self, id: u64, call_id: u64, outcome: Result<(serde_json::Value, Option<Vec<u8>>), Failure>) {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return };
         if conn.busy != Some(call_id) {
             return;
         }
         conn.busy = None;
-        let message = match outcome {
-            Ok(result) => Message::Reply { id: call_id, result },
-            Err(error) => Message::Error { id: call_id, error },
+        let (message, extra) = match outcome {
+            Ok((result, extra)) => (Message::Reply { id: call_id, result }, extra),
+            Err(error) => (Message::Error { id: call_id, error }, None),
         };
-        if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
+        if !self.ipc_send(id, &message, extra) || !self.ipc_serve(id) {
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                 conn.kill();
             }
@@ -420,7 +426,7 @@ impl Ede {
         }
         // #EDE-126: a space connection never reaches the arms below.
         let (desk, request) = if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
-            match self.space_scope_call(&session, &grant, now, request)? {
+            match self.space_scope_call(&session, &grant, now, request, crate::spaces::scope::Caller { conn: id, call: call_id })? {
                 Scoped::Reply(reply) => return Ok(reply),
                 // #EDE-125: the few ops whose arm below takes any desk.
                 Scoped::Through(desk, request) => {
@@ -519,7 +525,7 @@ impl Ede {
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
                     CaptureTarget::Space { space } => {
                         let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
-                        return self.space_capture(desk, since);
+                        return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id });
                     }
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last

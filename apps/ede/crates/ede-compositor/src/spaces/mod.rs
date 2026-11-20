@@ -14,6 +14,7 @@ pub mod frames;
 pub mod guard;
 mod input;
 pub mod launch;
+pub mod render;
 pub mod ipc;
 mod members;
 mod windows;
@@ -71,6 +72,8 @@ pub struct Spaces {
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
     /// Software, for the captures ([`frames`]; the damage check needs none).
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
+    /// The captures waiting their turn and the spaces' stats ([`frames`]).
+    frames: frames::Frames,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
     /// The person's user manager: `Some` = a launch runs in a systemd
@@ -96,7 +99,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default() }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default() }
     }
 }
 
@@ -139,6 +142,10 @@ pub struct AgentSpace {
     pub(crate) sliced: bool,
     /// Its own user manager and bus ([`session`]), from its first launch.
     pub(crate) session: session::Session,
+    /// Its programs draw in software ([`render`]): Vulkan sees lavapipe
+    /// alone. On for every space; #EDE-162 (F7) turns it off for a space
+    /// whose GPU path is ready, before its first launch.
+    pub software_rendering: bool,
 }
 
 impl AgentSpace {
@@ -306,7 +313,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new() });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true });
         Ok(id)
     }
 }

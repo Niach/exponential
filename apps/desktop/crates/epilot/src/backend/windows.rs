@@ -37,8 +37,7 @@ use std::mem::{size_of, zeroed};
 use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
-use std::sync::{mpsc, Once};
-use std::thread::JoinHandle;
+use std::sync::Once;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, GlobalFree, BOOL, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -85,6 +84,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
+use crate::backend::{LockStartError, LockThread, Verdict};
 
 /// Our tag on every INPUT ("EXP1"): the lock's hooks let these through.
 const MAGIC: usize = 0x4558_5031;
@@ -704,14 +704,8 @@ impl Backend for Win32 {
                 let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
                 match char_key(ch, layout_stroke(ch), modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk)).map(|vk| (vk, ch.is_ascii_uppercase()))) {
                     Some((vk, shift)) => {
-                        let mut inputs = Vec::with_capacity(2);
-                        if shift && down {
-                            inputs.push(vk_input(VK_SHIFT, false, false));
-                        }
-                        inputs.push(vk_input(vk, false, !down));
-                        if shift && !down {
-                            inputs.push(vk_input(VK_SHIFT, false, true));
-                        }
+                        let shift: &[VIRTUAL_KEY] = if shift { &[VK_SHIFT] } else { &[] };
+                        let inputs: Vec<INPUT> = crate::backend::with_modifiers(shift, vk, down).into_iter().map(|(vk, down)| vk_input(vk, false, !down)).collect();
                         send(&inputs)
                     }
                     None => send(&unicode_inputs(ch, !down)),
@@ -741,13 +735,6 @@ impl Backend for Win32 {
 /// carries the injected flag, let alone our tag).
 fn is_ours(injected: bool, extra_info: usize) -> bool {
     injected && extra_info == MAGIC
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Verdict {
-    Pass,
-    Swallow,
-    Esc,
 }
 
 /// The keyboard hook's decision. `held` = the keys down when the lock
@@ -909,15 +896,20 @@ impl Drop for Hook {
 /// until Esc, after which the hooks go and the thread waits for the drop).
 struct Lock {
     thread_id: u32,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
     fn take(on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
-        let (ready, start) = crate::backend::lock_start::<Result<u32, String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn(move || {
+        // A start that answered just as the wait gave up is ended here.
+        let late = |answer: Result<u32, String>| {
+            if let Ok(thread_id) = answer {
+                // SAFETY: no pointers; the thread's queue exists (peeked).
+                unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
+            }
+        };
+        let started = LockThread::start(
+            move |ready: crate::backend::LockReady<Result<u32, String>>| {
                 // SAFETY: MSG is plain data.
                 let mut msg: MSG = unsafe { zeroed() };
                 // SAFETY: `msg` is a live MSG. Peeking makes this thread's
@@ -948,23 +940,16 @@ impl Lock {
                 }
                 hold(hooks, &*on_esc, &mut msg);
                 PERSON_BUTTONS.store(0, Ordering::Release);
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        // A start that answered just as the wait gave up is ended here.
-        let late = |answer: Result<u32, String>| {
-            if let Ok(thread_id) = answer {
-                // SAFETY: no pointers; the thread's queue exists (peeked).
-                unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
-            }
-        };
-        match start.wait(Duration::from_secs(5), late) {
-            Ok(Ok(thread_id)) => Ok(Lock { thread_id, thread: Some(thread) }),
-            Ok(Err(reason)) => {
-                let _ = thread.join();
-                Err(reason)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("The input lock's thread died.".to_string()),
-            Err(mpsc::RecvTimeoutError::Timeout) => Err("The input hooks did not start.".to_string()),
+            },
+            late,
+        );
+        match started {
+            Ok((Ok(thread_id), thread)) => Ok(Lock { thread_id, thread }),
+            // Dropping the thread joins it: it ends right after its answer.
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
+            Err(LockStartError::Died) => Err("The input lock's thread died.".to_string()),
+            Err(LockStartError::Timeout) => Err("The input hooks did not start.".to_string()),
         }
     }
 }
@@ -1020,17 +1005,16 @@ impl LockGuard for Lock {}
 impl Drop for Lock {
     fn drop(&mut self) {
         PERSON_BUTTONS.store(0, Ordering::Release);
-        let Some(thread) = self.thread.take() else { return };
         // SAFETY: no pointers; the id names the lock thread, which lives
         // until it takes this WM_QUIT.
         if unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) } == 0 {
             // #ERR-29: the hooks stay and keep the person's input until Esc.
             super::lock_lost("[computer] the input lock was not released", &last_error("Releasing the input lock"));
+            // It never hears the quit: waiting for it would never end.
+            self.thread.detach();
             return;
         }
-        if thread.thread().id() != std::thread::current().id() {
-            let _ = thread.join();
-        }
+        self.thread.join();
     }
 }
 
