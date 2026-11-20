@@ -49,8 +49,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # test.yml `android` and `runner-android` (one entry, `gradle-android-`):
-  # their Gradle commands minus the test runs. The JVM tests load the Rust
+  # test.yml `android` and `runner-android` and exponential-ui.yml `compose`
+  # + `compose-emulator` (one entry, `gradle-android-`): their Gradle commands
+  # minus the test runs. The JVM tests load the Rust
   # facades through JNA only when they run, so no cargo here.
   android:
     runs-on: ubuntu-latest
@@ -74,6 +75,11 @@ jobs:
       - name: The runner template's compile + unit-test compile
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest -x :app:testDebugUnitTest --no-daemon
+      # exponential-ui.yml `compose` (the eUI Compose painter tests): the same
+      # dependencies, plus its own test compile in the build cache.
+      - name: The Compose painter's unit-test compile
+        working-directory: packages/exponential-ui-compose
+        run: ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest -x :ui-compose:testDebugUnitTest -x :ui-compose-primitives:testDebugUnitTest --no-daemon
       # Gradle's lock and GC bookkeeping files would only make a restored home
       # look in use or due for a cleanup.
       - name: Drop the lock files
