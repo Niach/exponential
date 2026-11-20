@@ -358,7 +358,7 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu, the
     // three statics in order (type = fixture id, title = fixture copy, icon =
     // the concept's lucide imageset); #EXP-1830: the chat entries (the
-    // Assistant, pins, recent chats) are set at runtime (`AppShortcutItems`).
+    // Assistant, recent chats) are set at runtime (`AppShortcutItems`).
     "UIApplicationShortcutItems": .array([
         .dictionary([
             "UIApplicationShortcutItemType": .string("new-issue"),

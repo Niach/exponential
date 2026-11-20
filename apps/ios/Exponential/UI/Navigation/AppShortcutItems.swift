@@ -6,7 +6,7 @@ import UIKit
 
 /// #EXP-1638 / #EXP-1830 (app-shortcuts.json): the app icon's long-press
 /// menu. The three statics live in Info.plist (`UIApplicationShortcutItems`,
-/// Project.swift); this publishes the chat entries (the Assistant, pins,
+/// Project.swift); this publishes the chat entries (the Assistant,
 /// recent chats) as the dynamic items and routes a pick into `DeepLinkBus`
 /// (OPENING: the back stack rule, cold and warm alike).
 @MainActor
