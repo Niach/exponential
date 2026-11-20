@@ -1,0 +1,101 @@
+name: seed-gradle-caches
+
+# CI review P1 for Gradle (2026-11-20): test.yml never runs on master, so its
+# `actions/cache` saved ~1.6 GB of Gradle home on every PR ref, no other ref
+# could read it, and the hosted `android` job's Gradle step ran cold (~9 min:
+# dependency downloads, the AAR/dex transforms and every task of :app,
+# :ui-compose and :ui-compose-primitives). Now test.yml only RESTORES, and
+# this writes the one master entry it restores, as seed-rust-caches.yml does
+# for Rust: BUILD only (the tests' dependencies, never the tests, so a flaky
+# test never costs the seed), with exactly the Gradle commands of the
+# test.yml jobs.
+#
+# What it carries: the dependency jars (modules-2), the transforms (unpacked
+# AARs, dexed libraries) and the build cache (org.gradle.caching=true), built
+# on the JDK, SDK packages and checkout path of the test.yml jobs: the build
+# cache's keys depend on them. Not the wrapper: gradle-dist puts the zip on
+# disk and the unzip takes seconds. One entry per family, no input hash in the
+# key: a PR whose Gradle inputs differ restores the master entry and fetches
+# only what moved. Measured from a fresh home (2026-11-20): ~0.8 GB compressed
+# for :app, ~0.95 GB with the runner template (transforms 1.1 GB, modules-2
+# 0.55 GB, build cache 0.13 GB unpacked).
+#
+# It runs when the Gradle inputs change on master, and once a day: the build
+# cache's task outputs follow the sources, so a day-old seed still serves the
+# dependencies, the transforms and every unchanged module.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/android/**/*.gradle*
+      - apps/android/gradle/**
+      - apps/android/gradle.properties
+      - apps/runner/android/**/*.gradle*
+      - apps/runner/android/gradle.properties
+      - packages/exponential-ui-compose/**/*.gradle*
+      - packages/exponential-ui-compose/gradle/**
+      - packages/exponential-ui-compose/gradle.properties
+      - .github/workflows/seed-gradle-caches.yml
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-gradle-caches
+  cancel-in-progress: true
+
+jobs:
+  # test.yml `android` and `runner-android` (one entry, `gradle-android-`):
+  # their Gradle commands minus the test runs. The JVM tests load the Rust
+  # facades through JNA only when they run, so no cargo here.
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ENET_SKIP_NATIVE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: ./.github/actions/gradle-dist
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
+      - name: The app's assemble + unit-test compile
+        working-directory: apps/android
+        run: ./gradlew :app:assembleProductionDebug :app:testProductionDebugUnitTest -x :app:testProductionDebugUnitTest --no-daemon
+      - name: The runner template's compile + unit-test compile
+        working-directory: apps/runner/android
+        run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest -x :app:testDebugUnitTest --no-daemon
+      # Gradle's lock and GC bookkeeping files would only make a restored home
+      # look in use or due for a cleanup.
+      - name: Drop the lock files
+        run: find ~/.gradle/caches \( -name '*.lock' -o -name gc.properties \) -delete
+      - uses: actions/cache/save@v4
+        with:
+          path: ~/.gradle/caches
+          key: gradle-android-${{ github.run_id }}
+
+  # actions/cache never replaces an entry: keep the newest master entry per
+  # family, so the replaced ones don't crowd the 10 GB.
+  prune:
+    needs: [android]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the replaced master entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for family in gradle-android; do
+            gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "$family-" --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
+              | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
+          done
