@@ -619,7 +619,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         std::thread::sleep(Duration::from_millis(20));
     };
 
-    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let (conn, screen) = (common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"), 0usize);
     let root = conn.setup().roots[screen].root;
     let win = conn.generate_id().unwrap();
     conn.create_window(
@@ -687,7 +687,7 @@ fn xwayland(h: &Harness) -> Option<x11rb::rust_connection::RustConnection> {
         assert!(Instant::now() < deadline, "Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     };
-    Some(x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland").0)
+    Some(common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"))
 }
 
 /// Maps a 320×240 X11 window (key presses selected) with `motif` as its

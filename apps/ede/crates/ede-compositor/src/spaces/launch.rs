@@ -43,7 +43,7 @@ const TERM_GRACE: Duration = Duration::from_secs(2);
 /// caller's `env`.
 const DROPPED: [&str; 6] = ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN"];
 /// The compositor's to set: with [`DROPPED`], refused in a caller's `env`.
-const SET: [&str; 5] = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME"];
+const SET: [&str; 6] = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "XAUTHORITY"];
 /// What a launch takes of the compositor's environment (#EDE-138): who
 /// the person is, their language, where programs and their files are, the
 /// desktop's name and the toolkits' hints. NOTHING else: no agent's socket
@@ -193,10 +193,11 @@ impl Ede {
         set("XDG_RUNTIME_DIR", &space.dir);
         set("TMUX_TMPDIR", &space.dir);
         set("SCREENDIR", &screens);
-        // Its own X display, never the person's.
+        // Its own X display, never the person's, and its cookie for it alone.
         #[cfg(feature = "xwayland")]
         if let Some(x11) = &space.x11 {
             set("DISPLAY", &format!(":{}", x11.display));
+            set("XAUTHORITY", &x11.xauthority);
         }
         if self.spaces.units.is_some() {
             set("DBUS_SESSION_BUS_ADDRESS", &space.session.address(&space.dir));

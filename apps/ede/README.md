@@ -913,6 +913,31 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
   on the space's seat. A space that closes in the middle of a paste ends
   it there (an agent's read is answered `unavailable`).
+- **X authority, both sides.** Every Xwayland of the compositor admits
+  only a client that shows its cookie (MIT-MAGIC-COOKIE-1). The person's
+  file is `$XDG_RUNTIME_DIR/xauth_<wayland socket>`. Its path stays the
+  same for the compositor's life, and it reaches every way the person's
+  apps start: the compositor's children (the shell's launches among them)
+  get `XAUTHORITY`, and `exponential-session --ready` hands it to the user
+  manager and D-Bus activation with `DISPLAY` (terminals and services
+  inherit it from there). A space's file is
+  `$XDG_RUNTIME_DIR/xauth_<wayland socket>-space-<n>`, with a new cookie
+  for each of its servers; only its launches get it, and it goes when the
+  space closes. The `xauth_` names are the ones snaps can read: `snap run`
+  copies only an `XAUTHORITY` under `/tmp`, and the x11 interface lets a
+  snap read `/run/user/<uid>/xauth_*`. So `DISPLAY=:0 xdotool type …` from a
+  space is refused by the person's server, and the person's apps cannot
+  reach a space's either. A snap app in a space that the space's Wayland
+  socket refuses (its AppArmor admits only `/run/user/<uid>/wayland-N`)
+  draws through the space's Xwayland.
+- **The person's Xwayland starts again** when it dies, on the same display
+  and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
+  session was given stay right. Its X11 windows are let go of, and its
+  X11 copy goes too. It waits 1 s after the first death, and 2, 4, 8, 16,
+  30, then 60 s after each further death of a server that ran less than
+  a minute. After 8 such deaths in a row it is not started again, and X11
+  apps return at the next login. Each death is logged as an error, which
+  diagnostics report.
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
