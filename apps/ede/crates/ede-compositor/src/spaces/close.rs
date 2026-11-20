@@ -173,7 +173,11 @@ impl Spaces {
 
     /// No closed space's seat is left to remove.
     pub fn settled(&self) -> bool {
-        self.closing.is_empty() && self.leftovers.is_empty() && self.stopping.is_empty()
+        #[cfg(feature = "xwayland")]
+        let xwms = self.closing_xwms.is_empty();
+        #[cfg(not(feature = "xwayland"))]
+        let xwms = true;
+        self.closing.is_empty() && self.leftovers.is_empty() && self.stopping.is_empty() && xwms
     }
 
     /// Removes `dir`; `true` = it is gone. What the space's bus started
@@ -213,7 +217,12 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
+        #[cfg(feature = "xwayland")]
+        let x11 = self.spaces.list[at].x11.take();
         let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, .. } = self.spaces.list.remove(at);
+        // Its Xwayland goes now; its window manager when its connection does.
+        #[cfg(feature = "xwayland")]
+        self.space_x11_closed(x11);
         // Its user manager ends with its slice; reaped on the tick.
         self.spaces.ended_sessions.extend(session.take());
 
