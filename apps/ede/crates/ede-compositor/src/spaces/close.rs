@@ -263,7 +263,7 @@ impl Ede {
         self.display_handle.remove_global::<Ede>(output_global);
         // #EDE-126: what still read from its clients answers `unavailable`.
         #[cfg(feature = "xwayland")]
-        let Desk { seat, clipboard, x11_focus: (x11_focus, _), .. } = desk;
+        let Desk { seat, clipboard, x11_focus: (x11_focus, x11_focused), .. } = desk;
         #[cfg(not(feature = "xwayland"))]
         let Desk { seat, clipboard, .. } = desk;
         self.clipboard_closed(clipboard);
@@ -271,6 +271,11 @@ impl Ede {
         // A space's own X11 focus seat ([`super::x11`]) goes the same way.
         #[cfg(feature = "xwayland")]
         if x11_focus != seat {
+            // The X11 window holding it lets go: until then smithay's focus
+            // hook on its surface holds the seat.
+            if let Some(focused) = x11_focused {
+                smithay::input::keyboard::KeyboardTarget::leave(&focused, &x11_focus, self, SERIAL_COUNTER.next_serial());
+            }
             self.spaces.closing.push(Closing { seat: x11_focus, since: Instant::now(), logged: false });
         }
         self.spaces.closing.push(Closing { seat, since: Instant::now(), logged: false });

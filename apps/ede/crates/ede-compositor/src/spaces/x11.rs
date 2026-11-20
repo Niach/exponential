@@ -228,10 +228,17 @@ impl Ede {
         for window in windows {
             space.desk.space.unmap_elem(&window);
         }
+        space.desk.pending_x11_focus = None;
+        let focused = space.desk.x11_focus.1.take();
+        let seat = space.desk.x11_focus.0.clone();
         // The client first: nothing it buffered reaches a handler of a
         // window manager that is gone.
         self.loop_handle.remove(x11.token);
         drop(x11.xwm);
+        // Its window that had X's focus lets go of the space's X11 seat.
+        if let Some(focused) = focused {
+            smithay::input::keyboard::KeyboardTarget::leave(&focused, &seat, self, smithay::utils::SERIAL_COUNTER.next_serial());
+        }
         self.space_schedule(desk);
     }
 

@@ -381,6 +381,12 @@ fn an_x11_window_in_a_space_gets_the_agents_keys_while_the_person_types() {
     // The agent's window list names it, as X11.
     let windows = _agent_windows(&h, desk);
     assert_eq!(windows, [(true, 640, 480)]);
+
+    // The space closes with its X11 window holding its keyboard: both of
+    // its seats go.
+    let mut agent = _agent;
+    agent.destroy_space(space.id.clone()).unwrap();
+    common::space::spaces_settled(&h);
 }
 
 /// The space's windows as its agent lists them: (x11, width, height).
