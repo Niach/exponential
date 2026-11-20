@@ -1017,6 +1017,33 @@ mod tests {
         assert_eq!(off[0].switch, Some(false));
     }
 
+    /// #EXP-1514: the `agent_space` row (device-doctor.json: parent
+    /// `computer_use`, its own label) draws no row under an off switch; under
+    /// an on one it is indented with its own label and the device's detail.
+    #[test]
+    fn an_agent_space_row_under_an_off_switch_draws_no_row() {
+        let doctor = |switch: &str| {
+            parse(Some(&serde_json::json!({
+                "checkedAt": "2026-11-20T09:00:00.000Z",
+                "items": [
+                    { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+                    { "key": "computer_use", "group": "computer_use", "state": switch },
+                    { "key": "agent_space", "group": "computer_use", "parent": "computer_use", "label": "Agent space", "state": "ok", "detail": "Ready" }
+                ]
+            })))
+            .unwrap()
+        };
+        let keys = |doctor: &DeviceDoctor, switch_on: Option<bool>| {
+            all_rows(&sections(doctor, false, switch_on)).iter().map(|row| row.key.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&doctor("off"), None), ["git", "computer_use"]);
+        assert_eq!(keys(&doctor("ok"), Some(false)), ["git", "computer_use"]);
+        let on = sections(&doctor("ok"), false, None);
+        let space = all_rows(&on).into_iter().find(|row| row.key == "agent_space").unwrap().clone();
+        assert_eq!((space.label.as_str(), space.detail.as_deref(), space.indent), ("Agent space", Some("Ready"), true));
+        assert_eq!(space.switch, None);
+    }
+
     /// The composer's single row: Git when Git fails, else the picked
     /// agent's row; its pill is primary (the only action there), and a
     /// non-remote action shows none for another device.
