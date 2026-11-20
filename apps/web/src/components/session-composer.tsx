@@ -186,16 +186,37 @@ function useComposerSession(sessionId: string | null) {
 
 /** #EXP-1715: the Teams pick of a composer talking to the viewer's
  *  Assistant (its conversation `row`, or `agentId` before it exists);
- *  null anywhere else. */
-function useAssistantTeamsPick(
-  row: { id: string; parentId: string | null; agentId: string | null; scopeTeamIds?: string[] | null } | null,
+ *  #EXP-2027 (composer-menu.json `teamsPick`): also a PLAIN root's (no
+ *  agent) for its starter: its own team always picked (it cannot be
+ *  unchecked), the others stored as `scopeTeamIds` (null = its own team
+ *  only). `scope` = what the next send carries (undefined = nothing): the
+ *  Assistant's pick on every send, a plain root's only once changed. null
+ *  binding anywhere else (a team agent's tree gets no picker). */
+function useTeamsPick(
+  row: {
+    id: string
+    parentId: string | null
+    agentId: string | null
+    appId?: string | null
+    teamId?: string
+    userId?: string | null
+    scopeTeamIds?: string[] | null
+  } | null,
   agentId: string | undefined
-): ComposerTeamsBinding | null {
+): { pick: ComposerTeamsBinding | null; scope: string[] | null | undefined } {
   const { data: auth } = useSession()
   const me = auth?.user?.id
   const { agent } = useAgentRow(row ? (row.parentId === null ? row.agentId : null) : (agentId ?? null))
   const { myTeams } = useTeamMemberships(me)
   const assistant = agent !== null && agent.role === `assistant` && agent.ownerId === me
+  const plain =
+    !assistant &&
+    row !== null &&
+    row.parentId === null &&
+    row.agentId === null &&
+    !row.appId &&
+    Boolean(row.teamId) &&
+    row.userId === me
   const stored = row?.scopeTeamIds ?? null
   const [picked, setPicked] = useState<string[] | null>(stored)
   // A pick made elsewhere (another client) re-seeds it.
@@ -205,7 +226,22 @@ function useAssistantTeamsPick(
     () => myTeams.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl ?? null })),
     [myTeams]
   )
-  return assistant ? { teams, picked, onChange: setPicked } : null
+  if (assistant) return { pick: { teams, picked, onChange: setPicked }, scope: picked === null ? null : [...picked] }
+  if (!plain || !row?.teamId) return { pick: null, scope: undefined }
+  const own = row.teamId
+  const others = (picked ?? []).filter((id) => id !== own)
+  const shown = teams.filter((team) => team.id === own || others.includes(team.id)).map((team) => team.id)
+  const changed = others.slice().sort().join(`,`) !== (stored ?? []).filter((id) => id !== own).sort().join(`,`)
+  return {
+    pick: {
+      teams,
+      picked: shown,
+      // Every team checked again (null) = each id stored (a team joined
+      // later stays out until picked).
+      onChange: (next) => setPicked((next ?? teams.map((team) => team.id)).filter((id) => id !== own)),
+    },
+    scope: changed ? (others.length > 0 ? others : null) : undefined,
+  }
 }
 
 /** Two MCP server picks name the same servers (order aside). */
@@ -445,7 +481,7 @@ export function SessionComposer({
   const { prompts } = usePrompts(browseTeamId ?? teamId)
   // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
   // Teams pick, seeded from its conversation root (null = every team).
-  const teamsPick = useAssistantTeamsPick(row, agentId)
+  const { pick: teamsPick, scope: teamsScope } = useTeamsPick(row, agentId)
   // #EXP-1793: an agent chat's MCP servers pick (its conversation's).
   const mcpPick = useAgentMcpPick({
     enabled: surface === `agent`,
@@ -550,7 +586,7 @@ export function SessionComposer({
       // device's checks, or the red mark with Retry.
       if (sessionId && !moveDevice && !(ended && heldRunner)) {
         const extra = {
-          ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
+          ...(teamsScope !== undefined ? { scopeTeamIds: teamsScope } : {}),
           ...(sentMcpPick ? { mcpServerIds: sentMcpPick } : {}),
         }
         sendThroughOutbox({
@@ -578,7 +614,7 @@ export function SessionComposer({
         text: sentText.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         ...(ended && heldRunner ? heldRunner.send : {}),
-        ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
+        ...(teamsScope !== undefined ? { scopeTeamIds: teamsScope } : {}),
         ...(sentMcpPick ? { mcpServerIds: sentMcpPick } : {}),
       })
       if (sentMcpPick) mcpPick?.sent(sentMcpPick)

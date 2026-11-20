@@ -4,7 +4,8 @@ import { SidebarProvider, TooltipProvider } from "@exp/ui"
 import type { ChatsListGroup } from "@/lib/session-tree"
 
 // EXP-923 / EXP-1293 / EXP-1318: the sidebar's ACTIVE section lists the
-// Chats list's `needs_you` + `running` rows, then the Recent rows whose
+// Chats list's `needs_you` + `running` rows (#EXP-2027: of every member
+// team, each row with its team's mark), then the Recent rows whose
 // word still asks for a merge (`railChats`) — hidden when empty, one row
 // per chat (the agent mark and the title, NO identifier, NO caption), and
 // a click that opens the CHAT with the `running` origin — which keeps it
@@ -79,13 +80,14 @@ const groups: ChatsListGroup[] = [
     rows: [row(`t-old`, `Fix flaky scroll`), row(`t-pr`, `Implement APP-9`)],
   },
 ]
+const teams = new Map([[`team-1`, { slug: `acme`, iconUrl: null, name: `Acme` }]])
 const wordOf = (r: { sessionId: string }) => (r.sessionId === `t-pr` ? (`readyToMerge` as const) : null)
 
 function renderSection(list: ChatsListGroup[] = groups) {
   return render(
     <SidebarProvider>
       <TooltipProvider>
-        <SidebarRunningSection teamSlug="acme" chats={{ groups: list, wordOf }} />
+        <SidebarRunningSection teams={teams} chats={{ groups: list, wordOf }} />
       </TooltipProvider>
     </SidebarProvider>
   )
@@ -98,6 +100,11 @@ beforeEach(() => {
 })
 
 describe(`SidebarRunningSection`, () => {
+  it(`lists only the viewer's member teams' chats`, () => {
+    renderSection([{ ...groups[1], rows: [{ ...groups[1].rows[0], teamId: `team-gone` }] }])
+    expect(screen.queryByTestId(`sidebar-running`)).toBeNull()
+  })
+
   it(`is hidden with nothing active`, () => {
     renderSection([{ ...groups[2], rows: [groups[2].rows[0]] }])
     expect(screen.queryByTestId(`sidebar-running`)).toBeNull()
@@ -122,6 +129,8 @@ describe(`SidebarRunningSection`, () => {
         ?.getAttribute(`aria-label`)
     ).toBe(`Alex's MacBook Pro`)
     expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
+    // #EXP-2027: every row wears its team's mark, trailing.
+    expect(rows[1].closest(`li`)?.querySelector(`[data-testid="running-team-mark"]`)?.getAttribute(`title`)).toBe(`Acme`)
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
     // The needs-you chat wears the yellow badge.
     expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(
@@ -182,7 +191,7 @@ describe(`SidebarRunningSection — held titles`, () => {
       <SidebarProvider>
         <TooltipProvider>
           <SidebarRunningSection
-            teamSlug="acme"
+            teams={teams}
             chats={{
               groups: [
                 {

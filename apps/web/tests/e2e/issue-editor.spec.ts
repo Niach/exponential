@@ -10,16 +10,17 @@ const PNG_BUFFER = Buffer.from(
 )
 
 async function createBoard(page: Page, app: AppFixture) {
-  await page.getByLabel(`Create board`).click()
+  // #EXP-2027: the team menu's New › Board opens the New board PAGE.
+  await page.getByTestId(`sidebar-team-row`).first().hover()
+  await page.getByTestId(`sidebar-team-menu-button`).first().click()
+  await page.getByRole(`menuitem`, { name: `New`, exact: true }).hover()
+  await page.getByRole(`menuitem`, { name: `Board`, exact: true }).click()
 
-  const dialog = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `Create board` }),
-  })
-
-  await dialog.getByLabel(`Name`).fill(app.boardName)
-  await expect(dialog.getByLabel(`Prefix`)).toHaveValue(app.boardPrefix)
-  await dialog.getByRole(`button`, { name: `Create board` }).click()
-  await expect(dialog).toBeHidden()
+  await expect(page.getByRole(`heading`, { name: `New board` })).toBeVisible()
+  await page.getByLabel(`Name`).fill(app.boardName)
+  await expect(page.getByLabel(`Prefix`)).toHaveValue(app.boardPrefix)
+  await page.getByRole(`button`, { name: `Create board` }).click()
+  await expect(page).toHaveURL(/\/t\/[^/]+\/boards\//)
 }
 
 async function replaceIssueDescription(

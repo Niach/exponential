@@ -59,16 +59,20 @@ export async function launchContext(
 }
 
 /** Sign the demo user in and wait until a team route has taken over. */
+/** #EXP-2027: a signed-in member lands in a team (phones) or on Home (md+). */
+export const APP_LANDING = /\/(t\/|home(\?|$))/
+
 export async function login(
   page: Page,
   baseUrl: string,
   credentials?: { email: string; password: string },
   /**
    * Where a successful sign-in lands. The demo user has a team, so it is
-   * `/t/...`; the team-less newcomer (EXP-566) is bounced to `/onboarding`
-   * instead, and waiting for a team URL would time out on the happy path.
+   * `/t/...` on a phone and (#EXP-2027) the team-less `/home` from md+; the
+   * team-less newcomer (EXP-566) is bounced to `/onboarding` instead, and
+   * waiting for a team URL would time out on the happy path.
    */
-  landing: string = `**/t/**`
+  landing: string | RegExp = APP_LANDING
 ): Promise<void> {
   await page.goto(`${baseUrl}/auth/login`)
   // EXP-857: the page opens on the Continue list; the password form sits

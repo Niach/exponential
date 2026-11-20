@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
+import { useMemo } from "react"
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router"
 import {
   chatSections,
@@ -15,7 +15,6 @@ import {
   NeedsYouEntryRow,
   useIsMobile,
 } from "@exp/ui"
-import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { ChatSelectionBar } from "@/components/chat/chat-selection-bar"
 import { useSession } from "@/hooks/use-session"
@@ -28,12 +27,7 @@ import { useNeedsYou } from "@/hooks/use-needs-you"
 import { useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
-import {
-  chatSelectionClick,
-  chatSelectionEnter,
-  chatSelectionPrune,
-  type ChatSelection,
-} from "@/lib/chat-selection"
+import { useChatListSelection } from "@/components/chat/use-chat-list-selection"
 import { pageTitle } from "@/lib/page-title"
 import { canSteerSession } from "@/lib/session-account-switch"
 import { CHATS_LIST_COPY } from "@/lib/session-tree"
@@ -57,7 +51,6 @@ import { CHATS_LIST_COPY } from "@/lib/session-tree"
 // Archived entry.
 
 const COPY = CHATS_COPY
-const OPEN_OVERLAY = `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]`
 const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/chats/`)({
@@ -95,78 +88,15 @@ function ChatsPage() {
   const { isOwner } = useTeamPermissions(team)
 
   // ── selection ──
-  const [selection, setSelection] = useState<ChatSelection | null>(null)
   // #FEED-191: selection follows the DISPLAYED order (the sections; Archived flat).
   const order = useMemo(
     () => (archivedView ? list.rows : chatSections(list.rows).flatMap((section) => section.rows)).map((row) => row.sessionId),
     [list.rows, archivedView]
   )
-  // The selection keeps only rows still in the list; a view switch clears it.
-  useEffect(() => {
-    setSelection((current) => chatSelectionPrune(current, order))
-  }, [order])
-  useEffect(() => {
-    setSelection(null)
-  }, [view])
-  const clearSelection = useCallback(() => setSelection(null), [])
-  const listRef = useRef<HTMLDivElement>(null)
-  const selectionRef = useRef(selection)
-  selectionRef.current = selection
-  useIssueMenuSelection(
-    useMemo(
-      () => ({
-        root: listRef,
-        isSelected: (id: string) => selectionRef.current?.ids.includes(id) ?? false,
-        toggle: (id: string) => setSelection((current) => chatSelectionEnter(current, id)),
-      }),
-      []
-    )
-  )
-  const selectedIds = useMemo(() => (selection ? new Set(selection.ids) : null), [selection])
-
   const openChat = (chatId: string) =>
     void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: chatId } })
-  const onRowClick = (sessionId: string, event: MouseEvent<HTMLButtonElement>) => {
-    const next = chatSelectionClick(selectionRef.current, {
-      id: sessionId,
-      order,
-      toggle: event.metaKey || event.ctrlKey,
-      range: event.shiftKey,
-    })
-    if (next.open) openChat(sessionId)
-    else setSelection(next.selection)
-  }
-
-  // The wide checkbox column: a click toggles (shift = the range), the
-  // issue row's checkbox cell.
-  const onSelectToggle = (sessionId: string, event: MouseEvent<HTMLElement>) => {
-    const next = chatSelectionClick(selectionRef.current, {
-      id: sessionId,
-      order,
-      toggle: true,
-      range: event.shiftKey,
-    })
-    setSelection(next.selection)
-  }
-
-  // Cmd/Ctrl+A selects every row, the issue list's rule: never while an
-  // overlay is up or a field (or anything outside the list) has focus.
-  const orderRef = useRef(order)
-  orderRef.current = order
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== `a`) return
-      if (document.querySelector(OPEN_OVERLAY) !== null) return
-      const active = document.activeElement
-      if (active !== null && active !== document.body && !listRef.current?.contains(active)) return
-      if (orderRef.current.length === 0) return
-      event.preventDefault()
-      const ids = orderRef.current
-      setSelection({ ids, anchor: ids[ids.length - 1] ?? null })
-    }
-    window.addEventListener(`keydown`, onKey)
-    return () => window.removeEventListener(`keydown`, onKey)
-  }, [])
+  const { selection, selectedIds, clear: clearSelection, listRef, onRowClick, onSelectToggle } =
+    useChatListSelection(order, view, openChat)
 
   const selectionRows = useMemo((): ChatSelectionRow[] => {
     if (!selection) return []

@@ -53,8 +53,8 @@ export interface IssuePickerRow extends IssueSearchRow {
 }
 
 interface IssuePickerBodyBase<R extends IssuePickerRow> {
-  /** The team `issues.search` runs against; undefined = local only. */
-  teamId: string | undefined
+  /** The team(s) `issues.search` runs against; undefined = local only. */
+  teamId: string | readonly string[] | undefined
   /** The locally synced pool to rank. */
   rows: readonly R[]
   /** A server hit as a row (`useIssueSearchResults`), or null to drop it. */

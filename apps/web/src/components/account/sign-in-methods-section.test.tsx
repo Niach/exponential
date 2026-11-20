@@ -66,7 +66,7 @@ function renderSection(linkReturn: { linked?: string; linkError?: string }) {
     <StrictMode>
       <SignInMethodsSection
         initialMethods={methods}
-        teamSlug="acme"
+        accountPath="/settings/account"
         linkReturn={linkReturn}
         onLinkReturnConsumed={consumed}
       />
@@ -115,7 +115,7 @@ describe(`SignInMethodsSection last way in`, () => {
         providers: [{ ...methods.providers[0], ...provider }],
         waysIn: provider.available === false ? 0 : 1,
       }}
-      teamSlug="acme"
+      accountPath="/settings/account"
       linkReturn={{}}
       onLinkReturnConsumed={vi.fn()}
     />

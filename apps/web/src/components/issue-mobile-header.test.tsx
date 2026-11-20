@@ -12,9 +12,6 @@ vi.mock(`@tanstack/react-router`, () => ({
 vi.mock(`@/components/issue-actions-menu`, () => ({
   IssueActionsMenu: () => <button type="button">More</button>,
 }))
-vi.mock(`@/components/pin-toggle-button`, () => ({
-  PinToggleButton: () => <button type="button">Pin</button>,
-}))
 
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 

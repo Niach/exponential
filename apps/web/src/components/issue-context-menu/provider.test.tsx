@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react"
+import { createContext, useContext, useRef, type ReactNode } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IssueContextMenuProvider } from "@/components/issue-context-menu/provider"
@@ -33,6 +33,14 @@ const mockState = vi.hoisted(() => ({
   removeLabelMutate: vi.fn(),
   updateMutate: vi.fn(),
   openIssue: vi.fn(),
+  openIssueIn: vi.fn(),
+  agent: null as Record<string, unknown> | null,
+  auth: null as { user: { id: string } } | null,
+}))
+
+vi.mock(`@/hooks/use-billing`, () => ({ useBillingPlan: () => null }))
+vi.mock(`@/hooks/use-session`, () => ({
+  useSession: () => ({ data: mockState.auth }),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -52,9 +60,27 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-vi.mock(`@/components/issue-ref-provider`, () => ({
-  useIssueRefs: () => ({ open: mockState.openIssue }),
-}))
+// #EXP-2027: another team's row gets ITS team's refs around the menu; the
+// stand-in records which team an Open went through.
+const RefTeam = vi.hoisted(() => ({ context: null as unknown }))
+vi.mock(`@/components/issue-ref-provider`, () => {
+  RefTeam.context = createContext<string | null>(null)
+  const Context = RefTeam.context as React.Context<string | null>
+  return {
+    IssueRefProvider: ({ teamSlug, children }: { teamSlug: string; children: ReactNode }) => (
+      <Context.Provider value={teamSlug}>{children}</Context.Provider>
+    ),
+    useIssueRefs: () => {
+      const teamSlug = useContext(Context)
+      return {
+        open: teamSlug
+          ? (identifier: string, options?: unknown) =>
+              mockState.openIssueIn(teamSlug, identifier, options)
+          : mockState.openIssue,
+      }
+    },
+  }
+})
 
 // EXP-760: the picker is the shared IssuePickerDialog, whose real results come
 // from the IssueRefProvider (not mounted here). Stand in for it with the same
@@ -122,11 +148,13 @@ vi.mock(`@tanstack/react-db`, () => ({
     }
   },
 }))
-// #EXP-1383: no team agents in these cases.
+// #EXP-1383: no team agents in these cases (an agent ROW only for the
+// agent menu's case).
 vi.mock(`@/hooks/use-agent-row`, () => {
   const none: never[] = []
   return {
-    useAgentRow: () => ({ agent: null, isReady: true }),
+    useAgentRow: () => ({ agent: mockState.agent, isReady: true }),
+    useMyAgentConversation: () => null,
     useAgentRows: () => none,
     useAllAgentRows: () => none,
   }
@@ -135,7 +163,10 @@ vi.mock(`@/lib/collections`, () => ({
   boardCollection: {},
   issueCollection: {},
   issueLabelCollection: {},
+  issueStatusCollection: {},
   labelCollection: {},
+  messageCollection: {},
+  sessionCollection: {},
   teamCollection: {},
   teamMemberCollection: {},
   teamInviteCollection: {},
@@ -245,7 +276,9 @@ describe(`IssueContextMenuProvider`, () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(now)
-    for (const fn of Object.values(mockState)) fn.mockReset()
+    for (const fn of Object.values(mockState)) if (typeof fn === `function`) fn.mockReset()
+    mockState.agent = null
+    mockState.auth = null
     mockState.createRelationMutate.mockResolvedValue({})
     mockState.addLabelMutate.mockResolvedValue({})
     mockState.clipboardWriteText.mockResolvedValue(undefined)
@@ -599,5 +632,93 @@ describe(`IssueContextMenuProvider`, () => {
       vi.advanceTimersByTime(700)
     })
     expect(screen.getByRole(`menu`)).not.toBeNull()
+  })
+
+  // #EXP-2027: md+ has no active team — the layout's team is a fallback,
+  // the menu acts in the team of the row it opened on.
+  describe(`a row from another team`, () => {
+    const betaTeam = { id: `team-2`, slug: `beta`, name: `Beta`, estimationType: `none` }
+    beforeEach(() => {
+      seed({
+        issues: [
+          issueRow(),
+          issueRow({ id: `issue-7`, boardId: `board-3`, identifier: `OPS-7`, title: `Rotate keys` }),
+        ],
+        teams: [{ id: `team-1`, slug: `acme`, name: `Acme`, estimationType: `fibonacci` }, betaTeam],
+        boards: [
+          ...liveRows.byTable.boards!,
+          { id: `board-3`, teamId: `team-2`, name: `Ops`, slug: `ops`, prefix: `OPS`, color: `#f97316`, icon: null, sortOrder: 0, createdAt: now },
+          { id: `board-4`, teamId: `team-2`, name: `Infra`, slug: `infra`, prefix: `INF`, color: `#14b8a6`, icon: null, sortOrder: 1, createdAt: now },
+        ],
+        labels: [
+          ...liveRows.byTable.labels!,
+          { id: `label-9`, teamId: `team-2`, name: `Security`, color: `#eab308`, sortOrder: 0 },
+        ],
+        members: [
+          ...liveRows.byTable.members!,
+          { id: `m-3`, teamId: `team-2`, userId: `user-3`, createdAt: now },
+        ],
+        users: [...liveRows.byTable.users!, user(`user-3`, `Cleo Ray`, `cleo@example.com`)],
+        issueStatuses: [
+          { id: `st-b1`, teamId: `team-2`, name: `Inbox`, color: `#888888`, category: `backlog`, builtinKey: `backlog`, sortOrder: 0 },
+          { id: `st-b2`, teamId: `team-2`, name: `Shipped`, color: `#22c55e`, category: `completed`, builtinKey: `done`, sortOrder: 1 },
+        ],
+      })
+    })
+
+    it(`offers that team's statuses, labels, members and boards, not the layout's`, () => {
+      render(<Host>{row(`issue-7`)}</Host>)
+      openOn(`row-issue-7`)
+      const menu = screen.getByRole(`menu`)
+      expect(within(menu).getByText(`OPS-7`)).not.toBeNull()
+      // Its team's status row, and no estimate row (Beta does not estimate).
+      expect(within(menu).getByText(`Inbox`)).not.toBeNull()
+      expect(within(menu).queryByText(`Estimate`)).toBeNull()
+
+      const sub = (label: string) => {
+        fireEvent.click(within(menu).getByText(label))
+        const subs = document.querySelectorAll<HTMLElement>(`[data-slot="dropdown-menu-sub-content"]`)
+        return subs[subs.length - 1]!
+      }
+      const statuses = sub(`Status`)
+      expect(within(statuses).getByText(`Shipped`)).not.toBeNull()
+      const labels = sub(`Labels`)
+      expect(within(labels).getByText(`Security`)).not.toBeNull()
+      expect(within(labels).queryByText(`Bug`)).toBeNull()
+      const assignees = sub(`Assignee`)
+      expect(within(assignees).getByText(`Cleo Ray`)).not.toBeNull()
+      expect(within(assignees).queryByText(`Alice Doe`)).toBeNull()
+      const boards = sub(`Move to board`)
+      expect(within(boards).getByText(`Infra`)).not.toBeNull()
+      expect(within(boards).queryByText(`Platform`)).toBeNull()
+    })
+
+    it(`opens the issue through that team's refs`, () => {
+      render(<Host>{row(`issue-7`, `chats`)}</Host>)
+      choose([`Open issue`], `row-issue-7`)
+      expect(mockState.openIssueIn).toHaveBeenCalledWith(`beta`, `OPS-7`, { from: `chats` })
+      expect(mockState.openIssue).not.toHaveBeenCalled()
+    })
+
+    it(`keeps the layout's team for its own rows`, () => {
+      render(<Host>{row()}</Host>)
+      choose([`Open issue`])
+      expect(mockState.openIssue).toHaveBeenCalledWith(`APP-1`, { from: undefined })
+      expect(mockState.openIssueIn).not.toHaveBeenCalled()
+    })
+
+    it(`answers an agent row of that team as that team's member`, () => {
+      mockState.auth = { user: { id: `user-3` } }
+      mockState.agent = { id: `agent-1`, teamId: `team-2`, name: `Ops bot`, ownerId: null, kind: `agent` }
+      render(
+        <Host>
+          <div data-testid="agent-row" data-menu="agent" data-menu-id="agent-1">
+            Ops bot
+          </div>
+        </Host>
+      )
+      openOn(`agent-row`)
+      expect(screen.getByTestId(`agent-menu`)).not.toBeNull()
+    })
   })
 })
