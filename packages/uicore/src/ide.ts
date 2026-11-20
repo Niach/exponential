@@ -24,7 +24,6 @@ export interface IdeSidebarInput {
   drafts: number
   chats: IdeCount
   owner: boolean
-  pins: { id: string; identifier: string; title: string }[]
   agents: { id: string; name: string; icon: string; needsYou: boolean; unread: number }[]
   apps: { id: string; slug: string; name: string; icon: string }[]
   boards: { id: string; name: string; icon: string }[]
@@ -113,7 +112,6 @@ const FOLDER_ICON = `ui-folder`
 
 export interface IdeSidebar {
   nav: IdeNavRow[]
-  pins: { id: string; identifier: string; title: string; selected: boolean }[]
   agents: { add: boolean; rows: IdeRow[] }
   apps: { rows: IdeRow[] }
   boards: { rows: IdeRow[]; empty: boolean }
@@ -165,7 +163,6 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, input.drafts, `muted`))
   return {
     nav: rows,
-    pins: input.pins.map((p) => ({ ...p, selected: screen === `issue:${p.id}` })),
     agents: {
       add: input.owner,
       rows: folders(`agent`, input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, ...badge(agentCount(a.unread, a.needsYou).count, agentCount(a.unread, a.needsYou).tone), gear: true }))),

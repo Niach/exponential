@@ -6,13 +6,13 @@
 //! leaving: content saves, an existing draft emptied out is deleted on leave,
 //! and an untouched blank page writes nothing (`draft_editor`).
 //!
-//! The shape is static per user and NOT team/trash scoped, so — like
-//! [`crate::pins`] — every reader here filters to the ACTIVE team and to rows
+//! The shape is static per user and NOT team/trash scoped, so every
+//! reader here filters to the ACTIVE team and to rows
 //! whose BOARD still resolves in the sibling `boards` collection. A draft on
 //! a trashed board is simply hidden; it comes back when the board restores.
 //!
 //! The Drafts list's delete is fire-and-forget off the background executor
-//! (the `pins::toggle_pin` recipe): the synced row is the source of truth for
+//! (fire-and-forget): the synced row is the source of truth for
 //! the list. The page's own writes are sequenced by `draft_editor`.
 
 use chrono::NaiveDate;

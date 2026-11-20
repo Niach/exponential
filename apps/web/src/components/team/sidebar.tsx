@@ -60,7 +60,6 @@ import { Empty } from "@/components/empty"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
-import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection, type SidebarChats } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection, useAgentBadges } from "@/components/team/sidebar-agents"
 import { railAgents } from "@exp/domain-contract/chats"
@@ -465,11 +464,6 @@ export function TeamSidebar({
                         </SidebarMenu>
                       </SidebarGroupContent>
                     </SidebarGroup>
-
-                    {/* EXP-778: the caller's pinned issues / sessions / actions
-                        in this team — favourites above the boards, hidden when
-                        empty. */}
-                    {team && <SidebarPinned teamId={team.id} teamSlug={teamSlug} />}
 
                     {/* EXP-1293: the team's agents, above Boards and drawn
                         like them. */}
