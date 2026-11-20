@@ -77,7 +77,7 @@ export async function startCallSession(args: {
       await sendSession({
         userId,
         input: { sessionId: prev.id, text: callSessionText(VOICE_CALL_SESSION.resumeText, language) },
-        extras: { serverComposed: true },
+        extras: { serverComposed: true, callPrompt: true },
       })
     }
     return { sessionId: prev.id, chatId: chat.id, resumed: true }
@@ -151,7 +151,7 @@ export async function endCallSession(args: { userId: string; sessionId: string; 
       sessionId: args.sessionId,
       text: VOICE_CALL_SESSION.endedText.replaceAll(`{minutes}`, callTimer(segmentMs)),
     },
-    extras: { serverComposed: true },
+    extras: { serverComposed: true, callPrompt: true },
   })
   return true
 }

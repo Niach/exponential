@@ -897,6 +897,11 @@ export interface SendExtras {
    *  server code sets it (suggestions.ts, agent-handoff.ts, the link wake
    *  line); tRPC and MCP inputs never reach it. */
   serverComposed?: boolean
+  /** #EXP-2014: a call session's own server line (the call-back request,
+   *  the hang-up's summary request): the chat's catch-up does not ride with
+   *  it (it lands before the next utterance), so the reply to it answers it
+   *  alone (the call-back's reply is the spoken opening line). */
+  callPrompt?: boolean
 }
 
 interface SendOutcome extends SessionsSendResult {
@@ -1472,7 +1477,7 @@ async function messageSession(
       }
       const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
       // #EXP-1961: a call reads what was typed in its chat before its next answer.
-      if (target.voiceCall && !from) await copyChatIntoCall(tx, target)
+      if (target.voiceCall && !from && !extras.callPrompt) await copyChatIntoCall(tx, target)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
       // A PERSON's message into a worker = it takes its issues again.
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)
