@@ -119,6 +119,19 @@ impl Tools {
     }
 }
 
+/// Starts the script `path` that was just written. Another test's fork
+/// can hold the written file open until that child execs: `exec` says
+/// "Text file busy" (ETXTBSY) for that moment, and is asked again.
+fn spawn_written(path: &Path) -> std::process::Child {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match std::process::Command::new(path).spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            started => return started.unwrap(),
+        }
+    }
+}
+
 fn until(what: &str, mut ok: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while !ok() {
@@ -457,7 +470,7 @@ fn the_homes_of_a_gone_compositor_go() {
     let compositor = dir.path().join("exponential-compositor");
     std::fs::write(&compositor, "#!/bin/sh\nsleep 60\n:\n").unwrap();
     std::fs::set_permissions(&compositor, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut running = std::process::Command::new(&compositor).spawn().unwrap();
+    let mut running = spawn_written(&compositor);
     until("the stand-in compositor never started", || std::fs::read_to_string(format!("/proc/{}/comm", running.id())).is_ok_and(|comm| comm.trim() == "exponential-com"));
     let mut other_program = std::process::Command::new("sleep").arg("60").spawn().unwrap();
     for pid in [me, running.id(), other_program.id(), 4_194_999] {
@@ -494,7 +507,7 @@ fn the_slices_of_a_gone_compositor_are_found() {
     let compositor = dir.path().join("exponential-compositor");
     std::fs::write(&compositor, "#!/bin/sh\nsleep 60\n:\n").unwrap();
     std::fs::set_permissions(&compositor, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut running = std::process::Command::new(&compositor).spawn().unwrap();
+    let mut running = spawn_written(&compositor);
     until("the stand-in compositor never started", || std::fs::read_to_string(format!("/proc/{}/comm", running.id())).is_ok_and(|comm| comm.trim() == "exponential-com"));
     let mut other_program = std::process::Command::new("sleep").arg("60").spawn().unwrap();
     std::fs::write(
