@@ -705,6 +705,43 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(a)).mergeState).toBe(`testing`)
   })
 
+  it(`#FEED-282: a base requiring nothing still waits the grace for CI the repo reports, then lands`, async () => {
+    const w = await world()
+    fake.required = []
+    await w.pr(841)
+    const a = await w.pr(842, { checks: false })
+    fake.prs.get(842)!.updatedAt = new Date()
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks`, mergeHold: null })
+    fake.prs.get(842)!.updatedAt = new Date(Date.now() - 6 * 60_000)
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).not.toBe(`checks`)
+    expect((await prRow(a)).mergeHold).toBeNull()
+  })
+
+  it(`#FEED-282: a direct landing re-reads the checks: CI reported since readiness stops it`, async () => {
+    const w = await world()
+    fake.missingPipeline = true
+    const a = await w.pr(851)
+    await w.idle()
+    const [run] = await db
+      .insert(mergeTrains)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, base: `main`, baseSha: `b0`, units: [[a]], attempt: 0, pending: [], heads: { [a]: `head-851` } })
+      .returning()
+    await db.update(pullRequests).set({ mergeState: `testing`, mergeTrainId: run!.id }).where(eq(pullRequests.id, a))
+    await gateRunning(a)
+    await worker.landDirectForTests(w.repoId, run!.id)
+    expect(fake.squashed).toEqual([])
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `checks` })
+    // Green again: the next pass lands it.
+    await db.update(pullRequestChecks).set({ status: `completed`, conclusion: `success` }).where(eq(pullRequestChecks.pullRequestId, a))
+    fake.branch.set(`main`, `b0`)
+    await pass(w.repoId)
+    expect(fake.squashed).toEqual([851])
+    expect((await prRow(a)).mergeState).toBe(`merged`)
+  })
+
   it(`#FEED-221: a queued PR keeps its place through its opener's wake`, async () => {
     process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV] = `1`
     try {

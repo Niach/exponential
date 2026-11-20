@@ -232,7 +232,18 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
     if (!row.pullRequestId) continue
     informational.set(row.pullRequestId, [...(informational.get(row.pullRequestId) ?? []), row.check])
   }
-  return { tree, modes, checks, required, informational }
+  // #FEED-282: the repo reports CI on its PRs (any check row on another
+  // PR of it in the last two weeks): a fresh PR without rows waits for them.
+  const bare = prs.some((pr) => pr.state === `open` && !checks.has(pr.id))
+  const [seen] = !bare
+    ? []
+    : await db
+        .select({ id: pullRequestChecks.id })
+        .from(pullRequestChecks)
+        .innerJoin(pullRequests, eq(pullRequests.id, pullRequestChecks.pullRequestId))
+        .where(and(eq(pullRequests.repositoryId, repo.id), sql`${pullRequests.createdAt} > now() - interval '14 days'`))
+        .limit(1)
+  return { tree, modes, checks, required, informational, ciSeen: seen !== undefined }
 }
 
 function waitOf(pr: PrRow, { tree, modes, checks, required, informational }: ReadinessInputs): MergeWait | null {
@@ -259,15 +270,23 @@ async function noChecksHold(
   inputs: ReadinessInputs,
   forge: Forge,
   now: Date
-): Promise<`no_checks` | `conflict` | null> {
+): Promise<`no_checks` | `conflict` | `wait` | null> {
   if ((inputs.checks.get(pr.id)?.length ?? 0) > 0 || pr.state !== `open` || pr.mergeNow) return null
   const expected = (inputs.required.get(pr.base)?.length ?? 0) > 0
-  if (!expected) return null
+  // #FEED-282: no required names but CI on the repo: wait out the grace.
+  if (!expected && !inputs.ciSeen) return null
   const live = await forge.readPullRequest(forgeRepo(repo), pr.number).catch(() => null)
   if (!live) return null
   const since = live.updatedAt ?? pr.createdAt
-  const verdict = noChecksVerdict({ expected, mergeable: live.mergeable ?? null, ageMs: now.getTime() - since.getTime() })
-  return verdict === `no_checks` || verdict === `conflict` ? verdict : null
+  const verdict = noChecksVerdict({
+    expected,
+    ciSeen: inputs.ciSeen,
+    mergeable: live.mergeable ?? null,
+    ageMs: now.getTime() - since.getTime(),
+  })
+  // `wait` with required names = the names already read pending (waitOf);
+  // without, only this rule makes the PR wait.
+  return verdict === `wait` ? (expected ? null : `wait`) : verdict
 }
 
 async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): Promise<void> {
@@ -305,11 +324,11 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
     }
     if (pr.mergeState !== `testing` && pr.mergeState !== `held`) {
       const hold = pr.mergeState === `draft` ? null : await noChecksHold(repo, pr, inputs, forge, now)
-      if (hold) {
+      if (hold && hold !== `wait`) {
         await stepPullRequest(pr.id, { type: `forge_hold`, reason: hold }, { base, now })
         continue
       }
-      const wait = waitOf(pr, inputs)
+      const wait = hold === `wait` ? `checks` : waitOf(pr, inputs)
       // A queued PR stays queued through its opener's work: no `session` pill.
       const shown = pr.mergeState === `queued` && wait === `session` ? null : wait
       await stepPullRequest(pr.id, { type: `readiness`, wait, at }, { base, now, extra: { mergeWait: shown } })
@@ -754,6 +773,20 @@ async function landDirect(
     if (!read || read.baseRef !== base) {
       await requeue([bottom!], base, now)
       continue
+    }
+    // #FEED-282: nothing tests a direct landing, so its own checks gate it
+    // as they are NOW (readiness read them before this pass composed the
+    // run: a PR opened seconds ago reports its CI meanwhile). Running or
+    // red = back to readiness, never merged. A Merge now lands untested.
+    if (!run.untested) {
+      const inputs = await readinessInputs([pr], repo, forge)
+      const hold = await noChecksHold(repo, pr, inputs, forge, now)
+      const wait = hold !== null ? `checks` : waitOf(pr, inputs)
+      if (wait === `checks` || wait === `failing` || wait === `draft`) {
+        await requeue([bottom!], base, now)
+        await stepPullRequest(bottom!, { type: `readiness`, wait, at: now.toISOString() }, { base, now, extra: { mergeWait: wait } })
+        continue
+      }
     }
     const merged = await forge.squashMerge(fr, {
       number: pr.number,
