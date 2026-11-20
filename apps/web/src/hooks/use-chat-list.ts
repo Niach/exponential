@@ -12,6 +12,7 @@ import {
   type ChatListView,
 } from "@exp/domain-contract/chats"
 import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
+import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import { useApps } from "@/hooks/use-apps"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useNow } from "@/hooks/use-now"
@@ -76,6 +77,14 @@ export function useChatList(
   // #EXP-1380: the digests, never the transcripts (`useDigestMessages`).
   const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
   const { messages } = useDigestMessages({ teamIds })
+  // #EXP-1984: the viewer's Assistant converses in their personal team (never
+  // a synced team): the pinned agent rows read that conversation too, like
+  // the sidebar's badges (`useAgentBadges`). The chats below stay the team's.
+  const teamAgents = useTeamAgentRows(teamIds, me)
+  const personal = teamAgents.find((agent) => agent.teamId !== teamId)?.teamId ?? null
+  const agentScope = useMemo(() => (teamId ? (personal ? [teamId, personal] : [teamId]) : []), [teamId, personal])
+  const { tree: agentTree } = useTeamSessions(agentScope)
+  const { messages: agentMessages } = useDigestMessages({ teamIds: agentScope })
   const now = useNow(60_000)
   const nowIso = now.toISOString()
   const offset = localUtcOffsetMinutes(now)
@@ -110,15 +119,15 @@ export function useChatList(
       agentChatRows({
         // #EXP-1849: an app's agent chat IS the app row (chats.json).
         agents: sidebarAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
-        sessions: tree,
-        messages,
+        sessions: agentTree,
+        messages: agentMessages,
         reads,
         me: me ?? null,
         view,
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [agents, apps, tree, messages, reads, me, view, nowIso, offset]
+    [agents, apps, agentTree, agentMessages, reads, me, view, nowIso, offset]
   )
 
   const appRows = useMemo(

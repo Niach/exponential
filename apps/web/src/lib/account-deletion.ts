@@ -248,7 +248,13 @@ export async function guardAndCleanupTeamsForUserDeletion(
   endedSessionIds.push(...hosted.map((row) => row.id))
   await closeAskMirrorsOf(tx, endedSessionIds, now)
 
-  const soloToDelete = solo
+  // #EXP-1984: their hidden personal team (no team_members row: their
+  // Assistant and its chat) goes with them, its attachments' objects too.
+  const personal = await tx
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+  const soloToDelete = [...new Set([...solo, ...personal.map((row) => row.id)])]
 
   // The address is needed AFTER the users row is gone (mention scrub + email
   // residue), so capture it while it still exists.

@@ -37,7 +37,10 @@ export async function assertAgentInTeam(
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
-  if (!row || row.teamId !== teamId) {
+  // #EXP-1984: the actor's own Assistant lives in their personal team and
+  // is assignable in every team of theirs; any other agent only in its own.
+  const ownAssistant = row?.role === `assistant` && row.ownerId === actorUserId
+  if (!row || (row.teamId !== teamId && !ownAssistant)) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `The assignee agent must belong to the issue's team`,
@@ -100,9 +103,11 @@ export async function onIssueAssignedInTx(
   const assignerId = acting?.userId ?? args.actorUserId
   if (!assignerId) return
   const [agent] = await tx.select().from(agents).where(eq(agents.id, args.assigneeAgentId)).limit(1)
-  if (!agent || agent.teamId !== args.teamId) return
+  if (!agent) return
   // S-3: never a turn for one member on another member's Assistant.
   if (agent.role === `assistant` && agent.ownerId !== assignerId) return
+  // #EXP-1984: the assigner's own Assistant (personal team) takes it from any team of theirs.
+  if (agent.teamId !== args.teamId && agent.role !== `assistant`) return
   const [issue] = await tx
     .select({ identifier: issues.identifier, title: issues.title })
     .from(issues)
