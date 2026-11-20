@@ -4,6 +4,7 @@
 //! only fake is PAM (a stub `libpam.so.0` the client finds through
 //! `LD_LIBRARY_PATH`, which accepts one test password). Needs the built
 //! binary: `EDE_SEALED_BIN=<path> cargo test -p ede-compositor --test sealed_unlock -- --ignored`.
+//! #ERR-29: and it locks and unlocks whatever its error reporting does.
 
 mod common;
 
@@ -104,7 +105,8 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
     });
 
     h.with(|ede| ede.listen().map(|_| ())).unwrap();
-    h.with(move |ede| ede.begin_sealed_lock_with(vec![bin, "lock".into()]));
+    let first = vec![bin.clone(), "lock".into()];
+    h.with(move |ede| ede.begin_sealed_lock_with(first));
     wait("the lock client never took the keyboard", || {
         h.with(|ede| ede.desk.seat.get_keyboard().unwrap().current_focus().is_some_and(|f| ede.is_lock_surface(&f)))
     });
@@ -141,4 +143,60 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
         app.roundtrip();
         app.state.keys == [A - 8]
     });
+
+    // #ERR-29: the lock client reports through ede-observability now. A
+    // lock that cannot start because of its error reporting is worse than
+    // no report: it locks and unlocks with reporting off; on, with a
+    // server that takes the connection and never answers (a crash report
+    // of an earlier launch waiting to go); and on, with the crash monitor
+    // unable to start. A start that waited on any of it would take the
+    // config fetch's 10 s at least.
+    let tarpit = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = format!("http://{}", tarpit.local_addr().unwrap());
+    let reporting = dir.path().join("reporting");
+    let (data, cache, config) = (reporting.join("data"), reporting.join("cache"), reporting.join("config"));
+    let crashes = cache.join("exponential-desktop").join("crashes");
+    for d in [&data, &crashes, &config] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(data.join("accounts.json"), format!(r#"{{"accounts":[{{"instanceUrl":"{server}","userId":"u-test"}}]}}"#)).unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    std::fs::write(
+        crashes.join("6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11.json"),
+        format!(r#"{{"id":"6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11","release":"exponential-ede@0.2.28","component":"compositor","timestamp":{now},"os":"Linux","os_version":null,"arch":"x86_64","kind":"SIGSEGV","reason":"SIGSEGV / SEGV_MAPERR","address":0,"thread_id":7,"thread_name":null,"frames":[{{"address":4096,"module":0,"trust":"context"}}],"modules":[{{"code_file":"/usr/bin/exponential-compositor","base":0,"size":65536,"debug_id":"b0b1b2b3-b4b5-b6b7-b8b9-babbbcbdbebf","code_id":null,"debug_file":null,"main":true}}]}}"#),
+    )
+    .unwrap();
+    let not_a_directory = reporting.join("not-a-directory");
+    std::fs::write(&not_a_directory, "").unwrap();
+    let on = |cache: &std::path::Path| {
+        vec![
+            "EXP_DIAGNOSTICS=1".to_string(),
+            format!("EXP_DATA_DIR={}", data.display()),
+            format!("XDG_CACHE_HOME={}", cache.display()),
+            format!("XDG_CONFIG_HOME={}", config.display()),
+            "EXP_SENTRY_DSN=https://publickey@glitchtip.example/9".to_string(),
+        ]
+    };
+    let cases = [
+        ("reporting off", vec!["EXP_DIAGNOSTICS=0".to_string()]),
+        ("a server that never answers", on(&cache)),
+        ("no crash monitor (its directory cannot be made)", on(&not_a_directory)),
+    ];
+    for (case, env) in cases {
+        let argv: Vec<String> = std::iter::once("env".to_string()).chain(env).chain([bin.clone(), "lock".into()]).collect();
+        let started = Instant::now();
+        h.with(move |ede| ede.begin_sealed_lock_with(argv));
+        wait(&format!("{case}: the lock client never took the keyboard"), || {
+            h.with(|ede| ede.desk.seat.get_keyboard().unwrap().current_focus().is_some_and(|f| ede.is_lock_surface(&f)))
+        });
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(10), "{case}: the lock waited on its error reporting ({took:?})");
+        assert!(is_locked(&h), "{case}");
+        type_keys(&h, &[A, S, D, F, ENTER]);
+        wait(&format!("{case}: the right password did not unlock"), || !is_locked(&h));
+        eprintln!("{case}: locked in {took:?}, unlocked");
+    }
+    // The reports did try to go: the never-answering server was called.
+    tarpit.set_nonblocking(true).unwrap();
+    assert!(tarpit.accept().is_ok(), "reporting was on, the server was never called");
 }
