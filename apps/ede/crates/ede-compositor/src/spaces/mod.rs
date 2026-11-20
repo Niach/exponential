@@ -14,6 +14,7 @@ pub mod frames;
 pub mod guard;
 mod input;
 pub mod launch;
+pub mod browsers;
 pub mod render;
 pub mod ipc;
 mod members;
@@ -159,6 +160,9 @@ pub struct AgentSpace {
     /// alone. On for every space; #EDE-162 (F7) turns it off for a space
     /// whose GPU path is ready, before its first launch.
     pub software_rendering: bool,
+    /// Its browsers' profiles inside snaps' and Flatpaks' own data
+    /// ([`browsers`]), removed at its close with its directories.
+    pub(crate) browser_dirs: Vec<PathBuf>,
     /// Its own Xwayland ([`x11`]), from its first launch.
     #[cfg(feature = "xwayland")]
     pub(crate) x11: Option<x11::SpaceX11>,
@@ -337,7 +341,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, #[cfg(feature = "xwayland")] x11: None });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None });
         Ok(id)
     }
 }
