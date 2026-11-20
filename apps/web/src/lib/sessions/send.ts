@@ -35,7 +35,7 @@ import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
 import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
-import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember } from "@/lib/auth/membership"
+import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
 import { treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
@@ -296,13 +296,13 @@ async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: stri
 
 /** A session's (or an agent's, #EXP-1793) MCP server pick: deduped, pick
  *  order, every id a row of `teamId` (else BAD_REQUEST); empty = null. */
-export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: string, ids: readonly string[] | undefined) {
+export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: string | readonly string[], ids: readonly string[] | undefined) {
   const unique = [...new Set(ids ?? [])]
   if (unique.length === 0) return null
   const rows = await tx
     .select({ id: mcpServers.id })
     .from(mcpServers)
-    .where(and(eq(mcpServers.teamId, teamId), inArray(mcpServers.id, unique)))
+    .where(and(inArray(mcpServers.teamId, typeof teamId === `string` ? [teamId] : [...teamId]), inArray(mcpServers.id, unique)))
   if (rows.length !== unique.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Unknown MCP server for this team` })
   }
@@ -1582,10 +1582,15 @@ async function messageAgent(
     // #EXP-1793: the sender's MCP servers / skills pick = the conversation's
     // from now on (its device re-reads `sessions.mcpPicks` between turns);
     // an id outside the agent's team is refused, never dropped.
+    // #EXP-1984: the Assistant lives in its member's personal team and is
+    // written to from every team of theirs, so its pick may name any of
+    // their teams' rows (the member's own rights; #EXP-1988 uses each for
+    // its team's work).
+    const pickTeams = agent.role === `assistant` ? await getUserTeamIds(userId) : agent.teamId
     const mcpServerIds =
-      input.mcpServerIds === undefined ? undefined : await assertMcpServersInTeam(tx, agent.teamId, input.mcpServerIds)
+      input.mcpServerIds === undefined ? undefined : await assertMcpServersInTeam(tx, pickTeams, input.mcpServerIds)
     const skillIds =
-      input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, agent.teamId, input.skillIds)
+      input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, pickTeams, input.skillIds)
     if (mcpServerIds !== undefined || skillIds !== undefined) {
       await tx
         .update(sessions)

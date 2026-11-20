@@ -119,7 +119,8 @@ describe.skipIf(!ready.ok)(`sessionKeys.pending on a busy holder (#PERF-6)`, () 
       }
       times.sort((a, b) => a - b)
       process.stderr.write(`[PERF-6] pending over ${ROOTS} held trees: median ${times[2]!.toFixed(1)} ms, ${queries} queries\n`)
-      expect(queries).toBeLessThanOrEqual(5 + 6 * Math.ceil(ROOTS / 100))
+      // 7 per chunk: #EXP-1984 added the personal-team owners read.
+      expect(queries).toBeLessThanOrEqual(5 + 7 * Math.ceil(ROOTS / 100))
     })
   }, 120_000)
 })
