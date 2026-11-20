@@ -839,7 +839,7 @@ pub fn window_id(window: &Window) -> WindowId {
 }
 
 /// An Xwayland window (none without the `xwayland` feature, #EDE-140).
-fn is_x11(window: &Window) -> bool {
+pub(crate) fn is_x11(window: &Window) -> bool {
     #[cfg(feature = "xwayland")]
     return window.x11_surface().is_some();
     #[cfg(not(feature = "xwayland"))]
@@ -851,7 +851,7 @@ fn is_x11(window: &Window) -> bool {
 
 /// An X11 override-redirect window (a menu, a tooltip): no window of the
 /// list.
-fn x11_override_redirect(window: &Window) -> bool {
+pub(crate) fn x11_override_redirect(window: &Window) -> bool {
     #[cfg(feature = "xwayland")]
     return window.x11_surface().is_some_and(|x| x.is_override_redirect());
     #[cfg(not(feature = "xwayland"))]
