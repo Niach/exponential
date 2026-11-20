@@ -316,6 +316,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -430,6 +431,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -484,6 +486,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the Engine facade for the JVM unit tests
@@ -578,6 +581,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
           workspaces: |
             apps/ede
             apps/desktop
@@ -677,6 +681,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -709,6 +714,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
           workspaces: |
             apps/ede
             apps/desktop
