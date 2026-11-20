@@ -13,7 +13,7 @@ use domain::session_tree::SessionState;
 use eui_core::theme::Mode;
 use eui_gpui::{
     host::{ActionEvent, FunctionCallEvent, HostPlugin},
-    view::SurfaceView,
+    view::{ListExternalPhase, SurfaceView},
 };
 use crate::controls::PointerContextMenuExt as _;
 use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, SharedString, Window};
@@ -476,6 +476,8 @@ pub(crate) struct SidebarRegion {
     focus_pending: bool,
     /// The dev team-menu capture opened its menu ([`Self::dev_open_team_menu`]).
     dev_team_menu_done: bool,
+    /// #EXP-2027: the Chats row whose drag the tree's List shows.
+    chat_drag: Option<String>,
     window: AnyWindowHandle,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
@@ -511,6 +513,7 @@ impl SidebarRegion {
                 editing,
                 focus_pending: false,
                 dev_team_menu_done: false,
+                chat_drag: None,
                 window: window.window_handle(),
                 #[cfg(test)]
                 frozen: false,
@@ -713,12 +716,63 @@ impl SidebarRegion {
         self.input.teams.iter().flat_map(|t| &t.items).any(|i| i.kind == "agent" && i.id == id)
     }
 
+    /// #EXP-2027 (sidebar-tree.json `drop`): a Chats row's drag over the
+    /// window: the tree's List takes it as an outside row (key
+    /// `active:<root>`, like an Active row), dropped only between its
+    /// team's rows (a placed row of the same session steps aside, as on
+    /// web), and draws its own drop.
+    pub(crate) fn chat_drag_move(&mut self, drag: &crate::chats_view::ChatRowDrag, position: gpui::Point<gpui::Pixels>, cx: &mut gpui::Context<Self>) {
+        let key = format!("{ACTIVE_KEY}{}", drag.id);
+        let bounds = drag.bounds.get();
+        let start = self.chat_drag.as_deref() != Some(drag.id.as_str());
+        let keys = start.then(|| {
+            let teams = self.shown.as_ref().and_then(|v| v["teams"].as_array().cloned()).unwrap_or_default();
+            let rows = teams.into_iter().find(|team| team["id"] == drag.team_id.as_str()).and_then(|team| team["rows"].as_array().cloned()).unwrap_or_default();
+            rows.iter().filter_map(|row| row["id"].as_str()).filter(|id| *id != drag.id).map(str::to_string).collect::<Vec<_>>()
+        });
+        let live = self.view.update(cx, |view, cx| {
+            if let Some(keys) = keys {
+                view.list_drag_external(TREE_LIST, &key, bounds, Some(keys), ListExternalPhase::Start, position, cx);
+            }
+            view.list_drag_external(TREE_LIST, &key, bounds, None, ListExternalPhase::Move, position, cx)
+        });
+        self.chat_drag = live.then(|| drag.id.clone());
+        if live && start {
+            cx.set_global(ChatDragTarget(cx.weak_entity()));
+        }
+    }
+
+    /// #EXP-2027: the release anywhere drops a Chats row's drag (as on
+    /// web); an Esc'd drag (no gpui drag left) drops nothing.
+    pub(crate) fn chat_drag_end(&mut self, position: gpui::Point<gpui::Pixels>, dropped: bool, cx: &mut gpui::Context<Self>) {
+        if self.chat_drag.take().is_none() {
+            return;
+        }
+        let phase = if dropped { ListExternalPhase::End } else { ListExternalPhase::Cancel };
+        self.view.update(cx, |view, cx| view.list_drag_external(TREE_LIST, "", Default::default(), None, phase, position, cx));
+    }
+
     /// #EXP-2027: an Active row's chat (its tree key `active:<root>`).
     pub(crate) fn active_root(&self, id: &str) -> Option<String> {
         let root = id.strip_prefix(ACTIVE_KEY)?;
         self.input.active.iter().any(|a| a.id == root).then(|| root.to_string())
     }
 }
+
+/// #EXP-2027: the sidebar showing a Chats row's drag (Esc on the Chats
+/// page drops it there: [`cancel_chat_drag`]).
+struct ChatDragTarget(gpui::WeakEntity<SidebarRegion>);
+
+impl gpui::Global for ChatDragTarget {}
+
+/// #EXP-2027: Esc dropped a Chats row's drag: its sidebar draws no drop.
+pub(crate) fn cancel_chat_drag(cx: &mut App) {
+    let Some(target) = cx.try_global::<ChatDragTarget>().map(|t| t.0.clone()) else { return };
+    let _ = target.update(cx, |region, cx| region.chat_drag_end(Default::default(), false, cx));
+}
+
+/// The sidebar document's tree List (teams + Active, apps/ede/ui/sidebar.json).
+const TREE_LIST: &str = "ide_tree_list";
 
 impl Render for SidebarRegion {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -732,6 +786,12 @@ impl Render for SidebarRegion {
                     cx.stop_propagation();
                 }
             }))
+            .on_drag_move::<crate::chats_view::ChatRowDrag>(cx.listener(|region, event: &gpui::DragMoveEvent<crate::chats_view::ChatRowDrag>, _, cx| {
+                let drag = event.drag(cx).clone();
+                region.chat_drag_move(&drag, event.event.position, cx);
+            }))
+            .capture_any_mouse_up(cx.listener(|region, event: &gpui::MouseUpEvent, _, cx| region.chat_drag_end(event.position, cx.has_active_drag(), cx)))
+            .on_mouse_up_out(gpui::MouseButton::Left, cx.listener(|region, event: &gpui::MouseUpEvent, _, cx| region.chat_drag_end(event.position, cx.has_active_drag(), cx)))
             .child(uicore_gpui::inline::region(&self.view))
     }
 }
@@ -1599,8 +1659,9 @@ mod tests {
         let team = |id: &str, items: Vec<IdeItemInput>| IdeTeamInput { id: id.into(), name: id.into(), mark: String::new(), open: true, owner: true, needs_you: 0, items, layout: Vec::new() };
         let input = IdeSidebarInput { teams: vec![team("t1", vec![item("board", "b1"), item("agent", "a1")]), team("t2", vec![item("board", "b9")])], ..Default::default() };
         let session = |id: &str| -> Option<domain::rows::SessionRow> {
-            let team = if id == "s1" { "t1" } else { "t2" };
-            serde_json::from_value(json!({"id": id, "team_id": team, "status": "idle"})).ok()
+            let team = if id == "s9" { "t2" } else { "t1" };
+            let parent = (id == "s5").then_some("s1");
+            serde_json::from_value(json!({"id": id, "team_id": team, "parent_id": parent, "status": "idle"})).ok()
         };
         let mv = |id: &str, after: Option<&str>, into: Option<&str>| SidebarMove { id: id.into(), before: None, after: after.map(Into::into), into: into.map(Into::into) };
         // An Active row of t1 after a t1 row: appended, then moved there.
@@ -1610,6 +1671,10 @@ mod tests {
         // Into the team row: after its last row.
         let (_, writes) = tree_move(&input, &mv("active:s1", None, Some("t1")), |_| Vec::new(), session, "f").expect("into the team");
         assert!(writes.upserts.iter().any(|w| w.target_id.as_deref() == Some("s1") && w.sort_order == 3.));
+        // A Chats row of t1 (the same `active:` key): into another team's
+        // row, a child session: refused.
+        assert!(tree_move(&input, &mv("active:s1", None, Some("t2")), |_| Vec::new(), session, "f").is_none());
+        assert!(tree_move(&input, &mv("active:s5", Some("b1"), None), |_| Vec::new(), session, "f").is_none());
         // Another team's session, a row across teams, an Active row onto Active.
         assert!(tree_move(&input, &mv("active:s9", Some("b1"), None), |_| Vec::new(), session, "f").is_none());
         assert!(tree_move(&input, &mv("b9", Some("b1"), None), |_| Vec::new(), session, "f").is_none());

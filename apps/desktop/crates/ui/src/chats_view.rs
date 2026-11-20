@@ -312,6 +312,47 @@ fn team_mark(marks: &TeamMarks, team_id: Option<&str>) -> Option<gpui::AnyElemen
     Some(crate::user_avatar::team_avatar_of(image, TEAM_MARK_PX))
 }
 
+/// #EXP-2027 (sidebar-tree.json `drop`): a Chats row dragged onto its
+/// team's list in the sidebar (the sidebar region takes it as an outside
+/// row of its tree List: `sidebarDropSession` through `ide_move`). Only a
+/// root row drags, never while selecting.
+#[derive(Clone)]
+pub(crate) struct ChatRowDrag {
+    pub(crate) id: String,
+    pub(crate) team_id: String,
+    /// The row's bounds in the window (its last paint).
+    pub(crate) bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+    pub(crate) row: ChatRow,
+    pub(crate) mark: Option<crate::markdown::CachedImage>,
+}
+
+/// The dragged Chats row's copy under the pointer: the row again, lifted
+/// as the List's own lifted copy is (`LIST_LIFT_OFFSET` right of it, the
+/// popover colour, radius md, the overlay shadow, `LIST_LIFT_OPACITY`).
+struct ChatDragPreview {
+    drag: ChatRowDrag,
+}
+
+impl Render for ChatDragPreview {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use eui_core::list_reorder::{LIST_LIFT_OFFSET, LIST_LIFT_OPACITY};
+        let row = &self.drag.row;
+        let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
+        let lead = crate::chat_list::chat_lead_disc(row.lead, agent, false, cx);
+        let mark = self.drag.mark.clone().map(|image| crate::user_avatar::team_avatar_of(Some(image), TEAM_MARK_PX));
+        let content = crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), mark, cx);
+        let shadow = gpui::BoxShadow { color: gpui::black().opacity(0.35), offset: gpui::point(px(0.0), px(8.0)), blur_radius: px(24.0), spread_radius: px(0.0), inset: false };
+        gpui::div()
+            .ml(px(LIST_LIFT_OFFSET))
+            .w(self.drag.bounds.get().size.width)
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().popover)
+            .shadow(vec![shadow])
+            .opacity(LIST_LIFT_OPACITY)
+            .child(crate::chat_list::chat_selectable(SharedString::from(format!("chat-drag-{}", row.session_id)), &row.session_id, None, |_, _, _| {}, content, cx))
+    }
+}
+
 fn chats_page_row(
     row: &ChatRow,
     selected: bool,
@@ -329,6 +370,15 @@ fn chats_page_row(
     let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();
     let on_toggle = on_select.clone();
+    let root = session_data::session(&row.session_id, cx).is_some_and(|session| session.parent_id.is_none());
+    let drag = (root && !selecting).then(|| ChatRowDrag {
+        id: row.session_id.clone(),
+        team_id: row.team_id.clone(),
+        bounds: Default::default(),
+        row: row.clone(),
+        mark: marks.get(&row.team_id).cloned().flatten(),
+    });
+    let bounds = drag.as_ref().map(|drag| drag.bounds.clone());
     crate::chat_list::chat_selectable(
         SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)),
         &row.session_id,
@@ -338,6 +388,8 @@ fn chats_page_row(
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
+    .when_some(bounds, |row, cell| row.relative().child(gpui::canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {}).absolute().top_0().left_0().size_full()))
+    .when_some(drag, |row, drag| row.on_drag(drag, |drag, _, _, cx| gpui::AppContext::new(cx, |_| ChatDragPreview { drag: drag.clone() })))
     .pointer_context_menu(move |menu, _, cx| {
         let root = menu_root.clone();
         let on_select = on_select.clone();
@@ -640,7 +692,13 @@ impl Render for ChatsView {
                 this.selected = ids;
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ClearChatSelection, _, cx| {
+            .on_action(cx.listener(|this, _: &ClearChatSelection, window, cx| {
+                // #EXP-2027: Esc drops a row's drag onto the sidebar.
+                if cx.has_active_drag() {
+                    cx.stop_active_drag(window);
+                    crate::shell_regions::cancel_chat_drag(cx);
+                    return;
+                }
                 if this.selected.is_empty() {
                     cx.propagate();
                     return;

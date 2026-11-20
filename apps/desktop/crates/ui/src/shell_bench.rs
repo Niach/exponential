@@ -689,6 +689,65 @@ fn shell_sidebar_folders() {
     std::mem::forget(cx);
 }
 
+/// #EXP-2027 (sidebar-tree.json `drop`): a Chats row dragged over the
+/// sidebar is an outside row of the tree's List: its own team's rows take
+/// the drop the List draws (a folder's middle = into), another team's never
+/// do, and an Esc'd drag leaves nothing drawn.
+#[test]
+fn a_chats_row_drops_only_into_its_team_list() {
+    use domain::chats::{ChatLead, ChatPreview, ChatPreviewKind, ChatRow};
+    use eui_core::list_reorder::ListDropPosition;
+    if !gpu_or_skip("a_chats_row_drops_only_into_its_team_list") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region());
+    let surface = cx.update(|cx| region.read(cx).surface());
+    cx.update(|cx| surface.update(cx, |v, _| v.record_bounds(true)));
+    let mut input = demo(Vec::new(), None);
+    input.teams.push(IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: true, owner: true, needs_you: 0, items: vec![item("board", "b9", "Site")], layout: Vec::new() });
+    cx.update(|cx| region.update(cx, |region, cx| region.show(input, None, cx)));
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let row = ChatRow { session_id: "s1".into(), team_id: "t1".into(), title: "Store screenshots".into(), device_id: None, group: domain::session_tree::ChatsListKey::Recent, lead: ChatLead::Open, preview: ChatPreview { kind: ChatPreviewKind::Agent, text: String::new() }, activity_at: String::new(), time: "9:41".into(), unread_count: 0, needs_you: false, busy: false, word: None, waiting: None, wall: None, dim: false };
+    // The Chats row sits outside the sidebar, below every tree row.
+    let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::new(gpui::point(px(400.), px(2000.)), size(px(500.), px(40.)))));
+    let drag = crate::chats_view::ChatRowDrag { id: "s1".into(), team_id: "t1".into(), bounds, row, mark: None };
+    let painted = |cx: &mut HeadlessAppContext, id: &str| cx.update(|cx| surface.read(cx).painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
+    let drop_at = |cx: &mut HeadlessAppContext, at: gpui::Point<gpui::Pixels>| {
+        cx.update(|cx| region.update(cx, |region, cx| region.chat_drag_move(&drag, at, cx)));
+        let paint = cx.update(|cx| surface.read(cx).surface().list_drag_paint());
+        assert_eq!(paint.len(), 1, "the tree's List shows the drag");
+        assert!(paint[0].external, "an outside row: the List paints only the drop");
+        paint[0].drop.as_ref().map(|d| (d.key.clone(), d.position))
+    };
+    let folder = painted(&mut cx, "ide_folder_row.fb");
+    assert_eq!(drop_at(&mut cx, folder.center()), Some(("fb".into(), ListDropPosition::Into)), "into a folder of its team");
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+        for _ in 0..3 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+        cx.capture_screenshot(window).expect("the frame").save(PathBuf::from(dir).join(name)).expect("the PNG");
+    };
+    shoot(&mut cx, "chats-drag-into.png");
+    let beside = painted(&mut cx, "ide_item_row.b1");
+    assert_eq!(drop_at(&mut cx, gpui::point(beside.center().x, beside.origin.y + beside.size.height - px(2.))), Some(("b1".into(), ListDropPosition::After)), "beside a row of its team");
+    shoot(&mut cx, "chats-drag-line.png");
+    let other = painted(&mut cx, "ide_item_row.b9");
+    assert_eq!(drop_at(&mut cx, other.center()), None, "another team's row never takes it");
+    // Esc on the Chats page: the drag's sidebar drops it.
+    cx.update(crate::shell_regions::cancel_chat_drag);
+    assert!(cx.update(|cx| surface.read(cx).surface().list_drag_paint()).is_empty(), "a cancelled drag draws nothing");
+    std::mem::forget(cx);
+}
+
 /// The seeded demo's rows (seed-screenshots.ts) as ONE team list.
 fn demo(closed: Vec<String>, editing: Option<&str>) -> IdeSidebarInput {
     IdeSidebarInput {
