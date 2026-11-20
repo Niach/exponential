@@ -880,6 +880,11 @@ impl Render for SettingsView {
         // selected section pane in the detail column. EXP-282: the nav is
         // the window's left column now ([`SettingsNavPanel`]) — this view is
         // the detail column alone.
+        // #EXP-1987: Settings › Assistant is the ACCOUNT's page: it asks
+        // `agents.ensureAssistant` WITHOUT a team (once per account).
+        if self.shared.read(cx).settings_section() == SettingsSection::Voice {
+            crate::session_data::ensure_my_assistant(cx);
+        }
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
         let app_ids = valid_app_ids(cx, &self.nav);
@@ -1208,9 +1213,12 @@ impl SettingsNavPanel {
             .as_deref()
             .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
             .unwrap_or_default();
-        // S-3: the nav mounting creates the viewer's Assistant on first use
-        // (#EXP-1987: Personal's Assistant page, once per account).
-        crate::session_data::ensure_my_assistant(cx);
+        // S-3: the Agents group mounting creates the viewer's Assistant on
+        // first use (#EXP-1987: with the current team, once per account +
+        // team).
+        if let Some(team_id) = team_id.as_deref() {
+            crate::session_data::ensure_assistant(team_id, cx);
+        }
         let agents = team_id
             .as_deref()
             // #FEED-239: an app's agent is listed under Apps only.

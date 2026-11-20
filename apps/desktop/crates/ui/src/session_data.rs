@@ -80,61 +80,78 @@ pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     store.collections().sessions.read(cx).get(session_id).cloned()
 }
 
-/// S-3 / #EXP-1987: the ACCOUNTS whose Assistant this app run already
-/// ensured, with the agent id the server answered (`None` = asked, no answer
-/// yet or no device; agent-settings.json `assistant.copy.noDevice`).
+/// S-3 / #EXP-1987: the (account, team) pairs whose Assistant this app run
+/// already ensured (team `None` = the account-level call), with the agent id
+/// the server answered (`None` = asked, no answer yet or no device;
+/// agent-settings.json `assistant.copy.noDevice`).
 #[derive(Default)]
-struct EnsuredAssistants(HashMap<String, Option<String>>);
+struct EnsuredAssistants(HashMap<(String, Option<String>), Option<String>>);
 
 impl gpui::Global for EnsuredAssistants {}
 
-/// S-3 `agents.ensureAssistant`: the composer home, the chats list, the
-/// Settings Agents group and Settings › Assistant call it on mount.
-/// #EXP-1987 (agent-settings.json `assistant`): WITHOUT a team, ONCE per
-/// signed-in ACCOUNT per app run, never per team (fire-and-forget: the
-/// synced `agents` row is the answer, its id is kept for
-/// [`ensured_assistant_id`]; a failure only logs and re-arms). `_team_id`
-/// is the caller's current team, kept so a call site reads the same.
-pub(crate) fn ensure_assistant(_team_id: &str, cx: &mut App) {
-    ensure_my_assistant(cx);
+/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats
+/// list and the Settings nav call it on mount with their CURRENT team
+/// (#EXP-1987: switch off = that team gets its Assistant on first use, as
+/// always; switch on = a membership check only, the answer is the member's
+/// ONE Assistant), ONCE per (account, team) per app run (fire-and-forget:
+/// the synced `agents` row is the answer, its id is kept for
+/// [`ensured_assistant_id`]; a failure only logs and re-arms).
+pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
+    if team_id.is_empty() {
+        return;
+    }
+    ensure(Some(team_id.to_string()), cx);
 }
 
-/// [`ensure_assistant`] with no team at hand (Settings › Assistant, the FAB).
+/// #EXP-1987: [`ensure_assistant`] where there is NO team at all (the
+/// account's Settings › Assistant page, `~/settings/assistant`): without a
+/// team, once per account.
 pub(crate) fn ensure_my_assistant(cx: &mut App) {
+    ensure(None, cx);
+}
+
+fn ensure(team: Option<String>, cx: &mut App) {
     let Some(account) = signed_in_user(cx) else {
         return;
     };
-    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains_key(&account)) {
+    let key = (account, team);
+    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains_key(&key)) {
         return;
     }
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return;
     };
-    cx.default_global::<EnsuredAssistants>().0.insert(account.clone(), None);
+    cx.default_global::<EnsuredAssistants>().0.insert(key.clone(), None);
     cx.spawn(async move |cx| {
+        let team = key.1.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { api::agents::ensure_assistant(&trpc, None) })
+            .spawn(async move { api::agents::ensure_assistant(&trpc, team.as_deref()) })
             .await;
         let _ = cx.update(|cx| match result {
             Ok(agent) => {
-                cx.default_global::<EnsuredAssistants>().0.insert(account, agent.map(|agent| agent.id));
+                cx.default_global::<EnsuredAssistants>().0.insert(key, agent.map(|agent| agent.id));
                 cx.refresh_windows();
             }
             Err(err) => {
                 log::warn!("[ui] agents.ensureAssistant failed: {err}");
-                cx.default_global::<EnsuredAssistants>().0.remove(&account);
+                cx.default_global::<EnsuredAssistants>().0.remove(&key);
             }
         });
     })
     .detach();
 }
 
-/// #EXP-1987: the id `agents.ensureAssistant` answered for the signed-in
-/// account this app run, if any.
+/// #EXP-1987: an id `agents.ensureAssistant` answered for the signed-in
+/// account this app run (the account-level call's first, else any team's).
 pub(crate) fn ensured_assistant_id(cx: &App) -> Option<String> {
     let account = signed_in_user(cx)?;
-    cx.try_global::<EnsuredAssistants>()?.0.get(&account).cloned().flatten()
+    let done = cx.try_global::<EnsuredAssistants>()?;
+    done.0
+        .get(&(account.clone(), None))
+        .cloned()
+        .flatten()
+        .or_else(|| done.0.iter().find(|((who, _), id)| *who == account && id.is_some()).and_then(|(_, id)| id.clone()))
 }
 
 /// #EXP-1987: the viewer's own Assistant WHATEVER team is current: the one
