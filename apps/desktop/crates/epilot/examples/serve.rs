@@ -39,7 +39,7 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         println!("space offer: {:?}", epilot::space_offer());
-        epilot::grant_space("probe", "Probe").expect("grant_space")
+        epilot::grant_space("probe", "Probe", false).expect("grant_space")
     } else {
         epilot::grant("probe", "Probe").expect("grant")
     };
