@@ -225,6 +225,22 @@ describe(`DeviceReadiness edge rules`, () => {
     expect(keys(true)).toContain(`accessibility`)
   })
 
+  it(`#EXP-1514: an agent_space row under an off switch draws no row; under an on one, its own label, indented`, () => {
+    const doctor = (switchState: string): DeviceReadinessDoctor => ({
+      checkedAt: `x`,
+      items: [
+        { key: `git`, group: `required`, state: `ok` },
+        { key: `computer_use`, group: `computer_use`, state: switchState },
+        { key: `agent_space`, group: `computer_use`, parent: `computer_use`, label: `Agent space`, state: `ok`, detail: `Ready` },
+      ],
+    })
+    const rows = (switchState: string) =>
+      deviceReadinessModel(doctor(switchState), { remote: true }).flatMap((group) => group.rows)
+    expect(rows(`off`).map((row) => row.key)).toEqual([`git`, `computer_use`])
+    const space = rows(`ok`).find((row) => row.key === `agent_space`)
+    expect(space).toMatchObject({ label: `Agent space`, detail: `Ready`, child: true, isSwitch: false })
+  })
+
   it(`problemsOnly collapses to the rows that need something`, () => {
     const doctor = cases[2]!.doctor
     const { container } = render(
