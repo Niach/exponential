@@ -239,6 +239,7 @@ impl Ede {
         let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
         if sliced {
+            self.space_flatpaks_closed(id.number());
             self.space_slice_closed(id.number());
         }
         for dir in std::iter::once(dir).chain(home) {
@@ -387,6 +388,7 @@ impl Ede {
     pub fn spaces_tick(&mut self) {
         self.spaces_expire();
         self.space_sessions_tick();
+        self.space_flatpaks_tick();
         self.space_launches_tick();
         let mut closing = std::mem::take(&mut self.spaces.closing);
         closing.retain_mut(|c| {
