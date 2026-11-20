@@ -188,6 +188,9 @@ export function buildSendInput(args: {
       : {}),
     ...(text ? { text: args.text } : {}),
     ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+    // #EXP-2027 (composer-menu.json `teamsPick`): a plain chat's OTHER picked
+    // teams (its own = `teamId`); none = its own team only, nothing sent.
+    ...(args.scopeTeamIds && args.scopeTeamIds.length > 0 ? { scopeTeamIds: [...args.scopeTeamIds] } : {}),
     ...(subject?.kind === `issues`
       ? { issueIds: [...subject.ids] }
       : {
@@ -413,11 +416,14 @@ export function useLaunchComposer({
   // #EXP-2027 (sidebar-tree.json HOME): a plain chat (Temporary session)
   // carries THE same Teams pick: at least one team, the first by default.
   const [plainPicked, setPlainPicked] = useState<string[] | null>(null)
-  const plainTeamIds = useMemo(
-    () => plainChatTeamIds(plainPicked, homeTeams ?? [], teamId),
+  // The PRIMARY team (repos, prompts, skills, MCP servers, device) leads:
+  // `?team=`'s preset while it stays picked, else the first in team order.
+  const [primaryTeamId, setPrimaryTeamId] = useState<string | null>(null)
+  const plainTeamIds = useMemo(() => {
+    const ids = plainChatTeamIds(plainPicked, homeTeams ?? [], teamId)
+    return primaryTeamId && ids.includes(primaryTeamId) ? [primaryTeamId, ...ids.filter((id) => id !== primaryTeamId)] : ids
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [plainPicked, homeTeamKey, teamId]
-  )
+  }, [plainPicked, homeTeamKey, teamId, primaryTeamId])
   const homePickTeams = useMemo(
     () => homeTeams?.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl })) ?? [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -443,6 +449,7 @@ export function useLaunchComposer({
   useEffect(() => {
     if (!seedTeam) return
     setPlainPicked([seedTeam.id])
+    setPrimaryTeamId(seedTeam.id)
     setPicked(TEMPORARY_PICK)
   }, [seedTeam])
 
@@ -760,9 +767,8 @@ export function useLaunchComposer({
         .map((image) => image.uploadedId)
         .filter((id): id is string => Boolean(id))
       const options = launch.buildOptions()
-      // #EXP-2027: Home sends into the effective team. A plain chat's
-      // further picked teams ride once `sessions.send` takes `scopeTeamIds`
-      // on a plain root; until then the first picked team alone.
+      // #EXP-2027: Home sends into the effective team; a plain chat's other
+      // picked teams ride as `scopeTeamIds` (sessions.send, #3194).
       const input = buildSendInput({
         teamId: effectiveTeamId,
         deviceId: device?.deviceId ?? ``,
@@ -773,7 +779,11 @@ export function useLaunchComposer({
         repoId,
         agentId: recipient?.id ?? null,
         issueIdentifiers: checkedIssues.map((issue) => issue.identifier),
-        ...(teams ? { scopeTeamIds: teams.picked } : {}),
+        ...(toAssistant && teams
+          ? { scopeTeamIds: teams.picked }
+          : homeTeams && recipient === null
+            ? { scopeTeamIds: plainTeamIds.filter((id) => id !== effectiveTeamId) }
+            : {}),
       })
       let result: { sessionId: string; txid: number }
       try {

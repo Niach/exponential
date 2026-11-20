@@ -621,7 +621,7 @@ describe(`#EXP-2027 Home: the composer over every member team`, () => {
     )
   }
 
-  it(`a plain chat carries the Teams pick (the first team by default) and sends into its first team`, async () => {
+  it(`a plain chat carries the Teams pick (the first team by default), sends into its first team, the others as scopeTeamIds`, async () => {
     const { result } = mountHome()
     act(() => result.current.pickRecipient(TEMPORARY_PICK))
     expect(result.current.recipient).toBeNull()
@@ -635,8 +635,15 @@ describe(`#EXP-2027 Home: the composer over every member team`, () => {
     act(() => result.current.setText(`hi`))
     await act(() => result.current.submit())
     const input = mockState.send.mock.calls[0]![0]
-    expect(input).toMatchObject({ teamId: `t2`, deviceId: `dev-1` })
-    expect(input).not.toHaveProperty(`scopeTeamIds`)
+    expect(input).toMatchObject({ teamId: `t2`, deviceId: `dev-1`, scopeTeamIds: [`t1`] })
+  })
+
+  it(`a plain chat with only its own team sends no scopeTeamIds`, async () => {
+    const { result } = mountHome()
+    act(() => result.current.pickRecipient(TEMPORARY_PICK))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(mockState.send.mock.calls.at(-1)![0]).not.toHaveProperty(`scopeTeamIds`)
   })
 
   it(`?team= presets the plain chat's team and picks Temporary session`, () => {
