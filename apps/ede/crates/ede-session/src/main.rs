@@ -261,5 +261,5 @@ fn wait_or_terminate(mut child: Child, mut tick: impl FnMut()) -> std::io::Resul
 /// again on a restart.
 fn stop_session_units() {
     let _ = Command::new("systemctl").args(["--user", "stop", "exponential-session.target", "graphical-session.target"]).status();
-    let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "EDE_SAFE_MODE"]).status();
+    let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "EDE_SAFE_MODE"]).status();
 }

@@ -853,7 +853,7 @@ fn the_clipboard_crosses_xwayland_both_ways() {
         assert!(Instant::now() < deadline, "Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     };
-    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let (conn, screen) = (common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"), 0usize);
     let root = conn.setup().roots[screen].root;
     let win = conn.generate_id().unwrap();
     conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 100, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE))

@@ -75,7 +75,7 @@ fn until(what: &str, mut ok: impl FnMut() -> bool) {
 fn persons_environment() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        for (name, value) in [("DISPLAY", ":77"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
+        for (name, value) in [("DISPLAY", ":77"), ("XAUTHORITY", "/nonexistent/persons-xauthority"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
             .into_iter()
             .chain(LOGIN_ONLY)
         {
@@ -133,7 +133,7 @@ fn a_launch_opens_in_its_space_with_the_spaces_own_environment_and_ends_with_it(
     assert_eq!(got["WAYLAND_DISPLAY"], space.wayland_display);
     assert_eq!(Path::new(&got["XDG_RUNTIME_DIR"]), runtime);
     // Nothing of the person's session.
-    for gone in ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
+    for gone in ["DISPLAY", "XAUTHORITY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
         assert!(!got.contains_key(gone), "{gone} reached the launch");
     }
     // What a launch keeps of the compositor's, and a tmux server, screen
@@ -176,7 +176,7 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     let (mut agent, _space) = agent(&h, "run-1");
     let sleep = || vec!["sleep".to_string(), "30".to_string()];
     // The names the compositor sets or drops are not the caller's.
-    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
+    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "XAUTHORITY", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
         assert_eq!(code(agent.launch(sleep(), [(name.to_string(), "x".to_string())].into(), None)), ErrorCode::Invalid, "{name}");
     }
     assert_eq!(code(agent.launch(vec![], Default::default(), None)), ErrorCode::Invalid);

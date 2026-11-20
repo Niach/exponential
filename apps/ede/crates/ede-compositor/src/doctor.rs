@@ -120,8 +120,10 @@ pub fn check_space_rendering(lavapipe: &[PathBuf]) -> Check {
 
 /// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
 pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
-/// What stays open to a space in this build.
-pub const GUARD_LEAVES: &str = "your Xwayland (X11)";
+/// What stays open to a space in this build. #EDE-138: the guard leaves
+/// your Xwayland's socket open, but the server admits only the cookie that
+/// your session's programs are given, which a space's are not.
+pub const GUARD_LEAVES: &str = "your Xwayland's socket (the server asks for your session's X cookie, which a space has not)";
 
 /// #EDE-146..148: what the RUNNING compositor decided about the space
 /// guard: `state` = its state file's text (`None` = no Exponential Desktop
