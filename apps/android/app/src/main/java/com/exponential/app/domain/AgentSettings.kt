@@ -577,6 +577,14 @@ object AgentSettings {
          *  sessions that sit in no synced team (their personal team). */
         fun inTeamOrPersonal(sessionTeamId: String, userId: String?, teamId: String, teamIds: Collection<String>, me: String?): Boolean =
             sessionTeamId == teamId || (me != null && userId == me && teamIds.isNotEmpty() && sessionTeamId !in teamIds)
+
+        /** #EXP-1987: THE ASSISTANT'S CHAT IS THE MEMBER'S OWN: a chat whose
+         *  team is none of the synced teams (their personal team after the
+         *  move) and whose starter is the viewer gives the viewer a member's
+         *  rights in it. No synced teams yet = not decided (false). */
+        fun ownChat(chatTeamId: String?, starterId: String?, teamIds: Collection<String>, me: String?): Boolean =
+            !me.isNullOrEmpty() && starterId == me && !chatTeamId.isNullOrEmpty() &&
+                teamIds.isNotEmpty() && chatTeamId !in teamIds
     }
 }
 

@@ -33,6 +33,8 @@ sealed interface LinkDestination {
     data object Inbox : LinkDestination
     data object Devices : LinkDestination
     data class Settings(val section: String) : LinkDestination
+    /** #EXP-1987: Settings › Assistant, the account page (every team). */
+    data object AssistantSettings : LinkDestination
     data object TeamHome : LinkDestination
     data object AppsList : LinkDestination
     data class AppRun(val appId: String) : LinkDestination
@@ -117,7 +119,8 @@ class WebLinkResolver @Inject constructor(
     private fun isWebOnly(link: AppLink): Boolean = when (link) {
         // #EXP-1804: our own CI's run page has a screen here.
         is AppLink.App -> !isAppsListPath(link.path) && com.exponential.app.domain.CiRun.parsePath(link.path) == null
-        is AppLink.Settings -> link.section.isNotEmpty() && link.section !in SettingsNav.PHONE_ROWS
+        is AppLink.Settings -> link.section.isNotEmpty() && link.section !in SettingsNav.PHONE_ROWS &&
+            link.section != com.exponential.app.domain.SettingsNavGroups.ASSISTANT
         else -> false
     }
 
@@ -138,19 +141,22 @@ class WebLinkResolver @Inject constructor(
         is AppLink.Board -> db.boardDao().observeBySlug(teamId, link.boardSlug).first()?.let { LinkDestination.Board(it.id) }
         is AppLink.Session -> conversation(db, link.teamSlug, link.sessionId, sessionPath = true)
         // #EXP-1662: a plan is a tab of its session's root.
-        is AppLink.Plan -> db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId)?.let { id ->
+        is AppLink.Plan -> (db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId) ?: unsyncedTeamSession(db, link.sessionId))?.let { id ->
             val root = db.sessionDao().getById(id)?.rootId?.takeIf { it.isNotEmpty() } ?: id
             LinkDestination.Plan(root, link.messageId)
         }
         is AppLink.Chats -> LinkDestination.Chats
         is AppLink.Agent -> db.agentDefinitionDao().observeById(link.agentId).first()
-            ?.takeIf { it.teamId == teamId }
+            // #EXP-1987: the viewer's own Assistant opens from any team.
+            ?.takeIf { it.teamId == teamId || (it.ownerId == userId && !isSyncedTeam(db, it.teamId)) }
             ?.let { LinkDestination.AgentDm(it.id) }
         is AppLink.AgentHome -> LinkDestination.AgentHome
         is AppLink.Inbox -> LinkDestination.Inbox
         is AppLink.Devices -> LinkDestination.Devices
         is AppLink.Settings -> when {
             link.section.isEmpty() -> LinkDestination.TeamHome
+            // #EXP-1987 (settings-nav.json): the account's Assistant page.
+            link.section == com.exponential.app.domain.SettingsNavGroups.ASSISTANT -> LinkDestination.AssistantSettings
             // `settings-nav.json` `visible`: a row this viewer does not see reads as missing.
             link.section !in SettingsNav.visiblePhoneRows(isOwner(db, teamId, userId)) -> null
             else -> LinkDestination.Settings(link.section)
@@ -172,9 +178,23 @@ class WebLinkResolver @Inject constructor(
         sessionId: String,
         sessionPath: Boolean,
     ): LinkDestination? {
-        val id = db.sessionDao().findIdByTeamRef(teamSlug, sessionId) ?: return null
+        val id = db.sessionDao().findIdByTeamRef(teamSlug, sessionId) ?: unsyncedTeamSession(db, sessionId) ?: return null
         return LinkDestination.Conversation(id, db.sessionDao().getById(id)?.isRoot ?: true, sessionPath)
     }
+
+    /** #EXP-1987 (agent-settings.json `assistant`): a synced session whose
+     *  team is none of the synced teams (the Assistant's chat in the member's
+     *  personal team) opens by id from whichever team the link names. */
+    private suspend fun unsyncedTeamSession(
+        db: com.exponential.app.data.db.ExponentialDatabase,
+        sessionId: String,
+    ): String? {
+        val session = db.sessionDao().getById(sessionId) ?: return null
+        return session.id.takeIf { !isSyncedTeam(db, session.teamId) }
+    }
+
+    private suspend fun isSyncedTeam(db: com.exponential.app.data.db.ExponentialDatabase, teamId: String?): Boolean =
+        !teamId.isNullOrEmpty() && db.teamDao().observeById(teamId).first() != null
 
     private suspend fun appIdBySlug(
         db: com.exponential.app.data.db.ExponentialDatabase,

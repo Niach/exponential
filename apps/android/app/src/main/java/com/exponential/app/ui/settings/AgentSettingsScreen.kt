@@ -148,7 +148,9 @@ fun AgentsSettingsList(
         // Coordinator row was (owners pick it).
         LeadAssistantRow(lead, enabled = isOwner && !busy && lead.known, onPick = viewModel::setLeadAssistant)
         AgentsSettingsListContent(
-            agents = agents,
+            // #EXP-1987 (settings-nav.json): the Agents group lists the team's
+            // agents only; the Assistant is Settings › Assistant (Personal).
+            agents = agents?.filter { !it.assistant },
             canCreate = isOwner,
             onOpenAgent = onOpenAgent,
             onNewAgent = onNewAgent,
