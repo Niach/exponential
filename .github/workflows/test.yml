@@ -635,7 +635,7 @@ jobs:
         working-directory: apps/ede
         env:
           EDE_EXPECT_USER_MANAGER: '1'
-        run: cargo test --locked -p ede-compositor --test space_slice_real
+        run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is

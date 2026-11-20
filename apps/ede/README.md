@@ -861,6 +861,25 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   process group. The log says so once at the session's start, and
   `exponential-compositor doctor` asks the same questions for its line
   `Agent spaces`.
+- **The space's own user manager and bus.** At a space's first launch the
+  compositor starts `systemd --user` for the space, in a `Delegate=yes`
+  scope of its slice (`exponential-p<pid>-s<n>-session<k>.scope`): the
+  space's directory is its runtime directory, and it can load only the
+  units written into `<space dir>/units` (its bus, nothing of the
+  distribution's or of `~/.config/systemd/user`). Its `dbus.service` is the
+  space's ONE session bus (`<space dir>/bus` and an abstract
+  `/tmp/dbus-ede-<random>`, which strict snaps can reach), with what it
+  activates (dconf, gvfs, portals with the GTK backend; screen capture,
+  remote control, shortcuts, notifications and inhibit are `none` in the
+  space). Every launch of the space gets that bus and waits for it in its
+  own process. So `snap run`, Ptyxis, `systemd-run --user` and anything
+  that asks "the" user manager for a scope find the space's, and their
+  scopes are in the space's slice. A manager that ends is started once
+  more; when it ends again the space closes (its session's next call reads
+  "new and empty"). Needs `dbus-daemon` (the packages depend on it).
+  A Flatpak installed for the person alone (`flatpak install --user`) is
+  not there in a space: its installation is under `XDG_DATA_HOME`, and a
+  space has its own; system-wide ones are (#EDE-158).
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice

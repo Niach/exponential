@@ -18,6 +18,7 @@ mod members;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
+pub mod session;
 pub mod slice;
 
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
@@ -82,6 +83,9 @@ pub struct Spaces {
     /// A launch of this run went into a scope: there are slices to stop
     /// when the compositor ends.
     sliced: bool,
+    /// The user managers of closed spaces, until they are reaped (the
+    /// slice's stop ends them).
+    ended_sessions: Vec<std::process::Child>,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -89,7 +93,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
@@ -130,6 +134,8 @@ pub struct AgentSpace {
     pub(crate) expired_ticks: u32,
     /// A launch of it went into a scope: its slice is stopped at the close.
     pub(crate) sliced: bool,
+    /// Its own user manager and bus ([`session`]), from its first launch.
+    pub(crate) session: session::Session,
 }
 
 impl AgentSpace {
@@ -297,7 +303,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new() });
         Ok(id)
     }
 }

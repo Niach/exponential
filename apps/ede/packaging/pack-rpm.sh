@@ -44,6 +44,9 @@ Requires: xdg-desktop-portal-gtk
 Requires: pipewire
 Requires: git-core
 Requires: dbus
+# #EDE-138: a space's own bus. Fedora's default bus is dbus-broker; `dbus` alone
+# does not install /usr/bin/dbus-daemon.
+Requires: dbus-daemon
 Requires: systemd
 Requires: glib2
 Recommends: exponential-repo
