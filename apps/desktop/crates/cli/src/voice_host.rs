@@ -2042,6 +2042,113 @@ mod tests {
         assert!(rig.speech.take().iter().all(|line| !line.starts_with("speak")), "nor after the pickup");
     }
 
+    /// #EXP-1992: voice-call.json `hostCases` through the DAEMON's own
+    /// wiring, event by event: what reaches the worker, the caller's link
+    /// and the server is what the row says. Every row a server can run: a
+    /// streamed call (its clip is fetched before the answer, and nobody
+    /// presses End there).
+    #[test]
+    fn the_daemon_replays_the_host_cases() {
+        use steer::call_host::CallHostEvent;
+        let fixture: serde_json::Value = serde_json::from_str(etalk::call::VOICE_CALL_JSON).unwrap();
+        let kind = |event: &serde_json::Value| event["t"].as_str().unwrap().to_string();
+        let mut replayed = 0;
+        for case in fixture["hostCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let start: HostStart = serde_json::from_value(case["start"].clone()).unwrap();
+            let events = case["events"].as_array().unwrap();
+            let foreign = events.iter().any(|event| matches!(kind(event).as_str(), "voice" | "prepared" | "end" | "timer"));
+            if !start.remote || start.voice != etalk::call::CallVoice::None || foreign {
+                continue;
+            }
+            replayed += 1;
+            // A sealed call: its key source adopts the chat, then its session is asked.
+            let sealed = events.iter().any(|event| kind(event) == "sessionAsked");
+            let mut rig = Rig::ready();
+            let base = rig.now;
+            rig.handle(Input::Ring { call_id: "c1".into(), agent_id: "agent-1".into() });
+            rig.handle(Input::Answered(Answered {
+                call_id: "c1".into(),
+                agent: agent(),
+                link: Box::new(FakeLink(rig.link.clone())),
+                voice: etalk::VoiceChoice { language: start.language.clone(), ..Default::default() },
+                root: (!sealed).then(|| "root-1".to_string()),
+                session: start.session.clone(),
+            }));
+            // The row's own draw for the ring (the daemon draws a random one).
+            rig.host.call.as_mut().unwrap().host = CallHost::new(HostStart { call_id: Some("c1".into()), ..start });
+            (rig.speech.take(), rig.link.take(), rig.net.take());
+            let id = || "call-1".to_string();
+            let mut rows = 0;
+            for (index, (event, effects)) in events.iter().zip(case["effects"].as_array().unwrap()).enumerate() {
+                rig.now = base + Duration::from_millis(event["at"].as_u64().unwrap());
+                let text = || event["text"].as_str().unwrap_or_default().to_string();
+                let row_id = || event["id"].as_str().unwrap_or_default().to_string();
+                let link = |event| Input::Link { call_id: "c1".into(), event };
+                match kind(event).as_str() {
+                    "begin" => rig.handle(link(CallHostEvent::Ready)),
+                    "tick" => rig.host.tick(rig.now),
+                    "listening" => rig.handle(Input::Worker(etalk::Event::CallListening { id: id() })),
+                    "level" => rig.handle(Input::Worker(etalk::Event::Level { id: id(), level: event["level"].as_f64().unwrap() as f32, bands: Default::default() })),
+                    "partial" => rig.handle(Input::Worker(etalk::Event::Partial { id: id(), text: text() })),
+                    "speechStarted" => rig.handle(Input::Worker(etalk::Event::SpeechStarted { id: id() })),
+                    "said" => rig.handle(Input::Worker(etalk::Event::Said { id: id(), text: text() })),
+                    "listenFailed" => {
+                        let reason = serde_json::from_value(event["reason"].clone()).unwrap();
+                        rig.handle(Input::Worker(etalk::Event::ListenFailed { id: id(), reason, detail: String::new() }));
+                    }
+                    "sessionAsked" => rig.handle(Input::Root { call_id: "c1".into(), root: "root-1".into() }),
+                    "session" => rig.handle(Input::Session { call_id: "c1".into(), session: event["session"].as_str().map(str::to_string) }),
+                    // The agent's reply lands in the conversation the call reads; the watch finds it.
+                    "reply" => {
+                        rows += 1;
+                        let conversation = rig.host.call.as_ref().and_then(|call| call.host.session().map(str::to_string));
+                        let mut reply = row(&row_id(), "agent", &text(), &format!("2099-01-01T00:00:{rows:02}Z"));
+                        reply.session_id = conversation.unwrap_or_else(|| "root-1".into());
+                        rig.rows.lock().unwrap().push(reply);
+                        rig.host.watch_replies(rig.now);
+                    }
+                    "spoken" => rig.handle(Input::Worker(etalk::Event::Finished { id: row_id(), stopped: false })),
+                    "notSpoken" => rig.handle(Input::Worker(etalk::Event::Failed { id: row_id(), error: "not spoken".into() })),
+                    "mute" => rig.handle(link(CallHostEvent::Mute(event["muted"].as_bool().unwrap()))),
+                    "hungUp" => rig.handle(link(CallHostEvent::Ended { reason: event["reason"].as_str().map(str::to_string) })),
+                    "fail" => {
+                        assert_eq!(event["code"], "dropped", "{name}: a server fails a call itself when its worker dies");
+                        rig.handle(Input::Worker(etalk::Event::Exited { code: None, signal: Some(11) }));
+                    }
+                    "unstorable" => rig.handle(Input::Unstored { call_id: "c1".into() }),
+                    other => panic!("{name}: no daemon input for {other}"),
+                }
+                let (mut speech, mut link, mut net) = (Vec::new(), Vec::new(), Vec::new());
+                for effect in serde_json::from_value::<Vec<HostEffect>>(effects.clone()).unwrap() {
+                    match effect {
+                        HostEffect::Event { event } => link.push(format!("event {event}")),
+                        HostEffect::Flush => link.push("flush".to_string()),
+                        HostEffect::End => link.push("end".to_string()),
+                        HostEffect::Listen { id, language, .. } => speech.push(format!("call {id} {language}")),
+                        HostEffect::Mute { id, muted } => speech.push(format!("mute {id} {muted}")),
+                        HostEffect::Speak { id, text } => speech.push(format!("speak {id} {text}")),
+                        HostEffect::Stop => speech.push("stop".to_string()),
+                        HostEffect::Hangup { id } => speech.push(format!("hangup {id}")),
+                        HostEffect::Send { text, session } => net.push(format!("send c1 {} {text}", session.as_deref().unwrap_or("root-1"))),
+                        HostEffect::CallEnded { session } => net.push(format!("ended {session}")),
+                        // A server has no screen.
+                        HostEffect::Toast { .. } => {}
+                    }
+                }
+                let at = format!("{name}: event {index} ({})", kind(event));
+                assert_eq!(rig.speech.take(), speech, "the worker, {at}");
+                assert_eq!(rig.link.take(), link, "the link, {at}");
+                // Asking for the call session is the daemon's own (no effect of the call).
+                let sent: Vec<String> = rig.net.take().into_iter().filter(|line| !line.starts_with("session ")).collect();
+                assert_eq!(sent, net, "the server, {at}");
+            }
+            let phase = rig.host.call.as_ref().map_or(etalk::call::CallPhase::Hidden, |call| call.host.state().phase);
+            assert_eq!(format!("{phase:?}").to_lowercase(), case["phase"].as_str().unwrap(), "{name}");
+        }
+        assert!(replayed >= 20, "{replayed} rows a server can run");
+    }
+
     #[test]
     fn a_silent_caller_gets_no_sound_and_words_during_the_ring_are_dropped() {
         let mut rig = Rig::ready();

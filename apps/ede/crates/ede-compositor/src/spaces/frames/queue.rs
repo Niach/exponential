@@ -43,8 +43,8 @@ pub(crate) struct Queue {
     floor: Option<Duration>,
 }
 
-struct Waiting {
-    caller: Caller,
+pub(super) struct Waiting {
+    pub(super) caller: Caller,
     desk: DeskId,
     since: Option<u64>,
     /// It had to wait at least once (counted once in the stats).
@@ -125,8 +125,16 @@ impl Ede {
             let now = Instant::now();
             let queue = &mut self.spaces.frames.queue;
             queue.passes.retain(|(at, _)| now.saturating_duration_since(*at) < WINDOW);
-            if let Some(at) = next_pass(now, queue.last_pass.get(&desk).copied(), &queue.passes, queue.floor.unwrap_or(FLOOR)) {
-                wake = Some(wake.map_or(at, |w| w.min(at)));
+            // A pass of it on the GPU still: these wait for the next (its
+            // fence wakes the loop).
+            let busy = self.space_gpu_busy(desk);
+            let queue = &mut self.spaces.frames.queue;
+            let turn = next_pass(now, queue.last_pass.get(&desk).copied(), &queue.passes, queue.floor.unwrap_or(FLOOR));
+            if busy || turn.is_some() {
+                let at = turn.unwrap_or(now + FLOOR);
+                if !busy {
+                    wake = Some(wake.map_or(at, |w| w.min(at)));
+                }
                 for job in draw.iter_mut().filter(|j| !j.waited) {
                     job.waited = true;
                     self.spaces.frames.stats.waited();
@@ -136,6 +144,22 @@ impl Ede {
                 self.spaces.frames.queue.waiting = draw;
                 continue;
             }
+            // On the GPU: answered when its fence fires.
+            let draw = if self.space_on_gpu(desk) {
+                match self.space_gpu_capture(desk, draw) {
+                    Ok(cpu) => {
+                        self.spaces.frames.stats.pass(cpu, now.elapsed());
+                        let queue = &mut self.spaces.frames.queue;
+                        queue.passes.push_back((now, cpu));
+                        queue.last_pass.insert(desk, Instant::now());
+                        *queue.drawn.entry(desk).or_default() += 1;
+                        continue;
+                    }
+                    Err(draw) => draw,
+                }
+            } else {
+                draw
+            };
             let cpu = thread_cpu();
             let frame = self.capture_space(desk);
             let (cpu, wall) = (thread_cpu().saturating_sub(cpu), now.elapsed());

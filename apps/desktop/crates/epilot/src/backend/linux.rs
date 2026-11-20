@@ -517,7 +517,7 @@ impl Backend for X11 {
         };
         let edid = reply("EDID atom", self.conn.intern_atom(true, b"EDID")).map(|atom| atom.atom).unwrap_or(x11rb::NONE);
         let mut connectors: Vec<Option<String>> = Vec::with_capacity(monitors.len());
-        let mut displays: Vec<DisplayInfo> = monitors
+        let displays: Vec<DisplayInfo> = monitors
             .iter()
             .filter(|monitor| monitor.width > 0 && monitor.height > 0)
             .map(|monitor| {
@@ -538,14 +538,10 @@ impl Backend for X11 {
                 }
             })
             .collect();
-        if displays.is_empty() {
-            return Ok(vec![self.root_display()?]);
+        match super::finish_displays(displays, &connectors) {
+            Some(displays) => Ok(displays),
+            None => Ok(vec![self.root_display()?]),
         }
-        if !displays.iter().any(|display| display.primary) {
-            displays[0].primary = true;
-        }
-        super::finish_ids(&mut displays, &connectors);
-        Ok(displays)
     }
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {

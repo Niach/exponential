@@ -609,13 +609,13 @@ pub(super) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) 
 
 fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
     let ids = CGDisplay::active_displays().map_err(|err| format!("displays: CGError {err}"))?;
-    let mut displays: Vec<(CGDirectDisplayID, DisplayInfo)> = ids
-        .into_iter()
+    let infos: Vec<DisplayInfo> = ids
+        .iter()
         .enumerate()
-        .map(|(index, id)| {
+        .map(|(index, &id)| {
             let display = CGDisplay::new(id);
             let bounds = display.bounds();
-            let info = DisplayInfo {
+            DisplayInfo {
                 id: display_uuid(id),
                 x: bounds.origin.x.round() as i32,
                 y: bounds.origin.y.round() as i32,
@@ -624,25 +624,21 @@ fn active_displays() -> Result<Vec<(CGDirectDisplayID, DisplayInfo)>, String> {
                 primary: display.is_main(),
                 name: format!("Display {}", index + 1),
                 connector: None,
-            };
-            (id, info)
+            }
         })
         .collect();
-    if displays.is_empty() {
-        return Err("macOS reports no active display.".to_string());
-    }
-    if !displays.iter().any(|(_, info)| info.primary) {
-        displays[0].1.primary = true;
-    }
-    let mut infos: Vec<DisplayInfo> = displays.iter().map(|(_, info)| info.clone()).collect();
     // #FEED-164: twins are told apart by their unit number (the framebuffer
     // they hang off), never by the OS's order.
-    let connectors: Vec<Option<String>> = displays.iter().map(|(id, _)| Some(CGDisplay::new(*id).unit_number().to_string())).collect();
-    crate::backend::finish_ids(&mut infos, &connectors);
-    for ((_, info), finished) in displays.iter_mut().zip(infos) {
-        info.id = finished.id;
-    }
-    Ok(displays)
+    let connectors: Vec<Option<String>> = ids.iter().map(|&id| Some(CGDisplay::new(id).unit_number().to_string())).collect();
+    finish_reported(ids, infos, &connectors).ok_or_else(|| "macOS reports no active display.".to_string())
+}
+
+/// The displays macOS reported (`ids[i]` with `infos[i]` and its unit
+/// number `connectors[i]`) finished by the one tail
+/// ([`crate::backend::finish_displays`]), each id kept with its display:
+/// #EXP-1919, each one's connector too, so a pick stays on its monitor.
+fn finish_reported(ids: Vec<CGDirectDisplayID>, infos: Vec<DisplayInfo>, connectors: &[Option<String>]) -> Option<Vec<(CGDirectDisplayID, DisplayInfo)>> {
+    Some(ids.into_iter().zip(crate::backend::finish_displays(infos, connectors)?).collect())
 }
 
 fn same_rect(a: &DisplayInfo, b: &DisplayInfo) -> bool {
@@ -1641,6 +1637,41 @@ mod tests {
         let (state, runs) = tap_state(removed.clone());
         end_tap(&state, || removed.store(true, Ordering::SeqCst));
         assert!(removed.load(Ordering::SeqCst) && runs.lock().unwrap().is_empty());
+    }
+
+    /// #EXP-1919 SAME MONITOR on macOS (`work-screen.json` `pickCases`):
+    /// what macOS reports (each display's UUID and unit number) finishes
+    /// into the displays every case reads, connectors included, and the pick
+    /// lands where the case says. #EXP-1994: macOS kept no connector before.
+    #[test]
+    fn a_pick_stays_on_its_monitor_when_a_twin_goes_or_arrives_on_macos() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/work-screen.json")).unwrap();
+        for case in fixture["pickCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let rows = case["displays"].as_array().unwrap();
+            let connectors: Vec<Option<String>> = rows.iter().map(|row| row["connector"].as_str().map(str::to_string)).collect();
+            // What macOS reports: the bare UUID, before any twin is told apart.
+            let reported: Vec<DisplayInfo> = rows
+                .iter()
+                .zip(&connectors)
+                .map(|(row, connector)| {
+                    let id = row["id"].as_str().unwrap();
+                    let base = connector.as_deref().and_then(|connector| id.strip_suffix(&format!("@{connector}"))).unwrap_or(id);
+                    DisplayInfo { id: base.into(), x: 0, y: 0, width: 10, height: 10, primary: false, name: String::new(), connector: None }
+                })
+                .collect();
+            let ids: Vec<CGDirectDisplayID> = (1..=rows.len() as CGDirectDisplayID).collect();
+            let finished = finish_reported(ids.clone(), reported, &connectors).unwrap();
+            assert_eq!(finished.iter().map(|(id, _)| *id).collect::<Vec<_>>(), ids, "{name}: each id stays with its display");
+            let displays: Vec<DisplayInfo> = finished.into_iter().map(|(_, info)| info).collect();
+            let carried: Vec<(&str, Option<&str>)> = displays.iter().map(|display| (display.id.as_str(), display.connector.as_deref())).collect();
+            let expected: Vec<(&str, Option<&str>)> = rows.iter().map(|row| (row["id"].as_str().unwrap(), row["connector"].as_str())).collect();
+            assert_eq!(carried, expected, "{name}: the case's displays, connectors included");
+            let stored = case["stored"].as_str().unwrap();
+            let id_of = |index: Option<usize>| index.map(|index| displays[index].id.as_str());
+            assert_eq!(id_of(crate::work_screen::pick_index(&displays, stored, case["seen"].as_str())), case["expect"].as_str(), "{name}");
+            assert_eq!(id_of(crate::work_screen::carried_index(&displays, stored)), case["hub"].as_str(), "{name}: hub");
+        }
     }
 
     #[test]

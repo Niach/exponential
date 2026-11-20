@@ -588,6 +588,10 @@ jobs:
           dir: apps/ede
       - name: Cargo test
         working-directory: apps/ede
+        # #EDE-162: the spaces' GPU path runs on Mesa's software EGL device
+        # here (libegl1 brings libegl-mesa0); a missing one fails, not skips.
+        env:
+          EDE_EXPECT_EGL: '1'
         run: cargo test --workspace --locked
       # The DRM/libinput backend needs a real seat to run; CI builds it.
       - name: Cargo check (udev backend)

@@ -4019,7 +4019,7 @@ dependencies = [
 [[package]]
 name = "smithay"
 version = "0.7.0"
-source = "git+https://github.com/Niach/smithay?rev=bacaea68caf8fe24b223ceda7ca67b6ea6ec9838#bacaea68caf8fe24b223ceda7ca67b6ea6ec9838"
+source = "git+https://github.com/Niach/smithay?rev=095290f8ecec2f9056de0a5a1928610c6d581dae#095290f8ecec2f9056de0a5a1928610c6d581dae"
 dependencies = [
  "aliasable",
  "appendlist",

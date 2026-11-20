@@ -879,7 +879,13 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   "new and empty"). Needs `dbus-daemon` (the packages depend on it).
   A Flatpak installed for the person alone (`flatpak install --user`) is
   not there in a space: its installation is under `XDG_DATA_HOME`, and a
-  space has its own; system-wide ones are (#EDE-158).
+  space has its own; system-wide ones are (#EDE-158). `flatpak run` asks
+  the person's user manager for its scope whatever the environment says,
+  so the compositor finds such a scope of a space's (its first process is
+  a launch of the space's, or a child of one) within a second and moves
+  its processes into a scope of the space's own manager. They are then
+  under the space's limits and end with it, and what is still outside at
+  the close is ended by the kernel.
 - **Drawing in a space: on the CPU.** A space takes shared-memory buffers
   only, so a frame drawn on the GPU cannot reach it until spaces have a
   GPU path (#EDE-162). OpenGL and EGL apps get Mesa's software driver
@@ -893,6 +899,13 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   in a space, and every frame is drawn on the processor. A WebGL page or a
   spinning 3D view keeps one or more cores busy; the space's share of the
   processor (`[spaces] cpu_quota`) caps it.
+- **An Xwayland of its own.** X11 apps launched into a space get
+  `DISPLAY=:<10 or more>` (never `:0`): an Xwayland started at the space's
+  first launch, whose Wayland client belongs to the space's desk (it binds
+  the space's seat and output only) and whose window manager puts its
+  windows on the space's desk; the person's X server and window manager
+  are untouched. One that dies is started again at the space's next
+  launch; it ends with the space (its socket and lock go).
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
