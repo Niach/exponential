@@ -36,6 +36,11 @@ async function init(account: string): Promise<boolean> {
           file.close()
         }
       }),
+    list: async () => {
+      const names: string[] = []
+      for await (const [name] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) names.push(name)
+      return names
+    },
   }
   const wasm = (await import(/* @vite-ignore */ new URL(WASM_JS, self.location.origin).href)) as ChatStoreWasm & {
     default: () => Promise<unknown>
@@ -49,7 +54,7 @@ type Request = { id: number; op: string; args: unknown[] }
 
 /** The core's public ops (nothing else is callable from a message). */
 const OPS = new Set([
-  `putEvents`, `putMessages`, `openTail`, `page`, `searchChat`, `meta`, `metas`, `setMeta`, `ask`, `take`, `answer`,
+  `putEvents`, `putMessages`, `openTail`, `page`, `searchChat`, `searchAll`, `meta`, `metas`, `setMeta`, `ask`, `take`, `answer`,
   `refusal`, `holders`, `mayRun`, `retryMs`, `constants`, `bucketWait`, `bucketSpend`,
 ])
 

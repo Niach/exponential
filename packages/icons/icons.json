@@ -449,7 +449,9 @@
     "ui-hold": "hand",
     "ui-maximize": "arrow-up-left",
     "ui-minimize": "minus",
-    "voice-level": "audio-lines"
+    "voice-level": "audio-lines",
+    "search-chat": "message-circle",
+    "search-agent": "bot"
   },
   "imported": {
     "os-apple": {

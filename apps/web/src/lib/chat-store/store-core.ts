@@ -10,6 +10,8 @@
 // so a tab holding the file cached reloads it whole instead of reading the
 // tail as an append.
 
+import { CHAT_STORE_HITS_MAX, compareHits, type ChatHit } from "@exp/domain-contract/chat-store"
+
 export type SyncFile = {
   getSize(): number
   read(buffer: Uint8Array, options: { at: number }): number
@@ -21,6 +23,8 @@ export type SyncFile = {
 /** Runs `body` with `name`'s file open exclusively (every tab's worker). */
 export type FileHost = {
   withFile<T>(name: string, body: (file: SyncFile) => T): Promise<T>
+  /** #EDE-99: the names of the files that exist (global search). */
+  list?(): Promise<string[]>
 }
 
 /** The generated `ChatFile` (crates/chat-store-wasm). */
@@ -232,6 +236,42 @@ export class ChatStoreCore {
 
   searchChat(rootId: string, query: string, limit: number): Promise<unknown> {
     return this.withChat(rootId, (chat) => ({ value: JSON.parse(chat.searchChat(rootId, query, limit)) }))
+  }
+
+  private searchRun = 0
+
+  /** #EDE-99 GLOBAL SEARCH (chat-store.json `search.allCases`) over the
+   *  log per chat: each existing file of `rootIds` (null = every one)
+   *  answers its newest hit and its count; newest chat first, at most
+   *  `limit`. A chat not held decoded is read into a throwaway file (never
+   *  evicting an open chat). A newer search ends an older one: null. */
+  async searchAll(rootIds: string[] | null, query: string, limit: number): Promise<{ chats: { rootId: string; count: number; hit: ChatHit }[]; total: number } | null> {
+    const run = ++this.searchRun
+    const allowed = rootIds ? new Set(rootIds) : null
+    const names = (await this.host.list?.()) ?? []
+    const chats: { rootId: string; count: number; hit: ChatHit }[] = []
+    for (const name of names) {
+      if (run !== this.searchRun) return null
+      if (!name.endsWith(`.log`)) continue
+      const rootId = name.slice(0, -4)
+      if (!ROOT_ID.test(rootId) || (allowed && !allowed.has(rootId))) continue
+      const found = await this.host.withFile(name, (file) => {
+        if (this.cache.has(rootId)) return JSON.parse(this.current(rootId, file).file.searchChat(rootId, query, 1)) as { hits: ChatHit[]; total: number }
+        const size = file.getSize()
+        const temp = new this.wasm.ChatFile()
+        try {
+          temp.load(readRange(file, readGeneration(file, size) === `` ? 0 : HEADER_BYTES, size))
+          return JSON.parse(temp.searchChat(rootId, query, 1)) as { hits: ChatHit[]; total: number }
+        } finally {
+          temp.free()
+        }
+      })
+      const hit = found.hits[0]
+      if (hit) chats.push({ rootId, count: found.total, hit })
+    }
+    if (run !== this.searchRun) return null
+    chats.sort((a, b) => compareHits(a.hit, b.hit))
+    return { chats: chats.slice(0, Math.max(1, Math.min(limit, CHAT_STORE_HITS_MAX))), total: chats.length }
   }
 
   // ── Catch-up (chat-store.json `catchUp`) ─────────────────────────────────

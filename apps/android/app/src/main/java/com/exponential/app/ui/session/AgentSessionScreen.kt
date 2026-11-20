@@ -522,10 +522,16 @@ fun AgentSessionScreen(
     val row = session
     // S-3: no Stop/End in the header (the composer's stop-turn is the one).
     val rootId = row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id
+    // #EDE-99 (search-list.json A PICK): a global search hit said in this
+    // (child) session opens it with find in chat on the query, at the hit.
+    val find = com.exponential.app.ui.chat.rememberFindInChat("session:$sessionId")
+    androidx.compose.runtime.LaunchedEffect(find) {
+        com.exponential.app.ui.chat.FindInChatSeeds.take(sessionId)?.let { pick -> find.seed(pick.query, pick.target) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            SessionHeaderBar(
+            if (find.open) com.exponential.app.ui.chat.FindInChatHeader(find) else SessionHeaderBar(
                 chatTitle = header?.chatTitle,
                 sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: "",
                 agent = row?.cli,
@@ -536,7 +542,10 @@ fun AgentSessionScreen(
         },
     ) { padding ->
         val agentMarks by viewModel.agentMarks.collectAsStateWithLifecycle()
-        CompositionLocalProvider(com.exponential.app.ui.components.LocalAgentMarks provides agentMarks) {
+        CompositionLocalProvider(
+            com.exponential.app.ui.components.LocalAgentMarks provides agentMarks,
+            com.exponential.app.ui.chat.LocalFindInChat provides find,
+        ) {
         RunFace(
             viewModel = viewModel,
             padding = padding,
