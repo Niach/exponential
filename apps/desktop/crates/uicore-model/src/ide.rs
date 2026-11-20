@@ -382,6 +382,8 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     let folders = |rows: Vec<IdeRow>, entries: &[IdeLayoutEntry]| folder_rows(rows, entries, &input.closed, editing);
     let on = |kind: &str, id: &str| screen.strip_prefix(kind).and_then(|s| s.strip_prefix(':')) == Some(id);
     let mut rows = Vec::new();
+    // #EDE-171: Agent (the composer page) leads, needs-you.json's wide order.
+    rows.push(nav("home", "action-chat", screen == "home", 0, IdeTone::Muted));
     if input.needs_you > 0 || screen == "needs-you" {
         rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", input.needs_you, IdeTone::Attention));
     }

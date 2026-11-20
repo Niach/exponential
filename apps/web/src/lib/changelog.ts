@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-desktop-agent-entry`,
+    date: `2026-11-20`,
+    title: `Agent is back in the desktop sidebar`,
+    summary: `The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.`,
+    body: `- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat.`,
+  },
+  {
     id: `2026-11-20-pins-removed`,
     date: `2026-11-20`,
     title: `Pins are gone`,
