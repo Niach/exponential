@@ -109,6 +109,7 @@
     "os-linux"
   ],
   "semantic": {
+    "nav-home": "house",
     "nav-search": "search",
     "nav-inbox": "inbox",
     "nav-needs-you": "triangle-alert",
