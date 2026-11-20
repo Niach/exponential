@@ -35,6 +35,7 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.ExpToolDisplay
 import com.exponential.app.domain.FindInChat
 import com.exponential.app.domain.MessageDelivery
+import com.exponential.app.domain.SearchList
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.TraceLineModel
 import com.exponential.app.domain.Trace as TraceModels
@@ -398,10 +399,25 @@ internal fun rememberTranscriptFind(
         request = CardScrollRequest(stop.key, nonce)
     }
     // A new query starts at the newest stop (once the loaded rows are
-    // counted for it) and lands there.
+    // counted for it) and lands there. #EDE-99: a global search pick starts
+    // at its hit's stop instead (`globalChatStart`), re-resolved as answers
+    // arrive until found or the store's answer is in (then the newest).
     val rowsCounted = counted.first == query
-    LaunchedEffect(current == null, shown, rowsCounted) {
-        if (current == null && shown != null && rowsCounted) land(shown)
+    val target = find?.target
+    val storeIn = older.query == query && older.storePhase != FindInChat.Phase.Searching
+    LaunchedEffect(current == null, shown, rowsCounted, target, stops, storeIn) {
+        if (current != null || !rowsCounted) return@LaunchedEffect
+        if (target != null && find != null) {
+            // No stops yet (the feed or its synced tail still on its way):
+            // nothing to land on, the target waits.
+            val at = SearchList.globalChatStart(stops, target) ?: return@LaunchedEffect
+            val found = stops[at].key == target.key && stops[at].output == target.output
+            if (!found && !storeIn) return@LaunchedEffect
+            find.dropTarget()
+            land(stops[at])
+            return@LaunchedEffect
+        }
+        if (shown != null) land(shown)
     }
     // #EXP-1998: an older stop that turned out to be no row of this screen
     // (its page-in found nothing to draw) vanishes: the newest stop takes

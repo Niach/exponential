@@ -31,11 +31,21 @@ final class ChatFind {
 
     let chatKey: String
     private(set) var open = false
+    /// #EDE-99: the session whose transcript the bar searches (nil = the
+    /// root's; a global search pick opens a child's).
+    private(set) var sessionId: String?
+    /// #EDE-99: a global search pick's start (`globalChatStart`), dropped at
+    /// the first step or edit.
+    private(set) var target: SearchList.GlobalChatTarget?
+    /// The field takes the focus when the bar shows (a pick lands without
+    /// the keyboard).
+    private(set) var takesFocus = true
     /// The field's text.
     var raw = "" {
         didSet {
             guard raw != oldValue else { return }
             Self.lastQuery[chatKey] = raw
+            target = nil
             schedule()
         }
     }
@@ -53,24 +63,42 @@ final class ChatFind {
     }
 
     func openBar() {
+        takesFocus = true
         if !open {
             open = true
+            sessionId = nil
             raw = Self.lastQuery[chatKey] ?? ""
             query = FindInChat.query(raw)
         }
         focusNonce &+= 1
     }
 
+    /// #EDE-99: a global search pick: open on `seed.query` at once over its
+    /// session, the hit's stop first.
+    func seed(_ seed: ChatFindSeed) {
+        open = true
+        takesFocus = false
+        sessionId = seed.sessionId
+        raw = seed.query
+        debounce?.cancel()
+        query = FindInChat.query(seed.query)
+        target = seed.target
+        step = nil
+    }
+
     /// Clears every mark; the scroll and the opened groups stay.
     func close() {
         debounce?.cancel()
         open = false
+        sessionId = nil
+        target = nil
         query = ""
         step = nil
         report = Report()
     }
 
     func go(_ dir: FindInChat.Step) {
+        target = nil
         step = StepRequest(dir: dir, n: (step?.n ?? 0) &+ 1)
     }
 
@@ -176,7 +204,7 @@ struct FindInChatHeader: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(FindInChat.TestIds.bar)
-        .onAppear { focused = true }
+        .onAppear { if find.takesFocus { focused = true } }
         .onChange(of: find.focusNonce) { _, _ in focused = true }
     }
 }

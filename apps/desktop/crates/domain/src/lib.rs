@@ -93,6 +93,9 @@
 //! * [`find_in_chat`] — #EDE-129: find in chat (the `…` entry, the query,
 //!   the stops, counter, steps, landing, status line, keys), byte-locked ×4
 //!   by `fixtures/find-in-chat.json`;
+//! * [`search_list`] — #EDE-99: the global search's Chats section (sections,
+//!   chat rows, a pick, find in chat's start), byte-locked ×4 by
+//!   `fixtures/search-list.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
 //!   byte-locked ×4 by `fixtures/app-link.json`.
@@ -245,6 +248,8 @@ pub mod work_screen;
 pub mod chat_row_action;
 // #EDE-129: find in chat (stops, counter, steps, keys), fixture-locked ×4.
 pub mod find_in_chat;
+// #EDE-99: global search finds chats (sections, chat rows, pick, start), fixture-locked ×4.
+pub mod search_list;
 // #EXP-1736: ONE transcript ×4 (senders, groups, gaps, session inputs), fixture-locked ×4.
 pub mod transcript_grouping;
 

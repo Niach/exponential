@@ -66,6 +66,7 @@ export function memoryOpfs() {
       chain = run.catch(() => {})
       return run
     },
+    list: async () => [...files.keys()],
   }
   return { host, files }
 }
