@@ -723,4 +723,16 @@ class AgentSettingsTest {
         assertEquals(listOf("d"), unreadableAgentTriggers(raw).map { it["id"]!!.jsonPrimitive.content })
         assertEquals(listOf("schedule", "event", "record", "webhook"), TriggerWhen.KINDS)
     }
+
+    /** #EXP-1987: the Assistant's chat in a team the viewer does not sync,
+     *  started by the viewer, is the member's own. */
+    @Test
+    fun `the assistant's chat in the personal team is the member's own`() {
+        val teams = listOf("t-acme", "t-beta")
+        assertTrue(AgentSettings.Assistant.ownChat("t-personal", "u1", teams, "u1"))
+        assertEquals(false, AgentSettings.Assistant.ownChat("t-personal", "u2", teams, "u1"))
+        assertEquals(false, AgentSettings.Assistant.ownChat("t-acme", "u1", teams, "u1"))
+        assertEquals(false, AgentSettings.Assistant.ownChat("t-personal", "u1", emptyList(), "u1"))
+        assertEquals(false, AgentSettings.Assistant.ownChat("t-personal", null, teams, null))
+    }
 }

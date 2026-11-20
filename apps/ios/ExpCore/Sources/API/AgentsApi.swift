@@ -208,8 +208,12 @@ struct EnsureAssistantResult: Decodable {
     let agent: AgentDetails?
 }
 
-private struct EnsureAssistantInput: Encodable {
-    let teamId: String
+/// #EXP-1987 (agent-settings.json `assistant`): a screen with a current team
+/// sends it (switch off: that team's Assistant, created on first use; on: a
+/// membership check only); a screen with no team (the account Settings ›
+/// Assistant page, account-level links) sends none (`{}` on the wire).
+struct EnsureAssistantInput: Encodable {
+    var teamId: String?
 }
 
 private struct AgentIdInput: Encodable {
@@ -277,13 +281,14 @@ public final class AgentsApi: Sendable {
         return result.agent
     }
 
-    /// S-3: the caller's Assistant in `teamId`, created on first use (on
+    /// S-3 / #EXP-1987: the caller's Assistant, created on first use (on
     /// their newest own desktop); nil = they have no device yet
-    /// (`AgentSettings.AssistantCopy.noDevice`). Call it once per team per
-    /// app run when the composer home, the chats list or the Settings
-    /// Agents group mounts; the row itself arrives over the agents shape.
+    /// (`AgentSettings.AssistantCopy.noDevice`). `teamId` = the screen's
+    /// current team (called once per account + team per app run); nil = a
+    /// screen with no team (once per account). The row itself arrives over
+    /// the agents shape, in a team or in their personal team.
     @discardableResult
-    public func ensureAssistant(accountId: String, teamId: String) async throws -> AgentDetails? {
+    public func ensureAssistant(accountId: String, teamId: String?) async throws -> AgentDetails? {
         let result: EnsureAssistantResult = try await trpc.mutation(
             accountId: accountId, path: "agents.ensureAssistant", input: EnsureAssistantInput(teamId: teamId)
         )

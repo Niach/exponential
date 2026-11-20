@@ -238,11 +238,10 @@ struct TeamTabView: View {
             TeamCounts(
                 members: try TeamMemberEntity.filter(Column("team_id") == teamId).fetchCount(db),
                 boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
-                // S-3: the agents the viewer sees (their own Assistant + the
-                // team agents; another member's Assistant never counts).
-                // #EXP-1714: the viewer's global Assistant counts in every team.
+                // S-3: the team agents the Agents page lists; #EXP-1987: the
+                // viewer's own Assistant is Settings › Assistant, never here.
                 agents: try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
-                    .filter { AgentSettings.visibleAgent($0, me: userId) }.count,
+                    .filter { !$0.isAssistant && AgentSettings.visibleAgent($0, me: userId) }.count,
                 isOwner: try userId.map { userId in
                     try TeamMemberEntity
                         .filter(Column("team_id") == teamId && Column("user_id") == userId)
@@ -261,7 +260,8 @@ struct TeamTabView: View {
     /// #EXP-1815 (settings-nav.json `nav`, S-3): the PERSONAL group, its
     /// items in the spec's iOS order (`visibleGroups(platform: .ios)`):
     /// account = each server's signed-in account + Add server, then
-    /// Notifications, then About. `security` has no page of its own on iOS:
+    /// #EXP-1987 Assistant (the viewer's ONE Assistant, whichever team is
+    /// current; the brand mark), then Notifications, then About. `security` has no page of its own on iOS:
     /// its rows (sign-in methods, passkeys) live on the account page.
     /// EXP-721: ONE grouped card, rows flat inside it, no dividers (EXP-1320).
     @ViewBuilder
@@ -295,6 +295,16 @@ struct TeamTabView: View {
                 settingsRow(icon: AppIcons.uiAdd, title: "Add server", chevron: false)
             }
             .buttonStyle(.plain)
+        case "assistant":
+            if !activeAccountId.isEmpty {
+                NavigationLink(value: AppRoute.assistantSettings(accountId: activeAccountId)) {
+                    settingsRow(title: AgentSettings.AssistantCopy.title) {
+                        AssistantAvatar(size: 22)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("assistant-settings-row")
+            }
         case "notifications":
             if let page = SettingsNav.page(item), !activeAccountId.isEmpty {
                 NavigationLink(value: AppRoute.notificationSettings(accountId: activeAccountId)) {
@@ -418,9 +428,18 @@ struct TeamTabView: View {
     }
 
     private func settingsRow(icon: String, title: String, count: Int? = nil, chevron: Bool = true) -> some View {
-        HStack(spacing: 12) {
+        settingsRow(title: title, count: count, chevron: chevron) {
             AppIcon(icon, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+    }
+
+    /// A row with its own leading glyph (the Assistant's brand mark).
+    private func settingsRow<Leading: View>(
+        title: String, count: Int? = nil, chevron: Bool = true, @ViewBuilder leading: () -> Leading
+    ) -> some View {
+        HStack(spacing: 12) {
+            leading()
                 .frame(width: 22)
             Text(title)
                 .font(.body)

@@ -179,7 +179,11 @@ final class ShareTargetsPublisher {
         // its agent's entry, a sealed plain chat never reaches the OS (the
         // roots query already drops them; `sealed` restates it).
         let visible = definitions.filter { AgentOrdering.visibleAgent(role: $0.role, ownerId: $0.ownerId, me: userId) }
-        let assistant = visible.first { AgentOrdering.isAssistant(role: $0.role) && $0.ownerId == userId }
+        // #EXP-1987: the viewer's ONE Assistant whatever its team: the one in
+        // a team not synced here (their personal team after the move), else
+        // theirs in a team (one per team before it).
+        let mine = visible.filter { AgentOrdering.isAssistant(role: $0.role) && $0.ownerId == userId }
+        let assistant = mine.first { !teamIds.contains($0.teamId) } ?? mine.first
         let pins: [String] = userId == nil ? [] : try String.fetchAll(db, sql: """
             SELECT "session_id" FROM "pins"
             WHERE "kind" = 'session' AND "user_id" = ? AND "session_id" IS NOT NULL

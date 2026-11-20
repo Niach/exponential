@@ -230,7 +230,7 @@ struct AgentPageView: View {
         .onChange(of: deps.deepLinkBus.pendingComposerFocus, initial: true) { _, _ in focusComposerIfAsked() }
         .onChange(of: composer.map(ObjectIdentifier.init)) { _, _ in focusComposerIfAsked() }
         // S-3: the viewer's Assistant exists once the page mounts (once per
-        // team per app run).
+        // account + team per app run).
         .task(id: "\(accountId)/\(composerTeamId ?? "")") {
             if let teamId = composerTeamId {
                 await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)

@@ -696,11 +696,14 @@ struct ChatScreen: View {
     /// A member may link and file here (`resolveTeamAccess`: every member
     /// comments and creates issues). #EXP-1714: the viewer's own Assistant
     /// conversation stays editable while its team (the personal one) never
-    /// syncs.
+    /// syncs. #EXP-1987 (agent-settings.json `assistant`): a chat of a team
+    /// not synced here (no teams row, no team_members rows) whose starter is
+    /// the viewer is the member's own, even while its agent row is away.
     private var canEdit: Bool {
         guard let rows else { return false }
         if AgentSettings.isMyAssistant(rows.agent, me: deps.auth.userId) { return true }
-        return teamState.teams.contains { $0.id == rows.root.teamId }
+        if teamState.teams.contains(where: { $0.id == rows.root.teamId }) { return true }
+        return !teamState.teams.isEmpty && rows.root.userId == deps.auth.userId
     }
 
     // MARK: - Tabs and opened items

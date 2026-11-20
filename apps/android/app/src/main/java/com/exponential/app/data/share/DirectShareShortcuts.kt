@@ -31,6 +31,7 @@ import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.PinEntity
 import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AppShortcuts
@@ -119,13 +120,21 @@ class DirectShareShortcuts @Inject constructor(
                             }
                     }
                 }
-            combine(
+            // #EXP-1987: the synced teams ride along so the viewer's global
+            // Assistant (in their personal team, none of these) stays listed.
+            val agentsAndTeams = combine(
                 dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
+                dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
+                    .map { teams -> teams.map { it.id } }
+                    .distinctUntilChanged(),
+            ) { agents, teamIds -> agents to teamIds }
+            combine(
+                agentsAndTeams,
                 chats,
                 shortcutChats,
                 selection.selectedId,
                 combine(auth.userId, auth.token.map { it != null }.distinctUntilChanged()) { me, signedIn -> me to signedIn },
-            ) { agents, sessions, shortcut, team, (me, signedIn) -> rows(agents, sessions, shortcut, team, me, signedIn) }
+            ) { (agents, teamIds), sessions, shortcut, team, (me, signedIn) -> rows(agents, teamIds, sessions, shortcut, team, me, signedIn) }
                 .debounce(DEBOUNCE_MS)
                 .distinctUntilChanged()
                 .collect(::publish)
@@ -134,6 +143,7 @@ class DirectShareShortcuts @Inject constructor(
 
     private fun rows(
         agents: List<AgentDefinitionEntity>,
+        teamIds: List<String>,
         sessions: List<SessionEntity>,
         shortcut: ShortcutChats,
         team: String?,
@@ -141,7 +151,7 @@ class DirectShareShortcuts @Inject constructor(
         signedIn: Boolean,
     ): List<Row> {
         if (team == null) return emptyList()
-        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me)
+        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me, teamIds)
         val order = listed.withIndex().associate { (index, row) -> row.agentId to index }
         val chats = sessions.map(::chat)
         val entries = ShareTargets.directShareEntries(listed, chats, me) { a ->

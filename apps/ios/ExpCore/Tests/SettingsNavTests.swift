@@ -125,17 +125,18 @@ final class SettingsNavTests: XCTestCase {
     }
 
     /// The iOS nav (the phones' Settings): no This device group, no Import,
-    /// no Plan & Billing; About stays; Voice is gone from Personal.
+    /// no Plan & Billing; About stays; Voice is gone from Personal;
+    /// #EXP-1987: the Assistant is a Personal page after Account.
     func testIosNavForAnOwnerAndAMember() {
         let owner = SettingsNav.visibleGroups(platform: .ios, isOwner: true)
         XCTAssertEqual(owner.map(\.id), ["team", "boards", "agents", "apps", "personal"])
         XCTAssertEqual(owner.first { $0.id == "team" }?.items, [
             "general", "members", "issues", "repositories", "prompts", "widget", "storage",
         ])
-        XCTAssertEqual(owner.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "@new-agent", "mcp", "skills"])
-        XCTAssertEqual(owner.first { $0.id == "personal" }?.items, ["account", "notifications", "security", "about"])
+        XCTAssertEqual(owner.first { $0.id == "agents" }?.items, ["@agents", "@new-agent", "mcp", "skills"])
+        XCTAssertEqual(owner.first { $0.id == "personal" }?.items, ["account", "assistant", "notifications", "security", "about"])
         let member = SettingsNav.visibleGroups(platform: .ios, isOwner: false)
         XCTAssertEqual(member.first { $0.id == "boards" }?.items, ["@boards", "all-boards"])
-        XCTAssertEqual(member.first { $0.id == "agents" }?.items, ["@assistant", "@agents", "mcp", "skills"])
+        XCTAssertEqual(member.first { $0.id == "agents" }?.items, ["@agents", "mcp", "skills"])
     }
 }

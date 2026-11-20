@@ -275,7 +275,7 @@ struct AgentSettingsPage: View {
         // S-3: an Assistant (only ever the viewer's own) opens THE Assistant
         // page wherever an agent page is pushed (settings, chats, chat).
         if let agentId, agent?.isAssistant == true {
-            AssistantSettingsPage(teamId: teamId, agentId: agentId)
+            AssistantSettingsPage(agentId: agentId)
         } else {
             agentPage
         }

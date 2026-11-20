@@ -20,7 +20,7 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/assistant`)({
 
 const DevicesIcon = conceptIcon(`nav-devices`)
 
-// S-3 (settings-nav.json `@assistant`, agent-settings.json `assistant`): the
+// #EXP-1987 (settings-nav.json `assistant`, agent-settings.json `assistant`): the
 // viewer's OWN Assistant's page. It resolves the Assistant through
 // `agents.ensureAssistant` (created on first use on the member's newest own
 // desktop) and renders the agent page's Assistant variant over the LIVE
@@ -30,7 +30,7 @@ function SettingsAssistant() {
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
-  const assistantId = useEnsureAssistant(team?.id)
+  const assistantId = useEnsureAssistant(null)
   const { agent: row } = useAgentRow(assistantId ?? null)
   // #EXP-1714: the global Assistant lives in the member's personal team.
   const agent = row && row.role === `assistant` && row.ownerId === me ? row : null

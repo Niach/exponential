@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-assistant-account-settings`,
+    date: `2026-11-20`,
+    title: `Your Assistant has its own place in Settings`,
+    summary: `Settings › Assistant moves to your personal settings, next to Account, and your Assistant's notifications show in every team's inbox.`,
+    body: `- **Settings › Assistant**: your Assistant's page is now under Personal, right after Account, on every app. The team's Agents list shows the team's agents only.
+- **Inbox**: notifications from your Assistant show and count in the inbox of every team you are in, and open its chat.
+- **iOS**: a chat that briefly disappeared while syncing gets its message field back without restarting the app.`,
+  },
+  {
     id: `2026-11-20-global-search-chats`,
     date: `2026-11-20`,
     title: `Global search finds chats`,

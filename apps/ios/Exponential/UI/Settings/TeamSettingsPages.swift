@@ -818,7 +818,7 @@ private struct TeamBoardsPage: View {
 
 // MARK: - Agents
 
-/// Agents = the viewer's Assistant, the team agents (a row opens the
+/// Agents = the team agents (a row opens the
 /// agent's settings; read-only for members) + New agent (settings-nav.json
 /// `nav` Agents group), then the team's Events band (NEW-2).
 private struct TeamAgentsPage: View {
@@ -826,8 +826,6 @@ private struct TeamAgentsPage: View {
 
     private struct Data: Equatable, Sendable {
         var agents: [AgentDefinitionEntity] = []
-        /// The viewer's own Assistant; nil = not created yet.
-        var assistantId: String?
         var isOwner = false
         var events: [EventEntity] = []
         var sessionTitles: [String: String] = [:]
@@ -849,7 +847,6 @@ private struct TeamAgentsPage: View {
     @Environment(\.toaster) private var toaster
     @State private var data = Data()
     @State private var agentTarget: AgentPageTarget?
-    @State private var showAssistant = false
     /// #EXP-1735: the lead's member as an option id (`leadNone` = none),
     /// from `agents.lead`; nil = not read yet (#EXP-1788: the row stays
     /// disabled, like the IDE's agents_index).
@@ -870,8 +867,7 @@ private struct TeamAgentsPage: View {
                 agents: data.agents,
                 isOwner: data.isOwner,
                 loading: !data.loaded,
-                onOpen: { agentTarget = AgentPageTarget(agentId: $0) },
-                onOpenAssistant: { showAssistant = true }
+                onOpen: { agentTarget = AgentPageTarget(agentId: $0) }
             )
             TeamEventsSection(events: data.events, sessionTitles: data.sessionTitles, users: data.users, loading: !data.loaded)
         }
@@ -879,12 +875,8 @@ private struct TeamAgentsPage: View {
             AgentSettingsPage(teamId: teamId, agentId: target.agentId, isOwner: data.isOwner)
                 .bareBackButton()
         }
-        .navigationDestination(isPresented: $showAssistant) {
-            AssistantSettingsPage(teamId: teamId, agentId: data.assistantId)
-                .bareBackButton()
-        }
         // S-3: the Agents group mounting creates the viewer's Assistant on
-        // first use (once per team per app run).
+        // first use (once per account + team per app run).
         .task(id: "ensure/\(accountId)/\(teamId)") {
             await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
         }
@@ -916,12 +908,11 @@ private struct TeamAgentsPage: View {
                     .fetchAll(db)
                     .map { $0.agentId }
                 return Data(
-                    // S-3: the team agents only (role agent); the viewer's
-                    // own Assistant is the `@assistant` row.
+                    // S-3: the team agents only (role agent); #EXP-1987: the
+                    // viewer's own Assistant is Settings › Assistant.
                     agents: Chats.sidebarAgents(
                         agents.filter { !$0.isAssistant }, agentId: { $0.id }, appAgentIds: appAgentIds
                     ),
-                    assistantId: agents.first { $0.isAssistant && $0.ownerId == userId }?.id,
                     isOwner: try TeamPageQueries.isOwner(db, teamId: teamId, userId: userId),
                     events: events,
                     sessionTitles: Dictionary(

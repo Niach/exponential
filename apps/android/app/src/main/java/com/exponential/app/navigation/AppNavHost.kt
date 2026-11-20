@@ -126,6 +126,7 @@ import com.exponential.app.ui.chats.ChatsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.settings.AgentSettingsScreen
+import com.exponential.app.ui.settings.AssistantSettingsRoute
 import com.exponential.app.ui.settings.McpActivityScreen
 import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
@@ -969,7 +970,7 @@ private fun AuthenticatedNav(
             // switch, the settings rows, the servers, General).
             TeamTabScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+                onOpenAssistant = { navController.navigate(Routes.ASSISTANT_SETTINGS) },
                 // #EXP-1381: every settings row opens its own page.
                 onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
@@ -1033,6 +1034,7 @@ private fun AuthenticatedNav(
                 onOpenAbout = { navController.navigate("about") },
                 onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onAddServer = { navController.navigate("add-server") },
+                onOpenAssistant = { navController.navigate(Routes.ASSISTANT_SETTINGS) },
                 onBack = { navController.popBackStack() },
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
@@ -1333,6 +1335,18 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
                 onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+            )
+        }
+        // #EXP-1987: Settings › Assistant (the account page) hands over to the
+        // Assistant's own agent page once its row is known.
+        composable(Routes.ASSISTANT_SETTINGS) {
+            AssistantSettingsRoute(
+                onBack = { navController.popBackStack() },
+                onOpenAssistant = { id ->
+                    navController.navigate(Routes.agentSettings(id)) {
+                        popUpTo(Routes.ASSISTANT_SETTINGS) { inclusive = true }
+                    }
+                },
             )
         }
         composable(Routes.AGENT_SETTINGS_PATTERN) {

@@ -75,6 +75,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 @HiltViewModel
@@ -128,6 +129,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     /** EXP-1270: Getting started's "Start a run" — the Agent home. */
     onOpenAgentHome: () -> Unit = {},
+    /** #EXP-1987: Settings › Assistant (the account page). */
+    onOpenAssistant: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     gettingStartedViewModel: GettingStartedViewModel = hiltViewModel(),
 ) {
@@ -233,6 +236,7 @@ fun SettingsScreen(
                     onAddServer = onAddServer,
                     onOpenNotifications = onOpenNotifications,
                     onOpenAbout = onOpenAbout,
+                    onOpenAssistant = onOpenAssistant,
                 )
             }
         }
@@ -344,9 +348,13 @@ internal fun SettingsRow(
     }
 }
 
+/** #EXP-1987: the Personal group's Assistant row. */
+internal const val ASSISTANT_ROW_TEST_ID = "settings-assistant"
+
 /**
  * #EXP-1815: settings-nav.json's `personal` group, in its order: `account` =
- * the account rows (one per signed-in server, then Add server),
+ * the account rows (one per signed-in server, then Add server), `assistant`
+ * (#EXP-1987: the account's Assistant page, drawn with its brand mark),
  * `notifications`, `about`; `security` has no Android page (sign-in methods
  * live on the account's page).
  */
@@ -357,6 +365,7 @@ private fun PersonalGroup(
     onAddServer: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
     val group = SettingsNavGroups.GROUPS.first { it.id == "personal" }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -373,6 +382,16 @@ private fun PersonalGroup(
                         }
                         SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
                     }
+                    // #EXP-1987: the brand mark, never the page's concept glyph.
+                    SettingsNavGroups.ASSISTANT -> SettingsRow(
+                        icon = icon,
+                        title = page?.label ?: com.exponential.app.domain.AgentSettings.Assistant.TITLE,
+                        onClick = onOpenAssistant,
+                        modifier = Modifier.testTag(ASSISTANT_ROW_TEST_ID),
+                        leading = {
+                            com.exponential.app.ui.components.ExponentialMark(size = 16.dp, tint = MaterialTheme.colorScheme.onSurface)
+                        },
+                    )
                     "notifications" -> SettingsRow(icon = icon, title = page?.label ?: "Notifications", onClick = onOpenNotifications)
                     // EXP-262: version + third-party licence notices.
                     "about" -> SettingsRow(icon = icon, title = page?.label ?: "About", onClick = onOpenAbout)
@@ -510,8 +529,6 @@ data class TeamTabState(
     val members: Int = 0,
     val boards: Int = 0,
     val agents: Int = 0,
-    /** S-3: the viewer's own Assistant in the team (null = none yet). */
-    val assistantId: String? = null,
     /** The viewer owns the active team (settings-nav.json `visible: owner`). */
     val manageTeam: Boolean = false,
     /** Teams (of the active account) with an unread notification: an amber dot. */
@@ -537,15 +554,10 @@ class TeamTabViewModel @Inject constructor(
                 } else {
                     val teamFlow = if (teamId == null) kotlinx.coroutines.flow.flowOf(null) else db.teamDao().observeById(teamId)
                     val members = if (teamId == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
-                    // #EXP-1714: the team's agents + the viewer's global Assistant.
                     val agents = if (teamId == null) {
                         kotlinx.coroutines.flow.flowOf(emptyList())
                     } else {
-                        kotlinx.coroutines.flow.combine(db.agentDefinitionDao().observeAll(), db.teamDao().observeAll()) { rows, teams ->
-                            com.exponential.app.domain.AgentSettings.Assistant.agentsInTeam(rows, teamId, teams.map { it.id }, me) {
-                                com.exponential.app.domain.AgentSettings.Assistant.TeamAgentLike(it.teamId, it.role, it.ownerId)
-                            }
-                        }
+                        db.agentDefinitionDao().observeAll().map { rows -> rows.filter { it.teamId == teamId } }
                     }
                     val notifications = if (me == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.notificationDao().observeByUser(me)
                     kotlinx.coroutines.flow.combine(
@@ -561,11 +573,9 @@ class TeamTabViewModel @Inject constructor(
                             team = team,
                             members = memberRows.size,
                             boards = boards.count { it.teamId == teamId },
-                            // S-3: other members' Assistants are never counted.
-                            agents = agentRows.count {
-                                com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me)
-                            },
-                            assistantId = agentRows.firstOrNull { it.isAssistant && it.ownerId == me }?.id,
+                            // #EXP-1987: the Agents page lists the team's
+                            // agents only (the Assistant is an account page).
+                            agents = agentRows.count { !it.isAssistant },
                             manageTeam = me != null && memberRows.any {
                                 it.userId == me && it.role == com.exponential.app.domain.DomainContract.teamRoleOwner
                             },
@@ -608,8 +618,8 @@ fun TeamTabScreen(
     onOpenNotifications: () -> Unit = {},
     onAddServer: () -> Unit,
     onOpenAgentHome: () -> Unit = {},
-    /** S-3: the Agents group's Assistant row opens its page. */
-    onOpenAgentSettings: (agentId: String) -> Unit = {},
+    /** #EXP-1987: the Personal group's Assistant row opens its page. */
+    onOpenAssistant: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     teamViewModel: TeamTabViewModel = hiltViewModel(),
     gettingStartedViewModel: GettingStartedViewModel = hiltViewModel(),
@@ -762,6 +772,7 @@ fun TeamTabScreen(
                 onAddServer = onAddServer,
                 onOpenNotifications = onOpenNotifications,
                 onOpenAbout = onOpenAbout,
+                onOpenAssistant = onOpenAssistant,
             )
         }
         }

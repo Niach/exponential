@@ -345,13 +345,8 @@ pub(crate) fn nav_entries(inputs: &NavInputs, folded: &HashMap<&'static str, boo
             let key = format!("index:{}", group.id);
             out.push(json!({"key": key, "kind": "index", "label": group.label, "lit": lit, "color": if lit { &paint.foreground } else { &paint.muted }}));
             out.actions.insert(key, NavAction::Section(SettingsSection::Agents));
-            // S-3 `@assistant`: the viewer's OWN Assistant first (the brand
-            // mark, `assistant.copy.title`); `@agents` = the team agents.
-            if let Some(assistant) = agents.iter().find(|agent| agent.assistant) {
-                let section = SettingsSection::Agent(assistant.agent_id.clone());
-                let lit = section == *effective;
-                out.row("assistant".into(), &domain::agent_settings::ASSISTANT.copy.title, LOGO, Some(paint.foreground.clone()), lit, false, NavAction::Section(section));
-            }
+            // `@agents` = the team agents (#EXP-1987: the viewer's
+            // Assistant left the group for Personal's `assistant` page).
             for agent in agents.iter().filter(|agent| !agent.assistant) {
                 let section = SettingsSection::Agent(agent.agent_id.clone());
                 let lit = section == *effective;
@@ -384,6 +379,15 @@ pub(crate) fn nav_entries(inputs: &NavInputs, folded: &HashMap<&'static str, boo
             // sub-pages is open; the chevron overrides that.
             let within = lit || children.iter().any(|child| child.section == *effective);
             let open = folded.get(item.label).map(|folded| !folded).unwrap_or(within);
+            if item.id == "assistant" {
+                // #EXP-1987 (settings-nav.json `pages.assistant`): the
+                // viewer's ONE Assistant, the brand mark as its glyph; lit on
+                // its agent page (`Voice` resolves to it).
+                let assistant = crate::session_data::my_assistant_anywhere(team_id.as_deref(), cx);
+                let lit = lit || assistant.is_some_and(|agent| *effective == SettingsSection::Agent(agent.id));
+                out.row(item.id.to_string(), item.label, LOGO, Some(paint.foreground.clone()), lit, false, NavAction::Section(item.section.clone()));
+                continue;
+            }
             out.row(item.id.to_string(), item.label, section_icon(&item.section), None, lit, false, NavAction::Section(item.section.clone()));
             if !children.is_empty() {
                 let last = out.items.last_mut().expect("the row");

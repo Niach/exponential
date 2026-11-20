@@ -81,6 +81,10 @@ object Routes {
     const val MCP_ACTIVITY = "settings/mcp/activity"
 
     const val AGENTS_SETTINGS = "settings/agents"
+    /** #EXP-1987 (settings-nav.json): Settings › Assistant, the ACCOUNT page
+     *  (Personal, after Account): the viewer's ONE Assistant whichever team
+     *  is current; `~/settings/assistant` opens it. */
+    const val ASSISTANT_SETTINGS = "settings/assistant"
     // NEW-2: an agent = a definition row (`agents.id`).
     const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"
     fun agentSettings(agentId: String): String = "settings/agent/$agentId"

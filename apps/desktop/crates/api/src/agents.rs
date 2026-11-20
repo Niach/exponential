@@ -105,11 +105,22 @@ struct MaybeAgentResponse {
     agent: Option<Agent>,
 }
 
-/// S-3 `agents.ensureAssistant`: the caller's Assistant in `team_id`,
-/// created on first use on their newest own desktop; `None` while they have
-/// no device (agent-settings.json `assistant.copy.noDevice`).
-pub fn ensure_assistant(trpc: &TrpcClient, team_id: &str) -> Result<Option<Agent>, ApiError> {
-    let response: MaybeAgentResponse = trpc.mutation("agents.ensureAssistant", &TeamIdInput { team_id })?;
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnsureAssistantInput<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    team_id: Option<&'a str>,
+}
+
+/// S-3 `agents.ensureAssistant`: the caller's Assistant, created on first
+/// use on their newest own desktop; `None` while they have no device
+/// (agent-settings.json `assistant.copy.noDevice`). #EXP-1987: a screen
+/// with a current team sends it (switch off: that team's Assistant, created
+/// on first use; switch on: a membership check, the answer is the member's
+/// ONE Assistant); the account's Settings › Assistant sends NONE (`None`:
+/// the member's Assistant whatever team is current).
+pub fn ensure_assistant(trpc: &TrpcClient, team_id: Option<&str>) -> Result<Option<Agent>, ApiError> {
+    let response: MaybeAgentResponse = trpc.mutation("agents.ensureAssistant", &EnsureAssistantInput { team_id })?;
     Ok(response.agent)
 }
 
