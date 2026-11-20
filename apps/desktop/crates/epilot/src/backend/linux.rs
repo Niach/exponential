@@ -734,11 +734,8 @@ impl Backend for X11 {
         self.keysym_action(&[keysym_of(key)], 0, down)
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let keysyms = char_keysyms(ch);
-        self.keysym_action(&keysyms, self.locked, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.keysym_action(&keysyms, self.locked, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.keysym_action(&char_keysyms(ch), self.locked, down)
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {

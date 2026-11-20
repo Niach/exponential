@@ -1085,6 +1085,10 @@ pub(crate) mod tests {
             self.log.lock().unwrap().push(format!("launch {argv:?} {cwd:?}"));
             Ok(77)
         }
+        fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+            self.step(format!("stroke {ch} {}", if down { "down" } else { "up" }))
+        }
+        // One line per character, without the hold: the tools' tests read it.
         fn type_char(&self, ch: char) -> Result<(), String> {
             self.step(format!("type {ch}"))
         }
