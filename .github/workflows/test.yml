@@ -600,6 +600,43 @@ jobs:
           EDE_COMPOSITOR="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" EDE_COMPOSITOR_REQUIRED=1 \
             cargo test --locked -p epilot --lib headless_ede
 
+  # #EDE-138: what an agent space launches runs in a systemd scope of the
+  # space's own slice. The `ede` job's runner is a container without systemd
+  # and tests that with stand-ins; this one asks a REAL user manager where a
+  # launch ends up (its cgroup, the limits the kernel holds, nothing left
+  # after the close or after the compositor's end, with lingering on).
+  # `EDE_EXPECT_USER_MANAGER=1`: a skip is a failure here.
+  # Pinned as `desktop-scope` is; only the compositor's one test target.
+  ede-scope:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (smithay) and the user's session bus
+        run: |
+          sudo apt-get install -y libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config dbus dbus-user-session
+          # `busctl --user` reaches the user manager over the session bus.
+          [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
+          busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
+          # As the installed daemon does: the user manager outlives a
+          # logout, so only the compositor's own end stops what a space left.
+          sudo loginctl enable-linger "$(id -un)"
+          loginctl show-user "$(id -un)" --property=Linger
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - name: A space's launches under a real user manager
+        working-directory: apps/ede
+        env:
+          EDE_EXPECT_USER_MANAGER: '1'
+        run: cargo test --locked -p ede-compositor --test space_slice_real
+
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is
   # built on (uicore-model replays packages/uicore's fixtures, uicore-data,
@@ -920,7 +957,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-scope, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:

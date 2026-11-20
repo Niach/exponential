@@ -83,6 +83,25 @@ pub fn check_xwayland(binary: Option<&Path>, version_output: Option<&str>) -> Ch
     }
 }
 
+/// #EDE-138: what an agent space starts runs in a systemd slice of its
+/// own when the user manager can be asked; `found` is its systemd's
+/// version, or why it cannot (what the session's start finds: the same
+/// questions, a scope of a moment included).
+pub fn check_spaces(found: Result<u32, String>) -> Check {
+    let name = "Agent spaces";
+    match found {
+        Ok(version) => Check { name, level: Level::Ok, detail: format!("systemd {version}: a slice per space, limited by [spaces] in compositor.toml") },
+        Err(reason) => Check {
+            name,
+            level: Level::Warn,
+            detail: format!(
+                "{reason}: what an agent space starts runs in your login session, without limits (needs a systemd user manager from {} on, with systemd-run and busctl)",
+                crate::spaces::slice::SYSTEMD_FLOOR
+            ),
+        },
+    }
+}
+
 /// `root.join(absolute)`: the system's files under another root in tests.
 fn under(root: &Path, absolute: &str) -> PathBuf {
     root.join(absolute.trim_start_matches('/'))
@@ -967,6 +986,7 @@ pub fn run_checks() -> Vec<Check> {
         check_vulkan(vulkan.as_deref(), &icds, compositor_gpu),
         check_keyboard(system_keyboard.as_ref()),
         check_xwayland(binary.as_deref(), xwayland.as_deref()),
+        check_spaces(crate::spaces::slice::Units::probe().map(|units| units.version)),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
         nv.suspend_units = command_output("systemctl", &["is-enabled", "nvidia-suspend.service", "nvidia-resume.service"]);
@@ -1036,6 +1056,17 @@ mod tests {
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 24.1.4")).level, Level::Ok);
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 25.0.0")).level, Level::Ok);
         assert!(check_xwayland(None, None).detail.contains("apt install xwayland"));
+    }
+
+    /// #EDE-138: no user manager (or an old one) is a warning that says
+    /// what the person gets instead.
+    #[test]
+    fn doctor_says_where_an_agent_spaces_programs_run() {
+        let ok = check_spaces(Ok(255));
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "systemd 255: a slice per space, limited by [spaces] in compositor.toml"));
+        let old = check_spaces(Err("systemd 249 is older than 252".into()));
+        assert_eq!(old.level, Level::Warn);
+        assert!(old.detail.starts_with("systemd 249 is older than 252: what an agent space starts runs in your login session, without limits"), "{}", old.detail);
     }
 
     #[test]

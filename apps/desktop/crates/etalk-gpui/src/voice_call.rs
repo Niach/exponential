@@ -1283,8 +1283,15 @@ impl VoiceCall {
                 host.send_speech(samples, rate);
             }
             // NEW-55 review: the worker died: the call cannot go on.
-            etalk::Event::Exited if self.active.is_some() => {
-                log::warn!("[voice] the speech worker exited during a call");
+            // #ERR-29: an error (a GlitchTip event; the worker's own crash
+            // report says why) when it crashed; a worker that never started
+            // or was stopped with the app has said so itself.
+            etalk::Event::Exited { code, signal } if self.active.is_some() => {
+                if etalk::crashed(code, signal) {
+                    log::error!("[voice] the speech worker exited during a call");
+                } else {
+                    log::warn!("[voice] the speech worker exited during a call");
+                }
                 self.fail("dropped", cx);
             }
             // S-3: a voice still downloading keeps ringing (the worker
@@ -1644,13 +1651,16 @@ mod tests {
     /// NEW-55 review: a crashed speech worker ends the call and clears it.
     #[gpui::test]
     async fn a_worker_crash_ends_the_call(cx: &mut gpui::TestAppContext) {
+        etalk::log_capture::start();
         running(cx);
         cx.update(|cx| {
-            assert!(!owns(&etalk::Event::Exited, cx), "the dispatcher sends Exited itself");
-            on_worker_event(etalk::Event::Exited, cx);
+            assert!(!owns(&etalk::Event::EXITED, cx), "the dispatcher sends Exited itself");
+            on_worker_event(etalk::Event::Exited { code: None, signal: Some(11) }, cx);
             assert!(!active(cx));
             assert_eq!(phase(cx), CallPhase::Hidden);
         });
+        // #ERR-29: the call's dead end is an error, the level GlitchTip sends.
+        assert!(etalk::log_capture::error_logged("[voice] the speech worker exited during a call"), "{:?}", etalk::log_capture::records());
     }
 
     /// EXP-1901: the pill's buttons run inside the pill's own window, where
@@ -1705,9 +1715,22 @@ mod tests {
     async fn an_exit_without_a_call_is_ignored(cx: &mut gpui::TestAppContext) {
         setup(cx);
         cx.update(|cx| {
-            on_worker_event(etalk::Event::Exited, cx);
+            on_worker_event(etalk::Event::EXITED, cx);
             assert!(!active(cx));
         });
+    }
+
+    /// #ERR-29: a worker stopped together with the app (SIGTERM) ends the
+    /// call, but is no crash: no error.
+    #[gpui::test]
+    async fn a_worker_stopped_with_the_app_ends_the_call_without_an_error(cx: &mut gpui::TestAppContext) {
+        etalk::log_capture::start();
+        running(cx);
+        cx.update(|cx| {
+            on_worker_event(etalk::Event::Exited { code: None, signal: Some(15) }, cx);
+            assert!(!active(cx));
+        });
+        assert!(!etalk::log_capture::error_logged("[voice] the speech worker exited during a call"), "{:?}", etalk::log_capture::records());
     }
 
     /// S-3: a call rings first; the ring's end and the worker's

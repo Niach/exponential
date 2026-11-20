@@ -330,9 +330,12 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   caller belongs to an agent space is refused before anything maps (#EDE-127:
   no prompt, the person's keyboard stays where it is, the space's command
   fails; journal: `refused a polkit request from agent space N: <action>`).
-  Whose a process is: its environment or an ancestor's names the space's
-  directory, else the compositor's `space_of_process` (what it launched into
-  the space, that launch's process group, the space's socket's clients).
+  Whose a process is: its cgroup first (#EDE-138: a scope of a space's
+  systemd slice, which a process keeps when it starts a session of its own
+  with an empty environment and lets its parent die), then its environment
+  or an ancestor's naming the space's directory, else the compositor's
+  `space_of_process` (what it launched into the space, that launch's
+  process group, the space's socket's clients).
 - **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
@@ -639,7 +642,7 @@ first; each op needs the Core capability it names:
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
-| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
+| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -778,6 +781,64 @@ choice and the files; `--files-only` skips the live environment and
 gsettings (CI, tests). Nemo stays the file manager and file dialogs stay
 GTK through the portal delegate (#EDE-15), both themed through this.
 
+## Agent spaces: a systemd slice per space (#EDE-138)
+
+What an agent launches into a space runs in a systemd scope of the space's
+own slice, in the person's user manager:
+
+```
+app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memory, swap
+  └─ app-exponential_p<pid>-s<n>.slice               space n: memory, tasks
+       └─ exponential-p<pid>-s<n>-<k>.scope          launch k
+```
+
+- **Out of the login session.** The person's apps stay in their login
+  session scope; a space's processes are in none.
+- **Limits, the person's to set** (`[spaces]` below, read at a space's
+  first launch): all spaces together half of the cores and half of the
+  memory by default, one space 30 % of the memory. `systemctl --user status
+  'app-exponential_p*.slice'` shows them. The CPU limit is a quota: the
+  person's apps are in a sibling of the whole user manager, so a weight
+  inside it could not keep spaces below half of a busy machine.
+- **The close ends everything.** The space's slice is stopped (SIGTERM,
+  SIGKILL two seconds later), then the kernel ends what is left in its
+  cgroup (`cgroup.kill`): a process that started a session of its own, a
+  scope that asked not to be killed, a launch that was still on its way in.
+  The compositor never waits for the user manager in its event loop.
+- **The compositor's end ends everything.** With lingering on (the
+  Exponential daemon turns it on) the user manager outlives the person's
+  logout, and nothing else would stop what a space left. A compositor that
+  ends by itself kills what is in the slice of all its spaces and waits (3 s
+  at most) until the user manager has taken the slice away. One that is
+  ended from outside (the session's SIGTERM, a crash) stops nothing:
+  `exponential-session` then runs `exponential-compositor space-end <pid>`,
+  which does the same for it. What is still left (the session supervisor
+  died too) is stopped at the next compositor's start.
+- **How.** A launch is four programs in one process: `exponential-compositor
+  space-run` makes the slices when the space has none (`busctl`), becomes
+  `systemd-run --user --scope`; in the scope `space-enter` is the first
+  program (the entry of every scope into a space, where #EDE-146's guard
+  goes; today it only becomes the next), and `space-exec` takes the
+  caller's environment from its standard input and becomes the program. No
+  D-Bus library in the compositor; nothing the caller chose (a variable, an
+  `LD_PRELOAD`) reaches a program outside the scope or an argument. A launch
+  that gets no scope does not run, and a compositor that found its user
+  manager never starts one outside a scope: when the user manager is gone
+  later, `launch` answers `unavailable`.
+- **Needs** a systemd user manager on the session bus, systemd **252** or
+  newer (the first that hands the cpu controller to the user manager), a
+  unified cgroup hierarchy (cgroup v2), and `systemd-run`, `busctl` and
+  `systemctl`. Without one of them (Ubuntu 22.04 has systemd 249, a
+  container has no user manager) spaces work as before for the whole run:
+  launches run in the login session, without limits, and end by their
+  process group. The log says so once at the session's start, and
+  `exponential-compositor doctor` asks the same questions for its line
+  `Agent spaces`.
+- **Not a wall.** Everything in a space is the person's user. Every cgroup
+  under the user manager belongs to that user: a process that works at it
+  raises its own limits or moves itself into another cgroup. The slice
+  guards against the accidents of ordinary programs (#EDE-145).
+
 ## Config
 
 `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`, every key optional; a broken file is
@@ -806,6 +867,12 @@ lock_after = 600      # seconds without input; 0 = never
 
 [protected]
 app_ids = ["org.example.Bank"]   # on top of the built-in list
+
+[spaces]              # what agent spaces may take of this machine (#EDE-138); the defaults:
+cpu_quota = 50        # percent of all cores, for all spaces together
+memory_max = 50       # percent of the memory, for all spaces together
+space_memory_max = 30 # percent of the memory for one space (at least 2 GiB, never more than memory_max)
+tasks_max = 4096      # processes and threads of one space
 
 [theme]              # the bridge (#EDE-19), read by exponential-theme, not the compositor
 bridge = true        # false: exponential-theme sync removes what it wrote

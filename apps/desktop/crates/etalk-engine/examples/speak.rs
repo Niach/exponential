@@ -35,7 +35,7 @@ fn main() {
             last_progress = percent;
         }
         println!("{:>7} ms  {event:?}", started.elapsed().as_millis());
-        if matches!(event, etalk::Event::Finished { .. } | etalk::Event::Failed { .. } | etalk::Event::Exited) {
+        if matches!(event, etalk::Event::Finished { .. } | etalk::Event::Failed { .. } | etalk::Event::Exited { .. }) {
             break;
         }
     }

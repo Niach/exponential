@@ -363,6 +363,17 @@ pub(crate) enum Target {
     Space(u32),
 }
 
+/// How long a typed character's key stays down ([`type_with`]).
+pub(crate) const CHAR_HOLD: std::time::Duration = std::time::Duration::from_millis(6);
+
+/// #EXP-1994: typing one character, every backend's: `stroke`'s press,
+/// [`CHAR_HOLD`], its release. A press that failed is not released.
+pub(crate) fn type_with(stroke: impl Fn(bool) -> Result<(), String>) -> Result<(), String> {
+    stroke(true)?;
+    std::thread::sleep(CHAR_HOLD);
+    stroke(false)
+}
+
 pub(crate) trait Backend: Send {
     /// The target this backend drives ([`open`]'s). A backend for another
     /// target than the person's must override it.
@@ -394,8 +405,13 @@ pub(crate) trait Backend: Send {
     /// Press or release one key. A character that needs Shift on this
     /// layout gets it from the backend.
     fn key(&self, key: Key, down: bool) -> Result<(), String>;
+    /// Press or release one character, whatever the layout: a half of
+    /// [`Backend::type_char`].
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String>;
     /// Type one character (press + release), whatever the layout.
-    fn type_char(&self, ch: char) -> Result<(), String>;
+    fn type_char(&self, ch: char) -> Result<(), String> {
+        type_with(|down| self.char_stroke(ch, down))
+    }
     /// #EXP-1979: whether the person still holds a mouse button they held
     /// when the lock engaged ([`PERSON_BUTTONS`]).
     fn person_holds_button(&self) -> bool {
@@ -595,6 +611,29 @@ mod tests {
         assert_eq!(displays[0].id, format!("{}@HDMI-1", "x".repeat(121)));
         assert_eq!(displays[1].id, format!("{}@DP-1", "x".repeat(123)));
         assert!(displays.iter().all(|display| display.id.chars().count() == 128));
+    }
+
+    /// #EXP-1994: a typed character is its press, a hold, its release, on
+    /// every backend; a press that failed is never released.
+    #[test]
+    fn a_typed_character_is_press_hold_release() {
+        let strokes = std::cell::RefCell::new(Vec::new());
+        let started = std::time::Instant::now();
+        let stroke = |down| {
+            strokes.borrow_mut().push((down, started.elapsed()));
+            Ok(())
+        };
+        assert_eq!(type_with(stroke), Ok(()));
+        let strokes = strokes.into_inner();
+        assert_eq!(strokes.iter().map(|(down, _)| *down).collect::<Vec<_>>(), [true, false]);
+        assert!(strokes[1].1 - strokes[0].1 >= CHAR_HOLD);
+
+        let tried = std::cell::RefCell::new(Vec::new());
+        let refused = type_with(|down| {
+            tried.borrow_mut().push(down);
+            Err("no key".to_string())
+        });
+        assert_eq!((refused, tried.into_inner()), (Err("no key".to_string()), vec![true]));
     }
 
     /// #FEED-164: `work-screen.json` `idCases`, and a reorder of twins keeps

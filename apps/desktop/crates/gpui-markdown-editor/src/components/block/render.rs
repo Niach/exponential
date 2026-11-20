@@ -119,6 +119,48 @@ fn render_image_placeholder(
         .into_any_element()
 }
 
+/// #EXP-1968 vendoring: a picture the host refuses, in its place: THE link
+/// look (`text_link`, underlined) when it has an href, else plain text;
+/// `overlay` = the block's `…` menu (no resize handles: nothing to size).
+fn render_image_stand_in(
+    stand_in: &crate::host::ImageStandIn,
+    theme: &Theme,
+    overlay: Option<AnyElement>,
+) -> AnyElement {
+    let c = &theme.colors;
+    let t = &theme.typography;
+    let control_room = IMAGE_MENU_BUTTON_SIZE + 2.0 * IMAGE_CONTROL_INSET;
+    let label = div()
+        .text_size(px(t.text_size))
+        .map(|label| {
+            if stand_in.href.is_some() {
+                label
+                    .text_color(c.text_link)
+                    .underline()
+                    .cursor(CursorStyle::PointingHand)
+            } else {
+                label.text_color(c.text_default)
+            }
+        })
+        .child(SharedString::from(stand_in.text.clone()));
+    div()
+        .w_full()
+        .flex()
+        .child(
+            div()
+                .relative()
+                .flex()
+                .items_center()
+                .max_w(relative(1.0))
+                .when(overlay.is_some(), |el| {
+                    el.min_h(px(control_room)).pr(px(control_room))
+                })
+                .child(label)
+                .children(overlay),
+        )
+        .into_any_element()
+}
+
 fn render_loading_placeholder(
     runtime: &ImageRuntime,
     width: Length,
@@ -492,6 +534,9 @@ impl Block {
         if let Some(media) = runtime.media.as_ref() {
             return self.render_media_content(runtime, media, max_width, max_height, theme, overlay);
         }
+        if let ImageResolvedSource::StandIn(stand_in) = &runtime.resolved_source {
+            return render_image_stand_in(stand_in, theme, overlay);
+        }
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
@@ -537,6 +582,7 @@ impl Block {
                     &placeholder_strings,
                 );
             }
+            ImageResolvedSource::StandIn(_) => unreachable!("returned above"),
             ImageResolvedSource::Local(path) => img(path),
             ImageResolvedSource::Remote(uri) => img(uri),
             ImageResolvedSource::Decoded(image) => img(image),
@@ -799,6 +845,7 @@ impl Block {
     ) -> AnyElement {
         let c = &theme.colors;
         let drag_active = self.image_resize_drag.is_some();
+        let stand_in = matches!(runtime.resolved_source, ImageResolvedSource::StandIn(_));
         let mut handle_color = c.text_default;
         handle_color.a = 0.72;
 
@@ -917,8 +964,12 @@ impl Block {
             .absolute()
             .inset_0()
             .child(probe_canvas)
-            .child(handle(ImageResizeEdge::Left))
-            .child(handle(ImageResizeEdge::Right))
+            // #EXP-1968 vendoring: a stand-in keeps only its `…` menu.
+            .when(!stand_in, |overlay| {
+                overlay
+                    .child(handle(ImageResizeEdge::Left))
+                    .child(handle(ImageResizeEdge::Right))
+            })
             .child(menu_button)
             .into_any_element()
     }
@@ -1542,6 +1593,9 @@ impl Block {
                     ))
                     .into_any_element();
             }
+            ImageResolvedSource::StandIn(stand_in) => {
+                return render_image_stand_in(&stand_in, theme, None);
+            }
             ImageResolvedSource::Local(path) => img(path),
             ImageResolvedSource::Remote(uri) => img(uri),
             ImageResolvedSource::Decoded(image) => img(image),
@@ -1980,10 +2034,10 @@ impl Block {
             .map(|image| image.zoom_factor())
             .unwrap_or(1.0);
         let runtime = ImageRuntime {
+            resolved_source: self.resolve_image_source_with_env(src, &alt, self.image_base_dir()),
             alt,
             src: src.to_string(),
             title: None,
-            resolved_source: resolve_image_source(src, self.image_base_dir()),
             media: None,
         };
         let strings = self.environment.strings.clone();
