@@ -70,9 +70,10 @@ pub mod voice;
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -87,7 +88,8 @@ pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
 /// NEW-57: 6 = meetings. S-3: 7 = the ring and CallListening.
 /// EXP-1857: 8 = caller mode (Dial, DialPlay, DialFlush, DialAudio).
-pub const PROTOCOL: u32 = 8;
+/// #ERR-29: 9 = Panicked.
+pub const PROTOCOL: u32 = 9;
 
 /// S-3: a worker stderr line starting with this is logged at debug (the
 /// rest at info): the call's per-second input level.
@@ -347,10 +349,21 @@ pub enum Event {
     /// NEW-57: a draining MeetingStop of `id` is done: every segment it had
     /// has been emitted (the host sends its final batch now).
     MeetingStopped { id: String },
+    /// #ERR-29: a thread of the worker panicked at `at` (`file:line`; never
+    /// the panic's message), the worker's last word when the panic ends it
+    /// (it then exits with [`PANIC_EXIT`]). The host logs it; never handed
+    /// to `on_event`.
+    Panicked { at: String, thread: String },
     /// Host-side: the worker process ended on its own (a crash, a failed
-    /// write). Never sent by the worker itself, nor (#NEW-66) after
-    /// [`SpeechClient::shutdown`].
-    Exited,
+    /// start), with its exit `code` or the `signal` that ended it (#ERR-29;
+    /// both `None` = it never started, or no status came). Never sent by
+    /// the worker itself, nor (#NEW-66) after [`SpeechClient::shutdown`].
+    Exited { code: Option<i32>, signal: Option<i32> },
+}
+
+impl Event {
+    /// [`Event::Exited`] of a worker that left no status.
+    pub const EXITED: Event = Event::Exited { code: None, signal: None };
 }
 
 /// NEW-78: why a Listen failed (`detail` carries the specifics for the log).
@@ -657,14 +670,111 @@ pub fn remove_partial_downloads(data_dir: &std::path::Path) -> usize {
 type Callback = Arc<dyn Fn(Event) + Send + Sync>;
 
 struct Worker {
-    child: Child,
+    /// Shared with the reader, which reads the exit status (#ERR-29).
+    child: Arc<Mutex<Child>>,
     stdin: ChildStdin,
     /// #NEW-66: set by [`SpeechClient::shutdown`] before the kill: the
     /// exit was asked for, so no `Exited` goes out (a quick off/on never
-    /// counts the old worker's end as a crash of the new setting).
+    /// counts the old worker's end as a crash of the new setting). #ERR-29:
+    /// also set when the host lets go of a live worker (its drop).
     ended: Arc<AtomicBool>,
+    /// #ERR-29: a failed write found it dead: its end is a crash its
+    /// reader reports, not the host letting go of it.
+    gone: bool,
     /// The `talk-events` reader; only the tests join it (#EXP-1885).
     reader: Option<std::thread::JoinHandle<()>>,
+}
+
+/// How long the reader waits, after the worker's stdout closed, for its
+/// exit status (a core dump handed to a crash collector takes a moment).
+const EXIT_STATUS_WAIT: Duration = Duration::from_secs(5);
+
+/// #ERR-29: a spawn that failed: an error (a GlitchTip event when
+/// diagnostics are on), its cause in the warning before it.
+fn failed_to_start(err: &std::io::Error) {
+    log::warn!("talk: speech worker failed to start: {err}");
+    log::error!("talk: the speech worker failed to start");
+}
+
+/// `(code, signal)` of an exit status.
+fn code_and_signal(status: ExitStatus) -> (Option<i32>, Option<i32>) {
+    #[cfg(unix)]
+    let signal = std::os::unix::process::ExitStatusExt::signal(&status);
+    #[cfg(not(unix))]
+    let signal = None;
+    (status.code(), signal)
+}
+
+/// A signal's name, where every unix agrees on its number (and Linux's
+/// and macOS's own for SIGBUS and SIGSYS).
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        15 => "SIGTERM",
+        7 if cfg!(target_os = "linux") => "SIGBUS",
+        31 if cfg!(target_os = "linux") => "SIGSYS",
+        10 if cfg!(target_os = "macos") => "SIGBUS",
+        12 if cfg!(target_os = "macos") => "SIGSYS",
+        _ => return None,
+    })
+}
+
+/// The exit code of a worker a panic ended (Rust's own for a panic of the
+/// main thread; the worker's for one of its engine threads).
+pub const PANIC_EXIT: i32 = 101;
+
+/// SIGHUP, SIGINT or SIGTERM (the same numbers on every unix): a signal
+/// from outside, the host being stopped together with its worker (the
+/// daemon's unit stopped, the session ending, Ctrl-C), no crash.
+fn stopped_from_outside(signal: Option<i32>) -> bool {
+    matches!(signal, Some(1 | 2 | 15))
+}
+
+/// #ERR-29: whether an [`Event::Exited`] is a worker that crashed while it
+/// ran: not one that never started (no status: that failure is an error
+/// where it happened), nor one a signal from outside ended.
+pub fn crashed(code: Option<i32>, signal: Option<i32>) -> bool {
+    (code.is_some() || signal.is_some()) && !stopped_from_outside(signal)
+}
+
+/// #ERR-29: what ended a worker nobody stopped, for the error's text: a
+/// panic ([`PANIC_EXIT`]), else the signal, else the exit code (a Windows
+/// NTSTATUS in hex). A small fixed set, so GlitchTip groups the crashes by
+/// cause.
+pub fn crash_cause(code: Option<i32>, signal: Option<i32>) -> String {
+    if signal.is_none() && code == Some(PANIC_EXIT) {
+        return "panic".to_string();
+    }
+    match (signal, code) {
+        (Some(signal), _) => signal_name(signal).map_or_else(|| format!("signal {signal}"), str::to_string),
+        (None, Some(code)) if cfg!(windows) && code < 0 => format!("exit code {:#x}", code as u32),
+        (None, Some(code)) => format!("exit code {code}"),
+        (None, None) => "no exit status".to_string(),
+    }
+}
+
+/// The worker's exit status once its stdout closed (it exits right
+/// after), polled so a kill elsewhere never waits on the lock.
+fn exit_status(child: &Mutex<Child>) -> Option<ExitStatus> {
+    let deadline = Instant::now() + EXIT_STATUS_WAIT;
+    loop {
+        if let Ok(Some(status)) = child.lock().ok()?.try_wait() {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// The host's handle on the speech worker. Cheap to clone; every clone
@@ -830,6 +940,7 @@ impl SpeechClient {
         let Ok(mut guard) = self.worker.lock() else { return };
         if let Some(worker) = guard.as_mut() {
             if write_line(&mut worker.stdin, request).is_err() {
+                worker.gone = true;
                 *guard = None;
             }
         }
@@ -847,8 +958,7 @@ impl SpeechClient {
         let mut worker = guard.take()?;
         // Set before the kill: the reader only sees EOF after it.
         worker.ended.store(true, Ordering::SeqCst);
-        let _ = worker.child.kill();
-        let _ = worker.child.wait();
+        worker.reap();
         worker.reader.take()
     }
 
@@ -903,13 +1013,13 @@ impl SpeechClient {
                 match self.spawn() {
                     Ok(worker) => *guard = Some(worker),
                     Err(err) => {
-                        log::warn!("talk: speech worker failed to start: {err}");
+                        failed_to_start(&err);
                         // Wave review of #1263/#1278: a worker that never came
                         // up is an `Exited` like one that died (off the lock:
                         // the host may call back in), so the Devices speech
                         // row reads unavailable rather than vanishing.
                         drop(guard);
-                        (self.on_event)(Event::Exited);
+                        (self.on_event)(Event::EXITED);
                         return;
                     }
                 }
@@ -919,9 +1029,9 @@ impl SpeechClient {
                 Ok(()) => return,
                 Err(err) => {
                     log::info!("talk: speech worker gone ({err}); restarting");
+                    // Reaped as it drops; its reader reports the death.
                     if let Some(mut dead) = guard.take() {
-                        let _ = dead.child.kill();
-                        let _ = dead.child.wait();
+                        dead.gone = true;
                     }
                 }
             }
@@ -952,18 +1062,38 @@ impl SpeechClient {
         let on_event = self.on_event.clone();
         let ended = Arc::new(AtomicBool::new(false));
         let asked = ended.clone();
+        let pid = child.id();
+        let child = Arc::new(Mutex::new(child));
+        let ending = child.clone();
         let reader = std::thread::Builder::new().name("talk-events".into()).spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
                 match serde_json::from_str::<Event>(&line) {
-                    Ok(Event::Exited) => {}
+                    Ok(Event::Exited { .. }) => {}
+                    // Where, never what: the panic's message stays in the
+                    // worker's debug lines.
+                    Ok(Event::Panicked { at, thread }) => log::warn!("talk: the speech worker panicked at {at} on thread {thread}"),
                     Ok(event) => on_event(event),
                     Err(err) => log::debug!("talk: unreadable worker line ({err}): {line}"),
                 }
             }
-            if !asked.load(Ordering::SeqCst) {
-                on_event(Event::Exited);
+            if asked.load(Ordering::SeqCst) {
+                return;
             }
+            // #ERR-29: what ended it, read before anyone is told.
+            let status = exit_status(&ending);
+            if asked.load(Ordering::SeqCst) {
+                return;
+            }
+            let (code, signal) = status.map(code_and_signal).unwrap_or_default();
+            let how = status.map_or_else(|| "no exit status".to_string(), |status| status.to_string());
+            log::warn!("talk: speech worker (pid {pid}) ended: {how}");
+            // An error (a GlitchTip event), unless the host is being
+            // stopped with it.
+            if !stopped_from_outside(signal) {
+                log::error!("talk: the speech worker crashed ({})", crash_cause(code, signal));
+            }
+            on_event(Event::Exited { code, signal });
         })?;
         std::thread::Builder::new().name("talk-stderr".into()).spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -973,15 +1103,29 @@ impl SpeechClient {
                 }
             }
         })?;
-        log::info!("talk: speech worker started (pid {})", child.id());
-        Ok(Worker { child, stdin, ended, reader: Some(reader) })
+        log::info!("talk: speech worker started (pid {pid})");
+        Ok(Worker { child, stdin, ended, gone: false, reader: Some(reader) })
+    }
+}
+
+impl Worker {
+    /// Kill and reap it (the status stays readable for its reader).
+    fn reap(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // #ERR-29: the host letting go of a live worker (a dropped client,
+        // the app quitting) is no crash; one a failed write found dead is.
+        if !self.gone {
+            self.ended.store(true, Ordering::SeqCst);
+        }
+        self.reap();
     }
 }
 
@@ -1002,6 +1146,57 @@ fn write_line(stdin: &mut ChildStdin, request: &Request) -> std::io::Result<()> 
     line.push('\n');
     stdin.write_all(line.as_bytes())?;
     stdin.flush()
+}
+
+/// #ERR-29: every `log` record of a test binary (one logger per process):
+/// only an `error!` becomes a GlitchTip event, so the tests of a dead end
+/// look for one (here and in the hosts' tests).
+#[cfg(any(test, feature = "test-support"))]
+pub mod log_capture {
+    use std::sync::{Mutex, Once};
+    use std::thread::ThreadId;
+
+    static RECORDS: Mutex<Vec<(ThreadId, log::Level, String)>> = Mutex::new(Vec::new());
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            RECORDS.lock().unwrap_or_else(|e| e.into_inner()).push((std::thread::current().id(), record.level(), record.args().to_string()));
+        }
+
+        fn flush(&self) {}
+    }
+
+    pub fn start() {
+        static START: Once = Once::new();
+        START.call_once(|| {
+            let _ = log::set_logger(&Capture);
+            log::set_max_level(log::LevelFilter::Trace);
+        });
+    }
+
+    /// Every record so far, of every thread (and test) of the binary.
+    pub fn records() -> Vec<(log::Level, String)> {
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, level, text)| (*level, text.clone())).collect()
+    }
+
+    /// Whether THIS thread logged an error with exactly this text (tests
+    /// run as threads of one binary: another test's record never counts).
+    pub fn error_logged(message: &str) -> bool {
+        let here = std::thread::current().id();
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(thread, level, text)| *thread == here && *level == log::Level::Error && text == message)
+    }
+
+    /// [`error_logged`] for an error another thread logs (a reader, a lock
+    /// thread): any thread's, so its text must be the test's alone.
+    pub fn error_logged_anywhere(message: &str) -> bool {
+        records().iter().any(|(level, text)| *level == log::Level::Error && text == message)
+    }
 }
 
 #[cfg(test)]
@@ -1170,7 +1365,33 @@ mod tests {
         assert_eq!(bare, Request::Dial { id: "c1".into(), ring_ms: 0 });
         let audio = Event::DialAudio { id: "c1".into(), pcm: "AQA=".into() };
         assert_eq!(serde_json::to_string(&audio).unwrap(), r#"{"t":"dialAudio","id":"c1","pcm":"AQA="}"#);
-        assert_eq!(PROTOCOL, 8);
+        assert_eq!(PROTOCOL, 9);
+    }
+
+    /// #ERR-29: a worker's panic line; `Exited` carries the status.
+    #[test]
+    fn protocol_9_panicked() {
+        let panicked = Event::Panicked { at: "crates/etalk-engine/src/lib.rs:7".into(), thread: "voice-engine".into() };
+        let json = r#"{"t":"panicked","at":"crates/etalk-engine/src/lib.rs:7","thread":"voice-engine"}"#;
+        assert_eq!(serde_json::to_string(&panicked).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Event>(json).unwrap(), panicked);
+        assert_eq!(serde_json::to_string(&Event::Exited { code: None, signal: Some(11) }).unwrap(), r#"{"t":"exited","code":null,"signal":11}"#);
+    }
+
+    /// #ERR-29: the cause in the crash's error text, a small fixed set.
+    #[test]
+    fn a_crash_is_named_by_its_cause() {
+        assert_eq!(crash_cause(None, Some(11)), "SIGSEGV");
+        assert_eq!(crash_cause(None, Some(6)), "SIGABRT", "a native abort (ggml's assert), whatever panicked before");
+        assert_eq!(crash_cause(Some(PANIC_EXIT), None), "panic");
+        assert_eq!(crash_cause(None, Some(9)), "SIGKILL");
+        assert_eq!(crash_cause(None, Some(64)), "signal 64");
+        assert_eq!(crash_cause(Some(1), None), "exit code 1");
+        assert_eq!(crash_cause(None, None), "no exit status");
+        // A crash for the hosts (a call's end): it ran and nobody stopped it.
+        assert!(crashed(None, Some(11)) && crashed(Some(1), None) && crashed(Some(PANIC_EXIT), None));
+        assert!(!crashed(None, None), "it never started: an error where it failed");
+        assert!(!crashed(None, Some(15)) && !crashed(None, Some(2)) && !crashed(None, Some(1)), "stopped with its host");
     }
 
     #[test]
@@ -1342,7 +1563,7 @@ mod tests {
             client.spawn().map(|worker| *guard = Some(worker))
         };
         if spawned.is_err() {
-            (client.on_event)(Event::Exited);
+            (client.on_event)(Event::EXITED);
         }
     }
 
@@ -1377,8 +1598,8 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             let tx = Mutex::new(tx);
             let client = SpeechClient::new(exe, dir.clone(), move |event| {
-                if event == Event::Exited {
-                    let _ = tx.lock().unwrap().send(());
+                if let Event::Exited { code, signal } = event {
+                    let _ = tx.lock().unwrap().send((code, signal));
                 }
             });
             (client, rx)
@@ -1391,9 +1612,91 @@ mod tests {
 
         let (client, exited) = exits(script("dies", "exit 1"));
         spawn_worker(&client);
-        exited.recv_timeout(std::time::Duration::from_secs(60)).expect("a worker that dies on its own is reported");
+        let status = exited.recv_timeout(std::time::Duration::from_secs(60)).expect("a worker that dies on its own is reported");
+        assert_eq!(status, (Some(1), None), "#ERR-29: with its exit code");
         client.shutdown();
         assert!(exited.try_recv().is_err(), "reported once");
+
+        // #ERR-29: the host letting go of a live worker is no crash either.
+        let (client, exited) = exits(script("dropped", "exec sleep 30"));
+        spawn_worker(&client);
+        let reader = client.worker.lock().unwrap().as_mut().expect("a worker runs").reader.take().unwrap();
+        drop(client);
+        reader.join().unwrap();
+        assert!(exited.try_recv().is_err(), "a dropped client's worker sends no Exited");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #ERR-29: a worker that dies of a signal (a native crash in the model
+    /// code) is reported with it: the signal in `Exited`, and an error
+    /// naming it, the record GlitchTip turns into an event.
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_killed_by_a_signal_is_reported_with_it() {
+        log_capture::start();
+        let dir = std::env::temp_dir().join(format!("talk-signal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        fake_worker(&dir.join("worker"), "ulimit -c 0; kill -SEGV $$");
+        let (tx, exited) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let client = SpeechClient::new(dir.join("worker"), dir.clone(), move |event| {
+            if let Event::Exited { code, signal } = event {
+                let _ = tx.lock().unwrap().send((code, signal));
+            }
+        });
+        spawn_worker(&client);
+        let status = exited.recv_timeout(std::time::Duration::from_secs(60)).expect("the dead worker is reported");
+        assert_eq!(status, (None, Some(11)), "the signal reaches the host");
+        assert!(log_capture::error_logged_anywhere("talk: the speech worker crashed (SIGSEGV)"), "{:?}", log_capture::records());
+        client.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #ERR-29: a worker a signal from outside ended (the daemon's unit
+    /// stopped, Ctrl-C: the whole group gets it) is reported to the host,
+    /// but is no crash: no error.
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_stopped_from_outside_is_no_crash() {
+        log_capture::start();
+        let dir = std::env::temp_dir().join(format!("talk-term-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        fake_worker(&dir.join("worker"), "kill -TERM $$");
+        let (tx, exited) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let client = SpeechClient::new(dir.join("worker"), dir.clone(), move |event| {
+            if let Event::Exited { code, signal } = event {
+                let _ = tx.lock().unwrap().send((code, signal));
+            }
+        });
+        spawn_worker(&client);
+        let status = exited.recv_timeout(std::time::Duration::from_secs(60)).expect("the ended worker is reported");
+        assert_eq!(status, (None, Some(15)));
+        assert!(!crashed(status.0, status.1));
+        assert!(!log_capture::error_logged_anywhere("talk: the speech worker crashed (SIGTERM)"), "{:?}", log_capture::records());
+        client.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #ERR-29: the worker's panic line is the host's, never `on_event`'s,
+    /// and the end that follows is a crash by panic.
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_that_panicked_is_reported_as_a_panic() {
+        log_capture::start();
+        let dir = std::env::temp_dir().join(format!("talk-panic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        fake_worker(&dir.join("worker"), r#"echo '{"t":"panicked","at":"crates/etalk-engine/src/lib.rs:7","thread":"main"}'; exit 101"#);
+        let (tx, events) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let client = SpeechClient::new(dir.join("worker"), dir.clone(), move |event| {
+            let _ = tx.lock().unwrap().send(event);
+        });
+        spawn_worker(&client);
+        let event = events.recv_timeout(std::time::Duration::from_secs(60)).expect("the dead worker is reported");
+        assert_eq!(event, Event::Exited { code: Some(101), signal: None }, "the panic line is not forwarded");
+        assert!(log_capture::error_logged_anywhere("talk: the speech worker crashed (panic)"), "{:?}", log_capture::records());
+        client.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1412,7 +1715,7 @@ mod tests {
         let (tx, exited) = std::sync::mpsc::channel();
         let tx = Mutex::new(tx);
         let client = SpeechClient::new(dir.join("worker"), dir.clone(), move |event| {
-            if event == Event::Exited {
+            if matches!(event, Event::Exited { .. }) {
                 let _ = tx.lock().unwrap().send(());
             }
         });
@@ -1492,16 +1795,19 @@ mod tests {
     /// like one that died — once per request that would have spawned it.
     #[test]
     fn a_failed_spawn_is_reported_as_an_exit() {
+        log_capture::start();
         let dir = std::env::temp_dir().join(format!("talk-nospawn-{}", std::process::id()));
         let seen = Arc::new(Mutex::new(0usize));
         let counter = seen.clone();
         let client = SpeechClient::new(dir.join("no-such-executable"), dir.clone(), move |event| {
-            if event == Event::Exited {
+            if matches!(event, Event::Exited { .. }) {
                 *counter.lock().unwrap() += 1;
             }
         });
         client.call("c1", "en", false, 3_000);
         assert_eq!(*seen.lock().unwrap(), 1, "a request that cannot spawn is an exit");
+        // #ERR-29: and an error (Voice is off until the next start).
+        assert!(log_capture::error_logged("talk: the speech worker failed to start"), "{:?}", log_capture::records());
         client.speak("m1", "Hello.");
         assert_eq!(*seen.lock().unwrap(), 2, "once per attempt");
         // Requests that never spawn a worker say nothing.

@@ -76,6 +76,6 @@ pipewire = { version = "0.9", optional = true }
 default = ["pipewire"]
 # Linux per-app capture through PipeWire (a load-time libpipewire link).
 pipewire = ["dep:pipewire"]
-# #EXP-1936: `SpeechClient::recording` (a client without a worker), for a
-# host's tests; only dev-dependencies turn it on.
+# #EXP-1936: `SpeechClient::recording` (a client without a worker), and
+# #ERR-29's `log_capture`, for a host's tests; only dev-dependencies turn it on.
 test-support = []
