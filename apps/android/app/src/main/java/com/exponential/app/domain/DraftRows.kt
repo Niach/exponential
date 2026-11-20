@@ -7,7 +7,7 @@ import com.exponential.app.data.db.TeamEntity
 /**
  * One row of the "Drafts" section (EXP-878) — a synced draft joined to the
  * board it will be filed on. The issue_drafts shape is static per user and NOT
- * team/trash scoped (the twin of pins), so this join is where a draft on an
+ * team/trash scoped, so this join is where a draft on an
  * unresolvable board (a trashed or archived board, a team the user left) drops
  * out: no board, no row — never a placeholder.
  *

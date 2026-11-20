@@ -489,3 +489,15 @@ val MIGRATION_131_132: Migration = object : Migration(131, 132) {
         )
     }
 }
+
+/**
+ * v133 (#EXP-2027): the personal Pins feature (#EXP-778) is deleted
+ * everywhere, so the local `pins` table drops with its shape offset (the
+ * v121 `conversations` precedent). Nothing refetches.
+ */
+val MIGRATION_132_133: Migration = object : Migration(132, 133) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `pins`")
+        db.execSQL("DELETE FROM `electric_offsets` WHERE `shape` = 'pins'")
+    }
+}
