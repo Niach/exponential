@@ -1333,7 +1333,7 @@
       "web": {
         "route": "/devices/screenshot-demo-desktop/settings",
         "anchor": {
-          "text": "Sharing",
+          "text": "Default device",
           "timeoutMs": 30000
         },
         "settleMs": 800
