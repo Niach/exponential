@@ -462,6 +462,48 @@ fn spaces_and_launches_are_counted_and_fenced_by_memory() {
 /// compositor, and what a compositor that is gone left there goes when the
 /// next one opens the place: a `p<pid>` of a process that is no running
 /// compositor, or of an earlier life of this process id.
+/// #EXP-1514 (D 10): out of memory under the slice's `MemoryHigh`, the
+/// spaces unused longest give way, as many as it takes and no more, what
+/// each held read from its own slice; when even all of them would not make
+/// room the answer is `limit` and none closes.
+#[test]
+fn a_full_desktop_gives_way_for_memory_as_many_as_it_takes() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let tools = Tools::new(dir.path());
+    let units = tools.units();
+    let all_cgroup = units.all_cgroup();
+    h.with(move |state| {
+        state.spaces.units = Some(units);
+        state.spaces.in_use_for = Duration::ZERO;
+    });
+    let _agents: Vec<(Client, SpaceInfo)> = (1..=3).map(|n| agent(&h, &format!("run-{n}"))).collect();
+    let high = pages(8 * GIB / 10 * 9);
+    std::fs::create_dir_all(&all_cgroup).unwrap();
+    // 2 MiB more than leaves room for one still space.
+    std::fs::write(all_cgroup.join("memory.stat"), format!("anon {}\nshmem 0\n", high - GIB + (2 << 20))).unwrap();
+    let holds = |space: u32, bytes: u64| {
+        let cgroup = tools.units().space_cgroup(space);
+        std::fs::create_dir_all(&cgroup).unwrap();
+        std::fs::write(cgroup.join("memory.stat"), format!("anon {bytes}\nshmem 0\nfile 999999\n")).unwrap();
+    };
+    let listed = || h.ipc().spaces().unwrap().iter().map(|s| s.id.as_str().to_string()).collect::<Vec<_>>();
+    // Nothing the spaces hold makes room: refused, none closed.
+    for space in 1..=3 {
+        holds(space, 0);
+    }
+    let grant = h.ipc().mint(SessionId::new("run-4").unwrap(), vec![Capability::Space], None).unwrap();
+    let mut fourth = h.ipc_with(grant.token).unwrap();
+    assert!(matches!(fourth.create_space(320, 240), Err(ede_protocol::Error::Failed(f)) if f.code == ede_protocol::ErrorCode::Limit));
+    assert_eq!(listed(), ["space-1", "space-2", "space-3"]);
+    // The two unused longest free enough: they close, the third stays.
+    holds(1, 1 << 20);
+    holds(2, 1 << 20);
+    holds(3, 512 << 20);
+    assert_eq!(fourth.create_space(320, 240).unwrap().id.as_str(), "space-4");
+    assert_eq!(listed(), ["space-3", "space-4"]);
+    drop(h);
+}
+
 #[test]
 fn the_homes_of_a_gone_compositor_go() {
     let dir = tempfile::tempdir().unwrap();
