@@ -12,6 +12,11 @@
 //! whose subject or caller belongs to a space is refused before anything
 //! maps: no prompt on the person's screen, their keyboard stays where it
 //! is, the space's command fails.
+//!
+//! #EDE-138: what a space launches runs in a scope of the space's own
+//! systemd slice, and that is looked at first: a process keeps its cgroup
+//! when it starts a session of its own with an empty environment and lets
+//! its parent die, which leaves every other sign behind.
 
 use std::{
     collections::HashMap,
@@ -202,11 +207,22 @@ fn user_name(uid: u32) -> Option<String> {
 }
 
 /// Which agent space one of `pids` belongs to (#EDE-127): what their
-/// environments, or those of the processes they descend from, say about
-/// the compositor's spaces under `spaces` (no round trip, and it holds
-/// while the compositor cannot be asked), else what `compositor` answers
-/// from what it launched and what connected to a space's socket.
+/// cgroups say first (#EDE-138: a scope of a space's slice, of any
+/// compositor of this user), then what their environments, or those of
+/// the processes they descend from, say about the compositor's spaces
+/// under `spaces` (neither needs a round trip, and both hold while the
+/// compositor cannot be asked), else what `compositor` answers from what
+/// it launched and what connected to a space's socket.
 pub fn space_of_with(pids: &[u32], spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Option<String>) -> Option<String> {
+    space_of_by(pids, ede_protocol::process::cgroup, spaces, compositor)
+}
+
+/// [`space_of_with`] with the cgroups read through `cgroup_of` (a test's).
+pub fn space_of_by(pids: &[u32], cgroup_of: impl Fn(u32) -> Option<String>, spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Option<String>) -> Option<String> {
+    if let Some((_, space, pid)) = pids.iter().find_map(|pid| ede_protocol::process::space_by_cgroup_with(*pid, &cgroup_of)) {
+        tracing::debug!("process {pid} is agent space {}'s by its cgroup", number(space.as_str()));
+        return Some(space.as_str().to_string());
+    }
     if let Some(spaces) = spaces {
         if let Some((space, pid)) = pids.iter().find_map(|pid| ede_protocol::process::space_by_environment(*pid, spaces)) {
             tracing::debug!("process {pid} is agent space {}'s by its environment", number(space.as_str()));
@@ -411,6 +427,30 @@ mod tests {
         assert_eq!(space_of_with(&[person.id()], Some(&spaces), |pids| (pids == [person.id()]).then(|| "space-9".into())), Some("space-9".into()), "what the compositor knows");
         assert_eq!(space_of_with(&[person.id()], Some(&spaces), |_| None), None);
         assert_eq!(space_of_with(&[in_space.id()], None, |_| None), None, "no spaces directory: the compositor alone");
+        for child in [&mut in_space, &mut person] {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// #EDE-138: the cgroup answers before the environment and before the
+    /// compositor. A process in a scope of a space's slice is that
+    /// space's with nothing else left: an empty environment, no spaces
+    /// directory to compare with, a compositor that is not asked.
+    #[test]
+    fn the_cgroup_answers_before_the_environment_and_the_compositor() {
+        let mut in_space = Command::new("sleep").arg("30").env_clear().spawn().unwrap();
+        let mut person = Command::new("sleep").arg("30").spawn().unwrap();
+        let scoped = in_space.id();
+        let cgroup_of = move |pid: u32| {
+            if pid == scoped {
+                return Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-exponential_p41.slice/app-exponential_p41-s7.slice/exponential-p41-s7-2.scope\n".to_string());
+            }
+            ede_protocol::process::cgroup(pid)
+        };
+        assert_eq!(space_of_by(&[person.id(), scoped], &cgroup_of, None, |_| panic!("the cgroup said it")), Some("space-7".into()));
+        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |pids| (pids == [person.id()]).then(|| "space-9".into())), Some("space-9".into()), "the person's cgroup names no space: the other signs are asked");
+        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |_| None), None);
         for child in [&mut in_space, &mut person] {
             let _ = child.kill();
             let _ = child.wait();
