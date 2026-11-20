@@ -23,7 +23,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use x11rb::connection::Connection;
@@ -38,6 +37,7 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, WindowInfo};
 use crate::keys::{Key, Named};
+use crate::backend::{LockStartError, LockThread};
 
 #[path = "x11_clipboard.rs"]
 mod clipboard;
@@ -795,32 +795,38 @@ fn lockable(info: &xinput::XIDeviceInfo) -> bool {
 /// on its own and the drop only collects it).
 struct Lock {
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
     /// `display` = the X display the grab is taken on (`None`: `DISPLAY`).
     fn take(display: Option<String>, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
         let stop = Arc::new(AtomicBool::new(false));
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn({
-                let stop = stop.clone();
-                move || match Grabs::take(display.as_deref()) {
-                    Ok(grabs) => {
-                        let _ = ready_tx.send(Ok(()));
+        // A grab that went in just as the wait gave up lets go here.
+        let late = {
+            let stop = stop.clone();
+            move |_: Result<(), String>| stop.store(true, Ordering::Release)
+        };
+        let body = {
+            let stop = stop.clone();
+            move |ready: crate::backend::LockReady<Result<(), String>>| match Grabs::take(display.as_deref()) {
+                Ok(mut grabs) => {
+                    if ready.send(Ok(())) {
                         grabs.hold(&stop, &*on_esc);
-                    }
-                    Err(reason) => {
-                        let _ = ready_tx.send(Err(reason));
+                    } else {
+                        // `take` gave up waiting: nobody holds a guard for these grabs.
+                        grabs.release();
                     }
                 }
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(Lock { stop, thread: Some(thread) }),
-            Ok(Err(reason)) => Err(reason),
+                Err(reason) => {
+                    ready.send(Err(reason));
+                }
+            }
+        };
+        match LockThread::start(body, late) {
+            Ok((Ok(()), thread)) => Ok(Lock { stop, thread }),
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
             Err(_) => {
                 stop.store(true, Ordering::Release);
                 Err("The X server did not answer the grab.".to_string())
@@ -834,11 +840,7 @@ impl LockGuard for Lock {}
 impl Drop for Lock {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        if let Some(thread) = self.thread.take() {
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
+        self.thread.join();
     }
 }
 
