@@ -134,8 +134,10 @@ fn a_space_has_its_own_user_manager_and_one_bus() {
     assert!(activated.lines().any(|line| line == format!("WAYLAND_DISPLAY={}", space.wayland_display)), "{activated}");
 
     // Nothing of the distribution's or the person's: one service, one socket.
+    // (A unit only named by another, as systemd 259's mounts name
+    // systemd-remount-fs.service, is `not-found`: nothing of it is there.)
     let loaded = out("units.txt");
-    agent.launch(staying(format!("systemctl --user list-units --all --plain --no-legend --type=service,socket,timer,path {}", into(&loaded))), Default::default(), None).unwrap();
+    agent.launch(staying(format!("systemctl --user list-units --all --plain --no-legend --state=loaded --type=service,socket,timer,path {}", into(&loaded))), Default::default(), None).unwrap();
     let names: Vec<String> = written(&loaded).lines().filter_map(|line| line.split_whitespace().next().map(str::to_string)).collect();
     assert!(names.iter().all(|name| matches!(name.as_str(), "dbus.service" | "dbus.socket")), "the space's manager loaded {names:?}");
     assert!(names.contains(&"dbus.service".to_string()));
