@@ -148,7 +148,7 @@ export function SettingsSidebar({
   const { apps } = useApps(team?.id)
   const newApp = useNewApp(team?.id, teamSlug)
   const onSettings = useRouterState({ select: (state) => state.location.pathname.includes(`/settings`) })
-  useEnsureAssistant(onSettings)
+  useEnsureAssistant(onSettings ? team?.id : undefined)
 
   const listRows = (list: string): ReactNode => {
     if (!settingsNavListVisible(list, permissions)) return null

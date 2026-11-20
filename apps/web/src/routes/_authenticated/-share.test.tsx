@@ -31,7 +31,7 @@ vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamMemberships: () => ({ myTeams: mocks.teams }),
 }))
 vi.mock(`@/hooks/use-ensure-assistant`, () => ({
-  useEnsureAssistant: () => mocks.ensured.push(`account`),
+  useEnsureAssistant: (teamId: string) => mocks.ensured.push(teamId),
 }))
 vi.mock(`@/lib/last-visited`, () => ({ readLastVisited: () => ({ teamSlug: `acme` }) }))
 
@@ -81,9 +81,9 @@ describe(`ShareTargetsPage`, () => {
     expect(screen.getByText(fixture.copy.newChatSubtitle)).toBeTruthy()
   })
 
-  it(`the viewer's Assistant is ensured once per account, without a team`, () => {
+  it(`the viewer's Assistant is ensured on the page's team`, () => {
     draw()
-    expect(mocks.ensured).toContain(`account`)
+    expect(mocks.ensured).toContain(`id-acme`)
   })
 
   describe(`the preview line`, () => {

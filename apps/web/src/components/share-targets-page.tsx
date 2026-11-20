@@ -162,7 +162,7 @@ function SharePreview({ share }: { share: PendingShare }) {
 function ShareRows({ team, me }: { team: Team; me: string }) {
   const navigate = useNavigate()
   // The viewer's Assistant exists before the list leads with it.
-  useEnsureAssistant()
+  useEnsureAssistant(team.id)
   // #EXP-1987: the team's agents plus the viewer's Assistant wherever it
   // lives (after the move: their personal team, which never syncs).
   const { data: agentRows } = useLiveQuery((query) => query.from({ agents: agentCollection }))

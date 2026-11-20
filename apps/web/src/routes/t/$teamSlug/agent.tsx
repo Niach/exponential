@@ -468,7 +468,7 @@ function ComposerPane({
 }) {
   const { data: authSession } = useSession()
   // S-3: the viewer's Assistant exists before the agent row lists it.
-  useEnsureAssistant()
+  useEnsureAssistant(teamId)
   const model = useLaunchComposer({
     teamId,
     devices,

@@ -30,7 +30,7 @@ function SettingsAssistant() {
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
-  const assistantId = useEnsureAssistant()
+  const assistantId = useEnsureAssistant(null)
   const { agent: row } = useAgentRow(assistantId ?? null)
   // #EXP-1714: the global Assistant lives in the member's personal team.
   const agent = row && row.role === `assistant` && row.ownerId === me ? row : null
