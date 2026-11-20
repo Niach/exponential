@@ -262,9 +262,17 @@ impl Ede {
         }
         self.display_handle.remove_global::<Ede>(output_global);
         // #EDE-126: what still read from its clients answers `unavailable`.
+        #[cfg(feature = "xwayland")]
+        let Desk { seat, clipboard, x11_focus: (x11_focus, _), .. } = desk;
+        #[cfg(not(feature = "xwayland"))]
         let Desk { seat, clipboard, .. } = desk;
         self.clipboard_closed(clipboard);
         drop(output);
+        // A space's own X11 focus seat ([`super::x11`]) goes the same way.
+        #[cfg(feature = "xwayland")]
+        if x11_focus != seat {
+            self.spaces.closing.push(Closing { seat: x11_focus, since: Instant::now(), logged: false });
+        }
         self.spaces.closing.push(Closing { seat, since: Instant::now(), logged: false });
         tracing::info!("{} closed", name.as_str());
         true
