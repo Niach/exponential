@@ -91,6 +91,9 @@ data class UpdateAgentPatch(
     val skillIds: List<String>? = null,
     /** #EXP-1793: the agent's MCP servers; the WHOLE list is replaced. */
     val mcpServerIds: List<String>? = null,
+    /** #EXP-1988 (`assistant.teamPicks`): a team section's write: [skillIds]
+     *  / [mcpServerIds] are that team's rows and replace ONLY its picks. */
+    val pickTeamId: String? = null,
     /** #EXP-1847: the agent's own voice, a partial write ([AgentVoicePatch]). */
     val voice: AgentVoicePatch? = null,
 )
@@ -137,6 +140,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
         patch.sortOrder?.let { put("sortOrder", it) }
         patch.skillIds?.let { ids -> put("skillIds", JsonArray(ids.map(::JsonPrimitive))) }
         patch.mcpServerIds?.let { ids -> put("mcpServerIds", JsonArray(ids.map(::JsonPrimitive))) }
+        patch.pickTeamId?.let { put("pickTeamId", it) }
         patch.voice?.let { put("voice", it.toJson()) }
     }
 
