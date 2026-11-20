@@ -548,7 +548,9 @@ struct AgentSettingsForm: View {
                 errorLine("device")
                 AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
                 modelRow
-                if let teamId, let agentId {
+                // #EXP-1988: the Assistant's skills + MCP servers sit in its
+                // per-team sections below, never here.
+                if !assistant, let teamId, let agentId {
                     AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: canEdit)
                     // #EXP-1793 (`mcpRow`): while the team has a server or
                     // the agent names one.
@@ -562,6 +564,11 @@ struct AgentSettingsForm: View {
                 GlassSectionHeader(AgentSettings.Copy.runsOn)
             }
             .listRowBackground(glassFormRowFill)
+
+            // team-picks (#EXP-1988): one section per team of the member.
+            if assistant, let agentId {
+                AssistantTeamPicksSections(pageAgentId: agentId)
+            }
 
             // triggers: Check in, then the list + Add
             if let teamId {
@@ -617,7 +624,7 @@ struct AgentSettingsForm: View {
         .listSectionSpacing(8)
         // EXP-594: white control tint — system blue is retired.
         .tint(DesignTokens.Palette.primary)
-        .modifier(AgentMcpServersLoader(teamId: agentId == nil ? nil : teamId, servers: $mcpServers))
+        .modifier(AgentMcpServersLoader(teamId: agentId == nil || assistant ? nil : teamId, servers: $mcpServers))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AgentSettings.TestIds.page)
     }
@@ -724,6 +731,9 @@ struct AgentSkillsRow: View {
     /// The synced row's pick.
     let skillIds: [String]
     let canEdit: Bool
+    /// #EXP-1988: a Settings › Assistant section's team: `skillIds` is that
+    /// team's pick and a write replaces only it.
+    var pickTeamId: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -792,7 +802,7 @@ struct AgentSkillsRow: View {
         pending = next
         Task {
             do {
-                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(skillIds: next))
+                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(skillIds: next, pickTeamId: pickTeamId))
             } catch {
                 if pending == next { pending = previous }
                 toaster.error(
@@ -817,6 +827,8 @@ struct AgentMcpServersRow: View {
     /// The synced row's pick.
     let mcpServerIds: [String]
     let canEdit: Bool
+    /// #EXP-1988: as `AgentSkillsRow.pickTeamId`.
+    var pickTeamId: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -872,7 +884,7 @@ struct AgentMcpServersRow: View {
         pending = next
         Task {
             do {
-                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(mcpServerIds: next))
+                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(mcpServerIds: next, pickTeamId: pickTeamId))
             } catch {
                 if pending == next { pending = previous }
                 toaster.error(
@@ -881,6 +893,97 @@ struct AgentMcpServersRow: View {
                 )
             }
         }
+    }
+}
+
+/// #EXP-1988 (agent-settings.json `assistant.teamPicks`): Settings ›
+/// Assistant's per-team sections, right after Runs on: one per synced team
+/// (the team switcher's order; the personal team never syncs), each THE
+/// Skills row and THE MCP servers row over that team's rows.
+struct AssistantTeamPicksSections: View {
+    let pageAgentId: String
+
+    @Environment(TeamState.self) private var teamState: TeamState?
+
+    var body: some View {
+        ForEach(TeamGroups.ordered(teamState?.teams ?? [])) { team in
+            AssistantTeamPicksSection(team: team, pageAgentId: pageAgentId)
+        }
+    }
+}
+
+/// One team's section: header = the team's name; its agent =
+/// `assistantPickAgent` (switch off: that team's Assistant; on: the one);
+/// its picks = that agent's lists filtered to the team's rows.
+private struct AssistantTeamPicksSection: View {
+    let team: TeamEntity
+    let pageAgentId: String
+
+    private struct Picks: Equatable {
+        var agentId: String
+        var skillIds: [String]
+        var mcpServerIds: [String]
+    }
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var picks: Picks?
+    @State private var servers: [McpServerRow] = []
+
+    /// The team's pick of MCP servers, in pick order (`teamPick`).
+    private var mcpServerIds: [String] {
+        let ids = Set(servers.map(\.id))
+        return (picks?.mcpServerIds ?? []).filter { ids.contains($0) }
+    }
+
+    var body: some View {
+        Section {
+            if let picks {
+                AgentSkillsRow(
+                    teamId: team.id, agentId: picks.agentId, skillIds: picks.skillIds, canEdit: true,
+                    pickTeamId: team.id
+                )
+                // `mcpRow`: while the team has a server or the agent names one.
+                if !servers.isEmpty || !mcpServerIds.isEmpty {
+                    AgentMcpServersRow(
+                        agentId: picks.agentId, servers: servers, mcpServerIds: mcpServerIds, canEdit: true,
+                        pickTeamId: team.id
+                    )
+                }
+            }
+        } header: {
+            GlassSectionHeader(team.name)
+        }
+        .listRowBackground(glassFormRowFill)
+        .modifier(AgentMcpServersLoader(teamId: team.id, servers: $servers))
+        .task(id: "\(accountId)/\(team.id)/\(pageAgentId)") { await observe() }
+    }
+
+    private func observe() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let teamId = team.id, pageAgentId = pageAgentId, me = deps.auth.userId
+        let observation = ValueObservation.tracking { db -> Picks? in
+            let teamIds = try String.fetchAll(db, sql: "SELECT id FROM teams")
+            let agents = try SessionQueries.agents(db: db, teamId: nil)
+            guard let id = AgentSettings.assistantPickAgent(
+                agents, teamId: teamId, teamIds: teamIds, me: me, pageAgentId: pageAgentId
+            ), let agent = agents.first(where: { $0.id == id }) else { return nil }
+            let skillTeams = Dictionary(
+                try String.fetchAll(db, sql: "SELECT id FROM skills WHERE team_id = ?", arguments: [teamId])
+                    .map { ($0, teamId) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return Picks(
+                agentId: id,
+                skillIds: AgentSettings.teamPick(agent.skillIds, rowTeams: skillTeams, teamId: teamId),
+                mcpServerIds: agent.mcpServerIds
+            )
+        }.removeDuplicates()
+        do {
+            for try await next in observation.values(in: pool) {
+                picks = next
+            }
+        } catch {}
     }
 }
 

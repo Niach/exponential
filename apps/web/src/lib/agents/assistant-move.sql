@@ -12,8 +12,9 @@
 --     with its whole tree; the wraps of installs that no longer read it go;
 --   * every other conversation root of theirs ENDS, detached from its agent,
 --     readable in its team as before;
---   * every reference to their other Assistants points to the kept one; those
---     rows go; the kept one moves and re-stamps its prompt (`prompt.version`).
+--   * every reference to their other Assistants points to the kept one; their
+--     skill and MCP picks carry into it (#EXP-1988); those rows go; the kept
+--     one moves and re-stamps its prompt (`prompt.version`).
 -- NOT a migration: the release shepherd switches it on (`ASSISTANT_MOVE=on`,
 -- lib/agents/assistant-move.ts) once the clients that work across it are
 -- released; every boot then runs it in one transaction under a lock.
@@ -128,13 +129,74 @@ UPDATE "apps" p SET "agent_id" = m."keep_id" FROM "exp1986_assistants" m WHERE p
 --> statement-breakpoint
 UPDATE "user_voice_settings" v SET "agent_id" = m."keep_id" FROM "exp1986_assistants" m WHERE v."agent_id" = m."old_id" AND m."old_id" <> m."keep_id";
 --> statement-breakpoint
+-- #EXP-1988 (`assistant.teamPicks`): every Assistant's skill and MCP picks
+-- carry into the kept one before its rows go: the kept list first, then the
+-- others' in their creation order, deduped. Each id still names its team's
+-- row, so every team keeps its picks; the kept conversation's own pick
+-- takes the same additions after its own.
+CREATE TABLE "exp1988_picks" AS
+SELECT m."keep_id", k."kind", e."value" AS "pick", row_number() OVER (
+  PARTITION BY m."keep_id", k."kind"
+  ORDER BY (o."id" = m."keep_id") DESC, o."created_at", o."id", e."ordinality"
+) AS "ord"
+FROM "exp1986_assistants" m
+JOIN "agents" o ON o."id" = m."old_id"
+CROSS JOIN LATERAL (VALUES ('skill', o."skill_ids"), ('mcp', o."mcp_server_ids")) AS k("kind", "ids")
+CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(k."ids") = 'array' THEN k."ids" ELSE '[]'::jsonb END) WITH ORDINALITY AS e("value", "ordinality")
+WHERE m."keep_id" IN (SELECT "keep_id" FROM "exp1986_assistants" WHERE "old_id" <> "keep_id");
+--> statement-breakpoint
+UPDATE "agents" a SET
+  "skill_ids" = coalesce((
+    SELECT jsonb_agg(p."pick" ORDER BY p."first")
+    FROM (SELECT "pick", min("ord") AS "first" FROM "exp1988_picks" WHERE "keep_id" = a."id" AND "kind" = 'skill' GROUP BY "pick") p
+  ), '[]'::jsonb),
+  "mcp_server_ids" = coalesce((
+    SELECT jsonb_agg(p."pick" ORDER BY p."first")
+    FROM (SELECT "pick", min("ord") AS "first" FROM "exp1988_picks" WHERE "keep_id" = a."id" AND "kind" = 'mcp' GROUP BY "pick") p
+  ), '[]'::jsonb),
+  "updated_at" = now()
+WHERE a."id" IN (SELECT "keep_id" FROM "exp1988_picks");
+--> statement-breakpoint
+UPDATE "sessions" s SET
+  "skill_ids" = (
+    SELECT jsonb_agg(u."pick" ORDER BY u."src", u."ord")
+    FROM (
+      SELECT DISTINCT ON (q."pick") q."pick", q."src", q."ord"
+      FROM (
+        SELECT e."value" AS "pick", 0 AS "src", e."ordinality" AS "ord"
+        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s."skill_ids") = 'array' THEN s."skill_ids" ELSE '[]'::jsonb END) WITH ORDINALITY AS e("value", "ordinality")
+        UNION ALL
+        SELECT p."pick", 1, p."ord" FROM "exp1988_picks" p WHERE p."keep_id" = r."agent_id" AND p."kind" = 'skill'
+      ) q
+      ORDER BY q."pick", q."src", q."ord"
+    ) u
+  ),
+  "mcp_server_ids" = (
+    SELECT jsonb_agg(u."pick" ORDER BY u."src", u."ord")
+    FROM (
+      SELECT DISTINCT ON (q."pick") q."pick", q."src", q."ord"
+      FROM (
+        SELECT e."value" AS "pick", 0 AS "src", e."ordinality" AS "ord"
+        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s."mcp_server_ids") = 'array' THEN s."mcp_server_ids" ELSE '[]'::jsonb END) WITH ORDINALITY AS e("value", "ordinality")
+        UNION ALL
+        SELECT p."pick", 1, p."ord" FROM "exp1988_picks" p WHERE p."keep_id" = r."agent_id" AND p."kind" = 'mcp'
+      ) q
+      ORDER BY q."pick", q."src", q."ord"
+    ) u
+  ),
+  "updated_at" = now()
+FROM "exp1986_roots" r
+WHERE r."keep" AND s."id" = r."id" AND r."agent_id" IN (SELECT "keep_id" FROM "exp1988_picks");
+--> statement-breakpoint
 DELETE FROM "agents" WHERE "id" IN (SELECT "old_id" FROM "exp1986_assistants" WHERE "old_id" <> "keep_id");
 --> statement-breakpoint
 -- The kept Assistant moves; its skill / MCP picks stay (ids of their teams'
--- rows, read per team by #EXP-1988) and its prompt re-stamps.
+-- rows, read per team: #EXP-1988) and its prompt re-stamps.
 UPDATE "agents" a SET "team_id" = m."personal_id", "instructions_updated_at" = now(), "updated_at" = now()
 FROM "exp1986_assistants" m
 WHERE a."id" = m."keep_id" AND m."old_id" = m."keep_id";
+--> statement-breakpoint
+DROP TABLE "exp1988_picks";
 --> statement-breakpoint
 DROP TABLE "exp1986_assistants";
 --> statement-breakpoint

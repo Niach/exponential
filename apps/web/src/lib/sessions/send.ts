@@ -105,6 +105,7 @@ import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
 import { copyChatIntoCall } from "@/lib/sessions/call-chat"
+import { pickOfTeam } from "@/lib/agents/team-picks"
 
 // EXP-1291/NEW-1/NEW-2: `sessions.send` — THE entrypoint (tRPC
 // `sessions.send` and MCP `exponential_sessions_send` both land here). Four
@@ -309,22 +310,18 @@ export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: str
   return unique
 }
 
-/** #EXP-1656: an agent's default skills (null = none). */
-async function agentSkillIds(tx: Tx, agentId: string): Promise<string[] | null> {
+/** #EXP-1656: an agent's default skills for a root in `teamId` (null =
+ *  none; #EXP-1988: the Assistant's picks of that team). */
+async function agentSkillIds(tx: Tx, agentId: string, teamId: string): Promise<string[] | null> {
   const [row] = await tx.select({ skillIds: agents.skillIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
-  return row?.skillIds?.length ? row.skillIds : null
+  return pickOfTeam(tx, `skills`, row?.skillIds, teamId)
 }
 
 /** #EXP-1793: an agent's default MCP servers for a root in `teamId` (null =
- *  none; an Assistant's root in another team gets none: the servers are its
- *  own team's). */
+ *  none; #EXP-1988: the Assistant's picks of that team). */
 async function agentMcpServerIds(tx: Tx, agentId: string, teamId: string): Promise<string[] | null> {
-  const [row] = await tx
-    .select({ mcpServerIds: agents.mcpServerIds })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.teamId, teamId)))
-    .limit(1)
-  return row?.mcpServerIds?.length ? row.mcpServerIds : null
+  const [row] = await tx.select({ mcpServerIds: agents.mcpServerIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
+  return pickOfTeam(tx, `mcp`, row?.mcpServerIds, teamId)
 }
 
 /**
@@ -1903,12 +1900,16 @@ async function startChild(
     if (!root.shared && device.ownerId !== userId) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `A private session's child runs on your own device` })
     }
-    // #EXP-1720: a child in another team than its parent takes nothing team-bound from it.
+    // #EXP-1720: a child in another team than its parent takes nothing team-bound from it,
+    // #EXP-1988 (`assistant.teamPicks`) but its parent's picks of that team.
     const sameTeam = teamId === parent.teamId
     const mcpServerIds =
-      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ?? (sameTeam ? parent.mcpServerIds : null)
+      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ??
+      (sameTeam ? parent.mcpServerIds : await pickOfTeam(tx, `mcp`, parent.mcpServerIds, teamId))
     // #EXP-1656: a child without its own pick inherits its parent's skills.
-    const skillIds = (await assertSkillsInTeam(tx, teamId, input.skillIds)) ?? (sameTeam ? parent.skillIds : null)
+    const skillIds =
+      (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??
+      (sameTeam ? parent.skillIds : await pickOfTeam(tx, `skills`, parent.skillIds, teamId))
     const id = crypto.randomUUID()
     const child = await insertSession(tx, {
       id,
@@ -2030,7 +2031,7 @@ async function startRoot(
     // #EXP-1656: the pick, else (a root an agent tree starts) the agent's.
     const skillIds =
       (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??
-      (startedByAgentId ? await agentSkillIds(tx, startedByAgentId) : null)
+      (startedByAgentId ? await agentSkillIds(tx, startedByAgentId, teamId) : null)
 
     // NEW-2: a prompt run: the body plus what was typed is the first
     // message; the prompt names the session unless a name was passed.

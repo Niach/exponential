@@ -311,6 +311,17 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual((noMcp["mcpServerIds"] as? [Any])?.count, 0)
         XCTAssertFalse(AgentPatch(mcpServerIds: []).isEmpty)
 
+        // #EXP-1988: a section of Settings › Assistant scopes its pick to
+        // one team; alone it is no change and never on the wire.
+        let scoped = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(mcpServerIds: ["m-1"], pickTeamId: "t-b")))
+        XCTAssertEqual(scoped.keys.sorted(), ["id", "mcpServerIds", "pickTeamId"])
+        XCTAssertEqual(scoped["pickTeamId"] as? String, "t-b")
+        let scopedSkills = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(skillIds: [], pickTeamId: "t-a")))
+        XCTAssertEqual(scopedSkills.keys.sorted(), ["id", "pickTeamId", "skillIds"])
+        XCTAssertTrue(AgentPatch(pickTeamId: "t-a").isEmpty)
+        let alone = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(name: "A", pickTeamId: "t-a")))
+        XCTAssertEqual(alone.keys.sorted(), ["id", "name"])
+
         // #EXP-1847: the voice keys, an explicit null clearing one; an empty
         // voice patch is no patch.
         let voice = try json(UpdateAgentInput(

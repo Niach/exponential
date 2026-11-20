@@ -87,6 +87,11 @@ public struct AgentPatch: Sendable, Equatable {
     public var skillIds: [String]?
     /// #EXP-1793: the WHOLE MCP server list (an empty one = none) or nothing.
     public var mcpServerIds: [String]?
+    /// #EXP-1988 (`assistant.teamPicks`): the team whose picks `skillIds` /
+    /// `mcpServerIds` replace (a section of Settings › Assistant); nil = the
+    /// agent's own team and the teams the written ids name. Never a change
+    /// on its own.
+    public var pickTeamId: String?
     /// #EXP-1847: the agent's own voice keys (`.some(nil)` clears one).
     public var voice: AgentVoicePatch?
 
@@ -103,9 +108,11 @@ public struct AgentPatch: Sendable, Equatable {
         sortOrder: Double? = nil,
         skillIds: [String]? = nil,
         mcpServerIds: [String]? = nil,
+        pickTeamId: String? = nil,
         voice: AgentVoicePatch? = nil
     ) {
         self.voice = voice
+        self.pickTeamId = pickTeamId
         self.name = name
         self.icon = icon
         self.color = color
@@ -134,7 +141,7 @@ struct UpdateAgentInput: Encodable {
     let patch: AgentPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, instructions, triggers, triggerKinds, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds, voice
+        case id, name, icon, color, instructions, triggers, triggerKinds, deviceId, cli, account, model, sortOrder, skillIds, mcpServerIds, pickTeamId, voice
     }
 
     func encode(to encoder: Encoder) throws {
@@ -164,6 +171,10 @@ struct UpdateAgentInput: Encodable {
         try c.encodeIfPresent(patch.sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(patch.skillIds, forKey: .skillIds)
         try c.encodeIfPresent(patch.mcpServerIds, forKey: .mcpServerIds)
+        // Only beside a pick it scopes.
+        if patch.skillIds != nil || patch.mcpServerIds != nil {
+            try c.encodeIfPresent(patch.pickTeamId, forKey: .pickTeamId)
+        }
         if let voice = patch.voice, !voice.isEmpty { try c.encode(voice, forKey: .voice) }
     }
 }

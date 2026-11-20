@@ -14,6 +14,7 @@ import { db } from "@/db/connection"
 import { agents, devices, teamMembers, teams, userVoiceSettings, type Agent } from "@/db/schema"
 import { getMemberTeamIds, getTeamMember } from "@/lib/auth/membership"
 import { assistantMoveOn } from "@/lib/agents/assistant-move"
+import { inheritedAssistantPicks } from "@/lib/agents/team-picks"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
@@ -100,9 +101,13 @@ export async function ensureAssistant(userId: string, teamId?: string | null, ex
   if (!deviceId) return null
   const home = moved ? await ensurePersonalTeam(exec, userId) : (teamId ?? (await getMemberTeamIds(userId))[0])
   if (!home) return null
+  // #EXP-1988 (`assistant.teamPicks`): switch off, a new per-team Assistant
+  // starts with the picks of its team its member's other Assistants hold.
+  const picks = moved ? {} : await inheritedAssistantPicks(exec, userId, home)
   const [created] = await exec
     .insert(agents)
     .values({
+      ...picks,
       teamId: home,
       name: ASSISTANT_COPY.name,
       icon: null,

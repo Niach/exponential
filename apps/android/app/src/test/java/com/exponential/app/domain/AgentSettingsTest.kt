@@ -405,6 +405,10 @@ class AgentSettingsTest {
             sections.first { it.str("id") == AgentSettings.SECTION_RUNS_ON }.getValue("rows").jsonArray.map { it.jsonPrimitive.content },
             AgentSettings.RUNS_ON_ROWS,
         )
+        val teamPicks = sections.first { it.str("id") == AgentSettings.SECTION_TEAM_PICKS }
+        assertEquals(teamPicks.getValue("rows").jsonArray.map { it.jsonPrimitive.content }, AgentSettings.TEAM_PICKS_ROWS)
+        assertEquals("true", teamPicks.str("assistantOnly"))
+        assertEquals("true", teamPicks.str("perTeam"))
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("triggers"), AgentSettings.Copy.TRIGGERS)
         assertEquals(copy.str("runsOn"), AgentSettings.Copy.RUNS_ON)
@@ -479,6 +483,41 @@ class AgentSettingsTest {
                 case.str("name"),
                 case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
                 listed.map { it.str("id") },
+            )
+        }
+    }
+
+    @Test
+    fun `assistant teamPicks pickAgentCases (EXP-1988)`() {
+        val cases = assistant.getValue("teamPicks").jsonObject.getValue("pickAgentCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }
+            val picked = AgentSettings.Assistant.pickAgent(
+                agents,
+                case.str("teamId")!!,
+                case.getValue("teamIds").jsonArray.map { it.jsonPrimitive.content },
+                case.str("me"),
+                case.str("pageAgentId"),
+                id = { it.str("id")!! },
+            ) { AgentSettings.Assistant.TeamAgentLike(it.str("teamId")!!, it.str("role"), it.str("ownerId")) }
+            assertEquals(case.str("name"), case.str("expected"), picked)
+        }
+    }
+
+    @Test
+    fun `assistant teamPicks teamPickCases (EXP-1988)`() {
+        val cases = assistant.getValue("teamPicks").jsonObject.getValue("teamPickCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentSettings.Assistant.teamPick(
+                    case.getValue("ids").jsonArray.map { it.jsonPrimitive.content },
+                    case.getValue("rowTeams").jsonObject.mapValues { it.value.jsonPrimitive.content },
+                    case.str("teamId")!!,
+                ),
             )
         }
     }

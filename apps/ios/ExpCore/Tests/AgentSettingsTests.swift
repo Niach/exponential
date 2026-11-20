@@ -381,6 +381,7 @@ final class AgentSettingsTests: XCTestCase {
             XCTAssertEqual(want["assistantOnly"] as? Bool ?? false, section.assistantOnly, section.id)
             XCTAssertEqual(want["teamAgentOnly"] as? Bool ?? false, section.teamAgentOnly, section.id)
             XCTAssertEqual(want["ownerOnly"] as? Bool ?? false, section.ownerOnly, section.id)
+            XCTAssertEqual(want["perTeam"] as? Bool ?? false, section.perTeam, section.id)
         }
     }
 
@@ -510,6 +511,58 @@ final class AgentSettingsTests: XCTestCase {
                     teamIds: try XCTUnwrap(testCase["teamIds"] as? [String]),
                     me: testCase["me"] as? String
                 ).map(\.id),
+                testCase["expected"] as? [String],
+                name
+            )
+        }
+    }
+
+    /// #EXP-1988: `assistant.teamPicks.pickAgentCases`.
+    func testAssistantPickAgentReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["teamPicks"] as? [String: Any])
+        let cases = try XCTUnwrap(block["pickAgentCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    teamId: try XCTUnwrap(row["teamId"] as? String),
+                    name: row["id"] as? String ?? "",
+                    icon: nil,
+                    color: nil,
+                    sortOrder: 0,
+                    role: row["role"] as? String,
+                    ownerId: row["ownerId"] as? String
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.assistantPickAgent(
+                    agents,
+                    teamId: try XCTUnwrap(testCase["teamId"] as? String),
+                    teamIds: try XCTUnwrap(testCase["teamIds"] as? [String]),
+                    me: testCase["me"] as? String,
+                    pageAgentId: testCase["pageAgentId"] as? String
+                ),
+                testCase["expected"] as? String,
+                name
+            )
+        }
+    }
+
+    /// #EXP-1988: `assistant.teamPicks.teamPickCases`.
+    func testTeamPickReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["teamPicks"] as? [String: Any])
+        let cases = try XCTUnwrap(block["teamPickCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            XCTAssertEqual(
+                AgentSettings.teamPick(
+                    try XCTUnwrap(testCase["ids"] as? [String]),
+                    rowTeams: try XCTUnwrap(testCase["rowTeams"] as? [String: String]),
+                    teamId: try XCTUnwrap(testCase["teamId"] as? String)
+                ),
                 testCase["expected"] as? [String],
                 name
             )

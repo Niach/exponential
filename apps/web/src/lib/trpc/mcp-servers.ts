@@ -59,6 +59,7 @@ import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
 import { listMcpServerTools, probeMcpServer, testMcpServer, type UpstreamToolRow } from "@/lib/emcp/upstream/mcp-client"
 import { claimDeviceCall } from "@/lib/emcp/upstream/device-call"
 import { mcpUrlAllowed } from "@exp/emcp/upstream"
+import { sessionLaunchPick, sessionLaunchTeams, uniqueLaunchNames } from "@/lib/agents/team-picks"
 
 export type { McpConnection, McpConnectionStatus } from "@/lib/emcp/upstream/credentials"
 export type {
@@ -796,6 +797,7 @@ export const mcpServersRouter = router({
           deviceId: sessions.deviceId,
           teamId: sessions.teamId,
           status: sessions.status,
+          rootId: sessions.rootId,
           mcpServerIds: sessions.mcpServerIds,
         })
         .from(sessions)
@@ -812,18 +814,24 @@ export const mcpServersRouter = router({
         })
       }
       await assertTeamMember(userId, run.teamId)
-      const serverIds = [...new Set(run.mcpServerIds ?? [])]
+      // #EXP-1988 (agent-settings.json `assistant.teamPicks`): the pick of
+      // the run's LAUNCH TEAMS (its team; the Assistant's conversation: its
+      // tree's teams, the scope the gate clamps the turn to), each team's
+      // servers with the member's own credentials (`treeTeams` holds only
+      // teams they belong to). `sessions.mcpPicks` answers the same pick.
+      const launchTeams = await sessionLaunchTeams(ctx.db, run)
+      const serverIds = await sessionLaunchPick(ctx.db, `mcp`, run, run.mcpServerIds)
       const now = new Date()
       const resolved = await resolveForLaunch(
         ctx.db,
         {
           userId,
-          teamIds: [run.teamId],
+          teamIds: launchTeams,
           serverIds,
           actorName: ctx.session.user.name,
         },
         now
       )
-      return resolved
+      return { ...resolved, servers: uniqueLaunchNames(resolved.servers) }
     }),
 })
