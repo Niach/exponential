@@ -572,6 +572,39 @@ fn a_spaces_clipboard_crosses_its_own_xwayland_both_ways() {
     assert_eq!(x11_clipboard_owner(&person_x), person_owner, "the person's X11 CLIPBOARD changed hands");
 }
 
+/// #EDE-138: what the agent copied before its space's Xwayland ran (the
+/// text for an X11 app it is about to launch) pastes in that app.
+#[test]
+fn an_agents_copy_from_before_its_xwayland_ran_pastes_in_x11() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    if std::process::Command::new("Xwayland").arg("-version").output().is_err() {
+        eprintln!("skipped: no Xwayland binary");
+        return;
+    }
+    let grant = h.ipc().mint(SessionId::new("run-1").unwrap(), vec![ede_protocol::Capability::Space], None).unwrap();
+    let mut agent = h.ipc_with(grant.token).unwrap();
+    let space = agent.create_space(640, 480).unwrap();
+    let desk = space_desk(&space);
+    agent.clipboard_set(vec![ede_protocol::ClipboardItem { mime: UTF8.into(), data: b"early".to_vec() }], false).unwrap();
+    h.with(|state| state.spaces.x11 = true);
+    let out = dir.path().join("early.display");
+    agent.launch(vec!["sh".into(), "-c".into(), format!("echo \"$DISPLAY\" > {0}.tmp && mv {0}.tmp {0}; exec sleep 60", out.display())], Default::default(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| state.space_xwm_ready(desk)) || !out.exists() {
+        assert!(Instant::now() < deadline, "the space's Xwayland never became ready");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let display = std::fs::read_to_string(&out).unwrap().trim().trim_start_matches(':').to_string();
+    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE)).unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+    wait_for_space_keyboard(&h, desk, win);
+    assert_eq!(x11_paste(&conn, win, &mut || {}), b"early");
+}
+
 /// #EDE-138: a drag the space's X11 app starts is the space's: it runs on
 /// the space's seat, also when the person pressed a button after the
 /// agent did (smithay would take the newest press). It enters the space's
