@@ -78,9 +78,11 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::ListSpaces,
         Request::Launch { argv: vec!["true".into()], env: Default::default(), cwd: None },
         Request::SpaceOfProcess { pid: std::process::id() },
+        Request::SpaceReadiness,
+        Request::SpaceBusy,
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 36, "one request per op at least");
+    assert_eq!(ops.len(), 38, "one request per op at least");
     all
 }
 
@@ -91,7 +93,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::ReleaseInput | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } => {}
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::BindShortcuts { .. } => {}
         Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {}
-        Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } => {}
+        Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}
     }
     std::mem::discriminant(request)
 }
@@ -123,6 +125,12 @@ fn a_space_grant_reaches_no_person_op() {
     let before = person(&h);
     for request in requests(&window) {
         let expect = match &request {
+            // #EXP-1514: before the flip read as an older compositor does
+            // (space_readiness.rs); outside the allowlist with the switch.
+            Request::SpaceReadiness => {
+                assert!(matches!(agent.call(request.clone()), Err(Error::Unsupported(_))), "{request:?}");
+                continue;
+            }
             r if !r.in_space() => ErrorCode::Forbidden,
             // This harness has no directory for spaces.
             Request::CreateSpace { .. } => ErrorCode::Unavailable,

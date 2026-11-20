@@ -11,6 +11,7 @@
 
 mod close;
 pub mod frames;
+pub mod full;
 pub mod guard;
 mod input;
 pub mod launch;
@@ -107,6 +108,16 @@ pub struct Spaces {
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
+    /// #EXP-1514: until when (unix ms) no space expires: one grant's life
+    /// after the wall clock jumped ahead of the ticks (a suspend), so its
+    /// keeper can renew on a machine that is just waking up ([`close`]).
+    pub grace_until: Option<i64>,
+    /// The last tick's clocks, to see a jump.
+    pub clock: Option<(std::time::Instant, i64)>,
+    /// #EXP-1514 (D 10): how long a use, and a `space_busy`, keep a space
+    /// from giving way to a new one ([`full`]).
+    pub in_use_for: std::time::Duration,
+    pub busy_for: std::time::Duration,
     /// #EDE-146..148: the space guard, as this session decided ([`guard`]).
     pub guard: guard::GuardState,
     /// #EDE-143: the person's session's cgroup (`/proc/<pid>/cgroup`'s
@@ -117,7 +128,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default(), session_cgroup: None }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
     }
 }
 
@@ -154,6 +165,10 @@ pub struct AgentSpace {
     pub serial: u64,
     /// When it was last driven or captured.
     pub(crate) last_use: Option<std::time::Instant>,
+    /// When it was made: a space never used counts from here ([`full`]).
+    pub(crate) created: std::time::Instant,
+    /// Until when its keeper said its session's turn runs ([`full`]).
+    pub(crate) busy_until: Option<std::time::Instant>,
     /// The ticks in a row that found its owner without a live space grant.
     pub(crate) expired_ticks: u32,
     /// A launch of it went into a scope: its slice is stopped at the close.
@@ -345,7 +360,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, created: std::time::Instant::now(), busy_until: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None });
         Ok(id)
     }
 }

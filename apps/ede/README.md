@@ -653,6 +653,8 @@ first; each op needs the Core capability it names:
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 | `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes; the polkit agent asks it) | `system` |
+| `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
+| `space_readiness` (#EXP-1514: `{ready, block?, max?}`, whether a person's runs get an agent space now; only a compositor whose hello says `space-readiness` answers it, and none does before the flip, #EXP-2011: a DEBUG build started with `EDE_DEV_SPACE_READINESS=1` says it and answers `ready`, for the headless runs and `serve --space`; a release build ignores it; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -817,8 +819,21 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   are still, so together they are promised more than the 50 % they have.
   The fence is room: a new space is made only while what the spaces hold
   (anonymous and shared memory of their slice) plus one still space (1 GiB:
-  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`;
-  else `create_space` answers `limit`, `no memory for another space: …`.
+  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`.
+- **A full desktop gives way** (#EXP-1514, D 10). A space lives as long
+  as its session, so when a NEW one does not fit (the count or the room),
+  the space unused longest closes for it: one neither driven nor captured
+  by its own grant for 10 minutes (a space never used counts from its
+  creation) and not busy (its keeper said `space_busy` in the last 90 s:
+  its session's turn runs). For room as many give way as it takes, what
+  each holds read from its own slice, planned before one closes. Only
+  when none may does `create_space` answer `limit` (`N spaces at most`,
+  `no memory for another space: …`), and then none closed. A session's own
+  space is always found again first.
+- **Grants and the clock.** An expired grant leaves the list in the 1 s
+  tick. A space whose owner holds no live space grant closes after 30
+  ticks; after the wall clock jumped ahead of the ticks (a suspend) no space
+  closes for 5 minutes, one space grant's life, so its keeper can renew.
   At `MemoryHigh` every space is slowed until memory is freed; at
   `MemoryMax` the kernel ends programs inside the spaces, the biggest
   first, never the person's. The log and the doctor's line say the
