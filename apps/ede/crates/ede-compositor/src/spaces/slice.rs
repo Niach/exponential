@@ -226,8 +226,15 @@ pub fn held(memory_stat: &str) -> u64 {
 /// throttled for as long as nothing frees memory, and every agent's calls
 /// time out. `Err` is the refusal's sentence.
 pub fn room(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>) -> Result<(), String> {
+    room_freeing(spaces, machine, memory_stat, 0)
+}
+
+/// [`room`] once spaces holding `freed` bytes have closed (#EXP-1514: a
+/// full desktop gives way; their slices stop after the close, so what
+/// they held still shows in `memory.stat`).
+pub fn room_freeing(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>, freed: u64) -> Result<(), String> {
     let high = limits(spaces, machine).0.iter().find(|(name, _)| name == "MemoryHigh").map_or(0, |(_, bytes)| *bytes);
-    let held = memory_stat.map_or(0, held);
+    let held = memory_stat.map_or(0, held).saturating_sub(freed);
     if held + STILL_SPACE <= high {
         return Ok(());
     }

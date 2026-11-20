@@ -245,7 +245,14 @@ pub enum Request {
     /// whose hello says [`FEATURE_SPACE_READINESS`]; an older one cannot
     /// read it ([`Error::Unsupported`]).
     SpaceReadiness,
+    /// The caller's space counts as busy for [`SPACE_BUSY_SECS`] (#EXP-1514,
+    /// D 10): its session's turn runs, so a full desktop does not close it
+    /// for a new space. A space grant only, its own space only.
+    SpaceBusy,
 }
+
+/// How long one [`Request::SpaceBusy`] keeps a space from giving way.
+pub const SPACE_BUSY_SECS: u64 = 90;
 
 /// In [`Hello::features`]: this compositor makes agent spaces.
 pub const FEATURE_SPACES: &str = "spaces";
@@ -493,7 +500,7 @@ impl Request {
                 Some(Capability::InputPerson)
             }
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
-            Request::CreateSpace { .. } | Request::Launch { .. } => Some(Capability::Space),
+            Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
             Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
         }
     }
@@ -505,7 +512,7 @@ impl Request {
     /// wildcard arm: a new op is outside until it is written here.
     pub fn in_space(&self) -> bool {
         match self {
-            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => true,
+            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceBusy => true,
             Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::PointerPosition => true,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
@@ -1205,6 +1212,11 @@ impl Client {
         self.call_as(Request::SpaceReadiness)
     }
 
+    /// [`Request::SpaceBusy`]: this grant's space is busy for [`SPACE_BUSY_SECS`].
+    pub fn space_busy(&mut self) -> Result<(), Error> {
+        self.call(Request::SpaceBusy).map(|_| ())
+    }
+
     /// [`Request::SpaceOfProcess`]: the space `pid` belongs to, `None` = the person's.
     pub fn space_of_process(&mut self, pid: u32) -> Result<Option<ProcessSpace>, Error> {
         self.call_as(Request::SpaceOfProcess { pid })
@@ -1485,10 +1497,12 @@ mod tests {
     /// not know still reads (as a no).
     #[test]
     fn space_readiness_is_flat_json_and_round_trips() {
-        let call = Call { id: 1, request: Request::SpaceReadiness };
-        let json = serde_json::json!({"id": 1, "op": "space_readiness"});
-        assert_eq!(serde_json::to_value(&call).unwrap(), json);
-        assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        for (request, op) in [(Request::SpaceReadiness, "space_readiness"), (Request::SpaceBusy, "space_busy")] {
+            let call = Call { id: 1, request };
+            let json = serde_json::json!({"id": 1, "op": op});
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
         let ready = SpaceReadiness { ready: true, block: None, max: Some(8) };
         assert_eq!(serde_json::to_value(&ready).unwrap(), serde_json::json!({"ready": true, "max": 8}));
         let blocked: SpaceReadiness = serde_json::from_value(serde_json::json!({"ready": false, "block": "later"})).unwrap();
@@ -1681,13 +1695,14 @@ mod tests {
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
             (Request::SpaceOfProcess { pid: 42 }, false),
             (Request::SpaceReadiness, false),
+            (Request::SpaceBusy, true),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 38, "one row per variant at least");
+        assert_eq!(seen.len(), 39, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -1696,6 +1711,8 @@ mod tests {
         assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), Some(Capability::System));
         // #EXP-1514: any person-scope grant asks it, as `list_windows`.
         assert_eq!(Request::SpaceReadiness.capability(), None);
+        // D 10: a space grant's own word for its own space.
+        assert_eq!(Request::SpaceBusy.capability(), Some(Capability::Space));
     }
 
     /// The op's name; no wildcard, so a new variant fails to compile here
@@ -1740,6 +1757,7 @@ mod tests {
             Request::Launch { .. } => "launch",
             Request::SpaceOfProcess { .. } => "space_of_process",
             Request::SpaceReadiness => "space_readiness",
+            Request::SpaceBusy => "space_busy",
         }
     }
 

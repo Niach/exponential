@@ -42,14 +42,9 @@ impl Ede {
         if let Some(space) = self.spaces.iter().find(|s| &s.owner == session) {
             return Ok(info(space));
         }
-        let max = self.space_max();
-        if self.spaces.iter().count() >= max {
-            return Err(Failure::new(ErrorCode::Limit, &format!("{max} spaces at most")));
-        }
-        // The stronger fence: room under the slice's `MemoryHigh`.
-        if let Some(units) = &self.spaces.units {
-            units.room(&self.config.spaces).map_err(|refused| Failure::new(ErrorCode::Limit, &refused))?;
-        }
+        // The count, and the stronger fence, room under the slice's
+        // `MemoryHigh`: a full desktop gives way (#EXP-1514, D 10).
+        self.space_make_room(self.space_max(), session)?;
         let desk = self.create_space(session.clone(), width, height)?;
         Ok(info(self.spaces.get(desk).expect("just made")))
     }
