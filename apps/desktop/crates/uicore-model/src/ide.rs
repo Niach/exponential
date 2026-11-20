@@ -41,13 +41,6 @@ pub fn count_label(count: usize) -> Option<String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdePinInput {
-    pub id: String,
-    pub identifier: String,
-    pub title: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeAgentInput {
     pub id: String,
@@ -118,7 +111,6 @@ pub struct IdeSidebarInput {
     pub drafts: usize,
     pub chats: IdeCount,
     pub owner: bool,
-    pub pins: Vec<IdePinInput>,
     pub agents: Vec<IdeAgentInput>,
     pub apps: Vec<IdeAppInput>,
     pub boards: Vec<IdeBoardInput>,
@@ -301,14 +293,6 @@ pub fn folder_rows(rows: Vec<IdeRow>, entries: &[IdeLayoutEntry], closed: &[Stri
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdePinRow {
-    pub id: String,
-    pub identifier: String,
-    pub title: String,
-    pub selected: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdeActiveRow {
     pub id: String,
     pub title: String,
@@ -352,7 +336,6 @@ pub struct IdePrRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdeSidebar {
     pub nav: Vec<IdeNavRow>,
-    pub pins: Vec<IdePinRow>,
     pub agents: IdeAgents,
     pub apps: IdeApps,
     pub boards: IdeBoards,
@@ -409,7 +392,6 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     }
     IdeSidebar {
         nav: rows,
-        pins: input.pins.iter().map(|p| IdePinRow { id: p.id.clone(), identifier: p.identifier.clone(), title: p.title.clone(), selected: on("issue", &p.id) }).collect(),
         agents: IdeAgents {
             add: input.owner,
             rows: folders(

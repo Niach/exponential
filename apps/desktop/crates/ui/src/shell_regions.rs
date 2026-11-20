@@ -21,7 +21,7 @@ use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
 use domain::sidebar_folders::{sidebar_entries, sidebar_folder_name, sidebar_folder_open_key, sidebar_move, sidebar_ungroup, SidebarEntry, SidebarEntryKind, SidebarMove, SidebarSection, SidebarWrites};
-use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -222,11 +222,6 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     };
     let agents_span = tracing::trace_span!("rail.agents").entered();
     let collections = Store::global(cx).collections().clone();
-    for pin in crate::pins::pins_in_team(&team_id, cx) {
-        let Some((domain::contract::PIN_KIND_ISSUE, target)) = crate::pins::pin_target(&pin) else { continue };
-        let Some(issue) = collections.issues.read(cx).get(target).cloned() else { continue };
-        input.pins.push(IdePinInput { id: issue.id, identifier: issue.identifier, title: issue.title });
-    }
     // #FEED-232: an agent row counts its conversation's unread replies.
     // #PERF-10: the counts alone (the whole Chats model derived per write).
     let unread: HashMap<String, usize> = crate::session_data::agent_unread_counts(&team_id, cx);
@@ -287,7 +282,6 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
         }
     };
     mark(&mut value["nav"]);
-    mark(&mut value["pins"]);
     mark(&mut value["agents"]["rows"]);
     mark(&mut value["apps"]["rows"]);
     mark(&mut value["boards"]["rows"]);
@@ -605,13 +599,6 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
             };
             navigate(window, cx, screen);
         }
-        "pin" => {
-            let board = Store::global(cx).collections().issues.read(cx).get(&id).map(|issue| issue.board_id.clone());
-            if let Some(board) = board {
-                navigation::set_active_board(window, cx, board);
-            }
-            navigation::navigate_from_rail(window, cx, Screen::IssueDetail { issue_id: id });
-        }
         "agent" => navigate(window, cx, Screen::Agent { agent_id: id }),
         "app" => navigate(window, cx, Screen::AppRun { app: id }),
         "board" => {
@@ -724,11 +711,6 @@ impl HostPlugin for RegionHost {
             "ide_add" => {
                 let kind = event.payload.as_ref().and_then(|p| p["value"].as_str()).map(str::to_string).unwrap_or(kind);
                 self.in_window(cx, move |window, cx| add(&kind, &nav, window, cx))
-            }
-            "ide_unpin" => {
-                if let Some(team_id) = active_team_id(&nav, cx) {
-                    crate::pins::toggle_pin(team_id, domain::contract::PIN_KIND_ISSUE, id, cx);
-                }
             }
             // #EXP-1832: a row dropped in its section's List.
             "ide_move" => {

@@ -224,6 +224,7 @@ fn open_drops_the_legacy_shape_tables() {
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('coding_sessions', 'h', '0_0');
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('thread_items', 'h', '0_0');
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('actions', 'h', '0_0');
+               INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('pins', 'h', '0_0');
                CREATE TABLE "automations" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
                INSERT INTO "automations" ("id") VALUES ('au-1');
                CREATE TABLE "coding_sessions" ("id" TEXT NOT NULL, "automation_id" TEXT, PRIMARY KEY ("id"));
@@ -231,14 +232,16 @@ fn open_drops_the_legacy_shape_tables() {
                CREATE TABLE "threads" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
                CREATE TABLE "thread_items" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
                CREATE TABLE "actions" ("id" TEXT NOT NULL, "name" TEXT, PRIMARY KEY ("id"));
-               INSERT INTO "actions" ("id", "name") VALUES ('a-1', 'Groom');"#,
+               INSERT INTO "actions" ("id", "name") VALUES ('a-1', 'Groom');
+               CREATE TABLE "pins" ("id" TEXT NOT NULL, "issue_id" TEXT, PRIMARY KEY ("id"));
+               INSERT INTO "pins" ("id", "issue_id") VALUES ('p-1', 'i-1');"#,
         )
         .unwrap();
     }
 
     for _ in 0..2 {
         let store = db.open();
-        for gone in ["automations", "coding_sessions", "threads", "thread_items", "actions"] {
+        for gone in ["automations", "coding_sessions", "threads", "thread_items", "actions", "pins"] {
             assert!(store.shape_state(gone).unwrap().is_none(), "{gone} cursor dropped");
         }
         // The new tree's table exists from the registry.
@@ -247,7 +250,7 @@ fn open_drops_the_legacy_shape_tables() {
         let conn = rusqlite::Connection::open(&db.path).unwrap();
         let tables: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('automations', 'coding_sessions', 'threads', 'thread_items', 'actions')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('automations', 'coding_sessions', 'threads', 'thread_items', 'actions', 'pins')",
                 [],
                 |row| row.get(0),
             )

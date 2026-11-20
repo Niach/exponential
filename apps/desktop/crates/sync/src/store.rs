@@ -599,7 +599,8 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 /// * the pre-SLOP-2 `automations` table;
 /// * EXP-1294: `coding_sessions`, `threads` and `thread_items`
 ///   (superseded by the `sessions` tree, `messages` and `pull_requests`);
-/// * NEW-8: `actions` (prompts replaced them; the server drops the shape).
+/// * NEW-8: `actions` (prompts replaced them; the server drops the shape);
+/// * #EXP-2027: `pins` (the personal Pins feature is gone everywhere).
 fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
     for table in LEGACY_TABLES {
         conn.execute_batch(&format!(r#"DROP TABLE IF EXISTS "{table}""#))?;
@@ -609,7 +610,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
 }
 
 /// Local tables of shapes that left the registry ([`migrate_legacy_schema`]).
-const LEGACY_TABLES: [&str; 5] = ["automations", "coding_sessions", "threads", "thread_items", "actions"];
+const LEGACY_TABLES: [&str; 6] = ["automations", "coding_sessions", "threads", "thread_items", "actions", "pins"];
 
 /// `PRAGMA user_version` once [`backfill_one_tree_columns`] ran.
 const ONE_TREE_STORE_VERSION: i64 = 1730;
