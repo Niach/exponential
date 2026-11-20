@@ -36,6 +36,16 @@ fn space_with_a_window(h: &Harness) -> (DeskId, SpaceId, Session, Toplevel) {
     (desk, id, b, window)
 }
 
+/// A new buffer right after another waits for the space's next tick (an
+/// app presents at most once per tick, #EDE-162): until it went through.
+fn applied(h: &Harness, desk: DeskId) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.with(move |state| state.space_held_commits(desk)) > 0 {
+        assert!(Instant::now() < deadline, "a held commit never went through");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn passes(h: &Harness, desk: DeskId) -> u64 {
     h.with(move |state| state.space_passes(desk))
 }
@@ -60,6 +70,7 @@ fn a_changing_space_is_drawn_at_most_once_per_floor_and_an_unchanged_one_answers
 
     // New pixels right away: drawn, but not before the floor is over.
     b.draw_configured(&window, 64, 64, GREEN);
+    applied(&h, desk);
     let second = root.capture_since(target(), Some(first.info.serial)).unwrap().expect("new pixels");
     assert!(first_at.elapsed() >= FLOOR - Duration::from_millis(5), "two passes {:?} apart", first_at.elapsed());
     assert_eq!(second.at(320, 240), GREEN);
@@ -76,6 +87,7 @@ fn callers_that_ask_for_one_space_at_once_share_one_pass() {
     let mut root = h.ipc();
     let first = root.capture(CaptureTarget::Space { space: id.clone() }).unwrap();
     b.draw_configured(&window, 64, 64, BLUE);
+    applied(&h, desk);
 
     // Both ask inside the floor of the first pass: both wait, one pass
     // answers both.
@@ -101,6 +113,7 @@ fn a_space_closed_while_its_capture_waits_answers_not_found() {
     let mut root = h.ipc();
     let first = root.capture(CaptureTarget::Space { space: id.clone() }).unwrap();
     b.draw_configured(&window, 64, 64, GREEN);
+    applied(&h, desk);
 
     let mut client = h.ipc();
     let since = first.info.serial;

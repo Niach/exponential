@@ -10,6 +10,7 @@
 mod damage;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod pace;
 #[cfg(feature = "gpu")]
 mod passes;
 mod queue;
@@ -43,6 +44,8 @@ use crate::{
 pub(crate) struct Frames {
     queue: queue::Queue,
     stats: stats::Stats,
+    /// Per space, the surfaces that hold a commit for a tick ([`pace`]).
+    pacing: std::collections::HashMap<DeskId, Vec<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>>,
     /// The spaces' GPU renderer, the spaces captured on it, the passes on
     /// their way back ([`passes`]).
     #[cfg(feature = "gpu")]
@@ -117,6 +120,9 @@ impl Ede {
         let Some(space) = self.spaces.get_mut(id) else { return };
         space.scheduled = false;
         space.ticks += 1;
+        // A held commit goes through now, so its frame callbacks go with
+        // this tick's (#EDE-162, [`pace`]).
+        self.space_pace_tick(id);
         self.space_damage(id);
         let now = self.start_time.elapsed();
         let Some(space) = self.spaces.get_mut(id) else { return };

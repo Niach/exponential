@@ -70,6 +70,12 @@ fn a_space_on_the_gpu_path_captures_what_software_draws() {
 
     assert!(root.capture_since(target(), Some(gpu.info.serial)).unwrap().is_none(), "nothing new: no pixels");
     b.draw_configured(&window, 64, 64, BLUE);
+    // It waits for the space's next tick (one new buffer per tick).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.with(move |state| state.space_held_commits(desk)) > 0 {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     let next = root.capture_since(target(), Some(gpu.info.serial)).unwrap().expect("new pixels");
     assert!(next.info.serial > gpu.info.serial);
     assert_eq!((next.at(320, 240), next.at(15, 15)), (BLUE, GREEN));
