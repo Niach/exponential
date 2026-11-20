@@ -243,6 +243,19 @@ impl Ede {
         self.desk(desk).clipboard.taken(serial)
     }
 
+    /// `desk`'s Xwayland is new (it started, or started again): its
+    /// CLIPBOARD takes what the desk holds, a Wayland client's or ours (an
+    /// X11 copy went with the server before it).
+    #[cfg(feature = "xwayland")]
+    pub(crate) fn xwm_selection_now(&mut self, desk: DeskId) {
+        let mimes = match self.try_desk(desk).map(|d| &d.clipboard.owner) {
+            Some(Owner::Client(mimes)) => mimes.clone(),
+            Some(Owner::Ours(owned)) => owned.items.iter().map(|item| item.mime.clone()).collect(),
+            _ => return,
+        };
+        self.xwm_selection(desk, Some(mimes));
+    }
+
     /// The CLIPBOARD of `desk`'s Xwayland follows the desk's (`None` = it
     /// was cleared).
     #[allow(unused_variables)]

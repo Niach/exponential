@@ -32,8 +32,11 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
 ];
 
 /// What systemd and D-Bus activation need to know once the compositor runs.
+/// `XAUTHORITY` (#EDE-138): the person's Xwayland admits only clients with
+/// its cookie, so every way an app starts (the shell, a user service, D-Bus
+/// activation, a terminal's children) needs the file's path.
 pub const EXPORTED_ENV: &[&str] =
-    &["WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE"];
+    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE"];
 
 /// A crash this soon after start counts toward safe mode.
 pub const QUICK_CRASH: Duration = Duration::from_secs(60);
@@ -567,7 +570,7 @@ mod tests {
         let shell = std::fs::read_to_string(root.join("systemd/exponential-shell.service")).unwrap();
         assert!(shell.contains("ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell\n"));
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
-        assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
+        assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE") && EXPORTED_ENV.contains(&"XAUTHORITY"));
         let deb = [root.join("stage.sh"), root.join("pack-deb.sh")].iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<String>();
         for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");

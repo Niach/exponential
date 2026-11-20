@@ -867,3 +867,16 @@ impl Session {
     }
 }
 
+/// #EDE-138: a connection to the Xwayland on `:display` that shows the
+/// cookie in `xauthority` (`None`: none, as a stranger to that server).
+#[cfg(feature = "xwayland")]
+pub fn x11_connect(display: u32, xauthority: Option<&std::path::Path>) -> Result<x11rb::rust_connection::RustConnection, x11rb::errors::ConnectError> {
+    use x11rb::{
+        reexports::x11rb_protocol::parse_display::ConnectAddress,
+        rust_connection::{DefaultStream, RustConnection},
+    };
+    let (stream, _) = DefaultStream::connect(&ConnectAddress::Socket(format!("/tmp/.X11-unix/X{display}").into()))?;
+    let cookie = xauthority.and_then(|path| ede_compositor::xauth::cookie_for(path, display));
+    let (name, data) = cookie.map_or((Vec::new(), Vec::new()), |cookie| (ede_compositor::xauth::MIT_MAGIC_COOKIE.to_vec(), cookie));
+    RustConnection::connect_to_stream_with_auth_info(stream, 0, name, data)
+}

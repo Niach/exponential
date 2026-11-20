@@ -41,6 +41,7 @@ pub mod spaces;
 pub mod state;
 pub mod text;
 pub mod workspaces;
+pub mod xauth;
 
 pub use config::Config;
 pub use state::Ede;
