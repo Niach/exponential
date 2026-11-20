@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-desktop-description-foreign-pictures`,
+    date: `2026-11-20`,
+    title: `A picture from another website in an issue description is a link`,
+    summary: `On the desktop app, a picture from another website in an issue description shows as a link while you edit, and is never loaded.`,
+    body: `- **Issue descriptions on the desktop app**: a picture from another website shows as a link with its alt text, or the site's name, and opens in your browser. It is never loaded.
+- **Pictures that can't be shown**: while you edit, one without alt text shows its address, so you can find it and remove it.`,
+  },
+  {
     id: `2026-11-19-repo-less-sessions-full-access`,
     date: `2026-11-19`,
     title: `Chats without a repository reach your whole machine`,

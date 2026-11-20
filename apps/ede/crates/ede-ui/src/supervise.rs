@@ -10,7 +10,7 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -58,28 +58,53 @@ impl FrameLine {
     }
 }
 
+/// #ERR-29: whether the shell's ending is a failure worth a report: a
+/// crash signal, a panic's 101, any code but 0, or no status at all. The
+/// signals that end a session under it (SIGTERM, SIGINT, SIGHUP: systemd
+/// stopping the unit, a closed terminal) and a quit (0) are not; SIGKILL is
+/// (the OOM killer: systemd's own SIGKILL comes after the SIGTERM that
+/// already ended this process).
+pub fn shell_failed(status: Option<ExitStatus>) -> bool {
+    let Some(status) = status else { return true };
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        // SIGHUP 1, SIGINT 2, SIGTERM 15: the same numbers on every unix.
+        if let Some(signal) = status.signal() {
+            return !matches!(signal, 1 | 2 | 15);
+        }
+    }
+    !status.success()
+}
+
 pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// `Line` and `Exited` name the shell they are of (its number since the
+/// supervisor started): the apps a shell launched inherit its stdout, so
+/// the pipe of a shell that died stays open, and may still speak, for as
+/// long as they run.
 enum Msg {
     Changes(Vec<Change>),
-    Line(String),
-    Exited,
+    Line(u64, String),
+    Exited(u64),
 }
 
 /// What the supervisor did, for logs and tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Report {
     Started { pid: u32 },
-    Crashed,
+    /// The shell ended without the supervisor stopping it; `status` as
+    /// `wait` read it (#ERR-29: [`shell_failed`] tells a crash from a stop).
+    Crashed { status: Option<ExitStatus> },
     Edit { name: String, commit: String },
     Refused { name: String },
     Drawn { name: String, commit: String },
     Reverted { name: String, from: String, commit: String },
     /// The commit `from` was to be rolled back, but the document's newest
-    /// commit no longer holds it (another process undid or replaced it, or
-    /// a rollback of a commit it shared did, #EDE-116): nothing reverted;
+    /// commit no longer holds it (another process undid or replaced it,
+    /// #EDE-116): nothing reverted;
     /// what the document holds now is taken in as an edit.
     Superseded { name: String, from: String },
     Factory { name: String, commit: String },
@@ -88,7 +113,9 @@ pub enum Report {
 pub struct Supervisor {
     ui: Arc<Mutex<Runtime>>,
     state: ApplyState,
-    /// The machine's commit names (`c<n>`) to git ids.
+    /// The machine's commit names (`c<n>`) to git ids; a document's factory
+    /// commit (`f-<name>`) to the revision that holds what it stands for
+    /// (what was on screen at start, or before an earlier run's edit).
     git_of: HashMap<String, String>,
     /// Per document: the machine's commit waiting for a frame and the digest of its bytes.
     pending: HashMap<String, (String, String)>,
@@ -103,6 +130,8 @@ pub struct Supervisor {
     known: HashMap<String, String>,
     command: Vec<String>,
     child: Option<Child>,
+    /// The number of the shell `child` is (or was).
+    shell: u64,
     tx: mpsc::Sender<Msg>,
     rx: mpsc::Receiver<Msg>,
     _watcher: crate::Watcher,
@@ -116,12 +145,17 @@ impl Supervisor {
         let names = ui.factory_names()?;
         let mut state = ApplyState::with_factory(names.clone());
         let (mut git_of, mut known) = (HashMap::new(), HashMap::new());
+        let start = ui.head()?.map(|c| c.id);
         for name in &names {
             known.insert(name.clone(), crate::digest(&std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default()));
-            // An edit from an earlier run stays a suspect (#EDE-110).
+            // An edit from an earlier run stays a suspect (#EDE-110); its
+            // rollback goes to what the file held before it (#EDE-137).
             if let Some(commit) = ui.edited_commit(name)? {
                 let id = state.edited_before(name, commit.summary.starts_with("Undo: "));
+                git_of.insert(apply::factory_commit(name), format!("{}^", commit.id));
                 git_of.insert(id, commit.id);
+            } else if let Some(start) = &start {
+                git_of.insert(apply::factory_commit(name), start.clone());
             }
         }
         let ui = Arc::new(Mutex::new(ui));
@@ -132,7 +166,7 @@ impl Supervisor {
                 let _ = tx.send(Msg::Changes(changes));
             })?
         };
-        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
+        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, shell: 0, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
     }
 
     pub fn state(&self) -> &ApplyState {
@@ -144,13 +178,15 @@ impl Supervisor {
         let mut child = Command::new(&self.command[0]).args(&self.command[1..]).env("EDE_UI_DIR", &dir).stdout(Stdio::piped()).stdin(Stdio::null()).spawn()?;
         let stdout = child.stdout.take().expect("piped stdout");
         let tx = self.tx.clone();
+        self.shell += 1;
+        let shell = self.shell;
         std::thread::Builder::new().name("exponential-ui-shell-out".into()).spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if tx.send(Msg::Line(line)).is_err() {
+                if tx.send(Msg::Line(shell, line)).is_err() {
                     return;
                 }
             }
-            let _ = tx.send(Msg::Exited);
+            let _ = tx.send(Msg::Exited(shell));
         })?;
         (self.on_report)(Report::Started { pid: child.id() });
         self.child = Some(child);
@@ -159,6 +195,9 @@ impl Supervisor {
 
     /// Runs the shell and the machine until `stop` is set, or the shell
     /// kept dying right after starting; the shell is killed on the way out.
+    /// A failure carrying out the machine's effects (#EDE-153: a git another
+    /// process held past the wait) is said on stderr and the supervisor goes
+    /// on, so the edits after it are still supervised.
     /// The supervisor itself ends with the process that started it (the
     /// compositor), so a dead display never leaves a restart loop behind.
     pub fn run(&mut self, stop: &AtomicBool) -> io::Result<()> {
@@ -172,25 +211,44 @@ impl Supervisor {
         let mut quick_exits = 0u32;
         let mut restart_at: Option<SystemTime> = None;
         while !stop.load(Ordering::Relaxed) {
-            match self.rx.recv_timeout(TICK) {
-                Ok(Msg::Changes(changes)) => self.on_changes(changes)?,
-                Ok(Msg::Line(line)) => self.on_line(&line)?,
-                Ok(Msg::Exited) => {
+            // The shell's end, with its status when it was read.
+            let mut ended: Option<Option<ExitStatus>> = None;
+            let carried = match self.rx.recv_timeout(TICK) {
+                Ok(Msg::Changes(changes)) => self.on_changes(changes),
+                Ok(Msg::Line(shell, line)) if shell == self.shell => self.on_line(&line),
+                Ok(Msg::Exited(shell)) if shell == self.shell => {
                     if let Some(mut child) = self.child.take() {
-                        let _ = child.wait();
+                        ended = Some(child.wait().ok());
                     }
-                    (self.on_report)(Report::Crashed);
-                    self.step(Event::Crash { at: now_ms() })?;
-                    quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
-                    if quick_exits >= MAX_QUICK_EXITS {
-                        return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
-                    }
-                    restart_at = Some(SystemTime::now() + RESTART_DELAY);
+                    Ok(())
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.step(Event::Tick { at: now_ms() })?;
-                }
+                // A shell before this one: its apps still hold its stdout.
+                Ok(Msg::Line(..) | Msg::Exited(..)) => Ok(()),
+                Err(mpsc::RecvTimeoutError::Timeout) => self.step(Event::Tick { at: now_ms() }).map(|_| ()),
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            if let Err(e) = carried {
+                eprintln!("exponential-ui supervise: {e} (the supervisor goes on)");
+            }
+            // #EDE-150: the apps the shell launched inherit its stdout, so a
+            // shell that died never closed the pipe while one of them ran:
+            // its exit is read here too, not from the pipe's end alone.
+            if ended.is_none() {
+                if let Some(Ok(Some(status))) = self.child.as_mut().map(Child::try_wait) {
+                    self.child = None;
+                    ended = Some(Some(status));
+                }
+            }
+            if let Some(status) = ended {
+                (self.on_report)(Report::Crashed { status });
+                if let Err(e) = self.step(Event::Crash { at: now_ms() }) {
+                    eprintln!("exponential-ui supervise: {e} (the supervisor goes on)");
+                }
+                quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
+                if quick_exits >= MAX_QUICK_EXITS {
+                    return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
+                }
+                restart_at = Some(SystemTime::now() + RESTART_DELAY);
             }
             if restart_at.is_some_and(|t| SystemTime::now() >= t) {
                 restart_at = None;
@@ -278,34 +336,56 @@ impl Supervisor {
         self.state = state;
         for effect in &effects {
             match effect {
-                Effect::Revert { name, from, id, .. } => {
+                Effect::Revert { name, from, to, id } => {
                     let git_from = self.git_of.get(from).cloned();
                     let mut ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
-                    let git = match git_from {
+                    // #EDE-137: what the file holds this moment, before the watcher
+                    // brings it: a valid edit is committed (and replaces the wait
+                    // below), a broken one refused (the rollback keeps its text aside).
+                    if ui.take_in(name)?.iter().any(|c| matches!(c, Change::Rejected { .. })) {
+                        (self.on_report)(Report::Refused { name: name.clone() });
+                    }
+                    let written = match git_from {
                         Some(git_from) => {
                             // #EDE-116: the newest commit no longer holds what `from` put in
                             // (another process undid or replaced it before the watcher brought
                             // that: `exponential-ui undo` while it waited for its frame, another
-                            // `set`; or the rollback of a commit it shared with another
-                            // document). Nothing to revert: what it holds now is taken in, an
-                            // edit like any other. Git objects on both sides, so line-ending
-                            // filters never tell them apart. An empty revert is no error.
+                            // `set`, a hand edit this moment). Nothing to roll back: what it
+                            // holds now is taken in, an edit like any other, and what was shown
+                            // stays what it was. Git objects on both sides, so line-ending
+                            // filters never tell them apart.
                             let held = ui.digest_at("HEAD", name)? == ui.digest_at(&git_from, name)?;
-                            let reverted = if held { ui.revert_commit(&git_from, &format!("Edit {name}.json, rolled back"))? } else { None };
-                            let Some((git, _)) = reverted else {
+                            if !held {
                                 drop(ui);
                                 self.pending.remove(name);
+                                if let Some(shown) = self.git_of.get(to).cloned() {
+                                    self.git_of.insert(id.clone(), shown);
+                                }
                                 (self.on_report)(Report::Superseded { name: name.clone(), from: from.clone() });
                                 self.on_changes(vec![Change::Applied { name: name.clone(), commit: None }])?;
                                 continue;
+                            }
+                            // #EDE-137: back to what was shown (`to`, apply.json rule 0),
+                            // never to an edit between that never drew; this document alone.
+                            let shown = match self.git_of.get(to) {
+                                Some(rev) => ui.bytes_at(rev, name)?,
+                                None => None,
                             };
-                            git
+                            let bytes = match shown {
+                                Some(bytes) => bytes,
+                                None => ui.factory_copy(name)?,
+                            };
+                            ui.put_back(name, &bytes, &format!("Undo: Edit {name}.json, rolled back"))?
                         }
                         // A revert of a commit this run never made (the factory commit): the factory copy.
                         None => {
-                            ui.restore_factory(name)?;
-                            ui.head()?.map(|c| c.id).unwrap_or_default()
+                            let bytes = ui.factory_copy(name)?;
+                            ui.put_back(name, &bytes, &format!("Factory {name}"))?
                         }
+                    };
+                    let git = match written {
+                        Some(git) => git,
+                        None => ui.head()?.map(|c| c.id).unwrap_or_default(),
                     };
                     let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
                     drop(ui);
@@ -316,8 +396,12 @@ impl Supervisor {
                 }
                 Effect::Factory { name, id } => {
                     let mut ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
-                    ui.restore_factory(name)?;
-                    let git = ui.head()?.map(|c| c.id).unwrap_or_default();
+                    // #EDE-137: this document alone (another one's edit stays for the watcher).
+                    let bytes = ui.factory_copy(name)?;
+                    let git = match ui.put_back(name, &bytes, &format!("Factory {name}"))? {
+                        Some(git) => git,
+                        None => ui.head()?.map(|c| c.id).unwrap_or_default(),
+                    };
                     let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
                     drop(ui);
                     self.known.insert(name.clone(), crate::digest(&bytes));
@@ -374,22 +458,73 @@ mod tests {
     }
 
     fn supervised() -> (Supervisor, Fixture) {
+        supervised_docs(&["panel"])
+    }
+
+    /// [`supervised`] with more factory documents (`<name>` says `factory
+    /// <name>`, the panel `factory`), every one drawn.
+    fn supervised_docs(names: &[&str]) -> (Supervisor, Fixture) {
         let tmp = tempfile::tempdir().unwrap();
         let factory = tmp.path().join("factory");
         std::fs::create_dir_all(&factory).unwrap();
-        let shipped = serde_json::to_vec_pretty(&panel("factory")).unwrap();
-        std::fs::write(factory.join("panel.json"), &shipped).unwrap();
+        let shipped_of = |name: &str| serde_json::to_vec_pretty(&panel(&if name == "panel" { "factory".to_string() } else { format!("factory {name}") })).unwrap();
+        for name in names {
+            std::fs::write(factory.join(format!("{name}.json")), shipped_of(name)).unwrap();
+        }
         let dir = tmp.path().join("ui");
         let (ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
         let reports = Arc::new(Mutex::new(Vec::new()));
         let heard = reports.clone();
         let mut s = Supervisor::new(ui, vec!["true".into()], move |r| heard.lock().unwrap().push(r)).unwrap();
-        s.on_line(&FrameLine::line("panel", &shipped)).unwrap();
-        (s, Fixture { _tmp: tmp, dir, factory, shipped, reports })
+        for name in names {
+            s.on_line(&FrameLine::line(name, &shipped_of(name))).unwrap();
+        }
+        (s, Fixture { _tmp: tmp, dir, factory, shipped: shipped_of("panel"), reports })
+    }
+
+    /// What the watcher brings of `name`: the reload it is about to make,
+    /// or its own when it came first (then its message is on its way).
+    fn watched(s: &Supervisor, name: &str) -> Vec<Change> {
+        let mut changes = s.ui.lock().unwrap().reload().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !changes.iter().any(|c| c.name() == name) && std::time::Instant::now() < deadline {
+            if let Ok(Msg::Changes(more)) = s.rx.recv_timeout(Duration::from_millis(50)) {
+                changes.extend(more);
+            }
+        }
+        changes
+    }
+
+    /// The newest two commits hold `a` and `b` (either order: the watcher's
+    /// own commit may come before or after the supervisor's).
+    fn newest_two(s: &Supervisor, a: &str, b: &str) -> bool {
+        let top = summaries(s);
+        top.len() >= 2 && ((top[0] == a && top[1] == b) || (top[0] == b && top[1] == a))
+    }
+
+    /// A hand edit of `name` (an editor's save: nobody commits it), made
+    /// while the supervisor's runtime is held so the watcher reloads only
+    /// after what the test does next.
+    fn hand_edit(s: &Supervisor, name: &str, bytes: &[u8]) {
+        let held = s.ui.lock().unwrap();
+        std::fs::write(held.dir().join(format!("{name}.json")), bytes).unwrap();
     }
 
     fn applied() -> Vec<Change> {
         vec![Change::Applied { name: "panel".into(), commit: None }]
+    }
+
+    /// #ERR-29: a crash signal, a panic or an error code is a failure; the
+    /// session stopping the shell or the shell quitting is not.
+    #[cfg(unix)]
+    #[test]
+    fn a_crash_is_a_failure_and_a_stop_is_not() {
+        use std::os::unix::process::ExitStatusExt;
+        let signal = |n: i32| Some(ExitStatus::from_raw(n));
+        let code = |n: i32| Some(ExitStatus::from_raw(n << 8));
+        for (status, failed) in [(signal(11), true), (signal(6), true), (signal(9), true), (code(101), true), (code(2), true), (None, true), (signal(15), false), (signal(2), false), (signal(1), false), (code(0), false)] {
+            assert_eq!(shell_failed(status), failed, "{status:?}");
+        }
     }
 
     /// A tick past every deadline.
@@ -469,5 +604,146 @@ mod tests {
         s.step(expired()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+    }
+
+    /// #EDE-137 (1): another document's hand edit landing while a rollback
+    /// runs is no part of it: the rollback commits its own document alone,
+    /// the watcher brings the edit, and it is supervised (before: the
+    /// rollback's reload committed it and the supervisor dropped it).
+    #[test]
+    fn a_rollback_leaves_another_documents_edit_to_the_watcher() {
+        let (mut s, fx) = supervised_docs(&["menu", "panel"]);
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        hand_edit(&s, "menu", &serde_json::to_vec_pretty(&panel("menu, by hand")).unwrap());
+        s.step(expired()).unwrap();
+        let changes = watched(&s, "menu");
+        s.on_changes(changes).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(heard.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "menu")), "the menu's edit is supervised: {heard:?}");
+        assert!(s.state().documents["menu"].pending.is_some(), "the menu's edit waits for its frame");
+        assert!(newest_two(&s, "Edit menu.json", "Undo: Edit panel.json, rolled back"), "{:?}", summaries(&s));
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+    }
+
+    /// #EDE-137 (1): the same for the factory write (three crashes after a
+    /// rollback): the menu's edit is never committed as `Factory panel`.
+    #[test]
+    fn a_factory_write_leaves_another_documents_edit_to_the_watcher() {
+        let (mut s, fx) = supervised_docs(&["menu", "panel"]);
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("drawn"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        s.on_line(&FrameLine::line("panel", &std::fs::read(fx.dir.join("panel.json")).unwrap())).unwrap();
+        // The panel was rolled back once already and crashed twice since.
+        let d = s.state.documents.get_mut("panel").unwrap();
+        (d.reverted, d.crashes) = (true, apply::CRASHES_TO_REVERT - 1);
+        hand_edit(&s, "menu", &serde_json::to_vec_pretty(&panel("menu, by hand")).unwrap());
+        s.step(Event::Crash { at: now_ms() }).unwrap();
+        let changes = watched(&s, "menu");
+        s.on_changes(changes).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(heard.iter().any(|r| matches!(r, Report::Factory { name, .. } if name == "panel")), "{heard:?}");
+        assert!(heard.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "menu")), "the menu's edit is supervised: {heard:?}");
+        assert!(newest_two(&s, "Edit menu.json", "Factory panel"), "{:?}", summaries(&s));
+    }
+
+    /// #EDE-137 (1): one commit held two documents (one save of both), the
+    /// menu drew, the panel did not: the rollback takes the panel back
+    /// alone; the drawn menu stays as it is.
+    #[test]
+    fn a_rollback_of_a_shared_commit_leaves_the_drawn_sibling() {
+        let (mut s, fx) = supervised_docs(&["menu", "panel"]);
+        let menu = serde_json::to_vec_pretty(&panel("menu, edited")).unwrap();
+        elsewhere(&s, &fx.factory, |ui| {
+            std::fs::write(ui.dir().join("menu.json"), &menu).unwrap();
+            std::fs::write(ui.dir().join("panel.json"), serde_json::to_vec_pretty(&panel("silent")).unwrap()).unwrap();
+            ui.reload().unwrap()
+        });
+        assert_eq!(summaries(&s)[0], "Edit menu.json, panel.json", "one commit holds both");
+        s.on_changes(vec![Change::Applied { name: "menu".into(), commit: None }, Change::Applied { name: "panel".into(), commit: None }]).unwrap();
+        s.on_line(&FrameLine::line("menu", &menu)).unwrap();
+        s.step(expired()).unwrap();
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+        assert_eq!(std::fs::read(fx.dir.join("menu.json")).unwrap(), menu, "the drawn menu stays");
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Edit { .. }, Report::Drawn { name, .. }, Report::Reverted { .. }] if name == "menu"), "{heard:?}");
+        assert!(s.state().documents["menu"].pending.is_none());
+    }
+
+    /// #EDE-137 (2): two quick edits, the second replaced the first's wait
+    /// (apply.json rule 1) and never drew: the rollback goes to what was
+    /// shown, never to the first edit, which never drew either.
+    #[test]
+    fn a_rollback_after_two_quick_edits_goes_to_what_was_shown() {
+        let (mut s, fx) = supervised();
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        s.step(expired()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "what was shown, not the first edit");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
+        assert!(s.state().documents["panel"].pending.is_none());
+    }
+
+    /// #EDE-137 (3): a broken hand edit (never committed) lands while a
+    /// valid edit waits for its frame; the rollback goes on and so does the
+    /// supervisor (before: `git revert` refused the dirty file and `run`
+    /// ended). The file holds what was drawn again, the refused text is kept
+    /// beside it, and the next edit is still supervised.
+    #[test]
+    fn a_rollback_over_an_uncommitted_edit_keeps_the_supervisor() {
+        let (mut s, fx) = supervised();
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        let broken = br#"{"surface": {"size": {"width": 1, "height": 1}}, "root": {"id": "panel", "component": "Nope"}}"#;
+        hand_edit(&s, "panel", broken);
+        s.step(expired()).expect("the supervisor goes on");
+        // (Refused: reported here unless the watcher took the broken file in first.)
+        let mut heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        heard.retain(|r| !matches!(r, Report::Refused { .. }));
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "what was drawn");
+        assert_eq!(std::fs::read(fx.dir.join(crate::refused_file("panel"))).unwrap(), broken, "the refused text, kept");
+        {
+            let mut ui = s.ui.lock().unwrap();
+            ui.reload().unwrap();
+            assert_eq!(ui.documents().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["panel"], "the kept text is no document");
+            assert!(ui.rejected().is_empty());
+        }
+        // The next edit is still supervised: nobody draws it, it rolls back.
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("again"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        s.step(expired()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+    }
+
+    /// #EDE-137 (3): a VALID hand edit of the same document landing with
+    /// the rollback (the watcher has not brought it yet) is no part of it
+    /// either: it replaces the wait like any second edit (apply.json rule
+    /// 1), committed as the person's edit and supervised; nothing is put
+    /// back over it and nothing is kept aside.
+    #[test]
+    fn a_valid_edit_landing_with_the_rollback_replaces_the_wait() {
+        let (mut s, fx) = supervised();
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        s.on_changes(applied()).unwrap();
+        let by_hand = serde_json::to_vec_pretty(&panel("by hand")).unwrap();
+        hand_edit(&s, "panel", &by_hand);
+        s.step(expired()).expect("the supervisor goes on");
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }]), "{heard:?}");
+        assert_eq!(summaries(&s)[..2], ["Edit panel.json", "Edit panel.json"]);
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), by_hand);
+        assert!(!fx.dir.join(crate::refused_file("panel")).exists());
+        assert!(s.state().documents["panel"].pending.is_some(), "the hand edit waits for its frame");
+        // Nobody draws it either: back to what was shown, never to the first edit.
+        s.step(expired()).unwrap();
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
     }
 }

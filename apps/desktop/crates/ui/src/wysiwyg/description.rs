@@ -184,7 +184,10 @@ impl WysiwygDescription {
         let placeholder = SharedString::from(placeholder.to_string());
         let transport = queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport));
-        let shared = Arc::new(SharedImageState::default());
+        let shared = Arc::new(SharedImageState {
+            origin: std::sync::Mutex::new(crate::image_actions::instance_origin(cx)),
+            ..SharedImageState::default()
+        });
         let refs = Arc::new(SharedRefState::default());
         // EXP-551: emoji need no team data, so the `:` typeahead is live even
         // in a team-less host (only `@`/`#` fall away with the team).
@@ -782,6 +785,10 @@ impl WysiwygDescription {
     /// Recompute the resolver map from the live document (kicking off fetches
     /// through the authenticated cache) and repaint the editor if it moved.
     fn sync_images(&mut self, cx: &mut Context<Self>) {
+        let origin = crate::image_actions::instance_origin(cx);
+        if let Ok(mut current) = self.shared.origin.lock() {
+            *current = origin;
+        }
         let markdown = self.markdown(cx);
         let occurrences = crate::attachments_row::extract_image_occurrences(&markdown);
         let mut next: HashMap<String, ImageSourceResolution> = HashMap::new();
@@ -1581,6 +1588,9 @@ impl WysiwygDescription {
         let src = menu.src.clone();
         let key = images::cache_key(&src).to_string();
         let own_attachment = key.starts_with("/api/attachments/");
+        // #EXP-1968: a refused picture's block (its link or alt) carries no
+        // image rows, only its removal.
+        let loads = src.starts_with(DRAFT_SCHEME) || crate::image_actions::source_allowed(&src, cx);
         // EXP-824: the `…` menu of a media tile — Open in player · Preview ·
         // Download · Remove from description (no "View image" / copy).
         let media = crate::media_tile::MediaTile::for_url(&src, cx);
@@ -1669,7 +1679,7 @@ impl WysiwygDescription {
                         })
                     }),
                 );
-        } else {
+        } else if loads {
             list = list.child(
                 item(
                     "wysiwyg-image-view",
@@ -1745,7 +1755,7 @@ impl WysiwygDescription {
             }
         }
         list = list
-            .child(div().my_1().h(px(1.)).bg(theme.border))
+            .when(media.is_some() || loads, |list| list.child(div().my_1().h(px(1.)).bg(theme.border)))
             .child(
                 item(
                     "wysiwyg-image-delete",

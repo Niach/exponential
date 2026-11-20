@@ -1,5 +1,12 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
-import { FIND_IN_CHAT_TEST_IDS, findEventKey, findInChatOutputHint, findMessageKey } from "@exp/domain-contract/find-in-chat"
+import {
+  FIND_IN_CHAT_TEST_IDS,
+  findEventKey,
+  findInChatOutputHint,
+  findMessageKey,
+  type FindStop,
+  type FindSynced,
+} from "@exp/domain-contract/find-in-chat"
 import { highlightCount } from "@exponential_app/eui"
 import { markdownHighlightCount } from "@exponential_app/eui/web"
 import { FindInChatContext, FindPaintContext, FindRow, type FindPaint } from "@/components/chat/find-in-chat"
@@ -195,7 +202,7 @@ import {
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { loadEarlierMessages, useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
+import { loadEarlierMessages, useSessionCard, useSessionMessagePage } from "@/hooks/use-session-tree"
 import { unqueueMessage, useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import {
   deleteOutboxEntry,
@@ -259,6 +266,7 @@ import { cn } from "@/lib/utils"
 import {
   STEER_ENET_NO_FEED_IDLE,
   STEER_NO_FEED_INPUTS_MAX,
+  STEER_SYNCED_TAIL_MAX,
   steerNoFeedAway,
   steerNoFeedInputs,
   steerNoFeedState,
@@ -476,7 +484,13 @@ export function AgentSessionView({
    *  open ask for them, so they render as THE chat card and answer via
    *  `sessions.answer` only. A waiting one takes the ask dock when no relay
    *  card does; the rest sit after the call that posted them. */
-  const sessionMessages = useSessionMessages(session.id)
+  const messagePage = useSessionMessagePage(session.id)
+  const sessionMessages = messagePage.rows
+  // #EXP-1998 (find-in-chat.json): landing on an older synced message
+  // widens the drawn synced messages (the tail, the sent inputs) to start
+  // at it, until the chat closes.
+  const [findWiden, setFindWiden] = useState<{ sessionId: string; id: string } | null>(null)
+  const widenFrom = findWiden?.sessionId === session.id ? findWiden.id : null
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
   const canAnswerCards = !sessionEnded
   // S-3 (dock.json): a waiting plan or question (the relay's
@@ -504,7 +518,8 @@ export function AgentSessionView({
   )
   // steer-enet.json SENT INPUTS: the session's consumed person inputs (the
   // newest few, oldest first), drawn above a no-feed placeholder.
-  const sentInputIds = useMemo(() => noFeedSentIds(sessionMessages), [sessionMessages])
+  const sentInputsAll = useMemo(() => [...noFeedSentIds(sessionMessages, Number.POSITIVE_INFINITY)], [sessionMessages])
+  const sentInputIds = useMemo(() => widenedIds(sentInputsAll, STEER_NO_FEED_INPUTS_MAX, widenFrom), [sentInputsAll, widenFrom])
   // #FEED-237 (message-delivery.json HANDOFF): a consumed own row keeps its
   // bubble (reading `read`) until the live transcript's echo of it arrives,
   // so it never vanishes in between; re-evaluated when the rows or the feed
@@ -809,19 +824,24 @@ export function AgentSessionView({
   // #FEED-260 (steer-enet.json SYNCED TAIL): while the feed is not live, the
   // session's synced messages after it (bodies opened) draw after its last
   // row; a held own row (HANDOFF) draws once, as the handoff.
-  const syncedTailIds = useMemo(() => {
-    const ids = syncedTailMessages({
-      live,
-      feed,
-      messages: sessionMessages.map(toTreeMessage),
-      // An EMPTY feed takes it only while the live transcript cannot be
-      // loaded (the OFFLINE LINE's condition).
-      unreachable: sessionEnded ? deviceOffline && phase.kind === `ended` : device.online === false,
-    })
-      .map((message) => message.id)
-      .filter((id) => !handoff.ids.has(id))
-    return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
-  }, [live, feed, sessionMessages, handoff.ids, sessionEnded, deviceOffline, phase.kind, device.online])
+  // #EXP-1998: every message the tail would draw with no cap (find in chat
+  // counts them); it shows the newest `syncedTailMax`, or from `widenFrom`.
+  const syncedTailAll = useMemo(
+    () =>
+      syncedTailMessages({
+        live,
+        feed,
+        messages: sessionMessages.map(toTreeMessage),
+        max: Number.POSITIVE_INFINITY,
+        // An EMPTY feed takes it only while the live transcript cannot be
+        // loaded (the OFFLINE LINE's condition).
+        unreachable: sessionEnded ? deviceOffline && phase.kind === `ended` : device.online === false,
+      })
+        .map((message) => message.id)
+        .filter((id) => !handoff.ids.has(id)),
+    [live, feed, sessionMessages, handoff.ids, sessionEnded, deviceOffline, phase.kind, device.online]
+  )
+  const syncedTailIds = useMemo(() => widenedIds(syncedTailAll, STEER_SYNCED_TAIL_MAX, widenFrom), [syncedTailAll, widenFrom])
   const syncedTailRows = useMemo(
     () =>
       syncedTailIds.size === 0
@@ -1320,10 +1340,32 @@ export function AgentSessionView({
     },
     [feed, windowStart]
   )
-  const pageFindOlder = useCallback(() => {
-    startTransition(() => setWindowFrom(WINDOW_FROM_START))
-    store.loadEarlier()
-  }, [store])
+  // #EXP-1998: the synced messages the screen draws as bubbles (a live
+  // transcript holds them as its own rows; an ended placeholder draws none).
+  const findSynced = useMemo<FindSynced | null>(() => {
+    if (live) return null
+    const drawable = placeholderShown ? (sessionEnded ? null : sentInputsAll) : syncedTailAll
+    if (!drawable) return null
+    return { loaded: sessionMessages.map((message) => message.id), drawable, more: messagePage.more }
+  }, [live, placeholderShown, sessionEnded, sentInputsAll, syncedTailAll, sessionMessages, messagePage.more])
+  const pageFindOlder = useCallback(
+    (stop: FindStop) => {
+      if (stop.key.startsWith(`m:`)) {
+        const id = stop.key.slice(2)
+        if (findSynced?.drawable.includes(id)) setFindWiden({ sessionId: session.id, id })
+        else loadEarlierMessages(session.id)
+        return
+      }
+      startTransition(() => setWindowFrom(WINDOW_FROM_START))
+      store.loadEarlier()
+    },
+    [store, findSynced, session.id]
+  )
+  const canPageFindOlder = useCallback(
+    (stop: FindStop) =>
+      stop.key.startsWith(`m:`) ? Boolean(findSynced && (findSynced.drawable.includes(stop.key.slice(2)) || findSynced.more)) : snapshotCanLoadEarlier,
+    [findSynced, snapshotCanLoadEarlier]
+  )
   const isMobileFind = useIsMobile()
   const transcriptFind = useTranscriptFind({
     find: findInChat,
@@ -1337,8 +1379,9 @@ export function AgentSessionView({
     deviceName,
     search: store.search,
     reveal: revealFindItem,
+    synced: findSynced,
     pageOlder: pageFindOlder,
-    canPageOlder: snapshotCanLoadEarlier,
+    canPageOlder: canPageFindOlder,
     scrollRef,
   })
   const findPaint = transcriptFind.paint
@@ -1720,6 +1763,14 @@ const NO_TREE: readonly SessionRow[] = []
 const NO_ISSUES: readonly TreeIssue[] = []
 const NO_DOCKED: ReadonlySet<string> = new Set()
 const NO_OUTBOX: readonly { clientId: string; text: string }[] = []
+
+/** #EXP-1998: the drawn ids of `all` (oldest first): the newest `max`, or
+ *  every one from `from` on when that reaches further back. */
+export function widenedIds(all: readonly string[], max: number, from: string | null): ReadonlySet<string> {
+  const at = from === null ? -1 : all.indexOf(from)
+  const ids = at >= 0 && all.length - at > max ? all.slice(at) : all.slice(Math.max(0, all.length - max))
+  return ids.length === 0 ? NO_SENT_IDS : new Set(ids)
+}
 
 /** #EXP-1975 (find-in-chat.json): a drawn chat row's find key: a bubble
  *  (a person's or the agent's message, a child's report) = `m:<messageId>`;

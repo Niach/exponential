@@ -18,6 +18,7 @@ mod members;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod scope;
+pub mod slice;
 
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, sync::Arc};
 
@@ -65,6 +66,17 @@ pub struct Spaces {
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
+    /// The person's user manager: `Some` = a launch runs in a systemd
+    /// scope of its space's slice ([`slice`], #EDE-138). `None` (also in
+    /// the headless harness) = as before, in the compositor's own cgroup.
+    pub units: Option<slice::Units>,
+    /// The launches so far: each scope's name has its number.
+    launch_serial: std::cell::Cell<u32>,
+    /// The slices of closed spaces that are being stopped ([`close`]).
+    stopping: Vec<close::Stopping>,
+    /// A launch of this run went into a scope: there are slices to stop
+    /// when the compositor ends.
+    sliced: bool,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -72,7 +84,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: |dir| std::fs::remove_dir_all(dir), renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
@@ -111,6 +123,8 @@ pub struct AgentSpace {
     pub(crate) last_use: Option<std::time::Instant>,
     /// The ticks in a row that found its owner without a live space grant.
     pub(crate) expired_ticks: u32,
+    /// A launch of it went into a scope: its slice is stopped at the close.
+    pub(crate) sliced: bool,
 }
 
 impl AgentSpace {
@@ -266,7 +280,7 @@ impl Ede {
             title_click: None,
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0 });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, expired_ticks: 0, sliced: false });
         Ok(id)
     }
 }

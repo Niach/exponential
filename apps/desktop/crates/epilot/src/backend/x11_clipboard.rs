@@ -38,12 +38,11 @@ use x11rb::wrapper::ConnectionExt as _;
 use x11rb::NONE;
 
 use super::{reply, x, X11};
-use crate::backend::{Clipboard, Pasted, SavedClipboard};
+use crate::backend::{Clipboard, Pasted, SavedClipboard, CLIPBOARD_SAVE_MAX};
 
-/// One saved format past this is skipped (an image of a whole screen).
+/// One saved format past this is skipped (an image of a whole screen); the
+/// whole saved clipboard stops at [`CLIPBOARD_SAVE_MAX`].
 const FORMAT_MAX: usize = 8 << 20;
-/// The whole saved clipboard stops here.
-const SAVED_MAX: usize = 32 << 20;
 const TARGETS_MAX: usize = 64;
 /// One `ConvertSelection` round trip (a hung owner answers nothing).
 const CONVERT_TIMEOUT: Duration = Duration::from_millis(600);
@@ -481,7 +480,7 @@ impl Clipboard for X11Clipboard<'_> {
                 saved.partial = true;
                 continue;
             };
-            if data.len() > FORMAT_MAX || total + data.len() > SAVED_MAX {
+            if data.len() > FORMAT_MAX || total + data.len() > CLIPBOARD_SAVE_MAX {
                 saved.partial = true;
                 continue;
             }

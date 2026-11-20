@@ -32,6 +32,15 @@ pub enum ImageSourceResolution {
     Failed,
 }
 
+/// #EXP-1968 vendoring: what a picture the host refuses to fetch shows in
+/// its place (the Markdown keeps it): `text` as an ordinary link to `href`,
+/// or as plain text when `href` is `None`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageStandIn {
+    pub text: String,
+    pub href: Option<String>,
+}
+
 /// EXP-824 vendoring: the media family of a standalone attachment link.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaKind {
@@ -128,6 +137,14 @@ pub trait ImageSourceResolver: Send + Sync + 'static {
     /// the block then renders as a media tile. Default `None` keeps every
     /// link a link.
     fn media_info(&self, _src: &str) -> Option<MediaInfo> {
+        None
+    }
+
+    /// #EXP-1968 vendoring: `Some` when the host refuses to fetch `src`
+    /// (asked before [`Self::resolve`]): the block shows the stand-in, a
+    /// press on a link opens it (`OpenLinkRequested`), and nothing is ever
+    /// fetched. Default `None` keeps the default resolution.
+    fn stand_in(&self, _src: &str, _alt: &str) -> Option<ImageStandIn> {
         None
     }
 }

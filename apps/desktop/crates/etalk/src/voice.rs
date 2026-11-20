@@ -1240,6 +1240,19 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     }
 }
 
+/// #EXP-1992: the reply to say among `fresh` rows (`(id, message)`, new
+/// since the host's last look): the newest one [`should_speak`] takes in
+/// `context` (a burst, a reconnect, says only its newest), with its spoken
+/// text (None = none, or nothing to say).
+pub fn reply_to_speak<'a>(fresh: impl IntoIterator<Item = (&'a str, VoiceMessage<'a>)>, context: &VoiceContext<'_>) -> Option<(String, String)> {
+    let (id, message) = fresh
+        .into_iter()
+        .filter(|(_, message)| should_speak(message, context))
+        .max_by_key(|(_, message)| message.created_at.and_then(parse_instant).unwrap_or(0))?;
+    let spoken = spoken_text(message.body.unwrap_or(""), VOICE.max_chars, context.language);
+    (!spoken.is_empty()).then(|| (id.to_string(), spoken))
+}
+
 /// A timestamp as UTC milliseconds: RFC 3339 (the arm time, the fixture) or
 /// the Postgres spelling the shapes deliver (`2026-10-25 10:00:05.123+00`);
 /// zone-less means UTC. Same ladder as `ui::inbox::parse_timestamp`.

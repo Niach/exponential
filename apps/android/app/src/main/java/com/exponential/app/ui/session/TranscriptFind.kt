@@ -1,6 +1,15 @@
 package com.exponential.app.ui.session
 
+import android.os.SystemClock
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.LayoutCoordinates
+import com.exponential.app.domain.DeepLinkDriver
+import com.exponential.app.domain.WaitingCards
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -94,7 +103,7 @@ internal val LocalFindPaint = compositionLocalOf<FindPaint?> { null }
 internal fun findGroupKey(items: List<AgentFeedItem>): String = "g:${items.first().id}"
 
 /** The synced message a SYNCED TAIL row draws (`synced:<id>`), else null. */
-private fun syncedMessageId(item: AgentFeedItem): String? {
+internal fun syncedMessageId(item: AgentFeedItem): String? {
     val id = when (item) {
         is AgentFeedItem.Narration -> item.messageId
         is AgentFeedItem.UserMessage -> item.messageId
@@ -256,8 +265,8 @@ internal fun findUserMessageProse(text: String): String {
 
 private data class OlderAnswers(
     val query: String,
-    val store: List<FindInChat.OlderHit> = emptyList(),
-    val device: List<FindInChat.OlderHit> = emptyList(),
+    val store: List<FindInChat.StoreHit> = emptyList(),
+    val device: List<FindInChat.DeviceHit> = emptyList(),
     val storePhase: FindInChat.Phase = FindInChat.Phase.None,
     val devicePhase: FindInChat.Phase = FindInChat.Phase.None,
 )
@@ -304,6 +313,9 @@ internal fun rememberTranscriptFind(
     /** #EXP-1975: the own bubbles drawn after the feed, in drawn order (the
      *  placeholder's sent inputs, then the own tail). */
     ownBubbles: List<MessageDelivery.Bubble> = emptyList(),
+    /** #EXP-1998: the synced messages the screen draws as bubbles (null = a
+     *  live transcript holds them as its rows). */
+    synced: FindInChat.Synced? = null,
 ): TranscriptFind {
     val query = if (host != null) find?.activeQuery.orEmpty() else ""
     val sessionId = host?.sessionId.orEmpty()
@@ -345,26 +357,22 @@ internal fun rememberTranscriptFind(
         )
         launch {
             val hits = runCatching { host.searchStore(host.rootId, query) }.getOrNull().orEmpty()
-                .filter { it.sessionId == host.sessionId && it.seq != null && it.kind in STORE_EVENT_KINDS }
-                .map { FindInChat.OlderHit(FindInChat.eventKey(host.sessionId, it.seq!!), output = it.kind == "tool_output") }
+                .filter { it.kind in STORE_KINDS }
+                .map { FindInChat.StoreHit(it.sessionId, it.seq, it.messageId, it.kind) }
             if (older.query == query) older = older.copy(store = hits, storePhase = FindInChat.Phase.Done)
         }
         if (askDevice) {
             launch {
                 val result = runCatching { host.searchDevice(query, latestLowest) }.getOrNull()
-                val hits = result?.hits.orEmpty()
-                    .map { FindInChat.OlderHit(FindInChat.eventKey(host.sessionId, it.seq), output = it.kind == "tool_output") }
+                val hits = result?.hits.orEmpty().map { FindInChat.DeviceHit(it.seq, it.kind) }
                 if (older.query == query) older = older.copy(device = hits, devicePhase = FindInChat.Phase.Done)
             }
         }
     }
-    val olderHits = if (older.query != query) {
-        emptyList()
-    } else {
-        (older.store + older.device).filter { hit ->
-            val seq = FindInChat.eventSeq(hit.key)
-            lowest == null || (seq != null && seq < lowest)
-        }
+    // #EXP-1998 (`olderCases`): an older hit is an event BELOW the loaded
+    // stretch, or a synced message the screen would draw but does not show.
+    val olderHits = remember(older, query, sessionId, lowest, synced) {
+        if (older.query != query) emptyList() else FindInChat.older(sessionId, lowest, older.store, older.device, synced)
     }
     val stops = remember(rows, olderHits) { FindInChat.stops(rows.map { it.row }, olderHits) }
 
@@ -394,6 +402,13 @@ internal fun rememberTranscriptFind(
     val rowsCounted = counted.first == query
     LaunchedEffect(current == null, shown, rowsCounted) {
         if (current == null && shown != null && rowsCounted) land(shown)
+    }
+    // #EXP-1998: an older stop that turned out to be no row of this screen
+    // (its page-in found nothing to draw) vanishes: the newest stop takes
+    // over and is landed on.
+    val vanished = current?.let { c -> !c.loaded && rowsCounted && stops.none { it.same(c) } } == true
+    LaunchedEffect(vanished, shown) {
+        if (vanished && shown != null) land(shown)
     }
     val step = find?.step
     var stepSeen by remember { mutableIntStateOf(step?.n ?: 0) }
@@ -428,6 +443,115 @@ internal fun rememberTranscriptFind(
     return TranscriptFind(paint, if (query.isEmpty()) null else request, ring, openGroups, keys)
 }
 
-/** The store's hit kinds that are transcript events of the session (a synced
- *  `message` is the synced rows', drawn outside the feed). */
-private val STORE_EVENT_KINDS = setOf("user_message", "narration", "tool", "tool_output")
+/** The store's hit kinds find in chat knows: the session's transcript events
+ *  and, #EXP-1998, its synced messages (`message`, keyed `m:<id>`). */
+private val STORE_KINDS = setOf("user_message", "narration", "tool", "tool_output", "message")
+
+/** #EXP-1998 (find-in-chat.json): how many of [all] (oldest first) stay
+ *  hidden: all but the newest [max], or none from [from] on when that
+ *  reaches further back (TS `widenedIds`, desktop `widened_skip`). */
+internal fun findWidenedSkip(all: List<String>, max: Int, from: String?): Int {
+    val at = if (from == null) -1 else all.indexOf(from)
+    return if (at >= 0 && all.size - at > max) at else maxOf(0, all.size - max)
+}
+
+/** The synced message of a find key (`m:<id>`), else null. */
+internal fun findMessageId(key: String?): String? = key?.takeIf { it.startsWith("m:") }?.substring(2)?.takeIf { it.isNotEmpty() }
+
+/**
+ * #EXP-1998 (find-in-chat.json): the synced messages a not-live screen
+ * draws as bubbles and how a landing pages an older one in: [shown] = the
+ * drawn ones, [widen] = draw every drawable one from that message on,
+ * [loadOlder] = load older synced messages.
+ */
+internal class TranscriptFindSynced(
+    val synced: FindInChat.Synced?,
+    val shown: Set<String>,
+    val widen: (messageId: String) -> Unit,
+    val loadOlder: () -> Unit,
+) {
+    /** A loaded page changed (the deep link's `loadedMark`). */
+    val mark: Int get() = listOf(synced?.loaded?.size, synced?.drawable?.size, shown.size).hashCode()
+
+    /** Whether paging can still bring the message [id] in. */
+    fun canPage(id: String): Boolean {
+        val s = synced ?: return false
+        return if (id in s.drawable) id !in shown else id !in s.loaded && s.more
+    }
+
+    fun page(id: String) {
+        val s = synced ?: return
+        if (id in s.drawable) widen(id) else if (s.more) loadOlder()
+    }
+}
+
+internal val LocalTranscriptFindSynced = compositionLocalOf<TranscriptFindSynced?> { null }
+
+/** #EXP-1998: where the no-transcript placeholder's bubbles sit in their
+ *  scrolling column, and the one a landing rings. */
+internal class FindBubbleLanding(val ring: String?, val onPlaced: (key: String, coordinates: LayoutCoordinates) -> Unit)
+
+internal val LocalFindBubbleLanding = compositionLocalOf<FindBubbleLanding?> { null }
+
+/**
+ * #EXP-1998 (find-in-chat.json LANDING under the no-transcript placeholder):
+ * its bubbles are one scrolling column, so a stop's landing is THE deep-link
+ * steps over it: page the message in ([page]) until its bubble is drawn
+ * ([centreOf] = its centre in the column, null = not drawn), centre it, ring
+ * it. Returns the ringing key.
+ */
+@Composable
+internal fun rememberBubbleFindLanding(
+    request: CardScrollRequest?,
+    ring: Boolean,
+    scroll: ScrollState,
+    centreOf: (key: String) -> Int?,
+    more: (key: String) -> Boolean,
+    loadedMark: () -> Int,
+    page: (key: String) -> Unit,
+): String? {
+    val latestCentreOf by rememberUpdatedState(centreOf)
+    val latestMore by rememberUpdatedState(more)
+    val latestMark by rememberUpdatedState(loadedMark)
+    val latestPage by rememberUpdatedState(page)
+    val latestRing by rememberUpdatedState(ring)
+    var ringing by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    LaunchedEffect(request) {
+        val req = request ?: return@LaunchedEffect
+        val driver = DeepLinkDriver()
+        driver.take(req.id, req.takenAtMs)
+        val drags = launch {
+            scroll.interactionSource.interactions.collect { if (it is DragInteraction.Start) driver.drop() }
+        }
+        try {
+            while (driver.link != null) {
+                withFrameNanos { }
+                val centre = latestCentreOf(req.id)
+                val target = centre?.let { (it - scroll.viewportSize / 2).coerceIn(0, scroll.maxValue) }
+                val step = driver.step(
+                    found = centre != null,
+                    laidOut = centre != null,
+                    centred = target != null && abs(target - scroll.value) <= 2,
+                    more = latestMore(req.id),
+                    loadedMark = latestMark(),
+                    nowMs = SystemClock.uptimeMillis(),
+                ) ?: break
+                when (step) {
+                    WaitingCards.DeepLinkStep.Ring -> if (latestRing) ringing = req.id to SystemClock.uptimeMillis()
+                    WaitingCards.DeepLinkStep.Scroll -> target?.let { scroll.animateScrollTo(it) }
+                    WaitingCards.DeepLinkStep.Page -> latestPage(req.id)
+                    else -> Unit
+                }
+            }
+        } finally {
+            drags.cancel()
+        }
+    }
+    val rung = ringing
+    LaunchedEffect(rung) {
+        if (rung == null) return@LaunchedEffect
+        delay(WaitingCards.Constants.HIGHLIGHT_MS)
+        ringing = null
+    }
+    return rung?.first
+}

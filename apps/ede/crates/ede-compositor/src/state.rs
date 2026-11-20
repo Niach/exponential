@@ -298,6 +298,7 @@ impl Ede {
 
     /// Starts Xwayland if enabled, then the autostart commands.
     pub fn start_session(&mut self) {
+        self.start_space_units();
         #[cfg(feature = "xwayland")]
         if self.config.xwayland {
             // Autostart runs from the Ready/Error event.
@@ -546,6 +547,7 @@ impl Ede {
         {
             self.desk_mut(desk).pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
+        #[cfg(feature = "xwayland")]
         let unset = surface.is_none();
         keyboard.set_focus(self, surface, serial);
         // The seat reports no change when the keyboard goes to nothing, so

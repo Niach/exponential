@@ -5,6 +5,13 @@
 //! environments itself, so a request from a space is refused when the
 //! compositor cannot be asked. Elsewhere than Linux there is no `/proc`:
 //! every answer is "nothing".
+//!
+//! #EDE-138: what a space launches runs in a systemd scope of the space's
+//! own slice, and its cgroup says so first ([`space_by_cgroup`]): a
+//! process keeps its cgroup when it starts a session of its own, empties
+//! its environment and lets its parent die. It is a sign, not a wall:
+//! every cgroup under the user manager belongs to the user, so a process
+//! that works at it can move itself to another one.
 
 use std::path::Path;
 
@@ -16,6 +23,64 @@ pub const MAX_LINEAGE: usize = 64;
 /// The two variables a launch into a space gets from the compositor that
 /// name the space's own directory.
 const SPACE_VARS: [&str; 2] = ["XDG_RUNTIME_DIR", "WAYLAND_DISPLAY"];
+
+/// The slice of all agent spaces of the compositor whose process id is
+/// `compositor`, in the person's user manager. The id is in every unit
+/// name: two compositors of one user never share one, and what a crashed
+/// compositor left is told apart from a running one's. A `-` in a slice's
+/// name is a level, so this one is a child of `app.slice` itself (no
+/// parent of its own is left behind when it stops).
+pub fn spaces_slice(compositor: u32) -> String {
+    format!("app-exponential_p{compositor}.slice")
+}
+
+/// The slice of that compositor's space number `space`, a child of
+/// [`spaces_slice`].
+pub fn space_slice(compositor: u32, space: u32) -> String {
+    format!("app-exponential_p{compositor}-s{space}.slice")
+}
+
+/// The scope of launch number `launch` into that space.
+pub fn launch_scope(compositor: u32, space: u32, launch: u32) -> String {
+    format!("exponential-p{compositor}-s{space}-{launch}.scope")
+}
+
+/// A [`space_slice`] name read back: the compositor's process id and the
+/// space's number.
+pub fn parse_space_slice(unit: &str) -> Option<(u32, u32)> {
+    let (compositor, space) = unit.strip_prefix("app-exponential_p")?.strip_suffix(".slice")?.split_once("-s")?;
+    let number = |text: &str| (!text.is_empty() && text.len() <= 10 && text.bytes().all(|b| b.is_ascii_digit())).then(|| text.parse::<u32>().ok()).flatten();
+    Some((number(compositor)?, number(space)?))
+}
+
+/// The space slice a cgroup path runs through
+/// (`…/app-exponential_p41.slice/app-exponential_p41-s3.slice/…`): the
+/// compositor's process id and the space, `None` for a path of the
+/// person's. `cgroup` is `/proc/<pid>/cgroup` as it is (every hierarchy's
+/// line is looked at) or a bare path.
+pub fn space_in_cgroup(cgroup: &str) -> Option<(u32, SpaceId)> {
+    cgroup.lines().flat_map(|line| line.rsplit(':').next().unwrap_or(line).split('/')).find_map(|unit| {
+        let (compositor, space) = parse_space_slice(unit)?;
+        Some((compositor, SpaceId::new(&format!("space-{space}")).ok()?))
+    })
+}
+
+/// `/proc/<pid>/cgroup`; `None` when there is no such process.
+pub fn cgroup(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()
+}
+
+/// The space whose slice `pid`, or a process it descends from, runs in
+/// ([`space_in_cgroup`]): the compositor's process id, the space and the
+/// process that says so.
+pub fn space_by_cgroup(pid: u32) -> Option<(u32, SpaceId, u32)> {
+    space_by_cgroup_with(pid, cgroup)
+}
+
+/// [`space_by_cgroup`] with the cgroups read through `cgroup_of` (a test's).
+pub fn space_by_cgroup_with(pid: u32, cgroup_of: impl Fn(u32) -> Option<String>) -> Option<(u32, SpaceId, u32)> {
+    lineage(pid).into_iter().find_map(|stat| space_in_cgroup(&cgroup_of(stat.pid)?).map(|(compositor, space)| (compositor, space, stat.pid)))
+}
 
 /// A process's place among the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +181,47 @@ mod tests {
         let _ = child.wait();
         assert!(lineage(u32::MAX).is_empty(), "no such process");
         assert!(lineage(1).is_empty() && lineage(0).is_empty());
+    }
+
+    /// #EDE-138: the unit names and what reads them back are one pair.
+    #[test]
+    fn a_cgroup_under_a_spaces_slice_names_its_space() {
+        assert_eq!(spaces_slice(41), "app-exponential_p41.slice");
+        assert_eq!(space_slice(41, 3), "app-exponential_p41-s3.slice");
+        assert_eq!(launch_scope(41, 3, 7), "exponential-p41-s3-7.scope");
+        assert_eq!(parse_space_slice(&space_slice(41, 3)), Some((41, 3)));
+        for not_a_space in ["app-exponential_p41.slice", "app-exponential.slice", "app-exponential_p-s3.slice", "app-exponential_p41-s.slice", "app-exponential_p41-s3.scope", "app-exponential_p41-sx.slice", "app-exponential_p4x-s3.slice", "xapp-exponential_p41-s3.slice", "app-exponential_p41-s3-1.slice", "app-exponential_p99999999999-s1.slice", "app-exponential-p41-s3.slice"] {
+            assert_eq!(parse_space_slice(not_a_space), None, "{not_a_space}");
+        }
+        let space = |cgroup: &str| space_in_cgroup(cgroup).map(|(compositor, space)| (compositor, space.as_str().to_string()));
+        let user = "/user.slice/user-1000.slice/user@1000.service";
+        let slices = "app.slice/app-exponential_p41.slice/app-exponential_p41-s3.slice";
+        assert_eq!(space(&format!("0::{user}/{slices}/exponential-p41-s3-7.scope\n")), Some((41, "space-3".into())), "a launch");
+        assert_eq!(space(&format!("0::{user}/{slices}/exponential-p41-s3-session.scope/app.slice/snap.firefox.firefox-1f.scope\n")), Some((41, "space-3".into())), "what the space's own manager started");
+        assert_eq!(space(&format!("{user}/{slices}")), Some((41, "space-3".into())), "a bare path");
+        assert_eq!(space(&format!("12:pids:/x\n1:name=systemd:{user}/{slices}/a.scope\n0::/\n")), Some((41, "space-3".into())), "a v1 hierarchy's line");
+        assert_eq!(space("0::/user.slice/user-1000.slice/session-3.scope\n"), None, "the person's login session");
+        assert_eq!(space(&format!("0::{user}/app.slice/app-exponential_p41.slice/x.scope\n")), None, "the slice of all spaces is no space");
+        assert_eq!(space(&format!("0::{user}/app.slice/app-flatpak-org.x.Y-1234.scope\n")), None);
+        assert_eq!(space(""), None);
+    }
+
+    /// A process and what it starts are in one cgroup: this test's own is
+    /// nobody's space, and neither is a child's.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_process_of_the_person_is_in_no_spaces_slice() {
+        assert!(cgroup(std::process::id()).is_some());
+        assert_eq!(cgroup(u32::MAX), None, "no such process");
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        assert_eq!(space_by_cgroup(child.id()), None);
+        // The nearest process that is in a space's slice answers: here the
+        // child's parent, this test.
+        let own = std::process::id();
+        let in_space = |pid: u32| (pid == own).then(|| "0::/user.slice/a/app-exponential_p9.slice/app-exponential_p9-s2.slice/x.scope\n".to_string()).or_else(|| cgroup(pid));
+        assert_eq!(space_by_cgroup_with(child.id(), in_space).map(|(compositor, space, pid)| (compositor, space.as_str().to_string(), pid)), Some((9, "space-2".into(), own)));
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq } from "drizzle-orm"
+import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm"
 import {
   ASSISTANT,
   ASSISTANT_COPY,
@@ -9,29 +9,67 @@ import {
   type AgentTriggerLike,
 } from "@exp/domain-contract/agent-settings"
 import type { AgentTrigger } from "@exp/db-schema/domain"
+import { createHash } from "node:crypto"
 import { db } from "@/db/connection"
-import { agents, devices, teamMembers, userVoiceSettings, type Agent } from "@/db/schema"
-import { getTeamMember } from "@/lib/auth/membership"
+import { agents, devices, teamMembers, teams, userVoiceSettings, type Agent } from "@/db/schema"
+import { getMemberTeamIds, getTeamMember } from "@/lib/auth/membership"
+import { assistantMoveOn } from "@/lib/agents/assistant-move"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
-// S-3 (agent-settings.json `assistant`): every member's ONE Assistant per
-// team (`agents.role = assistant`, unique on (team_id, owner_id)). Created
-// on first use on the member's own newest desktop (else their newest
-// device); owned and edited by that member only; never deleted. Its device
-// is the member's VOICE device: `user_voice_settings.voice_device_id` /
-// `agent_id` stay as a server-kept MIRROR of the voice Assistant (old
-// clients, the heartbeat and the voice runtime read them unchanged).
+// S-3 / #EXP-1984 (agent-settings.json `assistant`, `assistant.move`):
+// every member's ONE Assistant across their teams (`agents.role =
+// assistant`), stored in their hidden personal team (`teams.kind =
+// personal`, created with it). Created on first use on the member's own
+// newest desktop (else their newest device); owned and edited by that member
+// only; never deleted. Its device is the member's VOICE device:
+// `user_voice_settings.voice_device_id` / `agent_id` stay as a server-kept
+// MIRROR of the voice Assistant (old clients, the heartbeat and the voice
+// runtime read them unchanged).
 
 type Exec = Pick<typeof db, `select` | `insert` | `update`>
 
-/** The member's Assistant in a team, if it exists. */
-export async function findAssistant(exec: Exec, teamId: string, ownerId: string): Promise<Agent | null> {
-  const [row] = await exec
-    .select()
+const PERSONAL_TEAM_NAME = `Personal`
+
+/** A personal team's slug: unique, never a person's word (no screen shows
+ *  it). The move's migration computes the same one in SQL. */
+export function personalTeamSlug(userId: string): string {
+  return `personal-${createHash(`sha256`).update(userId).digest(`hex`).slice(0, 24)}`
+}
+
+/** The member's hidden personal team, created on first use. */
+export async function ensurePersonalTeam(exec: Exec, userId: string): Promise<string> {
+  const mine = () =>
+    exec
+      .select({ id: teams.id })
+      .from(teams)
+      .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+      .limit(1)
+  const [found] = await mine()
+  if (found) return found.id
+  await exec
+    .insert(teams)
+    .values({ name: PERSONAL_TEAM_NAME, slug: personalTeamSlug(userId), kind: `personal`, ownerId: userId })
+    .onConflictDoNothing()
+  const [created] = await mine()
+  if (!created) throw new TRPCError({ code: `CONFLICT`, message: `Your Assistant just changed; try again.` })
+  // The shapes' team list (getUserTeamIds) now holds it.
+  invalidateMembershipCaches()
+  return created.id
+}
+
+/** The member's Assistant. With the move on (#EXP-1986): the ONE, wherever
+ *  it lives (the personal team's wins over a per-team row a race left).
+ *  Off: the one in `teamId` when given, else their oldest. */
+export async function findAssistant(exec: Exec, ownerId: string, teamId?: string | null): Promise<Agent | null> {
+  const rows = await exec
+    .select({ agent: agents, kind: teams.kind })
     .from(agents)
-    .where(and(eq(agents.teamId, teamId), eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
-    .limit(1)
-  return row ?? null
+    .innerJoin(teams, eq(teams.id, agents.teamId))
+    .where(and(eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
+    .orderBy(asc(agents.createdAt), asc(agents.id))
+  if (!assistantMoveOn() && teamId) return rows.find((row) => row.agent.teamId === teamId)?.agent ?? null
+  return (rows.find((row) => row.kind === `personal`) ?? rows[0])?.agent ?? null
 }
 
 /** Where a new Assistant runs: the member's own newest desktop, else their
@@ -46,19 +84,26 @@ async function assistantDevice(exec: Exec, userId: string): Promise<string | nul
 }
 
 /** The member's Assistant, created on first use. Null while they have no
- *  device to run it on. */
-export async function ensureAssistant(userId: string, teamId: string, exec: Exec = db): Promise<Agent | null> {
-  if (!(await getTeamMember(userId, teamId))) {
+ *  device to run it on. With the move on (#EXP-1986): their ONE Assistant in
+ *  their personal team; `teamId` (old clients send it) is a membership check
+ *  only. Off (until the release shepherd switches it on): one per (team,
+ *  member) as before; no `teamId` = their oldest, else one in their first
+ *  team. */
+export async function ensureAssistant(userId: string, teamId?: string | null, exec: Exec = db): Promise<Agent | null> {
+  if (teamId && !(await getTeamMember(userId, teamId))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
   }
-  const existing = await findAssistant(exec, teamId, userId)
+  const moved = assistantMoveOn()
+  const existing = await findAssistant(exec, userId, teamId)
   if (existing) return existing
   const deviceId = await assistantDevice(exec, userId)
   if (!deviceId) return null
+  const home = moved ? await ensurePersonalTeam(exec, userId) : (teamId ?? (await getMemberTeamIds(userId))[0])
+  if (!home) return null
   const [created] = await exec
     .insert(agents)
     .values({
-      teamId,
+      teamId: home,
       name: ASSISTANT_COPY.name,
       icon: null,
       color: null,
@@ -76,7 +121,7 @@ export async function ensureAssistant(userId: string, teamId: string, exec: Exec
     .onConflictDoNothing()
     .returning()
   // Two first uses raced: the other one's row is the Assistant.
-  const assistant = created ?? (await findAssistant(exec, teamId, userId))
+  const assistant = created ?? (await findAssistant(exec, userId, moved ? null : home))
   if (assistant) await syncVoiceMirror(exec, userId)
   return assistant
 }
@@ -106,8 +151,16 @@ export async function voiceAssistantOf(
   const mine = await exec
     .select({ id: agents.id, deviceId: agents.deviceId })
     .from(agents)
-    .innerJoin(teamMembers, and(eq(teamMembers.teamId, agents.teamId), eq(teamMembers.userId, userId)))
-    .where(and(eq(agents.ownerId, userId), eq(agents.role, `assistant`)))
+    .innerJoin(teams, eq(teams.id, agents.teamId))
+    .leftJoin(teamMembers, and(eq(teamMembers.teamId, agents.teamId), eq(teamMembers.userId, userId)))
+    .where(
+      and(
+        eq(agents.ownerId, userId),
+        eq(agents.role, `assistant`),
+        // #EXP-1984: their personal team has no team_members row; its owner is its member.
+        or(isNotNull(teamMembers.userId), and(eq(teams.kind, `personal`), eq(teams.ownerId, userId)))
+      )
+    )
     .orderBy(asc(agents.createdAt))
   const assistant = mine.find((row) => row.id === storedAgentId) ?? mine[0]
   if (!assistant) return { agentId: null, voiceDeviceId: null }

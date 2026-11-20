@@ -176,4 +176,60 @@ class TranscriptFindTest {
         assertEquals(-1, paint.highlight(ownBubbleFindKey(bubble("cache", messageId = "own1")))?.current)
         assertEquals("m:own1", ownBubbleFindKey(bubble("x", messageId = "own1", clientId = "c9")))
     }
+
+    @Test
+    fun `EXP-1998 the drawn synced messages widen to the landed one`() {
+        val all = listOf("a", "b", "c", "d", "e")
+        assertEquals(3, findWidenedSkip(all, 2, null))
+        // Further back than the cap: every one from it on.
+        assertEquals(1, findWidenedSkip(all, 2, "b"))
+        // Inside the cap, or not a drawable one: the newest `max`.
+        assertEquals(3, findWidenedSkip(all, 2, "e"))
+        assertEquals(3, findWidenedSkip(all, 2, "gone"))
+        assertEquals(0, findWidenedSkip(all, 9, null))
+        assertEquals("u2", findMessageId("m:u2"))
+        assertNull(findMessageId("e:s1:4"))
+        assertNull(findMessageId("m:"))
+    }
+
+    @Test
+    fun `EXP-1998 an older message stop pages in by widening, then by loading older ones`() {
+        val calls = ArrayList<String>()
+        fun host(synced: FindInChat.Synced?, shown: Set<String>) =
+            TranscriptFindSynced(synced, shown, widen = { calls += "widen:$it" }, loadOlder = { calls += "older" })
+        val more = host(FindInChat.Synced(loaded = listOf("u2", "sys1", "a9"), drawable = listOf("u2", "a9"), more = true), setOf("a9"))
+        // Drawable but not shown: widen to it; shown already: nothing to page.
+        assertTrue(more.canPage("u2"))
+        assertFalse(more.canPage("a9"))
+        more.page("u2")
+        // Not loaded: older messages load while more exist.
+        assertTrue(more.canPage("a0"))
+        more.page("a0")
+        // Loaded but never drawn (a card, a system line): no page reaches it.
+        assertFalse(more.canPage("sys1"))
+        assertEquals(listOf("widen:u2", "older"), calls)
+        val done = host(FindInChat.Synced(loaded = listOf("u2"), drawable = listOf("u2"), more = false), setOf("u2"))
+        assertFalse(done.canPage("gone"))
+        done.page("gone")
+        // A live transcript draws no synced messages.
+        assertFalse(host(null, emptySet()).canPage("u2"))
+        assertEquals(listOf("widen:u2", "older"), calls)
+    }
+
+    @Test
+    fun `EXP-1998 every loaded sent input, oldest first, once each`() {
+        fun message(id: String, author: String, at: String, consumed: Boolean = true, body: String = "text $id") =
+            com.exponential.app.data.steer.SyncedTailMessage(id, author, if (consumed) at else null, at, null, body)
+        val newest = listOf(bubble("text in8", messageId = "in8").copy(key = "in8", createdAt = "2026-01-01T00:08:00Z"))
+        val loaded = listOf(
+            message("in2", "user", "2026-01-01T00:02:00Z"),
+            message("a3", "agent", "2026-01-01T00:03:00Z"),
+            message("in4", "user", "2026-01-01T00:04:00Z", consumed = false),
+            message("in5", "user", "2026-01-01T00:05:00Z", body = " "),
+            message("in8", "user", "2026-01-01T00:08:00Z"),
+        )
+        assertEquals(listOf("in2", "in8"), sentInputBubbles(newest, loaded).map { it.key })
+        assertEquals(listOf("m:in2", "m:in8"), sentInputBubbles(newest, loaded).map(::ownBubbleFindKey))
+        assertEquals(newest, sentInputBubbles(newest, emptyList()))
+    }
 }
