@@ -62,7 +62,7 @@ pub struct Spaces {
     /// Removes a space's directory with all in it; a test puts one in
     /// that fails.
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
-    /// Software, for the damage check and the captures ([`frames`]).
+    /// Software, for the captures ([`frames`]; the damage check needs none).
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
