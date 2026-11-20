@@ -42,7 +42,7 @@ describe(`merge-train fixture`, () => {
     expect(mergeStep(pr as never, event as never)).toEqual(expected as never)
   })
   it.each(fixture.noChecks)(`no CI: $name`, ({ input, expected }) => {
-    expect(noChecksVerdict({ expected: input.expected, mergeable: input.mergeable, ageMs: input.ageMinutes * 60_000 })).toBe(expected)
+    expect(noChecksVerdict({ expected: input.expected, ciSeen: (input as { ciSeen?: boolean }).ciSeen, mergeable: input.mergeable, ageMs: input.ageMinutes * 60_000 })).toBe(expected)
   })
   it.each(fixture.landing)(`landing: $name`, ({ input, expected }) => {
     expect(landingConfirmed(input)).toBe(expected)
