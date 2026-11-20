@@ -234,10 +234,11 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
     },
-    /// The agent space process `pid` belongs to (#EDE-127):
-    /// `Option<`[`ProcessSpace`]`>`, `null` = the person's (or nobody's).
-    /// eDE's polkit agent asks before it shows the person a prompt, and
-    /// refuses a request from a space. `system` only.
+    /// The agent space process `pid` belongs to (#EDE-127), and whether it
+    /// is the person's session's (#EDE-143): a [`ProcessAnswer`]. eDE's
+    /// polkit agent asks before it shows the person a prompt: it refuses a
+    /// request from a space, and shows one from outside the session
+    /// without the keyboard. `system` only.
     SpaceOfProcess { pid: u32 },
 }
 
@@ -281,13 +282,43 @@ pub enum Membership {
     Unknown,
 }
 
-/// A [`Request::SpaceOfProcess`] reply: the asked process, or the process
-/// `pid` it descends from, is tied to `space` `by` that.
+/// The asked process, or the process `pid` it descends from, is tied to
+/// `space` `by` that ([`ProcessAnswer::space`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessSpace {
     pub space: SpaceId,
     pub by: Membership,
     pub pid: u32,
+}
+
+/// A [`Request::SpaceOfProcess`] reply (#EDE-127, #EDE-143): the space the
+/// process belongs to, if any, and what the polkit agent needs to tell the
+/// person's own processes from everything else of their user.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessAnswer {
+    pub space: Option<ProcessSpace>,
+    /// It runs in the compositor's own cgroup (the person's login session
+    /// scope): a process no space can get back into.
+    #[serde(default)]
+    pub session: bool,
+    /// A space of this compositor has launches alive outside systemd
+    /// scopes (no user manager): such a process can sit in the session's
+    /// cgroup too, so `session` vouches for no one meanwhile.
+    #[serde(default)]
+    pub unscoped_launches: bool,
+}
+
+impl ProcessAnswer {
+    /// The reply as it comes: this answer, or an older compositor's (`null`
+    /// for the person's, a bare [`ProcessSpace`]), which says nothing of
+    /// the session.
+    pub fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        match value {
+            serde_json::Value::Null => Ok(Self::default()),
+            serde_json::Value::Object(ref fields) if fields.contains_key("by") => Ok(Self { space: Some(serde_json::from_value(value)?), ..Self::default() }),
+            other => serde_json::from_value(other),
+        }
+    }
 }
 
 /// A [`Request::Launch`] reply.
@@ -1141,9 +1172,11 @@ impl Client {
         self.call_as::<Launched>(Request::Launch { argv, env, cwd }).map(|l| l.pid)
     }
 
-    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to, `None` = the person's.
-    pub fn space_of_process(&mut self, pid: u32) -> Result<Option<ProcessSpace>, Error> {
-        self.call_as(Request::SpaceOfProcess { pid })
+    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to (`None` =
+    /// none), whether it runs in the person's session, and whether spaces
+    /// have launches outside systemd scopes.
+    pub fn space_of_process(&mut self, pid: u32) -> Result<ProcessAnswer, Error> {
+        ProcessAnswer::from_wire(self.call(Request::SpaceOfProcess { pid })?).map_err(|e| Error::Protocol(e.to_string()))
     }
 
     /// [`Request::LaunchToken`]: for the environment of a launch the person made.
@@ -1414,6 +1447,15 @@ mod tests {
         for (by, name) in [(Membership::Cgroup, "cgroup"), (Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
             assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
         }
+        // #EDE-143: the answer with the session's flags, and what an older
+        // compositor sends (`null`, a bare tie) read as one.
+        let answer = ProcessAnswer { space: tied.clone(), session: false, unscoped_launches: true };
+        let json = serde_json::to_value(&answer).unwrap();
+        assert_eq!(json, serde_json::json!({"space": {"space": "space-2", "by": "environment", "pid": 4241}, "session": false, "unscoped_launches": true}));
+        assert_eq!(ProcessAnswer::from_wire(json).unwrap(), answer);
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": null, "session": true, "unscoped_launches": false})).unwrap(), ProcessAnswer { space: None, session: true, unscoped_launches: false });
+        assert_eq!(ProcessAnswer::from_wire(serde_json::Value::Null).unwrap(), ProcessAnswer::default());
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241})).unwrap(), ProcessAnswer { space: tied, ..ProcessAnswer::default() });
     }
 
     /// `Hello` as it was before `features`: what an old client parses a reply into.

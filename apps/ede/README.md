@@ -336,6 +336,16 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   or an ancestor's naming the space's directory, else the compositor's
   `space_of_process` (what it launched into the space, that launch's
   process group, the space's socket's clients).
+  Everything else of the user is one of two kinds (#EDE-143). A process in
+  the person's login session (the compositor's own cgroup, root's, which
+  no space's process gets back into) gets the prompt as always: it takes
+  the keyboard. A process anywhere else gets a prompt that shows WITHOUT
+  taking the keyboard and names it ("Asked by <command line> (process
+  N)"): the person's user services, snaps, Flatpaks, a coding session's
+  shell, or a space's process that moved itself out of its slice. The
+  person clicks into the prompt to type. While a space has launches
+  outside systemd scopes (no user manager), they are in the session's
+  cgroup too, so every request is of the second kind.
 - **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
@@ -642,7 +652,7 @@ first; each op needs the Core capability it names:
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
-| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
+| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes; the polkit agent asks it) | `system` |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to

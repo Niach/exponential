@@ -17,6 +17,17 @@
 //! systemd slice, and that is looked at first: a process keeps its cgroup
 //! when it starts a session of its own with an empty environment and lets
 //! its parent die, which leaves every other sign behind.
+//!
+//! #EDE-143: a cgroup is no wall inside one user (a process may write
+//! itself into another one's `cgroup.procs`), but the login session's scope
+//! is root's: no space's process gets back into it. So three kinds of
+//! request: (a) from the person's session (the compositor's own cgroup,
+//! while no space has launches outside systemd scopes): the prompt as
+//! always, with the keyboard; (b) from a space: refused; (c) from anywhere
+//! else of the user (their services, snaps, Flatpaks, a coding session's
+//! shell, a space's process that moved itself): the prompt shows WITHOUT
+//! taking the keyboard and names the asking process; the person clicks
+//! into it to type.
 
 use std::{
     collections::HashMap,
@@ -41,6 +52,10 @@ pub struct Request {
     pub action_id: String,
     /// The unix user names polkit offers (the first is the default).
     pub users: Vec<String>,
+    /// #EDE-143: the asking process, named on the prompt, when the request
+    /// is not from the person's session ([`Asked::Elsewhere`]): then the
+    /// prompt does not take the keyboard. `None` = the person's.
+    pub asker: Option<String>,
 }
 
 /// What the prompt answers.
@@ -61,23 +76,65 @@ pub enum UiEvent {
     Done(String),
 }
 
-/// Which agent space one of these processes belongs to: the space's id
-/// (`space-n`), `None` = the person's (#EDE-127).
-pub type SpaceOf = Arc<dyn Fn(&[u32]) -> Option<String> + Send + Sync>;
+/// Who asks: [`Asked`] for these processes (#EDE-127, #EDE-143).
+pub type SpaceOf = Arc<dyn Fn(&[u32]) -> Asked + Send + Sync>;
+
+/// Who a request comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Asked {
+    /// An agent space's process (`space-n`): refused before anything maps.
+    Space(String),
+    /// The person's session: every process named runs in the compositor's
+    /// own cgroup, and no space has launches outside systemd scopes. The
+    /// prompt takes the keyboard.
+    Person,
+    /// Neither: the prompt shows without the keyboard and names the
+    /// process. Also when the compositor cannot be asked.
+    Elsewhere,
+}
+
+/// What the compositor says about a request's processes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Said {
+    /// The space one of them belongs to.
+    pub space: Option<String>,
+    /// All of them run in the person's session and no space has launches
+    /// outside systemd scopes ([`ede_protocol::ProcessAnswer`]).
+    pub session: bool,
+}
 
 /// The processes polkitd names in a request's details: its subject's
 /// (pkexec's parent, the client of a system service) and its caller's
 /// (pkexec itself, the service).
 pub const PIDS: [&str; 2] = ["polkit.subject-pid", "polkit.caller-pid"];
 
-/// The agent space a request comes from, by its subject's or its caller's
-/// process; `None` = the person's (or polkitd named no process).
-pub fn asked_from(details: &HashMap<String, String>, space_of: &(dyn Fn(&[u32]) -> Option<String> + Send + Sync)) -> Option<String> {
-    let pids: Vec<u32> = PIDS.iter().filter_map(|key| details.get(*key)?.trim().parse().ok()).filter(|pid| *pid > 1).collect();
+/// The processes polkitd names in a request's details, the subject's first.
+pub fn named_pids(details: &HashMap<String, String>) -> Vec<u32> {
+    PIDS.iter().filter_map(|key| details.get(*key)?.trim().parse().ok()).filter(|pid| *pid > 1).collect()
+}
+
+/// Who a request comes from, by its subject's and its caller's process;
+/// one that names no process is [`Asked::Elsewhere`]: nothing vouches for it.
+pub fn asked_from(details: &HashMap<String, String>, space_of: &(dyn Fn(&[u32]) -> Asked + Send + Sync)) -> Asked {
+    let pids = named_pids(details);
     if pids.is_empty() {
-        return None;
+        return Asked::Elsewhere;
     }
     space_of(&pids)
+}
+
+/// A process as the prompt names it: its command line (shortened), and
+/// its id.
+pub fn describe(pid: u32) -> String {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    let mut line = cmdline.split(|b| *b == 0).filter(|arg| !arg.is_empty()).map(|arg| String::from_utf8_lossy(arg).into_owned()).collect::<Vec<_>>().join(" ");
+    if line.is_empty() {
+        line = std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|comm| comm.trim().to_string()).unwrap_or_else(|_| "a process that ended".into());
+    }
+    if line.chars().count() > 80 {
+        line = line.chars().take(79).collect::<String>() + "…";
+    }
+    format!("{line} (process {pid})")
 }
 
 /// The space's number in a line for people: `space-3` is agent space 3.
@@ -103,10 +160,19 @@ impl Agent {
         let (to_ui, space_of) = (self.to_ui.clone(), self.space_of.clone());
         blocking::unblock(move || {
             // #EDE-127: first, before anything can map.
-            if let Some(space) = asked_from(&details, &*space_of) {
-                tracing::info!("refused a polkit request from agent space {}: {action_id}", number(&space));
-                return Err(zbus::fdo::Error::Failed(format!("refused: asked from agent space {}", number(&space))));
-            }
+            let asker = match asked_from(&details, &*space_of) {
+                Asked::Space(space) => {
+                    tracing::info!("refused a polkit request from agent space {}: {action_id}", number(&space));
+                    return Err(zbus::fdo::Error::Failed(format!("refused: asked from agent space {}", number(&space))));
+                }
+                Asked::Person => None,
+                // #EDE-143: not the person's session: named, no keyboard.
+                Asked::Elsewhere => {
+                    let asker = named_pids(&details).first().map(|pid| describe(*pid)).unwrap_or_else(|| "a process polkit did not name".into());
+                    tracing::info!("a polkit request from outside the person's session ({asker}): {action_id}");
+                    Some(asker)
+                }
+            };
             let users: Vec<String> = identities
                 .iter()
                 .filter(|(kind, _)| kind == "unix-user")
@@ -116,7 +182,7 @@ impl Agent {
             if users.is_empty() {
                 return Err(zbus::fdo::Error::Failed("no unix user to authenticate as".into()));
             }
-            authenticate(&to_ui, Request { cookie, message, action_id, users })
+            authenticate(&to_ui, Request { cookie, message, action_id, users, asker })
         })
         .await
     }
@@ -206,68 +272,72 @@ fn user_name(uid: u32) -> Option<String> {
     Some(unsafe { std::ffi::CStr::from_ptr((*pw).pw_name) }.to_string_lossy().into_owned())
 }
 
-/// Which agent space one of `pids` belongs to (#EDE-127): what their
+/// Who `pids` are (#EDE-127, #EDE-143): an agent space's by what their
 /// cgroups say first (#EDE-138: a scope of a space's slice, of any
-/// compositor of this user), then what their environments, or those of
+/// compositor of this user), then by what their environments, or those of
 /// the processes they descend from, say about the compositor's spaces
 /// under `spaces` (neither needs a round trip, and both hold while the
-/// compositor cannot be asked), else what `compositor` answers from what
-/// it launched and what connected to a space's socket.
-pub fn space_of_with(pids: &[u32], spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Option<String>) -> Option<String> {
+/// compositor cannot be asked), else by what `compositor` answers from
+/// what it launched and what connected to a space's socket; the person's
+/// when the compositor says they all run in the person's session; else
+/// [`Asked::Elsewhere`].
+pub fn space_of_with(pids: &[u32], spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Said) -> Asked {
     space_of_by(pids, ede_protocol::process::cgroup, spaces, compositor)
 }
 
 /// [`space_of_with`] with the cgroups read through `cgroup_of` (a test's).
-pub fn space_of_by(pids: &[u32], cgroup_of: impl Fn(u32) -> Option<String>, spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Option<String>) -> Option<String> {
+pub fn space_of_by(pids: &[u32], cgroup_of: impl Fn(u32) -> Option<String>, spaces: Option<&Path>, compositor: impl FnOnce(&[u32]) -> Said) -> Asked {
     if let Some((_, space, pid)) = pids.iter().find_map(|pid| ede_protocol::process::space_by_cgroup_with(*pid, &cgroup_of)) {
         tracing::debug!("process {pid} is agent space {}'s by its cgroup", number(space.as_str()));
-        return Some(space.as_str().to_string());
+        return Asked::Space(space.as_str().to_string());
     }
     if let Some(spaces) = spaces {
         if let Some((space, pid)) = pids.iter().find_map(|pid| ede_protocol::process::space_by_environment(*pid, spaces)) {
             tracing::debug!("process {pid} is agent space {}'s by its environment", number(space.as_str()));
-            return Some(space.as_str().to_string());
+            return Asked::Space(space.as_str().to_string());
         }
     }
-    compositor(pids)
+    match compositor(pids) {
+        Said { space: Some(space), .. } => Asked::Space(space),
+        Said { session: true, .. } => Asked::Person,
+        Said { session: false, .. } => Asked::Elsewhere,
+    }
 }
 
 /// [`space_of_with`] for this session: the compositor of `$WAYLAND_DISPLAY`.
-pub fn space_of(pids: &[u32]) -> Option<String> {
+pub fn space_of(pids: &[u32]) -> Asked {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     let display = std::env::var("WAYLAND_DISPLAY").ok();
     let spaces = runtime.as_deref().zip(display.as_deref()).map(|(runtime, display)| ede_protocol::spaces_path(runtime, display));
     space_of_with(pids, spaces.as_deref(), ask_compositor)
 }
 
-/// The compositor's answer; a compositor that makes no spaces has none to
-/// name, and one that cannot be asked (or is too old to know the op)
-/// leaves the answer to the environments.
-fn ask_compositor(pids: &[u32]) -> Option<String> {
+/// The compositor's answer for every process: a compositor that cannot be
+/// asked (or is too old to know the op) leaves the space to the cgroups and
+/// environments and vouches for nobody's session.
+fn ask_compositor(pids: &[u32]) -> Said {
     let mut client = match ede_protocol::Client::connect_env() {
         Ok(client) => client,
         Err(e) => {
             tracing::warn!("polkit: the compositor cannot be asked whose processes these are: {e:?}");
-            return None;
+            return Said::default();
         }
     };
-    if !client.hello.offers_spaces() {
-        return None;
-    }
+    let mut session = true;
     for pid in pids {
         match client.space_of_process(*pid) {
-            Ok(Some(found)) => {
+            Ok(ede_protocol::ProcessAnswer { space: Some(found), .. }) => {
                 tracing::debug!("process {pid} is agent space {}'s ({:?} of process {})", number(found.space.as_str()), found.by, found.pid);
-                return Some(found.space.as_str().to_string());
+                return Said { space: Some(found.space.as_str().to_string()), session: false };
             }
-            Ok(None) => {}
+            Ok(answer) => session &= answer.session && !answer.unscoped_launches,
             Err(e) => {
                 tracing::warn!("polkit: the compositor could not say whose process {pid} is: {e:?}");
-                return None;
+                return Said::default();
             }
         }
     }
-    None
+    Said { space: None, session }
 }
 
 /// The login session polkit asks this agent for (#EDE-87): the agent runs
@@ -315,7 +385,7 @@ mod tests {
 
     /// The agent served on one end of a socket pair, polkitd's side on the other.
     fn agent_on_a_pair() -> (zbus::blocking::Connection, zbus::blocking::Connection, mpsc::Receiver<UiEvent>) {
-        agent_on_a_pair_with(Arc::new(|_| None))
+        agent_on_a_pair_with(Arc::new(|_| Asked::Person))
     }
 
     fn agent_on_a_pair_with(space_of: SpaceOf) -> (zbus::blocking::Connection, zbus::blocking::Connection, mpsc::Receiver<UiEvent>) {
@@ -379,7 +449,13 @@ mod tests {
         let log = asked.clone();
         let space_of: SpaceOf = Arc::new(move |pids: &[u32]| {
             log.lock().unwrap().push(pids.to_vec());
-            pids.contains(&4242).then(|| "space-3".to_string())
+            if pids.contains(&4242) {
+                Asked::Space("space-3".into())
+            } else if pids.contains(&6161) {
+                Asked::Elsewhere
+            } else {
+                Asked::Person
+            }
         });
         let (_agent, polkitd, ui) = agent_on_a_pair_with(space_of);
         // The space's process is the subject (pkexec's parent)...
@@ -393,27 +469,40 @@ mod tests {
         // The person's own: the prompt opens; cancelled, it ends as before.
         let reply = begin(&polkitd, "c-person", "5151", "5152");
         let Ok(UiEvent::Begin(request, answer)) = ui.recv_timeout(Duration::from_secs(5)) else { panic!("the person's request opened no prompt") };
-        assert_eq!(request.cookie, "c-person");
+        assert_eq!((request.cookie.as_str(), request.asker.as_deref()), ("c-person", None), "the person's prompt names nobody and takes the keyboard");
+        answer.send(Answer::Cancel).unwrap();
+        assert!(reply.recv_timeout(Duration::from_secs(5)).unwrap().is_err());
+        assert!(matches!(ui.recv_timeout(Duration::from_secs(5)), Ok(UiEvent::Done(c)) if c == "c-person"), "the prompt closes");
+        // #EDE-143: from outside the person's session: the prompt opens,
+        // naming the subject's process (this test's own here).
+        let me = std::process::id().to_string();
+        let reply = begin(&polkitd, "c-elsewhere", &me, "6161");
+        let Ok(UiEvent::Begin(request, answer)) = ui.recv_timeout(Duration::from_secs(5)) else { panic!("a request from elsewhere opened no prompt") };
+        let asker = request.asker.clone().expect("the prompt names who asks");
+        assert!(asker.ends_with(&format!("(process {me})")), "{asker}");
         answer.send(Answer::Cancel).unwrap();
         assert!(reply.recv_timeout(Duration::from_secs(5)).unwrap().is_err());
     }
 
     /// The processes asked about: the subject's and the caller's, never
-    /// init or garbage; no process named = nothing to ask.
+    /// init or garbage; no process named = nothing to ask, and nobody
+    /// vouches for it.
     #[test]
     fn a_request_names_its_subjects_and_its_callers_process() {
         let details = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
         let seen = std::sync::Mutex::new(Vec::new());
         let space_of = |pids: &[u32]| {
             seen.lock().unwrap().push(pids.to_vec());
-            None
+            Asked::Person
         };
-        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "10"), ("polkit.caller-pid", "11"), ("other", "12")]), &space_of), None);
-        assert_eq!(asked_from(&details(&[("polkit.subject-pid", " 20\n"), ("polkit.caller-pid", "1")]), &space_of), None);
-        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "x"), ("polkit.caller-pid", "0")]), &space_of), None);
-        assert_eq!(asked_from(&details(&[]), &space_of), None);
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "10"), ("polkit.caller-pid", "11"), ("other", "12")]), &space_of), Asked::Person);
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", " 20\n"), ("polkit.caller-pid", "1")]), &space_of), Asked::Person);
+        // #EDE-143: a request that names no process has nobody to vouch for it.
+        assert_eq!(asked_from(&details(&[("polkit.subject-pid", "x"), ("polkit.caller-pid", "0")]), &space_of), Asked::Elsewhere);
+        assert_eq!(asked_from(&details(&[]), &space_of), Asked::Elsewhere);
         assert_eq!(*seen.lock().unwrap(), [vec![10, 11], vec![20]]);
-        assert_eq!(asked_from(&details(&[("polkit.caller-pid", "7")]), &|pids: &[u32]| (pids == [7]).then(|| "space-1".into())), Some("space-1".into()));
+        assert_eq!(asked_from(&details(&[("polkit.caller-pid", "7")]), &|pids: &[u32]| if pids == [7] { Asked::Space("space-1".into()) } else { Asked::Person }), Asked::Space("space-1".into()));
+        assert_eq!(named_pids(&details(&[("polkit.caller-pid", "7"), ("polkit.subject-pid", "8")])), [8, 7], "the subject's first: the one the prompt names");
     }
 
     /// The environment answers first (no round trip); the compositor is
@@ -423,10 +512,14 @@ mod tests {
         let spaces = std::env::temp_dir().join(format!("ede-sealed-{}.spaces", std::process::id()));
         let mut in_space = Command::new("sleep").arg("30").env("XDG_RUNTIME_DIR", spaces.join("space-5")).spawn().unwrap();
         let mut person = Command::new("sleep").arg("30").spawn().unwrap();
-        assert_eq!(space_of_with(&[person.id(), in_space.id()], Some(&spaces), |_| panic!("the environment said it")), Some("space-5".into()));
-        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |pids| (pids == [person.id()]).then(|| "space-9".into())), Some("space-9".into()), "what the compositor knows");
-        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |_| None), None);
-        assert_eq!(space_of_with(&[in_space.id()], None, |_| None), None, "no spaces directory: the compositor alone");
+        let space = |name: &str| Said { space: Some(name.into()), session: false };
+        let session = Said { space: None, session: true };
+        assert_eq!(space_of_with(&[person.id(), in_space.id()], Some(&spaces), |_| panic!("the environment said it")), Asked::Space("space-5".into()));
+        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |pids| if pids == [person.id()] { space("space-9") } else { Said::default() }), Asked::Space("space-9".into()), "what the compositor knows");
+        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |_| session.clone()), Asked::Person);
+        // #EDE-143: outside the session, or a compositor that cannot say.
+        assert_eq!(space_of_with(&[person.id()], Some(&spaces), |_| Said::default()), Asked::Elsewhere);
+        assert_eq!(space_of_with(&[in_space.id()], None, |_| session.clone()), Asked::Person, "no spaces directory: the compositor alone");
         for child in [&mut in_space, &mut person] {
             let _ = child.kill();
             let _ = child.wait();
@@ -448,13 +541,38 @@ mod tests {
             }
             ede_protocol::process::cgroup(pid)
         };
-        assert_eq!(space_of_by(&[person.id(), scoped], &cgroup_of, None, |_| panic!("the cgroup said it")), Some("space-7".into()));
-        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |pids| (pids == [person.id()]).then(|| "space-9".into())), Some("space-9".into()), "the person's cgroup names no space: the other signs are asked");
-        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |_| None), None);
+        assert_eq!(space_of_by(&[person.id(), scoped], &cgroup_of, None, |_| panic!("the cgroup said it")), Asked::Space("space-7".into()));
+        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |pids| Said { space: (pids == [person.id()]).then(|| "space-9".into()), session: false }), Asked::Space("space-9".into()), "the person's cgroup names no space: the other signs are asked");
+        assert_eq!(space_of_by(&[person.id()], &cgroup_of, None, |_| Said { space: None, session: true }), Asked::Person);
         for child in [&mut in_space, &mut person] {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    /// #EDE-143: a process is named by its command line and its id; a long
+    /// one is shortened, one that ended is said to have.
+    #[test]
+    fn the_prompt_names_a_process_by_its_command_line() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        // Its arguments are there a moment after the exec.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::fs::read(format!("/proc/{}/cmdline", child.id())).map_or(true, |line| line.is_empty()) {
+            assert!(std::time::Instant::now() < deadline, "no command line");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(describe(child.id()), format!("sleep 30 (process {})", child.id()));
+        let _ = child.kill();
+        let _ = child.wait();
+        let long = Command::new("sh").args(["-c", "sleep 30; true", &"x".repeat(200)]).spawn();
+        if let Ok(mut long) = long {
+            std::thread::sleep(Duration::from_millis(100));
+            let named = describe(long.id());
+            assert!(named.chars().count() < 110 && named.contains('…'), "{named}");
+            let _ = long.kill();
+            let _ = long.wait();
+        }
+        assert_eq!(describe(u32::MAX - 1), format!("a process that ended (process {})", u32::MAX - 1));
     }
 
     /// #EDE-87 P1: a user unit has no `XDG_SESSION_ID`; the agent then

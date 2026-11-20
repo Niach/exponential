@@ -237,14 +237,17 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     let (h, dir) = start_with_spaces(&[(800, 600)]);
     let (mut agent, space) = agent(&h, "run-1");
     let mut root = h.ipc();
-    let of = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap();
+    let answer = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap();
+    let of = |root: &mut Client, pid: u32| answer(root, pid).space;
 
-    // The person's: this process (the compositor's own) and a child of it.
+    // The person's: this process (the compositor's own) and a child of it,
+    // both in the compositor's own cgroup (#EDE-143: the session's); pid 1
+    // and a process that does not exist are nobody's.
     let person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
-    assert_eq!(of(&mut root, std::process::id()), None);
-    assert_eq!(of(&mut root, person.id()), None);
-    assert_eq!(of(&mut root, 1), None);
-    assert_eq!(of(&mut root, u32::MAX), None, "no such process");
+    assert_eq!(answer(&mut root, std::process::id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
+    assert_eq!(answer(&mut root, person.id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
+    assert_eq!(answer(&mut root, 1), ede_protocol::ProcessAnswer::default());
+    assert_eq!(answer(&mut root, u32::MAX), ede_protocol::ProcessAnswer::default(), "no such process");
 
     // A shell in the space that starts three processes: a child, one that
     // cleared its environment and lost its parent (still in the launch's
@@ -259,6 +262,13 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
         wait"#;
     let head = agent.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), d.to_string_lossy().into_owned())].into(), None).unwrap();
     let (child, group, env) = (pid_in(&d.join("child")), pid_in(&d.join("group")), pid_in(&d.join("env")));
+    // Without a user manager the launch runs in the compositor's own
+    // cgroup: while it lives, the session's cgroup vouches for no one.
+    assert!(answer(&mut root, person.id()).unscoped_launches, "an unscoped launch is alive");
+    // Seen from another session's cgroup the person's process is outside it.
+    h.with(|state| state.spaces.session_cgroup = Some("0::/somewhere/else.scope\n".into()));
+    assert!(!answer(&mut root, person.id()).session);
+    h.with(|state| state.spaces.session_cgroup = None);
     let ours = |pid: u32| of(&mut h.ipc(), pid).unwrap_or_else(|| panic!("process {pid} is not known as the space's"));
     assert_eq!(ours(head), ProcessSpace { space: space.id.clone(), by: Membership::Launch, pid: head });
     assert_eq!(ours(child).space, space.id);

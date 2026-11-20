@@ -664,7 +664,7 @@ impl Ede {
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
-            Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.space_of_process(pid)).unwrap()),
+            Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.process_answer(pid)).unwrap()),
         }
     }
 

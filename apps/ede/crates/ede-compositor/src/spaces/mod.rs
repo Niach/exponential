@@ -109,11 +109,15 @@ pub struct Spaces {
     pub expiry_grace: u32,
     /// #EDE-146..148: the space guard, as this session decided ([`guard`]).
     pub guard: guard::GuardState,
+    /// #EDE-143: the person's session's cgroup (`/proc/<pid>/cgroup`'s
+    /// text) for `space_of_process`; `None` = the compositor's own. A test
+    /// names another to see every process as outside the session.
+    pub session_cgroup: Option<String>,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default() }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default(), session_cgroup: None }
     }
 }
 

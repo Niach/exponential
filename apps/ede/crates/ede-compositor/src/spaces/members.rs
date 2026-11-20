@@ -21,7 +21,7 @@
 //! the user manager belongs to the user, and a process that writes its
 //! own id into another one's `cgroup.procs` has left its space's slice.
 
-use ede_protocol::{process, Membership, ProcessSpace, SpaceId};
+use ede_protocol::{process, Membership, ProcessAnswer, ProcessSpace, SpaceId};
 
 use crate::{desk::DeskId, state::Ede};
 
@@ -32,6 +32,21 @@ fn space_id(desk: DeskId) -> Option<SpaceId> {
 }
 
 impl Ede {
+    /// #EDE-143: what `space_of_process` answers: the space `pid` belongs
+    /// to, whether it runs in the compositor's own cgroup (the person's
+    /// login session scope, which no process of a space gets back into:
+    /// the session scope is root's), and whether a space has launches alive
+    /// outside systemd scopes (such a process is in the session's cgroup
+    /// too).
+    pub fn process_answer(&self, pid: u32) -> ProcessAnswer {
+        let session = self.spaces.session_cgroup.clone().or_else(|| process::cgroup(std::process::id()));
+        ProcessAnswer {
+            space: self.space_of_process(pid),
+            session: session.is_some_and(|own| process::cgroup(pid).is_some_and(|theirs| theirs == own)),
+            unscoped_launches: self.spaces.units.is_none() && !self.spaces.launches.is_empty(),
+        }
+    }
+
     /// The space `pid` belongs to; `None` = the person's, or nobody's.
     pub fn space_of_process(&self, pid: u32) -> Option<ProcessSpace> {
         let launched: Vec<(u32, DeskId)> = self.spaces.launches.iter().map(|launch| (launch.pid(), launch.desk())).collect();

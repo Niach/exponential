@@ -161,7 +161,11 @@ fn layers(h: &Harness) -> usize {
 /// agent hears a request whose subject is a process launched into a space:
 /// it refuses it before anything maps (no prompt, the person's window keeps
 /// the keyboard and their next key), and the request fails. A request from
-/// the person's own process still opens the prompt, which takes the keyboard.
+/// the person's own process still opens the prompt, which takes the
+/// keyboard. #EDE-143: while the space's launches run outside systemd
+/// scopes, and for a process outside the person's session, the prompt shows
+/// without the keyboard until a click; with `EDE_PICTURES=<dir>` it is
+/// pictured in both states.
 #[test]
 #[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed, and dbus-daemon"]
 fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps() {
@@ -245,21 +249,100 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
         app.state.keys.contains(&KEY_A)
     });
 
-    // 2. The person's own process asks: the prompt opens and takes the
-    // keyboard; polkitd's cancel closes it and gives the keyboard back.
+    // 2. #EDE-143: while the space's launches run outside systemd scopes
+    // (this harness has no user manager), the session's cgroup vouches for
+    // no one: the person's own request shows the prompt WITHOUT taking the
+    // keyboard; what they type stays in their window.
     let person = Kill(Command::new("sleep").arg("120").spawn().unwrap());
+    let without = prompt_without_the_keyboard(&h, &mut app, &t, &polkitd, &registered, "from-person-unscoped", person.0.id());
+    cancel(&h, &mut app, &t, &polkitd, &registered, "from-person-unscoped", without);
+
+    // 3. The space closes and its launches end: the person's own request
+    // opens the prompt and it takes the keyboard; polkitd's cancel closes
+    // it and gives the keyboard back.
+    space.destroy_space(info.id.clone()).unwrap();
+    wait("the closed space's launches never ended", || h.with(|ede| ede.spaces.launched()) == 0);
     let reply = begin(&polkitd, &registered, "from-person", person.0.id(), person.0.id());
     wait("the person's own request showed no prompt", || layers(&h) > 0);
     wait("the prompt never took the keyboard", || {
         app.roundtrip();
         app.state.keyboard_focus.is_none()
     });
+    picture(&h, "with-the-keyboard");
     assert!(reply.try_recv().is_err(), "the person's request was answered without them");
-    polkitd.call_method(Some(registered.0.as_str()), registered.1.as_str(), Some(AGENT_IFACE), "CancelAuthentication", &("from-person",)).unwrap();
+    cancel(&h, &mut app, &t, &polkitd, &registered, "from-person", reply);
+
+    // 4. A process outside the person's session (here: the session seen
+    // from another cgroup) asks: the prompt shows without the keyboard and
+    // names the process; a click into it takes the keyboard.
+    h.with(|ede| ede.spaces.session_cgroup = Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/elsewhere.scope\n".into()));
+    let reply = prompt_without_the_keyboard(&h, &mut app, &t, &polkitd, &registered, "from-elsewhere", person.0.id());
+    picture(&h, "without-the-keyboard");
+    let (w, hh) = h.with(|ede| ede.desk.space.outputs().next().and_then(|o| o.current_mode()).map(|m| (m.size.w, m.size.h))).unwrap();
+    h.with(move |ede| {
+        use smithay::backend::input::ButtonState;
+        ede.person_pointer_motion_to((f64::from(w) / 2.0, f64::from(hh) / 2.0).into(), 0);
+        ede.person_pointer_button(0x110, ButtonState::Pressed, 0);
+        ede.person_pointer_button(0x110, ButtonState::Released, 0);
+    });
+    wait("a click into the prompt never gave it the keyboard", || {
+        app.roundtrip();
+        app.state.keyboard_focus.is_none()
+    });
+    cancel(&h, &mut app, &t, &polkitd, &registered, "from-elsewhere", reply);
+}
+
+/// A request whose prompt shows without the keyboard (#EDE-143): it maps,
+/// and the person's window keeps the keyboard and gets their key.
+fn prompt_without_the_keyboard(h: &Harness, app: &mut Session, t: &common::Toplevel, polkitd: &zbus::blocking::Connection, registered: &(String, String), cookie: &str, subject: u32) -> mpsc::Receiver<Result<(), String>> {
+    let reply = begin(polkitd, registered, cookie, subject, subject);
+    wait(&format!("{cookie} showed no prompt"), || layers(h) > 0);
+    // It has drawn (it shows), and a while later it still has no keyboard.
+    wait(&format!("{cookie}'s prompt never drew"), || shows_beside(h, t));
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(100));
+        app.roundtrip();
+        assert_eq!(app.state.keyboard_focus.as_ref(), Some(&t.surface), "{cookie}'s prompt took the keyboard");
+    }
+    let keys = app.state.keys.len();
+    common::space::person_key(h, KEY_A);
+    wait(&format!("the person's key went to {cookie}'s prompt"), || {
+        app.roundtrip();
+        app.state.keys.len() > keys
+    });
+    assert!(reply.try_recv().is_err(), "{cookie} was answered without the person");
+    reply
+}
+
+/// polkitd cancels `cookie`: the request ends as cancelled, the prompt
+/// closes, the person's window has the keyboard.
+fn cancel(h: &Harness, app: &mut Session, t: &common::Toplevel, polkitd: &zbus::blocking::Connection, registered: &(String, String), cookie: &str, reply: mpsc::Receiver<Result<(), String>>) {
+    polkitd.call_method(Some(registered.0.as_str()), registered.1.as_str(), Some(AGENT_IFACE), "CancelAuthentication", &(cookie,)).unwrap();
     assert!(reply.recv_timeout(Duration::from_secs(15)).expect("the cancelled request never ended").is_err());
-    wait("the prompt stayed after the cancel", || layers(&h) == 0);
+    wait(&format!("{cookie}'s prompt stayed after the cancel"), || layers(h) == 0);
     wait("the person's window never got the keyboard back", || {
         app.roundtrip();
         app.state.keyboard_focus.as_ref() == Some(&t.surface)
     });
+}
+
+/// Something but the person's red window and black shows on the output:
+/// the prompt has drawn.
+fn shows_beside(h: &Harness, _t: &common::Toplevel) -> bool {
+    h.capture(0).pixels.iter().any(|p| p & 0x00ff_ffff != 0 && *p != RED)
+}
+
+/// With `EDE_PICTURES=<dir>`: the person's screen as it is now, as
+/// `<dir>/polkit-<name>.png` (the pictures of the prompt on #EDE-143).
+fn picture(h: &Harness, name: &str) {
+    let Some(dir) = std::env::var_os("EDE_PICTURES") else { return };
+    let frame = h.capture(0);
+    let rgba: Vec<u8> = frame.pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 0xff]).collect();
+    let path = std::path::Path::new(&dir).join(format!("polkit-{name}.png"));
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), frame.width as u32, frame.height as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.write_header().unwrap().write_image_data(&rgba).unwrap();
+    eprintln!("picture: {}", path.display());
 }
