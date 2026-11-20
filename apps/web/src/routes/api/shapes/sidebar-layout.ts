@@ -3,7 +3,7 @@ import { sqlStringLiteral } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // #EXP-1832 (fixture `sidebar-folders.json`): the caller's own sidebar layout
-// (folders + the order of their boards, agents and apps). Like `pins` and the
+// (folders + the order of their boards, agents and apps). Like the
 // drafts, the where clause is the fully STATIC `user_id = me`: never
 // anonymous, never team- or trash-scoped (a row only places a target the
 // client already resolves from the member-only boards / agents / apps

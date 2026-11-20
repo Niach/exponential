@@ -36,35 +36,6 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu.`,
   },
   {
-    id: `2026-11-20-desktop-cli-0-14-171`,
-    date: `2026-11-20`,
-    title: `Calls in their own session, computer use on every keyboard, chats in global search`,
-    summary: `Desktop and CLI 0.14.171: every call gets its own session, computer use works on non-US keyboards, global search finds chats, long words wrap, outside pictures show as links, and find in chat reaches older messages, with eDE 0.2.30.`,
-    body: `- **Calls**: each call gets its own session again, and the agent's opening line no longer crashes it.
-- **Computer use**: keys and shortcuts work on non-US keyboard layouts, and bringing a window to the front works on macOS and Windows.
-- **Global search finds chats**: matching chats show under the issues; pick one and it opens on that message.
-- **Long words wrap**: a long unbroken word or link in a chat bubble wraps instead of being cut off.
-- **Pictures from other websites** in an issue description show as a link and are never loaded.
-- **Find in chat reaches older messages**: matches further back in a chat are found too.
-- **eDE 0.2.30** comes with this release.`,
-  },
-  {
-    id: `2026-11-20-desktop-agent-entry`,
-    date: `2026-11-20`,
-    title: `Agent is back in the desktop sidebar`,
-    summary: `The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.`,
-    body: `- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat.`,
-  },
-  {
-    id: `2026-11-20-pins-removed`,
-    date: `2026-11-20`,
-    title: `Pins are gone`,
-    summary: `The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.`,
-    body: `- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
-- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
-- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats.`,
-  },
-  {
     id: `2026-11-20-assistant-skills-mcp-per-team`,
     date: `2026-11-20`,
     title: `Your Assistant's skills and MCP servers, per team`,
@@ -3721,7 +3692,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
 - **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
 - **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
-- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
+- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
 - **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript.`,
   },
   {

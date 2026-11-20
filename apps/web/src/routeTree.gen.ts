@@ -68,6 +68,7 @@ import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-o
 import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
 import { Route as ApiMonitoringIndexRouteImport } from './routes/api/monitoring/index'
 import { Route as ApiMonitoringConfigRouteImport } from './routes/api/monitoring/config'
+import { Route as ApiShapesSplatRouteImport } from './routes/api/shapes/$'
 import { Route as ApiShapesAgentsRouteImport } from './routes/api/shapes/agents'
 import { Route as ApiShapesAppRecordsRouteImport } from './routes/api/shapes/app-records'
 import { Route as ApiShapesAppVersionsRouteImport } from './routes/api/shapes/app-versions'
@@ -92,7 +93,6 @@ import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesMessagesRouteImport } from './routes/api/shapes/messages'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
-import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompts'
 import { Route as ApiShapesPullRequestChecksRouteImport } from './routes/api/shapes/pull-request-checks'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
@@ -494,6 +494,11 @@ const ApiMonitoringConfigRoute = ApiMonitoringConfigRouteImport.update({
   path: '/api/monitoring/config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesSplatRoute = ApiShapesSplatRouteImport.update({
+  id: '/api/shapes/$',
+  path: '/api/shapes/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesAgentsRoute = ApiShapesAgentsRouteImport.update({
   id: '/api/shapes/agents',
   path: '/api/shapes/agents',
@@ -614,11 +619,6 @@ const ApiShapesMessagesRoute = ApiShapesMessagesRouteImport.update({
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
   id: '/api/shapes/notifications',
   path: '/api/shapes/notifications',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
-  id: '/api/shapes/pins',
-  path: '/api/shapes/pins',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesPromptsRoute = ApiShapesPromptsRouteImport.update({
@@ -1196,6 +1196,7 @@ export interface FileRoutesByFullPath {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1220,7 +1221,6 @@ export interface FileRoutesByFullPath {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1371,6 +1371,7 @@ export interface FileRoutesByTo {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1395,7 +1396,6 @@ export interface FileRoutesByTo {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1553,6 +1553,7 @@ export interface FileRoutesById {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp_/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1577,7 +1578,6 @@ export interface FileRoutesById {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1734,6 +1734,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1758,7 +1759,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -1909,6 +1909,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1933,7 +1934,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -2090,6 +2090,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp_/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -2114,7 +2115,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -2252,6 +2252,7 @@ export interface RootRouteChildren {
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiMcpAppsRoute: typeof ApiMcpAppsRoute
   ApiMonitoringConfigRoute: typeof ApiMonitoringConfigRoute
+  ApiShapesSplatRoute: typeof ApiShapesSplatRoute
   ApiShapesAgentsRoute: typeof ApiShapesAgentsRoute
   ApiShapesAppRecordsRoute: typeof ApiShapesAppRecordsRoute
   ApiShapesAppVersionsRoute: typeof ApiShapesAppVersionsRoute
@@ -2276,7 +2277,6 @@ export interface RootRouteChildren {
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
   ApiShapesMessagesRoute: typeof ApiShapesMessagesRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
-  ApiShapesPinsRoute: typeof ApiShapesPinsRoute
   ApiShapesPromptsRoute: typeof ApiShapesPromptsRoute
   ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
@@ -2730,6 +2730,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMonitoringConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/$': {
+      id: '/api/shapes/$'
+      path: '/api/shapes/$'
+      fullPath: '/api/shapes/$'
+      preLoaderRoute: typeof ApiShapesSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/agents': {
       id: '/api/shapes/agents'
       path: '/api/shapes/agents'
@@ -2896,13 +2903,6 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/notifications'
       fullPath: '/api/shapes/notifications'
       preLoaderRoute: typeof ApiShapesNotificationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/pins': {
-      id: '/api/shapes/pins'
-      path: '/api/shapes/pins'
-      fullPath: '/api/shapes/pins'
-      preLoaderRoute: typeof ApiShapesPinsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/prompts': {
@@ -3851,6 +3851,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiMcpAppsRoute: ApiMcpAppsRoute,
   ApiMonitoringConfigRoute: ApiMonitoringConfigRoute,
+  ApiShapesSplatRoute: ApiShapesSplatRoute,
   ApiShapesAgentsRoute: ApiShapesAgentsRoute,
   ApiShapesAppRecordsRoute: ApiShapesAppRecordsRoute,
   ApiShapesAppVersionsRoute: ApiShapesAppVersionsRoute,
@@ -3875,7 +3876,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
   ApiShapesMessagesRoute: ApiShapesMessagesRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
-  ApiShapesPinsRoute: ApiShapesPinsRoute,
   ApiShapesPromptsRoute: ApiShapesPromptsRoute,
   ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
