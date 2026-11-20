@@ -1,6 +1,6 @@
 import { useNotificationToasts } from "@/hooks/use-notification-toasts"
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { rememberLastVisited } from "@/lib/last-visited"
 import { widePathFor } from "@/lib/app-paths"
 import type { SessionData } from "@/lib/auth/client"
@@ -42,7 +42,9 @@ import { startChatStore, stopChatStore } from "@/lib/chat-store/client"
 import {
   useTeamBySlug,
   useTeamBoards,
+  useTeamMemberships,
 } from "@/hooks/use-team-data"
+import { compareTeams } from "@/hooks/use-cross-team-scope"
 
 
 interface AppLayoutProps {
@@ -133,6 +135,20 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   // reachable. EXP-1293: route-driven — no screen calls into it. Settings is
   // tab-less (desktop EXP-1192): the band keeps its height, without tabs.
   const showWorkTabs = !isMobile && Boolean(team)
+  // #EXP-2027: the md+ search reads every member team (no active team); a
+  // phone keeps the route's team.
+  const { myTeams } = useTeamMemberships(isMobile ? undefined : user?.id)
+  const teamsKey = myTeams.map((row) => `${row.id}:${row.slug}:${row.name}`).join(`|`)
+  const searchTeams = useMemo(
+    () =>
+      isMobile || myTeams.length === 0
+        ? team
+          ? [{ id: team.id, slug: teamSlug }]
+          : []
+        : [...myTeams].sort(compareTeams).map((row) => ({ id: row.id, slug: row.slug })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isMobile, teamsKey, team?.id, teamSlug]
+  )
 
   return (
     <SidebarProvider ref={setSidebarWrapper}>
@@ -227,12 +243,11 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
                 mounted here so a start from any surface reaches it. */}
             <LaunchDialogHost team={team} />
 
-            {team && (
+            {searchTeams.length > 0 && (
               <IssueSearchSheet
                 open={searchOpen}
                 onOpenChange={setSearchOpen}
-                teamId={team.id}
-                teamSlug={teamSlug}
+                teams={searchTeams}
               />
             )}
           </MobileChromeProvider>

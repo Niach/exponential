@@ -40,6 +40,9 @@ export type IssueSearchScope =
   /** One team, live boards only (the trigger-mirrored trash/archive columns,
    *  REV2-5 / EXP-500 — equivalent to joining boards, without the join). */
   | { teamId: string }
+  /** #EXP-2027: several teams (the md+ search reads every member team),
+   *  live boards only, the caller checked each membership. */
+  | { teamIds: readonly string[] }
   /** An explicit board list the caller already access-checked (MCP). */
   | { boardIds: readonly string[] }
 
@@ -53,6 +56,14 @@ function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
   const trash = alias === `i` ? sql`${col(`deleted_at`)} is null` : sql`${col(`board_deleted_at`)} is null`
   if (`teamId` in scope) {
     return sql`${col(`team_id`)} = ${scope.teamId}::uuid and ${col(`board_deleted_at`)} is null and ${col(`board_archived_at`)} is null and ${trash}`
+  }
+  if (`teamIds` in scope) {
+    if (scope.teamIds.length === 0) return sql`false`
+    const ids = sql.join(
+      scope.teamIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    )
+    return sql`${col(`team_id`)} in (${ids}) and ${col(`board_deleted_at`)} is null and ${col(`board_archived_at`)} is null and ${trash}`
   }
   if (scope.boardIds.length === 0) return sql`false`
   return sql`${col(`board_id`)} in (${sql.join(

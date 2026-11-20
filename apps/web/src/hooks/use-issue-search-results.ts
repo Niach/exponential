@@ -31,8 +31,9 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
   server = true,
   emptyQuery = `recent`,
 }: {
-  /** The team `issues.search` runs against; undefined = local only. */
-  teamId: string | undefined
+  /** The team(s) `issues.search` runs against; undefined = local only.
+   *  #EXP-2027: several = the md+ search over every member team. */
+  teamId: string | readonly string[] | undefined
   query: string
   /** The locally synced pool to rank. */
   rows: readonly T[]
@@ -57,14 +58,16 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
     query: string
     rows: IssueSearchServerHit[]
   }>({ query: ``, rows: [] })
-  const wantServer = server && teamId !== undefined && normalized !== ``
+  const teamKey = typeof teamId === `string` ? teamId : teamId?.join(`,`)
+  const wantServer = server && teamKey !== undefined && teamKey !== `` && normalized !== ``
 
   useEffect(() => {
     if (!wantServer) return
     let cancelled = false
     const timer = setTimeout(() => {
+      const scope = teamKey!.includes(`,`) ? { teamIds: teamKey!.split(`,`) } : { teamId: teamKey! }
       trpc.issues.search
-        .query({ teamId, query: normalized, limit: Math.min(limit, 50) })
+        .query({ ...scope, query: normalized, limit: Math.min(limit, 50) })
         .then((rows) => {
           if (!cancelled) setHits({ query: normalized, rows })
         })
@@ -80,7 +83,7 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [wantServer, teamId, normalized, limit])
+  }, [wantServer, teamKey, normalized, limit])
 
   // `resolveHit` is a fresh closure per render; read it through a ref so the
   // merge memo keys on data alone.
