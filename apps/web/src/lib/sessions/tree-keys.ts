@@ -5,7 +5,8 @@
 import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
-import { devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
+import { teamMemberPairs } from "@/lib/auth/membership"
 import type { Tx } from "@/lib/sessions/tx"
 
 // 32 bytes as unpadded base64url (43 chars; the last carries 4 bits).
@@ -42,22 +43,20 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
   if (roots.length === 0) return out
   const rootIds = [...out.keys()]
 
-  // Team members of every root's team.
-  const teamIds = [...new Set(roots.map((root) => root.teamId))]
-  const membersOf = new Map<string, Set<string>>()
-  for (const teamId of teamIds) membersOf.set(teamId, new Set())
-  for (const row of await database
-    .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
-    .from(teamMembers)
-    .where(inArray(teamMembers.teamId, teamIds))) {
-    membersOf.get(row.teamId)?.add(row.userId)
-  }
-
-  // The executing devices: the host row of every (machine, starter) in each tree.
+  // Team members of every root's team (#EXP-1984: a personal team's owner
+  // counts, lib/auth/membership.ts) and of every team a session of the tree
+  // runs in (an Assistant's child runs in a team of its scope: its host is
+  // a member THERE, eagent tree.json `treeTeams`).
   const tree = await database
     .select({ rootId: sessions.rootId, deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
     .from(sessions)
     .where(inArray(sessions.rootId, rootIds))
+  const teamIds = [...new Set([...roots.map((root) => root.teamId), ...tree.map((row) => row.teamId)])]
+  const membersOf = new Map<string, Set<string>>()
+  for (const teamId of teamIds) membersOf.set(teamId, new Set())
+  for (const row of await teamMemberPairs(database, teamIds)) membersOf.get(row.teamId)?.add(row.userId)
+
+  // The executing devices: the host row of every (machine, starter) in each tree.
   const hostsOf = new Map<string, Map<string, { deviceId: string; userId: string; teamId: string }>>()
   for (const row of tree) {
     if (!row.rootId || !out.has(row.rootId)) continue
@@ -92,14 +91,19 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
     return rows.find((row) => (row.sharedTeamIds ?? []).includes(key.teamId))?.userId ?? null
   }
   const deviceRowsOf = new Map<string, Set<string>>()
+  /** A host device row's account: its installs read as the executing device. */
+  const hostOfRow = new Map<string, string>()
   for (const root of roots) {
     const members = membersOf.get(root.teamId) ?? new Set<string>()
     const rowIds = new Set<string>()
     for (const key of hostsOf.get(root.id)?.values() ?? []) {
       const host = hostOf(key)
-      if (!host || !members.has(host)) continue
+      if (!host || !(members.has(host) || membersOf.get(key.teamId)?.has(host))) continue
       for (const row of devicesOf.get(key.deviceId) ?? []) {
-        if (row.userId === host && row.deviceId === key.deviceId) rowIds.add(row.id)
+        if (row.userId === host && row.deviceId === key.deviceId) {
+          rowIds.add(row.id)
+          hostOfRow.set(row.id, host)
+        }
       }
     }
     deviceRowsOf.set(root.id, rowIds)
@@ -131,7 +135,9 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
     const readers = out.get(root.id)!
     const add = (rows: Array<typeof installs.$inferSelect>, executing: boolean) => {
       for (const row of rows) {
-        if (row.revokedAt || !members.has(row.userId)) continue
+        if (row.revokedAt) continue
+        // A host's install reads while its host is a member where it runs.
+        if (executing ? hostOfRow.get(row.deviceId ?? ``) !== row.userId : !members.has(row.userId)) continue
         const known = readers.get(row.id)
         readers.set(row.id, {
           installId: row.id,

@@ -7,6 +7,9 @@
 // the header existed never send it and must keep working, and a malformed
 // env var must never brick the whole install base.
 
+import { ASSISTANT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
+import { assistantMoveOn } from "@/lib/agents/assistant-move-switch"
+
 export const CLIENT_VERSION_HEADER = `x-client-version`
 
 const PLATFORMS = [`android`, `ios`, `desktop`, `cli`] as const
@@ -49,15 +52,31 @@ function envVersion(kind: `MIN` | `LATEST`, platform: ClientPlatform) {
  *  CLI builds below it never key a chat tree, so a CONFIGURED minimum below
  *  it counts as it (unset still fails open). */
 export const DEVICE_SEALING_FLOOR = `0.14.96`
-const FLOORED: readonly ClientPlatform[] = [`desktop`, `cli`]
 
-/** The configured minimum, raised to the sealing floor for devices. */
+/** The floors a CONFIGURED minimum is raised to, per platform: the sealing
+ *  floor (desktop, CLI) and, only once the Assistant move is switched on
+ *  (#EXP-1986 `ASSISTANT_MOVE`), #EXP-1984's Assistant floor
+ *  (agent-settings.json `assistant.move.clientFloor`: older builds look for
+ *  the Assistant inside the current team only, so they lose it once it lives
+ *  in the personal team). The highest applies. */
+export function clientFloors(platform: ClientPlatform): readonly string[] {
+  const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
+  const assistant =
+    assistantMoveOn() && platform !== `cli` ? [ASSISTANT_CLIENT_FLOOR[platform]] : []
+  return [...sealing, ...assistant]
+}
+
+/** The configured minimum, raised to the platform's floors. */
 function minVersion(platform: ClientPlatform): string | null {
   const min = envVersion(`MIN`, platform)
-  if (!min || !FLOORED.includes(platform)) return min
-  const tuple = parseVersionTuple(min)
-  if (!tuple) return min
-  return isBelow(tuple, parseVersionTuple(DEVICE_SEALING_FLOOR)!) ? DEVICE_SEALING_FLOOR : min
+  if (!min) return min
+  let raised = min
+  for (const floor of clientFloors(platform)) {
+    const tuple = parseVersionTuple(raised)
+    if (!tuple) return min
+    if (isBelow(tuple, parseVersionTuple(floor)!)) raised = floor
+  }
+  return raised
 }
 
 function isBelow(
