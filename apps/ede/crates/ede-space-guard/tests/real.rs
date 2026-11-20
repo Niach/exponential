@@ -54,6 +54,7 @@ fn the_helper() {
 
 struct Run {
     dir: PathBuf,
+    socket_dir: PathBuf,
     guard: Child,
     slice: String,
 }
@@ -63,7 +64,7 @@ impl Drop for Run {
         let _ = Command::new("systemctl").args(["--user", "stop", &self.slice]).status();
         let _ = Command::new("sudo").args(["-n", "kill", &self.guard.id().to_string()]).status();
         let _ = self.guard.wait();
-        let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&self.dir).status();
+        let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&self.dir).arg(&self.socket_dir).status();
     }
 }
 
@@ -90,16 +91,38 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     for (name, major, minor) in NODES {
         sudo(&["mknod", "-m", "666", &dir.join(name).to_string_lossy(), "c", &major.to_string(), &minor.to_string()]);
     }
-    let socket = dir.join("guard.sock");
+    // The guard's socket where any user can reach it (the flood below).
+    let socket_dir = PathBuf::from(format!("/tmp/ede-space-guard-{me}"));
+    std::fs::create_dir_all(&socket_dir).unwrap();
+    let socket = socket_dir.join("guard.sock");
     let guard = Command::new("sudo").args(["-n", GUARD, "--socket"]).arg(&socket).spawn().unwrap();
     let slice = format!("app-exponential_p{me}.slice");
-    let run = Run { dir: dir.clone(), guard, slice };
+    let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice };
     let deadline = Instant::now() + Duration::from_secs(10);
     while !socket.exists() {
         assert!(Instant::now() < deadline, "the guard never listened");
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(ede_space_guard::client::ask(&socket, &Request::Probe), Ok(()), "this kernel does not load the device program");
+
+    // Review B1/M1: another user (nobody: no runtime directory, the shared
+    // bucket) holding 16 silent connections does not refuse this user, and
+    // 16 silent connections of this user's own are let go after the
+    // request deadline (the client asks again after `busy`).
+    let flood = "import socket, sys, time\nconns = []\nfor _ in range(16):\n    s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); conns.append(s)\nprint('held', flush=True)\ntime.sleep(30)\n";
+    let mut nobody = Command::new("sudo").args(["-n", "-u", "nobody", "python3", "-c", flood]).arg(&socket).stdout(Stdio::piped()).spawn().unwrap();
+    let mut held = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(nobody.stdout.as_mut().unwrap()), &mut held).unwrap();
+    assert_eq!(held.trim(), "held");
+    let asked = Instant::now();
+    assert_eq!(ede_space_guard::client::ask(&socket, &Request::Probe), Ok(()), "another user's flood refused this user");
+    assert!(asked.elapsed() < Duration::from_millis(900), "this user waited for another's flood: {:?}", asked.elapsed());
+    let own: Vec<std::os::unix::net::UnixStream> = (0..16).map(|_| std::os::unix::net::UnixStream::connect(&socket).unwrap()).collect();
+    assert_eq!(ede_space_guard::client::ask(&socket, &Request::Probe), Ok(()), "this user's own silent connections were never let go");
+    drop(own);
+    let _ = Command::new("sudo").args(["-n", "kill", &nobody.id().to_string()]).status();
+    let _ = Command::new("sudo").args(["-n", "pkill", "-u", "nobody", "-f", "import socket, sys, time"]).status();
+    let _ = nobody.wait();
 
     // Before: every node opens as its driver allows (no driver here: not EPERM).
     let outside = opens(&dir);

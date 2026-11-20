@@ -240,6 +240,19 @@ impl Ede {
             inner.extend(["dbus-run-session".to_string(), "--".to_string()]);
         }
         inner.extend(argv.iter().cloned());
+        // #EDE-146..148: with the space guard installed nothing starts in a
+        // space that the guard cannot guard: not without a user manager (no
+        // slice to guard), not while its socket is gone (it is stopped or
+        // removed). A guard that is there but says no stops the launch in
+        // its scope (`space-enter`).
+        if let Some(socket) = &self.spaces.guard.required {
+            if self.spaces.units.is_none() {
+                return Err(fail(ErrorCode::Unavailable, "the space guard needs the systemd user manager: nothing starts in a space without both"));
+            }
+            if !socket.exists() {
+                return Err(fail(ErrorCode::Unavailable, &format!("the space guard is not running ({}): nothing starts in a space without it", socket.display())));
+            }
+        }
         // In a scope the caller's variables go in through the launch's
         // standard input, for the last of its stages alone.
         let (mut cmd, callers) = match &self.spaces.units {

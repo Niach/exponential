@@ -111,6 +111,12 @@ jobs:
           /usr/lib/exponential-desktop/bin/Xwayland -version 2>&1 | grep 'Xwayland Version 24\.1\.'
           grep -q 'ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell' /usr/lib/systemd/user/exponential-shell.service
           systemd-analyze verify /usr/lib/systemd/user/exponential-shell.service || true
+          # #EDE-146..148: the space guard as installed: its units, its socket
+          # listening, and the packaged guard (its unit's sandbox, three
+          # capabilities) loading its programs on this kernel.
+          systemd-analyze verify /usr/lib/systemd/system/exponential-space-guard.socket /usr/lib/systemd/system/exponential-space-guard.service
+          systemctl is-active exponential-space-guard.socket
+          /usr/libexec/exponential-space-guard probe
           exponential-compositor doctor | tee doctor.txt || true
           grep -E '^ok +Xwayland +/usr/lib/exponential-desktop/bin/Xwayland 24\.1\.' doctor.txt
       # Without the distro's xwayland this can only be the bundled one. The

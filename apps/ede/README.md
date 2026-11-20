@@ -900,32 +900,40 @@ eBPF device program to that slice. From then on the kernel refuses every
 |---|---|
 | `/dev/snd/*` (116), OSS (14) | the microphone (and the speakers) |
 | `/dev/video*`, `/dev/v4l-subdev*` (81), DVB (212) | cameras, libcamera, video capture |
-| `/dev/input/*` (13), `/dev/uinput` (10:223) | the person's keyboard and mouse; `ydotool` |
+| `/dev/input/*` (13), `/dev/uinput` (10:223) | input devices; `ydotool` |
+| `/dev/hidraw*`, `/dev/usbmon*` (their majors read from `/proc/devices` when the guard starts) | HID reports (keyboards with a vendor's udev rule, security keys), USB traffic |
 | `/dev/rfkill` (10:242) for writing | `rfkill block all` turns Wi-Fi and Bluetooth off |
 | `/dev/i2c-*` (89) | `ddcutil` switches monitors off |
 | `/dev/bus/usb/*` (189) for writing | PTP cameras, libusb capture |
 
 whoever owns the node and whatever its ACL says, also for root in the
-space, for a snap with its `camera` interface, a Flatpak with
-`--device=all`, a reopen through `/proc/<pid>/fd`. Everything else (the GPU,
-ttys, fuse, `/dev/null`) is as before. The person's own processes are not
-affected. The table is `crates/ede-space-guard/src/devices.rs`; the program
-is generated from it and tested in an eBPF interpreter on every device.
+space, for a snap with its `camera` interface, a reopen through
+`/proc/<pid>/fd`. Everything else (the GPU, ttys, fuse, `/dev/null`) is as
+before; WebAuthn keys, game controllers, adb and WebUSB do not work in a
+space. The person's own processes are not affected. The table is
+`crates/ede-space-guard/src/devices.rs`; the program is generated from it
+and tested in an eBPF interpreter on every device.
 
 - **What it is.** `/usr/libexec/exponential-space-guard`, a system service
-  started by `exponential-space-guard.socket` (`/run/exponential-space-guard.sock`,
-  enabled by the package; it ends after 10 minutes without a request).
-  `exponential-compositor space-enter`, the first program of every scope
-  into a space, asks it (`enter <spaces>`) and becomes the space's program
-  only on `ok`: nothing runs in a space before its slice is guarded. A
-  compositor whose guard answered at the session's start never starts
-  anything in a space without it; one without a guard says so in the log,
-  and `exponential-compositor doctor` has a line `Space guard`.
-- **Its three capabilities, no root.** A user of its own (`DynamicUser`),
-  `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach a device program and a
-  socket-address program to a cgroup), `CAP_PERFMON` (a socket-address
-  program reads the address it is asked about), nothing else; no network,
-  no home directories, the system read-only.
+  started by `exponential-space-guard.socket` (`/run/exponential-space-guard.sock`;
+  the package links it into `sockets.target.wants`, so it is `static`:
+  `systemctl mask exponential-space-guard.socket` turns it off). It ends
+  after 10 minutes without a request.
+- **Fail closed.** When the guard is installed, every launch into a space
+  runs `exponential-compositor space-enter --guard` first, inside its scope:
+  it asks the guard (`enter <spaces>`) and becomes the program only on `ok`.
+  A guard that is busy, down or broken means the launch does not run;
+  without a user manager or with the guard's socket gone, `launch` answers
+  `unavailable`. Nothing of that depends on what the guard answered at the
+  session's start: the session only asks it for readiness and the doctor,
+  which reads what the running session decided (`<wayland-N>.guard` beside
+  its socket). Uninstalled, launches run as before, and the doctor says so.
+- **Its capabilities, no root.** A user of its own (`DynamicUser`),
+  `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
+  nothing else; no network, no home directories, the system read-only, a
+  narrow syscall set. What a compromised guard could do with them: attach
+  cgroup programs to any cgroup (also refusing devices or sockets to other
+  users' processes) and, with `CAP_BPF`, load other program types.
 - **What a hostile caller can make it do.** Anyone on the machine can ask.
   The guard takes the asking process's user and cgroup from the kernel
   (`SO_PEERCRED`, `/proc/<pid>/cgroup`), requires that cgroup to be inside
@@ -936,11 +944,19 @@ is generated from it and tested in an eBPF interpreter on every device.
   never detaches anything and touches no other user. A space's programs
   cannot undo it: the person's user can neither load a program nor get a
   descriptor of the guard's, and without one the kernel refuses to detach
-  programs attached with `BPF_F_ALLOW_MULTI`. A user can make at most 64 of
-  their cgroups guarded per run of the service.
-- **Not a wall** (#EDE-145): a process that moves itself to another cgroup
-  of the user, or gets a descriptor opened outside the space, is not
-  stopped by it.
+  programs attached with `BPF_F_ALLOW_MULTI`. No user can starve another:
+  each user has two requests in the guard's hands at most (users without a
+  runtime directory, such as a user namespace's subordinate ids, share
+  two), each request gets one second from connect to its line, and
+  `space-enter` asks again after `busy` within its 5 s. At most 64 live
+  space slices per user carry its programs; a removed one frees its place.
+- **Not a wall** (#EDE-145). Not stopped by it: a process that moves itself
+  to another cgroup of the user; a descriptor opened outside the space and
+  passed in; the person's terminals (`/dev/pts/*`: a space can read what
+  the person types into a shell, or print a fake prompt there, as any
+  program of the person's can); where `kernel.yama.ptrace_scope` is 0, a
+  space taking descriptors from the person's processes (`pidfd_getfd`);
+  root in a space (sudo with the person's password) detaching the program.
 - **Needs** cgroup v2 and a kernel that loads the program (`exponential-space-guard
   probe` prints `ok` or why not).
 

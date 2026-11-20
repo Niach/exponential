@@ -8,17 +8,19 @@ use std::{
 
 use crate::{cgroup, devices, protocol::Request, sys};
 
-/// How many space slices of one user the guard attaches to while it runs
-/// (an attach is one list entry in the kernel; this bounds a user who
-/// makes space-named cgroups by the thousand).
-pub const MAX_SLICES_PER_USER: u32 = 64;
+/// How many LIVE space slices of one user carry the guard's programs (an
+/// attach is one list entry in the kernel; this bounds a user who makes
+/// space-named cgroups by the thousand). A slice whose cgroup is gone no
+/// longer counts.
+pub const MAX_SLICES_PER_USER: usize = 64;
 
 pub struct Guard {
     /// `/sys/fs/cgroup`, `/proc` (other roots in tests).
     pub cgroup_root: PathBuf,
     pub proc_root: PathBuf,
     devices: Option<OwnedFd>,
-    attached: HashMap<u32, u32>,
+    /// Per user, the directories of the space slices guarded and alive.
+    attached: HashMap<u32, Vec<OwnedFd>>,
 }
 
 impl Default for Guard {
@@ -28,14 +30,23 @@ impl Default for Guard {
 }
 
 impl Guard {
-    /// The device program, loaded once per run of the guard: every space
-    /// slice gets the same program object.
+    /// The device program, loaded once per run of the guard (with the
+    /// dynamic majors of this boot): every space slice gets the same
+    /// program object.
     fn devices(&mut self) -> Result<&OwnedFd, String> {
         if self.devices.is_none() {
-            let fd = sys::prog_load(sys::BPF_PROG_TYPE_CGROUP_DEVICE, sys::BPF_CGROUP_DEVICE, devices::NAME, &devices::program()).map_err(|e| format!("this kernel refuses the device program: {e}"))?;
+            let table = devices::table(&std::fs::read_to_string(self.proc_root.join("devices")).unwrap_or_default());
+            let fd = sys::prog_load(sys::BPF_PROG_TYPE_CGROUP_DEVICE, sys::BPF_CGROUP_DEVICE, devices::NAME, &devices::program(&table)).map_err(|e| format!("this kernel refuses the device program: {e}"))?;
             self.devices = Some(fd);
         }
         Ok(self.devices.as_ref().unwrap())
+    }
+
+    /// The live guarded slices of user `uid` (gone ones are dropped).
+    fn live(&mut self, uid: u32) -> &mut Vec<OwnedFd> {
+        let slices = self.attached.entry(uid).or_default();
+        slices.retain(|dir| !sys::cgroup_gone(dir.as_fd()));
+        slices
     }
 
     /// Answers `request` of process `pid` of user `uid`.
@@ -52,14 +63,13 @@ impl Guard {
                 if sys::prog_count(dir.as_fd(), sys::BPF_CGROUP_DEVICE).map_err(|e| format!("{}: {e}", slice.name()))? > 0 {
                     return Ok(());
                 }
-                let count = self.attached.entry(uid).or_default();
-                if *count >= MAX_SLICES_PER_USER {
-                    return Err(format!("user {uid} has {MAX_SLICES_PER_USER} guarded space slices already"));
+                if self.live(uid).len() >= MAX_SLICES_PER_USER {
+                    return Err(format!("user {uid} has {MAX_SLICES_PER_USER} guarded space slices alive already"));
                 }
                 let devices = self.devices()?.try_clone().map_err(|e| e.to_string())?;
                 sys::prog_attach(dir.as_fd(), devices.as_fd(), sys::BPF_CGROUP_DEVICE).map_err(|e| format!("{}: {e}", slice.name()))?;
-                *self.attached.entry(uid).or_default() += 1;
                 eprintln!("guarded {} of user {uid} (asked by process {pid})", slice.name());
+                self.attached.entry(uid).or_default().push(dir);
                 Ok(())
             }
         }

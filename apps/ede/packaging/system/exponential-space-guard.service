@@ -1,11 +1,10 @@
 # Exponential Desktop's space guard (#EDE-146, #EDE-147, #EDE-148). Started by
-# its socket, ends after 10 minutes without a request. It attaches two fixed
-# eBPF programs to the systemd slice of an agent space when a process inside
-# that slice asks, so nothing in a space opens the person's microphone,
-# camera, radio switches or input devices (README.md, "The space guard").
-# No root: a user of its own and exactly the three capabilities the kernel
-# asks for to load and attach a device and a socket-address program and to
-# read a socket's address in one.
+# its socket, ends after 10 minutes without a request. When a process inside
+# an agent space's systemd slice asks, it attaches fixed eBPF programs to
+# that slice, so nothing in the space opens the person's microphone, camera,
+# radio switches or input devices (README.md, "The space guard").
+# No root: a user of its own and only the capabilities the kernel asks for
+# to load and attach cgroup programs.
 [Unit]
 Description=Exponential Desktop space guard
 Documentation=https://exponential.at/desktop/
@@ -14,8 +13,8 @@ Requires=exponential-space-guard.socket
 [Service]
 ExecStart=/usr/libexec/exponential-space-guard
 DynamicUser=yes
-CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
-AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN
+AmbientCapabilities=CAP_BPF CAP_NET_ADMIN
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -25,9 +24,12 @@ ProtectKernelLogs=yes
 ProtectKernelTunables=yes
 ProtectClock=yes
 ProtectHostname=yes
+# ProtectProc stays at its default and ProcSubset at `all`: the guard reads
+# another user's /proc/<pid>/cgroup (whose request it is) and /proc/devices.
 PrivateTmp=yes
 PrivateDevices=yes
 PrivateNetwork=yes
+PrivateIPC=yes
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=yes
 RestrictRealtime=yes
@@ -36,6 +38,8 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service bpf
+SystemCallFilter=~@aio @chown @keyring @memlock @setuid @resources
+SystemCallErrorNumber=EPERM
 UMask=0077
 MemoryMax=64M
-TasksMax=32
+TasksMax=80

@@ -20,6 +20,16 @@ pub const BPF_CGROUP_UNIX_CONNECT: u32 = 49;
 pub const BPF_F_ALLOW_MULTI: u32 = 1 << 1;
 /// `CGROUP2_SUPER_MAGIC`.
 const CGROUP2: i64 = 0x6367_7270;
+/// Every `bpf(2)` call gets a zeroed buffer this long: larger than `union
+/// bpf_attr` of any kernel the guard runs on (144 bytes in Linux 6.8's
+/// headers, under 200 in 6.17's), so a field a newer kernel writes back
+/// (6.17's `query.revision` at byte 56, whatever the size passed) lands in
+/// it. The kernel reads the bytes it knows and wants the rest zero.
+pub const ATTR_SIZE: usize = 256;
+
+fn attr() -> [u8; ATTR_SIZE] {
+    [0u8; ATTR_SIZE]
+}
 
 fn bpf(cmd: i32, attr: &mut [u8]) -> io::Result<i64> {
     // SAFETY: `attr` is a zeroed `union bpf_attr` prefix of the length
@@ -44,7 +54,7 @@ fn put64(attr: &mut [u8], at: usize, value: u64) {
 pub fn prog_load(prog_type: u32, expected_attach_type: u32, name: &str, insns: &[u8]) -> io::Result<OwnedFd> {
     let license = CString::new("GPL").unwrap();
     let mut log = vec![0u8; 1 << 16];
-    let mut attr = [0u8; 128];
+    let mut attr = attr();
     put32(&mut attr, 0, prog_type);
     put32(&mut attr, 4, (insns.len() / 8) as u32);
     put64(&mut attr, 8, insns.as_ptr() as u64);
@@ -74,7 +84,7 @@ pub fn prog_load(prog_type: u32, expected_attach_type: u32, name: &str, insns: &
 
 /// Attaches `prog` to the cgroup `cgroup` with [`BPF_F_ALLOW_MULTI`].
 pub fn prog_attach(cgroup: BorrowedFd, prog: BorrowedFd, attach_type: u32) -> io::Result<()> {
-    let mut attr = [0u8; 32];
+    let mut attr = attr();
     put32(&mut attr, 0, cgroup.as_raw_fd() as u32);
     put32(&mut attr, 4, prog.as_raw_fd() as u32);
     put32(&mut attr, 8, attach_type);
@@ -85,7 +95,7 @@ pub fn prog_attach(cgroup: BorrowedFd, prog: BorrowedFd, attach_type: u32) -> io
 /// How many programs are attached to `cgroup` itself (not inherited)
 /// for `attach_type`.
 pub fn prog_count(cgroup: BorrowedFd, attach_type: u32) -> io::Result<u32> {
-    let mut attr = [0u8; 40];
+    let mut attr = attr();
     put32(&mut attr, 0, cgroup.as_raw_fd() as u32);
     put32(&mut attr, 4, attach_type);
     bpf(BPF_PROG_QUERY, &mut attr)?;
@@ -96,7 +106,7 @@ pub fn prog_count(cgroup: BorrowedFd, attach_type: u32) -> io::Result<u32> {
 /// can try. Refused for a cgroup whose programs were attached with
 /// [`BPF_F_ALLOW_MULTI`].
 pub fn prog_detach_any(cgroup: BorrowedFd, attach_type: u32) -> io::Result<()> {
-    let mut attr = [0u8; 32];
+    let mut attr = attr();
     put32(&mut attr, 0, cgroup.as_raw_fd() as u32);
     put32(&mut attr, 8, attach_type);
     bpf(BPF_PROG_DETACH, &mut attr).map(drop)
@@ -145,6 +155,20 @@ pub fn open_cgroup(root: &std::path::Path, components: &[String], uid: u32) -> i
     Ok(dir)
 }
 
+/// Is the cgroup of directory `dir` gone (removed since it was opened)?
+/// A removed cgroup's directory has no files any more.
+pub fn cgroup_gone(dir: BorrowedFd) -> bool {
+    let name = CString::new("cgroup.events").unwrap();
+    // SAFETY: a NUL-terminated name relative to a directory we hold.
+    let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT);
+    }
+    // SAFETY: a new descriptor of ours.
+    drop(unsafe { OwnedFd::from_raw_fd(fd) });
+    false
+}
+
 /// The process id and user id of the other end of a unix socket.
 pub fn peer(socket: BorrowedFd) -> io::Result<(u32, u32)> {
     // SAFETY: SO_PEERCRED fills a `struct ucred` of the size passed.
@@ -155,5 +179,19 @@ pub fn peer(socket: BorrowedFd) -> io::Result<(u32, u32)> {
             return Err(io::Error::last_os_error());
         }
         Ok((cred.pid as u32, cred.uid))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Linux 6.8's `union bpf_attr` (this machine's headers: 144 bytes)
+    /// and the furthest field a kernel up to 6.17 writes back (the query's
+    /// `revision`, bytes 56..64) fit, with room for newer ones.
+    #[test]
+    fn every_bpf_attr_is_larger_than_any_kernels_union() {
+        assert!(ATTR_SIZE >= 144 && ATTR_SIZE >= 56 + 8 && ATTR_SIZE % 8 == 0);
+        assert_eq!(attr().len(), ATTR_SIZE);
     }
 }

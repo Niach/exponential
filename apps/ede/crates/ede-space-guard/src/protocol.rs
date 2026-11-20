@@ -42,12 +42,12 @@ impl Request {
 /// own guard.
 pub fn spaces_dir_of(spaces: &str, uid: u32) -> Result<(), String> {
     let prefix = format!("/run/user/{uid}/exponential-desktop/");
-    let name = spaces.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(".spaces")).ok_or_else(|| format!("{spaces} is not a directory of spaces of user {uid}"))?;
+    let name = spaces.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(".spaces")).ok_or_else(|| format!("{spaces:?} is not a directory of spaces of user {uid}"))?;
     let ok = !name.is_empty() && name.len() <= 64 && !name.starts_with('.') && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
     if ok && Path::new(spaces).components().count() == 6 {
         Ok(())
     } else {
-        Err(format!("{spaces} is not a directory of spaces of user {uid}"))
+        Err(format!("{spaces:?} is not a directory of spaces of user {uid}"))
     }
 }
 

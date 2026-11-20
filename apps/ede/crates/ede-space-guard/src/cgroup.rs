@@ -37,7 +37,7 @@ fn number(text: &str) -> Option<u32> {
 pub fn space_slice_of(text: &str, uid: u32) -> Result<SpaceSlice, String> {
     let path = text.lines().find_map(|line| line.strip_prefix("0::")).ok_or("no unified cgroup")?;
     let mut parts = path.split('/');
-    let not_space = || format!("{path} is not in an agent space");
+    let not_space = || format!("{path:?} is not in an agent space");
     if parts.next() != Some("") {
         return Err(not_space());
     }

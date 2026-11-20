@@ -18,6 +18,7 @@ pub mod devices;
 pub mod ebpf;
 pub mod guard;
 pub mod protocol;
+pub mod slots;
 pub mod sys;
 
 pub use protocol::{Request, SOCKET};

@@ -34,6 +34,10 @@ post_install() {
 }
 post_upgrade() {
   post_install
+  [ -d /run/systemd/system ] && systemctl try-restart exponential-space-guard.service || true
+}
+pre_remove() {
+  [ -d /run/systemd/system ] && systemctl stop exponential-space-guard.socket exponential-space-guard.service || true
 }
 INSTALL
 cat > "$work/PKGBUILD" <<PKGBUILD

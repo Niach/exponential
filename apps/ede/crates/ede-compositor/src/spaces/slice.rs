@@ -20,8 +20,8 @@
 //! 2. `systemd-run --user --scope`, which asks the person's user manager
 //!    for the scope and, inside it, becomes
 //! 3. `exponential-compositor space-enter <spaces> -- …` ([`enter_main`]),
-//!    the first program of every scope into a space (#EDE-146's guard
-//!    goes there; until then it only becomes the next), which becomes
+//!    the first program of every scope into a space (with `--guard` it
+//!    asks the space guard first, #EDE-146..148), which becomes
 //! 4. `exponential-compositor space-exec` ([`exec_main`]), which takes
 //!    the caller's environment from its standard input and becomes the
 //!    program.
@@ -119,10 +119,9 @@ pub struct Units {
     pub manager: PathBuf,
     /// `dbus-daemon`, the space's bus under that manager.
     pub dbus_daemon: PathBuf,
-    /// #EDE-146..148: the space guard's socket, when the guard answered at
-    /// the session's start ([`guard_probe`]). Then every scope into a space
-    /// asks it first and nothing runs in a space it did not guard, for the
-    /// whole run.
+    /// #EDE-146..148: the space guard's socket when the guard is installed
+    /// ([`super::guard`]). Then every scope into a space asks it first and
+    /// nothing runs in a space it did not guard, for the whole run.
     pub guard: Option<PathBuf>,
 }
 
@@ -686,19 +685,9 @@ pub fn enter_main(args: impl Iterator<Item = String>) -> ! {
     failed("space-enter", format!("{}: {}", argv[0], Command::new(&argv[0]).args(&argv[1..]).exec()))
 }
 
-/// The space guard's socket: the installed one (a test build may name
-/// another in `EDE_SPACE_GUARD_SOCKET`; a release build never does).
-pub fn guard_socket() -> PathBuf {
-    #[cfg(debug_assertions)]
-    if let Some(socket) = std::env::var_os("EDE_SPACE_GUARD_SOCKET") {
-        return socket.into();
-    }
-    ede_space_guard::SOCKET.into()
-}
-
 /// Does the space guard answer at `socket` (it loads its programs on this
 /// kernel)? `Err` says why not. Blocks for at most the guard client's
-/// timeout: at the session's start and in the doctor only.
+/// timeout: in the session's probe thread and in `space-enter` only.
 pub fn guard_probe(socket: &Path) -> Result<(), String> {
     if !socket.exists() {
         return Err("the space guard is not installed (exponential-space-guard.socket)".into());

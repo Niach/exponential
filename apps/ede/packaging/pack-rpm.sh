@@ -73,10 +73,18 @@ cp -a $top/root/. %{buildroot}/
 
 %post
 # #EDE-146..148: the space guard's socket listens from now on (the
-# package's link in sockets.target.wants starts it at every boot).
+# package's link in sockets.target.wants starts it at every boot); a guard
+# of the old version still running takes the new one.
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload || :
   systemctl start exponential-space-guard.socket || :
+  systemctl try-restart exponential-space-guard.service || :
+fi
+
+%preun
+# Removal (not an upgrade) stops the space guard.
+if [ \$1 -eq 0 ] && [ -d /run/systemd/system ]; then
+  systemctl stop exponential-space-guard.socket exponential-space-guard.service || :
 fi
 
 %files -f $top/desktop.files

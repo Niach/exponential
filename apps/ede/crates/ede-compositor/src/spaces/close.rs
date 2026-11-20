@@ -195,6 +195,10 @@ impl Drop for Spaces {
     /// directories here.
     fn drop(&mut self) {
         self.kill_launches();
+        // The session's decision about the guard ends with it.
+        if let Some(file) = &self.guard.file {
+            let _ = std::fs::remove_file(file);
+        }
         // Everything under the spaces' directory is a space's: the live
         // ones and what a close left behind; their homes likewise.
         for dir in [&self.dir, &self.homes].into_iter().flatten() {
@@ -266,10 +270,15 @@ impl Ede {
     /// processes would run on). Without a user manager the reason is
     /// logged once and launches run as before, for the whole run.
     pub fn start_space_units(&mut self) {
+        self.start_space_guard();
         let units = match slice::Units::probe() {
             Ok(units) => units,
             Err(reason) => {
-                tracing::warn!("agent spaces run in the login session, without limits: {reason} (a systemd user manager from {} on is needed)", slice::SYSTEMD_FLOOR);
+                if self.spaces.guard.required.is_some() {
+                    tracing::warn!("nothing starts in an agent space: the space guard needs a systemd user manager: {reason}");
+                } else {
+                    tracing::warn!("agent spaces run in the login session, without limits: {reason} (a systemd user manager from {} on is needed)", slice::SYSTEMD_FLOOR);
+                }
                 return;
             }
         };
@@ -288,18 +297,12 @@ impl Ede {
             }
         }
         tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
-        // #EDE-146..148: decided once, like the scopes: a compositor whose
-        // guard answered never starts anything in a space without it.
-        let socket = slice::guard_socket();
+        // #EDE-146..148: an installed guard is asked by every launch, whatever
+        // it answers now (fail closed); see `guard`.
         let mut units = units;
-        match slice::guard_probe(&socket) {
-            Ok(()) => {
-                tracing::info!("agent spaces are guarded ({})", socket.display());
-                units.guard = Some(socket);
-            }
-            Err(reason) => tracing::warn!("agent spaces are not guarded: programs in them can use the microphone, the camera and the radio switches: {reason}"),
-        }
+        units.guard = self.spaces.guard.required.clone();
         self.spaces.units = Some(units);
+        self.write_space_guard_state();
     }
 
     /// Space number `space` closed and had launches in scopes: its slice
