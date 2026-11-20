@@ -835,6 +835,22 @@ impl Session {
         Popup { surface, xdg_surface, popup }
     }
 
+    /// Commits one new `w`×`h` buffer per colour of `argbs`, back to back,
+    /// without waiting for a frame or a roundtrip between them (an app
+    /// with vsync off).
+    pub fn draw_burst(&mut self, t: &Toplevel, w: i32, h: i32, argbs: &[u32]) {
+        if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
+            t.xdg_surface.ack_configure(serial);
+        }
+        for &argb in argbs {
+            let buffer = self.buffer(w, h, argb);
+            t.surface.attach(Some(&buffer), 0, 0);
+            t.surface.damage_buffer(0, 0, w, h);
+            t.surface.commit();
+        }
+        self.roundtrip();
+    }
+
     /// A drawn `w`x`h` subsurface of `parent` at `at` (synchronized: it
     /// shows with the parent's next commit, which this makes).
     pub fn subsurface(&mut self, parent: &wl_surface::WlSurface, at: (i32, i32), (w, h): (i32, i32), argb: u32) -> (wl_surface::WlSurface, wl_subsurface::WlSubsurface) {
