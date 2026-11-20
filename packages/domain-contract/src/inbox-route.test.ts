@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/inbox-route.json" with { type: "json" }
-import { inboxRowTarget, sessionTarget } from "./inbox-route"
+import { inboxRowListed, inboxRowTarget, sessionTarget } from "./inbox-route"
 
 describe(`inbox row target (EXP-1456)`, () => {
   for (const entry of fixture.cases) {
@@ -15,6 +15,14 @@ describe(`session target (EXP-1456)`, () => {
   for (const entry of fixture.sessionCases) {
     test(entry.name, () => {
       expect(sessionTarget(entry.session, entry.viewerId)).toEqual(entry.expected as never)
+    })
+  }
+})
+
+describe(`inbox row listed (EXP-1987)`, () => {
+  for (const entry of fixture.listCases) {
+    test(entry.name, () => {
+      expect(inboxRowListed(entry.row, entry.teamId, entry.teamIds)).toBe(entry.expected)
     })
   }
 })

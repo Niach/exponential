@@ -259,7 +259,7 @@
     }
   ],
   "nav": {
-    "$comment": "S-3 (owner 2026-10-28): THE SETTINGS NAV ×4 (web SETTINGS_NAV settings/-shared.tsx + web-mobile Team page, desktop settings/mod.rs NAV_GROUPS, iOS SettingsView, Android SettingsScreen): `groups` in order, each with its `items` in order. An item = a page id (a `rows` id or a `pages` id) or an INJECTED list `@<list>` drawn at render from synced data: `@boards` = one row per board, `@new-board` = the muted New board entry, `@assistant` = the viewer's OWN Assistant (agents.role assistant, owner = viewer; the brand mark, label `agent-settings.json` `assistant.copy.title`; it opens the Assistant page), `@agents` = one row per team agent (role agent; other members' Assistants never show), `@new-agent` (team owners), `@apps` / `@new-app`. `children` = sub-pages folded under their parent (the sidebar folds them, the phone strip flattens them after it). A page with `platforms` exists only there (Plan & Billing + Import web-only, This device desktop-only; About on the natives + desktop, the web's lives in the account menu). The Features and Advanced groups are GONE; Voice leaves Personal: its block is the Assistant page's Voice section (agent-settings.json `assistant`). Import (web-only, owner) closes the Team group. `visible` like `rows` (all | owner | ownerCloud). Every platform's settings-nav test replays `navCases`.",
+    "$comment": "S-3 (owner 2026-10-28): THE SETTINGS NAV ×4 (web SETTINGS_NAV settings/-shared.tsx + web-mobile Team page, desktop settings/mod.rs NAV_GROUPS, iOS SettingsView, Android SettingsScreen): `groups` in order, each with its `items` in order. An item = a page id (a `rows` id or a `pages` id) or an INJECTED list `@<list>` drawn at render from synced data: `@boards` = one row per board, `@new-board` = the muted New board entry, `@agents` = one row per team agent (role agent; other members' Assistants never show), `@new-agent` (team owners), `@apps` / `@new-app`. `children` = sub-pages folded under their parent (the sidebar folds them, the phone strip flattens them after it). A page with `platforms` exists only there (Plan & Billing + Import web-only, This device desktop-only; About on the natives + desktop, the web's lives in the account menu). The Features and Advanced groups are GONE; Voice leaves Personal: its block is the Assistant page's Voice section (agent-settings.json `assistant`). #EXP-1987 (the Assistant move, #EXP-1984): THE ASSISTANT IS AN ACCOUNT PAGE: `assistant` in Personal right after Account (label `agent-settings.json` `assistant.copy.title`, drawn with the Assistant's brand mark as its leading glyph, never `icon`'s glyph: `icon` only names the concept for lists that need one), the viewer's ONE Assistant whichever team is current; it replaces the Agents group's old `@assistant` entry (gone ×4, the group lists the team's agents only). `~/settings/assistant` and every client's settings route for it open that page on all four (phones: the account settings' Assistant page, never `web only`); the page finds the Assistant through `agents.ensureAssistant` without a team, so it reads the same before the move (the member's Assistant in the current team) and after it (the one in their personal team). Import (web-only, owner) closes the Team group. `visible` like `rows` (all | owner | ownerCloud). Every platform's settings-nav test replays `navCases`.",
     "groups": [
       {
         "id": "team",
@@ -289,7 +289,6 @@
         "id": "agents",
         "label": "Agents",
         "items": [
-          "@assistant",
           "@agents",
           "@new-agent",
           "mcp",
@@ -322,6 +321,7 @@
         "label": "Personal",
         "items": [
           "account",
+          "assistant",
           "notifications",
           "security",
           "about"
@@ -390,6 +390,11 @@
         "icon": "settings-account",
         "visible": "all"
       },
+      "assistant": {
+        "label": "Assistant",
+        "icon": "settings-agents",
+        "visible": "all"
+      },
       "notifications": {
         "label": "Notifications",
         "icon": "settings-notifications",
@@ -445,7 +450,6 @@
             "all-boards"
           ],
           "agents": [
-            "@assistant",
             "@agents",
             "@new-agent",
             "mcp",
@@ -457,6 +461,7 @@
           ],
           "personal": [
             "account",
+            "assistant",
             "notifications",
             "security"
           ]
@@ -479,7 +484,6 @@
             "all-boards"
           ],
           "agents": [
-            "@assistant",
             "@agents",
             "mcp",
             "skills"
@@ -495,6 +499,7 @@
           ],
           "personal": [
             "account",
+            "assistant",
             "notifications",
             "security",
             "about"
@@ -522,7 +527,6 @@
             "all-boards"
           ],
           "agents": [
-            "@assistant",
             "@agents",
             "@new-agent",
             "mcp",
@@ -540,6 +544,40 @@
           ],
           "personal": [
             "account",
+            "assistant",
+            "notifications",
+            "security",
+            "about"
+          ]
+        }
+      },
+      {
+        "name": "ios, member: the Assistant is in Personal, after Account",
+        "platform": "ios",
+        "role": "member",
+        "cloud": false,
+        "expected": {
+          "team": [
+            "members",
+            "issues",
+            "repositories",
+            "prompts"
+          ],
+          "boards": [
+            "@boards",
+            "all-boards"
+          ],
+          "agents": [
+            "@agents",
+            "mcp",
+            "skills"
+          ],
+          "apps": [
+            "@apps"
+          ],
+          "personal": [
+            "account",
+            "assistant",
             "notifications",
             "security",
             "about"
