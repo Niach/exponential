@@ -13,7 +13,8 @@
 //! #EDE-126: every desk has its own ([`crate::desk::Desk::clipboard`]). A
 //! read keeps its desk's id across turns of the loop and looks the desk up
 //! again each time: a space that closed under it ends the read
-//! ([`Ede::clipboard_closed`]). Xwayland's CLIPBOARD is the person's alone.
+//! ([`Ede::clipboard_closed`]). #EDE-138: each desk's Xwayland (the
+//! person's, a space's own) shares that desk's CLIPBOARD and no other.
 //!
 //! eDE has no wlr/ext data-control global, so no clipboard manager sees a
 //! selection: only the keyboard-focused client (Wayland's rule, and the
@@ -227,18 +228,14 @@ impl Ede {
         if items.is_empty() {
             let serial = self.desk_mut(desk).clipboard.changed(Owner::Empty);
             clear_data_device_selection(&self.display_handle, &self.desk(desk).seat);
-            if desk == DeskId::PERSON {
-                self.xwm_selection(None);
-            }
+            self.xwm_selection(desk, None);
             return Ok(serial);
         }
         let mimes: Vec<String> = items.iter().map(|item| item.mime.clone()).collect();
         let owned = Arc::new(Owned { serial: self.desk(desk).clipboard.serial + 1, items, sensitive });
         let serial = self.desk_mut(desk).clipboard.changed(Owner::Ours(owned.clone()));
         set_data_device_selection(&self.display_handle, &self.desk(desk).seat, mimes.clone(), Selection::Ours(owned));
-        if desk == DeskId::PERSON {
-            self.xwm_selection(Some(mimes));
-        }
+        self.xwm_selection(desk, Some(mimes));
         Ok(serial)
     }
 
@@ -246,11 +243,12 @@ impl Ede {
         self.desk(desk).clipboard.taken(serial)
     }
 
-    /// Xwayland's CLIPBOARD follows ours (`None` = we cleared it).
+    /// The CLIPBOARD of `desk`'s Xwayland follows the desk's (`None` = it
+    /// was cleared).
     #[allow(unused_variables)]
-    pub(crate) fn xwm_selection(&mut self, mimes: Option<Vec<String>>) {
+    pub(crate) fn xwm_selection(&mut self, desk: DeskId, mimes: Option<Vec<String>>) {
         #[cfg(feature = "xwayland")]
-        if let Some(xwm) = self.xwm.as_mut() {
+        if let Some(xwm) = self.desk_xwm(desk) {
             if let Err(e) = xwm.new_selection(smithay::wayland::selection::SelectionTarget::Clipboard, mimes) {
                 tracing::warn!("clipboard to X11: {e:?}");
             }
@@ -409,10 +407,10 @@ impl Ede {
                 }
                 Err(_) => false,
             },
-            // Xwayland's selection is the person's: no space reads it.
-            Source::X11 if desk != DeskId::PERSON => false,
+            // The desk's own Xwayland: a space's X11 owner is read through
+            // the space's window manager, never the person's.
             #[cfg(feature = "xwayland")]
-            Source::X11 => self.xwm.as_mut().is_some_and(|xwm| xwm.send_selection(smithay::wayland::selection::SelectionTarget::Clipboard, mime.to_string(), fd).is_ok()),
+            Source::X11 => self.desk_xwm(desk).is_some_and(|xwm| xwm.send_selection(smithay::wayland::selection::SelectionTarget::Clipboard, mime.to_string(), fd).is_ok()),
             #[cfg(not(feature = "xwayland"))]
             Source::X11 => false,
         }
