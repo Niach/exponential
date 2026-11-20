@@ -14,6 +14,7 @@ import {
   type FindSynced,
 } from "@exp/domain-contract/find-in-chat"
 import type { ChatHit } from "@exp/domain-contract/chat-store"
+import { globalChatStart } from "@exp/domain-contract/search-list"
 import { HIGHLIGHT_NAMES } from "@exponential_app/eui/web"
 import { chatStoreCall } from "@/lib/chat-store/client"
 import type { SteerSearchResult } from "@exp/domain-contract/steer-enet"
@@ -168,13 +169,24 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
   let index = current ? stops.findIndex((stop) => sameStop(stop, current)) : -1
   if (index < 0 && stops.length > 0) index = stops.length - 1
   const shown = index >= 0 ? stops[index]! : null
-  // A new query starts at the newest stop and lands there.
+  // A new query starts at the newest stop and lands there; #EDE-99: a
+  // global search pick starts at ITS hit's stop (search-list.json
+  // `globalChatStart`), waiting for the store's answer before it falls back.
+  const target = find?.target ?? null
+  const dropTarget = find?.dropTarget
+  const storeDone = older.query === query && older.storePhase !== `searching`
   useEffect(() => {
-    if (current === null && shown) {
-      setCurrent(shown)
-      setLanding((prev) => ({ stop: shown, n: (prev?.n ?? 0) + 1 }))
+    if (current !== null || !shown) return
+    let start = shown
+    if (target && target.query === query) {
+      const found = stops.findIndex((stop) => stop.key === target.key && stop.output === target.output)
+      if (found < 0 && !storeDone) return
+      start = stops[globalChatStart(stops, target) ?? stops.length - 1]!
+      dropTarget?.()
     }
-  }, [current, shown])
+    setCurrent(start)
+    setLanding((prev) => ({ stop: start, n: (prev?.n ?? 0) + 1 }))
+  }, [current, shown, target, query, stops, storeDone, dropTarget])
   const step = find?.step
   const stepRef = useRef(step?.n ?? 0)
   useEffect(() => {
