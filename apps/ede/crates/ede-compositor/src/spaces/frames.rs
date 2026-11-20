@@ -1,20 +1,31 @@
 //! #EDE-125: a space's frame clock and its capture. Nothing draws a space
 //! per frame: a commit arms one tick, the tick asks the damage tracker
-//! whether the scene changed (drawing nothing), counts that in the space's
-//! serial and sends the frame callbacks. An idle space arms nothing. A
-//! capture is drawn when it is asked for, in software, on the thread that
-//! serves the person's frames: hence the size limit and the slow clock of
-//! a space nobody looks at.
+//! whether the scene changed (drawing nothing and importing nothing,
+//! [`damage`], #EDE-162), counts that in the space's serial and sends the
+//! frame callbacks. An idle space arms nothing. A capture is drawn when it
+//! is asked for, in software, on the thread that serves the person's
+//! frames: hence the size limit, the slow clock of a space nobody looks
+//! at, and the captures' turns after the person's frames ([`queue`]).
+
+mod damage;
+mod queue;
+mod stats;
+
+pub use queue::{BUDGET, FLOOR, WINDOW};
+pub use stats::PROBE;
 
 use std::time::{Duration, Instant};
 
 use smithay::{
     backend::renderer::{
-        element::{solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements, Id, Kind},
+        element::{solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements, Kind},
         pixman::PixmanRenderer,
         utils::CommitCounter,
+        ImportAll, ImportMem, Renderer,
     },
+    desktop::Window,
     reexports::calloop::timer::{TimeoutAction, Timer},
+    utils::{Logical, Physical, Point, Rectangle},
 };
 
 use crate::{
@@ -22,6 +33,13 @@ use crate::{
     desk::DeskId,
     state::Ede,
 };
+
+/// What the spaces' clock and captures keep between turns of the loop.
+#[derive(Default)]
+pub(crate) struct Frames {
+    queue: queue::Queue,
+    stats: stats::Stats,
+}
 
 /// A tick this long after a commit while the space is in use: driven or
 /// captured within [`IN_USE`].
@@ -55,6 +73,12 @@ impl Ede {
     }
 
     fn space_tick(&mut self, id: DeskId) {
+        let cpu = stats::thread_cpu();
+        self.space_tick_inner(id);
+        self.spaces.frames.stats.tick(stats::thread_cpu().saturating_sub(cpu));
+    }
+
+    fn space_tick_inner(&mut self, id: DeskId) {
         // The space may have closed since the tick was armed.
         let Some(space) = self.spaces.get_mut(id) else { return };
         space.scheduled = false;
@@ -71,17 +95,27 @@ impl Ede {
         let _ = self.display_handle.flush_clients();
     }
 
+    /// The loop fired a timer `by` late (`EXP_FRAME_STATS=1`): the delay a
+    /// person's vblank would wait behind everything else on this thread.
+    pub fn spaces_loop_late(&mut self, by: std::time::Duration) {
+        self.spaces.frames.stats.late(by);
+    }
+
+    /// Whether space stats are being kept (`EXP_FRAME_STATS=1`).
+    pub fn spaces_stats_on(&self) -> bool {
+        self.spaces.frames.stats.on
+    }
+
     /// Did space `id`'s scene change since this was last asked? Then its
-    /// serial moves. Nothing is drawn.
+    /// serial moves. Nothing is drawn, no buffer is imported: a GPU
+    /// client's commits count as a software client's do.
     fn space_damage(&mut self, id: DeskId) {
-        let Some(mut renderer) = self.space_renderer() else { return };
-        let elements = self.space_elements(id, &mut renderer);
+        let elements = self.space_damage_elements(id);
         if let Some(space) = self.spaces.get_mut(id) {
             if matches!(space.tracker.damage_output(1, &elements), Ok((Some(damage), _)) if !damage.is_empty()) {
                 space.serial += 1;
             }
         }
-        self.spaces.renderer = Some(renderer);
     }
 
     /// Space `id`'s serial, counting what changed up to now.
@@ -112,24 +146,50 @@ impl Ede {
     }
 
     /// Front to back, in the space's output's pixels (scale 1, at (0, 0)).
-    fn space_elements(&self, id: DeskId, renderer: &mut PixmanRenderer) -> Vec<OutputElements<PixmanRenderer>> {
-        let Some(desk) = self.try_desk(id) else { return Vec::new() };
+    fn space_elements<R>(&self, id: DeskId, renderer: &mut R) -> Vec<OutputElements<R>>
+    where
+        R: Renderer + ImportAll + ImportMem,
+        R::TextureId: Clone + 'static,
+    {
         let mut elements = Vec::new();
-        for window in desk.space.elements().rev() {
-            let Some(at) = desk.space.element_location(window) else { continue };
-            let at = at - window.geometry().loc;
-            if self.is_protected_window(window) {
-                let mut bbox = window.bbox();
-                bbox.loc += at;
-                elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), bbox.to_physical(1), CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
-                continue;
-            }
-            elements.extend(
-                AsRenderElements::<PixmanRenderer>::render_elements::<WaylandSurfaceRenderElement<PixmanRenderer>>(window, renderer, at.to_physical(1), 1.0.into(), 1.0)
+        self.space_walk(id, |window, at, protected| match protected.then(|| protected_black(window, at)) {
+            Some(black) => elements.push(OutputElements::Solid(black)),
+            None => elements.extend(
+                AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(window, renderer, at.to_physical(1), 1.0.into(), 1.0)
                     .into_iter()
                     .map(OutputElements::Surface),
-            );
-        }
+            ),
+        });
         elements
     }
+
+    /// The same scene as [`Self::space_elements`], as the damage tracker
+    /// sees it, without a renderer.
+    fn space_damage_elements(&self, id: DeskId) -> Vec<damage::SpaceDamage> {
+        let mut elements = Vec::new();
+        self.space_walk(id, |window, at, protected| match protected.then(|| protected_black(window, at)) {
+            Some(black) => elements.push(damage::SpaceDamage::Solid(black)),
+            None => damage::window_damage(window, at.to_physical(1), &mut elements),
+        });
+        elements
+    }
+
+    /// Space `id`'s windows front to back: `f(window, where its surface
+    /// goes, whether it is protected)`.
+    fn space_walk(&self, id: DeskId, mut f: impl FnMut(&Window, Point<i32, Logical>, bool)) {
+        let Some(desk) = self.try_desk(id) else { return };
+        for window in desk.space.elements().rev() {
+            let Some(at) = desk.space.element_location(window) else { continue };
+            f(window, at - window.geometry().loc, self.is_protected_window(window));
+        }
+    }
+}
+
+/// A protected window: solid black over its whole box, with the same id on
+/// every call ([`damage::protected_id`]).
+fn protected_black(window: &Window, at: Point<i32, Logical>) -> SolidColorRenderElement {
+    let mut bbox = window.bbox();
+    bbox.loc += at;
+    let geometry: Rectangle<i32, Physical> = bbox.to_physical(1);
+    SolidColorRenderElement::new(damage::protected_id(window), geometry, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)
 }

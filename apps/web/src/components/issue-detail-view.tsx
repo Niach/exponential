@@ -62,7 +62,6 @@ import {
   IssueRelationsSection,
 } from "@/components/issue-relations-card"
 import { IssueChip } from "@/components/issue-chip"
-import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { useWidgetSubmission } from "@/hooks/use-widget-submission"
 import {
@@ -531,19 +530,6 @@ export function IssueDetailView({
     />
   )
 
-  // EXP-778: the small pin toggle beside the title — pinned issues land in
-  // the sidebar's Pinned group on every client.
-  const pinToggle = (
-    // EXP-850 §10: ghost everywhere a pin toggle renders — no circle stroke,
-    // no fill (the session header and the action dialog already read this way).
-    <PinToggleButton
-      teamId={teamId}
-      kind="issue"
-      targetId={issue.id}
-      variant="ghost"
-    />
-  )
-
   // EXP-893 phone header (`issue-mobile-header.tsx`): round back to the list
   // this issue was opened from, the IDENTIFIER centred, the `…` on the right.
   const mobileHeader = (
@@ -791,7 +777,6 @@ export function IssueDetailView({
                     issue={issue}
                   />
                   {startControl}
-                  {pinToggle}
                   <IssueActionsMenu
                     issue={issue}
                     board={board}

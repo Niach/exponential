@@ -122,6 +122,14 @@ final class AgentSessionModel {
     /// oldest first (`SessionQueries.tailMessageRows`).
     @ObservationIgnored private var tailMessages: [SteerNoFeed.TailMessage] = []
     @ObservationIgnored private var tailObservationTask: Task<Void, Never>?
+    /// #EXP-1998 (find-in-chat.json LANDING): how many synced messages the
+    /// tail reads and draws; find landing on an older one widens it one
+    /// `syncedTailMax` at a time, until the chat closes.
+    @ObservationIgnored private var tailLimit = SteerNoFeed.syncedTailMax
+    /// The limit the last read answered for (a widened read landed).
+    @ObservationIgnored private var tailFetchedLimit = SteerNoFeed.syncedTailMax
+    /// #EXP-1998: every synced message the tail would draw with no cap.
+    @ObservationIgnored private var syncedTailDrawable: [String] = []
     /// #FEED-260 (steer-enet.json OFFLINE LINE): the transcript ends with THE
     /// inline marker `SteerNoFeed.away(deviceName:).title`.
     private(set) var offlineLine = false
@@ -795,6 +803,38 @@ final class AgentSessionModel {
     /// The lowest loaded seq (the device's `beforeSeq`).
     var findLowestSeq: Int? { oldestSeq }
 
+    /// #EXP-1998 (find-in-chat.json `olderCases`): the synced tail as find
+    /// reads it: every synced message read (`loaded`), those the tail draws
+    /// (`drawable`), older ones unread (`more`); nil = a live transcript
+    /// (it holds them as its own rows).
+    private(set) var findSyncedTail: FindInChat.Synced?
+
+    /// #EXP-1998: bumped when a widened tail read landed (find's paging cue).
+    private(set) var findTailPage = 0
+
+    /// #EXP-1998: find lands on a synced message older than the tail: read
+    /// and draw one `syncedTailMax` more; false = none older.
+    func widenFindTail() -> Bool {
+        guard findSyncedTail?.more == true else { return false }
+        tailLimit += SteerNoFeed.syncedTailMax
+        restartTailObservation()
+        return true
+    }
+
+    /// #EXP-1998: the chat closed: the tail draws its newest `syncedTailMax` again.
+    func resetFindTail() {
+        guard tailLimit != SteerNoFeed.syncedTailMax else { return }
+        tailLimit = SteerNoFeed.syncedTailMax
+        restartTailObservation()
+    }
+
+    private func restartTailObservation() {
+        guard !stopped else { return }
+        tailObservationTask?.cancel()
+        tailObservationTask = nil
+        startObservingTailMessages()
+    }
+
     /// The loaded feed reaches the session's first event.
     var findFromStart: Bool {
         (!historyTruncated || historyReachedStart) && !feedHeadTrimmed
@@ -927,6 +967,11 @@ final class AgentSessionModel {
             tailVersion &+= 1
         }
         if nextTail.isEmpty, !syncedTailMessageIds.isEmpty { syncedTailMessageIds = [:] }
+        let synced = live ? nil : FindInChat.Synced(
+            loaded: tailMessages.map(\.id), drawable: syncedTailDrawable,
+            more: tailMessages.count >= tailFetchedLimit
+        )
+        if synced != findSyncedTail { findSyncedTail = synced }
         let line = SteerNoFeed.offlineLine(
             live: live, rows: feed.count + syncedTail.count, ended: sessionEnded,
             noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline
@@ -1031,18 +1076,24 @@ final class AgentSessionModel {
     /// NOT-live feed draws after its last row, as ordinary transcript rows
     /// (each at its `createdAt`); the own bubbles' rows never repeat here.
     private func syncedTailItems() -> [AgentFeedItem] {
-        guard !tailMessages.isEmpty else { return [] }
+        guard !tailMessages.isEmpty else {
+            syncedTailDrawable = []
+            return []
+        }
         let own = Set(ownBubbles.compactMap(\.messageId))
         // An EMPTY feed takes it only while the live transcript cannot be
         // loaded (the OFFLINE LINE's condition): a reachable device's replay
         // is on its way.
         let unreachable = sessionEnded ? history == .deviceOffline : hostDevice.offline
-        let picked = SteerNoFeed.syncedTail(
+        let drawable = SteerNoFeed.syncedTail(
             live: false,
             feed: feed.compactMap(Self.tailFeedRow),
             messages: tailMessages.filter { !own.contains($0.id) },
+            max: .max,
             unreachable: unreachable
         ) { $0 }
+        syncedTailDrawable = drawable.map(\.id)
+        let picked = Array(drawable.suffix(tailLimit))
         syncedTailMessageIds = Dictionary(picked.map { (Self.syncedTailId($0.id), $0.id) }, uniquingKeysWith: { first, _ in first })
         return picked.map { m in
             let id = Self.syncedTailId(m.id)
@@ -1923,8 +1974,9 @@ final class AgentSessionModel {
     private func startObservingTailMessages() {
         guard tailObservationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
+        let limit = tailLimit
         let observation = ValueObservation.tracking { db -> [SteerNoFeed.TailMessage] in
-            try SessionQueries.tailMessageRows(db: db, sessionId: id, limit: SteerNoFeed.syncedTailMax)
+            try SessionQueries.tailMessageRows(db: db, sessionId: id, limit: limit)
                 .map(TreeMessage.init(messageRow:))
                 .reversed()
                 .map { m in
@@ -1941,10 +1993,15 @@ final class AgentSessionModel {
                 do {
                     for try await rows in observation.values(in: pool) {
                         guard let self else { return }
-                        if rows != self.tailMessages {
+                        guard limit == self.tailLimit else { return }
+                        // #EXP-1998: a widened read landed (find pages on).
+                        let widened = limit != self.tailFetchedLimit
+                        self.tailFetchedLimit = limit
+                        if rows != self.tailMessages || widened {
                             self.tailMessages = rows
                             self.refreshSyncedTail()
                         }
+                        if widened { self.findTailPage &+= 1 }
                     }
                     return
                 } catch is CancellationError {
@@ -2094,6 +2151,7 @@ final class AgentSessionModel {
                         // never report.
                         // #EXP-1623: only what moved is written; an equal
                         // write still re-renders every view that reads it.
+                        let wasGone = self.session == nil
                         if row != self.session {
                             self.session = row
                             // #FEED-260: an ending moves the synced tail's rule.
@@ -2108,6 +2166,7 @@ final class AgentSessionModel {
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
                         self.liftRowEndedIfRunBack()
+                        if wasGone, let row { self.reviveIfRowReturned(row) }
                         self.rebuildHostDevice()
                     }
                     // The sequence only finishes cleanly on cancellation.
@@ -2645,6 +2704,27 @@ final class AgentSessionModel {
         guard case .ended = phase else { return }
         phase = .live
         reconnectAttempts = 0
+    }
+
+    /// #EXP-2020 (`SteerReconnectPolicy.rowReturned`): the row vanished (a
+    /// shape refetch, the Assistant's conversation moving into the personal
+    /// team) and came back live: the `ended` it read while gone is lifted,
+    /// so the composer returns without a cold start.
+    private func reviveIfRowReturned(_ row: SessionEntity) {
+        let ended: Bool = if case .ended = phase { true } else { false }
+        switch SteerReconnectPolicy.rowReturned(
+            wasGone: true, rowLive: row.isLive, ended: ended, connected: connected, stopped: stopped
+        ) {
+        case .reopen:
+            logger.info("row back: reopen")
+            if history == .deviceOffline { history = nil }
+            connect(force: true)
+        case .lift:
+            phase = .live
+            reconnectAttempts = 0
+        case .nothing:
+            break
+        }
     }
 
     /// Queue a frame and arm one flush for the batch (EXP-582). The flush is a

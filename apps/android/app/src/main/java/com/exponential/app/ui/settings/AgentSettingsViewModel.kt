@@ -295,6 +295,80 @@ class AgentSettingsViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-1988 (`assistant.teamPicks`): one section of the Assistant's
+     *  page per synced team of its member (switcher order, never the
+     *  personal team): the team, the agent it edits ([AgentSettings.Assistant.pickAgent])
+     *  and THAT team's skills and MCP servers. Empty for a team agent. */
+    data class TeamPickSection(
+        val teamId: String,
+        val teamName: String,
+        val agent: AgentDefinitionEntity?,
+        val skills: List<com.exponential.app.domain.SkillOption>,
+        val mcpServers: List<com.exponential.app.domain.McpServerOption>,
+    )
+
+    private val allAgentDefs = dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
+    private val syncedTeams = dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() }
+
+    /** Each synced team's MCP servers (`mcpServers.list` per team; a failed
+     *  read = none), re-read when the team set changes. */
+    private val teamMcpServers: kotlinx.coroutines.flow.Flow<Map<String, List<com.exponential.app.domain.McpServerOption>>> =
+        combine(agent.map { it?.isAssistant == true }.distinctUntilChanged(), syncedTeams.map { rows -> rows.map { it.id } }.distinctUntilChanged()) { a, ids -> a to ids }
+            .mapLatest { (isAssistant, ids) ->
+                val accountId = auth.activeAccountId.value
+                if (!isAssistant || accountId == null) return@mapLatest emptyMap()
+                ids.associateWith { team ->
+                    runCatching { mcpServersApi.list(accountId, team) }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrDefault(emptyList())
+                }
+            }
+            .onStart { emit(emptyMap()) }
+
+    private val teamSkills: kotlinx.coroutines.flow.Flow<Map<String, List<com.exponential.app.domain.SkillOption>>> =
+        combine(dbFlow, syncedTeams.map { rows -> rows.map { it.id } }.distinctUntilChanged()) { db, ids -> db to ids }
+            .flatMapLatest { (db, ids) ->
+                if (db == null || ids.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(ids.map { team ->
+                        db.skillDao().observeByTeam(team).map { rows ->
+                            team to com.exponential.app.domain.sortSkills(rows.map { it.toSkillOption() })
+                        }
+                    }) { pairs -> pairs.toMap() }
+                }
+            }
+
+    val teamPicks: StateFlow<List<TeamPickSection>> = combine(
+        agent,
+        allAgentDefs,
+        syncedTeams,
+        auth.userId,
+        combine(teamSkills, teamMcpServers) { sk, mcp -> sk to mcp },
+    ) { page, defs, teams, me, (skills, mcp) ->
+        if (page == null || !page.isAssistant) return@combine emptyList()
+        val teamIds = teams.map { it.id }
+        val byId = defs.associateBy { it.id }
+        teams.map { team ->
+            val agentId = AgentSettings.Assistant.pickAgent(defs, team.id, teamIds, me, page.id, id = { it.id }) {
+                AgentSettings.Assistant.TeamAgentLike(it.teamId, it.role, it.ownerId)
+            }
+            TeamPickSection(
+                teamId = team.id,
+                teamName = team.name,
+                agent = agentId?.let { byId[it] ?: page.takeIf { p -> p.id == it } },
+                skills = skills[team.id].orEmpty(),
+                mcpServers = mcp[team.id].orEmpty(),
+            )
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1988: a team section's pick: `agents.update {id: the section's
+     *  agent, pickTeamId, skillIds | mcpServerIds: the team's new pick}`. */
+    fun updateTeamPick(agentId: String, patch: UpdateAgentPatch) {
+        write("save", "the agent") { accountId -> agentsApi.update(accountId, agentId, patch) }
+    }
+
     private val _instructions = MutableStateFlow<String?>(null)
     /** The server-only instructions (`agents.get`); null = not loaded. */
     val instructions: StateFlow<String?> = _instructions

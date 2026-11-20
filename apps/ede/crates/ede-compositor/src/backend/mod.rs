@@ -357,6 +357,28 @@ pub fn watch_main_loop(handle: &smithay::reexports::calloop::LoopHandle<'static,
     }
 }
 
+/// #EDE-162: with `EXP_FRAME_STATS=1`, a timer every [`crate::spaces::frames::PROBE`]
+/// whose lateness the spaces' stats record: how long anything on this
+/// thread (a space's capture included) held up a person's vblank.
+pub fn watch_space_lateness(handle: &smithay::reexports::calloop::LoopHandle<'static, Ede>, on: bool) {
+    use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+    use std::time::Instant;
+    if !on {
+        return;
+    }
+    let probe = crate::spaces::frames::PROBE;
+    let mut due = Instant::now() + probe;
+    let inserted = handle.insert_source(Timer::from_deadline(due), move |_, _, state| {
+        let now = Instant::now();
+        state.spaces_loop_late(now.saturating_duration_since(due));
+        due = now + probe;
+        TimeoutAction::ToInstant(due)
+    });
+    if let Err(e) = inserted {
+        tracing::warn!("space lateness probe: {e}");
+    }
+}
+
 /// How often a surface an output does not show (behind the lock, under a
 /// fullscreen window, off every output) still gets a frame callback, so a
 /// client blocked on one never hangs (#EDE-100).

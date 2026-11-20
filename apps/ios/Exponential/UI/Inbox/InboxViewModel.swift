@@ -215,6 +215,7 @@ final class InboxViewModel {
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let issueIds = Set(issuesById.keys)
         let teamsById = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let teamIds = Set(teamsById.keys)
         // Newest-first; first-seen insertion order = groups sorted by latest
         // activity, issue groups and single rows interleaved in one stream.
         let sorted = notifications.sorted { $0.createdAt > $1.createdAt }
@@ -224,12 +225,13 @@ final class InboxViewModel {
         var blockedRunsById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
-            // #EXP-1534: a signed-out login belongs to the viewer, not a team:
-            // it lists in every team's inbox.
-            if let teamId, n.type != DomainContract.notificationTypeAgentSignedOut {
-                let rowTeam = n.teamId ?? n.issueId.flatMap { issuesById[$0] }.flatMap { boardTeams[$0.boardId] }
-                if let rowTeam, rowTeam != teamId { continue }
-            }
+            // #EXP-1987 (`inboxRowListed`): a signed-out login (#EXP-1534) and
+            // a session row of a team not synced here (the Assistant's chat in
+            // the personal team) list in every team's inbox; the rest in theirs.
+            let rowTeam = n.teamId ?? n.issueId.flatMap { issuesById[$0] }.flatMap { boardTeams[$0.boardId] }
+            guard InboxRoute.inboxRowListed(
+                type: n.type, rowTeamId: rowTeam, issueId: n.issueId, teamId: teamId, teamIds: teamIds
+            ) else { continue }
             guard let iid = n.issueId else {
                 // Issue-less rows: an agent message (EXP-801) and a blocked
                 // run (EXP-980) or signed-out login (#EXP-1534, the same row)

@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { pullRequestCollection } from "@/lib/collections"
 import type { PullRequestRow } from "@/lib/session-tree"
 
@@ -20,15 +20,32 @@ export function useTeamPullRequestsByRoot(teamId: string | undefined): {
         : undefined,
     [teamId]
   )
-  return useMemo(() => {
-    const all = (data ?? []) as PullRequestRow[]
-    const byRoot = new Map<string, PullRequestRow[]>()
-    for (const pr of all) {
-      if (!pr.rootSessionId) continue
-      const list = byRoot.get(pr.rootSessionId) ?? []
-      list.push(pr)
-      byRoot.set(pr.rootSessionId, list)
-    }
-    return { byRoot, all }
-  }, [data])
+  return useMemo(() => groupByRoot((data ?? []) as PullRequestRow[]), [data])
+}
+
+/** #EXP-2027: the PRs of several teams (the team-less Chats list) by chat. */
+export function useTeamsPullRequestsByRoot(teamIds: readonly string[]): {
+  byRoot: ReadonlyMap<string, PullRequestRow[]>
+  all: PullRequestRow[]
+} {
+  const key = teamIds.join(`,`)
+  const { data } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query.from({ prs: pullRequestCollection }).where(({ prs }) => inArray(prs.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  return useMemo(() => groupByRoot((data ?? []) as PullRequestRow[]), [data])
+}
+
+function groupByRoot(all: PullRequestRow[]): { byRoot: ReadonlyMap<string, PullRequestRow[]>; all: PullRequestRow[] } {
+  const byRoot = new Map<string, PullRequestRow[]>()
+  for (const pr of all) {
+    if (!pr.rootSessionId) continue
+    const list = byRoot.get(pr.rootSessionId) ?? []
+    list.push(pr)
+    byRoot.set(pr.rootSessionId, list)
+  }
+  return { byRoot, all }
 }

@@ -338,6 +338,8 @@ impl Runtime {
                 params.verbosity = 0;
                 params.use_gpu = device == Device::Gpu;
                 params.flash_attn = true;
+                // #EXP-2016: one call never runs to the KV ceiling.
+                params.max_codec_steps = MAX_CODEC_STEPS;
                 (qwen3.init)(model_path.as_ptr(), params)
             }
         };
@@ -582,6 +584,12 @@ pub struct StreamingTts<'a> {
 
 /// The codec's output rate.
 pub const QWEN3_TTS_RATE: u32 = 24_000;
+
+/// #EXP-2016: the most codec frames (12.5 a second) one streamed synthesis
+/// runs: 60 s of audio. Unset, Qwen3-TTS runs to its KV ceiling (4096
+/// frames, minutes of compute) on a trajectory that never ends (hundreds
+/// of consonants read aloud); a spoken sentence is far shorter.
+pub const MAX_CODEC_STEPS: c_int = 750;
 
 impl StreamingTts<'_> {
     /// Clone the voice of `wav` (its transcript `ref_text`), spoken in

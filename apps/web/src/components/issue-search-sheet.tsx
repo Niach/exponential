@@ -1,8 +1,8 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import { Button, conceptIcon, EmptyState } from "@exp/ui"
-import { issueCollection } from "@/lib/collections"
+import { issueCollection, userCollection } from "@/lib/collections"
 import { IssuePickerHost } from "@/components/issue-picker-host"
 import {
   ISSUE_SEARCH_DEFAULT_LIMIT,
@@ -12,9 +12,11 @@ import {
   ISSUE_SEARCH_PLACEHOLDER,
   type IssueSearchRow,
 } from "@/lib/issue-search"
-import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
-import { useAgentRows } from "@/hooks/use-agent-row"
-import type { Board } from "@/db/schema"
+import { useBoardsForTeams } from "@/hooks/use-team-data"
+import { useAllAgentRows } from "@/hooks/use-agent-row"
+import { useGlobalChatSearch } from "@/hooks/use-global-chat-search"
+import { SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
+import type { Board, User } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
@@ -24,8 +26,9 @@ const NoMatchGlyph = conceptIcon(`ui-empty-search`)
 interface IssueSearchSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
-  teamSlug: string
+  /** The teams searched: #EXP-2027 every member team on md+ (no active
+   *  team), the route's team on a phone. The first leads the chats. */
+  teams: readonly { id: string; slug: string }[]
 }
 
 // The minimal fields a result row needs to render + navigate. Local Electric
@@ -66,11 +69,15 @@ const SEARCH_ENGINE = {
 export function IssueSearchSheet({
   open,
   onOpenChange,
-  teamId,
-  teamSlug,
+  teams,
 }: IssueSearchSheetProps) {
   const navigate = useNavigate()
-  const boards = useTeamBoards(teamId)
+  const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
+  const slugOf = useMemo(() => new Map(teams.map((team) => [team.id, team.slug])), [teams])
+  // #EDE-99 (search-list.json CHATS): the Chats section after the issues.
+  const [query, setQuery] = useState(``)
+  const chats = useGlobalChatSearch({ teams, query, open })
+  const { boards } = useBoardsForTeams(teamIds)
   const boardIds = useMemo(() => boards.map((p: Board) => p.id), [boards])
   const boardMap = useMemo(
     () => new Map<string, Board>(boards.map((p: Board) => [p.id, p])),
@@ -89,8 +96,9 @@ export function IssueSearchSheet({
 
   // #NEW-21: each row carries its creator's name + email and its agent's
   // name, so `by:lukas` and a bare `lukas` reach who filed it.
-  const { userMap } = useTeamUsers(teamId)
-  const agents = useAgentRows(teamId)
+  const { data: users } = useLiveQuery((q) => (open ? q.from({ users: userCollection }) : undefined), [open])
+  const userMap = useMemo(() => new Map(((users ?? []) as User[]).map((user) => [user.id, user])), [users])
+  const agents = useAllAgentRows()
   const rows = useMemo(() => {
     const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
     return ((issues ?? NO_ROWS) as SearchResult[]).map((issue) => {
@@ -112,7 +120,8 @@ export function IssueSearchSheet({
 
   const handlePick = (issue: SearchResult) => {
     const board = boardMap.get(issue.boardId)
-    if (!board) return
+    const teamSlug = board ? slugOf.get(board.teamId) : undefined
+    if (!board || !teamSlug) return
     void navigate({
       to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
       params: {
@@ -133,7 +142,7 @@ export function IssueSearchSheet({
         description={ISSUE_SEARCH_EMPTY_DETAIL}
       />
     ) : (
-      <EmptyState icon={NoMatchGlyph} title={ISSUE_SEARCH_NO_RESULTS} />
+      <EmptyState icon={NoMatchGlyph} title={chats ? SEARCH_LIST_CHATS.copy.noResults : ISSUE_SEARCH_NO_RESULTS} />
     )
 
   return (
@@ -143,7 +152,7 @@ export function IssueSearchSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Search issues"
-      teamId={teamId}
+      teamId={teamIds}
       rows={rows}
       {...SEARCH_ENGINE}
       // Prefer the local Electric row when the id is synced locally so rows
@@ -156,7 +165,9 @@ export function IssueSearchSheet({
           updatedAt: null,
         }
       }
-      searchPlaceholder={ISSUE_SEARCH_PLACEHOLDER}
+      searchPlaceholder={chats ? SEARCH_LIST_CHATS.copy.placeholder : ISSUE_SEARCH_PLACEHOLDER}
+      chats={chats}
+      onQueryInput={setQuery}
       emptyText={emptyState}
       onPick={handlePick}
       backButton={(close) => (

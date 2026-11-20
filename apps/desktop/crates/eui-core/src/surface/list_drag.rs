@@ -9,12 +9,18 @@
 //! [`Surface::list_drag_paint`] answers: the dragged row dimmed, the lifted
 //! copy, the drop line + ring or the into highlight. The List never
 //! reorders its data: the host applies the move.
+//!
+//! #EXP-2027: a row from OUTSIDE the List (the desktop's Chats row onto the
+//! sidebar tree) drags onto it through [`Surface::list_drag_external`], as
+//! web's `startListDrag` takes any rows: the outside row counts as the last
+//! row, the drop and the release are the List's own, and the paint is only
+//! the drop (no dimmed row, no lifted copy: the host's drag carries its own).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Frame, OutEvent, Surface};
-use crate::list_reorder::{list_drop_slot, list_move_context, ListDrop, ListDragState, ListDropPosition, ListReorderRow, LIST_DROP_LINE, LIST_DROP_RING, LIST_LIFT_OFFSET};
+use crate::list_reorder::{list_drop_slot, list_move_context, ListDrop, ListDragState, ListDropPosition, ListExternalRow, ListReorderRow, LIST_DROP_LINE, LIST_DROP_RING, LIST_LIFT_OFFSET};
 
 /// One drag input on a reorderable List (`x`, `y` = the pointer in the
 /// space of the layout's frames, which are UNSCROLLED: add the scroll
@@ -60,6 +66,10 @@ pub struct ListDragPaint {
     /// into: the row's box: a `LIST_DROP_LINE` primary ring (inset), the
     /// primary at `LIST_INTO_FILL` as fill, radius `$radius.md`.
     pub into: Option<Frame>,
+    /// The dragged row is outside the List ([`Surface::list_drag_external`]):
+    /// paint only the drop (`row` and `lift` name nothing).
+    #[serde(default)]
+    pub external: bool,
 }
 
 struct ListRows {
@@ -134,6 +144,38 @@ impl Surface {
         Some(ListRows { list: owner.id.clone(), list_index: list, max_depth, rows, slots })
     }
 
+    /// The rows a live drag drops between: the List's own, or for a row
+    /// from outside the named ones (minus one with its key) and it last.
+    fn drag_rows(&self, list: u32, state: &ListDragState) -> Option<ListRows> {
+        let mut rows = self.reorder_list_rows(list)?;
+        if let Some(ext) = &state.external {
+            let takes = |r: &ListReorderRow| r.key != state.key && ext.keys.as_ref().is_none_or(|k| k.contains(&r.key));
+            (rows.rows, rows.slots) = rows.rows.into_iter().zip(rows.slots).filter(|(r, _)| takes(r)).unzip();
+            rows.rows.push(ListReorderRow { key: state.key.clone(), top: ext.top, height: ext.height, depth: 0.0, group: false });
+            rows.slots.push(u32::MAX);
+        }
+        Some(rows)
+    }
+
+    /// #EXP-2027: a drag of a row from OUTSIDE the List `list` (by id) onto
+    /// it: `start` begins it with the outside row's key and frame (in the
+    /// layout's space, like the pointer) and the List rows that take the
+    /// drop (`keys`, None = all); `move` / `end` / `cancel` are
+    /// [`Self::list_drag`]'s (the `move` event's `id` = `key`).
+    pub fn list_drag_external(&mut self, list: &str, key: &str, row: Frame, keys: Option<Vec<String>>, input: &ListDragInput) -> Vec<OutEvent> {
+        self.ensure_reduced();
+        let ListDragInput::Start { x, y } = input else { return self.list_drag(0, input) };
+        let Some(index) = self.index_of(list) else { return vec![] };
+        let Some(owner) = self.layout_node(index) else { return vec![] };
+        if owner.component != "List" || !reorderable(&owner.props) || self.is_inert(owner) {
+            return vec![];
+        }
+        self.local.list_drags.clear();
+        let external = Some(ListExternalRow { top: row.y, height: row.h, keys });
+        self.local.list_drags.insert(list.to_string(), ListDragState { key: key.to_string(), offset_y: y - row.y, x: *x, y: *y, drop: None, external });
+        vec![]
+    }
+
     /// The List whose drag is live (by slot), if any.
     fn live_list_drag(&self) -> Option<u32> {
         self.local.list_drags.keys().find_map(|id| self.index_of(id))
@@ -158,12 +200,13 @@ impl Surface {
                 let key = rows.rows[i].key.clone();
                 let offset_y = y - rows.rows[i].top;
                 self.local.list_drags.clear();
-                self.local.list_drags.insert(rows.list.clone(), ListDragState { key, offset_y, x: *x, y: *y, drop: None });
+                self.local.list_drags.insert(rows.list.clone(), ListDragState { key, offset_y, x: *x, y: *y, drop: None, external: None });
                 vec![]
             }
             ListDragInput::Move { x, y } => {
                 let Some(list) = self.live_list_drag() else { return vec![] };
-                let Some(rows) = self.reorder_list_rows(list) else {
+                let id = self.layout_node(list).map(|n| n.id.clone()).unwrap_or_default();
+                let Some(rows) = self.local.list_drags.get(&id).and_then(|state| self.drag_rows(list, state)) else {
                     self.local.list_drags.clear();
                     return vec![];
                 };
@@ -175,10 +218,9 @@ impl Surface {
             }
             ListDragInput::End { y, .. } => {
                 let Some(list) = self.live_list_drag() else { return vec![] };
-                let rows = self.reorder_list_rows(list);
                 let id = self.layout_node(list).map(|n| n.id.clone()).unwrap_or_default();
                 let Some(state) = self.local.list_drags.remove(&id) else { return vec![] };
-                let Some(rows) = rows else { return vec![] };
+                let Some(rows) = self.drag_rows(list, &state) else { return vec![] };
                 match list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth) {
                     Some(drop) => self.fire(&id, "move", Some(list_move_context(&state.key, &drop))),
                     None => vec![],
@@ -203,12 +245,18 @@ impl Surface {
         let mut out = vec![];
         for (id, state) in &self.local.list_drags {
             let Some(list) = self.index_of(id) else { continue };
-            let Some(rows) = self.reorder_list_rows(list) else { continue };
+            let Some(rows) = self.drag_rows(list, state) else { continue };
             let Some(i) = rows.rows.iter().position(|r| r.key == state.key) else { continue };
+            let external = state.external.is_some();
             let row = rows.slots[i];
-            let frame = self.last_frame(row).unwrap_or_default();
-            let lift = Frame { x: frame.x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h };
-            let mut paint = ListDragPaint { list: id.clone(), list_index: list, key: state.key.clone(), row, lift, drop: state.drop.clone(), drop_row: None, line: None, ring: None, into: None };
+            let lift = match external {
+                true => Frame::default(),
+                false => {
+                    let frame = self.last_frame(row).unwrap_or_default();
+                    Frame { x: frame.x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h }
+                }
+            };
+            let mut paint = ListDragPaint { list: id.clone(), list_index: list, key: state.key.clone(), row, lift, drop: state.drop.clone(), drop_row: None, line: None, ring: None, into: None, external };
             if let Some(drop) = &state.drop {
                 if let Some(j) = rows.rows.iter().position(|r| r.key == drop.key) {
                     let target = self.last_frame(rows.slots[j]).unwrap_or_default();

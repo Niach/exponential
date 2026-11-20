@@ -87,9 +87,9 @@ fn real_data_bench() {
     let screen = std::env::var("LOGS_REAL_SCREEN").ok();
     let handle = cx
         .open_window(size(px(1600.), px(1000.)), |window: &mut Window, cx| {
-            if let Ok(team) = std::env::var("LOGS_REAL_TEAM") {
+            if let Ok(_team) = std::env::var("LOGS_REAL_TEAM") {
                 let nav = crate::navigation::nav_for_window(window, cx);
-                nav.update(cx, |nav, _| nav.team_id = Some(team));
+                let _ = &nav;
             }
             let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
             cx.new(|cx| gpui_component::Root::new(shell, window, cx))

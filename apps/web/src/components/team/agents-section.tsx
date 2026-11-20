@@ -16,6 +16,7 @@ import {
   FEEDBACK_ERRORS,
   FEEDBACK_WORDS,
   FieldError,
+  useIsMobile,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
@@ -97,6 +98,7 @@ import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
 import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { AssistantTeamPicks } from "@/components/team/assistant-team-picks"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
 // ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
@@ -241,6 +243,7 @@ export function AgentSettingsPage({
   appSlot?: boolean
 }) {
   const navigate = useNavigate()
+  const wide = !useIsMobile()
   const creating = agent === null
   // #EXP-1846 (agent-settings.json `page`): ONE page for the Assistant and
   // every team agent: identity, Runs on (device, account, model, skills, MCP
@@ -581,11 +584,13 @@ export function AgentSettingsPage({
       // Land on the agent's page once its row has synced (the page resolves
       // the id against the live shape).
       await agentCollection.utils.awaitTxId(result.txid).catch(() => {})
-      void navigate({
-        to: `/t/$teamSlug/settings/agents/$agentId`,
-        params: { teamSlug: team.slug, agentId: result.agent.id },
-        replace: true,
-      })
+      // #EXP-2027: md+ creates from the New agent PAGE (the Agents group left
+      // Settings): the new agent's chat, its sidebar row.
+      void navigate(
+        wide
+          ? { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug: team.slug, agentId: result.agent.id }, replace: true }
+          : { to: `/t/$teamSlug/settings/agents/$agentId`, params: { teamSlug: team.slug, agentId: result.agent.id }, replace: true }
+      )
     } catch (err) {
       failedAction(`create`, `the agent`, err, { retry: () => void create() })
     } finally {
@@ -600,11 +605,9 @@ export function AgentSettingsPage({
       await trpc.agents.delete.mutate({ id: agentId }, SKIP_ERROR_TOAST)
       draftRef.current = null
       setDeleteOpen(false)
-      void navigate({
-        to: `/t/$teamSlug/settings/agents`,
-        params: { teamSlug: team.slug },
-        replace: true,
-      })
+      void navigate(
+        wide ? { to: `/home`, replace: true } : { to: `/t/$teamSlug/settings/agents`, params: { teamSlug: team.slug }, replace: true }
+      )
     } catch (err) {
       failedAction(`delete`, `the agent`, err)
     } finally {
@@ -806,11 +809,14 @@ export function AgentSettingsPage({
             disabled={readOnly}
             data-testid="agent-model"
           />
-          {skillsRow}
-          {mcpRow}
+          {/* #EXP-1988: the Assistant's skills / MCP servers live in one section per team. */}
+          {assistant ? null : skillsRow}
+          {assistant ? null : mcpRow}
         </GlassGroup>
         <FieldError className="px-1">{deviceError}</FieldError>
       </div>
+
+      {assistant && agent ? <AssistantTeamPicks pageAgent={agent} /> : null}
 
       <AgentTriggers triggers={triggers} readOnly={readOnly} onWrite={writeTriggers} />
 

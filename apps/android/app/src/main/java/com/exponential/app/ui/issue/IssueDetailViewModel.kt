@@ -173,9 +173,6 @@ class IssueDetailViewModel @AssistedInject constructor(
 
     private val issueFlow = dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
 
-    // EXP-858: no pin state here — the phone has no sidebar to pin into, so
-    // the toggle (and its `pins.toggle` call) is gone. The synced `pins` rows
-    // still feed the board switcher's Pinned list.
     private val _board = MutableStateFlow<BoardEntity?>(null)
     private val teamLabelsFlow = combine(dbFlow, _board) { db, board -> db to board }
         .flatMapLatest { (db, board) ->

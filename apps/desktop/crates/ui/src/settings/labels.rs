@@ -31,7 +31,7 @@ use eui_gpui::binding::Binding;
 use eui_gpui::view::SurfaceView;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 
 use super::doc::{empty_state, hex, mount, not, path, IdeToasts, Ink, PillPaint, XS};
 use super::{parse_hex_color, spawn_trpc};
@@ -266,7 +266,7 @@ impl LabelsPane {
         if let Some(labels) = &self.shot_labels {
             return labels.clone();
         }
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = screen_team_id(&self.nav, cx) else {
             return Vec::new();
         };
         let mut labels: Vec<Label> = Store::global(cx).collections().labels.read(cx).iter().filter(|label| label.team_id == team_id).cloned().collect();
@@ -328,7 +328,7 @@ impl LabelsPane {
         if self.submitting {
             return;
         }
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = screen_team_id(&self.nav, cx) else {
             return;
         };
         let name = self.new_name.trim().to_string();

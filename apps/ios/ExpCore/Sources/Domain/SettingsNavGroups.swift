@@ -38,8 +38,6 @@ public extension SettingsNav {
     enum List {
         public static let boards = "@boards"
         public static let newBoard = "@new-board"
-        /// The viewer's OWN Assistant (brand mark, opens the Assistant page).
-        public static let assistant = "@assistant"
         /// The team agents (role agent).
         public static let agents = "@agents"
         public static let newAgent = "@new-agent"
@@ -53,13 +51,15 @@ public extension SettingsNav {
         ]),
         Group(id: "boards", label: "Boards", platforms: nil, items: [List.boards, List.newBoard, "all-boards"]),
         Group(id: "agents", label: "Agents", platforms: nil, items: [
-            List.assistant, List.agents, List.newAgent, "mcp", "skills",
+            List.agents, List.newAgent, "mcp", "skills",
         ]),
         Group(id: "apps", label: "Apps", platforms: nil, items: [List.apps, List.newApp]),
         Group(id: "device", label: "This device", platforms: [.desktop], items: [
             "tools", "coding-clis", "worktrees", "sessions",
         ]),
-        Group(id: "personal", label: "Personal", platforms: nil, items: ["account", "notifications", "security", "about"]),
+        Group(id: "personal", label: "Personal", platforms: nil, items: [
+            "account", "assistant", "notifications", "security", "about",
+        ]),
     ]
 
     /// A page's sub-pages (Issues › Labels, Statuses).
@@ -74,6 +74,9 @@ public extension SettingsNav {
         "worktrees": Page(label: "Worktrees", icon: "settings-local-repos", visible: .all, platforms: [.desktop]),
         "sessions": Page(label: "Sessions", icon: "settings-sessions", visible: .all, platforms: [.desktop]),
         "account": Page(label: "Account", icon: "settings-account", visible: .all, platforms: nil),
+        // #EXP-1987: the viewer's ONE Assistant, an account page (drawn
+        // with the brand mark; `icon` only names the concept).
+        "assistant": Page(label: "Assistant", icon: "settings-agents", visible: .all, platforms: nil),
         "notifications": Page(label: "Notifications", icon: "settings-notifications", visible: .all, platforms: nil),
         "security": Page(label: "Security", icon: "settings-api", visible: .all, platforms: nil),
         "about": Page(label: "About", icon: "settings-about", visible: .all, platforms: [.desktop, .ios, .android]),

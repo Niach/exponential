@@ -192,15 +192,21 @@ export const NO_CHECKS_GRACE_MS = 5 * 60_000
 
 /** A live PR with NO check rows at its head, where the base names required
  *  checks (`expected`): null = not this rule's (a repo without CI lands
- *  untested); `wait` = its runs may still appear; else the hold reason. */
+ *  untested); `wait` = its runs may still appear; else the hold reason.
+ *  #FEED-282: a base naming none still waits out the grace when the repo
+ *  reports CI on its PRs (`ciSeen`): a PR opened seconds ago has no runs
+ *  YET; past the grace it lands as before (never held: a paths filter may
+ *  run nothing). */
 export function noChecksVerdict(input: {
   expected: boolean
+  /** The repo's other PRs report check runs (it has CI). */
+  ciSeen?: boolean
   /** The forge's mergeability (false = conflicts), null = not computed. */
   mergeable: boolean | null
   /** Since the forge last updated the PR. */
   ageMs: number
 }): `wait` | `no_checks` | `conflict` | null {
-  if (!input.expected) return null
+  if (!input.expected) return input.ciSeen === true && input.ageMs < NO_CHECKS_GRACE_MS ? `wait` : null
   if (input.mergeable === false) return `conflict`
   return input.ageMs >= NO_CHECKS_GRACE_MS ? `no_checks` : `wait`
 }

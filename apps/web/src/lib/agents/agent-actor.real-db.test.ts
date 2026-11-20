@@ -300,7 +300,7 @@ describe.skipIf(!ready.ok)(`agents act as themselves (#EXP-1383)`, () => {
     expect(await actingSessionForRequest(request, w.mate, convo.id)).toBeNull()
   })
 
-  it(`confines /api/mcp to the team of a caller's agent-tree session, nothing else`, async () => {
+  it(`confines /api/mcp to the team of a caller's agent-tree session (#EXP-2027: and a chat's)`, async () => {
     const w = await world()
     const sloppy = await w.agent()
     const convo = await w.conversation(sloppy)
@@ -322,9 +322,12 @@ describe.skipIf(!ready.ok)(`agents act as themselves (#EXP-1383)`, () => {
     // session keep the credential's access.
     expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.mate, convo.id)).toBe(FULL_ACCESS)
     expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, null)).toBe(FULL_ACCESS)
-    // A normal chat keeps full access.
+    // #EXP-2027: a plain chat is confined to its tree's teams too (its own, nothing picked).
     const chat = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `Chat` } as never })
-    expect(await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, chat.sessionId)).toBe(FULL_ACCESS)
+    const chatAccess = await confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://x.test`), w.owner, chat.sessionId)
+    expect(chatAccess).toMatchObject({ full: false, origin: `session` })
+    expect(isTeamVisible(chatAccess, w.teamId)).toBe(true)
+    expect(isTeamVisible(chatAccess, crypto.randomUUID())).toBe(false)
   })
 })
 

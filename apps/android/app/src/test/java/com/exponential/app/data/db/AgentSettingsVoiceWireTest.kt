@@ -90,6 +90,15 @@ class AgentSettingsVoiceWireTest {
     }
 
     @Test
+    fun `a team section's pick sends pickTeamId with the team's ids only (EXP-1988)`() {
+        assertEquals(
+            Json.parseToJsonElement("""{"id":"as-p","mcpServerIds":["m-b1"],"pickTeamId":"t-b"}"""),
+            updateAgentInput("as-p", UpdateAgentPatch(mcpServerIds = listOf("m-b1"), pickTeamId = "t-b")),
+        )
+        assertFalse("pickTeamId" in updateAgentInput("a1", UpdateAgentPatch(skillIds = listOf("s"))))
+    }
+
+    @Test
     fun `the clip route's refusal reads its error body`() {
         assertEquals("Voice clips must be WAV files", uploadRouteErrorMessage("""{"error":"Voice clips must be WAV files"}"""))
         assertEquals(null, uploadRouteErrorMessage("""{"error":""}"""))

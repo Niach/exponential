@@ -624,6 +624,8 @@ pub const NAV_DRAFTS: ExpIcon = ExpIcon::FilePenLine;
 pub const NAV_FILES: ExpIcon = ExpIcon::Folder;
 /// Registry concept `nav-getting-started` -> Lucide `sparkles`.
 pub const NAV_GETTING_STARTED: ExpIcon = ExpIcon::Sparkles;
+/// Registry concept `nav-home` -> Lucide `house`.
+pub const NAV_HOME: ExpIcon = ExpIcon::House;
 /// Registry concept `nav-inbox` -> Lucide `inbox`.
 pub const NAV_INBOX: ExpIcon = ExpIcon::Inbox;
 /// Registry concept `nav-issues` -> Lucide `list`.
@@ -728,6 +730,10 @@ pub const RUN_PAUSE: ExpIcon = ExpIcon::Pause;
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
+/// Registry concept `search-agent` -> Lucide `bot`.
+pub const SEARCH_AGENT: ExpIcon = ExpIcon::Bot;
+/// Registry concept `search-chat` -> Lucide `message-circle`.
+pub const SEARCH_CHAT: ExpIcon = ExpIcon::MessageCircle;
 /// Registry concept `session-shell` -> Lucide `terminal`.
 pub const SESSION_SHELL: ExpIcon = ExpIcon::Terminal;
 /// Registry concept `session-tree` -> Lucide `workflow`.
@@ -1184,6 +1190,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-drafts" => NAV_DRAFTS,
         "nav-files" => NAV_FILES,
         "nav-getting-started" => NAV_GETTING_STARTED,
+        "nav-home" => NAV_HOME,
         "nav-inbox" => NAV_INBOX,
         "nav-issues" => NAV_ISSUES,
         "nav-my-issues" => NAV_MY_ISSUES,
@@ -1236,6 +1243,8 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "run-pause" => RUN_PAUSE,
         "run-resume" => RUN_RESUME,
         "sc-push" => SC_PUSH,
+        "search-agent" => SEARCH_AGENT,
+        "search-chat" => SEARCH_CHAT,
         "session-shell" => SESSION_SHELL,
         "session-tree" => SESSION_TREE,
         "settings-about" => SETTINGS_ABOUT,

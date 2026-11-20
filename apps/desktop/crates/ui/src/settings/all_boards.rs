@@ -36,7 +36,7 @@ use eui_gpui::view::SurfaceView;
 
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, navigate, Navigation, Screen};
+use crate::navigation::{screen_team_id, navigate, Navigation, Screen};
 use crate::queries;
 use crate::sidebar::select_settings_section;
 
@@ -139,7 +139,7 @@ impl AllBoardsPane {
         if let Some(team) = &self.shot_team {
             return Some(team.clone());
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// Whether the viewer owns `team_id` (the pictures draw an owner's page:

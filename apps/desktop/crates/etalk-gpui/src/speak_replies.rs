@@ -147,8 +147,19 @@ pub fn push_to_talk_here(cx: &App) -> bool {
 pub struct Speaking {
     pub message_id: String,
     pub session_id: String,
+    /// #EXP-2015: a call session's reply: the call's chat (where the call
+    /// runs: the call session's own view has no Dock).
+    pub chat_id: Option<String>,
     /// The spoken text's first sentence (the banner's title).
     pub title: String,
+}
+
+impl Speaking {
+    /// #EXP-2015: the Dock of `session_id` shows the Speaking banner: its own
+    /// reply, or (a call with its own session) the reply of its call.
+    pub fn shows_in(&self, session_id: &str) -> bool {
+        !session_id.is_empty() && (self.session_id == session_id || self.chat_id.as_deref() == Some(session_id))
+    }
 }
 
 /// The voice download, for the Language row's detail (S-3).
@@ -484,8 +495,8 @@ pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     // NEW-55 review: a worker crash ends a running call too
     // (Speak replies then restarts the worker as before).
-    if matches!(event, etalk::Event::Exited) {
-        crate::voice_call::on_worker_event(etalk::Event::Exited, cx);
+    if matches!(event, etalk::Event::Exited { .. }) {
+        crate::voice_call::on_worker_event(event.clone(), cx);
     }
     // FEED-276: a Prepare's `Voices` may be the one a ringing call waits
     // for (Speak replies reads it too).
@@ -549,15 +560,22 @@ pub fn speaking(cx: &App) -> Option<Speaking> {
 /// DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_SPEAKING=<session
 /// uuid>|<language>|<reply body>` draws that session's Speaking banner as if
 /// the reply were being read aloud, title = the spoken text's first sentence
-/// (`spokenText` in that language), so a capture needs no GPU voice.
+/// (`spokenText` in that language), so a capture needs no GPU voice. A
+/// session written `<call session>><chat>` is a call session's reply
+/// (#EXP-2015: drawn in its chat's Dock).
 static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock::new(|| {
     let spec = std::env::var("EXP_DEV_SPEAKING").ok()?;
     let mut parts = spec.splitn(3, '|');
     let (session_id, language, body) = (parts.next()?, parts.next()?, parts.next()?);
+    let (session_id, chat_id) = match session_id.split_once('>') {
+        Some((session, chat)) => (session, Some(chat.to_string())),
+        None => (session_id, None),
+    };
     let spoken = etalk::voice::spoken_text(body, VOICE.max_chars, language);
     Some(Speaking {
         message_id: "dev-speaking".into(),
         session_id: session_id.to_string(),
+        chat_id,
         title: etalk::voice::first_sentence(&spoken).to_string(),
     })
 });
@@ -660,7 +678,7 @@ pub fn speak_greeting(id: String, text: String, cx: &mut App) -> bool {
             return false;
         }
         client.speak(id.clone(), text.clone());
-        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), title: text });
+        this.speaking = Some(Speaking { message_id: id, session_id: String::new(), chat_id: None, title: text });
         cx.notify();
         true
     });
@@ -959,6 +977,8 @@ impl SpeakReplies {
         self.speaking = Some(Speaking {
             message_id: row.id.clone(),
             session_id: conversation.clone(),
+            // #EXP-2015: the call's chat shows its Speaking banner.
+            chat_id: call_session.as_ref().and_then(|_| host::conversation(&agent_id, cx)),
             title: etalk::voice::first_sentence(&spoken).to_string(),
         });
         cx.notify();
@@ -1005,7 +1025,7 @@ impl SpeakReplies {
                     self.speaking = None;
                 }
             }
-            etalk::Event::Exited => {
+            etalk::Event::Exited { .. } => {
                 self.on_exited(cx);
                 // #NEW-56: a new worker is told the wake word again.
                 crate::push_to_talk::worker_changed(false, cx);
@@ -1063,6 +1083,9 @@ impl SpeakReplies {
         self.crashes += 1;
         if self.crashes >= MAX_CRASHES {
             log::warn!("[ui] speak replies: the speech worker crashed {} times in a row; giving up", self.crashes);
+            // #ERR-29: the voice stays off until the setting changes: an
+            // error (a GlitchTip event), its text fixed so they group.
+            log::error!("[ui] speak replies: the speech worker kept crashing; voice given up");
             self.download = Download::Unavailable;
             if let Some(client) = self.client.as_ref() {
                 client.shutdown();
@@ -1224,6 +1247,20 @@ mod tests {
         assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
     }
 
+    /// #ERR-29: the crash that gives the voice up is an error, the level
+    /// GlitchTip sends (the ones before it restart quietly).
+    #[gpui::test]
+    async fn the_crash_that_gives_the_voice_up_is_an_error(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{settings, Rig};
+        etalk::log_capture::start();
+        let rig = Rig::install(settings(), cx);
+        for _ in 0..MAX_CRASHES {
+            rig.worker(etalk::Event::Exited { code: None, signal: Some(11) }, cx);
+        }
+        assert!(rig.notices().iter().any(|notice| matches!(notice, Notice::Error(_))), "the person is told");
+        assert!(etalk::log_capture::error_logged("[ui] speak replies: the speech worker kept crashing; voice given up"), "{:?}", etalk::log_capture::records());
+    }
+
     #[test]
     fn restarts_back_off_and_cap() {
         assert_eq!(restart_delay(1), Duration::from_secs(2));
@@ -1380,4 +1417,16 @@ mod tests {
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
     }
 
+    /// #EXP-2015: a call session's reply shows its Speaking banner in the
+    /// call's chat (the call session's view has no Dock); a chat reply in
+    /// its own Dock; the opening line (no session) nowhere.
+    #[test]
+    fn a_call_sessions_reply_speaks_in_its_chats_dock() {
+        let reply = |session: &str, chat: Option<&str>| Speaking { message_id: "m1".into(), session_id: session.into(), chat_id: chat.map(str::to_string), title: "Sure.".into() };
+        let call = reply("call-s", Some("chat-1"));
+        assert!(call.shows_in("chat-1") && call.shows_in("call-s"));
+        assert!(!call.shows_in("chat-2"));
+        assert!(reply("chat-1", None).shows_in("chat-1"));
+        assert!(!reply("", None).shows_in(""), "the opening line has no banner");
+    }
 }

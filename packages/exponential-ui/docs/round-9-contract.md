@@ -1300,7 +1300,7 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
 | `app_share_links`, `app_share_submissions` | a share NAME, a token and an audit. No frozen template or query: the guest package is built from the published `apps.package` on each read |
 | `app_upstream_bindings.upstream`, `mcp_grants`, `app_access` | `upstreams` is unchanged by format 6; ids and levels only |
 | `app_records.data`, `app_record_events` | the app's own data; data keys are never re-keyed, and no component renders a surface out of a record |
-| `sessions.guide`, `sessions.blocked`, `agents.triggers`, `issue_events.payload`, `issue_drafts`, `pins`, `notifications`, `device_commands.payload`, `widget_configs.form_config` | none holds a surface, a package or a function name (`agents.triggers` = a cron or an event name) |
+| `sessions.guide`, `sessions.blocked`, `agents.triggers`, `issue_events.payload`, `issue_drafts`, `notifications`, `device_commands.payload`, `widget_configs.form_config` | none holds a surface, a package or a function name (`agents.triggers` = a cron or an event name) |
 | `events.payload`, `mcp_device_calls.args` | free JSON an emitter chose to publish, or a short-lived call's arguments; nothing renders them as eUI |
 | `import_rows.row` (`imports`) | a Local desktop's staged `apps`, `app_versions` and `messages` rows, live for at most 24 h. Not walked: `imports.commit` must upgrade them instead (below), which also covers a Local desktop that shares after the flag day |
 | `mcp_calls.tool` | the audit keeps the name as called |

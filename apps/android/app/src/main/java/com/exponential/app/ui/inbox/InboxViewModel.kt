@@ -185,19 +185,23 @@ internal fun buildInboxState(
 
 /** Session 58cb32df: the notifications of [teamId] (null = all): an issue
  *  row's team = its board's, an issue-less row's its own `team_id`. A
- *  team-less row (#EXP-1534 `agent_signed_out`) lists in every team. */
+ *  team-less row (#EXP-1534 `agent_signed_out`) lists in every team;
+ *  #EXP-1987 (`InboxRoute.inboxRowListed`): so does a session row of a team
+ *  none of [teamIds] (the synced teams) name, the Assistant's chat in the
+ *  member's personal team. */
 internal fun activeTeamNotifications(
     notifications: List<NotificationEntity>,
     issues: List<IssueEntity>,
     boards: List<com.exponential.app.data.db.BoardEntity>,
     teamId: String?,
+    teamIds: Collection<String>,
 ): List<NotificationEntity> {
     if (teamId == null) return notifications
     val boardTeam = boards.associate { it.id to it.teamId }
     val issueTeam = issues.associate { it.id to boardTeam[it.boardId] }
     return notifications.filter { n ->
-        val team = n.teamId ?: n.issueId?.let(issueTeam::get)
-        team == null || team == teamId
+        val team = n.teamId?.takeIf { it.isNotEmpty() } ?: n.issueId?.let(issueTeam::get)
+        com.exponential.app.domain.InboxRoute.inboxRowListed(n.type, team, n.issueId, teamId, teamIds)
     }
 }
 
@@ -209,8 +213,9 @@ internal fun activeTeamUnread(
     issues: List<IssueEntity>,
     boards: List<com.exponential.app.data.db.BoardEntity>,
     teamId: String?,
+    teamIds: Collection<String>,
 ): Int = buildInboxState(
-    activeTeamNotifications(notifications, issues, boards, teamId),
+    activeTeamNotifications(notifications, issues, boards, teamId, teamIds),
     issues,
     emptyList(),
 ).totalUnread
@@ -251,7 +256,7 @@ class InboxViewModel @Inject constructor(
         boardsFlow,
         activeTeam,
     ) { notifications, issues, teams, boards, team ->
-        buildInboxState(activeTeamNotifications(notifications, issues, boards, team), issues, teams)
+        buildInboxState(activeTeamNotifications(notifications, issues, boards, team, teams.map { it.id }), issues, teams)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)

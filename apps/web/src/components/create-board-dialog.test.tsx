@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { CreateBoardDialog, CreateBoardForm } from "@/components/create-board-dialog"
 import type { Team } from "@/db/schema"
 
 const mockState = vi.hoisted(() => ({
@@ -156,5 +156,33 @@ describe(`CreateBoardDialog`, () => {
     expect(options.description).toBe(`Server exploded`)
     expect(options.action).toBeUndefined()
     expect(screen.queryByRole(`alert`)).toBeNull()
+  })
+})
+
+// #EXP-2027: the New board PAGE renders the same form; a create hands the
+// new board's slug to the page (it navigates there).
+describe(`CreateBoardForm (page)`, () => {
+  beforeEach(() => {
+    mockState.createBoard.mockReset()
+  })
+
+  it(`hands the created board's slug to onCreated`, async () => {
+    mockState.createBoard.mockResolvedValue({ ok: true, slug: `backend-api`, txId: 7 })
+    const onCreated = vi.fn()
+    globalThis.ResizeObserver ??= ResizeObserverStub as never
+    render(<CreateBoardForm team={team} layout="page" onCreated={onCreated} onPlanLimit={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(`Name`), { target: { value: `Backend API` } })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create board` }))
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ slug: `backend-api`, txId: 7 }))
+  })
+
+  it(`a plan-limit refusal goes to onPlanLimit`, async () => {
+    mockState.createBoard.mockResolvedValue({ ok: false, error: { kind: `planLimit`, message: `limit` } })
+    const onPlanLimit = vi.fn()
+    globalThis.ResizeObserver ??= ResizeObserverStub as never
+    render(<CreateBoardForm team={team} layout="page" onCreated={vi.fn()} onPlanLimit={onPlanLimit} />)
+    fireEvent.change(screen.getByLabelText(`Name`), { target: { value: `Backend API` } })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create board` }))
+    await waitFor(() => expect(onPlanLimit).toHaveBeenCalledTimes(1))
   })
 })

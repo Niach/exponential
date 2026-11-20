@@ -4,15 +4,22 @@
 //! (`space_of_process`) before it shows the person a prompt, and refuses
 //! a request from a space.
 //!
+//! #EDE-138: first of all a process belongs to space D when it, or a
+//! process it descends from, runs in a scope of D's own systemd slice.
+//! Its cgroup stays with a process that starts a session of its own with
+//! an empty environment and lets its parent die, which the four older
+//! signs do not survive together. Where no user manager makes scopes,
+//! those four are all there is.
+//!
 //! A process belongs to space D when it, or a process it descends from:
 //! is a launch into D (a process the compositor started there), is in
 //! the process group of one (a launch leads its own group, and a child
 //! keeps it after its parent died), is connected to D's socket, or has
 //! D's directory as its runtime directory or socket (what every launch
 //! starts with). Like the grants (`launch.rs`), this guards against
-//! accidents: a process that leaves its group, clears its environment and
-//! lets its parent die is out of reach until F3 (#EDE-138) gives a space's
-//! processes a cgroup of their own.
+//! accidents. The cgroup is a sign too, not a wall: every cgroup under
+//! the user manager belongs to the user, and a process that writes its
+//! own id into another one's `cgroup.procs` has left its space's slice.
 
 use ede_protocol::{process, Membership, ProcessSpace, SpaceId};
 
@@ -34,6 +41,11 @@ impl Ede {
             .flat_map(|space| space.clients.iter().filter_map(|client| client.get_credentials(&self.display_handle).ok()).map(move |c| (c.pid as u32, space.desk.id)))
             .collect();
         let tied = |by: Membership, desk: DeskId, at: u32| space_id(desk).map(|space| ProcessSpace { space, by, pid: at });
+        // The slices of this compositor's spaces only: another one's are
+        // not this one's to name.
+        if let Some((_, space, at)) = process::space_by_cgroup(pid).filter(|(compositor, ..)| self.spaces.units.as_ref().is_some_and(|units| units.compositor == *compositor)) {
+            return Some(ProcessSpace { space, by: Membership::Cgroup, pid: at });
+        }
         for stat in process::lineage(pid) {
             if let Some(&(_, desk)) = launched.iter().find(|(head, _)| *head == stat.pid) {
                 return tied(Membership::Launch, desk, stat.pid);

@@ -38,7 +38,7 @@ use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use std::sync::Once;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, GlobalFree, BOOL, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -82,7 +82,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::backend::{LockStartError, LockThread, Verdict};
 
@@ -304,14 +304,6 @@ fn wheel_notches(dx: i32, dy: i32) -> Vec<(MOUSE_EVENT_FLAGS, i32)> {
     let vertical = std::iter::repeat_n((MOUSEEVENTF_WHEEL, -dy.signum() * notch), dy.unsigned_abs() as usize);
     let horizontal = std::iter::repeat_n((MOUSEEVENTF_HWHEEL, dx.signum() * notch), dx.unsigned_abs() as usize);
     vertical.chain(horizontal).collect()
-}
-
-fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity(bgra.len());
-    for pixel in bgra.chunks_exact(4) {
-        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-    }
-    rgba
 }
 
 fn rect_size(rect: &RECT) -> (u32, u32) {
@@ -581,7 +573,8 @@ impl Backend for Win32 {
         // SAFETY: the DIB holds width × height 32-bit pixels at `bits`, alive
         // until `_bitmap` drops, after this borrow ends.
         let bgra = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), len) };
-        Ok(Image { width: display.width, height: display.height, rgba: bgra_to_rgba(bgra) })
+        // A 32-bit DIB's rows are packed.
+        Image::from_bgra(bgra, display.width, display.height, display.width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -661,18 +654,10 @@ impl Backend for Win32 {
             // SAFETY: no pointers.
             unsafe { SetForegroundWindow(window) };
         }
-        let until = Instant::now() + Duration::from_millis(500);
-        loop {
-            if foreground() == window {
-                return Ok(());
-            }
-            if Instant::now() >= until {
-                return Err(format!(
-                    "Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        if crate::backend::wait_active(crate::backend::ACTIVATE_WAIT_WINDOWS, || foreground() == window) {
+            return Ok(());
         }
+        Err(format!("Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."))
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -719,14 +704,8 @@ impl Backend for Win32 {
                 let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
                 match char_key(ch, layout_stroke(ch), modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk)).map(|vk| (vk, ch.is_ascii_uppercase()))) {
                     Some((vk, shift)) => {
-                        let mut inputs = Vec::with_capacity(2);
-                        if shift && down {
-                            inputs.push(vk_input(VK_SHIFT, false, false));
-                        }
-                        inputs.push(vk_input(vk, false, !down));
-                        if shift && !down {
-                            inputs.push(vk_input(VK_SHIFT, false, true));
-                        }
+                        let shift: &[VIRTUAL_KEY] = if shift { &[VK_SHIFT] } else { &[] };
+                        let inputs: Vec<INPUT> = crate::backend::with_modifiers(shift, vk, down).into_iter().map(|(vk, down)| vk_input(vk, false, !down)).collect();
                         send(&inputs)
                     }
                     None => send(&unicode_inputs(ch, !down)),
@@ -735,10 +714,8 @@ impl Backend for Win32 {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        send(&unicode_inputs(ch, false))?;
-        std::thread::sleep(Duration::from_millis(6));
-        send(&unicode_inputs(ch, true))
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        send(&unicode_inputs(ch, !down))
     }
 
     fn person_holds_button(&self) -> bool {
@@ -1033,7 +1010,8 @@ impl Drop for Lock {
         // SAFETY: no pointers; the id names the lock thread, which lives
         // until it takes this WM_QUIT.
         if unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) } == 0 {
-            log::warn!("[computer] {}", last_error("Releasing the input lock"));
+            // #ERR-29: the hooks stay and keep the person's input until Esc.
+            super::lock_lost("[computer] the input lock was not released", &last_error("Releasing the input lock"));
             // It never hears the quit: waiting for it would never end.
             self.thread.detach();
             return;
@@ -1050,9 +1028,6 @@ struct WinClipboard {
     /// The sequence number right after our own `set_text`.
     set_sequence: Cell<Option<u32>>,
 }
-
-/// Every saved format together stays under this.
-const CLIPBOARD_SAVE_CAP: usize = 32 * 1024 * 1024;
 
 /// Formats whose data is a GDI or other OS handle, not HGLOBAL memory.
 const HANDLE_FORMATS: [u16; 8] = [
@@ -1234,7 +1209,7 @@ impl Clipboard for WinClipboard {
             };
             // SAFETY: the clipboard is open and `format` is an HGLOBAL
             // format (`keep_format`).
-            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_CAP - used) };
+            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_MAX - used) };
             match bytes {
                 Some(bytes) => {
                     used += bytes.len();
@@ -1280,13 +1255,8 @@ impl Clipboard for WinClipboard {
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
         // Windows does not tell when a program reads the clipboard: settle.
-        std::thread::sleep(timeout.min(Duration::from_millis(400)));
         // SAFETY: no arguments, reads a counter.
-        let now = unsafe { GetClipboardSequenceNumber() };
-        match self.set_sequence.get() {
-            Some(set) if set == now => Pasted::Settled,
-            _ => Pasted::Missed,
-        }
+        settle_paste(timeout, self.set_sequence.get().map(u64::from), || u64::from(unsafe { GetClipboardSequenceNumber() }))
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
@@ -1500,11 +1470,6 @@ mod tests {
         assert!(!lost(&[u32::from(CF_BITMAP), dib, dibv5, u32::from(CF_PALETTE)]), "a copied picture: Windows makes the bitmap again from the DIB");
         assert!(lost(&[u32::from(CF_ENHMETAFILE), unicode]), "a metafile is gone");
         assert!(lost(&[unicode, 0x250]), "a private handle is gone");
-    }
-
-    #[test]
-    fn bgra_becomes_opaque_rgba() {
-        assert_eq!(bgra_to_rgba(&[1, 2, 3, 0, 10, 20, 30, 7]), vec![3, 2, 1, 255, 30, 20, 10, 255]);
     }
 
     #[test]

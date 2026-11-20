@@ -608,9 +608,26 @@ pub(crate) fn splice_server_hits(
     hits: &[api::issues::IssueSearchHit],
     cx: &App,
 ) -> Vec<IssueHit> {
+    splice_server_hits_teams(&[team_id.to_string()], local, hits, cx)
+}
+
+/// #EXP-2027: the search sheet's issues across every member team.
+pub(crate) fn local_issue_hits_teams(teams: &[String], query: &str, cx: &App) -> Vec<IssueHit> {
+    let mut hits: Vec<IssueHit> = teams.iter().flat_map(|team| local_issue_hits(team, query, cx)).collect();
+    hits.truncate(domain::issue_search::DEFAULT_LIMIT);
+    hits
+}
+
+/// [`splice_server_hits`] over several teams (their status rows together).
+pub(crate) fn splice_server_hits_teams(
+    teams: &[String],
+    local: Vec<IssueHit>,
+    hits: &[api::issues::IssueSearchHit],
+    cx: &App,
+) -> Vec<IssueHit> {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
-    let statuses = crate::queries::team_statuses(cx, team_id);
+    let statuses: Vec<_> = teams.iter().flat_map(|team| crate::queries::team_statuses(cx, team)).collect();
     domain::issue_search::merge_server_hits(
         local,
         hits,
@@ -652,22 +669,32 @@ pub(crate) fn server_issue_search<V: 'static>(
     cx: &mut Context<V>,
     apply: impl FnOnce(&mut V, &str, Vec<api::issues::IssueSearchHit>, &mut Context<V>) + 'static,
 ) -> Task<()> {
+    server_issue_search_teams(vec![team_id], query, window, cx, apply)
+}
+
+/// #EXP-2027: [`server_issue_search`] over several teams (`teamIds`).
+pub(crate) fn server_issue_search_teams<V: 'static>(
+    teams: Vec<String>,
+    query: String,
+    window: &mut Window,
+    cx: &mut Context<V>,
+    apply: impl FnOnce(&mut V, &str, Vec<api::issues::IssueSearchHit>, &mut Context<V>) + 'static,
+) -> Task<()> {
     let trpc = crate::queries::trpc_client(cx);
     cx.spawn_in(window, async move |this, window| {
         window.background_executor().timer(SERVER_SEARCH_DEBOUNCE).await;
         let Some(trpc) = trpc else {
             return;
         };
-        let (search_team, search_query) = (team_id.clone(), query.clone());
+        let (search_teams, search_query) = (teams.clone(), query.clone());
         let result = window
             .background_executor()
             .spawn(async move {
-                api::issues::search(
-                    &trpc,
-                    &search_team,
-                    &search_query,
-                    domain::issue_search::DEFAULT_LIMIT as u32,
-                )
+                let limit = domain::issue_search::DEFAULT_LIMIT as u32;
+                match search_teams.as_slice() {
+                    [team] => api::issues::search(&trpc, team, &search_query, limit),
+                    teams => api::issues::search_teams(&trpc, teams, &search_query, limit),
+                }
             })
             .await;
         match result {

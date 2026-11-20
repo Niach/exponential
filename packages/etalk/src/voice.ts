@@ -19,6 +19,8 @@ export interface VoiceSpokenWords {
   link: string
   point: string
   percent: string
+  /** #EXP-2016: what a voice says for a word it cannot say (a hash, a blob). */
+  code: string
 }
 
 const SPOKEN_WORDS: Record<string, VoiceSpokenWords> = fixture.spokenWords
@@ -213,6 +215,40 @@ function clip(text: string, maxChars: number): string {
   return `${(space > 0 ? head.slice(0, space) : head).trimEnd()}${fixture.copy.ellipsis}`
 }
 
+/** #EXP-2016: a word no voice can say (its surrounding marks aside): 16+
+ * characters with a digit or a sign other than a hyphen, a dot or an `@`
+ * (not a plain number), or 6+ letters without a vowel. */
+function unsayable(core: string): boolean {
+  if (/^[\d.,]+$/.test(core)) return false
+  const length = [...core].length
+  if (length >= 16 && /[^\p{L}.@-]/u.test(core)) return true
+  return length >= 6 && /^\p{L}+$/u.test(core) && !/[aeiouyäöü]/iu.test(core)
+}
+
+/** #EXP-2016: every unsayable word becomes `code`, a run of them one
+ * stand-in, the surrounding brackets, quotes and sentence marks kept. */
+function sayableWords(text: string, code: string): string {
+  const out: string[] = []
+  let open = false
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const lead = /^[(\[{"'“‘]+/.exec(word)?.[0] ?? ``
+    const rest = word.slice(lead.length)
+    const trail = /[)\]}"'”’.,;:!?]+$/.exec(rest)?.[0] ?? ``
+    const core = rest.slice(0, rest.length - trail.length)
+    if (!core || !unsayable(core)) {
+      out.push(word)
+      open = false
+    } else if (open && !lead) {
+      out[out.length - 1] += trail
+      open = !trail
+    } else {
+      out.push(`${lead}${code}${trail}`)
+      open = !trail
+    }
+  }
+  return out.join(` `)
+}
+
 /** What a voice says for a reply's Markdown body in the language
  * (`voice.json` rules; an unknown language reads as English). */
 export function spokenText(body: string, maxChars: number = fixture.maxChars, language: string = `en`): string {
@@ -247,6 +283,8 @@ export function spokenText(body: string, maxChars: number = fixture.maxChars, la
   // Mentions keep the local part; issue refs lose the `#`.
   text = text.replace(/@([A-Za-z0-9._%+-]+)@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, `$1`)
   text = text.replace(/#([A-Za-z]{2,10}-\d+)/g, `$1`)
+  // #EXP-2016: what no voice can say (a hash, a blob) gets a stand-in.
+  text = sayableWords(text, words.code)
   // Identifiers, then acronyms, then numbers.
   text = text.replace(/\b([A-Za-z]{2,10})-(\d+)\b/g, (_, letters: string, digits: string) =>
     `${spell(letters)} ${identifierNumberWords(digits, language)}`

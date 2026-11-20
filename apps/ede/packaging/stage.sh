@@ -11,7 +11,8 @@
 # Contents (#EDE-2): exponential-compositor, exponential-session,
 # exponential-ui, exponential-shell, exponential-sealed (#EDE-17: lock,
 # polkit, consent), exponential-services (#EDE-13), exponential-theme
-# (#EDE-19) in /usr/bin, xdg-desktop-portal-exponential (#EDE-15), the
+# (#EDE-19) in /usr/bin, xdg-desktop-portal-exponential (#EDE-15) and the space
+# guard (#EDE-146..148, a system service started by its socket) in /usr/libexec, the
 # factory documents in /usr/share/exponential-desktop/ui, the factory apps in
 # /usr/share/exponential-desktop/apps (#VAPP-273), the session's
 # systemd user units (exponential-session.target starts
@@ -41,7 +42,7 @@ shell_target="${CARGO_TARGET_DIR:-$desktop/target}"
 
 if [ "$build" = 1 ]; then
   release=(--release); [ "$profile" = debug ] && release=()
-  (cd "$ede" && cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal -p ede-theme -p ede-ctl --features ede-compositor/udev)
+  (cd "$ede" && cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal -p ede-theme -p ede-ctl -p ede-space-guard --features ede-compositor/udev)
   # The shell builds in the IDE's workspace (gpui never enters the compositor's).
   (cd "$desktop" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 fi
@@ -66,6 +67,15 @@ for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/exponential-
 for f in "$ede"/apps/*.app.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/apps/$(basename "$f")"; done
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
+# #EDE-146..148: the space guard, a system service started by its socket
+# (enabled by the package itself: the link in sockets.target.wants).
+install -Dm755 "$target/$profile/exponential-space-guard" "$stage/usr/libexec/exponential-space-guard"
+for f in "$here"/system/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/system/$(basename "$f")"; done
+mkdir -p "$stage/usr/lib/systemd/system/sockets.target.wants"
+ln -sf ../exponential-space-guard.socket "$stage/usr/lib/systemd/system/sockets.target.wants/exponential-space-guard.socket"
+# #EDE-146: polkit refuses every action to a process of an agent space.
+install -Dm644 "$here/polkit/00-00-exponential-agent-spaces.rules" "$stage/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules"
+install -Dm644 "$here/polkit/at.exponential.desktop.space-probe.policy" "$stage/usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy"
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/licenses/exponential-desktop/LICENSE"
 sed -n 's/^version = "\(.*\)"/\1/p' "$ede/Cargo.toml" | head -1 > "$stage/.version"
 echo "$stage"

@@ -914,7 +914,7 @@ public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable
 
 // The viewer's read marks: ONE row per (user, session), stamped by
 // `sessions.markRead` when a chat or a session view opens. Static per user
-// (`user_id = me`) like `pins`; the Chats list folds them into `unread`
+// (`user_id = me`) like `issue_drafts`; the Chats list folds them into `unread`
 // (bold titles + the Chats tab dot).
 public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "session_reads"
@@ -1583,7 +1583,7 @@ extension SkillEntity: Codable {
 
 // #FEED-219 (fixtures/composer-draft.json): one composer's synced DRAFT, per
 // (user, key) — the `composer_drafts` shape, static `user_id = me` like
-// `pins`. `key` = `<kind>:<id>` (`ComposerDraft.parse`); an unparsable key is
+// `issue_drafts`. `key` = `<kind>:<id>` (`ComposerDraft.parse`); an unparsable key is
 // ignored by every reader.
 public struct ComposerDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "composer_drafts"
@@ -1639,7 +1639,7 @@ extension ComposerDraftEntity: Codable {
 // MARK: - SidebarLayout (#EXP-1832)
 
 // The member's own sidebar layout (38th shape, static `user_id = me` like
-// pins): folders + the order of their boards, agents and apps, one row per
+// issue drafts): folders + the order of their boards, agents and apps, one row per
 // node (`fixtures/sidebar-folders.json`). Phones only READ it: the board
 // pickers and the Apps list fold folders (`SidebarFolders.tree`).
 public struct SidebarLayoutEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
@@ -1721,8 +1721,6 @@ extension SidebarLayoutEntity: Codable {
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
     }
 }
-
-// MARK: - Pin
 
 // MARK: - Apps (VAPP-110)
 
@@ -2151,97 +2149,11 @@ public struct AppRecordOutboxEntity: Codable, FetchableRecord, PersistableRecord
     }
 }
 
-// EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
-// target): an issue or a session the user pinned into the sidebar. The shape
-// is static per user (`user_id = me`), NOT team/trash scoped, so the local
-// table holds every team's pins. Synced for client parity only: the phone has
-// no sidebar, so nothing here renders a pin (EXP-858 dropped the controls,
-// EXP-976 the switcher's read-only list). `kind` ∈ contract `pinKind`; NEW-8:
-// a legacy `action` pin has no target here (`targetId` nil = ignored).
-// Mirrors packages/db-schema pins minus `action_id`.
-public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "pins"
-
-    public let id: String
-    public let userId: String
-    public let teamId: String
-    /// `issue` | `session` (`DomainContract.pinKindValues`; a legacy
-    /// `action` pin is ignored).
-    public let kind: String
-    public let issueId: String?
-    public let sessionId: String?
-    /// Ascending = display order.
-    public let sortOrder: Double?
-    public let createdAt: String
-    public let updatedAt: String
-
-    public init(
-        id: String,
-        userId: String,
-        teamId: String,
-        kind: String,
-        issueId: String? = nil,
-        sessionId: String? = nil,
-        sortOrder: Double?,
-        createdAt: String,
-        updatedAt: String
-    ) {
-        self.id = id
-        self.userId = userId
-        self.teamId = teamId
-        self.kind = kind
-        self.issueId = issueId
-        self.sessionId = sessionId
-        self.sortOrder = sortOrder
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    /// The one target id the row points at, whichever column carries it;
-    /// nil = no target (a legacy `action` pin or an unknown kind: ignored).
-    public var targetId: String? {
-        switch kind {
-        case DomainContract.pinKindIssue: issueId
-        case DomainContract.pinKindSession: sessionId
-        default: nil
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind
-        case userId = "user_id"
-        case teamId = "team_id"
-        case issueId = "issue_id"
-        case sessionId = "session_id"
-        case sortOrder = "sort_order"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-}
-
-// Custom decode: `sort_order` comes off the Electric wire as Postgres text
-// (the issues precedent) and as a native number from fixtures.
-extension PinEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        userId = try c.decode(String.self, forKey: .userId)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        kind = try c.decode(String.self, forKey: .kind)
-        issueId = try c.decodeIfPresent(String.self, forKey: .issueId)
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
-        createdAt = try c.decode(String.self, forKey: .createdAt)
-        updatedAt = try c.decode(String.self, forKey: .updatedAt)
-    }
-}
-
 // MARK: - IssueDraft (EXP-878)
 
 // A composed-but-unfiled issue, kept per USER (22nd Electric shape, static
-// `user_id = me` like `pins` — never team- or trash-scoped). A row renders
-// only when its board resolves locally, exactly like a pin resolves its
-// target. `status_id` NULL means the team's Backlog builtin; `label_ids` is a
+// `user_id = me` — never team- or trash-scoped). A row renders
+// only when its board resolves locally. `status_id` NULL means the team's Backlog builtin; `label_ids` is a
 // Postgres `uuid[]` on the wire (`{a,b}`), stored here the way
 // `devices.shared_team_ids` is.
 public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {

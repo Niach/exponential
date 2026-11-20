@@ -148,7 +148,9 @@ fun AgentsSettingsList(
         // Coordinator row was (owners pick it).
         LeadAssistantRow(lead, enabled = isOwner && !busy && lead.known, onPick = viewModel::setLeadAssistant)
         AgentsSettingsListContent(
-            agents = agents,
+            // #EXP-1987 (settings-nav.json): the Agents group lists the team's
+            // agents only; the Assistant is Settings › Assistant (Personal).
+            agents = agents?.filter { !it.assistant },
             canCreate = isOwner,
             onOpenAgent = onOpenAgent,
             onNewAgent = onNewAgent,
@@ -375,6 +377,7 @@ fun AgentSettingsScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val teamSkills by viewModel.skills.collectAsStateWithLifecycle()
     val teamMcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val teamPicks by viewModel.teamPicks.collectAsStateWithLifecycle()
     val clipBusy by viewModel.clipBusy.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     // #EXP-1847 (`voice.clipUpload`): the system file picker over WAV.
@@ -595,15 +598,22 @@ fun AgentSettingsScreen(
             },
             // #EXP-1661: the agent's default skills (an existing agent only:
             // `New agent` picks them after Create). Owners edit, members read.
-            skillsRow = agent?.takeIf { !isNew }?.let { row ->
+            // #EXP-1988: the Assistant's skills / MCP servers are per team
+            // ([teamPicksSections]), never in its Runs on.
+            skillsRow = agent?.takeIf { !isNew && !assistant }?.let { row ->
                 { AgentSkillsRow(row, teamSkills, editable) { patch(it) } }
             },
             // #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP
             // servers, right under Skills; THE composer's MCP servers picker.
             // Shown while the team has a server or the agent names one.
-            mcpRow = agent?.takeIf { !isNew }
+            mcpRow = agent?.takeIf { !isNew && !assistant }
                 ?.takeIf { AgentSettings.McpRow.visible(teamMcpServers.size, it.mcpServerIdList.size) }
                 ?.let { row -> { AgentMcpRow(row, teamMcpServers, editable) { patch(it) } } },
+            teamPicksSections = if (assistant && !isNew) {
+                { AgentTeamPicksSections(teamPicks, editable, viewModel::updateTeamPick) }
+            } else {
+                null
+            },
             modifier = Modifier
                 .padding(padding)
                 .consumeWindowInsets(padding)
@@ -687,6 +697,9 @@ internal fun AgentSettingsContent(
     /** #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row, right
      *  under Skills, the last row of Runs on. */
     mcpRow: (@Composable () -> Unit)? = null,
+    /** #EXP-1988 (`page.sections` › `team-picks`): the Assistant's one
+     *  section per team, right after Runs on. */
+    teamPicksSections: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
@@ -763,6 +776,9 @@ internal fun AgentSettingsContent(
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_DEVICE)))
         Spacer(Modifier.height(12.dp))
+
+        // ── #EXP-1988: the Assistant's skills + MCP servers, per team ────
+        teamPicksSections?.invoke()
 
         // ── Triggers: Check in, then the listed triggers ─────────────────
         triggersSection()
@@ -910,6 +926,34 @@ internal fun AgentRunsOnRows(
     if (mcpRow != null) {
         GroupDivider()
         mcpRow()
+    }
+}
+
+/**
+ * #EXP-1988 (agent-settings.json `assistant.teamPicks`, `page.sections` ›
+ * `team-picks`): ONE section per synced team of the Assistant's member, in
+ * the team switcher's order: THE section header (the team's name) over one
+ * grouped card holding THE Skills row and THE MCP servers row over THAT
+ * team's rows. A pick writes the section agent's team pick only
+ * (`agents.update {id, pickTeamId, skillIds | mcpServerIds}`).
+ */
+@Composable
+internal fun AgentTeamPicksSections(
+    sections: List<AgentSettingsViewModel.TeamPickSection>,
+    editable: Boolean,
+    onPick: (agentId: String, patch: UpdateAgentPatch) -> Unit,
+) {
+    for (section in sections) {
+        val row = section.agent ?: continue
+        SectionHeader(section.teamName, modifier = Modifier.padding(horizontal = 16.dp).testTag("agent-settings-team-${section.teamId}"))
+        OptionGroup {
+            AgentSkillsRow(row, section.skills, editable) { onPick(row.id, it.copy(pickTeamId = section.teamId)) }
+            if (AgentSettings.McpRow.visible(section.mcpServers.size, row.mcpServerIdList.count { id -> section.mcpServers.any { it.id == id } })) {
+                GroupDivider()
+                AgentMcpRow(row, section.mcpServers, editable) { onPick(row.id, it.copy(pickTeamId = section.teamId)) }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
