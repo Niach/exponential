@@ -935,8 +935,7 @@ impl Grabs {
             match self.conn.poll_for_event() {
                 Ok(Some(Event::XinputKeyPress(key))) if Some(key.detail as u8) == self.escape => {
                     log::info!("[computer] Esc from device {}", key.sourceid);
-                    self.release();
-                    on_esc();
+                    crate::backend::escape(|| self.release(), on_esc);
                     return;
                 }
                 Ok(Some(Event::XinputKeyPress(key))) => {
