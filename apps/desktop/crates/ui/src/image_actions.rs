@@ -99,6 +99,30 @@ pub(crate) fn source_allowed(src: &str, cx: &App) -> bool {
     domain::image_actions::image_source_allowed(src, &origin_of(instance(cx).as_deref()))
 }
 
+/// #EXP-1968 (`editModeSource`): what a refused picture's block shows in a
+/// desktop editor's EDIT mode, `(text, href)`: THE link (`Some(href)`), else
+/// the alt, else its src as plain text. Only for a source the rule refuses.
+pub(crate) fn edit_mode_stand_in(src: &str, alt: &str, cx: &App) -> (String, Option<String>) {
+    edit_mode_verdict(src, alt, &instance_origin(cx)).unwrap_or_else(|| (alt.trim().to_string(), None))
+}
+
+/// [`edit_mode_stand_in`] against an `origin` already read (the rich
+/// editor's Send + Sync resolver): `None` = the picture loads.
+pub(crate) fn edit_mode_verdict(src: &str, alt: &str, origin: &str) -> Option<(String, Option<String>)> {
+    use domain::image_actions::{edit_mode_source, ImageSource};
+    match edit_mode_source(src, alt, origin) {
+        ImageSource::Link { href, text } => Some((text, Some(href))),
+        ImageSource::Text(text) => Some((text, None)),
+        ImageSource::Load => None,
+    }
+}
+
+/// The active account's instance origin the source rule compares against
+/// (empty signed out: only relative attachments are ours).
+pub(crate) fn instance_origin(cx: &App) -> String {
+    origin_of(instance(cx).as_deref())
+}
+
 /// The active account's instance url (`None` signed out).
 pub(crate) fn instance(cx: &App) -> Option<String> {
     crate::queries::instance_origin(cx)
