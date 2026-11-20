@@ -1166,7 +1166,7 @@ mod tests {
         let rig = Rig::install(crate::test_support::settings(), cx);
         key(true, cx);
         assert_eq!(phase(cx), PttPhase::Listening);
-        rig.worker(etalk::Event::Exited, cx);
+        rig.worker(etalk::Event::EXITED, cx);
         assert_eq!(phase(cx), PttPhase::Failed(etalk::voice::ListenFailure::Failed));
         rig.requests();
         key(false, cx);

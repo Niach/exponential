@@ -84,6 +84,27 @@ fn crashes_dir(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join("crashes")
 }
 
+/// The person's consent to native crash reports: the "Send diagnostics"
+/// switch, unless `EXP_DIAGNOSTICS=0` opts the process out.
+fn crash_consent(data_dir: &std::path::Path) -> bool {
+    config::load(data_dir).send_diagnostics && !config::env_opt_out()
+}
+
+/// #ERR-29: a helper process of this binary (the speech worker, where the
+/// voice model's native code runs) reports its native crashes like the
+/// binary does: a monitor of its own writes them to the host's
+/// `{data_dir}/crashes` with the binary's release and `component`, and the
+/// host's next client sends them. Nothing without the person's consent.
+pub fn watch_helper_crashes(product: Product, version: &str, data_dir: &std::path::Path, component: &str) {
+    if crash_consent(data_dir) {
+        crash_monitor::install(crash_monitor::Setup {
+            dir: crashes_dir(data_dir),
+            release: format!("{}@{version}", product.release_name()),
+            component: component.to_string(),
+        });
+    }
+}
+
 struct State {
     product: Product,
     version: String,
@@ -201,7 +222,7 @@ pub fn init(setup: Setup) {
     let frame_stats = frame_stats_requested();
     let file = config::load(&setup.data_dir);
     let server = file.last_server.clone();
-    if setup.native_crashes && file.send_diagnostics && !config::env_opt_out() {
+    if setup.native_crashes && crash_consent(&setup.data_dir) {
         crash_monitor::install(crash_monitor::Setup {
             dir: crashes_dir(&setup.data_dir),
             release: format!("{}@{}", setup.product.release_name(), setup.version),

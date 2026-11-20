@@ -1063,7 +1063,10 @@ pub fn spawn<H: Hearing>(make: impl FnOnce() -> H + Send + 'static, links: Links
     let (tx, rx) = mpsc::channel();
     let thread = std::thread::Builder::new()
         .name("voice-listen".into())
-        .spawn(move || listen_loop(&rx, &mut make(), &links))
+        .spawn(move || {
+            let _ends = crate::EndsWorker;
+            listen_loop(&rx, &mut make(), &links)
+        })
         .expect("spawn the listening thread");
     (tx, thread)
 }
