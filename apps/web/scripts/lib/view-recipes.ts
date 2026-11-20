@@ -174,9 +174,14 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
   const { default: fixture } = await import(`@exp/domain-contract/fixtures/app-export.json`, { with: { type: `json` } })
   // VAPP-242: Import… is THE NEW MENU's second item (the sidebar's or the
   // phone band's `+`).
-  const plus = page.getByTestId(`apps-new`).filter({ visible: true }).first()
-  await plus.waitFor({ state: `visible`, timeout: 15_000 })
-  await plus.click()
+  // #EXP-2027: md+ imports on the New app PAGE (its Import… row, inline);
+  // phones keep the Apps band's + menu.
+  const onNewAppPage = /\/new\/app$/.test(new URL(page.url()).pathname)
+  if (!onNewAppPage) {
+    const plus = page.getByTestId(`apps-new`).filter({ visible: true }).first()
+    await plus.waitFor({ state: `visible`, timeout: 15_000 })
+    await plus.click()
+  }
   const importButton = page.getByTestId(`apps-import`).filter({ visible: true }).first()
   await importButton.waitFor({ state: `visible`, timeout: 15_000 })
   await importButton.click()
@@ -186,7 +191,8 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
 
 /** VAPP-217: the RecordTable's Add: the RecordForm for the kind. */
 async function recipeOpenRecordForm(page: Page): Promise<void> {
-  const add = page.getByRole(`button`, { name: `Add` }).filter({ visible: true }).first()
+  // exact: the sidebar's Devices + is "Add device" (#EXP-2027).
+  const add = page.getByRole(`button`, { name: `Add`, exact: true }).filter({ visible: true }).first()
   await add.waitFor({ state: `visible`, timeout: 30_000 })
   await add.click()
   await page.getByRole(`dialog`).getByRole(`button`, { name: `Save` }).waitFor({ state: `visible`, timeout: 15_000 })
