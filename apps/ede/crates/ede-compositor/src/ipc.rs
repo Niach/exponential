@@ -269,6 +269,10 @@ impl Ede {
                 }
             };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
+                // #EXP-1514: before the flip this compositor reads the op as
+                // an older one does (it cannot parse it), unless the dev
+                // switch says `space-readiness`.
+                Ok(Call { request: Request::SpaceReadiness, .. }) if !self.says_space_readiness() => (0, Err(fail(ErrorCode::Invalid, "unknown variant `space_readiness`"))),
                 Ok(call) => {
                     // Busy before the call runs (#EDE-74): a deferred read
                     // that finishes inside it (the selection's owner is
@@ -415,7 +419,12 @@ impl Ede {
                 c.token = Some(grant.token.clone());
                 c.scope = Some(scope);
             }
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect(), unknown_capabilities: vec![] };
+            let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
+            // #EXP-1514: never said in the field before the flip (#EXP-2011).
+            if self.says_space_readiness() {
+                features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
+            }
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features, unknown_capabilities: vec![] };
             return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
@@ -665,6 +674,9 @@ impl Ede {
             Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
             Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.space_of_process(pid)).unwrap()),
+            // #EXP-1514: reached only with the dev switch (`ipc_serve`); the
+            // flip (#EXP-2011) answers it from the real checks.
+            Request::SpaceReadiness => json(serde_json::to_value(ede_protocol::SpaceReadiness { ready: true, block: None, max: Some(self.space_max() as u32) }).unwrap()),
         }
     }
 

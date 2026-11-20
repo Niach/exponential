@@ -292,6 +292,8 @@ impl Ede {
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
             self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
+            // #EXP-1514: dev only, until the flip.
+            self.spaces.guard.pretend_ready = crate::spaces::guard::dev_readiness();
             // #EDE-138: their homes on disk, not in the runtime directory.
             let cache = std::env::var_os("XDG_CACHE_HOME").filter(|dir| !dir.is_empty()).map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache")));
             if let Some(cache) = cache {

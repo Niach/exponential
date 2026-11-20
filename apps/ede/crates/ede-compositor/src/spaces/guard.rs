@@ -33,6 +33,11 @@ pub struct GuardState {
     pub polkit: Arc<Mutex<Option<Result<(), String>>>>,
     /// The state file the doctor reads.
     pub file: Option<PathBuf>,
+    /// #EXP-1514, DEV ONLY until the flip (#EXP-2011): the hello says
+    /// `space-readiness` and the answer is `ready`, whatever the checks
+    /// say ([`dev_readiness`], a test's [`Ede::pretend_space_readiness`]).
+    /// Off, this compositor reads the op as an older one does.
+    pub pretend_ready: bool,
 }
 
 /// The guard's socket when the guard is installed (a debug build may name
@@ -44,6 +49,18 @@ pub fn installed() -> Option<PathBuf> {
     }
     let socket = PathBuf::from(ede_space_guard::SOCKET);
     (socket.exists() || GUARD_UNITS.iter().any(|unit| Path::new(unit).exists())).then_some(socket)
+}
+
+/// #EXP-1514, DEV ONLY: `EDE_DEV_SPACE_READINESS=1` makes a DEBUG build
+/// say `space-readiness` and answer `ready` (the headless runs of ePilot,
+/// `serve --space` by hand), so a space can be made before the flip
+/// (#EXP-2011) answers it for real and removes this. A release build never
+/// reads it; it is no setting a person has.
+pub fn dev_readiness() -> bool {
+    #[cfg(debug_assertions)]
+    return std::env::var_os("EDE_DEV_SPACE_READINESS").is_some_and(|on| on == "1");
+    #[cfg(not(debug_assertions))]
+    false
 }
 
 /// The state file of the compositor whose spaces live in `spaces_dir`
@@ -127,6 +144,17 @@ impl crate::state::Ede {
                 let _ = std::fs::write(file, text);
             }
         }
+    }
+
+    /// #EXP-1514: whether the hello says `space-readiness`. Until the flip
+    /// (#EXP-2011) only the dev switch ([`GuardState::pretend_ready`]).
+    pub fn says_space_readiness(&self) -> bool {
+        self.spaces.dir.is_some() && self.spaces.guard.pretend_ready
+    }
+
+    /// Tests: [`dev_readiness`] without the environment.
+    pub fn pretend_space_readiness(&mut self) {
+        self.spaces.guard.pretend_ready = true;
     }
 
     /// The flip's readiness answer (F5's `space-readiness`).
