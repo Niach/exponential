@@ -445,16 +445,15 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Assemble + unit tests
         working-directory: apps/android
         env:
@@ -492,16 +491,15 @@ jobs:
       - name: Build the Engine facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p eengine-ffi --release --features cli --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-runner-${{ hashFiles('apps/runner/android/**/*.gradle*', 'packages/exponential-ui-compose/gradle/libs.versions.toml', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Compile + unit tests
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
