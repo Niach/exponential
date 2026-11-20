@@ -11,7 +11,10 @@
 //     move it is private, and the teammates' wraps of its key are gone;
 //   * the other conversation ends, detached, readable in its team;
 //   * references to the dropped Assistant point to the kept one;
-//   * a NEW Assistant conversation on a team-shared device is private.
+//   * a NEW Assistant conversation on a team-shared device is private;
+//   * #EXP-1988: every per-team Assistant's skill and MCP picks carry into
+//     the kept one (and its conversation), and each team's work launches
+//     with that team's picks before and after the move.
 import { afterAll, describe, expect, it, onTestFinished, vi } from "vitest"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { ASSISTANT_MOVE, assistantMoveOf } from "@exp/domain-contract/agent-settings"
@@ -31,9 +34,11 @@ import {
   devices,
   installs,
   issues,
+  mcpServers,
   messages,
   sessionKeys,
   sessions,
+  skills,
   teamMembers,
   teams,
   userVoiceSettings,
@@ -62,6 +67,7 @@ const { sendSession } = await import(`@/lib/sessions/send`)
 const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assistant`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
 const { assistantMoveStatements } = await import(`@/lib/agents/assistant-move`)
+const { sessionLaunchPick, sessionLaunchTeams, mergedAgentPick } = await import(`@/lib/agents/team-picks`)
 
 const MIGRATION = assistantMoveStatements()
 
@@ -246,7 +252,7 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       const [voice] = await tx.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, me))
       expect(voice!.agentId).toBe(asA.id)
       // No scratch table survives; a second run changes nothing.
-      const scratch = await tx.execute(sql`SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'exp1986_%'`)
+      const scratch = await tx.execute(sql`SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'exp1986_%' OR tablename LIKE 'exp1988_%'`)
       expect((scratch as unknown as { rows: Array<{ n: number }> }).rows?.[0]?.n ?? (scratch as unknown as Array<{ n: number }>)[0]?.n).toBe(0)
       await runMove(tx, [me])
       const [again] = await tx.select().from(sessions).where(eq(sessions.id, rA))
@@ -344,5 +350,59 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
     await expect(
       sendSession({ userId: mate, input: { agentId: agent.id, teamId: teamA, text: `hi` } as never })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  }, 60_000)
+  it(`#EXP-1988: every team's skill and MCP picks survive the move, and each team's work launches with its own`, async () => {
+    const me = await user()
+    const teamA = await team([[me, `owner`]])
+    const teamB = await team([[me, `owner`]])
+    const desk = await device(me)
+    await inRollback(async (tx) => {
+      const skill = async (teamId: string, name: string) =>
+        (await tx.insert(skills).values({ teamId, name, description: name, body: `# ${name}` }).returning({ id: skills.id }))[0]!.id
+      const server = async (teamId: string, name: string) =>
+        (await tx.insert(mcpServers).values({ teamId, name, url: `https://${name.toLowerCase()}.example/mcp` }).returning({ id: mcpServers.id }))[0]!.id
+      const [skA, skB, skB2] = [await skill(teamA, `alpha`), await skill(teamB, `beta`), await skill(teamB, `gamma`)]
+      const [mcpA, mcpB] = [await server(teamA, `Linear`), await server(teamB, `Linear`)]
+      const asA = await assistant(tx, teamA, me, desk.deviceId, `2026-10-01T09:00:00Z`)
+      const asB = await assistant(tx, teamB, me, desk.deviceId, `2026-10-02T09:00:00Z`)
+      await tx.update(agents).set({ skillIds: [skA], mcpServerIds: [mcpA] }).where(eq(agents.id, asA.id))
+      await tx.update(agents).set({ skillIds: [skB, skB2], mcpServerIds: [mcpB] }).where(eq(agents.id, asB.id))
+      const rA = await root(tx, { teamId: teamA, agentId: asA.id, userId: me, deviceId: desk.deviceId, lastActivityAt: `2026-11-18T09:00:00Z` })
+      const rB = await root(tx, { teamId: teamB, agentId: asB.id, userId: me, deviceId: desk.deviceId, lastActivityAt: `2026-11-10T09:00:00Z` })
+      await tx.update(sessions).set({ skillIds: [skA], mcpServerIds: [mcpA] }).where(eq(sessions.id, rA))
+      await tx.update(sessions).set({ skillIds: [skB, skB2], mcpServerIds: [mcpB] }).where(eq(sessions.id, rB))
+
+      // (a) switch off: each team's conversation launches with its team's picks.
+      const before = await tx.select().from(sessions).where(inArray(sessions.id, [rA, rB]))
+      const byId = new Map(before.map((row) => [row.id, row]))
+      expect(await sessionLaunchPick(tx, `skills`, byId.get(rA)!, byId.get(rA)!.skillIds)).toEqual([skA])
+      expect(await sessionLaunchPick(tx, `mcp`, byId.get(rB)!, byId.get(rB)!.mcpServerIds)).toEqual([mcpB])
+
+      await runMove(tx, [me])
+
+      // (b) the kept Assistant holds both teams' picks, kept list first.
+      const [kept] = await tx.select().from(agents).where(and(eq(agents.ownerId, me), eq(agents.role, `assistant`)))
+      expect(kept).toMatchObject({ id: asA.id, skillIds: [skA, skB, skB2], mcpServerIds: [mcpA, mcpB] })
+      const [keptRoot] = await tx.select().from(sessions).where(eq(sessions.id, rA))
+      expect(keptRoot).toMatchObject({ skillIds: [skA, skB, skB2], mcpServerIds: [mcpA, mcpB] })
+      // (c) the conversation's turn (nothing picked = every team) launches
+      // with both teams' picks; a pick of team B only with B's.
+      expect((await sessionLaunchTeams(tx, keptRoot!)).sort()).toEqual([kept!.teamId, teamA, teamB].sort())
+      expect(await sessionLaunchPick(tx, `skills`, keptRoot!, keptRoot!.skillIds)).toEqual([skA, skB, skB2])
+      expect(await sessionLaunchPick(tx, `mcp`, keptRoot!, keptRoot!.mcpServerIds)).toEqual([mcpA, mcpB])
+      await tx.update(sessions).set({ scopeTeamIds: [teamB] }).where(eq(sessions.id, rA))
+      const [scoped] = await tx.select().from(sessions).where(eq(sessions.id, rA))
+      expect(await sessionLaunchPick(tx, `skills`, scoped!, scoped!.skillIds)).toEqual([skB, skB2])
+      expect(await sessionLaunchPick(tx, `mcp`, scoped!, scoped!.mcpServerIds)).toEqual([mcpB])
+      // A child of the tree in team A: A's picks only.
+      const child = { teamId: teamA, rootId: rA }
+      expect(await sessionLaunchPick(tx, `mcp`, child, [mcpA, mcpB])).toEqual([mcpA])
+      // A section's write replaces only its team's picks.
+      expect(await mergedAgentPick(tx, `skills`, { existing: kept!.skillIds, written: [skB2], pickTeamId: teamB, agentTeamId: kept!.teamId })).toEqual([skA, skB2])
+      // Nothing left over; a second run changes nothing.
+      await runMove(tx, [me])
+      const [again] = await tx.select().from(agents).where(eq(agents.id, asA.id))
+      expect(again).toMatchObject({ skillIds: [skA, skB, skB2], mcpServerIds: [mcpA, mcpB] })
+    })
   }, 60_000)
 })

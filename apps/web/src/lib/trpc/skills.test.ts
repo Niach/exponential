@@ -67,6 +67,17 @@ const h = vi.hoisted(() => {
   }
 })
 
+// #EXP-1988: the launch teams of a run in a regular team = its team.
+vi.mock(`@/lib/agents/team-picks`, async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/agents/team-picks")>()
+  return {
+    ...real,
+    sessionLaunchTeams: async (_reader: unknown, session: { teamId: string }) => [session.teamId],
+    sessionLaunchPick: async (_reader: unknown, _kind: unknown, _session: unknown, ids: string[] | null) => [...new Set(ids ?? [])],
+    sessionLaunchSkillIds: async (reader: unknown, session: { teamId: string; skillIds: string[] | null; appId: string | null }) =>
+      (await import(`@/lib/skills/builtin`)).sessionSkillIds(reader as never, session),
+  }
+})
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
