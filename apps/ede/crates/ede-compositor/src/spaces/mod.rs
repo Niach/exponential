@@ -70,6 +70,8 @@ pub struct Spaces {
     pub remove_dir: fn(&std::path::Path) -> std::io::Result<()>,
     /// Software, for the captures ([`frames`]; the damage check needs none).
     renderer: Option<smithay::backend::renderer::pixman::PixmanRenderer>,
+    /// The captures waiting their turn and the spaces' stats ([`frames`]).
+    frames: frames::Frames,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
     /// The person's user manager: `Some` = a launch runs in a systemd
@@ -93,7 +95,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
     }
 }
 
