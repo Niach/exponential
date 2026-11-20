@@ -53,6 +53,8 @@ struct State {
     /// #EXP-1961: the sends' targets and the hang-ups told.
     sends: Vec<String>,
     ended: Vec<String>,
+    /// #EXP-1992: every send: where it went (None = to the agent) and its text.
+    sent: Vec<(Option<String>, String)>,
     /// #EXP-1981: what `voice.callSession` was asked: (agent id, call id).
     session_asks: Vec<(String, Option<String>)>,
     /// #EXP-1982: every send fails with this.
@@ -67,7 +69,9 @@ impl CallLink for LinkLog {
         self.0.borrow_mut().push(format!("event {event}"));
     }
     fn send_speech(&self, _: Vec<i16>, _: u32) {}
-    fn flush(&self) {}
+    fn flush(&self) {
+        self.0.borrow_mut().push("flush".into());
+    }
     fn end(&self) {
         self.0.borrow_mut().push("end".into());
     }
@@ -129,6 +133,11 @@ impl TalkHost for TestHost {
         if let etalk::voice::UtteranceTarget::Session { session_id, .. } = &outgoing.target {
             self.state.borrow_mut().sends.push(session_id.clone());
         }
+        let sent = match &outgoing.target {
+            etalk::voice::UtteranceTarget::Session { session_id, text } => (Some(session_id.clone()), text.clone()),
+            etalk::voice::UtteranceTarget::Agent { text, .. } => (None, text.clone()),
+        };
+        self.state.borrow_mut().sent.push(sent);
         if let Some(err) = self.state.borrow().send_fails.clone() {
             return Some(Box::new(move || Err(err)));
         }
@@ -212,6 +221,24 @@ impl Rig {
     /// #EXP-1961: the next call gets its own session `session`.
     pub(crate) fn with_call_session(&self, session: &'static str) {
         self.state.borrow_mut().call_session = Some(session);
+    }
+
+    /// #EXP-1992: the next call gets `session` as its own (None = a host without).
+    pub(crate) fn set_call_session(&self, session: Option<&'static str>) {
+        self.state.borrow_mut().call_session = session;
+    }
+
+    /// #EXP-1992: every send since the last look: its session (None = to
+    /// the agent) and its text.
+    pub(crate) fn sent(&self) -> Vec<(Option<String>, String)> {
+        std::mem::take(&mut self.state.borrow_mut().sent)
+    }
+
+    /// #EXP-1992: the agent speaks with the member's own voice again.
+    pub(crate) fn member_voice(&self, cx: &mut gpui::TestAppContext) {
+        self.state.borrow_mut().voice = None;
+        cx.update(crate::agents_changed);
+        cx.run_until_parked();
     }
 
     /// #EXP-1961: the agent's reply in the call's own session.
