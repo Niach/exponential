@@ -297,3 +297,99 @@ fn a_spaces_xwayland_that_dies_comes_back_and_goes_with_its_space() {
     }
     common::space::spaces_settled(&h);
 }
+
+/// #EDE-138: an X11 window launched into a space fills it, takes the
+/// space's keyboard and gets the agent's keys, while the person types into
+/// their own window and gets exactly theirs. The person's focus, pointer,
+/// windows and clipboard stay as they were, and the shell hears of no
+/// window of the space's.
+#[test]
+fn an_x11_window_in_a_space_gets_the_agents_keys_while_the_person_types() {
+    use x11rb::protocol::{xproto::ConnectionExt as _, Event};
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(_person_x) = xwayland(&h) else { return };
+    // The person's Wayland window, focused.
+    let mut a = Session::connect(h.connect());
+    let target = a.toplevel("a");
+    a.draw(&target, 100, 80, BLUE);
+    a.keyboard();
+    wait_for(&mut a, |a| a.state.keyboard_focus.is_some());
+    let before = common::space::person_snapshot(&h);
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+
+    let (_agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
+    let desk = space_desk(&space);
+    let (conn, _) = x11rb::connect(Some(&format!(":{display}"))).expect("the space's display");
+    let root = conn.setup().roots[0].root;
+    let win = conn.generate_id().unwrap();
+    let aux = CreateWindowAux::new().background_pixel(0x0000_00ff).event_mask(EventMask::KEY_PRESS | EventMask::FOCUS_CHANGE);
+    conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 150, 0, WindowClass::INPUT_OUTPUT, 0, &aux).unwrap();
+    conn.map_window(win).unwrap();
+    conn.flush().unwrap();
+
+    // It fills the space and has the space's keyboard.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let shown = h.with(move |state| {
+            use smithay::wayland::seat::WaylandFocus;
+            let d = &state.spaces.get(desk)?.desk;
+            let window = d.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win))?;
+            let surface = window.wl_surface()?.into_owned();
+            let focused = d.seat.get_keyboard().unwrap().current_focus() == Some(surface);
+            Some((d.space.element_geometry(window)?, focused))
+        });
+        if let Some((geometry, true)) = shown {
+            assert_eq!((geometry.loc.x, geometry.loc.y, geometry.size.w, geometry.size.h), (0, 0, 640, 480), "the X11 window fills the space");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the X11 window never mapped with the space's keyboard: {shown:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(conn.get_geometry(win).unwrap().reply().unwrap().width, 640, "X knows the size the space gave it");
+
+    // The agent types into the space while the person types into theirs.
+    const KEY_A: u32 = 30;
+    const KEY_B: u32 = 48;
+    for _ in 0..3 {
+        h.with(move |state| {
+            use smithay::backend::input::KeyState;
+            state.drive_key(desk, (KEY_A + 8).into(), KeyState::Pressed, 0, false).unwrap();
+            state.drive_key(desk, (KEY_A + 8).into(), KeyState::Released, 0, false).unwrap();
+        });
+        common::space::person_key(&h, KEY_B);
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut presses = Vec::new();
+    while presses.len() < 3 {
+        assert!(Instant::now() < deadline, "the X11 window got {} of the agent's 3 keys", presses.len());
+        while let Some(event) = conn.poll_for_event().unwrap() {
+            if let Event::KeyPress(press) = event {
+                presses.push(press.detail);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(presses, [KEY_A as u8 + 8; 3], "the X11 window got exactly the agent's keys");
+    wait_for(&mut a, |a| a.state.keys.len() >= 3);
+    assert_eq!(a.state.keys, [KEY_B; 3], "the person's window got exactly the person's keys");
+
+    // Nothing of the person's moved, and the shell heard of no window.
+    common::space::assert_person_untouched(&h, &before);
+    let events = common::space::events_until_mark(&h, &mut shell, "x11-space");
+    assert!(events.iter().all(|e| !e.starts_with("window.")), "the shell heard of the space's X11 window: {events:?}");
+    // The agent's window list names it, as X11.
+    let windows = _agent_windows(&h, desk);
+    assert_eq!(windows, [(true, 640, 480)]);
+}
+
+/// The space's windows as its agent lists them: (x11, width, height).
+fn _agent_windows(h: &Harness, desk: DeskId) -> Vec<(bool, i32, i32)> {
+    h.with(move |state| {
+        let space = state.spaces.get(desk).unwrap();
+        space.desk.space.elements().filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect())).map(|w| {
+            let g = space.desk.space.element_geometry(w).unwrap();
+            (w.x11_surface().is_some(), g.size.w, g.size.h)
+        }).collect()
+    })
+}
