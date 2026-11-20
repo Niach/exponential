@@ -128,7 +128,12 @@ fn place(metadata: &tracing::Metadata<'_>) -> sentry::Breadcrumb {
 
 impl<S: tracing::Subscriber, F: Fn(sentry::Breadcrumb) + 'static> Layer<S> for Places<F> {
     fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
-        (self.0)(place(event.metadata()));
+        // #ERR-32: a library's `log` line comes through tracing-log's one
+        // callsite per level (target `log`, no file): its place is the
+        // record's own.
+        use tracing_log::NormalizeEvent as _;
+        let record = event.normalized_metadata();
+        (self.0)(place(record.as_ref().unwrap_or_else(|| event.metadata())));
     }
 }
 
@@ -304,6 +309,28 @@ mod tests {
             assert!(at.starts_with("ede-observability/src/lib.rs:") && at.ends_with(|c: char| c.is_ascii_digit()), "file:line, from the crate on: {at}");
         }
         assert_eq!((crumbs[0].level, crumbs[1].level), (sentry::Level::Info, sentry::Level::Warning));
+    }
+
+    /// #ERR-32: a library's `log` line (api, sync, gpui…, through
+    /// tracing-log's bridge) is placed where IT was logged, never with its
+    /// text, and nothing below INFO.
+    #[test]
+    fn a_libraries_log_line_is_placed_where_it_was_logged() {
+        use log::Log as _;
+        let crumbs = Arc::new(Mutex::new(Vec::<sentry::Breadcrumb>::new()));
+        let seen = crumbs.clone();
+        let subscriber = tracing_subscriber::registry().with(Places(move |crumb| seen.lock().unwrap().push(crumb)).with_filter(LevelFilter::INFO));
+        tracing::subscriber::with_default(subscriber, || {
+            let bridge = tracing_log::LogTracer::new();
+            let summary = "Lunch at 12?";
+            bridge.log(&log::Record::builder().level(log::Level::Error).target("sync::shapes").file(Some("/build/apps/desktop/crates/sync/src/shapes.rs")).line(Some(42)).args(format_args!("send the message: {summary}")).build());
+            bridge.log(&log::Record::builder().level(log::Level::Debug).target("gpui::window").file(Some("/build/gpui/src/window.rs")).line(Some(7)).args(format_args!("below INFO: no breadcrumb")).build());
+        });
+        let crumbs = crumbs.lock().unwrap();
+        assert_eq!(crumbs.len(), 1, "{crumbs:?}");
+        assert!(!format!("{crumbs:?}").contains("Lunch"), "{crumbs:?}");
+        assert_eq!((crumbs[0].category.as_deref(), crumbs[0].message.as_deref(), crumbs[0].level), (Some("sync::shapes"), Some("sync/src/shapes.rs:42"), sentry::Level::Error));
+        assert!(crumbs[0].data.is_empty(), "no fields: {:?}", crumbs[0]);
     }
 
     /// #ERR-29: reports a closed client could not send stay for the next
