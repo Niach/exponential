@@ -213,8 +213,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     state.start_session();
     ede_compositor::backend::watch_main_loop(&event_loop.handle());
+    ede_compositor::backend::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 
     event_loop.run(None, &mut state, |state| {
+        // #EDE-162: after the person's frames, the spaces' captures.
+        state.spaces_after_frames();
         let _ = state.display_handle.flush_clients();
     })?;
     Ok(())

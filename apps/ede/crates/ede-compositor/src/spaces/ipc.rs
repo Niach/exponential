@@ -2,10 +2,13 @@
 //! its session's one space; the space is found again through the session,
 //! never through a connection (ePilot connects per call).
 
-use ede_protocol::{CaptureInfo, CaptureTarget, ErrorCode, Failure, OutputInfo, Request, SessionId, SpaceId, SpaceInfo, WindowId, WindowInfo};
+use ede_protocol::{CaptureTarget, ErrorCode, Failure, OutputInfo, Request, SessionId, SpaceId, SpaceInfo, WindowId, WindowInfo};
 use smithay::desktop::Window;
 
-use super::{scope::Reply, AgentSpace};
+use super::{
+    scope::{Caller, Reply},
+    AgentSpace,
+};
 use crate::{
     desk::DeskId,
     ipc::{window_id, window_title},
@@ -72,7 +75,7 @@ impl Ede {
     /// The ops a space connection asks about its own space `desk`: lists,
     /// focus, close and capture. It searches that space only: a window id
     /// or an output name of another desk is `not_found`.
-    pub(crate) fn space_call(&mut self, desk: DeskId, request: Request) -> Reply {
+    pub(crate) fn space_call(&mut self, desk: DeskId, request: Request, caller: Caller) -> Reply {
         let json = |v: serde_json::Value| Ok(Some((v, None)));
         let Some(space) = self.spaces.get(desk) else { return Err(Failure::new(ErrorCode::NotFound, "this grant has no space")) };
         let (id, output) = (space.id.clone(), space.output.clone());
@@ -118,7 +121,7 @@ impl Ede {
                     CaptureTarget::Space { .. } => return Err(Failure::new(ErrorCode::Forbidden, "another session's space")),
                     CaptureTarget::Window { .. } => return Err(Failure::new(ErrorCode::Forbidden, "not an op of an agent space")),
                 }
-                self.space_capture(desk, since)
+                self.space_capture(desk, since, caller)
             }
             _ => Err(Failure::new(ErrorCode::Forbidden, "not an op of an agent space")),
         }
@@ -127,19 +130,5 @@ impl Ede {
     fn space_window_by_id(&self, desk: DeskId, id: &WindowId) -> Result<Window, Failure> {
         let found = self.try_desk(desk).and_then(|d| d.space.elements().find(|w| &window_id(w) == id).cloned());
         found.ok_or_else(|| Failure::new(ErrorCode::NotFound, "no such window"))
-    }
-
-    /// A capture of space `desk`; `since` = the serial of the caller's
-    /// last one: nothing changed since, no pixels.
-    pub(crate) fn space_capture(&mut self, desk: DeskId, since: Option<u64>) -> Reply {
-        let serial = self.space_serial(desk).ok_or_else(|| Failure::new(ErrorCode::NotFound, "no such space"))?;
-        if since == Some(serial) {
-            let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial, unchanged: true };
-            return Ok(Some((serde_json::to_value(info).unwrap(), None)));
-        }
-        let frame = self.capture_space(desk).map_err(|e| Failure::new(ErrorCode::Internal, &e))?;
-        let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial, unchanged: false };
-        let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
-        Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
     }
 }
