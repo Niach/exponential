@@ -124,6 +124,54 @@ fn an_app_that_aborts_at_start_without_drawing_latches_its_gpu_space_and_the_age
     assert_eq!(unchanged.info.notice, None, "a person-scope capture (the live view) never takes it");
     let again = agent.capture_since(target(), None).unwrap().unwrap();
     assert_eq!(again.info.notice, None, "said once");
+
+    // Its next launch sees lavapipe alone (F3's switch, back on).
+    let lavapipe = ede_compositor::spaces::render::lavapipe_icds(std::path::Path::new("/"), std::env::var_os("XDG_DATA_DIRS").as_deref());
+    if !lavapipe.is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("env");
+        agent.launch(sh(&format!("env > {0}.tmp; mv {0}.tmp {0}", file.display())), Default::default(), None).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !file.exists() {
+            assert!(Instant::now() < deadline, "the launch never wrote its environment");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let env = std::fs::read_to_string(&file).unwrap();
+        let driver_files = env.lines().find_map(|l| l.strip_prefix("VK_DRIVER_FILES=")).expect("lavapipe is pointed at");
+        assert!(driver_files.split(':').all(|f| f.contains("lvp_icd")), "{driver_files}");
+    }
+}
+
+/// A GPU space's launches see exactly its GPU's Vulkan driver and lavapipe
+/// (F3's switch off at its launch); here the GPU is pretended to be Intel's.
+#[test]
+fn a_gpu_spaces_launch_sees_its_gpus_vulkan_driver_and_lavapipe() {
+    use ede_compositor::spaces::render::{icds_named, lavapipe_icds, vulkan_environment};
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, _space, desk) = agent(&h, "run-1");
+    h.with(move |state| {
+        state.pretend_space_on_gpu(desk);
+        state.pretend_space_gpu_driver("i915");
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("env");
+    agent.launch(sh(&format!("env > {0}.tmp; mv {0}.tmp {0}", file.display())), Default::default(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !file.exists() {
+        assert!(Instant::now() < deadline, "the launch never wrote its environment");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let env = std::fs::read_to_string(&file).unwrap();
+    let seen = env.lines().find_map(|l| l.strip_prefix("VK_DRIVER_FILES="));
+    let data = std::env::var_os("XDG_DATA_DIRS");
+    let intel = icds_named(std::path::Path::new("/"), data.as_deref(), "intel_icd");
+    let lavapipe = lavapipe_icds(std::path::Path::new("/"), data.as_deref());
+    let expected = vulkan_environment(false, Some(intel.as_slice()), &lavapipe);
+    assert_eq!(seen, expected.first().map(|(_, files)| files.to_str().unwrap()), "{env}");
+    if let Some(seen) = seen.filter(|_| !intel.is_empty()) {
+        assert!(seen.split(':').any(|f| f.contains("intel_icd")), "a GPU space is not forced onto lavapipe: {seen}");
+        assert!(seen.split(':').all(|f| f.contains("intel_icd") || f.contains("lvp_icd")), "nothing but its GPU's driver and lavapipe: {seen}");
+    }
 }
 
 #[test]

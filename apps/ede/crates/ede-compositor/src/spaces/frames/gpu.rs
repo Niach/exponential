@@ -193,6 +193,8 @@ struct Target {
 pub struct SpacesGpu {
     pub renderer: GlesRenderer,
     pub node: PathBuf,
+    /// Its card's kernel driver (`nvidia`, `i915`), when known.
+    pub driver: Option<String>,
     /// `GL_RENDERER` and the context's priority, for the log and the doctor.
     pub name: String,
     pub priority: Option<ContextPriority>,
@@ -241,7 +243,7 @@ impl SpacesGpu {
             return Err(format!("{name}: imports no dmabuf"));
         }
         let bgra = reads_bgra(&mut renderer);
-        Ok(SpacesGpu { renderer, node, name, priority, bgra, targets: HashMap::new() })
+        Ok(SpacesGpu { renderer, node, driver: None, name, priority, bgra, targets: HashMap::new() })
     }
 
     /// Mesa's software EGL device, for the tests (spaces never take it).
@@ -255,7 +257,7 @@ impl SpacesGpu {
             .with_context(|gl| unsafe { std::ffi::CStr::from_ptr(gl.GetString(ffi::RENDERER) as *const std::ffi::c_char).to_string_lossy().into_owned() })
             .unwrap_or_default();
         let bgra = reads_bgra(&mut renderer);
-        Ok(SpacesGpu { renderer, node: PathBuf::from("software"), name, priority: None, bgra, targets: HashMap::new() })
+        Ok(SpacesGpu { renderer, node: PathBuf::from("software"), driver: None, name, priority: None, bgra, targets: HashMap::new() })
     }
 
     /// Draws `elements` into space `desk`'s target (only what changed since

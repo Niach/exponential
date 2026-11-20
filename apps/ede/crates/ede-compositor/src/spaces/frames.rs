@@ -19,6 +19,8 @@ mod stats;
 
 pub use queue::{BUDGET, FLOOR, WINDOW};
 pub use stats::PROBE;
+#[cfg(feature = "gpu")]
+pub use passes::IMPORTS_PER_SECOND;
 
 use std::time::{Duration, Instant};
 
@@ -61,6 +63,12 @@ pub(crate) struct Frames {
     next_pass: u64,
     #[cfg(feature = "gpu")]
     sweeping: bool,
+    /// The spaces' linux-dmabuf global, on the spaces' renderer, and each
+    /// client's recent imports (a budget, [`passes`]).
+    #[cfg(feature = "gpu")]
+    dmabuf: Option<smithay::wayland::dmabuf::DmabufGlobal>,
+    #[cfg(feature = "gpu")]
+    imports: std::collections::HashMap<smithay::reexports::wayland_server::backend::ClientId, std::collections::VecDeque<Instant>>,
 }
 
 /// Without the `gpu` feature every space draws in software.
@@ -78,6 +86,14 @@ impl Ede {
 
     fn space_gpu_capture(&mut self, _desk: DeskId, jobs: Vec<queue::Waiting>) -> Result<Duration, Vec<queue::Waiting>> {
         Err(jobs)
+    }
+
+    fn space_offers_gpu_buffers(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn space_gpu_driver(&self) -> Option<&str> {
+        None
     }
 }
 

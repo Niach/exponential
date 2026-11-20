@@ -655,7 +655,8 @@ mints its own grant and drops the root connection (#EDE-22: grants by
 default); a process handed a grant in `EDE_TOKEN` keeps that one. Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
 agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
-lending come with their own issues; captures are drawn in software for now.
+lending come with their own issues; a space's captures are drawn on its GPU when it has one
+(below), the person's on the backend's renderer.
 
 ```rust
 let mut ede = ede_protocol::Client::connect_env()?;   // the shell: $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
@@ -886,14 +887,14 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   its processes into a scope of the space's own manager. They are then
   under the space's limits and end with it, and what is still outside at
   the close is ended by the kernel.
-- **Drawing in a space: on the CPU.** A space takes shared-memory buffers
-  only, so a frame drawn on the GPU cannot reach it until spaces have a
-  GPU path (#EDE-162). OpenGL and EGL apps get Mesa's software driver
+- **Drawing in a space: on the CPU, unless the space draws on the GPU**
+  (#EDE-162, [below](#agent-spaces-on-the-gpu-ede-162)). A space in
+  software takes shared-memory buffers only, so a frame drawn on the GPU
+  cannot reach it. OpenGL and EGL apps get Mesa's software driver
   (llvmpipe) by themselves. Vulkan apps would pick the GPU and then fail,
-  so while a space renders in software (every space, until #EDE-162 turns
-  it off for a space) its programs see lavapipe, Mesa's software Vulkan,
-  alone (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`; a launch may not set
-  them). The packages recommend `mesa-vulkan-drivers` (Arch:
+  so while a space renders in software its programs see lavapipe, Mesa's
+  software Vulkan, alone (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`; a launch
+  may not set them). The packages recommend `mesa-vulkan-drivers` (Arch:
   `vulkan-swrast`); without it a Vulkan app does not start in a space, and
   the doctor says so. The cost: 3D apps and games are slow or do not run
   in a space, and every frame is drawn on the processor. A WebGL page or a
@@ -1032,6 +1033,76 @@ answers with a challenge; readiness and the doctor's line need it.
   lockdown below `confidentiality`, and a kernel that loads both programs
   (`exponential-space-guard probe` prints `ok` or why not).
 
+## Agent spaces on the GPU (#EDE-162)
+
+A space's apps draw on a GPU, as they would on the person's desk: Vulkan,
+OpenGL/EGL and a browser's WebGL in hardware, instead of llvmpipe, lavapipe
+and SwiftShader.
+
+- **Which GPU** (`[space_gpu] device`, read at the compositor's start):
+  `auto` takes, of the cards with a GPU driver and a render node:
+
+  | The machine | Spaces render on |
+  |---|---|
+  | one GPU (a desktop with a dGPU and no iGPU, most laptops) | that GPU |
+  | two GPUs, no battery, the displays on one (a desktop: monitors on the dGPU, an idle iGPU) | the one the displays are not on: the person's game keeps its GPU to itself |
+  | two GPUs and a battery (a laptop: the iGPU drives the panel, the dGPU sleeps) | the one driving the displays: the dGPU stays asleep |
+
+  `auto` takes only drivers proven for spaces (`nvidia`, `i915`, `xe`); on
+  any other (AMD, nouveau, a VM's GPU) spaces render in software and the log
+  says why. Naming a render node opts in on any driver
+  (`device = "/dev/dri/renderD128"`); proving AMD and Mesa as the main GPU
+  is #EDE-164. `software` keeps spaces in software; so do safe mode, no GPU,
+  a renderer that turns out to be llvmpipe, and NVIDIA without explicit sync.
+- **What it is.** One renderer for all spaces, opened at the start on a
+  helper thread: its own EGL display on the render node
+  (EGL_EXT_platform_device: no display, no DRM master), its own context at
+  low priority where the driver has one; the person's renderer is not
+  touched. A space's clients get the spaces' own linux-dmabuf (that GPU as
+  the main device, explicit modifiers only) and drm-syncobj; the person's
+  clients, a space in software and a space's Xwayland never see them (X11
+  GL apps in a space draw in software; glamor per space is #EDE-163). Its
+  programs see exactly that GPU's Vulkan driver and lavapipe
+  (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`, as in software; lavapipe alone
+  where that driver is not installed): a Vulkan app takes the space's GPU,
+  never the person's.
+- **The person's frames come first.** A space's tick builds no renderer
+  elements and imports nothing. A capture is drawn after the person's frames
+  of that turn, read back asynchronously (a fence the loop waits on, never
+  the thread), at most once per space per 50 ms and 100 ms of the thread per
+  second for all spaces. A space's app presents at most once per tick of the
+  space's clock (60 Hz in use, 10 Hz unwatched): an app that renders faster
+  (vsync off) has its extra frames held and dropped. GPU work an app never
+  presents (compute) is not bounded by that: the GPU choice above is what
+  keeps it off the person's GPU. `EXP_FRAME_STATS=1` prints the spaces' cost
+  on the person's thread every 5 s; `EDE_HEADLESS_GLES=/dev/dri/renderDN` (a
+  measuring rig) draws a headless compositor's own output on a GPU, as udev
+  draws a monitor, to measure the person's frame times beside spaces.
+- **The safety net: an app whose GPU path fails falls back to software.** In
+  a space on the GPU, any of these latches the space back to software:
+  - a launch that ends non-zero or by a signal within 10 s without any
+    client of it having drawn (vkcube's missing present queue, ANV's
+    swapchain abort, a Wine or GLFW X11 Vulkan app: X11 apps draw through
+    the space's Xwayland and always count as not having drawn), or that
+    starts dumping a core within those 10 s without having drawn (counted
+    at once: writing the core can keep a crashed app alive for half a
+    minute);
+  - a GPU buffer the space's GPU cannot import, or more than 32 a second
+    from one client (refused; a window that cannot be drawn shows a grey
+    placeholder);
+  - a GPU buffer whose fence never fires within 2 s;
+  - a lost GPU context (every GPU space).
+
+  Its later clients and launches then draw in software, the running ones
+  stay as they are. The agent reads "X ended at start on the GPU (...);
+  this space now draws in software: start it again" with its next
+  screenshot. After three such spaces in one run, new spaces start in
+  software.
+- **What the net does not catch:** an app that draws and then shows black or
+  freezes, a blank canvas inside a window that draws. The hand proof per
+  driver is the only check for those, which is why `auto` takes proven
+  drivers only.
+
 ## Config
 
 `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`, every key optional; a broken file is
@@ -1068,6 +1139,9 @@ cpu_quota = 50        # percent of all cores, for all spaces together
 memory_max = 50       # percent of the memory, for all spaces together
 space_memory_max = 30 # percent of the memory for one space (at least 2 GiB, never more than memory_max)
 tasks_max = 4096      # processes and threads of one space
+
+[space_gpu]           # the GPU agent spaces render on (#EDE-162)
+device = "auto"       # or "software", or a render node: "/dev/dri/renderD128" (taken whatever its driver)
 
 [theme]              # the bridge (#EDE-19), read by exponential-theme, not the compositor
 bridge = true        # false: exponential-theme sync removes what it wrote
