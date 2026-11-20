@@ -43,7 +43,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ede_protocol::{Capability, CaptureTarget, ClipboardItem, Client, ErrorCode, InputEvent, Request, SessionId, SpaceInfo, Token, WindowId, CLIPBOARD_SECRET_HINT, CLIPBOARD_TEXT_MIMES};
 
-use crate::backend::{finish_ids, Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, Target, WindowInfo};
+use crate::backend::{finish_displays, Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, Pasted, SavedClipboard, Target, WindowInfo};
 use crate::keys::Key;
 
 /// Where an eDE session's control plane lives, read from the environment.
@@ -547,7 +547,7 @@ impl Backend for Ede {
             *PIXELS.lock().unwrap_or_else(|p| p.into_inner()) =
                 outputs.iter().map(|output| ((output.x, output.y, output.width.max(1) as u32, output.height.max(1) as u32), pixels_of(output))).collect();
         }
-        let mut displays: Vec<DisplayInfo> = outputs
+        let displays: Vec<DisplayInfo> = outputs
             .into_iter()
             .enumerate()
             .map(|(index, output)| DisplayInfo {
@@ -562,8 +562,7 @@ impl Backend for Ede {
                 connector: None,
             })
             .collect();
-        finish_ids(&mut displays, &connectors);
-        Ok(displays)
+        finish_displays(displays, &connectors).ok_or_else(|| "eDE has no output.".to_string())
     }
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {

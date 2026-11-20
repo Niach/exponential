@@ -124,6 +124,21 @@ pub(crate) fn twin_id(base: &str, connector: &str) -> String {
     format!("{}{suffix}", base.chars().take(room).collect::<String>())
 }
 
+/// #EXP-1994: the tail of every backend's [`Backend::displays`]: nobody
+/// marked primary makes the first one primary, then [`finish_ids`] with
+/// `connectors[i]` beside `displays[i]`. `None` = no display, which each
+/// backend answers its own way (an error; X11 the whole root).
+pub(crate) fn finish_displays(mut displays: Vec<DisplayInfo>, connectors: &[Option<String>]) -> Option<Vec<DisplayInfo>> {
+    if displays.is_empty() {
+        return None;
+    }
+    if !displays.iter().any(|display| display.primary) {
+        displays[0].primary = true;
+    }
+    finish_ids(&mut displays, connectors);
+    Some(displays)
+}
+
 /// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn stable_hash(bytes: &[u8]) -> u64 {
@@ -415,6 +430,15 @@ pub(crate) enum Verdict {
     Swallow,
     /// The person's Esc: swallowed, and the lock ends.
     Esc,
+}
+
+/// #EXP-1994: the person's Esc under a lock, every OS's: their input is let
+/// go first (`release`: the tap, the hooks or the grabs come out), then
+/// `on_esc` runs, on the lock's thread, never inside an event callback.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn escape(release: impl FnOnce(), on_esc: &(dyn Fn() + Send + Sync)) {
+    release();
+    on_esc();
 }
 
 /// What the clipboard held before a `paste_text` / `copy_selection` took
@@ -809,6 +833,20 @@ mod tests {
         assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
     }
 
+    /// #EXP-1994: every backend's display list ends the same way: none is
+    /// `None`, the OS's primary stays, nobody primary makes the first one,
+    /// and twins carry their connector.
+    #[test]
+    fn every_display_list_ends_alike() {
+        assert_eq!(finish_displays(Vec::new(), &[]), None);
+        let primary = |displays: &[DisplayInfo]| displays.iter().map(|display| display.primary).collect::<Vec<_>>();
+        let second = vec![display("a"), DisplayInfo { primary: true, ..display("b") }];
+        assert_eq!(primary(&finish_displays(second, &[]).unwrap()), [false, true], "the OS's primary stays");
+        let twins = finish_displays(vec![display("uuid"), display("uuid")], &[Some("1".into()), Some("2".into())]).unwrap();
+        assert_eq!(primary(&twins), [true, false], "nobody primary: the first");
+        assert_eq!(twins.iter().map(|display| (display.id.as_str(), display.connector.as_deref())).collect::<Vec<_>>(), [("uuid@1", Some("1")), ("uuid@2", Some("2"))]);
+    }
+
     #[test]
     fn what_was_held_at_engage_passes_its_release_once() {
         let mut held = HeldAtEngage::<4>::NONE;
@@ -950,6 +988,20 @@ mod tests {
         .unwrap();
         guard_tx.send(thread).unwrap();
         dropped.recv_timeout(std::time::Duration::from_secs(5)).expect("the thread dropped its own guard and went on");
+    }
+
+    /// #EXP-1994: on the person's Esc their input is theirs again before
+    /// `on_esc` runs.
+    #[test]
+    fn an_esc_lets_go_of_the_input_before_on_esc() {
+        let released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let on_esc = {
+            let (released, seen) = (released.clone(), seen.clone());
+            move || *seen.lock().unwrap() = Some(released.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        escape(|| released.store(true, std::sync::atomic::Ordering::SeqCst), &on_esc);
+        assert_eq!(*seen.lock().unwrap(), Some(true), "on_esc ran, with the input already let go");
     }
 
     #[test]

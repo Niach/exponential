@@ -497,14 +497,7 @@ impl Backend for Win32 {
                 connector: None,
             });
         }
-        if displays.is_empty() {
-            return Err("Windows reports no display.".to_string());
-        }
-        if !displays.iter().any(|display| display.primary) {
-            displays[0].primary = true;
-        }
-        crate::backend::finish_ids(&mut displays, &connectors);
-        Ok(displays)
+        crate::backend::finish_displays(displays, &connectors).ok_or_else(|| "Windows reports no display.".to_string())
     }
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
@@ -990,9 +983,11 @@ fn hold(hooks: (Hook, Hook), on_esc: &(dyn Fn() + Send + Sync), msg: &mut MSG) {
         }
         if msg.message == WM_ESC {
             if let Some(hooks) = hooks.take() {
-                drop(hooks);
-                log::info!("[computer] Esc: the input lock is released");
-                on_esc();
+                let release = || {
+                    drop(hooks);
+                    log::info!("[computer] Esc: the input lock is released");
+                };
+                crate::backend::escape(release, on_esc);
                 // The hooks are gone: the person's release is theirs again.
                 PERSON_BUTTONS.store(0, Ordering::Release);
             }
