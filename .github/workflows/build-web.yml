@@ -140,7 +140,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           load: true
           tags: exponential-web:smoke
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
 
       - uses: ./.github/actions/setup-bun
 
@@ -178,8 +178,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=web-${{ env.PLATFORM_PAIR }}
+          # CI review P1 (d): the layer cache lives on ghcr as the tag
+          # `buildcache-<platform>` of this package, not in the 10 GB Actions
+          # cache (~1.6 GB there, crowding the rust caches out). Not an image:
+          # pull a semver tag. image-manifest: ghcr takes no cache index.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }},mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Export digest
         run: |
