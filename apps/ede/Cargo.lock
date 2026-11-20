@@ -896,6 +896,7 @@ dependencies = [
  "bitflags 2.13.2",
  "ede-observability",
  "ede-protocol",
+ "ede-space-guard",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -1001,6 +1002,14 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ede-space-guard"
+version = "0.2.29"
+dependencies = [
+ "ede-protocol",
+ "libc",
 ]
 
 [[package]]
