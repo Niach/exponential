@@ -67,7 +67,12 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 })
 vi.mock(`@/lib/collections`, () => ({
   deviceCollection: {},
-  messageCollection: { utils: { awaitTxId: () => Promise.resolve() } },
+  // #EXP-1958: a tap reads the STORED card (`tapCardItem`); an unsealed one keeps the server calls.
+  messageCollection: {
+    get: (id: string) => (mocks.messages as Array<{ id: string }>).find((row) => row.id === id),
+    utils: { awaitTxId: () => Promise.resolve() },
+  },
+  issueCollection: { values: () => [][Symbol.iterator]() },
   sessionCollection: {
     utils: { awaitTxId: (...args: unknown[]) => mocks.awaitTxId(...args) as Promise<void> },
   },

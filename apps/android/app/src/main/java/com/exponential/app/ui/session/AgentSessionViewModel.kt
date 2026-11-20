@@ -803,11 +803,12 @@ class AgentSessionViewModel @AssistedInject constructor(
         _replyError.value = null
     }
 
-    /** EXP-1211: a tap = `sessions.sendReply` (the text is the next message). */
+    /** EXP-1211: a tap = `sessions.sendReply` (the text is the next message);
+     *  #EXP-1958: a SEALED card's reply leaves sealed ([SessionsApi.sendReply]). */
     fun sendReply(messageId: String, itemId: String) =
         replyCall("send", "the reply") { accountId -> sessionsApi.sendReply(accountId, messageId, itemId) }
 
-    /** EXP-1211: × = `sessions.dismissReplies` (the whole row goes). */
+    /** EXP-1211: × = `sessions.dismissReplies` (the whole row goes; sealed: its open ids). */
     fun dismissReplies(messageId: String) =
         replyCall("dismiss", "the replies") { accountId -> sessionsApi.dismissReplies(accountId, messageId) }
 

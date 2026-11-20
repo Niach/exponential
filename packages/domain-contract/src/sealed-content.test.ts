@@ -8,6 +8,9 @@ import {
   b64urlDecode,
   b64urlEncode,
   CARD_CLEAR_FIELDS,
+  CARD_STAMP_FIELDS,
+  cardItemWire,
+  type CardItemAction,
   generateTreeKey,
   openBody,
   openCard,
@@ -151,6 +154,34 @@ describe(`card envelope`, () => {
       expect(opened.status).toBe(c.status as never)
       expect(opened.epoch).toBe(c.epoch)
       expect(opened.card).toEqual(c.opened as Card)
+    })
+  }
+})
+
+describe(`card stamps (cardStamps, #EXP-1958)`, () => {
+  const splits = new Map(fixture.card.splits.map((s) => [s.name, s]))
+  test(`the stamp fields are the contract's`, () => {
+    expect([...CARD_STAMP_FIELDS]).toEqual(fixture.cardStamps.fields as never)
+  })
+  for (const c of fixture.cardStamps.openCases) {
+    test(c.name, () => {
+      const stored = { ...(splits.get(c.stored)!.envelope as Card), stamps: c.stamps }
+      const opened = openCard(stored, c.keys === `tree` ? keys : new Map())
+      expect(opened.status).toBe(c.status as never)
+      if (c.items) {
+        expect(opened.card.items).toEqual(c.items)
+        expect(`stamps` in opened.card).toBe(false)
+      } else {
+        expect(opened.card).toEqual(c.card as Card)
+      }
+    })
+  }
+  for (const c of fixture.cardStamps.tapCases) {
+    test(c.name, () => {
+      expect(cardItemWire({ sealed: c.stored === `sealed`, opened: c.opened, action: c.action as CardItemAction })).toEqual({
+        wire: c.wire as never,
+        call: c.call,
+      })
     })
   }
 })

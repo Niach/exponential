@@ -297,6 +297,32 @@ mod tests {
         }
     }
 
+    /// #EXP-1958 `cardStamps.openCases`: a stored sealed card's clear
+    /// `stamps` land on its items where the row is opened (opened rows never
+    /// keep `stamps`); a closed row keeps the clear part, stamps included.
+    #[test]
+    fn replays_the_card_stamp_cases_onto_message_rows() {
+        let fx = fixture();
+        let splits = fx["card"]["splits"].as_array().unwrap();
+        for case in fx["cardStamps"]["openCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let split = splits.iter().find(|s| s["name"] == case["stored"]).unwrap();
+            let mut stored = split["envelope"].clone();
+            stored["stamps"] = case["stamps"].clone();
+            let opener = if case["keys"] == "tree" { opener(&fx) } else { Opener::new(Arc::new(NoKeys)) };
+            let mut row = message("", Some(stored));
+            opener.open_message(&mut row);
+            assert_eq!(row.seal, SealState::from_status(case["status"].as_str().unwrap()), "{name}");
+            let card = row.card.as_ref().unwrap();
+            if let Some(items) = case.get("items") {
+                assert_eq!(&card["items"], items, "{name}");
+                assert!(card.get("stamps").is_none(), "{name}");
+            } else {
+                assert_eq!(card, &case["card"], "{name}");
+            }
+        }
+    }
+
     /// EXP-1459: `placeholder.messageCases`: {locked, body, card} per case.
     #[test]
     fn replays_the_placeholder_message_cases() {

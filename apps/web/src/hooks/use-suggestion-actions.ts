@@ -3,14 +3,15 @@ import { getDeviceIcon, suggestionKey, type ChatSuggestionActions } from "@exp/u
 import { modelLabel } from "@/components/launch-dialog/launch-options-pane"
 import { useSession } from "@/hooks/use-session"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { failedAction } from "@/lib/action-error"
 import { agentModelValues } from "@/lib/coding-launch-prefs"
-import { trpc } from "@/lib/trpc-client"
+import { tapCardItem } from "@/lib/enet/card-taps"
 
 // EXP-1323 (#EXP-1328): THE suggested tasks card's actions on web, one tRPC
 // call each (`sessions.startSuggestion` child|here, `startAllSuggestions`,
-// `dismissSuggestion`, `fileSuggestion`); the synced message row repaints
-// the card. A failed tap toasts `Couldn't <verb> <thing>`.
+// `dismissSuggestion`, `fileSuggestion`; a SEALED card's through
+// `tapCardItem`, #EXP-1958); the synced message row repaints the card. A
+// failed tap toasts `Couldn't <verb> <thing>`.
 
 export function useSuggestionActions(input: {
   teamId: string
@@ -76,44 +77,35 @@ export function useSuggestionActions(input: {
       onStart: (messageId, itemId, options) =>
         void run(
           suggestionKey(messageId, itemId),
-          () =>
-            trpc.sessions.startSuggestion.mutate(
-              { messageId, itemId, where: `child`, ...options },
-              SKIP_ERROR_TOAST
-            ),
+          () => tapCardItem({ action: `start`, messageId, itemId, ...options }),
           `start`,
           `task`
         ),
       onStartAll: (messageId) =>
         void run(
           suggestionKey(messageId),
-          () => trpc.sessions.startAllSuggestions.mutate({ messageId }, SKIP_ERROR_TOAST),
+          () => tapCardItem({ action: `startAll`, messageId }),
           `start`,
           `tasks`
         ),
       onHere: (messageId, itemId) =>
         void run(
           suggestionKey(messageId, itemId),
-          () =>
-            trpc.sessions.startSuggestion.mutate(
-              { messageId, itemId, where: `here` },
-              SKIP_ERROR_TOAST
-            ),
+          () => tapCardItem({ action: `here`, messageId, itemId }),
           `send`,
           `task`
         ),
       onDismiss: (messageId, itemId) =>
         void run(
           suggestionKey(messageId, itemId),
-          () =>
-            trpc.sessions.dismissSuggestion.mutate({ messageId, itemId }, SKIP_ERROR_TOAST),
+          () => tapCardItem({ action: `dismiss`, messageId, itemId }),
           `dismiss`,
           `task`
         ),
       onFile: (messageId, itemId) =>
         void run(
           suggestionKey(messageId, itemId),
-          () => trpc.sessions.fileSuggestion.mutate({ messageId, itemId }, SKIP_ERROR_TOAST),
+          () => tapCardItem({ action: `file`, messageId, itemId }),
           `file`,
           `task`
         ),
