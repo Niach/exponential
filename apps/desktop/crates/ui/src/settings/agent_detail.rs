@@ -339,8 +339,12 @@ pub struct AgentDetailPane {
     /// #EXP-1793 (agent-settings.json `mcpRow`): the agent's team's MCP
     /// servers (`mcpServers.list`, server-only: never a shape) and the team
     /// they were asked for.
-    mcp: Option<(String, Vec<api::mcp_servers::McpServerListEntry>)>,
-    mcp_requested: Option<String>,
+    /// #EXP-1988: per team (Settings › Assistant reads every team's).
+    mcp: std::collections::HashMap<String, Vec<api::mcp_servers::McpServerListEntry>>,
+    mcp_requested: std::collections::HashSet<String>,
+    /// #EXP-1988 (`assistant.teamPicks`): the teams (id, name) whose
+    /// sections the document was built with (Settings › Assistant only).
+    doc_teams: Vec<(String, String)>,
     /// #EXP-1847: the Voice rows' typed text (`None` = the resolved value),
     /// the wake phrase's inline error, a clip upload / removal in flight and
     /// the wake placeholder the mounted tree was built with.
@@ -392,7 +396,7 @@ impl AgentDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "retry", "delete", "voiceLanguage", "voiceClip", "voiceClipRemove"].into_iter().chain(agent_triggers::ACTIONS) {
+            for name in ["icon", "color", "device", "account", "skills", "mcpServers", TEAM_SKILLS, TEAM_MCP_SERVERS, "model", "retry", "delete", "voiceLanguage", "voiceClip", "voiceClipRemove"].into_iter().chain(agent_triggers::ACTIONS) {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -414,7 +418,7 @@ impl AgentDetailPane {
         let view = if slot {
             super::doc::mount_with("settings-app-agent", slot_document(&Ink::of(cx)), &binding, plugin, true, window, cx)
         } else {
-            super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx), &wake_placeholder), &binding, plugin, true, window, cx)
+            super::doc::mount_with("settings-agent", document(&Ink::of(cx), &Chrome::of(cx), &wake_placeholder, &[]), &binding, plugin, true, window, cx)
         };
         Self {
             nav,
@@ -428,8 +432,9 @@ impl AgentDetailPane {
             generation: 0,
             voice: None,
             fixed_agent: None,
-            mcp: None,
-            mcp_requested: None,
+            mcp: Default::default(),
+            mcp_requested: Default::default(),
+            doc_teams: Vec::new(),
             transcript_draft: None,
             wake_draft: None,
             wake_invalid: None,
@@ -567,6 +572,9 @@ impl AgentDetailPane {
         self.transcript_draft = None;
         self.wake_draft = None;
         self.wake_invalid = None;
+        // A new agent (the Assistant after the move too) re-reads every
+        // team's MCP servers.
+        self.mcp_requested.clear();
         self.fetch_instructions(window, cx);
     }
 
@@ -604,13 +612,13 @@ impl AgentDetailPane {
     /// #EXP-1793: one `mcpServers.list` per team (it carries the viewer's
     /// own connection to each server, which greys the rows).
     fn ensure_mcp_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
-        if team_id.is_empty() || self.mcp_requested.as_deref() == Some(team_id) {
+        if team_id.is_empty() || self.mcp_requested.contains(team_id) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        self.mcp_requested = Some(team_id.to_string());
+        self.mcp_requested.insert(team_id.to_string());
         let team = team_id.to_string();
         cx.spawn(async move |this, cx| {
             let loaded = cx
@@ -621,11 +629,13 @@ impl AgentDetailPane {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.mcp_requested.as_deref() != Some(team.as_str()) {
+                if !this.mcp_requested.contains(team.as_str()) {
                     return;
                 }
                 match loaded {
-                    Ok(entries) => this.mcp = Some((team, entries)),
+                    Ok(entries) => {
+                        this.mcp.insert(team, entries);
+                    }
                     Err(err) => log::debug!("[ui] mcpServers.list for the agent page: {err}"),
                 }
                 cx.notify();
@@ -637,18 +647,77 @@ impl AgentDetailPane {
     /// The bench's team MCP servers (headless has no server).
     #[cfg(test)]
     pub(crate) fn seed_mcp_for_shots(&mut self, team_id: &str, entries: Vec<api::mcp_servers::McpServerListEntry>, cx: &mut gpui::Context<Self>) {
-        self.mcp_requested = Some(team_id.to_string());
-        self.mcp = Some((team_id.to_string(), entries));
+        self.mcp_requested.insert(team_id.to_string());
+        self.mcp.insert(team_id.to_string(), entries);
         cx.notify();
     }
 
     /// #EXP-1793: the team's MCP servers as the page offers them (team list
     /// order), `[]` until the list landed.
     fn team_mcp(&self, team_id: &str) -> &[api::mcp_servers::McpServerListEntry] {
-        match &self.mcp {
-            Some((team, entries)) if team == team_id => entries,
-            _ => &[],
+        self.mcp.get(team_id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// #EXP-1988 (`teamPicks.pickAgentCases`): the agent `team_id`'s section
+    /// of Settings › Assistant edits: the viewer's Assistant the team lists,
+    /// else the page's.
+    fn section_agent(&self, page: &AgentDefRow, team_id: &str, cx: &App) -> AgentDefRow {
+        let me = queries::active_account(cx).map(|account| account.user_id);
+        let team_ids = crate::session_data::synced_team_ids(cx);
+        let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
+        let agents = Store::global(cx).collections().agents.read(cx);
+        domain::agent_settings::assistant_pick_agent(agents.iter(), team_id, &team_ids, me.as_deref(), Some(page.id.as_str()))
+            .and_then(|id| agents.get(id).cloned())
+            .unwrap_or_else(|| page.clone())
+    }
+
+    /// #EXP-1988: a pick in `team_id`'s section writes that team's new pick
+    /// only (`agents.update {id: the section's agent, pickTeamId}`).
+    fn pick_for_team(&mut self, name: &str, page: &AgentDefRow, team_id: &str, value: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let agent = self.section_agent(page, team_id, cx);
+        if !self.editor(&agent, team_id, cx) {
+            return;
         }
+        let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
+        let team = Some(team_id.to_string());
+        if name == TEAM_SKILLS {
+            // The team's rows only, list order.
+            let (rows, _) = queries::team_skills(cx, team_id);
+            let picked: Vec<String> = rows.iter().filter(|skill| ids.contains(&skill.id)).map(|skill| skill.id.clone()).collect();
+            update_agent(cx, "change", "the Assistant's skills", api::agents::UpdateInput { skill_ids: Some(picked), pick_team_id: team, ..api::agents::UpdateInput::new(agent.id) });
+            return;
+        }
+        let entries = self.team_mcp(team_id);
+        let blocked_new = ids.iter().any(|id| {
+            !agent.mcp_server_ids.contains(id) && entries.iter().any(|entry| &entry.config.id == id && crate::launch_options::mcp_block_reason(&entry.connection).is_some())
+        });
+        if blocked_new {
+            // THE connect link: that team's Settings › MCP servers.
+            crate::navigation::switch_team(window, cx, team_id.to_string());
+            crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+            crate::sidebar::select_settings_section(window, cx, SettingsSection::Mcp);
+            cx.notify();
+            return;
+        }
+        let mut picked: Vec<String> = entries.iter().filter(|entry| ids.contains(&entry.config.id)).map(|entry| entry.config.id.clone()).collect();
+        picked.truncate(domain::agent_settings::MCP_ROW_MAX);
+        update_agent(cx, "change", "the Assistant's MCP servers", api::agents::UpdateInput { mcp_server_ids: Some(picked), pick_team_id: team, ..api::agents::UpdateInput::new(agent.id) });
+    }
+
+    /// #EXP-1988: one team section's rows as the document binds them
+    /// (`/pane/teamPicks/<key>`): THE skills and MCP servers rows over that
+    /// team's lists and its section agent's picks.
+    fn project_team(&self, page: &AgentDefRow, team_id: &str, cx: &App) -> Value {
+        let agent = self.section_agent(page, team_id, cx);
+        let owner = self.editor(&agent, team_id, cx);
+        let (rows, _) = queries::team_skills(cx, team_id);
+        let entries = self.team_mcp(team_id);
+        // Shown while the team has a server (a pick names one of the list's).
+        let mcp_shown = !entries.is_empty();
+        let mut picks = picks_projection(&agent, &rows, entries, owner, mcp_shown);
+        picks["skills"]["pick"] = json!(owner);
+        picks["skills"]["read"] = json!(!owner);
+        picks
     }
 
     /// The form as it stands, for the fixture's validation.
@@ -1006,6 +1075,12 @@ impl AgentDetailPane {
         let picked = super::doc::picked_value(payload).is_some();
         let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
         match name {
+            TEAM_SKILLS | TEAM_MCP_SERVERS if picked => {
+                if let Some(team_id) = context.get("teamId").and_then(Value::as_str) {
+                    let team_id = team_id.to_string();
+                    self.pick_for_team(name, &agent, &team_id, &value, window, cx);
+                }
+            }
             "icon" if !value.is_empty() => update_agent(cx, "change", "the agent's icon", api::agents::UpdateInput { icon: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
             "color" if !value.is_empty() => update_agent(cx, "change", "the agent's color", api::agents::UpdateInput { color: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
             // A machine re-binds the agent and drops its account pin (a
@@ -1124,17 +1199,20 @@ impl AgentDetailPane {
                 row
             })
             .collect();
-        // #EXP-1660 (skills.json `agentRow`): the agent's default skills,
-        // list order; an id whose skill is gone is not shown.
+        // #EXP-1660 / #EXP-1793: the agent's skills and MCP servers over its
+        // team's lists. #EXP-1988: the Assistant's page draws them per team
+        // instead (`teamPicks`), never in Runs on.
         let (rows, _) = queries::team_skills(cx, team_id);
-        let picked: Vec<&domain::rows::SkillRow> = rows.iter().filter(|skill| agent.skill_ids.iter().any(|id| id == &skill.id)).collect();
-        let names: Vec<&str> = picked.iter().map(|skill| skill.name.as_str()).collect();
-        // #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP servers,
-        // team list order; shown while the team has one or the agent names one.
         let mcp_entries = self.team_mcp(team_id);
-        let mcp_picked: Vec<&api::mcp_servers::McpServerListEntry> = mcp_entries.iter().filter(|entry| agent.mcp_server_ids.contains(&entry.config.id)).collect();
-        let mcp_names: Vec<&str> = mcp_picked.iter().map(|entry| entry.config.name.as_str()).collect();
-        let mcp_shown = !mcp_entries.is_empty() || !agent.mcp_server_ids.is_empty();
+        let mcp_shown = !assistant && (!mcp_entries.is_empty() || !agent.mcp_server_ids.is_empty());
+        let mut picks = picks_projection(agent, &rows, mcp_entries, owner, mcp_shown);
+        picks["skills"]["pick"] = json!(owner && !assistant);
+        picks["skills"]["read"] = json!(!owner && !assistant);
+        let team_picks: serde_json::Map<String, Value> = if assistant {
+            self.doc_teams.iter().enumerate().map(|(ix, (team, _))| (team_key(ix), self.project_team(agent, team, cx))).collect()
+        } else {
+            Default::default()
+        };
         // #EXP-1846: every agent's Model row (unpinned = the device default
         // for the login's CLI).
         let cli = agent.cli.clone().unwrap_or_else(|| "claude".to_string());
@@ -1169,18 +1247,9 @@ impl AgentDetailPane {
             "device": {"value": device_value, "options": device_options},
             "hasDevice": has_device,
             "account": {"has": has_device && current.is_some(), "none": has_device && current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
-            "skills": {"value": picked.iter().map(|skill| skill.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::skills::agent_skills_value(&names), "empty": names.is_empty(), "some": !names.is_empty(),
-                "options": rows.iter().map(|skill| {
-                    // THE skills picker's row: the docs glyph, the name, the description caption.
-                    let mut option = json!({"label": skill.name, "value": skill.id, "icon": "ui-docs"});
-                    if !skill.description.is_empty() {
-                        option["description"] = json!(skill.description);
-                    }
-                    option
-                }).collect::<Vec<_>>()},
-            "mcpServers": {"value": mcp_picked.iter().map(|entry| entry.config.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::agent_settings::agent_mcp_servers_value(&mcp_names), "empty": mcp_names.is_empty(),
-                "pick": owner && mcp_shown, "read": !owner && mcp_shown,
-                "options": mcp_entries.iter().map(mcp_option).collect::<Vec<_>>()},
+            "skills": picks["skills"],
+            "mcpServers": picks["mcpServers"],
+            "teamPicks": team_picks,
             "model": {"value": domain::agent_settings::assistant_model_value(agent.model.as_deref(), Some(&cli)), "options": models.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>()},
             "triggerList": agent_triggers::project(&self.triggers, &agent.id, owner, cx),
             "instructionsLoading": matches!(self.load, InstructionsLoad::Loading),
@@ -1214,17 +1283,30 @@ impl Render for AgentDetailPane {
             self.sync_selected_agent(&agent, window, cx);
         }
         let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
-        self.ensure_mcp_loaded(&team_id, cx);
+        // #EXP-1988 (`teamPicks`): Settings › Assistant draws one section per
+        // synced team, team switcher order (a personal team never syncs).
+        let teams: Vec<(String, String)> = if agent.is_assistant() && self.slot.is_none() {
+            Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| (team.id, team.name)).collect()
+        } else {
+            Vec::new()
+        };
+        if teams.is_empty() {
+            self.ensure_mcp_loaded(&team_id, cx);
+        }
+        for (team, _) in &teams {
+            self.ensure_mcp_loaded(team, cx);
+        }
         self.ensure_member_voice(cx);
         // #EXP-1847: the wake phrase's placeholder names the agent (a
         // static prop): a renamed agent rebuilds the tree.
         let placeholder = domain::agent_settings::agent_wake_phrase_placeholder(agent.name.as_deref().unwrap_or_default());
-        if self.slot.is_none() && placeholder != self.wake_placeholder {
-            let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx), &Chrome::of(cx), &placeholder)).expect("the agent document parses");
+        if self.slot.is_none() && (placeholder != self.wake_placeholder || teams != self.doc_teams) {
+            let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx), &Chrome::of(cx), &placeholder, &teams)).expect("the agent document parses");
             self.view.update(cx, |view, cx| {
                 view.set_nested(tree, cx);
             });
             self.wake_placeholder = placeholder;
+            self.doc_teams = teams;
         }
         let projection = self.project(&agent, &team_id, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
@@ -1296,11 +1378,55 @@ impl HostPlugin for PanePlugin {
 /// `deviceId: ""`).
 const EACH_MEMBER: &str = "__each-member__";
 
-fn skills_rows(ink: &Ink) -> [Value; 2] {
+/// #EXP-1988: a Settings › Assistant team section's pick actions (the
+/// event's context names the team).
+const TEAM_SKILLS: &str = "teamSkills";
+const TEAM_MCP_SERVERS: &str = "teamMcpServers";
+
+/// The `/pane/teamPicks` key of the `ix`th team section.
+fn team_key(ix: usize) -> String {
+    format!("t{ix}")
+}
+
+/// THE skills and MCP servers rows' state over one team's lists
+/// (`skills.json` `agentRow`, `mcpRow`): the picked rows in list order (an
+/// id whose row is gone is not shown), the summary, the options.
+fn picks_projection(agent: &AgentDefRow, rows: &[domain::rows::SkillRow], mcp_entries: &[api::mcp_servers::McpServerListEntry], owner: bool, mcp_shown: bool) -> Value {
+    let picked: Vec<&domain::rows::SkillRow> = rows.iter().filter(|skill| agent.skill_ids.iter().any(|id| id == &skill.id)).collect();
+    let names: Vec<&str> = picked.iter().map(|skill| skill.name.as_str()).collect();
+    let mcp_picked: Vec<&api::mcp_servers::McpServerListEntry> = mcp_entries.iter().filter(|entry| agent.mcp_server_ids.contains(&entry.config.id)).collect();
+    let mcp_names: Vec<&str> = mcp_picked.iter().map(|entry| entry.config.name.as_str()).collect();
+    json!({
+        "skills": {"value": picked.iter().map(|skill| skill.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::skills::agent_skills_value(&names), "empty": names.is_empty(), "some": !names.is_empty(),
+            "options": rows.iter().map(|skill| {
+                // THE skills picker's row: the docs glyph, the name, the description caption.
+                let mut option = json!({"label": skill.name, "value": skill.id, "icon": "ui-docs"});
+                if !skill.description.is_empty() {
+                    option["description"] = json!(skill.description);
+                }
+                option
+            }).collect::<Vec<_>>()},
+        "mcpServers": {"value": mcp_picked.iter().map(|entry| entry.config.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::agent_settings::agent_mcp_servers_value(&mcp_names), "empty": mcp_names.is_empty(),
+            "pick": owner && mcp_shown, "read": !owner && mcp_shown,
+            "options": mcp_entries.iter().map(mcp_option).collect::<Vec<_>>()},
+    })
+}
+
+/// A row's change event carrying `context` (a team section's `teamId`).
+fn with_context(mut row: Value, context: &Option<Value>) -> Value {
+    if let Some(context) = context {
+        row["on"]["change"]["event"]["context"] = context.clone();
+    }
+    row
+}
+
+/// THE skills row (skills.json `agentRow`: owners pick, members read) over
+/// `/pane/<base>`; `id` prefixes the row ids.
+fn skills_rows(ink: &Ink, id: &str, base: &str, action: &str, context: &Option<Value>) -> [Value; 2] {
     let label = domain::skills::AGENT_ROW_LABEL;
-    let mut pick = select_row("skills", label, "skills", "skills", json!({"multiple": true, "searchable": true, "placeholder": domain::skills::agent_skills_value(&[])}));
-    pick["visible"] = path("/pane/owner");
-    [pick, value_row(ink, "skills_read", path("/pane/member"), label, path("/pane/skills/summary"), path("/pane/skills/empty"))]
+    let mut pick = with_context(select_row(id, label, base, action, json!({"multiple": true, "searchable": true, "placeholder": domain::skills::agent_skills_value(&[])})), context);
+    pick["visible"] = path(&format!("/pane/{base}/pick"));
+    [pick, value_row(ink, &format!("{id}_read"), path(&format!("/pane/{base}/read")), label, path(&format!("/pane/{base}/summary")), path(&format!("/pane/{base}/empty")))]
 }
 
 /// #EXP-1793: an MCP server's catalog brand as a document icon name (the
@@ -1331,11 +1457,34 @@ fn mcp_option(entry: &api::mcp_servers::McpServerListEntry) -> Value {
 /// #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row (owners
 /// pick, members read), shown while the team has a server or the agent
 /// names one.
-fn mcp_rows(ink: &Ink) -> [Value; 2] {
+fn mcp_rows(ink: &Ink, id: &str, base: &str, action: &str, context: &Option<Value>) -> [Value; 2] {
     let label = domain::agent_settings::MCP_ROW_LABEL;
-    let mut pick = select_row("mcp_servers", label, "mcpServers", "mcpServers", json!({"multiple": true, "searchable": true, "placeholder": domain::agent_settings::agent_mcp_servers_value(&[])}));
-    pick["visible"] = path("/pane/mcpServers/pick");
-    [pick, value_row(ink, "mcp_servers_read", path("/pane/mcpServers/read"), label, path("/pane/mcpServers/summary"), path("/pane/mcpServers/empty"))]
+    let mut pick = with_context(select_row(id, label, base, action, json!({"multiple": true, "searchable": true, "placeholder": domain::agent_settings::agent_mcp_servers_value(&[])})), context);
+    pick["visible"] = path(&format!("/pane/{base}/pick"));
+    [pick, value_row(ink, &format!("{id}_read"), path(&format!("/pane/{base}/read")), label, path(&format!("/pane/{base}/summary")), path(&format!("/pane/{base}/empty")))]
+}
+
+/// #EXP-1988 (agent-settings.json `page.sections` `team-picks`): one
+/// section per team on Settings › Assistant: THE section header (the
+/// team's name) over THE grouped card holding THE skills and MCP servers
+/// rows over that team's lists.
+fn team_pick_sections(ink: &Ink, teams: &[(String, String)]) -> Vec<Value> {
+    teams
+        .iter()
+        .enumerate()
+        .map(|(ix, (team_id, name))| {
+            let key = team_key(ix);
+            let context = Some(json!({"teamId": team_id}));
+            let [skills_pick, skills_read] = skills_rows(ink, &format!("team_{key}_skills"), &format!("teamPicks/{key}/skills"), TEAM_SKILLS, &context);
+            let [mcp_pick, mcp_read] = mcp_rows(ink, &format!("team_{key}_mcp_servers"), &format!("teamPicks/{key}/mcpServers"), TEAM_MCP_SERVERS, &context);
+            let mut rows = vec![skills_pick, skills_read];
+            rows.extend(divided(ink, mcp_pick));
+            rows.extend(divided(ink, mcp_read));
+            let mut section = banded(ink, &format!("team_picks_{key}"), name, ink.group(&format!("team_picks_{key}_group"), rows));
+            section["visible"] = path("/pane/assistant");
+            section
+        })
+        .collect()
 }
 
 /// The Instructions card: the chrome-less field in a glass group, its label
@@ -1374,8 +1523,10 @@ fn runs_on_rows(ink: &Ink) -> Vec<Value> {
         row["props"]["disabled"] = path("/pane/member");
         row
     };
-    let [skills_pick, skills_read] = skills_rows(ink);
-    let [mcp_pick, mcp_read] = mcp_rows(ink);
+    // #EXP-1988: the Assistant's page draws these per team (`/pane/skills/pick`
+    // and `/pane/mcpServers/pick` are false there).
+    let [skills_pick, skills_read] = skills_rows(ink, "skills", "skills", "skills", &None);
+    let [mcp_pick, mcp_read] = mcp_rows(ink, "mcp_servers", "mcpServers", "mcpServers", &None);
     let [account_pick, account_none] = account_rows(ink);
     let mut model = read_only(select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({})));
     model["visible"] = path("/pane/hasDevice");
@@ -1401,7 +1552,7 @@ fn slot_document(ink: &Ink) -> Value {
 /// Triggers list; Voice (#EXP-1847: every agent's rows; the Assistant's
 /// member block follows the document); Instructions, the error and the
 /// owner's Delete (team agents).
-fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Value {
+fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str, teams: &[(String, String)]) -> Value {
     let copy = &AGENT_SETTINGS.copy;
     // Identity: the team agent's icon + colour + name, or the Assistant's mark + name.
     let mut agent_identity = identity(ink);
@@ -1423,16 +1574,11 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Value {
             {"id": "delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": chrome.danger_fg, "flexShrink": 0}},
             {"id": "delete_text", "component": "Text", "props": {"text": field_label("delete")}, "style": {"fontSize": size, "lineHeight": size, "color": chrome.danger_fg, "flexShrink": 0}},
         ]});
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
-        "children": [
-            identity_group,
-            banded(ink, "runs_on", &copy.runs_on, ink.group("runs_on_group", runs_on)),
-            agent_triggers::section(ink, chrome),
-            voice,
-            instructions(ink, chrome),
-            error,
-            delete,
-        ]})
+    let mut children = vec![identity_group, banded(ink, "runs_on", &copy.runs_on, ink.group("runs_on_group", runs_on))];
+    // #EXP-1988: the Assistant's per-team picks right after Runs on.
+    children.extend(team_pick_sections(ink, teams));
+    children.extend([agent_triggers::section(ink, chrome), voice, instructions(ink, chrome), error, delete]);
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0}, "children": children})
 }
 
 #[cfg(test)]
@@ -1443,12 +1589,37 @@ mod tests {
     /// refuses (#EXP-1767's class).
     #[test]
     fn the_document_raises_no_unexpected_issue() {
-        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy");
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy", &[]);
         let bound = super::super::doc::bound_values(&tree);
         let mut surface = eui_core::surface::Surface::new("settings-agent", Default::default());
         let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
         let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
         assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    /// #EXP-1988 (`page.sections` `team-picks`): the Assistant's page draws one
+    /// section per team right after Runs on, headed by the team's name, over
+    /// THE skills and MCP servers rows bound to that team; it raises no issue.
+    #[test]
+    fn the_team_pick_sections_follow_runs_on() {
+        let teams = vec![("t-a".to_string(), "Alpha".to_string()), ("t-b".to_string(), "Beta".to_string())];
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy", &teams);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-agent", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree.clone()).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+        let top: Vec<&str> = tree["children"].as_array().unwrap().iter().filter_map(|node| node["id"].as_str()).collect();
+        let runs_on = top.iter().position(|id| *id == "runs_on").unwrap();
+        assert_eq!(&top[runs_on + 1..runs_on + 3], ["team_picks_t0", "team_picks_t1"]);
+        let mut found = Vec::new();
+        ids(&tree, &mut found);
+        for id in ["team_t0_skills", "team_t0_skills_read", "team_t0_mcp_servers", "team_t0_mcp_servers_read", "team_t1_skills", "team_t1_mcp_servers"] {
+            assert!(found.iter().any(|found| found == id), "{id}");
+        }
+        let text = tree.to_string();
+        assert!(text.contains("\"Alpha\"") && text.contains("\"Beta\""));
+        assert!(text.contains(r#"{"context":{"teamId":"t-b"},"name":"teamMcpServers"}"#) || text.contains(r#"{"name":"teamMcpServers","context":{"teamId":"t-b"}}"#), "{text}");
     }
 
     /// Every id in a document tree.
@@ -1466,7 +1637,7 @@ mod tests {
     /// phrase's placeholder naming the agent.
     #[test]
     fn every_agent_page_has_the_voice_rows() {
-        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy");
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test(), "Hey Sloppy", &[]);
         let mut found = Vec::new();
         ids(&tree, &mut found);
         let voice = tree["children"].as_array().unwrap().iter().find(|node| node["id"] == "voice").expect("the voice section");
