@@ -97,6 +97,7 @@ import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
 import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { AssistantTeamPicks } from "@/components/team/assistant-team-picks"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
 // ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
@@ -806,11 +807,14 @@ export function AgentSettingsPage({
             disabled={readOnly}
             data-testid="agent-model"
           />
-          {skillsRow}
-          {mcpRow}
+          {/* #EXP-1988: the Assistant's skills / MCP servers live in one section per team. */}
+          {assistant ? null : skillsRow}
+          {assistant ? null : mcpRow}
         </GlassGroup>
         <FieldError className="px-1">{deviceError}</FieldError>
       </div>
+
+      {assistant && agent ? <AssistantTeamPicks pageAgent={agent} /> : null}
 
       <AgentTriggers triggers={triggers} readOnly={readOnly} onWrite={writeTriggers} />
 
