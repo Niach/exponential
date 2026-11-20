@@ -17,7 +17,7 @@ import type { SyncedAgent } from "@/components/team/agents-section"
 
 // #EXP-1988 (agent-settings.json `assistant.teamPicks`, `page.sections`
 // `team-picks`): Settings › Assistant draws ONE section per team of its
-// member (the team switcher's order), header = the team's name, card = THE
+// member (by name), header = the team's name, card = THE
 // skills row and THE mcp-servers row over that team's rows. A section edits
 // `assistantPickAgent`'s agent (switch off: that team's own Assistant) and
 // writes only that team's picks (`agents.update {pickTeamId}`).
@@ -28,9 +28,19 @@ export function AssistantTeamPicks({ pageAgent }: { pageAgent: SyncedAgent }) {
   const agents = useAllAgentRows()
   const { data: teamRows } = useLiveQuery((query) => query.from({ teams: teamCollection }))
   const synced = useMemo(() => (teamRows ?? []).map((team) => team.id), [teamRows])
+  // By name, case-insensitive, then id (`teamPicks`: every platform's order).
+  const ordered = useMemo(
+    () =>
+      [...myTeams].sort((a, b) => {
+        const an = a.name.toLowerCase()
+        const bn = b.name.toLowerCase()
+        return an !== bn ? (an < bn ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      }),
+    [myTeams]
+  )
   return (
     <>
-      {myTeams.map((team) => {
+      {ordered.map((team) => {
         const agentId = assistantPickAgent(agents, team.id, synced, me, pageAgent.id)
         const agent = agents.find((row) => row.id === agentId) ?? pageAgent
         return <TeamPicksSection key={team.id} team={team} agent={agent} />
