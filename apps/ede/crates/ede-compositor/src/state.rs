@@ -304,8 +304,6 @@ impl Ede {
     /// Starts Xwayland if enabled, then the autostart commands.
     pub fn start_session(&mut self) {
         self.start_space_units();
-        // #EDE-138: X11 apps in spaces too, each space with its own Xwayland.
-        self.spaces.x11 = cfg!(feature = "xwayland") && self.config.xwayland;
         #[cfg(feature = "xwayland")]
         if self.config.xwayland {
             // Autostart runs from the Ready/Error event.

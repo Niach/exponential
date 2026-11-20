@@ -16,17 +16,15 @@ license = "Apache-2.0"
 # Pinned to a rev of Niach/smithay, branch `client-filter-65aa86f`: Smithay
 # master 65aa86f (2026-11-04; the fixes after 0.7.0: the CRTC-reservation
 # leak, XWayland large transfers + IconicState, dmabuf import release,
-# `XWayland::spawn_with_inherited_env`) plus five commits: a client filter
-# for the wl_seat and wl_output globals (`new_wl_seat_with_filter`,
-# `create_global_with_filter`), `SeatState::remove_seat` and
-# `XwmHandler::dnd_seat` (#EDE-125); the XWayland serial map keyed by the
-# window manager too, and a dropped X11Wm removing its selection
-# transfers' sources (#EDE-138: an Xwayland per agent space). A rev pin,
-# never a floating branch; a bump carries the five commits along. Drop the fork
+# `XWayland::spawn_with_inherited_env`) plus three commits (#EDE-125): a
+# client filter for the wl_seat and wl_output globals
+# (`new_wl_seat_with_filter`, `create_global_with_filter`),
+# `SeatState::remove_seat`, and `XwmHandler::dnd_seat`. A rev pin, never a
+# floating branch; a bump carries the three commits along. Drop the fork
 # when Smithay has them. `default-features = false` keeps the graph to what
 # each crate names. The udev/DRM + libinput backend is the `udev` feature
 # on ede-compositor, so a dev box without those headers still builds winit.
-smithay = { git = "https://github.com/Niach/smithay", rev = "433b5be078c8fa3131b99358b457dc38ebc92f9c", default-features = false }
+smithay = { git = "https://github.com/Niach/smithay", rev = "bacaea68caf8fe24b223ceda7ca67b6ea6ec9838", default-features = false }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tracing = "0.1"

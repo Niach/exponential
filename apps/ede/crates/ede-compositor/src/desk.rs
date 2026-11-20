@@ -35,11 +35,6 @@ impl DeskId {
     pub(crate) const fn number(self) -> u32 {
         self.0
     }
-
-    /// The desk of agent space `space-n`.
-    pub fn from_space_id(space: &ede_protocol::SpaceId) -> Option<DeskId> {
-        space.as_str().strip_prefix("space-")?.parse().ok().filter(|n| *n > 0).map(DeskId)
-    }
 }
 
 /// The desk something belongs to, kept where a lookup would come too late
