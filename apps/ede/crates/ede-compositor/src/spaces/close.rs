@@ -301,6 +301,7 @@ impl Ede {
         // it answers now (fail closed); see `guard`.
         let mut units = units;
         units.guard = self.spaces.guard.required.clone();
+        self.start_polkit_probe(&units);
         self.spaces.units = Some(units);
         self.write_space_guard_state();
     }

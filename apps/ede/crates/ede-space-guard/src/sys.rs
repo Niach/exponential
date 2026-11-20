@@ -15,6 +15,7 @@ pub const BPF_PROG_TYPE_CGROUP_DEVICE: u32 = 15;
 pub const BPF_PROG_TYPE_CGROUP_SOCK_ADDR: u32 = 18;
 pub const BPF_CGROUP_DEVICE: u32 = 6;
 pub const BPF_CGROUP_UNIX_CONNECT: u32 = 49;
+pub const BPF_CGROUP_UNIX_SENDMSG: u32 = 50;
 /// Programs of this cgroup AND its descendants' all run; nobody without
 /// the program's descriptor can detach it.
 pub const BPF_F_ALLOW_MULTI: u32 = 1 << 1;

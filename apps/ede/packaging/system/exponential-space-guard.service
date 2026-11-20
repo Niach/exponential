@@ -2,9 +2,10 @@
 # its socket, ends after 10 minutes without a request. When a process inside
 # an agent space's systemd slice asks, it attaches fixed eBPF programs to
 # that slice, so nothing in the space opens the person's microphone, camera,
-# radio switches or input devices (README.md, "The space guard").
+# radio switches or input devices, nor reaches the system bus or the
+# person's session sockets (README.md, "The space guard").
 # No root: a user of its own and only the capabilities the kernel asks for
-# to load and attach cgroup programs.
+# to load and attach cgroup programs and to read a connect's address in one.
 [Unit]
 Description=Exponential Desktop space guard
 Documentation=https://exponential.at/desktop/
@@ -13,8 +14,8 @@ Requires=exponential-space-guard.socket
 [Service]
 ExecStart=/usr/libexec/exponential-space-guard
 DynamicUser=yes
-CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN
-AmbientCapabilities=CAP_BPF CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

@@ -695,6 +695,40 @@ pub fn guard_probe(socket: &Path) -> Result<(), String> {
     ede_space_guard::client::ask(socket, &ede_space_guard::Request::Probe)
 }
 
+/// #EDE-146: polkit refuses a space's programs. Asked of polkit itself: a
+/// probe in a scope of the slice of all spaces (no connect program there,
+/// so it reaches polkit) checks the package's probe action, which anyone is
+/// allowed and the package's rule answers with a challenge for a space's
+/// process: `pkcheck` exits 2 exactly when the rule was read. `Err` says
+/// why not. Blocks for at most 5 s: in the session's probe thread only.
+pub fn polkit_probe(units: &Units) -> Result<(), String> {
+    let mut probe = Command::new(&units.systemd_run);
+    probe.args(["--user", "--scope", "--quiet", "--collect", &format!("--slice={}", spaces_slice(units.compositor)), &format!("--unit=exponential-p{}-polkit.scope", units.compositor), "-p", "RuntimeMaxSec=10"]);
+    // From systemd 258 on a scope's argv has its `$…` replaced: `$$` would
+    // reach the shell as `$`.
+    if units.no_expand() {
+        probe.arg("--expand-environment=no");
+    }
+    // The shell is the subject (in the scope); its line tells pkcheck's
+    // answer apart from systemd-run's own failure. Both by their paths:
+    // nothing on the person's PATH stands in for them.
+    probe.args(["--", "/bin/sh", "-c", &format!("/usr/bin/pkcheck --action-id {POLKIT_PROBE_ACTION} --process $$ >/dev/null 2>&1; echo pkcheck=$?")]).env("XDG_RUNTIME_DIR", &units.runtime);
+    let Some(out) = output_within(probe, Duration::from_secs(5)) else { return Err("the polkit probe did not answer".into()) };
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "pkcheck=2" => Ok(()),
+        "pkcheck=0" => Err(format!("polkit authorizes a space's programs: {POLKIT_RULE} is missing or not read")),
+        "pkcheck=1" => Err("polkit refuses the probe outright: another rule answers before the package's".into()),
+        "pkcheck=3" => Err("the polkit probe was dismissed".into()),
+        "" => Err(format!("the polkit probe could not start ({})", out.status)),
+        other => Err(format!("the polkit probe ended with {other} (no pkcheck, no polkit, or no probe action)")),
+    }
+}
+
+/// The package's polkit rule (#EDE-146).
+pub const POLKIT_RULE: &str = "/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules";
+/// The package's probe action, which the rule answers with a challenge.
+pub const POLKIT_PROBE_ACTION: &str = "at.exponential.desktop.space-probe";
+
 /// `… space-exec <descriptor> -- argv…`, in the launch's scope: closes
 /// the descriptor it was found through, reads the caller's environment
 /// from its standard input (a JSON object; nothing = none), and becomes
@@ -757,6 +791,41 @@ mod tests {
             dbus_daemon: "/usr/bin/dbus-daemon".into(),
             guard: None,
         }
+    }
+
+    /// #EDE-146: the polkit probe asks polkit from a scope of the slice of
+    /// all spaces and reads pkcheck's answer: 1 (not authorized) = the rule
+    /// is read; 0 = it is not; anything else, or no answer, says why.
+    #[test]
+    fn the_polkit_probe_reads_pkchecks_answer_from_a_scope_of_the_spaces_slice() {
+        let dir = std::env::temp_dir().join(format!("ede-polkit-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("systemd-run");
+        // A stand-in that writes down its arguments, prints what the probe's
+        // shell would, and exits as systemd-run would.
+        let answer = |line: &str, code: u8| {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf '{line}'\nexit {code}\n", dir.join("args").display())).unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            polkit_probe(&Units { systemd_run: fake.clone(), ..units() })
+        };
+        assert_eq!(answer("pkcheck=2\\n", 0), Ok(()));
+        let args = std::fs::read_to_string(dir.join("args")).unwrap();
+        assert_eq!(
+            args.lines().collect::<Vec<_>>(),
+            ["--user", "--scope", "--quiet", "--collect", "--slice=app-exponential_p41.slice", "--unit=exponential-p41-polkit.scope", "-p", "RuntimeMaxSec=10", "--expand-environment=no", "--", "/bin/sh", "-c", "/usr/bin/pkcheck --action-id at.exponential.desktop.space-probe --process $$ >/dev/null 2>&1; echo pkcheck=$?"]
+        );
+        assert_eq!(answer("pkcheck=0\\n", 0), Err(format!("polkit authorizes a space's programs: {POLKIT_RULE} is missing or not read")));
+        // A plain NO (another rule, a broken one) does not prove ours.
+        assert!(answer("pkcheck=1\\n", 0).unwrap_err().contains("another rule"));
+        assert!(answer("pkcheck=127\\n", 0).unwrap_err().contains("no pkcheck"));
+        // systemd-run's own failure (exit 1, the shell never ran) is no answer.
+        assert!(answer("", 1).unwrap_err().contains("could not start"));
+        // systemd before 254 has no --expand-environment (and expands nothing).
+        let _ = answer("pkcheck=2\\n", 0);
+        assert_eq!(polkit_probe(&Units { systemd_run: fake.clone(), version: 253, ..units() }), Ok(()));
+        assert!(!std::fs::read_to_string(dir.join("args")).unwrap().contains("--expand-environment"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn args(cmd: &Command) -> Vec<String> {
