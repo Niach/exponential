@@ -893,8 +893,8 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   (llvmpipe) by themselves. Vulkan apps would pick the GPU and then fail,
   so while a space renders in software (every space, until #EDE-162 turns
   it off for a space) its programs see lavapipe, Mesa's software Vulkan,
-  alone (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`; a launch may not set
-  them). The packages recommend `mesa-vulkan-drivers` (Arch:
+  alone (`VK_ICD_FILENAMES`, which Chromium's SwiftShader may replace; a
+  launch may set neither it nor `VK_DRIVER_FILES`). The packages recommend `mesa-vulkan-drivers` (Arch:
   `vulkan-swrast`); without it a Vulkan app does not start in a space, and
   the doctor says so. The cost: 3D apps and games are slow or do not run
   in a space, and every frame is drawn on the processor. A WebGL page or a
@@ -949,7 +949,9 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   start. A launch that names a profile itself is refused. Chromium and
   Electron apps (VS Code, VSCodium) also always get
   `--enable-unsafe-swiftshader`, so their WebGL can fall back to software,
-  and `--use-angle=swiftshader` while the space renders in software. Firefox
+  and `--use-angle=swiftshader` while the space renders in software. A snap
+  of the Chromium family also gets `--ozone-platform=x11`: it exits where
+  the space's Wayland socket is refused, rather than falling back. Firefox
   gets nothing more: it switches to software WebRender by itself. A browser
   that is not on the list runs like any other program. A browser of the
   system then keeps its data in the space's own directories, but a snap or

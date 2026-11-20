@@ -23,6 +23,11 @@
 //! Firefox is given nothing: on llvmpipe it switches to software WebRender
 //! by itself.
 //!
+//! A snap of the Chromium family also gets `--ozone-platform=x11`: the
+//! snap's AppArmor admits no Wayland socket but `/run/user/<uid>/wayland-N`,
+//! so the space's is refused, and Chromium then exits where GTK (Firefox)
+//! falls back to the space's Xwayland by itself (#EDE-180).
+//!
 //! A browser this table does not know runs as any other program: as a
 //! snap or a Flatpak, with the person's profile (#EDE-166).
 
@@ -38,7 +43,8 @@ use crate::{desk::DeskId, state::Ede};
 /// Which profile flag and switches a browser takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// `--user-data-dir=<dir>`, and the SwiftShader switches.
+    /// `--user-data-dir=<dir>`, and the SwiftShader switches; as a snap,
+    /// `--ozone-platform=x11`.
     Chromium,
     /// `--profile <dir> --new-instance`.
     Firefox,
@@ -190,6 +196,9 @@ pub fn with_profile(argv: &[String], browser: &Browser, dir: Option<&Path>, soft
             flags.push("--use-angle=swiftshader".into());
         }
     }
+    if browser.kind == Kind::Chromium && matches!(browser.packaging, Packaging::Snap(_)) {
+        flags.push("--ozone-platform=x11".into());
+    }
     let mut out = argv[..=browser.at].to_vec();
     out.extend(flags);
     out.extend(after.iter().cloned());
@@ -322,8 +331,12 @@ mod tests {
         assert_eq!(with_profile(&argv(&["chromium", "https://x"]), &chromium, Some(dir), true).unwrap(), argv(&["chromium", "--user-data-dir=/p", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "https://x"]));
         assert_eq!(with_profile(&argv(&["chromium"]), &chromium, Some(dir), false).unwrap(), argv(&["chromium", "--user-data-dir=/p", "--enable-unsafe-swiftshader"]), "a space with a GPU path: ANGLE may still fall back");
         assert_eq!(with_profile(&argv(&["chromium", "--user-data-dir=/mine"]), &chromium, Some(dir), true), Err("--user-data-dir=/mine".into()));
+        let snap = Browser { packaging: Packaging::Snap("chromium"), ..chromium.clone() };
+        assert_eq!(with_profile(&argv(&["chromium", "https://x"]), &snap, Some(dir), true).unwrap(), argv(&["chromium", "--user-data-dir=/p", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--ozone-platform=x11", "https://x"]), "the snap's AppArmor refuses the space's Wayland socket");
+        let flatpak = Browser { packaging: Packaging::Flatpak("org.chromium.Chromium"), at: 2, ..chromium.clone() };
+        assert_eq!(with_profile(&argv(&["flatpak", "run", "org.chromium.Chromium"]), &flatpak, Some(dir), false).unwrap(), argv(&["flatpak", "run", "org.chromium.Chromium", "--user-data-dir=/p", "--enable-unsafe-swiftshader"]));
         let firefox = Browser { kind: Kind::Firefox, name: "firefox", packaging: Packaging::Snap("firefox"), at: 2 };
-        assert_eq!(with_profile(&argv(&["snap", "run", "firefox", "about:blank"]), &firefox, Some(dir), true).unwrap(), argv(&["snap", "run", "firefox", "--profile", "/p", "--new-instance", "about:blank"]));
+        assert_eq!(with_profile(&argv(&["snap", "run", "firefox", "about:blank"]), &firefox, Some(dir), true).unwrap(), argv(&["snap", "run", "firefox", "--profile", "/p", "--new-instance", "about:blank"]), "GTK falls back to X11 by itself");
         for flag in ["-P", "--profile", "-profile", "--profile=/x", "--ProfileManager"] {
             assert!(with_profile(&argv(&["firefox", flag]), &Browser { at: 0, ..firefox.clone() }, Some(dir), true).is_err(), "{flag}");
         }
