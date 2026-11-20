@@ -29,15 +29,22 @@ const ICONS = {
   [SEARCH_LIST_CHATS.icons.agent]: conceptIcon(`search-agent`),
 }
 
-export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; query: string; open: boolean }): GlobalChatsSection | null {
-  const { teamId, teamSlug, open } = input
+export function useGlobalChatSearch(input: {
+  /** #EXP-2027: every team searched (md+: every member team). */
+  teams: readonly { id: string; slug: string }[]
+  query: string
+  open: boolean
+}): GlobalChatsSection | null {
+  const { teams, open } = input
   const navigate = useNavigate()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
-  const { rows } = useTeamSessions(open ? teamId : null)
+  const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
+  const slugOf = useMemo(() => new Map(teams.map((team) => [team.id, team.slug])), [teams])
+  const { rows } = useTeamSessions(open ? teamIds : null)
   const roots = useMemo(() => rows.filter((row) => !row.parentId), [rows])
   // The Chats list's titles (team-wide issue links and digests).
-  const titles = useTeamChatTitles(open ? teamId : null)
+  const titles = useTeamChatTitles(open ? teamIds : null)
   const rootIds = useMemo(() => roots.map((row) => row.id).sort(), [roots])
   const rootKey = rootIds.join(`,`)
 
@@ -133,6 +140,9 @@ export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; q
       const pick = globalChatPick({ query: answerQuery, hit: chat.hit })
       seedFindInChat(pick.sessionId, { query: pick.find.query, ...pick.find.target })
       const target = sessionTarget(pick.sessionId, (id) => sessionCollection.get(id) as SessionRow | undefined, viewerId)
+      // The chat's own team (#EXP-2027: the search spans every member team).
+      const teamSlug = slugOf.get((sessionCollection.get(chat.rootId) as SessionRow | undefined)?.teamId ?? ``) ?? teams[0]?.slug
+      if (!teamSlug) return
       if (target.to === `agent`) {
         void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId: target.agentId } })
       } else if (target.to === `chat`) {
@@ -145,7 +155,7 @@ export function useGlobalChatSearch(input: { teamId: string; teamSlug: string; q
         void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.sessionId } })
       }
     },
-    [answerQuery, navigate, teamSlug, viewerId]
+    [answerQuery, navigate, slugOf, teams, viewerId]
   )
 
   if (available !== true || !open) return null

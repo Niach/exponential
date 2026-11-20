@@ -108,6 +108,7 @@ const PINNED_RECIPES = [
   `scrollToMeetingMode`,
   `waitForMcpActivity`,
   `openAppConsent`,
+  `openSidebarTeamMenu`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

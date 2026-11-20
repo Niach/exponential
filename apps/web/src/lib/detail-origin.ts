@@ -64,6 +64,8 @@ function teamRest(pathname: string): string | null {
 /** The current location as an `OriginScreen`. Unknown paths are context-free,
  * which is the safe answer: the detail then brings its own list. */
 export function screenFromPath(pathname: string): OriginScreen {
+  // #EXP-2027: the team-less Chats page (md+).
+  if (pathname === `/chats` || pathname === `/chats/`) return { kind: `chats` }
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
@@ -244,6 +246,8 @@ export type SidebarOccupant = { kind: `main` } | { kind: `settings` }
  */
 export function sidebarOccupant(pathname: string): SidebarOccupant {
   const rest = teamRest(pathname)
+  // #EXP-2027: the team-less personal settings (`/settings/…`) too.
+  if (pathname === `/settings` || pathname.startsWith(`/settings/`)) return { kind: `settings` }
   if (rest === `/settings` || rest?.startsWith(`/settings/`)) {
     return { kind: `settings` }
   }
