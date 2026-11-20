@@ -16,7 +16,7 @@ pub use editor::Editor as MarkdownEditor;
 pub use editor::editor_text_font;
 pub use environment::MarkdownEditorEnvironment;
 pub use host::{
-    ChipIcon, ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget,
+    ChipIcon, ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageStandIn, ImageTarget,
     MediaInfo, MediaKind,
     InsertOriginalImagePath, PastedImage, ReferenceDecorator, ReferenceKind, ReferenceSpan,
 };

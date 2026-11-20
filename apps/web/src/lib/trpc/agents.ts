@@ -31,7 +31,7 @@ import {
   type Agent,
   type DeviceAgentAccounts,
 } from "@/db/schema"
-import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/auth/membership"
+import { assertTeamMember, assertTeamOwner, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
@@ -279,10 +279,11 @@ export const agentsRouter = router({
       return result
     }),
 
-  /** S-3: the caller's Assistant in the team, created on first use (null
-   *  while they have no device to run it on). */
-  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid })).mutation(async ({ ctx, input }) => {
-    const agent = await ensureAssistant(ctx.session.user.id, input.teamId)
+  /** S-3 / #EXP-1984: the caller's ONE Assistant (their personal team),
+   *  created on first use (null while they have no device to run it on).
+   *  `teamId` (old clients send it) is a membership check only. */
+  ensureAssistant: authedProcedure.input(z.object({ teamId: uuid.optional() }).optional()).mutation(async ({ ctx, input }) => {
+    const agent = await ensureAssistant(ctx.session.user.id, input?.teamId ?? null)
     if (!agent) return { agent: null }
     const { triggerState: _state, ...rest } = agent
     return { agent: rest }
@@ -482,12 +483,15 @@ export const agentsRouter = router({
         // rename / toggle / reorder never undoes a device-reported rotation
         // of a conversation's account (EXP-849).
         const accountWrite = input.account !== undefined || account !== agent.account ? { account } : {}
+        // #EXP-1984: an Assistant (personal team) picks among the rows of
+        // every team of its member; a team agent among its own team's.
+        const pickTeams = agent.role === `assistant` ? await getUserTeamIds(agent.ownerId) : agent.teamId
         const skillIds =
-          input.skillIds === undefined ? undefined : ((await assertSkillsInTeam(tx, agent.teamId, input.skillIds)) ?? [])
+          input.skillIds === undefined ? undefined : ((await assertSkillsInTeam(tx, pickTeams, input.skillIds)) ?? [])
         const mcpServerIds =
           input.mcpServerIds === undefined
             ? undefined
-            : ((await assertMcpServersInTeam(tx, agent.teamId, input.mcpServerIds)) ?? [])
+            : ((await assertMcpServersInTeam(tx, pickTeams, input.mcpServerIds)) ?? [])
         const [updated] = await tx
           .update(agents)
           .set({

@@ -67,6 +67,7 @@ final class FakeChatStore: ChatStoreBackend, @unchecked Sendable {
     }
 
     func searchChat(rootId: String, query: String, limit: UInt32) throws -> String { "{\"hits\":[],\"total\":0}" }
+    func searchAll(query: String, limit: UInt32) throws -> String { "{\"chats\":[],\"total\":0}" }
 
     func applyRetention(nowMs: Int64, windowDays: UInt32?) throws -> UInt64 {
         lock.withLock { retentions.append(windowDays) }

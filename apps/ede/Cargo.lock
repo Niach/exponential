@@ -946,6 +946,7 @@ version = "0.2.29"
 dependencies = [
  "blocking",
  "ede-compositor",
+ "ede-observability",
  "ede-protocol",
  "futures-util",
  "pipewire",
@@ -1015,12 +1016,14 @@ dependencies = [
 name = "ede-ui"
 version = "0.2.29"
 dependencies = [
+ "ede-observability",
  "eui-core",
  "libc",
  "notify",
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

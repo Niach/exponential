@@ -60,7 +60,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -460,11 +460,8 @@ impl Backend for Mac {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let text = ch.to_string();
-        self.unicode(&text, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.unicode(&text, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.unicode(&ch.to_string(), down)
     }
 
     fn person_holds_button(&self) -> bool {
@@ -484,12 +481,6 @@ impl Backend for Mac {
 /// (transient) an entry carrying these types.
 const CONCEALED_TYPE: &str = "org.nspasteboard.ConcealedType";
 const TRANSIENT_TYPE: &str = "org.nspasteboard.TransientType";
-/// The most of the person's clipboard `save` keeps; types past it are
-/// skipped.
-const SAVE_CAP: usize = 32 << 20;
-/// macOS cannot tell when the focused app read the pasteboard: the settle
-/// after the paste key.
-const PASTE_SETTLE: Duration = Duration::from_millis(400);
 
 /// The general pasteboard. Never logs what it holds. `Retained` keeps it
 /// off other threads (not `Send`); NSPasteboard itself works off the main
@@ -542,7 +533,7 @@ impl Clipboard for MacClipboard {
                         continue;
                     };
                     let len = data.len();
-                    if total.saturating_add(len) > SAVE_CAP {
+                    if total.saturating_add(len) > CLIPBOARD_SAVE_MAX {
                         partial = true;
                         continue;
                     }
@@ -574,11 +565,8 @@ impl Clipboard for MacClipboard {
     }
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
-        std::thread::sleep(timeout.min(PASTE_SETTLE));
-        match self.ours.get() {
-            Some(ours) if self.board.changeCount() != ours => Pasted::Missed,
-            _ => Pasted::Settled,
-        }
+        // macOS cannot tell when the focused app read the pasteboard.
+        settle_paste(timeout, self.ours.get().map(|ours| ours as u64), || self.board.changeCount() as u64)
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {

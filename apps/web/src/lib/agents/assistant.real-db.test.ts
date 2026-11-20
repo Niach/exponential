@@ -1,18 +1,18 @@
 // @vitest-environment node
 // S-3 (agent-settings.json `assistant`): against the REAL migrated Postgres.
-// Every member's ONE Assistant per team: created on first use (race-safe on
-// the unique (team_id, owner_id) WHERE role = 'assistant' index) on their
+// Every member's ONE Assistant (#EXP-1984: in their hidden personal team):
+// created on first use (race-safe) on their
 // newest own desktop, null without a device; edited by its owner only (a
 // team owner gets NOT_FOUND), one schedule preset only, never deleted; and
 // migration 0208's data step (a member's own voice agent -> their Assistant,
 // the voice mirror re-derived).
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import { afterAll, describe, expect, it, onTestFinished as onAfterTest, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { ASSISTANT, ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { db } from "@/db/connection"
-import { agents, boards, devices, issues, sessions, teamMembers, teams, userVoiceSettings } from "@/db/schema"
+import { agents, boards, devices, issues, sessions, skills, teamMembers, teams, userVoiceSettings } from "@/db/schema"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
 
 vi.mock(`@/lib/steer`, async (importOriginal) => {
@@ -33,7 +33,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[assistant.real-db] skipped: ${ready.reason}`)
 
-const { ensureAssistant } = await import(`@/lib/agents/assistant`)
+const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assistant`)
 const { agentsRouter } = await import(`@/lib/trpc/agents`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
 const { assertAgentInTeam, onIssueAssignedInTx } = await import(`@/lib/agents/assignment`)
@@ -86,11 +86,10 @@ afterAll(async () => {
 })
 
 const person = (userId: string) => ({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) })
-const assistantsOf = (teamId: string, ownerId: string) =>
-  db
-    .select()
-    .from(agents)
-    .where(and(eq(agents.teamId, teamId), eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
+// #EXP-1984: ONE Assistant per member, in their personal team; `_teamId` =
+// the team the call came from.
+const assistantsOf = (_teamId: string, ownerId: string) =>
+  db.select().from(agents).where(and(eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
 
 describe.skipIf(!ready.ok)(`ensureAssistant (S-3)`, () => {
   it(`creates ONE Assistant on the newest own desktop, even when two first uses race`, async () => {
@@ -116,6 +115,61 @@ describe.skipIf(!ready.ok)(`ensureAssistant (S-3)`, () => {
     // The voice mirror follows the Assistant.
     const [voice] = await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.mate))
     expect(voice).toMatchObject({ agentId: a!.id, voiceDeviceId: desktop })
+  })
+
+  it(`#EXP-1986 switch off (the default): one Assistant per team, no personal team`, async () => {
+    const w = await world()
+    await w.device(w.owner, `desktop`, 1)
+    const [other] = await db.insert(teams).values({ name: `Second`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(other!.id)
+    await db.insert(teamMembers).values({ teamId: other!.id, userId: w.owner, role: `owner` })
+    const a = (await ensureAssistant(w.owner, w.teamId))!
+    const b = (await ensureAssistant(w.owner, other!.id))!
+    expect([a.teamId, b.teamId]).toEqual([w.teamId, other!.id])
+    expect(a.id).not.toBe(b.id)
+    // No team given (a client after #EXP-1987): their oldest one.
+    expect((await ensureAssistant(w.owner))!.id).toBe(a.id)
+    expect(await db.select().from(teams).where(and(eq(teams.ownerId, w.owner), eq(teams.kind, `personal`)))).toHaveLength(0)
+  })
+
+  it(`#EXP-1984: ONE Assistant across the member's teams, in their hidden personal team`, async () => {
+    process.env.ASSISTANT_MOVE = `on`
+    onAfterTest(() => {
+      delete process.env.ASSISTANT_MOVE
+    })
+    const w = await world()
+    await w.device(w.owner, `desktop`, 1)
+    const [other] = await db.insert(teams).values({ name: `Second`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(other!.id)
+    await db.insert(teamMembers).values({ teamId: other!.id, userId: w.owner, role: `owner` })
+    const a = (await ensureAssistant(w.owner, w.teamId))!
+    const b = (await ensureAssistant(w.owner, other!.id))!
+    const c = (await ensureAssistant(w.owner))!
+    expect([b.id, c.id]).toEqual([a.id, a.id])
+    const [team] = await db.select().from(teams).where(eq(teams.id, a.teamId))
+    expect(team).toMatchObject({ kind: `personal`, ownerId: w.owner, slug: personalTeamSlug(w.owner) })
+    // The voice mirror finds it although the personal team has no member row.
+    const [voice] = await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
+    expect(voice?.agentId).toBe(a.id)
+    // Their own Assistant is assignable in every team of theirs.
+    await expect(assertAgentInTeam(db, a.id, other!.id, w.owner)).resolves.toBeUndefined()
+    await expect(assertAgentInTeam(db, a.id, w.teamId, w.mate)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // The tRPC call takes no team (new clients) and a team (old ones).
+    const caller = agentsRouter.createCaller(person(w.owner) as never)
+    expect((await caller.ensureAssistant())?.agent?.id).toBe(a.id)
+    expect((await caller.ensureAssistant({ teamId: other!.id }))?.agent?.id).toBe(a.id)
+    // Its skill pick names rows of any team of theirs; a foreign team's is refused.
+    const skill = async (teamId: string) =>
+      (await db.insert(skills).values({ teamId, name: `s-${id8()}`, description: `d`, body: `b` }).returning({ id: skills.id }))[0]!.id
+    const mine = [await skill(w.teamId), await skill(other!.id)]
+    await caller.update({ id: a.id, skillIds: mine } as never)
+    const [picked] = await db.select({ skillIds: agents.skillIds }).from(agents).where(eq(agents.id, a.id))
+    expect(picked!.skillIds).toEqual(mine)
+    const [foreign] = await db.insert(teams).values({ name: `Foreign`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(foreign!.id)
+    await expect(caller.update({ id: a.id, skillIds: [await skill(foreign!.id)] } as never)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
   })
 
   it(`falls back to the newest device, and answers null without one`, async () => {

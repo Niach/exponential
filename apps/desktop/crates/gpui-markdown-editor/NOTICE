@@ -463,6 +463,14 @@ plus the maintenance UI the issue asks for)
   exactly like the keyboard. Table cells and blocks that refuse a table insert
   (code, math) now open the edit rows alone instead of no menu. The submenu
   opens level with the Insert row. Tests: `edit_rows_*` in the same file.
+- EXP-1968, src/host.rs + src/components/block/{render.rs,interactions.rs,
+  runtime/image.rs} + src/components/markdown/image.rs: a host resolver may
+  REFUSE a picture (`ImageSourceResolver::stand_in(src, alt)`, asked before
+  `resolve`, also for HTML `<img>` nodes). A refused picture is never handed
+  to `img()`: its block shows the host's stand-in text in the picture's place
+  (the link look when it carries an href, else plain text), keeps only the
+  `…` menu (no resize handles), and a press on a link emits
+  `OpenLinkRequested` like a media tile. The Markdown is untouched.
 
 (This list is kept current as further vendoring changes land; see git history
 of this directory for the precise diffs.)

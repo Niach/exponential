@@ -90,6 +90,27 @@ struct SearchListTextField: UIViewRepresentable {
     }
 }
 
+/// #EDE-99 (search-list.json CHATS): the global search's genUI Sections.
+/// `issuesTitle` nil = today's list (no headers); otherwise the items wear
+/// THE Section band (title + count) and `after` (the Chats section) follows
+/// them. `count` = the input's trailing count (nil = none), `empty` = the
+/// empty state shows, `submit` = Return with no item row (the top chat).
+public struct SearchListSections {
+    let issuesTitle: String?
+    let count: Int?
+    let empty: Bool
+    let after: AnyView?
+    let submit: (() -> Void)?
+
+    public init(issuesTitle: String?, count: Int?, empty: Bool, after: AnyView? = nil, submit: (() -> Void)? = nil) {
+        self.issuesTitle = issuesTitle
+        self.count = count
+        self.empty = empty
+        self.after = after
+        self.submit = submit
+    }
+}
+
 /// THE search list: the input row and the picker rows under it.
 public struct SearchListView<Value: Hashable & Sendable>: View {
     let items: [PickerItem<Value>]
@@ -115,6 +136,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
     /// text, clear — with the count trailing outside it.
     let leading: AnyView?
     let fieldChrome: Bool
+    let sections: SearchListSections?
 
     public init(
         items: [PickerItem<Value>],
@@ -131,8 +153,10 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         onPick: @escaping (Value) -> Void,
         onBackspaceEmpty: (() -> Void)? = nil,
         leading: AnyView? = nil,
-        fieldChrome: Bool = false
+        fieldChrome: Bool = false,
+        sections: SearchListSections? = nil
     ) {
+        self.sections = sections
         self.leading = leading
         self.fieldChrome = fieldChrome
         self.items = items
@@ -180,7 +204,11 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
             identifier: inputIdentifier,
             autofocus: autofocus,
             onSubmit: {
-                if let top = visible.first(where: { !$0.disabled }) { onPick(top.value) }
+                if let top = visible.first(where: { !$0.disabled }) {
+                    onPick(top.value)
+                } else {
+                    sections?.submit?()
+                }
             },
             onBackspaceEmpty: onBackspaceEmpty
         )
@@ -189,7 +217,14 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
 
     @ViewBuilder
     private var count: some View {
-        if hasQuery, !loading {
+        if let sections {
+            if let count = sections.count {
+                Text("\(count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityIdentifier(SearchList.TestId.count)
+            }
+        } else if hasQuery, !loading {
             Text("\(visible.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -248,10 +283,14 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                 if loading {
                     SkeletonRows(rowHeight: CGFloat(SearchList.rowHeightPhone), dividers: false)
                 } else if visible.isEmpty {
-                    if let emptyText {
+                    if let emptyText, sections?.empty ?? true {
                         EmptyState(title: emptyText, size: .list)
                     }
                 } else {
+                    if let title = sections?.issuesTitle {
+                        GlassSectionBand(title, count: visible.count)
+                            .accessibilityIdentifier(SearchList.GlobalChats.TestIds.issues)
+                    }
                     let top = visible.first(where: { !$0.disabled })?.value
                     ForEach(visible) { item in
                         GlassPickerSheetRow(
@@ -273,6 +312,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                         .accessibilityAddTraits(item.value == top ? .isSelected : [])
                     }
                 }
+                if let after = sections?.after { after }
                 if let footer { footer() }
             }
             .padding(.horizontal, GlassPickerTokens.listHPadding)

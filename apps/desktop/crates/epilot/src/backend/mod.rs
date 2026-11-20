@@ -323,6 +323,30 @@ pub(crate) enum Pasted {
     Missed,
 }
 
+/// #EXP-1994: the most of the person's clipboard a save keeps, every format
+/// together (macOS, Windows, X11; eDE's compositor caps its own snapshot,
+/// `ede_protocol::CLIPBOARD_TOTAL_MAX`). A format past it is left out: the
+/// save is partial.
+pub(crate) const CLIPBOARD_SAVE_MAX: usize = 32 << 20;
+
+/// Where the OS cannot tell when the focused window read the clipboard
+/// (macOS, Windows): how long a paste settles after its key.
+pub(crate) const PASTE_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// #EXP-1994: [`Clipboard::wait_pasted`] where the OS cannot tell (macOS,
+/// Windows): after the settle (at most `timeout`), `Settled` while the
+/// clipboard's change count (`now`) is still the one our `set_text` left
+/// (`set`); another program's copy since, or no `set_text` at all, is
+/// `Missed`.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn settle_paste(timeout: std::time::Duration, set: Option<u64>, now: impl FnOnce() -> u64) -> Pasted {
+    std::thread::sleep(timeout.min(PASTE_SETTLE));
+    match set {
+        Some(set) if now() == set => Pasted::Settled,
+        _ => Pasted::Missed,
+    }
+}
+
 /// The clipboard, for the agent's own copy and paste only (`tools.rs`):
 /// never an ambient read of the person's clipboard.
 pub(crate) trait Clipboard {
@@ -363,6 +387,17 @@ pub(crate) enum Target {
     Space(u32),
 }
 
+/// How long a typed character's key stays down ([`type_with`]).
+pub(crate) const CHAR_HOLD: std::time::Duration = std::time::Duration::from_millis(6);
+
+/// #EXP-1994: typing one character, every backend's: `stroke`'s press,
+/// [`CHAR_HOLD`], its release. A press that failed is not released.
+pub(crate) fn type_with(stroke: impl Fn(bool) -> Result<(), String>) -> Result<(), String> {
+    stroke(true)?;
+    std::thread::sleep(CHAR_HOLD);
+    stroke(false)
+}
+
 pub(crate) trait Backend: Send {
     /// The target this backend drives ([`open`]'s). A backend for another
     /// target than the person's must override it.
@@ -394,8 +429,13 @@ pub(crate) trait Backend: Send {
     /// Press or release one key. A character that needs Shift on this
     /// layout gets it from the backend.
     fn key(&self, key: Key, down: bool) -> Result<(), String>;
+    /// Press or release one character, whatever the layout: a half of
+    /// [`Backend::type_char`].
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String>;
     /// Type one character (press + release), whatever the layout.
-    fn type_char(&self, ch: char) -> Result<(), String>;
+    fn type_char(&self, ch: char) -> Result<(), String> {
+        type_with(|down| self.char_stroke(ch, down))
+    }
     /// #EXP-1979: whether the person still holds a mouse button they held
     /// when the lock engaged ([`PERSON_BUTTONS`]).
     fn person_holds_button(&self) -> bool {
@@ -597,6 +637,29 @@ mod tests {
         assert!(displays.iter().all(|display| display.id.chars().count() == 128));
     }
 
+    /// #EXP-1994: a typed character is its press, a hold, its release, on
+    /// every backend; a press that failed is never released.
+    #[test]
+    fn a_typed_character_is_press_hold_release() {
+        let strokes = std::cell::RefCell::new(Vec::new());
+        let started = std::time::Instant::now();
+        let stroke = |down| {
+            strokes.borrow_mut().push((down, started.elapsed()));
+            Ok(())
+        };
+        assert_eq!(type_with(stroke), Ok(()));
+        let strokes = strokes.into_inner();
+        assert_eq!(strokes.iter().map(|(down, _)| *down).collect::<Vec<_>>(), [true, false]);
+        assert!(strokes[1].1 - strokes[0].1 >= CHAR_HOLD);
+
+        let tried = std::cell::RefCell::new(Vec::new());
+        let refused = type_with(|down| {
+            tried.borrow_mut().push(down);
+            Err("no key".to_string())
+        });
+        assert_eq!((refused, tried.into_inner()), (Err("no key".to_string()), vec![true]));
+    }
+
     /// #FEED-164: `work-screen.json` `idCases`, and a reorder of twins keeps
     /// each one's id.
     #[test]
@@ -711,5 +774,20 @@ mod tests {
     fn the_stable_hash_is_fnv1a() {
         assert_eq!(stable_hash(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(stable_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
+
+    /// #EXP-1994: where the OS cannot see the paste (macOS, Windows) it has
+    /// settled while the clipboard still holds our text; another copy since,
+    /// or nothing set, missed; the settle never outlasts the timeout.
+    #[test]
+    fn a_paste_settles_while_the_clipboard_is_still_ours() {
+        let no_wait = std::time::Duration::ZERO;
+        assert_eq!(settle_paste(no_wait, Some(7), || 7), Pasted::Settled);
+        assert_eq!(settle_paste(no_wait, Some(7), || 8), Pasted::Missed, "another program copied since");
+        assert_eq!(settle_paste(no_wait, None, || panic!("nothing set: nothing to read")), Pasted::Missed);
+        let started = std::time::Instant::now();
+        settle_paste(std::time::Duration::from_millis(20), Some(1), || 1);
+        let settled = started.elapsed();
+        assert!(settled >= std::time::Duration::from_millis(20) && settled < PASTE_SETTLE, "{settled:?}");
     }
 }

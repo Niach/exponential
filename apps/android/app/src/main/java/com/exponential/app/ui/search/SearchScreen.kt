@@ -37,6 +37,20 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.SearchList
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.highlightedTitle
+import com.exponential.app.ui.components.traceHighlightFills
+import com.exponential.app.ui.components.picker.PickerMark
+import com.exponential.app.ui.components.picker.PickerRow
+import com.exponential.app.ui.session.FindMarks
+import at.exponential.ui.primitives.MarkdownHighlight
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.remember
+import androidx.compose.ui.text.AnnotatedString
 import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.CircleIconButton
@@ -68,6 +82,8 @@ import com.exponential.app.ui.theme.glassRow
 fun SearchScreen(
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
+    /** #EDE-99: a Chats row's pick ([isRoot] = it opens the chat, else the child's session view). */
+    onOpenChatHit: (pick: SearchList.ChatPick, isRoot: Boolean) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -76,6 +92,12 @@ fun SearchScreen(
     // so a restored field (process recreation) and its results line up.
     var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(Unit) { viewModel.setQuery(query) }
+    // #EDE-99 (search-list.json A PICK): the hit's session with find in chat
+    // open on the query, starting at the hit.
+    val openChat: (SearchList.ChatRow) -> Unit = { row ->
+        val pick = SearchList.globalChatPick(query, row.hit)
+        onOpenChatHit(pick, pick.sessionId == row.rootId)
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -89,10 +111,18 @@ fun SearchScreen(
                     query = it
                     viewModel.setQuery(it)
                 },
-                placeholder = "Search issues",
-                count = state.results.size.takeIf { state.query.isNotEmpty() },
+                // #EDE-99: with a chat store the search names chats too.
+                placeholder = if (state.store) SearchList.Chats.Copy.PLACEHOLDER else "Search issues",
+                count = state.sections.count,
                 autoFocus = true,
-                onSubmit = { state.results.firstOrNull()?.let { onOpenIssue(it.issue.id) } },
+                onSubmit = {
+                    val issue = state.results.firstOrNull()
+                    val chat = state.chats.firstOrNull()
+                    when {
+                        issue != null -> onOpenIssue(issue.issue.id)
+                        chat != null && state.sections.titled -> openChat(chat)
+                    }
+                },
                 asField = true,
                 leading = {
                     CircleIconButton(
@@ -109,6 +139,17 @@ fun SearchScreen(
             // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
             // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             when {
+                // #EDE-99: with a store, ONE list of titled Sections (Issues, Chats).
+                state.sections.titled && state.query.isNotEmpty() -> if (state.sections.empty) {
+                    EmptyState(title = SearchList.Chats.Copy.NO_RESULTS, icon = ExpIcons.navSearch)
+                } else {
+                    SearchSections(
+                        state = state,
+                        onOpenIssue = onOpenIssue,
+                        onOpenChat = openChat,
+                        modifier = Modifier.weight(1f).padding(top = 4.dp, bottom = 8.dp),
+                    )
+                }
                 state.query.isEmpty() -> EmptyState(
                     title = "Search issues across this team's boards.",
                     description = "Matches identifiers, titles, full text, and by:creator.",
@@ -141,3 +182,113 @@ fun SearchScreen(
     }
 }
 
+/**
+ * #EDE-99 (search-list.json CHATS): the global search as genUI Sections:
+ * Issues (the issue rows) then Chats (the chat store's rows), each only
+ * while it has rows, its count after the title; Chats spins while the store
+ * answers a newer query, its previous rows kept. The top row is
+ * preselected (Enter picks it).
+ */
+@Composable
+private fun SearchSections(
+    state: SearchState,
+    onOpenIssue: (String) -> Unit,
+    onOpenChat: (SearchList.ChatRow) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    LazyColumn(
+        modifier = modifier.fillMaxWidth().testTag(SearchList.LIST_TEST_ID),
+        contentPadding = PaddingValues(vertical = 4.dp),
+    ) {
+        var first = true
+        for (section in state.sections.sections) {
+            val title = if (section.key == SearchList.SectionKey.Issues) SearchList.Chats.Copy.ISSUES else SearchList.Chats.Copy.CHATS
+            val tag = if (section.key == SearchList.SectionKey.Issues) SearchList.Chats.TestIds.ISSUES else SearchList.Chats.TestIds.CHATS
+            item(key = "section:${section.key.wire}") {
+                SectionHeader(
+                    title = title,
+                    loading = section.loading,
+                    modifier = Modifier.padding(top = if (section.key == SearchList.SectionKey.Chats) 8.dp else 0.dp).testTag(tag),
+                    trailing = { Text(section.count.toString(), style = MaterialTheme.typography.labelLarge, color = muted) },
+                )
+            }
+            when (section.key) {
+                SearchList.SectionKey.Issues -> {
+                    val top = first
+                    itemsIndexed(state.results, key = { _, result -> "issue:${result.issue.id}" }) { index, result ->
+                        Box(Modifier.testTag(SearchList.ROW_TEST_ID)) {
+                            PickerRow(
+                                item = PickerItem(value = result.issue.id, label = result.issue.title),
+                                mark = PickerMark.None,
+                                onClick = { onOpenIssue(result.issue.id) },
+                                body = { IssueSearchRowBody(result.issue.identifier, result.issue.title, result.status) },
+                                highlighted = top && index == 0,
+                            )
+                        }
+                    }
+                }
+                SearchList.SectionKey.Chats -> {
+                    val top = first
+                    itemsIndexed(state.chats, key = { _, row -> row.key }) { index, row ->
+                        Box(Modifier.testTag(SearchList.Chats.TestIds.CHAT_ROW)) {
+                            PickerRow(
+                                item = PickerItem(value = row.key, label = row.title),
+                                mark = PickerMark.None,
+                                onClick = { onOpenChat(row) },
+                                body = { SearchChatRowBody(row) },
+                                highlighted = top && index == 0,
+                            )
+                        }
+                    }
+                }
+            }
+            first = false
+        }
+    }
+}
+
+/**
+ * #EDE-99: a Chats row = THE row: the concept glyph (`search-chat`, an
+ * agent's `search-agent`), the chat's title over the hit's snippet (one
+ * line, the query's matches painted by genUI `highlight`), the date trailing.
+ */
+@Composable
+private fun RowScope.SearchChatRowBody(row: SearchList.ChatRow) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Icon(
+        ExpIcons.byConcept(row.icon) ?: ExpIcons.searchChat,
+        contentDescription = null,
+        modifier = Modifier.size(16.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+    )
+    Spacer(Modifier.width(10.dp))
+    Column(
+        modifier = Modifier.weight(1f).heightIn(min = (SearchList.Chats.ROW_HEIGHT_PHONE - 16).dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            row.title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val style = MaterialTheme.typography.bodySmall
+        val highlight = remember(row.highlight) { MarkdownHighlight(row.highlight, -1, FindMarks.Match, FindMarks.MatchCurrent) }
+        val marked = remember(row.subtitle, highlight) { highlightedTitle(AnnotatedString(row.subtitle), highlight) }
+        val fills = traceHighlightFills(marked, style)
+        Text(
+            marked,
+            style = style,
+            color = muted,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = fills.second,
+            modifier = Modifier.then(fills.first),
+        )
+    }
+    Spacer(Modifier.width(8.dp))
+    Text(row.trailing, style = MaterialTheme.typography.labelMedium, color = muted, maxLines = 1)
+}
