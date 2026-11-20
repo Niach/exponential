@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-20-phones-calls-find-search`,
+    date: `2026-11-20`,
+    title: `Calls, find in chat and sharing on phones`,
+    summary: `Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, global search finds chats, and Pins are gone.`,
+    body: `- **Calls**: a call from your phone follows the same rules as on the desktop: it reaches the device you picked, falls back the same way, and an opening line that arrives late is said at pickup instead of crashing the app.
+- **Find in chat**: finds and lands on every message of the chat, older synced messages and the ones already shown included.
+- **Global search finds chats**: the search tab lists the chats that mention your words; a pick opens the chat on that message.
+- **Pins are gone**: no Pin or Unpin buttons; the app icon's long-press menu lists your Assistant and your newest chats.
+- **iOS sharing**: sharing pictures into Exponential stages them like the chat's composer: the same limits, and removing one renumbers the rest.
+- **iOS settings**: values in settings rows draw in the muted value colour.`,
+  },
+  {
     id: `2026-11-20-desktop-cli-0-14-171`,
     date: `2026-11-20`,
     title: `Calls in their own session, computer use on every keyboard, chats in global search`,

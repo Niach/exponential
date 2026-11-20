@@ -1,0 +1,4 @@
+- Calls from your phone follow the same rules as on the desktop; a late opening line no longer crashes the app
+- Find in chat reaches every message of the chat, older ones included
+- Global search finds chats and opens them on the matching message
+- Pins are gone; the app icon's long-press menu lists your Assistant and newest chats
