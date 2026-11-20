@@ -39,7 +39,7 @@ use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Once};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, GlobalFree, BOOL, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -654,18 +654,10 @@ impl Backend for Win32 {
             // SAFETY: no pointers.
             unsafe { SetForegroundWindow(window) };
         }
-        let until = Instant::now() + Duration::from_millis(500);
-        loop {
-            if foreground() == window {
-                return Ok(());
-            }
-            if Instant::now() >= until {
-                return Err(format!(
-                    "Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        if crate::backend::wait_active(crate::backend::ACTIVATE_WAIT_WINDOWS, || foreground() == window) {
+            return Ok(());
         }
+        Err(format!("Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."))
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {

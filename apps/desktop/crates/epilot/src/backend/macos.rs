@@ -374,7 +374,7 @@ impl Backend for Mac {
         // #EXP-1979: the window itself, not just its app: a raise that
         // missed leaves another of the app's windows in front.
         let front = u32::try_from(pid).ok();
-        settle_activation(id, activated, ACTIVATE_WAIT, || {
+        settle_activation(id, activated, crate::backend::ACTIVATE_WAIT, || {
             let named = ax_front_windows(pid);
             window_in_front(id, frontmost_pid() == front, named.as_deref(), || self.list_windows().ok().and_then(|windows| front_window(&windows)))
         })
@@ -694,28 +694,15 @@ fn below_notch(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
     })
 }
 
-/// How long an accepted activation may take to put the window in front.
-const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
-
 /// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
 /// one that did not put the window in front within `wait` (`in_front`;
 /// #EXP-1979: the window, not just its app), is an error (the agent's keys
 /// would go to the window in front).
-fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
-    let refused = || Err(format!("macOS did not activate window {id}."));
-    if !activated {
-        return refused();
+fn settle_activation(id: u64, activated: bool, wait: Duration, in_front: impl FnMut() -> bool) -> Result<(), String> {
+    if activated && crate::backend::wait_active(wait, in_front) {
+        return Ok(());
     }
-    let until = Instant::now() + wait;
-    loop {
-        if in_front() {
-            return Ok(());
-        }
-        if Instant::now() >= until {
-            return refused();
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Err(format!("macOS did not activate window {id}."))
 }
 
 /// #EXP-1979: the window in front of a [`Backend::list_windows`] answer:

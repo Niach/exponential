@@ -151,6 +151,33 @@ pub(crate) struct WindowInfo {
     pub fullscreen: bool,
 }
 
+/// How long an accepted activation may take to put the window in front
+/// (X11, macOS; Windows waits [`ACTIVATE_WAIT_WINDOWS`]).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", test)), allow(dead_code))]
+pub(crate) const ACTIVATE_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
+/// Windows' own wait, as it was.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub(crate) const ACTIVATE_WAIT_WINDOWS: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// #EXP-1994: the end of every `activate_window` that waits for the OS (X11,
+/// macOS, Windows; eDE's compositor answers once it focused the window):
+/// `is_active` is read at once and every 20 ms after, until it holds
+/// (`true`) or `wait` ran out (`false`: the agent's keys would go to the
+/// window in front, so the call fails).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn wait_active(wait: std::time::Duration, mut is_active: impl FnMut() -> bool) -> bool {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        if is_active() {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Button {
     Left,
@@ -716,6 +743,29 @@ mod tests {
             polls.get() <= 2
         };
         assert_eq!(wait_for_person_buttons(held_twice, || false, std::time::Duration::from_secs(5)), ButtonWait::Free);
+    }
+
+    /// #EXP-1994: an activation counts once the window is active, read at
+    /// once and again until the wait runs out, on every OS that waits.
+    #[test]
+    fn an_activation_waits_until_the_window_is_active_at_most_the_wait() {
+        let reads = std::cell::Cell::new(0);
+        assert!(wait_active(std::time::Duration::ZERO, || {
+            reads.set(reads.get() + 1);
+            true
+        }));
+        assert_eq!(reads.get(), 1, "read at once, even without a wait");
+        let started = std::time::Instant::now();
+        assert!(!wait_active(std::time::Duration::from_millis(60), || false));
+        assert!(started.elapsed() >= std::time::Duration::from_millis(60));
+        reads.set(0);
+        let third = || {
+            reads.set(reads.get() + 1);
+            reads.get() >= 3
+        };
+        assert!(wait_active(std::time::Duration::from_secs(5), third));
+        assert_eq!(reads.get(), 3);
+        assert!(ACTIVATE_WAIT > ACTIVATE_WAIT_WINDOWS);
     }
 
     /// #EXP-1921: a lock thread that answers after `take` gave up hears so
