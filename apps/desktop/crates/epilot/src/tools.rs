@@ -219,6 +219,13 @@ impl Screen {
             let work = (0..displays.len()).collect();
             return Ok(Screen { displays, windows, state, work });
         }
+        // #EXP-1514: the pick Agent space only: nothing is done here, so
+        // nothing is read either; the gate refuses it first.
+        if picked == Some(work_screen::SPACE_PICK) {
+            let mut state = work_screen::state_of(&displays, &[], None);
+            state.space_only = true;
+            return Ok(Screen { displays, windows: Ok(Vec::new()), state, work: Vec::new() });
+        }
         // #FEED-161: the stored id names the display, whatever its index now.
         let picked = work_screen::resolve(&displays, picked);
         // A connected pick is the work screen whatever is fullscreen: only
@@ -1432,6 +1439,33 @@ pub(crate) mod tests {
         // A path whose size reads 0 and never ends: the read is bounded too.
         #[cfg(unix)]
         assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+    }
+
+    #[test]
+    /// #EXP-1514 (`spaceGateCases`, row 11): with the pick Agent space only
+    /// every seat call but `wait` is refused `spaceOnly`, first, whatever is
+    /// connected; nothing is read, driven or locked.
+    #[test]
+    fn the_pick_agent_space_only_refuses_every_seat_call_but_wait() {
+        let backend = FakeBackend::default();
+        let engaged = std::cell::Cell::new(0);
+        let engage = || {
+            engaged.set(engaged.get() + 1);
+            Ok(())
+        };
+        let mut display = None;
+        let mut run = |name: &str, args: Value| {
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: Some(work_screen::SPACE_PICK.to_string()), engage: &engage })
+        };
+        let text = "This device keeps agents in agent spaces. Nothing is done on its screen.";
+        for (name, args) in [("screenshot", json!({})), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({})), ("type", json!({ "text": "a" })), ("activate_window", json!({ "id": 7 }))] {
+            let refused = run(name, args);
+            assert_eq!(refused["structuredContent"], json!({ "refusal": "wrong_display", "kind": "spaceOnly", "work": [] }), "{name}");
+            assert_eq!(refused["content"][0]["text"], text);
+        }
+        assert_eq!(run("wait", json!({ "seconds": 0 }))["isError"], Value::Null);
+        assert_eq!(engaged.get(), 0, "never the person's input");
+        assert!(backend.log.lock().unwrap().is_empty(), "nothing done on the screen");
     }
 
     #[test]

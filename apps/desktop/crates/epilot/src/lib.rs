@@ -252,8 +252,20 @@ pub struct ScreenState {
 /// NEW-59: the device's Work screen setting (`launch_defaults.computerUseDisplayId`,
 /// the picked [`Display::id`]; `None` = Auto). The hub resolves it to the
 /// display carrying that id on every call (#FEED-161).
+///
+/// #EXP-1514: `Some("space")` (Agent space only) restricts DRIVING: a
+/// person run's hold is released at once (on a thread of its own, after
+/// the driving call in flight) and every later seat call is refused
+/// `spaceOnly`; screen memory and the voice overlay read it as Auto.
 pub fn set_work_display(id: Option<String>) {
+    let space_only = id.as_deref() == Some(work_screen::SPACE_PICK);
     work_screen::set_picked(backend::Target::Person, id);
+    if space_only {
+        if let Some(Ok(live)) = LIVE.get() {
+            let host = live.host.clone();
+            let _ = std::thread::Builder::new().name("computer-use-release".into()).spawn(move || host.release_person_hold());
+        }
+    }
 }
 
 /// The Work screen setting as the hub reads it now ([`set_work_display`]).
