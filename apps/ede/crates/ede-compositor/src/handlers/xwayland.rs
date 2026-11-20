@@ -29,6 +29,7 @@ use smithay::{
 
 use crate::{
     desk::DeskId,
+    spaces::x11::XwmDesk,
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
@@ -115,7 +116,11 @@ impl XWaylandShellHandler for Ede {
         &mut self.xwayland_shell_state
     }
 
-    fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
+    fn surface_associated(&mut self, xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
+        // #EDE-138: a space's X11 window is no business of the person's keyboard.
+        if self.desk_of_xwm(xwm) != XwmDesk::Person {
+            return;
+        }
         let keyboard = self.desk.seat.get_keyboard().unwrap();
         // #EDE-122: restored right after its minimize, the window was given
         // the keyboard on the surface Xwayland then destroyed: the keyboard
@@ -130,21 +135,44 @@ impl XWaylandShellHandler for Ede {
 }
 
 impl XwmHandler for Ede {
-    fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
-        self.xwm.as_mut().expect("X11 events only arrive once the WM runs")
+    fn xwm_state(&mut self, xwm: XwmId) -> &mut X11Wm {
+        // #EDE-138: the person's, or a space's (also a closed space's until
+        // its connection is gone); smithay asks for no other.
+        if self.xwm.as_ref().is_some_and(|wm| wm.id() == xwm) {
+            return self.xwm.as_mut().expect("checked");
+        }
+        self.space_xwm_state(xwm).expect("X11 events only arrive for a window manager that runs")
+    }
+
+    /// #EDE-138: a space's Xwayland ended (its space closed, or it died).
+    fn disconnected(&mut self, xwm: XwmId) {
+        self.space_xwm_disconnected(xwm);
     }
 
     /// #EDE-125: the person's X11 clients drag on the person's seat. smithay
     /// would take the seat whose button went down last, an agent's in its
     /// space included.
-    fn dnd_seat(&mut self, _xwm: XwmId, seat: &smithay::input::Seat<Self>) -> bool {
-        *seat == self.desk.seat
+    fn dnd_seat(&mut self, xwm: XwmId, seat: &smithay::input::Seat<Self>) -> bool {
+        // #EDE-138: a space's X11 clients drag on the space's seat.
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => *seat == self.desk.seat,
+            XwmDesk::Space(desk) => self.try_desk(desk).is_some_and(|d| *seat == d.seat),
+            XwmDesk::Gone => false,
+        }
     }
 
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
-    fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn map_window_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(desk) => {
+                self.space_x11_map(desk, surface);
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Err(e) = surface.set_mapped(true) {
             tracing::warn!("X11 map: {e}");
             return;
@@ -168,12 +196,28 @@ impl XwmHandler for Ede {
         }
     }
 
-    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn mapped_override_redirect_window(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(desk) => {
+                self.space_x11_map(desk, surface);
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         let loc = surface.last_configure().loc;
         self.desk.space.map_element(Window::new_x11_window(surface), loc, true);
     }
 
-    fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn unmapped_window(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(desk) => {
+                self.space_x11_unmap(desk, &surface);
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         // Parked on another workspace: forget it there.
         if let Some(parked) = self.desk.workspaces.parked.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
@@ -204,7 +248,7 @@ impl XwmHandler for Ede {
 
     fn configure_request(
         &mut self,
-        _xwm: XwmId,
+        xwm: XwmId,
         surface: X11Surface,
         x: Option<i32>,
         y: Option<i32>,
@@ -212,6 +256,24 @@ impl XwmHandler for Ede {
         h: Option<u32>,
         _reorder: Option<Reorder>,
     ) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            // A space's window keeps what its space gave it; before it maps
+            // it may ask (an override-redirect one places itself).
+            XwmDesk::Space(desk) => {
+                let mapped = self.try_desk(desk).is_some_and(|d| d.space.elements().any(|w| w.x11_surface() == Some(&surface)));
+                if !mapped || surface.is_override_redirect() {
+                    let mut geo = surface.last_configure();
+                    geo.loc = (x.unwrap_or(geo.loc.x), y.unwrap_or(geo.loc.y)).into();
+                    geo.size = (w.map_or(geo.size.w, |w| w as i32), h.map_or(geo.size.h, |h| h as i32)).into();
+                    let _ = surface.configure(geo);
+                } else {
+                    let _ = surface.configure(None);
+                }
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         // Tiled and fullscreen windows keep their geometry; floating ones
         // may resize, and move only while not yet mapped.
         let mapped = self.x11_window(&surface);
@@ -235,7 +297,15 @@ impl XwmHandler for Ede {
         let _ = surface.configure(geo);
     }
 
-    fn configure_notify(&mut self, _xwm: XwmId, surface: X11Surface, geometry: Rectangle<i32, Logical>, _above: Option<u32>) {
+    fn configure_notify(&mut self, xwm: XwmId, surface: X11Surface, geometry: Rectangle<i32, Logical>, _above: Option<u32>) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = (surface, geometry);
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(window) = self.x11_window(&surface) {
             if surface.is_override_redirect() {
                 self.desk.space.map_element(window, geometry.loc, false);
@@ -243,25 +313,57 @@ impl XwmHandler for Ede {
         }
     }
 
-    fn maximize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn maximize_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.x11_window(&surface) {
             self.tile(&w, Tile::Maximized);
         }
     }
 
-    fn unmaximize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn unmaximize_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.x11_window(&surface) {
             self.untile(&w, None);
         }
     }
 
-    fn fullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn fullscreen_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.x11_window(&surface) {
             self.set_fullscreen(&w, true);
         }
     }
 
-    fn unfullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn unfullscreen_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.x11_window(&surface) {
             self.set_fullscreen(&w, false);
         }
@@ -269,13 +371,29 @@ impl XwmHandler for Ede {
 
     // _NET_WM_STATE_HIDDEN / WM_CHANGE_STATE Iconic (#EDE-48): the app's own
     // minimize goes into the taskbar; the X client asking back restores.
-    fn minimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn minimize_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.x11_window(&surface) {
             self.minimize_window(&w);
         }
     }
 
-    fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+    fn unminimize_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if let Some(w) = self.desk.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
             self.restore_window(&w);
             // #EDE-82: a client's own request brings it in front only when
@@ -293,7 +411,15 @@ impl XwmHandler for Ede {
         // edge resizing for them comes with server-side decorations.
     }
 
-    fn move_request(&mut self, _xwm: XwmId, surface: X11Surface, _button: u32) {
+    fn move_request(&mut self, xwm: XwmId, surface: X11Surface, _button: u32) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.desk.space.element_location(&window) else { return };
         let pointer = self.desk.seat.get_pointer().unwrap();
@@ -304,11 +430,23 @@ impl XwmHandler for Ede {
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
+        // #EDE-138: never the person's clipboard to a space's X11 client.
+        if self.desk_of_xwm(xwm) != XwmDesk::Person {
+            return false;
+        }
         // Only the focused X11 client may read the clipboard.
         self.focused_window(DeskId::PERSON).and_then(|w| w.x11_surface().and_then(|x| x.xwm_id())) == Some(xwm)
     }
 
-    fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
+    fn send_selection(&mut self, xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                drop((selection, mime_type, fd));
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if selection != SelectionTarget::Clipboard {
             return;
         }
@@ -325,14 +463,30 @@ impl XwmHandler for Ede {
         }
     }
 
-    fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
+    fn new_selection(&mut self, xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = (selection, mime_types);
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         if selection == SelectionTarget::Clipboard {
             self.desk.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
             set_data_device_selection(&self.display_handle, &self.desk.seat, mime_types, crate::clipboard::Selection::X11);
         }
     }
 
-    fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
+    fn cleared_selection(&mut self, xwm: XwmId, selection: SelectionTarget) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = selection;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
         let x11 = matches!(current_data_device_selection_userdata(&self.desk.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
             self.desk.clipboard.changed(crate::clipboard::Owner::Empty);
