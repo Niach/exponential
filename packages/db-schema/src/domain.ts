@@ -592,11 +592,6 @@ export const subscriberSourceValues = [
   `widget_reporter`,
 ] as const
 
-// EXP-778: what a personal pin points at (pins.kind, pg enum). One nullable
-// target column per kind (issue_id / session_id) with an FK cascade, so a
-// pin dies with its target instead of dangling.
-export const pinKindValues = [`issue`, `session`] as const
-
 // Activity-log event kinds (issue_events.type, pg enum). Drives the
 // Linear-style timeline on every client.
 export const issueEventTypeValues = [
@@ -668,7 +663,6 @@ export type CommentAudience = (typeof commentAudienceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
-export type PinKind = (typeof pinKindValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
 export type CodingSessionBlockedKind =
   (typeof codingSessionBlockedKindValues)[number]
@@ -692,7 +686,6 @@ export const commentAudienceSchema = z.enum(commentAudienceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
-export const pinKindSchema = z.enum(pinKindValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 export const issueRelationTypeSchema = z.enum(issueRelationTypeValues)
 export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)
@@ -1776,17 +1769,20 @@ export const sessionsSendInputSchema = z
     // time), each firing once; `-<id>` cancels one. Needs a caller session
     // (MCP); idempotent.
     wakeOn: z.array(sessionWatchSpecSchema).min(1).max(SESSIONS_SEND_MAX_WAKE_ON).optional(),
-    // #EXP-1720 (composer-menu.json `teams`): the teams this turn of the
-    // member's Assistant may touch; null = every team they belong to. Only
-    // into the Assistant's conversation (agentId / its root's sessionId).
-    // tRPC only, never on the MCP tool.
+    // #EXP-1720 + #EXP-2027 (composer-menu.json `teams`, eagent tree.json
+    // `treeTeams`): the composer's Teams pick, the root's new scope: into
+    // the Assistant's conversation (agentId / its root's sessionId; null =
+    // every team the member belongs to), into a plain chat's root
+    // (sessionId; null = its own team only) or on a NEW plain chat's start
+    // (no sessionId/agentId/parentId: `teamId` = its primary team, these
+    // the others). Never a child or a team agent's tree (the server's
+    // copy.scopeNotPickable). tRPC only, never on the MCP tool.
     scopeTeamIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_SCOPE_TEAMS).nullable().optional(),
   })
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-    if (input.scopeTeamIds !== undefined && !input.agentId && !input.sessionId)
-      issue(`a Teams pick is a message to your Assistant`)
+    if (input.scopeTeamIds !== undefined && input.appId) issue(`a Teams pick is never a message to an app`)
     const rootFacets = input.promptId !== undefined || input.repositoryId !== undefined
     if (input.appId) {
       if (input.sessionId || input.parentId || input.agentId) issue(`appId is a message to that app's editor session alone`)

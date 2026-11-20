@@ -182,6 +182,7 @@ impl Harness {
                 ready_tx.send(()).ok();
                 event_loop
                     .run(None, &mut state, |state| {
+                        state.spaces_after_frames();
                         let _ = state.display_handle.flush_clients();
                     })
                     .expect("event loop");

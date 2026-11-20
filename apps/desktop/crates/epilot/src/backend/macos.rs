@@ -29,7 +29,6 @@ use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use core_foundation::array::CFArray;
@@ -60,9 +59,10 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
+use crate::backend::{LockReady, LockStartError, LockThread, Verdict};
 
 /// Our tag in every event we post ("EXP1"): the lock lets these through.
 const MAGIC: i64 = 0x4558_5031;
@@ -301,12 +301,10 @@ impl Backend for Mac {
         if image.bits_per_pixel() != 32 || image.bits_per_component() != 8 {
             return Err(format!("Unsupported screen format: {} bits per pixel.", image.bits_per_pixel()));
         }
-        let (width, height) = (image.width(), image.height());
+        let width = u32::try_from(image.width()).map_err(|_| "The screen capture is too wide.".to_string())?;
+        let height = u32::try_from(image.height()).map_err(|_| "The screen capture is too tall.".to_string())?;
         let data = image.data();
-        let rgba = bgra_to_rgba(data.bytes(), width, height, image.bytes_per_row()).ok_or("The screen capture came back short.")?;
-        let width = u32::try_from(width).map_err(|_| "The screen capture is too wide.".to_string())?;
-        let height = u32::try_from(height).map_err(|_| "The screen capture is too tall.".to_string())?;
-        Ok(Image { width, height, rgba })
+        Image::from_bgra(data.bytes(), width, height, image.bytes_per_row()).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -376,7 +374,7 @@ impl Backend for Mac {
         // #EXP-1979: the window itself, not just its app: a raise that
         // missed leaves another of the app's windows in front.
         let front = u32::try_from(pid).ok();
-        settle_activation(id, activated, ACTIVATE_WAIT, || {
+        settle_activation(id, activated, crate::backend::ACTIVATE_WAIT, || {
             let named = ax_front_windows(pid);
             window_in_front(id, frontmost_pid() == front, named.as_deref(), || self.list_windows().ok().and_then(|windows| front_window(&windows)))
         })
@@ -462,11 +460,8 @@ impl Backend for Mac {
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let text = ch.to_string();
-        self.unicode(&text, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.unicode(&text, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.unicode(&ch.to_string(), down)
     }
 
     fn person_holds_button(&self) -> bool {
@@ -486,12 +481,6 @@ impl Backend for Mac {
 /// (transient) an entry carrying these types.
 const CONCEALED_TYPE: &str = "org.nspasteboard.ConcealedType";
 const TRANSIENT_TYPE: &str = "org.nspasteboard.TransientType";
-/// The most of the person's clipboard `save` keeps; types past it are
-/// skipped.
-const SAVE_CAP: usize = 32 << 20;
-/// macOS cannot tell when the focused app read the pasteboard: the settle
-/// after the paste key.
-const PASTE_SETTLE: Duration = Duration::from_millis(400);
 
 /// The general pasteboard. Never logs what it holds. `Retained` keeps it
 /// off other threads (not `Send`); NSPasteboard itself works off the main
@@ -544,7 +533,7 @@ impl Clipboard for MacClipboard {
                         continue;
                     };
                     let len = data.len();
-                    if total.saturating_add(len) > SAVE_CAP {
+                    if total.saturating_add(len) > CLIPBOARD_SAVE_MAX {
                         partial = true;
                         continue;
                     }
@@ -576,11 +565,8 @@ impl Clipboard for MacClipboard {
     }
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
-        std::thread::sleep(timeout.min(PASTE_SETTLE));
-        match self.ours.get() {
-            Some(ours) if self.board.changeCount() != ours => Pasted::Missed,
-            _ => Pasted::Settled,
-        }
+        // macOS cannot tell when the focused app read the pasteboard.
+        settle_paste(timeout, self.ours.get().map(|ours| ours as u64), || self.board.changeCount() as u64)
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
@@ -708,28 +694,15 @@ fn below_notch(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
     })
 }
 
-/// How long an accepted activation may take to put the window in front.
-const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
-
 /// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
 /// one that did not put the window in front within `wait` (`in_front`;
 /// #EXP-1979: the window, not just its app), is an error (the agent's keys
 /// would go to the window in front).
-fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
-    let refused = || Err(format!("macOS did not activate window {id}."));
-    if !activated {
-        return refused();
+fn settle_activation(id: u64, activated: bool, wait: Duration, in_front: impl FnMut() -> bool) -> Result<(), String> {
+    if activated && crate::backend::wait_active(wait, in_front) {
+        return Ok(());
     }
-    let until = Instant::now() + wait;
-    loop {
-        if in_front() {
-            return Ok(());
-        }
-        if Instant::now() >= until {
-            return refused();
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Err(format!("macOS did not activate window {id}."))
 }
 
 /// #EXP-1979: the window in front of a [`Backend::list_windows`] answer:
@@ -745,20 +718,6 @@ fn front_window(windows: &[WindowInfo]) -> Option<u64> {
 /// window (`listed`).
 fn window_in_front(id: u64, app_in_front: bool, named: Option<&[u64]>, listed: impl FnOnce() -> Option<u64>) -> bool {
     app_in_front && named.map_or_else(|| listed() == Some(id), |named| named.contains(&id))
-}
-
-/// Rows of 32-bit little-endian BGRA (`stride` bytes apart) as packed
-/// RGBA8, opaque; `None` when `data` is short.
-fn bgra_to_rgba(data: &[u8], width: usize, height: usize, stride: usize) -> Option<Vec<u8>> {
-    let row = width.checked_mul(4)?;
-    let mut rgba = Vec::with_capacity(row.checked_mul(height)?);
-    for y in 0..height {
-        let start = y.checked_mul(stride)?;
-        for pixel in data.get(start..start.checked_add(row)?)?.chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-        }
-    }
-    Some(rgba)
 }
 
 /// The window list's keys we read.
@@ -1382,7 +1341,7 @@ const STOP_POLL: Duration = Duration::from_millis(250);
 struct Lock {
     stop: Arc<AtomicBool>,
     run_loop: CFRunLoop,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
@@ -1391,17 +1350,24 @@ impl Lock {
             return Err("Accessibility is not granted.".to_string());
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<CFRunLoop, String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn({
-                let stop = stop.clone();
-                move || hold(on_esc, stop, ready_tx)
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(run_loop)) => Ok(Lock { stop, run_loop, thread: Some(thread) }),
-            Ok(Err(reason)) => Err(reason),
+        // A tap that went in just as the wait gave up stops here.
+        let late = {
+            let stop = stop.clone();
+            move |answer: Result<CFRunLoop, String>| {
+                stop.store(true, Ordering::Release);
+                if let Ok(run_loop) = answer {
+                    run_loop.stop();
+                }
+            }
+        };
+        let body = {
+            let stop = stop.clone();
+            move |ready| hold(on_esc, stop, ready)
+        };
+        match LockThread::start(body, late) {
+            Ok((Ok(run_loop), thread)) => Ok(Lock { stop, run_loop, thread }),
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
             Err(_) => {
                 stop.store(true, Ordering::Release);
                 Err("The event tap did not start.".to_string())
@@ -1416,11 +1382,7 @@ impl Drop for Lock {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.run_loop.stop();
-        if let Some(thread) = self.thread.take() {
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
+        self.thread.join();
         PERSON_BUTTONS.store(0, Ordering::Release);
     }
 }
@@ -1441,7 +1403,7 @@ const TAP_BUTTONS: usize = 128;
 const TAP_HELD: usize = TAP_BUTTONS + 32;
 
 /// The tap thread: install the tap, report, run until `stop`, tear down.
-fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::sync::mpsc::Sender<Result<CFRunLoop, String>>) {
+fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: LockReady<Result<CFRunLoop, String>>) {
     let state = Box::new(TapState {
         on_esc,
         fired: Cell::new(false),
@@ -1463,7 +1425,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
         )
     };
     if port_ref.is_null() {
-        let _ = ready.send(Err("macOS refused the input lock (the event tap); check Accessibility.".to_string()));
+        ready.send(Err("macOS refused the input lock (the event tap); check Accessibility.".to_string()));
         return;
     }
     // SAFETY: non-null and ours (create rule).
@@ -1472,7 +1434,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     let Ok(source) = port.create_runloop_source(0) else {
         // SAFETY: `port_ref` is the live tap.
         unsafe { CFMachPortInvalidate(port_ref) };
-        let _ = ready.send(Err("Could not attach the input lock to a run loop.".to_string()));
+        ready.send(Err("Could not attach the input lock to a run loop.".to_string()));
         return;
     };
     let run_loop = CFRunLoop::get_current();
@@ -1486,7 +1448,7 @@ fn hold(on_esc: Box<dyn Fn() + Send + Sync>, stop: Arc<AtomicBool>, ready: std::
     let held = held_now();
     state.held.set(held);
     publish_buttons(&held);
-    if ready.send(Ok(run_loop.clone())).is_err() {
+    if !ready.send(Ok(run_loop.clone())) {
         // `take` gave up waiting: nobody holds a guard for this tap.
         stop.store(true, Ordering::Release);
     }
@@ -1553,13 +1515,6 @@ unsafe extern "C" fn tap_callback(
         }
     }
     std::ptr::null_mut()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Verdict {
-    Pass,
-    Swallow,
-    Esc,
 }
 
 /// The tap's decision on one event of `kind` (its keycode and mouse
@@ -2069,18 +2024,5 @@ mod tests {
         assert_eq!(stroke(Key::Char('0'), None, Under::Nothing), Stroke::Code(29, false));
         assert_eq!(stroke(Key::Char('?'), None, Under::Nothing), Stroke::Code(44, true));
         assert_eq!(stroke(Key::Char('€'), None, Under::Nothing), Stroke::Unicode('€'));
-    }
-
-    #[test]
-    fn bgra_rows_become_opaque_rgba_and_skip_the_row_padding() {
-        // 2x2, stride 12 (4 bytes of padding per row).
-        let data = [1, 2, 3, 0, 4, 5, 6, 9, 0xee, 0xee, 0xee, 0xee, 7, 8, 9, 0, 10, 11, 12, 0, 0xee, 0xee, 0xee, 0xee];
-        assert_eq!(
-            bgra_to_rgba(&data, 2, 2, 12),
-            Some(vec![3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255])
-        );
-        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
-        assert!(bgra_to_rgba(&data[..20], 2, 2, 12).is_some());
-        assert_eq!(bgra_to_rgba(&data[..19], 2, 2, 12), None);
     }
 }

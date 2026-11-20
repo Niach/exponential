@@ -101,7 +101,7 @@ struct ChatsView: View {
         .chatDeleteConfirm(target: $deleteTarget) { rootId in actions.delete(rootId: rootId) }
         .task(id: teamState.activeTeamId) { await resolveOwner() }
         // S-3: the viewer's Assistant exists once the list mounts (once per
-        // team per app run).
+        // account + team per app run).
         .task(id: "\(accountId)/\(teamState.activeTeamId ?? "")") {
             if view == .list, let teamId = teamState.activeTeamId {
                 await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)

@@ -27,7 +27,7 @@ use eui_gpui::binding::Binding;
 use eui_gpui::view::SurfaceView;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{and, empty_state, failed_state, hex, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
@@ -131,12 +131,12 @@ impl WidgetPane {
 
     /// The team the pane shows (the pictures pin one: the headless store
     /// syncs none).
-    fn active_team_id(&self, cx: &App) -> Option<String> {
+    fn screen_team_id(&self, cx: &App) -> Option<String> {
         #[cfg(test)]
         if let Some(team) = &self.shot_team {
             return Some(team.clone());
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// The web page the editor lives on (New widget, a row click) and the
@@ -464,7 +464,7 @@ fn document(ink: &Ink, inks: &Inks) -> Value {
 impl Render for WidgetPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "WidgetPane").entered();
-        let team = self.active_team_id(cx);
+        let team = self.screen_team_id(cx);
         if let Some(team_id) = &team {
             self.ensure_loaded(team_id, cx);
         }

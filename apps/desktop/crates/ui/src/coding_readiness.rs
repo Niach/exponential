@@ -738,7 +738,7 @@ fn fix_button(
             }
             ReadinessFix::OpenDevices => {
                 popover.update(cx, |state, cx| state.dismiss(window, cx));
-                crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
+                crate::navigation::navigate(window, cx, crate::navigation::Screen::Device { device_id: String::new() });
             }
             // EXP-1169: the Add device dialog, the one place a device is
             // set up (the web fix opens its twin), not a silent copy.

@@ -6,6 +6,7 @@ import {
   findInChatKey,
   findInChatLand,
   findInChatMenu,
+  findInChatOlder,
   findInChatQuery,
   findInChatStatus,
   findInChatStep,
@@ -18,6 +19,9 @@ describe(`#EDE-129 fixtures/find-in-chat.json`, () => {
   for (const c of fixture.menuCases) test(`menu: ${c.name}`, () => expect(findInChatMenu(c.kind, c.entries)).toEqual(c.expected))
   for (const c of fixture.queryCases) test(`query: ${c.name}`, () => expect(findInChatQuery(c.raw)).toBe(c.query))
   for (const c of fixture.matchCases) test(`stops: ${c.name}`, () => expect(findInChatStops(c.rows, c.older)).toEqual(c.expected))
+  for (const c of fixture.olderCases)
+    test(`older: ${c.name}`, () =>
+      expect(findInChatOlder({ sessionId: c.sessionId, lowestSeq: c.lowestSeq, store: c.store, device: c.device, synced: c.synced })).toEqual(c.expected))
   for (const c of fixture.counterCases) test(`counter: ${c.name}`, () => expect(findInChatCounter(c)).toBe(c.expected))
   for (const c of fixture.stepCases) test(`step: ${c.name}`, () => expect(findInChatStep(c.current, c.total, c.step as FindStep)).toBe(c.expected))
   for (const c of fixture.resultCases) test(`keep: ${c.name}`, () => expect(findInChatKeep(c.before, c.current, c.after)).toBe(c.expected))

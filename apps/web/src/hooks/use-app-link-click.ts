@@ -1,5 +1,6 @@
 import { useCallback, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { useCardLinks } from "@exp/ui"
 import { appLinkPath, classifyAppLink, isRoutedAppPath, teamSlugOfPath } from "@/lib/app-link"
 
 /** EXP-1188: the click handler for a container of agent prose. A link into
@@ -12,6 +13,9 @@ import { appLinkPath, classifyAppLink, isRoutedAppPath, teamSlugOfPath } from "@
  *  anchor says (same tab, or its own `target`), never the SPA not-found. */
 export function useAppLinkClick() {
   const navigate = useNavigate()
+  // #EXP-2027: a team-less page (Needs you, Chats…) lists messages of every
+  // team: each row's own CardLinksHost names the team its `~/x` links mean.
+  const linkBase = useCardLinks()?.linkBase ?? null
   return useCallback(
     (event: MouseEvent<HTMLElement>) => {
       const anchor = (event.target as Element | null)?.closest?.(`a[href]`)
@@ -19,8 +23,9 @@ export function useAppLinkClick() {
       const link = classifyAppLink(
         anchor.getAttribute(`href`) ?? ``,
         window.location.origin,
-        // #EXP-1674: `~/x` resolves against the team on screen.
-        teamSlugOfPath(window.location.pathname)
+        // #EXP-1674: `~/x` resolves against the team on screen; #EXP-2027:
+        // the nearest card-links host's team wins (the message's own team).
+        teamSlugOfLinkBase(linkBase) ?? teamSlugOfPath(window.location.pathname)
       )
       const modified =
         event.button !== 0 ||
@@ -42,6 +47,12 @@ export function useAppLinkClick() {
       const path = appLinkPath(link)
       if (path) void navigate({ href: path })
     },
-    [navigate]
+    [navigate, linkBase]
   )
+}
+
+/** The slug of a card-links host's `linkBase` (`/t/<slug>`). */
+export function teamSlugOfLinkBase(linkBase: string | null | undefined): string | null {
+  const match = /^\/t\/([^/]+)$/.exec(linkBase ?? ``)
+  return match ? decodeURIComponent(match[1]) : null
 }

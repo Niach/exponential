@@ -292,12 +292,18 @@ impl Ede {
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
             self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
+            // #EDE-138: their homes on disk, not in the runtime directory.
+            let cache = std::env::var_os("XDG_CACHE_HOME").filter(|dir| !dir.is_empty()).map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache")));
+            if let Some(cache) = cache {
+                self.spaces.open_homes(cache.join("exponential-desktop").join("spaces"));
+            }
         }
         Ok(name)
     }
 
     /// Starts Xwayland if enabled, then the autostart commands.
     pub fn start_session(&mut self) {
+        self.start_space_units();
         #[cfg(feature = "xwayland")]
         if self.config.xwayland {
             // Autostart runs from the Ready/Error event.
@@ -546,6 +552,7 @@ impl Ede {
         {
             self.desk_mut(desk).pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
+        #[cfg(feature = "xwayland")]
         let unset = surface.is_none();
         keyboard.set_focus(self, surface, serial);
         // The seat reports no change when the keyboard goes to nothing, so

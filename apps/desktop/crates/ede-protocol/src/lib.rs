@@ -262,6 +262,10 @@ pub struct SpaceInfo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Membership {
+    /// It runs in a scope of the space's own systemd slice (#EDE-138): the
+    /// first sign looked at, and the one a process keeps when it leaves
+    /// its group, its environment and its parent.
+    Cgroup,
     /// It was launched into the space ([`Request::Launch`]).
     Launch,
     /// It is in the process group of a launch (also after its parent died).
@@ -1403,7 +1407,7 @@ mod tests {
         assert_eq!(serde_json::to_value(&tied).unwrap(), wire);
         assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(wire).unwrap(), tied);
         assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(serde_json::Value::Null).unwrap(), None);
-        for (by, name) in [(Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
+        for (by, name) in [(Membership::Cgroup, "cgroup"), (Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
             assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
         }
     }

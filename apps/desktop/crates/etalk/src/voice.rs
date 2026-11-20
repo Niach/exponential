@@ -182,6 +182,8 @@ pub struct SpokenWords {
     pub link: String,
     pub point: String,
     pub percent: String,
+    /// #EXP-2016: what a voice says for a word it cannot say (a hash, a blob).
+    pub code: String,
 }
 
 /// The input rows' length caps (`limits`).
@@ -1240,6 +1242,19 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     }
 }
 
+/// #EXP-1992: the reply to say among `fresh` rows (`(id, message)`, new
+/// since the host's last look): the newest one [`should_speak`] takes in
+/// `context` (a burst, a reconnect, says only its newest), with its spoken
+/// text (None = none, or nothing to say).
+pub fn reply_to_speak<'a>(fresh: impl IntoIterator<Item = (&'a str, VoiceMessage<'a>)>, context: &VoiceContext<'_>) -> Option<(String, String)> {
+    let (id, message) = fresh
+        .into_iter()
+        .filter(|(_, message)| should_speak(message, context))
+        .max_by_key(|(_, message)| message.created_at.and_then(parse_instant).unwrap_or(0))?;
+    let spoken = spoken_text(message.body.unwrap_or(""), VOICE.max_chars, context.language);
+    (!spoken.is_empty()).then(|| (id.to_string(), spoken))
+}
+
 /// A timestamp as UTC milliseconds: RFC 3339 (the arm time, the fixture) or
 /// the Postgres spelling the shapes deliver (`2026-10-25 10:00:05.123+00`);
 /// zone-less means UTC. Same ladder as `ui::inbox::parse_timestamp`.
@@ -1502,6 +1517,46 @@ re!(PERCENT, r"(\d+(?:\.\d+)?)\s?%");
 re!(NUMBER, r"\b\d+(?:\.\d+)?\b");
 re!(SPACE, r"\s+");
 
+/// #EXP-2016: a word no voice can say (its surrounding marks aside): 16+
+/// characters with a digit or a sign other than a hyphen, a dot or an `@`
+/// (not a plain number), or 6+ letters without a vowel.
+fn unsayable(core: &str) -> bool {
+    if core.chars().all(|ch| ch.is_ascii_digit() || ch == '.' || ch == ',') {
+        return false;
+    }
+    let length = core.chars().count();
+    if length >= 16 && core.chars().any(|ch| !(ch.is_alphabetic() || matches!(ch, '.' | '@' | '-'))) {
+        return true;
+    }
+    length >= 6 && core.chars().all(char::is_alphabetic) && !core.chars().any(|ch| "aeiouyäöüAEIOUYÄÖÜ".contains(ch))
+}
+
+/// #EXP-2016: every unsayable word becomes `code`, a run of them one
+/// stand-in, the surrounding brackets, quotes and sentence marks kept.
+fn sayable_words(text: &str, code: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut open = false;
+    for word in text.split_whitespace() {
+        let rest = word.trim_start_matches(['(', '[', '{', '"', '\'', '“', '‘']);
+        let lead = &word[..word.len() - rest.len()];
+        let core = rest.trim_end_matches([')', ']', '}', '"', '\'', '”', '’', '.', ',', ';', ':', '!', '?']);
+        let trail = &rest[core.len()..];
+        if core.is_empty() || !unsayable(core) {
+            out.push(word.to_string());
+            open = false;
+        } else if open && lead.is_empty() {
+            if let Some(last) = out.last_mut() {
+                last.push_str(trail);
+            }
+            open = trail.is_empty();
+        } else {
+            out.push(format!("{lead}{code}{trail}"));
+            open = trail.is_empty();
+        }
+    }
+    out.join(" ")
+}
+
 /// What a voice says for a reply's Markdown body in the language
 /// (`voice.json` rules; an unknown language reads as English).
 pub fn spoken_text(body: &str, max_chars: usize, language: &str) -> String {
@@ -1540,6 +1595,8 @@ pub fn spoken_text(body: &str, max_chars: usize, language: &str) -> String {
     let text = STRIKE.replace_all(&text, "$1");
     let text = MENTION.replace_all(&text, "$1");
     let text = ISSUE_REF.replace_all(&text, "$1");
+    // #EXP-2016: what no voice can say (a hash, a blob) gets a stand-in.
+    let text = sayable_words(&text, &words.code);
     let text = IDENTIFIER.replace_all(&text, |caps: &Captures<'_>| {
         format!("{} {}", spell(&caps[1]), identifier_number_words(&caps[2], language))
     });

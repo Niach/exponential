@@ -83,9 +83,6 @@ vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))
 vi.mock(`@/components/sub-issue-composer`, () => ({
   SubIssueComposer: () => null,
 }))
-vi.mock(`@/components/pin-toggle-button`, () => ({
-  PinToggleButton: () => null,
-}))
 vi.mock(`@/components/widget-submission-card`, () => ({
   WidgetSubmissionCard: () => null,
 }))

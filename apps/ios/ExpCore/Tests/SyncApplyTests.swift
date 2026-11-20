@@ -687,34 +687,6 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(storedUnsent?.sentAt)
     }
 
-    // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres
-    // text like every numeric column, the two unused target columns as null.
-    func testPinInsertDecodesWireSortOrderAndPersists() async throws {
-        let json = """
-            {"id":"pin1","user_id":"u1","team_id":"ws1","kind":"issue",
-             "issue_id":"i1","session_id":null,"action_id":null,"sort_order":"1.5",
-             "created_at":"2026-09-11T09:00:00Z","updated_at":"2026-09-11T09:00:00Z"}
-            """
-        let pin = try JSONDecoder().decode(PinEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(pin.sortOrder, 1.5)
-        XCTAssertEqual(pin.targetId, "i1")
-        XCTAssertNil(pin.sessionId)
-        let message = ShapeMessage<PinEntity>.insert(key: #""public"."pins"/"pin1""#, value: pin)
-        try await applyBatch(messages: [message], name: "pins", table: "pins", pool: pool)
-        let stored = try await pool.read { try PinEntity.fetchOne($0, key: "pin1") }
-        XCTAssertEqual(stored?.kind, DomainContract.pinKindIssue)
-        XCTAssertEqual(stored?.issueId, "i1")
-        XCTAssertEqual(stored?.sortOrder, 1.5)
-        // A partial (the server reorders) coerces the numeric string too.
-        let partial = ShapeMessage<PinEntity>.partialUpdate(
-            key: #""public"."pins"/"pin1""#,
-            columns: columns(["id": "pin1", "sort_order": "3"])
-        )
-        try await applyBatch(messages: [partial], name: "pins", table: "pins", pool: pool)
-        let reordered = try await pool.read { try PinEntity.fetchOne($0, key: "pin1") }
-        XCTAssertEqual(reordered?.sortOrder, 3)
-    }
-
     // #EXP-1832: a sidebar_layout row off the wire — a folder (no target)
     // and an item inside it; `sort_order` arrives as Postgres text.
     func testSidebarLayoutInsertDecodesAndPersists() async throws {
@@ -850,7 +822,7 @@ final class SyncApplyTests: XCTestCase {
     }
 
     // EXP-878: a draft renders ONLY when its board resolves locally (the
-    // shape is per-user and never trash-scoped, exactly like pins), and a
+    // shape is per-user and never trash-scoped), and a
     // NULL `status_id` resolves to the team's Backlog builtin.
     func testResolvedDraftsHideMissingBoardsAndDefaultToBacklog() async throws {
         try await pool.write { db in

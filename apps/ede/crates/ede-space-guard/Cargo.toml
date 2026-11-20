@@ -1,0 +1,20 @@
+[package]
+autobins = false
+name = "ede-space-guard"
+description = "Exponential Desktop's space guard (#EDE-146, #EDE-147, #EDE-148): a system service that attaches fixed eBPF programs to an agent space's systemd slice, so nothing in a space opens the person's microphone or camera or reaches their session's sockets"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+libc = "0.2"
+
+# The installed name (Exponential Desktop); the crate keeps its ede- name.
+[[bin]]
+name = "exponential-space-guard"
+path = "src/main.rs"
+
+[dev-dependencies]
+# The unit names the guard walks are the ones the compositor makes.
+ede-protocol = { path = "../../../desktop/crates/ede-protocol" }

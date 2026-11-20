@@ -343,6 +343,62 @@ export function agentsInTeam<T extends TeamAgentLike>(
   return global ? [global, ...own] : own
 }
 
+/** #EXP-1988 (`assistant.teamPicks`): the picks for `teamId` in a flat skill
+ *  / MCP server list = the listed ids whose row (`rowTeams`: row id → its
+ *  team) is that team's, in pick order. A gone row belongs to no team. */
+export function teamPick(ids: readonly string[], rowTeams: Readonly<Record<string, string>>, teamId: string): string[] {
+  return [...new Set(ids)].filter((id) => rowTeams[id] === teamId)
+}
+
+/** #EXP-1988 (`teamPicks.mergeCases`): an `agents.update` write of a skill /
+ *  MCP list. With `pickTeamId` it replaces only that team's picks; without
+ *  it (old clients, MCP, team agents) the picks of the agent's own team and
+ *  of every team the written ids name. Gone rows drop out. */
+export function mergeTeamPicks(input: {
+  existing: readonly string[]
+  written: readonly string[]
+  rowTeams: Readonly<Record<string, string>>
+  pickTeamId: string | null
+  agentTeamId: string
+}): string[] {
+  const { rowTeams } = input
+  const written = [...new Set(input.written)]
+  const replaced = new Set(
+    input.pickTeamId
+      ? [input.pickTeamId]
+      : [input.agentTeamId, ...written.flatMap((id) => (rowTeams[id] ? [rowTeams[id]!] : []))]
+  )
+  const kept = [...new Set(input.existing)].filter((id) => rowTeams[id] !== undefined && !replaced.has(rowTeams[id]!))
+  return [...kept, ...written.filter((id) => !kept.includes(id))]
+}
+
+/** #EXP-1988 (`teamPicks.launchCases`): what a session launches with = its
+ *  list ∩ the rows of its launch teams; a gone row stays (it is skipped
+ *  with a reason at launch). */
+export function launchPick(
+  ids: readonly string[],
+  rowTeams: Readonly<Record<string, string>>,
+  launchTeams: readonly string[]
+): string[] {
+  return [...new Set(ids)].filter((id) => rowTeams[id] === undefined || launchTeams.includes(rowTeams[id]!))
+}
+
+/** #EXP-1988 (`teamPicks.pickAgentCases`): the agent a team's section of
+ *  Settings › Assistant edits: the viewer's Assistant `agentsInTeam` lists
+ *  in that team, else the page's Assistant. */
+export function assistantPickAgent<T extends TeamAgentLike>(
+  agents: readonly T[],
+  teamId: string,
+  teamIds: readonly string[],
+  me: string | null | undefined,
+  pageAgentId: string | null
+): string | null {
+  const listed = agentsInTeam(agents, teamId, teamIds, me).find((agent) => isAssistant(agent) && agent.ownerId === me)
+  return listed?.id ?? pageAgentId
+}
+
+export const ASSISTANT_TEAM_PICKS = fixture.assistant.teamPicks
+
 export const ASSISTANT_MOVE = fixture.assistant.move
 /** #EXP-1984 (`move.clientFloor`): the oldest build per platform that lists
  *  the global Assistant in every team. */

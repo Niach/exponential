@@ -201,6 +201,10 @@ fn access_cases() {
         let input: access::AssistantScopeInput = serde_json::from_value(case["input"].clone()).unwrap();
         assert_eq!(access::assistant_scope(&input), strings(&case["expected"]), "{}", case["name"]);
     }
+    for case in f["treeScopeCases"].as_array().unwrap() {
+        let input: access::TreeScopeInput = serde_json::from_value(case["input"].clone()).unwrap();
+        assert_eq!(access::tree_scope(&input), strings(&case["expected"]), "{}", case["name"]);
+    }
 }
 
 // ---------------------------------------------------------------- upstream
@@ -521,7 +525,7 @@ fn every_case_list_is_replayed() {
     let replayed: &[(&Value, &[&str])] = &[
         (fixture::vault(), &["keyringCases", "aadCases", "sealVectors", "openCases", "malformedCases", "rotationCases"]),
         (fixture::audit(), &["canonicalCases", "hashCases", "statusCases", "retentionCases"]),
-        (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases", "assistantScopeCases"]),
+        (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases", "assistantScopeCases", "treeScopeCases"]),
         (fixture::upstream(), &["flowCases", "callableCases", "missingCases"]),
         (fixture::automations(), &["validateCases", "tooManyCase", "matchCases", "sponsorCases", "rateCases", "resolveCases", "auditCases"]),
         (

@@ -6,8 +6,7 @@ import { clearLastVisited, readLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
 
 // The phone opens on the Agent tab (×3 with iOS and Android): it leads the
-// tab bar and needs no board. md+ keeps the board landing (`useIsMobile`'s
-// 768px breakpoint).
+// tab bar and needs no board (`useIsMobile`'s 768px breakpoint).
 function opensOnAgent(): boolean {
   return typeof window !== `undefined` && window.innerWidth < 768
 }
@@ -15,6 +14,8 @@ function opensOnAgent(): boolean {
 export const Route = createFileRoute(`/`)({
   ssr: false,
   beforeLoad: async () => {
+    // #EXP-2027: md+ has no active team: it lands on the team-less Home.
+    if (!opensOnAgent()) throw redirect({ to: `/home` })
     const sessionData = await fetchSessionOnce()
     if (sessionData?.user) {
       if (!hasCompletedOnboarding(sessionData.user)) {

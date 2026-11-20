@@ -105,6 +105,95 @@ export function useNeedsYou(
   return { rows, isReady: sessionsReady && digestsReady }
 }
 
+/** #EXP-2027: a Needs you row of the team-less page, with its team (null =
+ *  the viewer's Assistant's, whose home is their personal team). */
+export type CrossTeamNeedsYouRow = NeedsYouListRow & { teamId: string | null }
+
+/** #EXP-2027 (sidebar-tree.json ROOT `needs-you`): EVERY member team's Needs
+ *  you rows (each counted like `useNeedsYou`, its owner flag its own team's),
+ *  the viewer's Assistant's once, in team order. */
+export function useCrossTeamNeedsYou(
+  teamIds: readonly string[],
+  me: string | null | undefined,
+  ownerOf: (teamId: string) => boolean
+): { rows: CrossTeamNeedsYouRow[]; isReady: boolean } {
+  const key = teamIds.join(`,`)
+  const agentRows = useTeamAgentRows(teamIds, me)
+  const personal = agentRows.find((agent) => !teamIds.includes(agent.teamId))?.teamId ?? null
+  const scope = useMemo(
+    () => (personal ? [...teamIds, personal] : [...teamIds]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, personal]
+  )
+  const { rows: sessions, isReady: sessionsReady } = useTeamSessions(scope)
+  const { agents } = useAgents(teamIds, me)
+  const { messages, isReady: digestsReady } = useDigestMessages({ teamIds: scope })
+  const { data: prRows } = useLiveQuery((query) => query.from({ prs: pullRequestCollection }), [])
+  const { data: teamRows } = useLiveQuery((query) => query.from({ teams: teamCollection }), [])
+  const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
+  const now = useNow(60_000).getTime()
+  const inputs = useMemo(() => waitingInputs(messages), [messages])
+  const pullRequests = useMemo(
+    () => ((prRows ?? []) as PullRequestRow[]).filter((pr) => teamIds.includes(pr.teamId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prRows, key]
+  )
+
+  const byId = useMemo(() => new Map(sessions.map((row) => [row.id, row])), [sessions])
+  const titled = useMemo(() => {
+    const ids = new Set<string>()
+    const add = (id: unknown) => {
+      const row = typeof id === `string` ? byId.get(id) : undefined
+      if (!row) return
+      ids.add(row.id)
+      ids.add(row.rootId ?? row.id)
+    }
+    for (const message of inputs) {
+      add(message.sessionId)
+      add(message.card?.sessionId)
+    }
+    for (const pr of pullRequests) add(pr.rootSessionId)
+    return [...ids]
+      .sort()
+      .map((id) => byId.get(id))
+      .filter((row): row is SessionRow => row !== undefined)
+  }, [inputs, pullRequests, byId])
+  const { titles } = useSessionTitles(titled)
+
+  const rows = useMemo(() => {
+    const agentNames = new Map(agents.map((agent) => [agent.agentId, agent.name]))
+    const nameOf = (row: SessionRow) =>
+      (row.agentId ? agentNames.get(row.agentId) : undefined) ?? titles.get(row.id) ?? row.title ?? ``
+    const modes = new Map(((teamRows ?? []) as { id: string; mergeMode?: string | null }[]).map((t) => [t.id, t.mergeMode]))
+    const groups: (string | null)[] = [...teamIds, ...(personal ? [null] : [])]
+    const all = groups.flatMap((teamId): CrossTeamNeedsYouRow[] => {
+      const own = sessions.filter((row) => row.teamId === (teamId ?? personal))
+      const ids = new Set(own.map((row) => row.id))
+      return needsYouListRows({
+        sessions: own,
+        nameOf,
+        messages: inputs.filter((message) => ids.has(message.sessionId)),
+        pullRequests: teamId ? pullRequests.filter((pr) => pr.teamId === teamId) : [],
+        devices: (deviceRows ?? []) as Device[],
+        now,
+        me: me ?? null,
+        owner: teamId ? ownerOf(teamId) : false,
+        mergeMode: ((teamId ? modes.get(teamId) : null) ?? `auto`) as TeamMergeMode,
+      }).map((row) => ({ ...row, teamId }))
+    })
+    // needs-you.json across the teams: plans and questions on top, then the
+    // PR rows, each group newest first.
+    return all.sort(
+      (left, right) =>
+        Number(left.kind === `pr`) - Number(right.kind === `pr`) ||
+        Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, agents, titles, inputs, pullRequests, deviceRows, teamRows, now, me, personal, key, ownerOf])
+
+  return { rows, isReady: sessionsReady && digestsReady }
+}
+
 /** The digest messages that can wait on the viewer (plans, questions). */
 function waitingInputs(messages: readonly TreeMessage[]): NeedsYouMessageInput[] {
   return messages
@@ -348,6 +437,23 @@ export function needsYouDestination(
     return { to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.chatId }, ...search }
   }
   return { to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: target.sessionId } }
+}
+
+/** #EXP-2027: opens a row in the team it names (the team-less page). */
+export function useOpenNeedsYouIn(me: string | null | undefined): (row: NeedsYouRow, teamSlug: string) => void {
+  const navigate = useNavigate()
+  return useCallback(
+    (row, teamSlug) =>
+      void navigate(
+        needsYouDestination(
+          row,
+          teamSlug,
+          (id) => sessionCollection.get(id) as SessionRow | undefined,
+          me ?? null
+        ) as never
+      ),
+    [navigate, me]
+  )
 }
 
 export function useOpenNeedsYou(teamSlug: string, me: string | null | undefined): (row: NeedsYouRow) => void {

@@ -23,8 +23,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
@@ -38,6 +37,7 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use crate::backend::{Backend, Button, Clipboard, DisplayInfo, Image, LockGuard, WindowInfo};
 use crate::keys::{Key, Named};
+use crate::backend::{LockStartError, LockThread};
 
 #[path = "x11_clipboard.rs"]
 mod clipboard;
@@ -412,16 +412,8 @@ impl X11 {
                 holds.push(self.keymap.key_of(keysym).ok_or_else(|| format!("No {name} key in the layout."))?);
             }
         }
-        if down {
-            for &hold in &holds {
-                self.fake_key(hold, true)?;
-            }
-        }
-        self.fake_key(keycode, down)?;
-        if !down {
-            for &hold in holds.iter().rev() {
-                self.fake_key(hold, false)?;
-            }
+        for (keycode, down) in super::with_modifiers(&holds, keycode, down) {
+            self.fake_key(keycode, down)?;
         }
         Ok(())
     }
@@ -598,16 +590,14 @@ impl Backend for X11 {
             // Widen a narrow channel (a 565 screen) to 8 bits.
             (if width >= 8 { value >> (width - 8) } else { value << (8 - width) }) as u8
         };
+        // The common screen (32-bit BGRX, little-endian, packed rows): a
+        // straight copy instead of the mask arithmetic, on fifteen million
+        // pixels.
+        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
+            return Image::from_bgra(&shot.data, width, height, width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string());
+        }
         let count = (width as usize) * (height as usize);
         let mut rgba = Vec::with_capacity(count * 4);
-        // The common screen (32-bit BGRX, little-endian): a straight copy
-        // instead of the mask arithmetic, on fifteen million pixels.
-        if bytes == 4 && little && (visual.red_mask, visual.green_mask, visual.blue_mask) == (0xff0000, 0xff00, 0xff) {
-            for pixel in shot.data.chunks_exact(4).take(count) {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-            }
-            return finish(width, height, rgba, count);
-        }
         for pixel in shot.data.chunks_exact(bytes).take(count) {
             let value = match (bytes, little) {
                 (4, true) => u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]),
@@ -690,12 +680,8 @@ impl Backend for X11 {
             ),
         )?;
         self.flush()?;
-        let until = Instant::now() + Duration::from_millis(600);
-        while Instant::now() < until {
-            if self.active_window() == Some(window) {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        if super::wait_active(super::ACTIVATE_WAIT, || self.active_window() == Some(window)) {
+            return Ok(());
         }
         Err(format!("The window manager did not activate window {id}."))
     }
@@ -736,11 +722,8 @@ impl Backend for X11 {
         self.keysym_action(&[keysym_of(key)], 0, down)
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        let keysyms = char_keysyms(ch);
-        self.keysym_action(&keysyms, self.locked, true)?;
-        std::thread::sleep(Duration::from_millis(6));
-        self.keysym_action(&keysyms, self.locked, false)
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        self.keysym_action(&char_keysyms(ch), self.locked, down)
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
@@ -812,32 +795,38 @@ fn lockable(info: &xinput::XIDeviceInfo) -> bool {
 /// on its own and the drop only collects it).
 struct Lock {
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
     /// `display` = the X display the grab is taken on (`None`: `DISPLAY`).
     fn take(display: Option<String>, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
         let stop = Arc::new(AtomicBool::new(false));
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn({
-                let stop = stop.clone();
-                move || match Grabs::take(display.as_deref()) {
-                    Ok(grabs) => {
-                        let _ = ready_tx.send(Ok(()));
+        // A grab that went in just as the wait gave up lets go here.
+        let late = {
+            let stop = stop.clone();
+            move |_: Result<(), String>| stop.store(true, Ordering::Release)
+        };
+        let body = {
+            let stop = stop.clone();
+            move |ready: crate::backend::LockReady<Result<(), String>>| match Grabs::take(display.as_deref()) {
+                Ok(mut grabs) => {
+                    if ready.send(Ok(())) {
                         grabs.hold(&stop, &*on_esc);
-                    }
-                    Err(reason) => {
-                        let _ = ready_tx.send(Err(reason));
+                    } else {
+                        // `take` gave up waiting: nobody holds a guard for these grabs.
+                        grabs.release();
                     }
                 }
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(Lock { stop, thread: Some(thread) }),
-            Ok(Err(reason)) => Err(reason),
+                Err(reason) => {
+                    ready.send(Err(reason));
+                }
+            }
+        };
+        match LockThread::start(body, late) {
+            Ok((Ok(()), thread)) => Ok(Lock { stop, thread }),
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
             Err(_) => {
                 stop.store(true, Ordering::Release);
                 Err("The X server did not answer the grab.".to_string())
@@ -851,17 +840,17 @@ impl LockGuard for Lock {}
 impl Drop for Lock {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        if let Some(thread) = self.thread.take() {
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
+        self.thread.join();
     }
 }
 
 /// X11's keycode for Escape under evdev (`KEY_ESC` 1 + the 8 X offsets),
 /// the stand-in when a keymap names no Escape keysym at all.
 const EVDEV_ESCAPE_KEYCODE: u8 = 9;
+
+/// #ERR-29: the lock's two ways of losing its hold, their errors' text.
+const DEVICE_ESCAPED: &str = "[computer] a new input device escaped the input lock";
+const CONNECTION_BROKE: &str = "[computer] the input lock's X connection broke";
 
 /// #EXP-1906: the ids of `devices` a hierarchy event says the server removed
 /// are no longer grabbed ones. X.Org hands a removed device's id to the next
@@ -943,7 +932,9 @@ impl Grabs {
 
     /// Watch the grabbed devices until `stop`, or until Esc or the loss of
     /// the connection (then `on_esc` runs on this thread and the grabs go).
+    /// #ERR-29: a device it cannot grab and a lost connection are errors.
     fn hold(mut self, stop: &AtomicBool, on_esc: &(dyn Fn() + Send + Sync)) {
+        let mut escaped = false;
         while !stop.load(Ordering::Acquire) {
             match self.conn.poll_for_event() {
                 Ok(Some(Event::XinputKeyPress(key))) if Some(key.detail as u8) == self.escape => {
@@ -961,7 +952,15 @@ impl Grabs {
                 Ok(Some(Event::XinputHierarchy(event))) => {
                     forget_gone(&mut self.devices, &event.infos);
                     if let Err(reason) = self.grab_new() {
-                        log::warn!("[computer] a new input device escaped the lock: {reason}");
+                        // The reason names the device, the person's: the
+                        // local debug log's alone. An error once per hold
+                        // (every later hierarchy event tries it again).
+                        log::debug!("{DEVICE_ESCAPED}: {reason}");
+                        if std::mem::replace(&mut escaped, true) {
+                            log::warn!("{DEVICE_ESCAPED}");
+                        } else {
+                            log::error!("{DEVICE_ESCAPED}");
+                        }
                     }
                 }
                 Ok(Some(_)) => {}
@@ -975,7 +974,7 @@ impl Grabs {
                 // it hears an abort (#EXP-1906), unless the stop was ours.
                 Err(err) => {
                     if !stop.load(Ordering::Acquire) {
-                        log::error!("[computer] the lock's connection broke: {err}");
+                        super::lock_lost(CONNECTION_BROKE, &err);
                         on_esc();
                     }
                     return;
@@ -1209,8 +1208,11 @@ mod tests {
         let (on_esc, escaped) = escapes();
         let lock = Lock::take(Some(xvfb.display.clone()), on_esc).unwrap();
         assert!(escaped.recv_timeout(Duration::from_millis(200)).is_err(), "nothing happened yet");
+        crate::log_capture::start();
         xvfb.stop();
         escaped.recv_timeout(Duration::from_secs(5)).expect("the broken lock reaches on_esc");
+        // #ERR-29: and an error, the level GlitchTip sends.
+        assert!(crate::log_capture::error_logged_anywhere(CONNECTION_BROKE), "{:?}", crate::log_capture::records());
         drop(lock);
     }
 

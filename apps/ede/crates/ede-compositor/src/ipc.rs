@@ -298,16 +298,22 @@ impl Ede {
     /// The reply to a call [`Ede::ipc_call`] deferred; the connection's
     /// next calls are served after it.
     pub(crate) fn ipc_reply_later(&mut self, id: u64, call_id: u64, outcome: Result<serde_json::Value, Failure>) {
+        self.ipc_reply_later_with(id, call_id, outcome.map(|result| (result, None)));
+    }
+
+    /// [`Self::ipc_reply_later`] with a capture's pixels (#EDE-162: a
+    /// space's capture that waited its turn).
+    pub(crate) fn ipc_reply_later_with(&mut self, id: u64, call_id: u64, outcome: Result<(serde_json::Value, Option<Vec<u8>>), Failure>) {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return };
         if conn.busy != Some(call_id) {
             return;
         }
         conn.busy = None;
-        let message = match outcome {
-            Ok(result) => Message::Reply { id: call_id, result },
-            Err(error) => Message::Error { id: call_id, error },
+        let (message, extra) = match outcome {
+            Ok((result, extra)) => (Message::Reply { id: call_id, result }, extra),
+            Err(error) => (Message::Error { id: call_id, error }, None),
         };
-        if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
+        if !self.ipc_send(id, &message, extra) || !self.ipc_serve(id) {
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                 conn.kill();
             }
@@ -420,7 +426,7 @@ impl Ede {
         }
         // #EDE-126: a space connection never reaches the arms below.
         let (desk, request) = if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
-            match self.space_scope_call(&session, &grant, now, request)? {
+            match self.space_scope_call(&session, &grant, now, request, crate::spaces::scope::Caller { conn: id, call: call_id })? {
                 Scoped::Reply(reply) => return Ok(reply),
                 // #EDE-125: the few ops whose arm below takes any desk.
                 Scoped::Through(desk, request) => {
@@ -519,7 +525,7 @@ impl Ede {
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
                     CaptureTarget::Space { space } => {
                         let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
-                        return self.space_capture(desk, since);
+                        return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id });
                     }
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
@@ -741,7 +747,7 @@ impl Ede {
         let focused = self.focused_window(DeskId::PERSON);
         self.all_windows()
             .iter()
-            .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
+            .filter(|w| !x11_override_redirect(w))
             .filter_map(|w| {
                 let st = crate::state::window_state(w);
                 let g = self.desk.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
@@ -758,7 +764,7 @@ impl Ede {
                     focused: focused.as_ref() == Some(w),
                     fullscreen: st.fullscreen.is_some(),
                     protected,
-                    x11: w.x11_surface().is_some(),
+                    x11: is_x11(w),
                     workspace: st.workspace,
                     minimized: st.minimized,
                     // #EDE-91: every window is on the person's desk until spaces land.
@@ -830,6 +836,29 @@ pub fn window_id(window: &Window) -> WindowId {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     window.user_data().get_or_insert(|| WindowId::new(format!("w{}", NEXT.fetch_add(1, Ordering::Relaxed))).unwrap()).clone()
+}
+
+/// An Xwayland window (none without the `xwayland` feature, #EDE-140).
+fn is_x11(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some();
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
+}
+
+/// An X11 override-redirect window (a menu, a tooltip): no window of the
+/// list.
+fn x11_override_redirect(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some_and(|x| x.is_override_redirect());
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
 }
 
 /// The title (else the app id, else nothing) for a frame.

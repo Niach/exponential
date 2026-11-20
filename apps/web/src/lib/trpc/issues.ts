@@ -1615,17 +1615,24 @@ export const issuesRouter = router({
   // parse and LIKE pattern cost per call.
   search: authedProcedure
     .input(
-      z.object({
-        teamId: z.string().uuid(),
-        query: z.string().trim().min(1).max(256),
-        limit: z.number().int().min(1).max(50).default(20),
-      })
+      z
+        .object({
+          teamId: z.string().uuid().optional(),
+          // #EXP-2027: the md+ search reads every member team at once.
+          teamIds: z.array(z.string().uuid()).min(1).max(50).optional(),
+          query: z.string().trim().min(1).max(256),
+          limit: z.number().int().min(1).max(50).default(20),
+        })
+        .refine((input) => (input.teamId === undefined) !== (input.teamIds === undefined), {
+          message: `Exactly one of teamId and teamIds`,
+        })
     )
     .query(async ({ ctx, input }) => {
-      await assertTeamMember(ctx.session.user.id, input.teamId)
+      const teamIds = [...new Set(input.teamIds ?? [input.teamId as string])]
+      for (const teamId of teamIds) await assertTeamMember(ctx.session.user.id, teamId)
 
       const result = await ctx.db.execute(sql`
-        with matches as (${issueSearchMatchIds(input.query, { teamId: input.teamId })})
+        with matches as (${issueSearchMatchIds(input.query, teamIds.length === 1 ? { teamId: teamIds[0] } : { teamIds })})
         select
           i.id,
           i.identifier,

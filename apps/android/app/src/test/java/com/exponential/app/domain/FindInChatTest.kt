@@ -122,6 +122,34 @@ class FindInChatTest {
     }
 
     @Test
+    fun `every older case`() {
+        fun JsonElement?.longOrNull(): Long? = this?.takeUnless { it is JsonNull }?.jsonPrimitive?.content?.toLong()
+        for (case in cases("olderCases")) {
+            val store = case.getValue("store").jsonArray.map { h ->
+                val o = h.jsonObject
+                FindInChat.StoreHit(o.str("sessionId")!!, o["seq"].longOrNull(), o.str("messageId"), o.str("kind")!!)
+            }
+            val device = case.getValue("device").jsonArray.map { h ->
+                val o = h.jsonObject
+                FindInChat.DeviceHit(o["seq"].longOrNull()!!, o.str("kind")!!)
+            }
+            val synced = case["synced"]?.takeUnless { it is JsonNull }?.jsonObject?.let { o ->
+                FindInChat.Synced(
+                    loaded = o.getValue("loaded").jsonArray.map { it.jsonPrimitive.content },
+                    drawable = o.getValue("drawable").jsonArray.map { it.jsonPrimitive.content },
+                    more = o.getValue("more").jsonPrimitive.boolean,
+                )
+            }
+            val expected = case.getValue("expected").jsonArray.map { h ->
+                val o = h.jsonObject
+                FindInChat.OlderHit(o.str("key")!!, o.getValue("output").jsonPrimitive.boolean)
+            }
+            val got = FindInChat.older(case.str("sessionId")!!, case["lowestSeq"].longOrNull(), store, device, synced)
+            assertEquals(case.name(), expected, got)
+        }
+    }
+
+    @Test
     fun `every counter case`() {
         for (case in cases("counterCases")) {
             val actual = FindInChat.counter(

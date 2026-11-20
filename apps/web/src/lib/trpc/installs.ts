@@ -6,6 +6,7 @@
 // Teammates discover each other through `list`, computed from the team's
 // CURRENT membership: removing a member needs no cleanup, nothing crosses
 // teams. Server-only table, no Electric shape.
+import { teamMemberPairs } from "@/lib/auth/membership"
 import { createPublicKey, verify } from "node:crypto"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -203,10 +204,8 @@ export const installsRouter = router({
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await resolveTeamAccess(ctx.session.user.id, input.teamId)
-      const members = await ctx.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(eq(teamMembers.teamId, input.teamId))
+      // #EXP-1984: a personal team's owner is its member (their Assistant's chat).
+      const members = await teamMemberPairs(ctx.db, [input.teamId])
       const userIds = [...new Set(members.map((m) => m.userId))]
       if (userIds.length === 0) return []
       const rows = await ctx.db

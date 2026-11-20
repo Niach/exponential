@@ -931,15 +931,11 @@ fn render_image_slot(
 /// The hover ✕ on an editor image block (absolute top-right, appears with
 /// the group hover like the resize handles).
 /// #EXP-1947: a refused picture's block: THE link (the account's link
-/// opener) or its alt as text, with the block's hover ✕ remove.
+/// opener) or its alt as text, with the block's hover ✕ remove. #EXP-1968
+/// (`editModeSource`): no alt = the src as plain text, so the block can be
+/// found and removed.
 fn render_image_stand_in(id: impl Into<ElementId>, url: &str, alt: &str, hooks: Option<&EditorImageHooks>, cx: &App) -> gpui::AnyElement {
-    let verdict = crate::image_actions::source_verdict(url, alt, crate::image_actions::instance(cx).as_deref());
-    let (text, href) = match verdict {
-        eui_gpui::host::ImageSourceVerdict::Link { href, text } => (text, Some(href)),
-        eui_gpui::host::ImageSourceVerdict::Text(text) => (text, None),
-        eui_gpui::host::ImageSourceVerdict::Load => (alt.to_string(), None),
-    };
-    let text = if text.is_empty() { url.to_string() } else { text };
+    let (text, href) = crate::image_actions::edit_mode_stand_in(url, alt, cx);
     let label = div()
         .id("md-image-link")
         .role(gpui::Role::Link)

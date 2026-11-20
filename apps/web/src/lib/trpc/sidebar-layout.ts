@@ -9,6 +9,7 @@ import {
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { sidebarLayout } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/team-membership"
+import { assertSidebarTargetsInTeam } from "@/lib/sidebar-targets"
 
 // #EXP-1832 (fixture `sidebar-folders.json`): the member's own sidebar layout.
 // The client runs the pure `sidebarMove` / `sidebarUngroup` over its synced
@@ -21,7 +22,7 @@ import { resolveTeamAccess } from "@/lib/team-membership"
 /** A section never holds more rows than a sidebar shows. */
 export const SIDEBAR_LAYOUT_MAX_WRITES = 500
 
-const sectionSchema = z.enum(SIDEBAR_SECTIONS as [`board`, `agent`, `app`])
+const sectionSchema = z.enum(SIDEBAR_SECTIONS as [`team`, `board`, `agent`, `app`])
 
 const writeSchema = z
   .object({
@@ -79,6 +80,10 @@ export const sidebarLayoutRouter = router({
             throw new TRPCError({ code: `BAD_REQUEST`, message: `An item's parent must be a folder of this section` })
           }
         }
+        if (input.section === `team`) {
+          const targets = input.upserts.flatMap((write) => (write.kind === `item` && write.targetId ? [write.targetId] : []))
+          await assertSidebarTargetsInTeam(tx, userId, input.teamId, targets)
+        }
         for (const id of input.deletes) {
           const row = mine.get(id)
           if (row && (row.kind !== `folder` || row.teamId !== input.teamId || row.section !== input.section)) {
@@ -119,6 +124,29 @@ export const sidebarLayoutRouter = router({
               )
             )
         }
+        return { txId }
+      })
+    }),
+
+  /** #EXP-2027: `Remove from sidebar`: the caller's item entry for a target
+   *  in a team's list goes (a session leaves the tree; a board, agent or app
+   *  would only fall back to its default place). */
+  remove: authedProcedure
+    .input(z.object({ targetId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .delete(sidebarLayout)
+          .where(
+            and(
+              eq(sidebarLayout.userId, userId),
+              eq(sidebarLayout.section, `team`),
+              eq(sidebarLayout.kind, `item`),
+              eq(sidebarLayout.targetId, input.targetId)
+            )
+          )
         return { txId }
       })
     }),

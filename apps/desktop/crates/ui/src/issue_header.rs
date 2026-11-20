@@ -108,8 +108,6 @@ impl IssueHeader {
             cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
-            // EXP-778: the pin toggle's glyph reads the per-user pins rows.
-            cx.observe(&collections.pins, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -708,25 +706,10 @@ impl IssueHeader {
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(4);
+        let mut cluster = Vec::with_capacity(3);
         // EXP-897 §4: the ONE related-work badge.
         cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.push(self.start_coding.clone().into_any_element());
-        // EXP-778: the personal pin toggle — a pinned issue lands in the
-        // rail's Pinned section. Needs the team (the board's) to address
-        // the toggle; a not-yet-synced board hides it for a repaint.
-        if let Some(team_id) = self.team_id_of(issue, cx) {
-            cluster.push(
-                crate::pins::pin_toggle_button(
-                    "issue-pin",
-                    team_id,
-                    domain::contract::PIN_KIND_ISSUE,
-                    issue.id.clone(),
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
         // EXP-1191: the `…` glyph, not its hit box, ends on the content edge.
         cluster.push(
             div()

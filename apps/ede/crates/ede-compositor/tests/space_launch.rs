@@ -19,6 +19,21 @@ use ede_protocol::{Capability, Client, Error, ErrorCode, SessionId, SpaceInfo};
 const BLUE: u32 = 0xff00_00ff;
 const DUMP: &str = "EDE_TEST_SPACE_DUMP";
 const PROFILE: [&str; 4] = ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"];
+/// #EDE-138: what a login (or a terminal the compositor was started from)
+/// may have that is nobody's business in a space: the launch environment
+/// is an allowlist, so none of it reaches a launch.
+const LOGIN_ONLY: [(&str, &str); 10] = [
+    ("TMUX", "/tmp/tmux-1000/default,1,0"),
+    ("TMUX_PANE", "%0"),
+    ("STY", "1234.pts-0.host"),
+    ("NOTIFY_SOCKET", "/run/user/1000/systemd/notify"),
+    ("DOCKER_HOST", "unix:///run/user/1000/docker.sock"),
+    ("CONTAINER_HOST", "unix:///run/user/1000/podman/podman.sock"),
+    ("SSH_AUTH_SOCK", "/run/user/1000/keyring/ssh"),
+    ("GPG_AGENT_INFO", "/run/user/1000/gnupg/S.gpg-agent:0:1"),
+    ("GNOME_KEYRING_CONTROL", "/run/user/1000/keyring"),
+    ("SESSION_MANAGER", "local/host:@/tmp/.ICE-unix/1"),
+];
 
 /// The launched app: this test binary again. It writes its environment,
 /// pid and directory to the file it was told, opens a window in the space
@@ -60,7 +75,10 @@ fn until(what: &str, mut ok: impl FnMut() -> bool) {
 fn persons_environment() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        for (name, value) in [("DISPLAY", ":77"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")] {
+        for (name, value) in [("DISPLAY", ":77"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
+            .into_iter()
+            .chain(LOGIN_ONLY)
+        {
             std::env::set_var(name, value);
         }
         for name in PROFILE {
@@ -99,7 +117,10 @@ fn a_launch_opens_in_its_space_with_the_spaces_own_environment_and_ends_with_it(
     let (h, dir) = start_with_spaces(&[(800, 600)]);
     let (mut agent, space) = agent(&h, "run-1");
     let runtime = PathBuf::from(&space.wayland_display).parent().unwrap().to_path_buf();
-    let home = runtime.join("home");
+    // #EDE-138: the home is on disk beside the other spaces' of this
+    // compositor, never in the runtime directory (a tmpfs the person shares).
+    let home = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str());
+    assert!(!home.starts_with(&runtime));
 
     let dump = dir.path().join("first.env");
     let (argv, env) = this_test(&dump);
@@ -112,9 +133,18 @@ fn a_launch_opens_in_its_space_with_the_spaces_own_environment_and_ends_with_it(
     assert_eq!(got["WAYLAND_DISPLAY"], space.wayland_display);
     assert_eq!(Path::new(&got["XDG_RUNTIME_DIR"]), runtime);
     // Nothing of the person's session.
-    for gone in ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"] {
+    for gone in ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
         assert!(!got.contains_key(gone), "{gone} reached the launch");
     }
+    // What a launch keeps of the compositor's, and a tmux server, screen
+    // sessions and a gpg home of the space's own.
+    for kept in ["PATH", "HOME"] {
+        assert_eq!(got.get(kept), std::env::var(kept).ok().as_ref(), "{kept}");
+    }
+    assert_eq!(Path::new(&got["TMUX_TMPDIR"]), runtime);
+    assert_eq!(Path::new(&got["SCREENDIR"]), runtime.join("screen"));
+    assert!(Path::new(&got["GNUPGHOME"]).starts_with(&home));
+    assert_eq!(std::fs::metadata(&got["SCREENDIR"]).map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o777).unwrap(), 0o700, "screen wants its directory 0700");
     assert_ne!(got.get("DBUS_SESSION_BUS_ADDRESS").map(String::as_str), Some("unix:path=/nonexistent/persons-bus"), "the person's session bus reached the launch");
     // A profile of the space's own, under its home, made before the start.
     for name in PROFILE {
@@ -146,7 +176,7 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     let (mut agent, _space) = agent(&h, "run-1");
     let sleep = || vec!["sleep".to_string(), "30".to_string()];
     // The names the compositor sets or drops are not the caller's.
-    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"] {
+    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
         assert_eq!(code(agent.launch(sleep(), [(name.to_string(), "x".to_string())].into(), None)), ErrorCode::Invalid, "{name}");
     }
     assert_eq!(code(agent.launch(vec![], Default::default(), None)), ErrorCode::Invalid);

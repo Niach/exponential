@@ -4,8 +4,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // EXP-878: the caller's issue drafts — what the create-issue dialog keeps
 // when it is closed with content in it, on every client. Streams only the
-// requesting user's rows; never anonymous. Like `pins`, the where clause is
-// fully STATIC per user (`user_id = me`, no membership id lists), so the
+// requesting user's rows; never anonymous. The where clause is fully
+// STATIC per user (`user_id = me`, no membership id lists), so the
 // shape identity never rotates — not even on team join/leave.
 //
 // Deliberately NOT team- or trash-scoped: clients render only the drafts of

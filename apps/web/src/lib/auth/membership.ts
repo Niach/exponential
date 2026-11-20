@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { boardVisible } from "@/lib/board-visibility"
-import { and, eq, inArray, isNull, or } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm"
 import {
   attachments,
   issueDrafts,
@@ -145,6 +145,45 @@ export async function getPersonalTeamId(userId: string): Promise<string | null> 
     .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
     .limit(1)
   return row?.id ?? null
+}
+
+/** #EXP-1984: the (team, member) pairs of `teamIds` (optionally only
+ *  `userIds`), counting a personal team's owner as its one member (it has no
+ *  team_members row). Every recipient / reader list that reads team_members
+ *  directly goes through this, so the Assistant's personal team is never
+ *  memberless. `database` = the pool or a transaction. */
+export async function teamMemberPairs(
+  database: Pick<Awaited<ReturnType<typeof getDb>>, `select`>,
+  teamIds: readonly string[],
+  userIds?: readonly string[]
+): Promise<Array<{ teamId: string; userId: string; role: TeamRole }>> {
+  if (teamIds.length === 0 || (userIds && userIds.length === 0)) return []
+  const joined = await database
+    .select({ teamId: teamMembers.teamId, userId: teamMembers.userId, role: teamMembers.role })
+    .from(teamMembers)
+    .where(
+      and(
+        inArray(teamMembers.teamId, [...teamIds]),
+        ...(userIds ? [inArray(teamMembers.userId, [...userIds])] : [])
+      )
+    )
+  const personal = await database
+    .select({ teamId: teams.id, userId: teams.ownerId })
+    .from(teams)
+    .where(and(inArray(teams.id, [...teamIds]), eq(teams.kind, `personal`)))
+  return [
+    ...joined,
+    ...personal
+      .filter((row): row is { teamId: string; userId: string } => row.userId !== null)
+      .filter((row) => !userIds || userIds.includes(row.userId))
+      .map((row) => ({ ...row, role: `member` as TeamRole })),
+  ]
+}
+
+/** #EXP-1984: SQL "user is a member of team" (team_members, or the owner of
+ *  a personal team), for raw-SQL membership checks. */
+export function isTeamMemberSql(userId: SQLWrapper, teamId: SQLWrapper): SQL {
+  return sql`(exists (select 1 from ${teamMembers} where ${teamMembers.userId} = ${userId} and ${teamMembers.teamId} = ${teamId}) or exists (select 1 from ${teams} where ${teams.id} = ${teamId} and ${teams.ownerId} = ${userId} and ${teams.kind} = 'personal'))`
 }
 
 export async function getTeamMember(userId: string, teamId: string) {

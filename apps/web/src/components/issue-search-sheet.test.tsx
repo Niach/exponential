@@ -20,7 +20,7 @@ Element.prototype.scrollIntoView ??= function scrollIntoView() {}
 
 const mockState = vi.hoisted(() => {
   const boards = [
-    { id: `b-1`, slug: `core`, name: `Core`, icon: null, color: null },
+    { id: `b-1`, teamId: `team-1`, slug: `core`, name: `Core`, icon: null, color: null },
   ]
   const issues = [
     {
@@ -46,6 +46,7 @@ const mockState = vi.hoisted(() => {
     results: [...issues] as unknown[],
     navigate: vi.fn(),
     mobile: false,
+    chats: null as null | { items: { value: string; label: string; description?: string; hint?: string }[]; loading: boolean; onPick: (value: string) => void },
   }
 })
 
@@ -60,14 +61,15 @@ vi.mock(`@tanstack/react-db`, () => ({
   useLiveQuery: () => ({ data: mockState.issues }),
   inArray: () => true,
 }))
-vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ issueCollection: {}, userCollection: {} }))
 vi.mock(`@/hooks/use-team-data`, () => ({
-  useTeamBoards: () => mockState.boards,
-  useTeamUsers: () => ({ userMap: new Map() }),
+  useBoardsForTeams: () => ({ boards: mockState.boards, boardsReady: true }),
 }))
 // The engine has its own fixtures; here it only has to rank, so the stub hands
 // back whatever the test put in front of it, in order.
-vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRows: () => [] }))
+vi.mock(`@/hooks/use-agent-row`, () => ({ useAllAgentRows: () => [] }))
+// #EDE-99: the Chats section's hook (its store has its own suite).
+vi.mock(`@/hooks/use-global-chat-search`, () => ({ useGlobalChatSearch: () => mockState.chats }))
 vi.mock(`@/hooks/use-issue-search-results`, () => ({
   useIssueSearchResults: () => ({ results: mockState.results }),
 }))
@@ -96,8 +98,7 @@ function open() {
     <IssueSearchSheet
       open
       onOpenChange={vi.fn()}
-      teamId="team-1"
-      teamSlug="acme"
+      teams={[{ id: `team-1`, slug: `acme` }]}
     />
   )
 }
@@ -107,6 +108,42 @@ describe(`IssueSearchSheet`, () => {
     mockState.navigate.mockReset()
     mockState.results = [...mockState.issues]
     mockState.mobile = false
+    mockState.chats = null
+  })
+
+  // #EDE-99 (search-list.json SECTIONS): with a store and a query, Issues
+  // then Chats as titled sections, the count adds both, a chat pick is the
+  // hook's.
+  it(`a query lists Issues then Chats; picking a chat is the chat's`, () => {
+    const onPick = vi.fn()
+    mockState.chats = {
+      items: [{ value: `chat:r1`, label: `Reduce cold start`, description: `…a board snapshot cache.`, hint: `Mon` }],
+      loading: false,
+      onPick,
+    }
+    open()
+    const input = document.querySelector<HTMLInputElement>(`[data-slot=command-input]`)!
+    expect(input.placeholder).toBe(`Search issues and chats`)
+    fireEvent.change(input, { target: { value: `cache` } })
+    expect(screen.getByTestId(`search-list-issues`).textContent).toContain(`Issues`)
+    expect(screen.getByTestId(`search-list-chats`).textContent).toContain(`Chats`)
+    expect(screen.getByTestId(`search-list-count`).textContent).toBe(`3`)
+    const chat = screen.getByTestId(`search-list-chat-row`)
+    expect(chat.textContent).toContain(`Reduce cold start`)
+    expect(chat.textContent).toContain(`…a board snapshot cache.`)
+    expect(chat.textContent).toContain(`Mon`)
+    fireEvent.click(chat)
+    expect(onPick).toHaveBeenCalledWith(`chat:r1`)
+    expect(mockState.navigate).not.toHaveBeenCalled()
+  })
+
+  it(`no chats and the store done: the one empty state`, () => {
+    mockState.results = []
+    mockState.chats = { items: [], loading: false, onPick: vi.fn() }
+    open()
+    fireEvent.change(document.querySelector(`[data-slot=command-input]`)!, { target: { value: `zzz` } })
+    expect(screen.getByText(`No results`)).toBeTruthy()
+    expect(screen.queryByTestId(`search-list-chats`)).toBeNull()
   })
 
   // EXP-971: the phone arm's back arrow rides INSIDE the primitive's field

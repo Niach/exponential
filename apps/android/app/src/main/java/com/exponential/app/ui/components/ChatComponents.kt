@@ -260,7 +260,7 @@ fun AgentChatRowItem(
     onLongClick: (() -> Unit)? = null,
     divider: Boolean = true,
 ) {
-    PinnedChatRow(
+    DiscChatRow(
         name = row.name,
         time = row.time,
         preview = row.preview,
@@ -299,7 +299,7 @@ fun AppChatRowItem(
     modifier: Modifier = Modifier,
     divider: Boolean = true,
 ) {
-    PinnedChatRow(
+    DiscChatRow(
         name = row.name,
         time = row.time,
         preview = row.preview,
@@ -329,7 +329,7 @@ fun AppChatRowItem(
  *  the unread badge. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PinnedChatRow(
+private fun DiscChatRow(
     name: String,
     time: String,
     preview: Chats.ChatPreview,

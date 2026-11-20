@@ -6,7 +6,7 @@ name: test
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
-# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
+# plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests (and ePilot's live tests against it) when it touches apps/ede or what it builds from, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI, with eui-gpui's full `cargo test`) when it touches eUI, a short eDE golden check
 # (`ede-goldens-lite`: ede-chat, ede-settings, ede-panel-menu) when it touches what eDE paints with, and
@@ -115,7 +115,10 @@ jobs:
           # catalog/themes it embeds. A PR touching these REQUIRES eui-swift.
           swift='^(packages/exponential-ui-swift/|packages/exponential-ui/(generated|catalog|conformance|fixtures)/|apps/desktop/crates/(eui-core|exponential-ui-ffi)/|\.github/workflows/exponential-ui\.yml$)'
           echo "swift=$(grep -qE "$swift" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
+          # #EDE-140: + what apps/ede builds from outside it (the path crates, the
+          # files their sources include; apps/ede/crates/ede-session/tests/ci_filter.rs
+          # fails while one is missing here) and epilot, whose live tests run in the job.
+          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol|emcp|crash-monitor|epilot)/|apps/desktop/assets/fonts/|packages/design-tokens/tokens\.json$|packages/exponential-ui/themes/|packages/emcp/fixtures/|packages/domain-contract/fixtures/app-actions\.json$|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
           ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
@@ -306,9 +309,14 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
       # Self-hosted keeps its own sccache (.github/runners/README.md).
+      # Every rust-cache here saves on master only (P1): PR and train refs
+      # restore the master entry seed-rust-caches.yml writes, and no longer
+      # churn the 10 GB Actions cache with entries nobody else can read.
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -335,8 +343,8 @@ jobs:
       # #EXP-1905: Computer Use (epilot, epilot-screen: fake backends and a
       # fake capturer, no display, no seat) and the MCP Proxy (emcp with code
       # mode: its contract replay, the loopback server, the hub). epilot's
-      # live test `headless_ede_drives_and_captures` needs a built compositor
-      # (EDE_COMPOSITOR) and returns early here: this job builds no eDE.
+      # live tests (`headless_ede`) need a built compositor (EDE_COMPOSITOR)
+      # and return early here: the ede job runs them (#EDE-140).
       # #EXP-1941: P2P's core (enet-core) for the call seal: its unit tests
       # replay voice-call.json `seal` byte for byte; its node tests (real
       # endpoints over localhost UDP) stay in the release suite. Its phone
@@ -381,6 +389,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: The scope wrap keeps secrets off the argv
@@ -421,6 +430,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -434,16 +445,15 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Assemble + unit tests
         working-directory: apps/android
         env:
@@ -474,21 +484,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the Engine facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p eengine-ffi --release --features cli --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-runner-${{ hashFiles('apps/runner/android/**/*.gradle*', 'packages/exponential-ui-compose/gradle/libs.versions.toml', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Compile + unit tests
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
@@ -567,7 +578,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
-          workspaces: apps/ede
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
+          workspaces: |
+            apps/ede
+            apps/desktop
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
@@ -578,6 +593,69 @@ jobs:
       - name: Cargo check (udev backend)
         working-directory: apps/ede
         run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
+      # #EDE-140: without Xwayland and the nested window it still builds.
+      - name: Cargo check (no default features)
+        working-directory: apps/ede
+        run: cargo check --locked -p ede-compositor --no-default-features
+      # #EDE-140: Computer Use against the compositor `Cargo test` built
+      # (`headless_ede`: its grant, capture, input, the hold and the person's
+      # Esc, the clipboard, a re-minted grant, a space run). Without
+      # EDE_COMPOSITOR both tests skip; EDE_COMPOSITOR_REQUIRED fails them.
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
+      - name: Computer Use on the real compositor
+        working-directory: apps/desktop
+        run: |
+          EDE_COMPOSITOR="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" EDE_COMPOSITOR_REQUIRED=1 \
+            cargo test --locked -p epilot --lib headless_ede
+
+  # #EDE-138: what an agent space launches runs in a systemd scope of the
+  # space's own slice. The `ede` job's runner is a container without systemd
+  # and tests that with stand-ins; this one asks a REAL user manager where a
+  # launch ends up (its cgroup, the limits the kernel holds, nothing left
+  # after the close or after the compositor's end, with lingering on).
+  # `EDE_EXPECT_USER_MANAGER=1`: a skip is a failure here.
+  # Pinned as `desktop-scope` is; only the compositor's one test target.
+  ede-scope:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (smithay) and the user's session bus
+        run: |
+          sudo apt-get install -y libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config dbus dbus-user-session
+          # A space's apps that ask for the GPU draw in software: lavapipe,
+          # vkcube/vulkaninfo, eglinfo.
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools mesa-utils
+          # `busctl --user` reaches the user manager over the session bus.
+          [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
+          busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
+          # As the installed daemon does: the user manager outlives a
+          # logout, so only the compositor's own end stops what a space left.
+          sudo loginctl enable-linger "$(id -un)"
+          loginctl show-user "$(id -un)" --property=Linger
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - name: A space's launches under a real user manager; its GPU-asking apps draw in software
+        working-directory: apps/ede
+        env:
+          EDE_EXPECT_USER_MANAGER: '1'
+          EDE_EXPECT_SOFTWARE_RENDERING: '1'
+        run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real --test space_render
+      - name: The space guard on this kernel (#EDE-146..148, sudo makes device nodes and runs the guard)
+        working-directory: apps/ede
+        env:
+          EDE_SPACE_GUARD_REAL: '1'
+        run: cargo test --locked -p ede-space-guard --test real -- --test-threads=1
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is
@@ -604,6 +682,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -635,6 +715,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
           workspaces: |
             apps/ede
             apps/desktop
@@ -899,7 +981,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-scope, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:

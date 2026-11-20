@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.FindInChat
+import com.exponential.app.domain.SearchList
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
@@ -84,6 +85,30 @@ class FindInChatState internal constructor(private val chatKey: String) {
 
     data class StepRequest(val step: FindInChat.Step, val n: Int)
 
+    /**
+     * #EDE-99 (search-list.json A PICK): the global search's start stop,
+     * re-resolved as answers arrive until found or the store's answer is in;
+     * dropped at the first step or edit (and on close).
+     */
+    var target by mutableStateOf<SearchList.ChatTarget?>(null)
+        private set
+
+    /** #EDE-99: the bar opened by a global search pick on [raw], starting at [target]. */
+    fun seed(raw: String, target: SearchList.ChatTarget) {
+        LAST_QUERY[chatKey] = raw
+        this.raw = raw
+        query = FindInChat.query(raw)
+        step = null
+        this.target = target
+        open = true
+        openNonce += 1
+    }
+
+    /** The target resolved (found, or fell back to the newest stop). */
+    fun dropTarget() {
+        target = null
+    }
+
     fun openBar() {
         if (!open) raw = LAST_QUERY[chatKey].orEmpty()
         open = true
@@ -95,16 +120,19 @@ class FindInChatState internal constructor(private val chatKey: String) {
         open = false
         query = ""
         step = null
+        target = null
         counter = ""
         status = null
     }
 
     fun updateRaw(value: String) {
         LAST_QUERY[chatKey] = value
+        if (value != raw) target = null
         raw = value
     }
 
     fun go(step: FindInChat.Step) {
+        target = null
         this.step = StepRequest(step, (this.step?.n ?: 0) + 1)
     }
 
@@ -120,6 +148,24 @@ class FindInChatState internal constructor(private val chatKey: String) {
         /** The last query per chat, for the process (memory only). */
         val LAST_QUERY = HashMap<String, String>()
     }
+}
+
+/**
+ * #EDE-99 (search-list.json A PICK): a global search pick waiting for its
+ * session's screen (the chat for a root, the session view for a child),
+ * which takes it on show and seeds its bar ([FindInChatState.seed]).
+ */
+object FindInChatSeeds {
+    private val pending = HashMap<String, SearchList.ChatPick>()
+
+    @Synchronized
+    fun put(pick: SearchList.ChatPick) {
+        pending.clear()
+        pending[pick.sessionId] = pick
+    }
+
+    @Synchronized
+    fun take(sessionId: String): SearchList.ChatPick? = pending.remove(sessionId)
 }
 
 /** The chat's find, for the ROOT's transcript under it (null = none). */
@@ -223,7 +269,11 @@ private fun FindInChatField(state: FindInChatState, modifier: Modifier = Modifie
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var focused by remember { mutableStateOf(false) }
+    // #EDE-99: a seeded bar (a global search pick) keeps the keyboard down:
+    // the landed row stays in view.
+    val autoFocus = remember { state.target == null }
     LaunchedEffect(Unit) {
+        if (!autoFocus) return@LaunchedEffect
         // The bar is placed a frame or two after it composes; requestFocus on
         // an unplaced node no-ops, so retry until it lands.
         var attempts = 0

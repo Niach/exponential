@@ -486,15 +486,7 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
-        // EXP-778: personal pins — static per user (`user_id = me`), the 20th
-        // shape. Not team-scoped: the reader filters on team_id locally.
-        tasks.append(makeShapeTask(
-            name: "pins", path: "/api/shapes/pins", table: "pins",
-            type: PinEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
-            session: session
-        ))
-
-        // EXP-878: issue drafts — static per user (`user_id = me`) like pins,
+        // EXP-878: issue drafts — static per user (`user_id = me`),
         // the 21st shape. A row renders only where its board resolves.
         tasks.append(makeShapeTask(
             name: "issue-drafts", path: "/api/shapes/issue-drafts", table: "issue_drafts",
@@ -530,7 +522,7 @@ public final class SyncManager: @unchecked Sendable {
             type: PullRequestIssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
-        // EXP-1323: the viewer's read marks — static per user like pins.
+        // EXP-1323: the viewer's read marks — static per user like issue drafts.
         tasks.append(makeShapeTask(
             name: "session-reads", path: "/api/shapes/session-reads", table: "session_reads",
             type: SessionReadEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
@@ -597,7 +589,7 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
-        // #FEED-219: every composer's draft — static per user like pins
+        // #FEED-219: every composer's draft — static per user like issue drafts
         // (35th shape). A server without it answers 404 and the shape just
         // asks again later (#EXP-1623); the others never wait on it.
         tasks.append(makeShapeTask(
@@ -618,7 +610,7 @@ public final class SyncManager: @unchecked Sendable {
             type: CiJobEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
-        // #EXP-1832: the member's sidebar layout — static per user like pins
+        // #EXP-1832: the member's sidebar layout — static per user like issue drafts
         // (38th shape). Phones only read it: the board pickers and the Apps
         // list fold its folders.
         tasks.append(makeShapeTask(

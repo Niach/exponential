@@ -150,7 +150,6 @@ import {
   issueSubscribers,
   mcpCredentials,
   mcpOauthFlows,
-  pins,
   teamMembers,
 } from "@/db/schema"
 
@@ -200,16 +199,13 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     const result = await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
     expect(result).toEqual({ ok: true })
-    expect(deletes).toHaveLength(5)
+    expect(deletes).toHaveLength(4)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
-    // EXP-778: and their pins in that team — the per-user pins shape would
-    // otherwise keep streaming target-less rows to the ex-member.
-    expect(deletes[2]!.table).toBe(pins)
     // EXP-792 retention: and their server-held MCP credentials + pending
     // sign-ins for this team.
-    expect(deletes[3]!.table).toBe(mcpCredentials)
-    expect(deletes[4]!.table).toBe(mcpOauthFlows)
+    expect(deletes[2]!.table).toBe(mcpCredentials)
+    expect(deletes[3]!.table).toBe(mcpOauthFlows)
     // REV2-28: their assignments in that team are cleared too.
     // EXP-481: and their device shares with this team — the synced devices
     // shape scopes on shared_team_ids single-table and cannot re-check
@@ -256,12 +252,11 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     await callerFor(`user-b`).remove({ memberId: MEMBER_ID })
 
     expect(assertTeamMember).not.toHaveBeenCalled()
-    expect(deletes).toHaveLength(5)
+    expect(deletes).toHaveLength(4)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
-    expect(deletes[2]!.table).toBe(pins)
-    expect(deletes[3]!.table).toBe(mcpCredentials)
-    expect(deletes[4]!.table).toBe(mcpOauthFlows)
+    expect(deletes[2]!.table).toBe(mcpCredentials)
+    expect(deletes[3]!.table).toBe(mcpOauthFlows)
     expect(updates).toEqual([
       { table: issues, values: { assigneeId: null } },
       {

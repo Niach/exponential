@@ -255,7 +255,9 @@ impl Ede {
         }
         if let Some(child) = s.child.as_mut() {
             match child.try_wait() {
-                Ok(Some(status)) => tracing::warn!(%status, "the lock client ended while locked"),
+                // #ERR-29: the session stays locked with nothing to unlock
+                // it until the next start: an error (a GlitchTip event).
+                Ok(Some(status)) => tracing::error!(%status, "the lock client ended while locked"),
                 _ if s.seen.elapsed() < NO_SURFACE => return,
                 _ => {
                     tracing::warn!("the lock client shows nothing; starting it again");

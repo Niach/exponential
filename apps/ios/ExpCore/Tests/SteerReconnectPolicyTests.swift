@@ -141,4 +141,41 @@ final class SteerReconnectPolicyTests: XCTestCase {
             ["ended", "history", "history_unavailable", "device_offline"]
         )
     }
+
+    // #EXP-2020: a chat whose row left the sync store (the Assistant move's
+    // shape refetch) and came back live gets its composer back: the model
+    // parked on `ended` while the row was nil reopens.
+    func testARowThatComesBackLiveReopensAnEndedModel() {
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: true, rowLive: true, ended: true, connected: false, stopped: false),
+            .reopen
+        )
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: true, rowLive: true, ended: true, connected: true, stopped: false),
+            .lift
+        )
+    }
+
+    func testOnlyAReturnOfALiveRowRevives() {
+        // The row never left: an ended phase stays (the device said bye).
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: false, rowLive: true, ended: true, connected: false, stopped: false),
+            .nothing
+        )
+        // It came back ended: over for real.
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: true, rowLive: false, ended: true, connected: false, stopped: false),
+            .nothing
+        )
+        // Not ended (starting, live): nothing to lift.
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: true, rowLive: true, ended: false, connected: false, stopped: false),
+            .nothing
+        )
+        // Shut down by the store: it revives through `resume` instead.
+        XCTAssertEqual(
+            SteerReconnectPolicy.rowReturned(wasGone: true, rowLive: true, ended: true, connected: false, stopped: true),
+            .nothing
+        )
+    }
 }

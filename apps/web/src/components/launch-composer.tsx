@@ -1,4 +1,4 @@
-import { TeamPickChips } from "@/components/launch-dialog/team-pick"
+import { TeamPickChips, teamPickShowsChips } from "@/components/launch-dialog/team-pick"
 import { useRef, useState } from "react"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import type { User } from "@/db/schema"
@@ -194,8 +194,9 @@ export function LaunchComposer({
         data-testid="agent-composer"
         strip={
           <>
-            {/* #EXP-1715: the Assistant's picked teams (a subset only). */}
-            {model.teams && model.teams.picked !== null && (
+            {/* #EXP-1715: the Assistant's picked teams (a subset only);
+                #EXP-2027 a plain chat's on Home alike. */}
+            {model.teams && teamPickShowsChips(model.teams.picked, model.teams.teams) && (
               <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
                 <TeamPickChips {...model.teams} disabled={busy} />
               </div>

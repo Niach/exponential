@@ -382,6 +382,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     // idle desktop without waiting for input.
     event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
     super::watch_main_loop(&event_loop.handle());
+    super::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.
@@ -391,6 +392,9 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         for node in nodes {
             render_device(&u, state, node);
         }
+        // #EDE-162: a space's capture never runs between a vblank and the
+        // person's frame: only after the outputs of this turn were drawn.
+        state.spaces_after_frames();
         let _ = state.display_handle.flush_clients();
     })?;
     match state.fatal.take() {

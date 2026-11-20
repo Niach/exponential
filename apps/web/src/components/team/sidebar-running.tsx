@@ -1,4 +1,7 @@
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
+import { startListDrag } from "@exponential_app/eui/web"
+import { SIDEBAR_TREE_MAX_DEPTH } from "@exp/domain-contract/sidebar-tree"
 import {
   AgentRunMark,
   CHAT_ROW_MENU_KIND,
@@ -11,7 +14,9 @@ import {
   SidebarMenuItem,
   SidebarMenuTrailing,
   SessionRowDevice,
+  TeamAvatar,
   chatRunMarkState,
+  useSidebar,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
 import {
@@ -25,9 +30,11 @@ import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { cn } from "@/lib/utils"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
+import { SIDEBAR_TEAM_LIST_ATTR, sidebarTeamDrop } from "@/hooks/use-sidebar-tree"
 
 // EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
-// under the boards — `railChats` over the Chats list of the ACTIVE team
+// at its bottom — `railChats` over the Chats list of EVERY member team
+// (#EXP-2027: no active team; each row wears its team's mark, trailing)
 // (fixture-locked `partitionChats`, `chats-list.json` `railCases`):
 // every Needs you row, every Running row, then the Recent rows whose word
 // still asks for a merge (`readyToMerge`, `stack`); hidden entirely when
@@ -37,7 +44,9 @@ import { useEnteringRows } from "@/hooks/use-entering-rows"
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). #EXP-1461: ROOTS only (a child
 // never lists), a bold title = unread; a row that changes band
 // enters on the motion tokens. Chat 58cb32df: a root row opens THE chat
-// menu (chats.json MENUS) through the team layout's menu host.
+// menu (chats.json MENUS) through the team layout's menu host. #EXP-2027
+// (sidebar-tree.json `drop`): a row drags onto its team's list
+// (`sidebarDropSession`, through the list's registered drop).
 
 /** The words a row shows while its title is held (EXP-1316: an
  *  issue-linked row waits for the issue shapes). */
@@ -110,9 +119,9 @@ function useShownChatId(): string | null {
   return row ? (row.rootId ?? row.id) : null
 }
 
-function useOpenChat(teamSlug: string): (chatId: string) => void {
+function useOpenChat(): (teamSlug: string, chatId: string) => void {
   const navigate = useNavigate()
-  return (chatId) => {
+  return (teamSlug, chatId) => {
     void navigate({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug, sessionId: chatId },
@@ -121,18 +130,57 @@ function useOpenChat(teamSlug: string): (chatId: string) => void {
   }
 }
 
+/** A member team as an Active row needs it: its slug (the chat's URL) and
+ *  its mark. */
+export interface SidebarRunningTeam {
+  slug: string
+  iconUrl: string | null | undefined
+  name: string
+}
+
+/** An Active row's drag onto its team's list: the rows dropped between are
+ *  that list's (`SIDEBAR_TEAM_LIST_ATTR`), the dragged one this row (a list
+ *  row of the same session steps aside: the drop is then a plain move). */
+function startSessionDrag(event: ReactPointerEvent<HTMLLIElement>, row: ChatsListRow) {
+  const element = event.currentTarget
+  startListDrag(
+    event.nativeEvent,
+    row.sessionId,
+    {
+      rows: () => {
+        const list = document.querySelector(`[${SIDEBAR_TEAM_LIST_ATTR}="${row.teamId}"]`)
+        const own = [...(list?.querySelectorAll<HTMLElement>(`[data-reorder-key]`) ?? [])].filter(
+          (el) => el.getAttribute(`data-reorder-key`) !== row.sessionId
+        )
+        return [...own, element]
+      },
+      maxDepth: SIDEBAR_TREE_MAX_DEPTH,
+      color: `var(--primary)`,
+    },
+    {
+      move: (context) =>
+        sidebarTeamDrop(row.teamId)?.(
+          { id: row.sessionId, teamId: row.teamId, parentId: row.parentId },
+          context
+        ),
+    }
+  )
+}
+
 /** The expanded sidebar's Active group — hidden with nothing in it. */
 export function SidebarRunningSection({
-  teamSlug,
+  teams,
   chats,
 }: {
-  teamSlug: string
+  /** Every member team by id (#EXP-2027: the band spans them all). */
+  teams: ReadonlyMap<string, SidebarRunningTeam>
   chats: SidebarChats
 }) {
-  const rows = railChats(chats.groups, chats.wordOf)
+  const rows = railChats(chats.groups, chats.wordOf).filter((row) => teams.has(row.teamId))
   const shown = useShownChatId()
-  const openChat = useOpenChat(teamSlug)
+  const openChat = useOpenChat()
   const deviceGlyph = useDeviceGlyphs()
+  const { isMobile } = useSidebar()
   const entering = useEnteringRows(rows.map((row) => row.sessionId))
   if (rows.length === 0) return null
   return (
@@ -144,12 +192,21 @@ export function SidebarRunningSection({
         <SidebarMenu>
           {rows.map((row) => {
             const device = deviceGlyph(row.deviceId)
+            const team = teams.get(row.teamId) as SidebarRunningTeam
             return (
-              <SidebarMenuItem key={row.sessionId} className={entering(row.sessionId)}>
+              <SidebarMenuItem
+                key={row.sessionId}
+                className={entering(row.sessionId)}
+                data-reorder-key={row.sessionId}
+                data-reorder-depth="1"
+                data-reorder-indent="0"
+                onDragStart={(e) => e.preventDefault()}
+                onPointerDown={!isMobile && row.depth === 0 ? (e) => startSessionDrag(e, row) : undefined}
+              >
                 <SidebarMenuButton
                   density="compact"
                   isActive={shown === row.sessionId}
-                  onClick={() => openChat(row.sessionId)}
+                  onClick={() => openChat(team.slug, row.sessionId)}
                   data-testid={`sidebar-running-${row.sessionId}`}
                   // Chat 58cb32df: a chat row's menu (S-3: Delete) on
                   // right-click / long-press.
@@ -159,12 +216,14 @@ export function SidebarRunningSection({
                   <SidebarRunningTitle title={row.title} unread={row.unread} />
                 </SidebarMenuButton>
                 {/* EXP-1318: the root's device, trailing — EXP-1477: in the
-                    rail's one trailing column. */}
-                {device && (
-                  <SidebarMenuTrailing>
-                    <SessionRowDevice icon={device.icon} name={device.name} />
-                  </SidebarMenuTrailing>
-                )}
+                    rail's one trailing column; #EXP-2027: the team's mark
+                    beside it. */}
+                <SidebarMenuTrailing className="gap-1.5">
+                  {device && <SessionRowDevice icon={device.icon} name={device.name} />}
+                  <span title={team.name} data-testid="running-team-mark" className="flex">
+                    <TeamAvatar iconUrl={team.iconUrl} size={14} />
+                  </span>
+                </SidebarMenuTrailing>
               </SidebarMenuItem>
             )
           })}

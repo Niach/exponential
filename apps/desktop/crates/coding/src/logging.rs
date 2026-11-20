@@ -173,8 +173,10 @@ const WORKSPACE_TARGETS: &[&str] = &[
     "domain",
     "steer",
     "engine",
-    // EXP-1273: the device's computer-use and code-mode servers.
-    "computer",
+    // EXP-1273: the device's computer-use and code-mode servers (#ERR-33:
+    // Computer use is epilot + epilot-screen since the `computer` crate).
+    "epilot",
+    "epilot_screen",
     "codemode",
     "sync",
     "theme",
@@ -187,6 +189,8 @@ const WORKSPACE_TARGETS: &[&str] = &[
     "etalk_engine",
     "etalk_crispasr",
     "etalk_codec",
+    // #ERR-33: the IDE's Voice UI (push to talk, calls, meetings, the tray).
+    "etalk_gpui",
 ];
 
 fn is_workspace_target(target: &str) -> bool {
@@ -604,6 +608,51 @@ mod tests {
         assert!(!logger.enabled(&meta(log::Level::Info, "reqwest::connect")));
         assert!(logger.enabled(&meta(log::Level::Warn, "reqwest::connect")));
         assert!(!logger.enabled(&meta(log::Level::Trace, "coding")));
+    }
+
+    /// #ERR-33: Computer use (epilot, epilot-screen) and the IDE's Voice UI
+    /// (etalk-gpui) write their info lines, at the targets they log under.
+    #[test]
+    fn computer_use_and_the_voice_ui_log_their_info_lines() {
+        use log::Log as _;
+        let logger = ExpLogger::new(log::LevelFilter::Info);
+        let meta = |target| log::Metadata::builder().level(log::Level::Info).target(target).build();
+        for target in [
+            "epilot",
+            "epilot::host",
+            "epilot::backend::linux",
+            "epilot_screen",
+            "epilot_screen::capture::linux::portal",
+            "etalk_gpui::meeting",
+            "etalk_gpui::voice_call",
+        ] {
+            assert!(logger.enabled(&meta(target)), "{target}'s info lines are dropped");
+        }
+    }
+
+    /// #ERR-33: every root names a crate of this workspace (its package, lib
+    /// or binary name), so a renamed crate leaves no stale root behind:
+    /// `computer` outlived its crate, and epilot's info lines were capped.
+    #[test]
+    fn every_workspace_target_is_a_crate_of_the_workspace() {
+        // Not a crate: the speech worker's stderr lines, relayed by the host.
+        const RELAYED: &[&str] = &["talk"];
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("crates/");
+        let mut names = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(crates).expect("crates/ lists") {
+            let Ok(text) = std::fs::read_to_string(entry.expect("an entry").path().join("Cargo.toml")) else {
+                continue;
+            };
+            let manifest: toml::Table = text.parse().expect("a manifest parses");
+            let name = |table: &toml::Value| table.get("name").and_then(|name| name.as_str()).map(|name| name.replace('-', "_"));
+            names.extend(manifest.get("package").and_then(name));
+            names.extend(manifest.get("lib").and_then(name));
+            names.extend(manifest.get("bin").and_then(|bins| bins.as_array()).into_iter().flatten().filter_map(name));
+        }
+        assert!(names.contains("coding") && names.contains("exp_desktop"), "the walk found the workspace: {names:?}");
+        for target in WORKSPACE_TARGETS {
+            assert!(names.contains(*target) || RELAYED.contains(target), "`{target}` is no crate of this workspace");
+        }
     }
 
     #[test]
