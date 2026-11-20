@@ -982,17 +982,15 @@ final class StyleguideScreenshots: XCTestCase {
             goBack(app)
         }
 
-        // ── sg_settings-assistant: Settings → Agents → Assistant (S-3) ─────
-        // The viewer's OWN Assistant (the `@assistant` row, brand mark; the
-        // Agents page mounting ensures it): identity, Runs on, Check in, the
-        // Voice block and the server-only instructions (gate on them). A
+        // ── sg_settings-assistant: Settings › Personal › Assistant ─────────
+        // #EXP-1987: the viewer's OWN Assistant is an account page (the
+        // Personal group's `assistant` row after Account, brand mark; the
+        // page ensures it): identity, Runs on, Check in, the Voice block. A
         // detour: nothing is edited.
         if ScreenshotShots.isWanted("sg_settings-assistant") || ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
-            let agentsRow = teamSettingsRow(app, "Agents")
-            scrollUntilVisible(app, agentsRow, attempts: 4)
-            agentsRow.tap()
             let assistantRow = app.buttons["assistant-settings-row"]
-            expect(assistantRow, within: Wait.sync, "The Agents page has no Assistant row")
+            scrollUntilVisible(app, assistantRow, attempts: 8)
+            expect(assistantRow, within: Wait.sync, "Settings has no Personal › Assistant row")
             assistantRow.tap()
             expect(
                 anyElement(app, identified: "agent-check-in-row"),
@@ -1015,8 +1013,8 @@ final class StyleguideScreenshots: XCTestCase {
                 snapshot("sg_settings-assistant-meeting", settle: 2)
             }
             goBack(app)
-            expect(assistantRow, within: Wait.nav, "Did not return to the Agents page")
-            goBack(app)
+            expect(assistantRow, within: Wait.nav, "Did not return to Settings")
+            for _ in 0..<4 { app.swipeDown() }
         }
 
         // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────

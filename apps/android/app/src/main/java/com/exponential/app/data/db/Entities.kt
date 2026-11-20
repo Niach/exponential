@@ -564,40 +564,10 @@ data class DeviceWorktreeEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
-// One personal pin (EXP-778, the 21st Electric shape): the caller's own
-// "Pinned" sidebar rows — an issue or a session, exactly one of the two ids set
-// (`kind` names which). The shape is static per user (`user_id = me`), NOT
-// team- or trash-scoped: the client renders only the pins of the active team
-// whose TARGET resolves from the other synced tables, so a pin whose
-// issue/session is not synced is simply hidden. Every field
-// that can be absent is defaulted (the attachments.uploader_id lesson).
-@Entity(
-    tableName = "pins",
-    indices = [Index("team_id"), Index("issue_id"), Index("session_id")],
-)
-@Serializable
-data class PinEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // Contract `pinKind`: issue | session; any other kind is never stored
-    // ([isKept]).
-    val kind: String,
-    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    // Ascending = display order (a Postgres double, appended one past the tail).
-    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-) {
-    /** A kind outside the contract (the dropped `action`) is ignored. */
-    val isKept: Boolean get() = kind in com.exponential.app.domain.DomainContract.pinKindValues
-}
-
 // #EXP-1832 (fixtures/sidebar-folders.json): one node of the caller's own
 // sidebar layout (the 34th Electric shape on phones): a FOLDER (a name) or an
 // ITEM entry placing one board / agent / app (`target_id`), optionally inside
-// a folder (`parent_id`). Static per user (`user_id = me`) like pins; the
+// a folder (`parent_id`). Static per user (`user_id = me`); the
 // phone only SHOWS it (read-only folders in the board pickers and the Apps
 // list). Every field but the PK defaults (the attachments.uploader_id lesson).
 @Entity(
@@ -626,8 +596,7 @@ data class SidebarLayoutEntity(
 
 // One unsent issue draft (EXP-878, the 22nd Electric shape): the create
 // screen's form, saved when the screen closes with content in it. The shape is
-// static per user (`user_id = me`), NOT team- or trash-scoped — exactly like
-// pins — so a draft renders only once its BOARD resolves from the synced
+// static per user (`user_id = me`), NOT team- or trash-scoped — so a draft renders only once its BOARD resolves from the synced
 // boards table. Every field but the PK defaults: a column absent on the wire
 // must never drop the row (the attachments.uploader_id lesson).
 @Entity(
@@ -673,7 +642,7 @@ data class IssueDraftEntity(
 // #FEED-219 (fixture `composer-draft.json`): one composer's synced DRAFT,
 // keyed by its target (`comment:<issueId>`, `reply:<topCommentId>`,
 // `session:<id>`, `agent:<id>`, `app:<id>`, `newChat:<teamId>`). Static per
-// user like issue_drafts and pins; only the TEXT is kept. Every field but the
+// user like issue_drafts; only the TEXT is kept. Every field but the
 // PK defaults: a column absent on the wire must never drop the row.
 @Entity(tableName = "composer_drafts", indices = [Index("key")])
 @Serializable
@@ -1187,7 +1156,7 @@ data class MessageEntity(
 
 // EXP-1323: the viewer's read mark of one session (a chat = its root's
 // row), upserted by `sessions.markRead` when a chat or a session view opens.
-// Static per user like pins (`user_id = me`), never trash-scoped; a row only
+// Static per user (`user_id = me`), never trash-scoped; a row only
 // matters beside a synced session.
 @Entity(
     tableName = "session_reads",

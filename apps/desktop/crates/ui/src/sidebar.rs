@@ -12,7 +12,7 @@
 //!   EXP-863). Middle (scrolling): the tool-window
 //!   selectors — **Agent / Needs you / Chats / Devices / Drafts**
 //!   (EXP-1192: Agent first, the landing page; EXP-1294: Chats replaced
-//!   Reviews), Pinned, the team's **Agents** (EXP-1294), its boards, the
+//!   Reviews), the team's **Agents** (EXP-1294), its boards, the
 //!   **Running** section (my live chats, hidden while empty), then
 //!   **This device**: **Files / Source Control** (Source Control carries an
 //!   amber badge while the trunk needs attention — a paused conflict, local
@@ -59,7 +59,7 @@ use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::navigation::{
-    active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
+    active_board_id, screen_team_id, nav_for_window, navigate, resolved_screen,
     Navigation, Screen,
 };
 
@@ -413,7 +413,7 @@ const SYNCING_LABEL: &str = "Syncing\u{2026}";
 /// rail for every member. `None` = no active team; only an explicit `auto`
 /// hides them, so a pre-column row keeps the rail.
 fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
-    active_team_id(nav, cx).map(|id| {
+    screen_team_id(nav, cx).map(|id| {
         Store::global(cx)
             .collections()
             .teams
@@ -720,7 +720,7 @@ impl RailInputs {
         Self {
             revisions: Store::global(cx).collections().revisions_except(RAIL_UNREAD, cx),
             screen: resolved_screen(nav, cx),
-            team: crate::navigation::active_team_id(nav, cx),
+            team: crate::navigation::screen_team_id(nav, cx),
             board: crate::navigation::active_board_id(nav, cx),
             account: crate::queries::active_account(cx).map(|account| account.id),
             minute: crate::session_data::now_ms() / 60_000,
@@ -760,9 +760,6 @@ impl RailView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The Inbox dot is a live read over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
-            // EXP-778: the Pinned section's rows (issues are observed
-            // below).
-            cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
             // #EXP-1616: the Pull requests tree.
@@ -1048,8 +1045,10 @@ impl Render for RailView {
         let moved = self.derived.as_ref().is_none_or(|derived| (&derived.screen, &derived.team, &derived.board, &derived.account) != (&inputs.screen, &inputs.team, &inputs.board, &inputs.account));
         let stale = self.derived.as_ref() != Some(&inputs) && (moved || self.derive_cycle.ready(cx, |rail| &mut rail.derive_cycle));
         let started = std::time::Instant::now();
+        let me = crate::shell_regions::account_face(cx);
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
+            region.set_me(me, cx);
             if stale {
                 let _span = tracing::trace_span!("rail.derive").entered();
                 region.refresh(&nav, cx);
@@ -1070,6 +1069,7 @@ impl Render for RailView {
 
         // #NEW-97: no tray host = the voice button beside the Computer one.
         let voice_entry = self.rail_voice_entry(cx);
+        let footer = self.region.read(cx).footer();
 
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
@@ -1116,21 +1116,24 @@ impl Render for RailView {
                             let Some(id) = region.hovered() else { return menu };
                             if region.is_agent(&id) {
                                 crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &id, cx)
-                            } else if region.is_active(&id) {
-                                crate::chat_actions::chat_menu_items(menu, &id, false, cx)
+                            } else if let Some(root) = region.active_root(&id) {
+                                crate::chat_actions::chat_menu_items(menu, &root, false, cx)
                             } else {
                                 menu
                             }
                         }
                     }),
             )
-            // #EXP-1723: the start and chat buttons are the document's corner;
-            // what stays under them is what still needs a person: the
-            // Getting-started entry, the sync spinner, the voice button.
+            // Under the scrolling rows, what still needs a person (the
+            // Getting-started entry, the sync spinner, the voice button), then
+            // the footer at the very bottom: the document's corner (the
+            // account, the Computer button and the personal settings gear),
+            // mounted on its own so a long tree scrolls above it.
             .map(|column| {
                 column.child(
                     v_flex()
                         .w_full()
+                        .flex_shrink_0()
                         .px_2()
                         .gap_1()
                         .children(getting_started_icon)
@@ -1138,6 +1141,7 @@ impl Render for RailView {
                         .children(voice_entry),
                 )
             })
+            .child(div().w_full().flex_shrink_0().child(footer))
             .into_any_element()
     }
 }
@@ -1335,7 +1339,7 @@ mod tests {
         });
         let (rail, cx) = cx.add_window_view(|window, cx| {
             let nav = crate::navigation::nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             RailView::new(window, cx)
         });
         let draw = |cx: &mut gpui::VisualTestContext| {

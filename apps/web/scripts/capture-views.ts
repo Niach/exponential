@@ -41,7 +41,7 @@ import {
   type WebCapture,
   type WebIdentity,
 } from "@exp/view-catalog"
-import { launchContext, login, parkPointer, settle, shot, waitForAnchor } from "./lib/capture-web"
+import { APP_LANDING, launchContext, login, parkPointer, settle, shot, waitForAnchor } from "./lib/capture-web"
 import { captureBase } from "./lib/h2-front"
 import { KEEPS_POINTER, RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
@@ -101,7 +101,7 @@ function identityFor(capture: WebCapture): WebIdentity {
 }
 
 const CREDENTIALS: Record<Exclude<WebIdentity, `anonymous`>, Credentials> = {
-  demo: { email: DEMO_EMAIL, password: DEMO_PASSWORD, landing: `**/t/**` },
+  demo: { email: DEMO_EMAIL, password: DEMO_PASSWORD, landing: APP_LANDING },
   // Signing in with no team lands on the wizard, never on a team route.
   newcomer: {
     email: NEWCOMER_EMAIL,
@@ -120,7 +120,7 @@ const CREDENTIALS: Record<Exclude<WebIdentity, `anonymous`>, Credentials> = {
 interface Credentials {
   email: string
   password: string
-  landing: string
+  landing: string | RegExp
 }
 
 /**

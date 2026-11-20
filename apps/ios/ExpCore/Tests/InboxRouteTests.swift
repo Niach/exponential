@@ -46,6 +46,27 @@ final class InboxRouteTests: XCTestCase {
         }
     }
 
+    // #EXP-1987: which team's inbox lists a row (`listCases`).
+    func testReplaysEveryListCase() throws {
+        let cases = try XCTUnwrap(try fixture()["listCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let row = try XCTUnwrap(testCase["row"] as? [String: Any], name)
+            XCTAssertEqual(
+                InboxRoute.inboxRowListed(
+                    type: try XCTUnwrap(row["type"] as? String, name),
+                    rowTeamId: row["teamId"] as? String,
+                    issueId: row["issueId"] as? String,
+                    teamId: testCase["teamId"] as? String,
+                    teamIds: try XCTUnwrap(testCase["teamIds"] as? [String], name)
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool, name),
+                name
+            )
+        }
+    }
+
     func testReplaysEveryRowCase() throws {
         let cases = try XCTUnwrap(try fixture()["cases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

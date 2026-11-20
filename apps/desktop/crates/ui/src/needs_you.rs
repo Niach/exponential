@@ -34,7 +34,7 @@ use domain::waiting_cards::WAITING_CARDS;
 
 use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
-use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation};
 
 /// The page's reading column (the Chats page's, web `max-w-3xl`).
 const COLUMN_W: f32 = 768.;
@@ -477,6 +477,18 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
 
 /// #FEED-232: every synced team's needs-you rows' length (the team picker,
 /// the OS app icon).
+/// #EXP-2027 (sidebar-tree.json): Needs you spans every member team.
+pub(crate) fn rows_in_all_teams(cx: &mut App) -> NeedsYouRows {
+    let teams: Vec<String> = Store::try_global(cx).map(|store| store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect()).unwrap_or_default();
+    let mut out = NeedsYouRows::default();
+    for team in teams {
+        let rows = rows_in_team(&team, cx);
+        out.rows.extend(rows.rows.iter().cloned());
+        out.stuck.extend(rows.stuck.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    out
+}
+
 pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
     let Some(store) = Store::try_global(cx) else {
         return Default::default();
@@ -692,7 +704,8 @@ impl Render for NeedsYouView {
         let _span = tracing::trace_span!("render", view = "NeedsYouView").entered();
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         let column: AnyElement = if ready {
-            let rows = active_team_id(&self.nav, cx).map(|team_id| rows_in_team(&team_id, cx)).unwrap_or_default();
+            // #EXP-2027: every member team's rows.
+            let rows = rows_in_all_teams(cx);
             needs_you_list(&rows.rows, &rows.stuck, cx)
         } else {
             // Skeletons, never "Loading…" (feedback-states.json).

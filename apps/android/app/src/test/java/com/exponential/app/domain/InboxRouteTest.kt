@@ -48,6 +48,27 @@ class InboxRouteTest {
         }
     }
 
+    /** #EXP-1987: which team's inbox lists a row (`listCases`, TS `inboxRowListed`). */
+    @Test
+    fun `every list case matches the fixture`() {
+        val cases = fixture.getValue("listCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val row = case.getValue("row").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonPrimitive.content.toBoolean(),
+                InboxRoute.inboxRowListed(
+                    type = row.str("type"),
+                    rowTeamId = row.str("teamId"),
+                    issueId = row.str("issueId"),
+                    teamId = case.str("teamId"),
+                    teamIds = case.getValue("teamIds").jsonArray.map { it.jsonPrimitive.content },
+                ),
+            )
+        }
+    }
+
     @Test
     fun `every session case matches the fixture`() {
         val cases = fixture.getValue("sessionCases").jsonArray.map { it.jsonObject }

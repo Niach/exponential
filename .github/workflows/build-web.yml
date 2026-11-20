@@ -48,10 +48,13 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add llvm-tools
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
+      # Saves on master only (a v* tag's entry no other ref reads);
+      # prune-enet-wasm keeps the newest master entry.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
           key: enet-wasm
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: ./.github/actions/cargo-fetch
       - uses: taiki-e/install-action@v2
         with:
@@ -71,6 +74,24 @@ jobs:
           path: apps/web/public/chat-store
           if-no-files-found: error
           retention-days: 1
+
+  # rust-cache never deletes the entry a new one replaces (a Cargo change =
+  # a new key): keep the newest master enet-wasm entry, so the replaced ones
+  # don't crowd the 10 GB (two 0.43 GB entries on 2026-11-20). Nothing
+  # waits on this.
+  prune-enet-wasm:
+    needs: enet-wasm
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the replaced master entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key v0-rust-enet-wasm- --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
+            | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
 
   # EXP-1364: no test gate here any more. Every change reaches master through
   # a pull request whose `test / gate` check is REQUIRED (branch protection),
@@ -140,7 +161,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           load: true
           tags: exponential-web:smoke
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
 
       - uses: ./.github/actions/setup-bun
 
@@ -178,8 +199,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=web-${{ env.PLATFORM_PAIR }}
+          # CI review P1 (d): the layer cache lives on ghcr as the tag
+          # `buildcache-<platform>` of this package, not in the 10 GB Actions
+          # cache (~1.6 GB there, crowding the rust caches out). Not an image:
+          # pull a semver tag. image-manifest: ghcr takes no cache index.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }},mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Export digest
         run: |

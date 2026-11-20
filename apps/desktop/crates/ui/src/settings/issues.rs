@@ -22,7 +22,7 @@ use sync::Store;
 use domain::rows::IssueStatusRow;
 use domain::statuses::{resolve_pr_target, resolve_row, IssueStatusCategory, ResolvedStatus};
 
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 
 use super::doc::{hex, path, IdeToasts, Ink, SM};
 use super::is_owner;
@@ -177,7 +177,7 @@ impl IssuesPane {
             let sorted = domain::statuses::sort_team_statuses(&shot.statuses);
             return (0..sorted.len()).map(|index| (sorted[index].clone(), resolve_row(&sorted, index))).collect();
         }
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = screen_team_id(&self.nav, cx) else {
             return Vec::new();
         };
         let sorted = crate::queries::team_statuses(cx, &team_id);

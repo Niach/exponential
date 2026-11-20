@@ -8,7 +8,7 @@ import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { inboxRowTarget } from "@exp/domain-contract/inbox-route"
+import { inboxRowListed, inboxRowTarget } from "@exp/domain-contract/inbox-route"
 import { planPageFor } from "@exp/domain-contract/plan-page"
 import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { trpc } from "@/lib/trpc-client"
@@ -177,6 +177,8 @@ export function InboxView({
     [teams]
   )
 
+  const { teamSlug: routeTeamSlug } = useParams({ strict: false }) as { teamSlug?: string }
+
   // Group notifications by issue (newest first, tracking unread count).
   // Each group links into its OWN team — linking with the current route's
   // slug would dead-end for issues from other teams.
@@ -200,16 +202,20 @@ export function InboxView({
           continue
         }
         if (n.type === `agent_message` || n.type === `session_blocked`) {
-          if (teamId && n.teamId !== teamId) continue
+          // #EXP-1987 (inbox-route.json `listCases`): a row of a team the
+          // viewer does not sync (the Assistant's chat in their personal
+          // team) lists in every team's inbox and opens from it.
+          if (!inboxRowListed({ type: n.type, teamId: n.teamId ?? null, issueId: null }, teamId ?? null, [...teamMap.keys()])) continue
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
+          const slug = team?.slug ?? routeTeamSlug
           messages.push({
             kind: `message`,
             teamId: team?.id ?? null,
             teamName: team?.name ?? null,
             session: (() => {
               const target = inboxRowTarget(n)
-              return target.kind === `session` && team
-                ? { teamSlug: team.slug, sessionId: target.sessionId }
+              return target.kind === `session` && slug
+                ? { teamSlug: slug, sessionId: target.sessionId }
                 : null
             })(),
             deviceId: null,
@@ -247,7 +253,7 @@ export function InboxView({
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
     )
-  }, [notifications, issueMap, boardMap, teamMap, teamId])
+  }, [notifications, issueMap, boardMap, teamMap, teamId, routeTeamSlug])
 
   const [visibleCount, setVisibleCount] = useState(GROUP_CAP)
   const visibleGroups =
@@ -257,7 +263,6 @@ export function InboxView({
   // One mutation per group, not one per row (REV-48): the server-side
   // by-issue clear also catches rows the client hasn't synced yet.
   const navigate = useNavigate()
-  const { teamSlug: routeTeamSlug } = useParams({ strict: false }) as { teamSlug?: string }
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
   // #EXP-1493 (plan-page.json WAYS IN): a session waiting on a plan opens

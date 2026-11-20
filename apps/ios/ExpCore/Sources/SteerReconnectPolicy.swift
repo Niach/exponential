@@ -117,3 +117,37 @@ extension SteerReconnectPolicy {
         }
     }
 }
+
+/// #EXP-2020: what the synced row COMING BACK does to a viewer model.
+public enum SteerRowReturnDecision: Equatable, Sendable {
+    /// Lift `ended` and connect from scratch (the composer returns).
+    case reopen
+    /// The feed is still joined: lift `ended` straight to live.
+    case lift
+    /// Leave it alone.
+    case nothing
+}
+
+extension SteerReconnectPolicy {
+    /// #EXP-2020 (agent-settings.json `assistant`: an app kept open across
+    /// the move keeps the chat working; a row that leaves the sync store
+    /// and comes back restores the composer, never `ended`). A row that
+    /// VANISHED reads as over (`sessionEnded`), so the no-feed rule parks
+    /// the model on `ended` ("no longer available"); a shape refetch (the
+    /// Assistant's conversation moving into the personal team) drops and
+    /// re-adds the same row. Only that return revives it: a row that stayed
+    /// put, a row that came back ended, or a model shut down is left alone.
+    ///
+    /// - Parameters:
+    ///   - wasGone: the model's last synced row was nil (it vanished).
+    ///   - rowLive: the returned row is not ended.
+    ///   - ended: the model's phase is `ended`.
+    ///   - connected: a feed is still joined.
+    ///   - stopped: the model was shut down.
+    public static func rowReturned(
+        wasGone: Bool, rowLive: Bool, ended: Bool, connected: Bool, stopped: Bool
+    ) -> SteerRowReturnDecision {
+        guard wasGone, rowLive, ended, !stopped else { return .nothing }
+        return connected ? .lift : .reopen
+    }
+}

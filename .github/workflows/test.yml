@@ -309,9 +309,14 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
       # Self-hosted keeps its own sccache (.github/runners/README.md).
+      # Every rust-cache here saves on master only (P1): PR and train refs
+      # restore the master entry seed-rust-caches.yml writes, and no longer
+      # churn the 10 GB Actions cache with entries nobody else can read.
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -384,6 +389,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: The scope wrap keeps secrets off the argv
@@ -424,6 +430,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -437,16 +445,15 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Assemble + unit tests
         working-directory: apps/android
         env:
@@ -477,21 +484,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: android
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the Engine facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p eengine-ffi --release --features cli --locked
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
+      # ref's entry no other ref can read). The Mint keeps its own warm home.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-runner-${{ hashFiles('apps/runner/android/**/*.gradle*', 'packages/exponential-ui-compose/gradle/libs.versions.toml', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Compile + unit tests
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
@@ -570,6 +578,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
           workspaces: |
             apps/ede
             apps/desktop
@@ -627,6 +637,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/ede
       - uses: ./.github/actions/cargo-fetch
         with:
@@ -636,6 +647,11 @@ jobs:
         env:
           EDE_EXPECT_USER_MANAGER: '1'
         run: cargo test --locked -p ede-compositor --test space_slice_real --test space_session_real
+      - name: The space guard on this kernel (#EDE-146..148, sudo makes device nodes and runs the guard)
+        working-directory: apps/ede
+        env:
+          EDE_SPACE_GUARD_REAL: '1'
+        run: cargo test --locked -p ede-space-guard --test real -- --test-threads=1
 
   # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
   # member of the IDE's workspace since #EDE-51) and the uicore crates it is
@@ -662,6 +678,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: desktop
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
@@ -693,6 +711,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          shared-key: ede
           workspaces: |
             apps/ede
             apps/desktop

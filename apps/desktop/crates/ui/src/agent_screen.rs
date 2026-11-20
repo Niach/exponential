@@ -446,9 +446,12 @@ impl AgentScreenView {
     }
 
     /// #EXP-1793: the agent's team (the servers are its own team's).
-    fn mcp_team_id(&self) -> Option<String> {
+    /// #EXP-1987: the member's global Assistant (its personal team never
+    /// syncs) reads the window's active team's, like `subject_team_id`
+    /// (the server takes a pick from any of the member's teams).
+    fn mcp_team_id(&self, cx: &App) -> Option<String> {
         match &self.subject {
-            ChannelSubject::Agent(_) => self.agent.as_ref().and_then(|agent| agent.team_id.clone()),
+            ChannelSubject::Agent(_) => self.subject_team_id(cx),
             ChannelSubject::App(_) => None,
         }
     }
@@ -456,7 +459,7 @@ impl AgentScreenView {
     /// #EXP-1793: one `mcpServers.list` per team, before the conversation
     /// exists (the first composer's "+" › MCP servers).
     fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.mcp_team_id() else { return };
+        let Some(team_id) = self.mcp_team_id(cx) else { return };
         if self.conversation.is_some() || self.mcp_requested.as_deref() == Some(team_id.as_str()) {
             return;
         }
@@ -493,8 +496,8 @@ impl AgentScreenView {
 
     /// #EXP-1793: the team's servers and the first composer's pick (the
     /// held one, else the agent's), team list order.
-    fn first_mcp(&self) -> (Vec<FirstMcpServer>, Vec<String>) {
-        let team = self.mcp_team_id();
+    fn first_mcp(&self, cx: &App) -> (Vec<FirstMcpServer>, Vec<String>) {
+        let team = self.mcp_team_id(cx);
         let servers = match (&self.mcp, team) {
             (Some((loaded, servers)), Some(team)) if *loaded == team => servers.clone(),
             _ => Vec::new(),
@@ -542,7 +545,7 @@ impl AgentScreenView {
                 if synced || self.agent.is_none() || Store::try_global(cx).is_none() {
                     team_id
                 } else {
-                    crate::navigation::active_team_id(&self.nav, cx)
+                    crate::navigation::screen_team_id(&self.nav, cx)
                 }
             }
         }
@@ -1179,7 +1182,7 @@ impl AgentScreenView {
         // #EXP-1729: and its Account and Model, always.
         let editor_runner = self.editor_runner.clone().filter(|_| editor_device.is_some());
         // #EXP-1793: an agent chat's MCP servers, seeded from the agent's.
-        let (mcp_servers, mcp_picked) = self.first_mcp();
+        let (mcp_servers, mcp_picked) = self.first_mcp(cx);
         let conditions = ComposerMenuConditions {
             mcp: !mcp_servers.is_empty(),
             mcp_pick: matches!(self.subject, ChannelSubject::Agent(_)),
@@ -1254,7 +1257,7 @@ impl AgentScreenView {
                         let state_view = mcp_view.clone();
                         let state: std::rc::Rc<dyn Fn(&App) -> (Vec<FirstMcpServer>, Vec<String>)> =
                             std::rc::Rc::new(move |cx: &App| {
-                                state_view.upgrade().map(|view| view.read(cx).first_mcp()).unwrap_or_default()
+                                state_view.upgrade().map(|view| view.read(cx).first_mcp(cx)).unwrap_or_default()
                             });
                         let value = (!mcp_picked.is_empty()).then(|| mcp_picked.len().to_string());
                         let pick_view = mcp_view.clone();

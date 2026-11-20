@@ -65,7 +65,14 @@ fn the_manifest_names_no_app_crate() {
             assert!(!APP.contains(&name.as_str()), "the runner must not depend on `{name}`");
         }
     }
-    // Diagnostics compiled out of the release build.
+    // Diagnostics compiled out of the runner's release build, by the
+    // feature its binary requires (#ERR-32): a level feature on the `log`
+    // dependency itself reaches every binary that links the lib (Cargo
+    // unifies features), and compiled the eDE shell's `log` lines out.
     let log = &manifest["dependencies"]["log"];
-    assert!(log["features"].as_array().unwrap().iter().any(|f| f.as_str() == Some("release_max_level_off")));
+    assert!(log.get("features").is_none(), "no level feature on `log` itself: {log}");
+    let runner = manifest["features"]["runner"].as_array().unwrap();
+    assert!(runner.iter().any(|f| f.as_str() == Some("log/release_max_level_off")), "{runner:?}");
+    let bin = &manifest["bin"].as_array().unwrap()[0];
+    assert!(bin["required-features"].as_array().unwrap().iter().any(|f| f.as_str() == Some("runner")), "the binary always builds with `runner`");
 }

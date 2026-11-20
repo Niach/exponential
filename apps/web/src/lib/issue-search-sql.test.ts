@@ -24,6 +24,17 @@ function render(
 }
 
 describe(`issueSearchMatchIds`, () => {
+  it(`#EXP-2027: scopes to several teams at once (the md+ search)`, () => {
+    const a = `11111111-1111-4111-8111-111111111111`
+    const b = `22222222-2222-4222-8222-222222222222`
+    const { sql, params } = render(`fix`, { teamIds: [a, b] })
+    expect(sql).toContain(`i.team_id in ($`)
+    expect(sql).toContain(`c.team_id in ($`)
+    expect(params).toContain(a)
+    expect(params).toContain(b)
+    expect(new PgDialect().sqlToQuery(issueSearchMatchIds(`fix`, { teamIds: [] })).sql).toContain(`false`)
+  })
+
   it(`unions the issue FTS, comment FTS and tokenized ILIKE branches`, () => {
     const { sql, params } = render(`fix #87`, { teamId: `11111111-1111-4111-8111-111111111111` })
     expect(sql).toContain(`to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))`)

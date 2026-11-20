@@ -128,13 +128,44 @@ fn place(metadata: &tracing::Metadata<'_>) -> sentry::Breadcrumb {
 
 impl<S: tracing::Subscriber, F: Fn(sentry::Breadcrumb) + 'static> Layer<S> for Places<F> {
     fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
-        (self.0)(place(event.metadata()));
+        // #ERR-32: a library's `log` line comes through tracing-log's one
+        // callsite per level (target `log`, no file): its place is the
+        // record's own.
+        use tracing_log::NormalizeEvent as _;
+        let record = event.normalized_metadata();
+        (self.0)(place(record.as_ref().unwrap_or_else(|| event.metadata())));
     }
 }
 
-/// `log` records reach tracing through one callsite per level, named this
-/// (tracing-log). A dependency's `log::error!` is no event of ours.
-const LOG_BRIDGE: &str = "log event";
+/// [`Trail::Places`]' events: this binary's own `error!` lines. A
+/// library's `log::error!` (tracing-log's bridge) is no event of ours: its
+/// text may be anyone's, so it is a place on the next one. #ERR-32: told
+/// apart by its callsite, not by a name: the bridge asks `enabled` about a
+/// "log record" and then sends a "log event", so a check of the name let
+/// every library error through, with its text.
+struct OwnErrors;
+
+impl<S> tracing_subscriber::layer::Filter<S> for OwnErrors {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>, _: &tracing_subscriber::layer::Context<'_, S>) -> bool {
+        *metadata.level() == Level::ERROR
+    }
+
+    fn event_enabled(&self, event: &tracing::Event<'_>, _: &tracing_subscriber::layer::Context<'_, S>) -> bool {
+        use tracing_log::NormalizeEvent as _;
+        !event.is_log()
+    }
+
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Some(LevelFilter::ERROR)
+    }
+}
+
+/// [`Trail::Places`]: a breadcrumb per INFO+ line saying where, and this
+/// binary's own `error!` lines as the events.
+fn places<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>() -> impl Layer<S> {
+    use sentry::integrations::tracing::ErrorLayer;
+    Places(|crumb| sentry::add_breadcrumb(crumb)).with_filter(LevelFilter::INFO).and_then(ErrorLayer::new().with_filter(OwnErrors))
+}
 
 /// [`init_with`] sending every line ([`Trail::Lines`]).
 pub fn init(component: &'static str, default_filter: &str, output: Output) -> Guard {
@@ -160,11 +191,7 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into());
     let fmt = tracing_subscriber::fmt::layer().with_writer(writer).with_filter(env_filter);
     // The person's content passes through this binary: where, never what.
-    let places = (plan.is_some() && trail == Trail::Places).then(|| {
-        use sentry::integrations::tracing::ErrorLayer;
-        let errors = tracing_subscriber::filter::filter_fn(|metadata| *metadata.level() == Level::ERROR && metadata.name() != LOG_BRIDGE).with_max_level_hint(Level::ERROR);
-        Places(|crumb| sentry::add_breadcrumb(crumb)).with_filter(LevelFilter::INFO).and_then(ErrorLayer::new().with_filter(errors))
-    });
+    let places = (plan.is_some() && trail == Trail::Places).then(places);
     let sentry_layers = (plan.is_some() && trail == Trail::Lines).then(|| {
         use sentry::integrations::tracing::{BreadcrumbLayer, ErrorLayer, LogLayer, SpanLayer};
         // Static filters only (callsite interest + a level hint), so the
@@ -304,6 +331,66 @@ mod tests {
             assert!(at.starts_with("ede-observability/src/lib.rs:") && at.ends_with(|c: char| c.is_ascii_digit()), "file:line, from the crate on: {at}");
         }
         assert_eq!((crumbs[0].level, crumbs[1].level), (sentry::Level::Info, sentry::Level::Warning));
+    }
+
+    /// #ERR-32: a library's `log` line (api, sync, gpui…, through
+    /// tracing-log's bridge) is placed where IT was logged, never with its
+    /// text, and nothing below INFO.
+    #[test]
+    fn a_libraries_log_line_is_placed_where_it_was_logged() {
+        use log::Log as _;
+        let crumbs = Arc::new(Mutex::new(Vec::<sentry::Breadcrumb>::new()));
+        let seen = crumbs.clone();
+        let subscriber = tracing_subscriber::registry().with(Places(move |crumb| seen.lock().unwrap().push(crumb)).with_filter(LevelFilter::INFO));
+        tracing::subscriber::with_default(subscriber, || {
+            let bridge = tracing_log::LogTracer::new();
+            let summary = "Lunch at 12?";
+            bridge.log(&log::Record::builder().level(log::Level::Error).target("sync::shapes").file(Some("/build/apps/desktop/crates/sync/src/shapes.rs")).line(Some(42)).args(format_args!("send the message: {summary}")).build());
+            bridge.log(&log::Record::builder().level(log::Level::Debug).target("gpui::window").file(Some("/build/gpui/src/window.rs")).line(Some(7)).args(format_args!("below INFO: no breadcrumb")).build());
+        });
+        let crumbs = crumbs.lock().unwrap();
+        assert_eq!(crumbs.len(), 1, "{crumbs:?}");
+        assert!(!format!("{crumbs:?}").contains("Lunch"), "{crumbs:?}");
+        assert_eq!((crumbs[0].category.as_deref(), crumbs[0].message.as_deref(), crumbs[0].level), (Some("sync::shapes"), Some("sync/src/shapes.rs:42"), sentry::Level::Error));
+        assert!(crumbs[0].data.is_empty(), "no fields: {:?}", crumbs[0]);
+    }
+
+    /// #ERR-32: the shell's stack (`Trail::Places`) sends its own `error!`
+    /// as an event and a library's `log::error!` as a place on it: never
+    /// an event of its own, never its text.
+    #[test]
+    fn a_libraries_log_error_is_a_place_and_never_an_event() {
+        use log::Log as _;
+        struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
+        impl sentry::Transport for Collect {
+            fn send_envelope(&self, envelope: sentry::Envelope) {
+                self.0.lock().unwrap().push(envelope);
+            }
+        }
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let collected = sent.clone();
+        let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
+        options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
+        let hub = Arc::new(sentry::Hub::new(Some(Arc::new(sentry::Client::from(options))), Arc::new(sentry::Scope::default())));
+        sentry::Hub::run(hub, || {
+            tracing::subscriber::with_default(tracing_subscriber::registry().with(places()), || {
+                let bridge = tracing_log::LogTracer::new();
+                let summary = "Lunch at 12?";
+                bridge.log(&log::Record::builder().level(log::Level::Error).target("sync::shapes").file(Some("/build/apps/desktop/crates/sync/src/shapes.rs")).line(Some(42)).args(format_args!("send the message: {summary}")).build());
+                tracing::error!("the ui directory could not be opened");
+            });
+        });
+        let sent = sent.lock().unwrap();
+        let events: Vec<&sentry::protocol::Event<'static>> = sent.iter().filter_map(|envelope| envelope.event()).collect();
+        assert_eq!(events.len(), 1, "one event, the binary's own: {events:?}");
+        assert_eq!(events[0].message.as_deref(), Some("the ui directory could not be opened"));
+        let crumbs: Vec<(Option<&str>, Option<&str>)> = events[0].breadcrumbs.values.iter().map(|crumb| (crumb.category.as_deref(), crumb.message.as_deref())).collect();
+        assert_eq!(crumbs.first(), Some(&(Some("sync::shapes"), Some("sync/src/shapes.rs:42"))), "{crumbs:?}");
+        for envelope in sent.iter() {
+            let mut bytes = Vec::new();
+            envelope.to_writer(&mut bytes).unwrap();
+            assert!(!String::from_utf8_lossy(&bytes).contains("Lunch"), "the library's text stays home");
+        }
     }
 
     /// #ERR-29: reports a closed client could not send stay for the next

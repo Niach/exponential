@@ -982,6 +982,24 @@ async function seedSessionTree(ctx: {
     { userId: demoId, teamId, section: `app`, kind: `item`, targetId: DEMO_APP_DASHBOARD_ID, parentId: opsFolderId, sortOrder: 1 },
     { userId: demoId, teamId, section: `app`, kind: `item`, targetId: DEMO_APP_ID, parentId: opsFolderId, sortOrder: 2 },
   ])
+  // #EXP-2027 (sidebar-tree.json): the md+ web and IDE tree's ONE mixed
+  // list for the team: a "Mobile" folder holding the Mobile App board, the
+  // Release checklist app and a placed live chat, then the other boards; the
+  // agents and the remaining apps follow in their default order.
+  const teamBoards = await db
+    .select({ id: boards.id, slug: boards.slug })
+    .from(boards)
+    .where(and(eq(boards.teamId, teamId), inArray(boards.slug, [`mobile-app`, EMPTY_BOARD_SLUG, `product-feedback`])))
+  const boardId = (slug: string) => teamBoards.find((row) => row.slug === slug)!.id
+  const mobileFolderId = `1a5f0d3e-0000-4000-8000-000000002027`
+  await db.insert(sidebarLayout).values([
+    { id: mobileFolderId, userId: demoId, teamId, section: `team`, kind: `folder`, name: `Mobile`, sortOrder: 1 },
+    { userId: demoId, teamId, section: `team`, kind: `item`, targetId: boardId(`mobile-app`), parentId: mobileFolderId, sortOrder: 1 },
+    { userId: demoId, teamId, section: `team`, kind: `item`, targetId: DEMO_APP_EMPTY_ID, parentId: mobileFolderId, sortOrder: 2 },
+    { userId: demoId, teamId, section: `team`, kind: `item`, targetId: DEMO_CHAT_ID, parentId: mobileFolderId, sortOrder: 3 },
+    { userId: demoId, teamId, section: `team`, kind: `item`, targetId: boardId(EMPTY_BOARD_SLUG), sortOrder: 2 },
+    { userId: demoId, teamId, section: `team`, kind: `item`, targetId: boardId(`product-feedback`), sortOrder: 3 },
+  ])
   await db.insert(sessions).values([
     root(DEMO_APP_EDITOR_SESSION_ID, {
       appId: DEMO_APP_ID,

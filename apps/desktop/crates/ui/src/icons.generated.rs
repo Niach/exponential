@@ -624,6 +624,8 @@ pub const NAV_DRAFTS: ExpIcon = ExpIcon::FilePenLine;
 pub const NAV_FILES: ExpIcon = ExpIcon::Folder;
 /// Registry concept `nav-getting-started` -> Lucide `sparkles`.
 pub const NAV_GETTING_STARTED: ExpIcon = ExpIcon::Sparkles;
+/// Registry concept `nav-home` -> Lucide `house`.
+pub const NAV_HOME: ExpIcon = ExpIcon::House;
 /// Registry concept `nav-inbox` -> Lucide `inbox`.
 pub const NAV_INBOX: ExpIcon = ExpIcon::Inbox;
 /// Registry concept `nav-issues` -> Lucide `list`.
@@ -1188,6 +1190,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-drafts" => NAV_DRAFTS,
         "nav-files" => NAV_FILES,
         "nav-getting-started" => NAV_GETTING_STARTED,
+        "nav-home" => NAV_HOME,
         "nav-inbox" => NAV_INBOX,
         "nav-issues" => NAV_ISSUES,
         "nav-my-issues" => NAV_MY_ISSUES,

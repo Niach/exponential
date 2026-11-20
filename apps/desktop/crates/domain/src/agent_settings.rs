@@ -802,6 +802,19 @@ pub fn my_assistant<'a>(
         .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+/// #EXP-1988 (TS `assistantPickAgent`, `teamPicks.pickAgentCases`): the agent
+/// a team's section of Settings › Assistant edits: the viewer's Assistant
+/// `agents_in_team` lists in that team, else the page's Assistant.
+pub fn assistant_pick_agent<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    team_id: &str,
+    team_ids: &[&str],
+    me: Option<&str>,
+    page_agent_id: Option<&'a str>,
+) -> Option<&'a str> {
+    my_assistant(agents, team_id, team_ids, me).map(|agent| agent.id.as_str()).or(page_agent_id)
+}
+
 // ---------------------------------------------------------------------------
 // #EXP-1717: THE TEAM COORDINATOR (`coordinator` in the fixture; contract
 // `agentRole`). Replays `optionCases`, `valueCases`.
@@ -1523,6 +1536,30 @@ mod tests {
                 .collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn assistant_pick_agent_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["teamPicks"]["pickAgentCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<crate::rows::AgentDefRow> = case["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": agent["id"], "role": agent["role"], "owner_id": agent["ownerId"],
+                        "team_id": agent["teamId"],
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            let team_ids: Vec<&str> = case["teamIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let picked = assistant_pick_agent(&rows, case["teamId"].as_str().unwrap(), &team_ids, case["me"].as_str(), case["pageAgentId"].as_str());
+            assert_eq!(picked, case["expected"].as_str(), "{}", case["name"]);
         }
     }
 

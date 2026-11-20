@@ -529,6 +529,7 @@ public enum AppIcons {
         "nav-drafts": "file-pen-line",
         "nav-files": "folder",
         "nav-getting-started": "sparkles",
+        "nav-home": "house",
         "nav-inbox": "inbox",
         "nav-issues": "list",
         "nav-my-issues": "list",
@@ -988,6 +989,8 @@ public enum AppIcons {
     public static let navFiles: String = "folder"
     /// Concept `nav-getting-started`.
     public static let navGettingStarted: String = "sparkles"
+    /// Concept `nav-home`.
+    public static let navHome: String = "house"
     /// Concept `nav-inbox`.
     public static let navInbox: String = "inbox"
     /// Concept `nav-issues`.

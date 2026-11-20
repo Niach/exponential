@@ -25,7 +25,7 @@ esac
 # The rendered script the repositories serve (the host and key filled in).
 curl -fsSL "$EXPONENTIAL_PKG_URL/setup.sh" | sh
 
-for b in /usr/bin/exponential-compositor /usr/bin/exponential-session /usr/bin/exponential-shell /usr/bin/exponential-sealed /usr/bin/exponential-ui /usr/bin/exponential-services /usr/bin/exponential-theme /usr/bin/exponential-ctl /usr/libexec/xdg-desktop-portal-exponential; do
+for b in /usr/bin/exponential-compositor /usr/bin/exponential-session /usr/bin/exponential-shell /usr/bin/exponential-sealed /usr/bin/exponential-ui /usr/bin/exponential-services /usr/bin/exponential-theme /usr/bin/exponential-ctl /usr/libexec/xdg-desktop-portal-exponential /usr/libexec/exponential-space-guard; do
   test -x "$b"
   if ldd "$b" | grep 'not found'; then echo "$b: missing libraries" >&2; exit 1; fi
 done
@@ -35,6 +35,9 @@ HOME="$(mktemp -d)" exponential-theme apply --files-only | grep -q '^GTK '
 grep -q exponential-shell.service /usr/lib/systemd/user/exponential-session.target
 grep -q '^Exec=exponential-session$' /usr/share/wayland-sessions/exponential.desktop
 test -f /etc/pam.d/exponential-desktop
+# #EDE-146..148: the space guard's units, enabled by the package's own link.
+test -f /usr/lib/systemd/system/exponential-space-guard.service
+test -L /usr/lib/systemd/system/sockets.target.wants/exponential-space-guard.socket
 exponential-compositor doctor || true
 if command -v dpkg >/dev/null 2>&1; then
   if dpkg-query -W -f '${Status}' ede 2>/dev/null | grep -q 'ok installed'; then echo "ede is still installed" >&2; exit 1; fi

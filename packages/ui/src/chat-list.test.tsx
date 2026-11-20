@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
-import type { AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
-import { CHAT_AGENT_ROW_TEST_ID, ChatList, ChatsHeader } from "./chat-list"
+import type { AgentChatRow, AppChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
+import { CHAT_AGENT_ROW_TEST_ID, CHAT_APP_ROW_TEST_ID, ChatList, ChatsHeader } from "./chat-list"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
 // Chat 58cb32df (chats.json): the phone Chats pieces paint the contract's
@@ -119,6 +119,55 @@ describe(`ChatList`, () => {
     render(<ChatList rows={[]} agentRows={agentRows} entry={<div data-testid="entry" />} />)
     const list = screen.getByTestId(`chat-list`)
     expect(list.firstElementChild!.getAttribute(`data-testid`)).toBe(`entry`)
+  })
+
+  it(`#EXP-2027: a press may start a row's drag; the click still opens`, () => {
+    const onOpen = vi.fn()
+    const onRowPointerDown = vi.fn()
+    render(<ChatList rows={rows} onOpen={onOpen} onRowPointerDown={onRowPointerDown} />)
+    const painted = screen.getAllByTestId(ids.chatRow)
+    expect(painted[1]!.getAttribute(`data-reorder-key`)).toBe(`b`)
+    expect(painted[1]!.getAttribute(`data-reorder-depth`)).toBe(`1`)
+    fireEvent.pointerDown(painted[1]!)
+    expect(onRowPointerDown).toHaveBeenCalledWith(`b`, expect.anything())
+    fireEvent.click(painted[1]!)
+    expect(onOpen).toHaveBeenCalledWith(`b`)
+  })
+
+  it(`#EXP-2027: without a drag the rows are no reorder source`, () => {
+    render(<ChatList rows={rows} />)
+    expect(screen.getAllByTestId(ids.chatRow).some((row) => row.hasAttribute(`data-reorder-key`))).toBe(false)
+  })
+
+  it(`#EXP-2027: agent and app rows wear their team mark`, () => {
+    const { preview, time, activityAt, unreadCount, needsYou, busy } = agentRows[1]!
+    const appRow: AppChatRow = {
+      appId: `app-1`,
+      slug: `crm`,
+      sessionId: null,
+      name: `CRM`,
+      icon: null,
+      color: null,
+      preview,
+      time,
+      activityAt,
+      unreadCount,
+      needsYou,
+      busy,
+    }
+    render(
+      <ChatList
+        rows={[]}
+        agentRows={agentRows}
+        appRows={[appRow]}
+        agentTeamOf={(id) => (id === agentRows[0]!.agentId ? null : <span data-testid={`mark-${id}`} />)}
+        appTeamOf={(id) => <span data-testid={`mark-${id}`} />}
+      />
+    )
+    const agents = screen.getAllByTestId(CHAT_AGENT_ROW_TEST_ID)
+    expect(agents[0]!.querySelector(`[data-testid^=mark-]`)).toBeNull()
+    expect(agents[1]!.querySelector(`[data-testid=mark-${agentRows[1]!.agentId}]`)).toBeTruthy()
+    expect(screen.getByTestId(CHAT_APP_ROW_TEST_ID).querySelector(`[data-testid=mark-app-1]`)).toBeTruthy()
   })
 
   it(`shows the empty state with no rows`, () => {

@@ -102,6 +102,45 @@ pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     }
 }
 
+/// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
+pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
+/// What stays open to a space in this build.
+pub const GUARD_LEAVES: &str = "your Xwayland (X11)";
+
+/// #EDE-146..148: what the RUNNING compositor decided about the space
+/// guard: `state` = its state file's text (`None` = no Exponential Desktop
+/// session runs here).
+pub fn check_space_guard(state: Option<&str>) -> Check {
+    let name = "Space guard";
+    let Some(state) = state else {
+        return Check { name, level: Level::Warn, detail: "no Exponential Desktop session runs here: the guard is the session's to ask".into() };
+    };
+    let field = |key: &str| state.lines().find_map(|line| line.strip_prefix(key).map(str::trim)).unwrap_or_default().to_string();
+    let (guard, probe, units, polkit) = (field("guard "), field("probe "), field("user-manager "), field("polkit "));
+    if guard != "required" {
+        return Check { name, level: Level::Warn, detail: "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into() };
+    }
+    if units != "yes" {
+        return Check { name, level: Level::Warn, detail: "no systemd user manager: nothing starts in an agent space".into() };
+    }
+    match probe.as_str() {
+        "ok" if polkit == "ok" => Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}") },
+        "ok" if polkit == "pending" => Check { name, level: Level::Warn, detail: "this session is still asking polkit".into() },
+        "ok" => Check { name, level: Level::Warn, detail: format!("{polkit}: programs in an agent space may get polkit's yes without a prompt") },
+        "pending" => Check { name, level: Level::Warn, detail: "this session is still asking it".into() },
+        reason => Check { name, level: Level::Warn, detail: format!("{reason}: nothing starts in an agent space until it answers") },
+    }
+}
+
+/// The running compositor's guard state file (`$XDG_RUNTIME_DIR`,
+/// `$WAYLAND_DISPLAY` of the session the doctor runs in).
+fn running_guard_state() -> Option<String> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")?;
+    let display = std::env::var("WAYLAND_DISPLAY").ok()?;
+    let spaces = ede_protocol::spaces_path(std::path::Path::new(&runtime), &display);
+    std::fs::read_to_string(crate::spaces::guard::state_file(&spaces)).ok()
+}
+
 /// `root.join(absolute)`: the system's files under another root in tests.
 fn under(root: &Path, absolute: &str) -> PathBuf {
     root.join(absolute.trim_start_matches('/'))
@@ -990,6 +1029,7 @@ pub fn run_checks() -> Vec<Check> {
             let config = crate::config::Config::default_path().map(|path| crate::config::Config::load(&path).0).unwrap_or_default();
             (units.version, crate::spaces::slice::described(&config.spaces, units.machine))
         })),
+        check_space_guard(running_guard_state().as_deref()),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
         nv.suspend_units = command_output("systemctl", &["is-enabled", "nvidia-suspend.service", "nvidia-resume.service"]);
@@ -1059,6 +1099,28 @@ mod tests {
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 24.1.4")).level, Level::Ok);
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 25.0.0")).level, Level::Ok);
         assert!(check_xwayland(None, None).detail.contains("apt install xwayland"));
+    }
+
+    /// #EDE-146..148: the doctor says what the running session decided.
+    #[test]
+    fn doctor_says_what_the_running_session_decided_about_the_space_guard() {
+        use crate::spaces::guard::state_text;
+        let ok_ = Ok(());
+        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&ok_))));
+        assert_eq!(ok.level, Level::Ok);
+        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}"));
+        for (state, says) in [
+            (None, "no Exponential Desktop session runs here: the guard is the session's to ask".to_string()),
+            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into()),
+            (Some(state_text(true, Some(&ok_), false, None)), "no systemd user manager: nothing starts in an agent space".into()),
+            (Some(state_text(true, None, true, None)), "this session is still asking it".into()),
+            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
+            (Some(state_text(true, Some(&ok_), true, None)), "this session is still asking polkit".into()),
+            (Some(state_text(true, Some(&ok_), true, Some(&Err("polkit authorizes a space's programs".into())))), "polkit authorizes a space's programs: programs in an agent space may get polkit's yes without a prompt".into()),
+        ] {
+            let check = check_space_guard(state.as_deref());
+            assert_eq!((check.level, check.detail), (Level::Warn, says));
+        }
     }
 
     /// #EDE-138: no user manager (or an old one) is a warning that says

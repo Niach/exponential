@@ -1,3 +1,4 @@
+import { AssistantMark } from "@/components/team/assistant-mark"
 import { useMemo, useState, type ReactNode } from "react"
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY, teamMeta } from "@exp/domain-contract/chats"
@@ -203,6 +204,8 @@ function TeamTabPage() {
   const group = (name: string) =>
     (SETTINGS_NAV.find((entry) => entry.id === name)?.items ?? []).filter(visible)
   const iconOf = (item: SettingsNavItem) => {
+    // #EXP-1987: the Assistant's Personal row wears its brand mark.
+    if (item.id === `assistant`) return <AssistantMark className="size-5" />
     const Icon = item.icon
     return <Icon className="size-5" />
   }

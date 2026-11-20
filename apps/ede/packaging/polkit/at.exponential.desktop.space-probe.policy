@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Exponential Desktop (#EDE-146): the action its session asks polkit about
+     from a probe scope of its agent spaces' slice. Allowed to anyone by
+     default; 00-00-exponential-agent-spaces.rules answers it with a
+     challenge for a process of an agent space, which proves the rule is
+     read. It authorizes nothing. -->
+<policyconfig>
+  <vendor>Exponential</vendor>
+  <vendor_url>https://exponential.at/desktop/</vendor_url>
+  <action id="at.exponential.desktop.space-probe">
+    <description>Check that Exponential Desktop's agent spaces are refused</description>
+    <message>Exponential Desktop checks its agent spaces</message>
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

@@ -38,7 +38,7 @@ pub(crate) const NO_TEAM_NOTICE: &str =
 /// team resolves. Files used to say "Loading files…" forever here: no team
 /// means the resolver never leaves `Loading`, so nothing else ends it.
 pub(crate) fn no_team_notice(nav: &Entity<Navigation>, cx: &App) -> Option<&'static str> {
-    (navigation::shapes_ready(cx) && navigation::active_team_id(nav, cx).is_none())
+    (navigation::shapes_ready(cx) && navigation::screen_team_id(nav, cx).is_none())
         .then_some(NO_TEAM_NOTICE)
 }
 

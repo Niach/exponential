@@ -98,6 +98,8 @@ public enum AgentSettings {
         public let assistantOnly: Bool
         public let teamAgentOnly: Bool
         public let ownerOnly: Bool
+        /// #EXP-1988: drawn once per team of the member (`assistant.teamPicks`).
+        public let perTeam: Bool
 
         public init(
             id: String,
@@ -105,8 +107,10 @@ public enum AgentSettings {
             rows: [String] = [],
             assistantOnly: Bool = false,
             teamAgentOnly: Bool = false,
-            ownerOnly: Bool = false
+            ownerOnly: Bool = false,
+            perTeam: Bool = false
         ) {
+            self.perTeam = perTeam
             self.id = id
             self.label = label
             self.rows = rows
@@ -119,6 +123,9 @@ public enum AgentSettings {
     public static let pageSections: [PageSection] = [
         PageSection(id: "identity"),
         PageSection(id: "runs-on", label: "runsOn", rows: ["device", "account", "model", "skills", "mcp-servers"]),
+        // #EXP-1988: the Assistant's skills + MCP servers, one section per
+        // team (header = the team's name); its `runs-on` draws neither.
+        PageSection(id: "team-picks", rows: ["skills", "mcp-servers"], assistantOnly: true, perTeam: true),
         PageSection(id: "triggers", label: "triggers", rows: ["check-in", "trigger-list"]),
         // #EXP-1847: every agent's (`voice`); the Assistant adds its member rows.
         PageSection(id: "voice", label: "voice", rows: ["language", "clip", "transcript", "wake-phrase"]),
@@ -570,6 +577,22 @@ public enum AgentSettings {
         _ agents: [T], teamId: String, teamIds: [String], me: String?
     ) -> [T] {
         AgentOrdering.agentsInTeam(agents, teamId: teamId, teamIds: teamIds, me: me)
+    }
+
+    /// #EXP-1988 (`assistant.teamPicks.pickAgentCases`): the agent a team's
+    /// section of Settings › Assistant reads and writes
+    /// (`AgentOrdering.assistantPickAgent`).
+    public static func assistantPickAgent<T: AgentTeamScoped>(
+        _ agents: [T], teamId: String, teamIds: [String], me: String?, pageAgentId: String?
+    ) -> String? {
+        AgentOrdering.assistantPickAgent(agents, teamId: teamId, teamIds: teamIds, me: me, pageAgentId: pageAgentId)
+    }
+
+    /// #EXP-1988 (`teamPicks.teamPickCases`): the picks for a team = the
+    /// listed ids whose row is that team's, in pick order.
+    public static func teamPick(_ ids: [String], rowTeams: [String: String], teamId: String) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted && rowTeams[$0] == teamId }
     }
 
     /// #EXP-1714: `AgentRow`s are `listAgents(teamId: nil)` output, where an

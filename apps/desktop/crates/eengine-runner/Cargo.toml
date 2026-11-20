@@ -20,9 +20,15 @@ required-features = ["runner"]
 # Wayland on Linux). Off, the lib alone: the painter-free core plus the
 # gpui half in `paint`, which Exponential Desktop's shell hosts (#VAPP-273;
 # a Wayland-only client, it must not link X11).
+#
+# `runner` also compiles the binary's diagnostics out: `log`'s
+# release_max_level_off makes every `log` macro in its graph (gpui's
+# included) a no-op in a release build. On the feature, never on the `log`
+# dependency itself (#ERR-32): Cargo unifies features, so a binary taking
+# the lib (the shell, its sealed surfaces) would lose its own `log` lines.
 [features]
 default = ["runner"]
-runner = ["dep:gpui_platform"]
+runner = ["dep:gpui_platform", "log/release_max_level_off"]
 
 # THE RULE (gated by `tests/dependency_gate.rs`): the Engine, its desktop
 # capabilities, genUI and gpui, nothing of the Exponential app (ui, app,
@@ -45,9 +51,8 @@ flume = { workspace = true }
 url = "2.5"
 # The IDE's fonts and Lucide icons, embedded (no runtime asset paths).
 rust-embed = { workspace = true }
-# Diagnostics compiled out: every `log` macro in the graph (gpui's included)
-# is a no-op in a release build, and nothing installs a logger.
-log = { version = "0.4", features = ["release_max_level_off"] }
+# Nothing installs a logger; the `runner` feature compiles the macros out.
+log = "0.4"
 
 # The Vault in the platform keystore (runner.json `storage`).
 [target.'cfg(target_os = "macos")'.dependencies]

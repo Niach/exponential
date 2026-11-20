@@ -46,6 +46,83 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-sidebar-tree",
+    date: "2026-11-20",
+    title: "One sidebar for all your teams",
+    summary: "The sidebar shows every team at once: Home, Chats, your devices, then each team with its boards, agents, apps and the chats you placed there, in your own folders.",
+    body: r##"- **No team switcher**: Home, Chats, Needs you and Drafts cover all your teams; each row shows its team.
+- **Devices**: each device is a row that opens its accounts, limits and running sessions; its gear opens its settings.
+- **Teams**: each team is a folder with its boards, agents and apps in one list; drag a chat from Active into it, and right-click a team for New, New folder and Settings.
+- **New board, agent and app** open as pages.
+- **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_342: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-phones-calls-find-search",
+    date: "2026-11-20",
+    title: "Calls, find in chat and sharing on phones",
+    summary: "Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, and global search finds chats.",
+    body: r##"- **Calls**: a call from your phone follows the same rules as on the desktop: it reaches the device you picked, falls back the same way, and an opening line that arrives late is said at pickup instead of crashing the app.
+- **Find in chat**: finds and lands on every message of the chat, older synced messages and the ones already shown included.
+- **Global search finds chats**: the search tab lists the chats that mention your words; a pick opens the chat on that message.
+- **iOS sharing**: sharing pictures into Exponential stages them like the chat's composer: the same limits, and removing one renumbers the rest.
+- **iOS settings**: values in settings rows draw in the muted value colour."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_341: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-cli-0-14-171",
+    date: "2026-11-20",
+    title: "Calls in their own session, computer use on every keyboard, chats in global search",
+    summary: "Desktop and CLI 0.14.171: every call gets its own session, computer use works on non-US keyboards, global search finds chats, long words wrap, outside pictures show as links, and find in chat reaches older messages, with eDE 0.2.30.",
+    body: r##"- **Calls**: each call gets its own session again, and the agent's opening line no longer crashes it.
+- **Computer use**: keys and shortcuts work on non-US keyboard layouts, and bringing a window to the front works on macOS and Windows.
+- **Global search finds chats**: matching chats show under the issues; pick one and it opens on that message.
+- **Long words wrap**: a long unbroken word or link in a chat bubble wraps instead of being cut off.
+- **Pictures from other websites** in an issue description show as a link and are never loaded.
+- **Find in chat reaches older messages**: matches further back in a chat are found too.
+- **eDE 0.2.30** comes with this release."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_340: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-agent-entry",
+    date: "2026-11-20",
+    title: "Agent is back in the desktop sidebar",
+    summary: "The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.",
+    body: r##"- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_338: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-skills-mcp-per-team",
+    date: "2026-11-20",
+    title: "Your Assistant's skills and MCP servers, per team",
+    summary: "Settings › Assistant now shows Skills and MCP servers for each of your teams, and work in a team uses that team's picks.",
+    body: r##"- **Settings › Assistant**: one section per team, each with its own Skills and MCP servers rows.
+- **Work in a team**: your Assistant's chats and sessions in a team start with the skills and MCP servers you picked for that team."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_337: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-account-settings",
+    date: "2026-11-20",
+    title: "Your Assistant has its own place in Settings",
+    summary: "Settings › Assistant moves to your personal settings, next to Account, and your Assistant's notifications show in every team's inbox.",
+    body: r##"- **Settings › Assistant**: your Assistant's page is now under Personal, right after Account, on every app. The team's Agents list shows the team's agents only.
+- **Inbox**: notifications from your Assistant show and count in the inbox of every team you are in, and open its chat.
+- **iOS**: a chat that briefly disappeared while syncing gets its message field back without restarting the app."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_336: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-global-search-chats",
     date: "2026-11-20",
     title: "Global search finds chats",

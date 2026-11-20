@@ -537,8 +537,25 @@ interface SendData {
   freshId?: string
   /** #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams). */
   teamId?: string
-  /** #EXP-1720: the Assistant's teams for this turn (a message to its conversation root): the root's new scope. */
+  /** #EXP-1720/#EXP-2027: a Teams pick: the root's new scope (a message to the Assistant's conversation or a plain
+   *  chat's root, or a new plain chat's start). */
   scopeTeamIds?: string[]
+}
+
+/** #EXP-2027: a Teams pick lands on a ROOT whose tree has no team agent (the Assistant's conversation, a plain chat or
+ *  one the Assistant started), else refused (copy.scopeNotPickable); a calling session picks only teams its own tree
+ *  works in (copy.teamOutOfScope). Stored deduplicated, the root's own team dropped. */
+function applyTeamsPick(ctx: Ctx, root: HubSession, picked: string[], caller: HubSession | null) {
+  const acting = treeAgentId(root)
+  if (root.parentId !== null || (acting && ctx.state.agents[acting]?.role !== `assistant`)) {
+    refuse(`invalid`, copy.scopeNotPickable)
+  }
+  if (caller) {
+    const allowed = treeTeams(ctx.state, caller)
+    if (picked.some((id) => id !== root.teamId && !allowed.includes(id))) refuse(`forbidden`, copy.teamOutOfScope)
+  }
+  root.scopeTeamIds = [...new Set(picked.filter((id) => id !== root.teamId))]
+  root.updatedAt = ctx.now
 }
 
 /** #EXP-1720: the team a new session of a tree starts in: the named one when the tree works there, else refused. */
@@ -561,10 +578,10 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
     parentId: null,
     rootId: id,
     depth: 0,
-    teamId:
-      caller && callerTreeAgent(ctx.state, caller)
-        ? startTeam(ctx.state, caller, data.teamId, caller.teamId)
-        : (data.teamId ?? caller?.teamId ?? rules.defaults.session.teamId),
+    // #EXP-2027: every calling session starts roots in its own tree's teams.
+    teamId: caller
+      ? startTeam(ctx.state, caller, data.teamId, caller.teamId)
+      : (data.teamId ?? rules.defaults.session.teamId),
     userId: data.userId ?? caller?.userId ?? rules.defaults.session.userId,
     shared: data.shared ?? true,
     deviceId: deviceId!,
@@ -572,6 +589,7 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
   })
   // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
   if (data.sealed === true) root.sealEpoch = 1
+  if (data.scopeTeamIds) applyTeamsPick(ctx, root, data.scopeTeamIds, caller)
   const messageId = postSend(ctx, root, data.text ?? ``, data.sealed === true, caller)
   if (caller) {
     watchSessions(ctx, caller.id, [root.id])
@@ -583,6 +601,7 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
 function startChild(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
   const parent = session(ctx.state, data.parentId)
   if (isSubagent(parent)) refuse(`invalid`, copy.subagentNoChildren)
+  if (data.scopeTeamIds) refuse(`invalid`, copy.scopeNotPickable)
   assertTreeRoom(ctx.state, parent.rootId, parent.depth + 1)
   const root = session(ctx.state, parent.rootId)
   const child = insertSession(ctx, {
@@ -637,13 +656,8 @@ function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepR
     const redirect = fill(copy.subagentRedirect, { id: target.id, parentId: target.parentId })
     return { ...out, warning: out.warning ? `${redirect} ${out.warning}` : redirect }
   }
-  if (data.scopeTeamIds) {
-    // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
-    const assistant = target.agentId ? ctx.state.agents[target.agentId] : undefined
-    if (target.parentId !== null || assistant?.role !== `assistant`) refuse(`invalid`, copy.scopeAssistantOnly)
-    target.scopeTeamIds = [...new Set(data.scopeTeamIds.filter((id) => id !== target.teamId))]
-    target.updatedAt = ctx.now
-  }
+  // #EXP-1720/#EXP-2027: a Teams pick becomes the root's scope (the Assistant's conversation or a plain chat).
+  if (data.scopeTeamIds) applyTeamsPick(ctx, target, data.scopeTeamIds, caller)
   if (caller) {
     const fresh = agentFreshSession(ctx, data, caller, target)
     if (fresh) return fresh

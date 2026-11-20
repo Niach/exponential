@@ -93,7 +93,9 @@ describe(`isRoutedAppPath`, () => {
     expect(isRoutedAppPath(`/t/acme/chats?tab=guide`)).toBe(true)
     expect(isRoutedAppPath(`/T/acme`)).toBe(true)
     expect(isRoutedAppPath(`/%74/acme`)).toBe(true)
-    expect(isRoutedAppPath(`/settings/account`)).toBe(false)
+    // #EXP-2027: `/settings/account` is a (team-less) page now.
+    expect(isRoutedAppPath(`/settings/account`)).toBe(true)
+    expect(isRoutedAppPath(`/nowhere/account`)).toBe(false)
     expect(isRoutedAppPath(`/onboarding#top`)).toBe(true)
   })
 
