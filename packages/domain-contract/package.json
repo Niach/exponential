@@ -95,6 +95,7 @@
     "./via-app": "./src/via-app.ts",
     "./app-share": "./src/app-share.ts",
     "./sidebar-folders": "./src/sidebar-folders.ts",
+    "./sidebar-tree": "./src/sidebar-tree.ts",
     "./image-actions": "./src/image-actions.ts"
   }
 }

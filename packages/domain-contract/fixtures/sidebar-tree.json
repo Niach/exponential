@@ -1,0 +1,264 @@
+{
+  "$comment": "#EXP-2027 THE SIDEBAR TREE (owner 2026-11-20), web md+ and the desktop IDE (phones keep their own nav until their new UI; web-mobile = phones). There is NO active team: the sidebar is one tree, the current team of a screen is DERIVED from what it shows (a board's, agent's, app's or session's team), never switched (the team switcher, `exp.lastVisited.teamSlug` and the desktop `Navigation.team_id` state are gone). The pure reference is `src/sidebar-tree.ts`; web and desktop (Rust `domain::sidebar_tree`) replay every list here and compare the WHOLE expected value. ROOT (`root`, sidebarRootRows): `home` (the agent composer page, renamed from Agent), `needs-you` (only while its count > 0), `chats`, `drafts` (only while its count > 0), `devices`, then the `Teams` label (its hover + opens `teamsMenu`: New team, Join team) and one TEAM row per team. HOME's composer: the Assistant sees every team (its Teams pick, null = all); a team agent's chat is its agent's team; a plain chat (no agent) carries the Teams pick in the composer's + menu (eagent tree.json: its own team + the pick; at least one team). DEVICES (`devices`, sidebarDeviceRows): an expandable row with NO nav target (a press folds it; its hover + opens the Add device dialog), open by default (`openKeys.devices`); its children = the viewer's own devices by name (case-insensitive, ties by id), then teammates' servers shared with a team of the viewer's (devices-list.json `team`) by name, each such row carrying `teamId` = the first of its shared teams in the viewer's team order (drawn as that team's mark in the trailing slot); offline rows are `muted`. A device row opens the device's DETAIL page (accounts with their limits, the sessions running on it across teams with each row's team mark; on the viewer's THIS device also Tools, Coding CLIs, Worktrees and Sessions, which leave Settings); its hover gear opens the device SETTINGS page (the old Device settings dialog's body as a page). The Devices page is gone. TEAMS (`teams`, sidebarTeams): the viewer's member teams by name (case-insensitive, ties by id); the personal team (`kind: personal`, the Assistant's home) never shows. A team row's leading glyph is the team mark (its image, else the team concept icon), it is open by default (`openKeys.team`), has no nav target (a press folds it), its trailing slot shows the team's needs-you count (nav-badges.json) and on hover a `…` button; the `…` and a right-click open `teamMenu`. TEAM MENU (`teamMenu`, sidebarTeamMenu): `New` › board | agent | app | session (settings-nav.json `newEntries`: board, agent, app are owner-only; session = every member), `New folder`, `Settings` (the team's settings page, settings-nav.json `desktopNavs.team`). New › X opens a creation PAGE (never a dialog): web `/t/$teamSlug/new/<kind>`, desktop the matching screen; session = Home's composer with that team as its Teams pick. New folder appends an empty folder named `New folder` at the end of the team and puts its name in edit (a folder with no item is SHOWN while it is being named, then hidden like any empty folder). INSIDE A TEAM (`teamItems`, sidebarTeamItems): ONE MIXED list per team (sidebar-folders.json section `team`): boards by sortOrder, then agents (role agent; Assistants never show) by sortOrder, then apps by name, then the root SESSIONS of that team the member placed (an item entry whose target is a visible root session of the team; ended ones stay until removed), in entry order. sidebar-folders.json's tree / move / ungroup / rows run unchanged over that list (two layers inside a team: folder › item). The team row is depth 0, so a node's List depth = its sidebarRows depth + 1 (`teamRows`, maxDepth 3). An item never leaves its team: a move whose target is in another team is refused (the List is one per team). SESSIONS INTO THE TREE (`drop`, sidebarDropSession): a root session of the team dragged from the Active band or the Chats list onto the team's List = the session appended to the team's items, then sidebarMove (so before / after / into work as for any row); a session of another team is refused (null); a session already in the tree is a plain move. A session item's menu holds `Remove from sidebar` (deletes its entry); boards, agents and apps keep their own menus (agent: chat-menus; board: its settings gear) and are never removed. ACTIVE stays at the bottom across all teams (sidebar-running, each row with its team mark). Pinned is gone ×4. The kind of an item is never stored: target ids are uuids, a client resolves an id against its synced boards / agents / apps / sessions (the server checks the target is one of the team's when it saves). OPEN KEYS are device-local like the folders' (no stored flag = open).",
+  "copy": {
+    "home": "Home",
+    "needsYou": "Needs you",
+    "chats": "Chats",
+    "drafts": "Drafts",
+    "devices": "Devices",
+    "teams": "Teams",
+    "addDevice": "Add device",
+    "deviceSettings": "Device settings",
+    "teamActions": "Team actions",
+    "new": "New",
+    "newFolder": "New folder",
+    "settings": "Settings",
+    "board": "Board",
+    "agent": "Agent",
+    "app": "App",
+    "session": "Session",
+    "newTeam": "New team",
+    "joinTeam": "Join team",
+    "removeFromSidebar": "Remove from sidebar"
+  },
+  "maxDepth": 3,
+  "openKeys": {
+    "devices": "sidebar-devices-open",
+    "team": "sidebar-team-open:{teamId}"
+  },
+  "teamsMenu": ["new-team", "join-team"],
+  "root": [
+    {
+      "name": "nothing pending: the five fixed rows minus the conditional ones",
+      "needsYou": 0,
+      "drafts": 0,
+      "expected": ["home", "chats", "devices"]
+    },
+    {
+      "name": "needs you and drafts show while they count",
+      "needsYou": 3,
+      "drafts": 1,
+      "expected": ["home", "needs-you", "chats", "drafts", "devices"]
+    },
+    {
+      "name": "drafts only",
+      "needsYou": 0,
+      "drafts": 2,
+      "expected": ["home", "chats", "drafts", "devices"]
+    }
+  ],
+  "devices": [
+    {
+      "name": "mine by name, then teammates' shared servers with the first shared team of mine",
+      "viewerTeamIds": ["t-acme", "t-side"],
+      "devices": [
+        { "id": "d-3", "name": "mint", "mine": true, "online": true, "sharedTeamIds": [] },
+        { "id": "d-1", "name": "MacBook", "mine": true, "online": true, "sharedTeamIds": [] },
+        { "id": "d-9", "name": "Build server", "mine": false, "online": false, "sharedTeamIds": ["t-other", "t-side", "t-acme"] },
+        { "id": "d-2", "name": "Windows", "mine": true, "online": false, "sharedTeamIds": [] },
+        { "id": "d-8", "name": "Acme CI", "mine": false, "online": true, "sharedTeamIds": ["t-acme"] }
+      ],
+      "expected": [
+        { "id": "d-1", "mine": true, "muted": false, "teamId": null },
+        { "id": "d-3", "mine": true, "muted": false, "teamId": null },
+        { "id": "d-2", "mine": true, "muted": true, "teamId": null },
+        { "id": "d-8", "mine": false, "muted": false, "teamId": "t-acme" },
+        { "id": "d-9", "mine": false, "muted": true, "teamId": "t-acme" }
+      ]
+    },
+    {
+      "name": "a teammate's device shared with no team of mine never shows",
+      "viewerTeamIds": ["t-acme"],
+      "devices": [
+        { "id": "d-1", "name": "MacBook", "mine": true, "online": true, "sharedTeamIds": [] },
+        { "id": "d-7", "name": "Elsewhere", "mine": false, "online": true, "sharedTeamIds": ["t-other"] }
+      ],
+      "expected": [{ "id": "d-1", "mine": true, "muted": false, "teamId": null }]
+    },
+    {
+      "name": "ties by name keep id order",
+      "viewerTeamIds": [],
+      "devices": [
+        { "id": "d-b", "name": "box", "mine": true, "online": true, "sharedTeamIds": [] },
+        { "id": "d-a", "name": "Box", "mine": true, "online": true, "sharedTeamIds": [] }
+      ],
+      "expected": [
+        { "id": "d-a", "mine": true, "muted": false, "teamId": null },
+        { "id": "d-b", "mine": true, "muted": false, "teamId": null }
+      ]
+    }
+  ],
+  "teams": [
+    {
+      "name": "member teams by name, the personal team never shows",
+      "teams": [
+        { "id": "t-side", "name": "side project", "kind": "team" },
+        { "id": "t-me", "name": "Personal", "kind": "personal" },
+        { "id": "t-acme", "name": "Acme", "kind": "team" },
+        { "id": "t-2", "name": "acme", "kind": "team" }
+      ],
+      "expected": ["t-2", "t-acme", "t-side"]
+    }
+  ],
+  "teamMenu": [
+    {
+      "name": "an owner gets every New entry",
+      "owner": true,
+      "expected": [
+        { "id": "new", "children": ["board", "agent", "app", "session"] },
+        { "id": "new-folder", "children": [] },
+        { "id": "settings", "children": [] }
+      ]
+    },
+    {
+      "name": "a member creates sessions only",
+      "owner": false,
+      "expected": [
+        { "id": "new", "children": ["session"] },
+        { "id": "new-folder", "children": [] },
+        { "id": "settings", "children": [] }
+      ]
+    }
+  ],
+  "teamItems": [
+    {
+      "name": "boards, agents, apps, then placed sessions",
+      "boards": [
+        { "id": "b-2", "sortOrder": 2 },
+        { "id": "b-1", "sortOrder": 1 }
+      ],
+      "agents": [
+        { "id": "a-2", "sortOrder": 5, "role": "agent" },
+        { "id": "a-x", "sortOrder": 0, "role": "assistant" },
+        { "id": "a-1", "sortOrder": 1, "role": "agent" }
+      ],
+      "apps": [
+        { "id": "p-2", "name": "crm" },
+        { "id": "p-1", "name": "Calendar" }
+      ],
+      "sessions": [
+        { "id": "s-1", "teamId": "t-acme", "parentId": null },
+        { "id": "s-2", "teamId": "t-acme", "parentId": null },
+        { "id": "s-3", "teamId": "t-side", "parentId": null },
+        { "id": "s-4", "teamId": "t-acme", "parentId": "s-1" }
+      ],
+      "teamId": "t-acme",
+      "entries": [
+        { "id": "e-2", "kind": "item", "targetId": "s-2", "parentId": null, "name": null, "sortOrder": 1 },
+        { "id": "e-3", "kind": "item", "targetId": "s-3", "parentId": null, "name": null, "sortOrder": 2 },
+        { "id": "e-4", "kind": "item", "targetId": "s-4", "parentId": null, "name": null, "sortOrder": 3 },
+        { "id": "e-9", "kind": "item", "targetId": "s-gone", "parentId": null, "name": null, "sortOrder": 4 }
+      ],
+      "expected": [
+        { "id": "b-1", "kind": "board" },
+        { "id": "b-2", "kind": "board" },
+        { "id": "a-1", "kind": "agent" },
+        { "id": "a-2", "kind": "agent" },
+        { "id": "p-1", "kind": "app" },
+        { "id": "p-2", "kind": "app" },
+        { "id": "s-2", "kind": "session" }
+      ]
+    },
+    {
+      "name": "an empty team",
+      "boards": [],
+      "agents": [],
+      "apps": [],
+      "sessions": [],
+      "teamId": "t-acme",
+      "entries": [],
+      "expected": []
+    }
+  ],
+  "teamRows": [
+    {
+      "name": "the team row at depth 0, its nodes one deeper",
+      "teamId": "t-acme",
+      "open": true,
+      "rows": [
+        { "kind": "folder", "id": "f-1", "depth": 0, "group": true, "name": "Mobile", "open": true, "count": 1 },
+        { "kind": "item", "id": "b-1", "depth": 1, "group": false, "name": null, "open": false, "count": 0 },
+        { "kind": "item", "id": "a-1", "depth": 0, "group": false, "name": null, "open": false, "count": 0 }
+      ],
+      "expected": [
+        { "kind": "team", "id": "t-acme", "depth": 0, "group": true, "name": null, "open": true, "count": 2 },
+        { "kind": "folder", "id": "f-1", "depth": 1, "group": true, "name": "Mobile", "open": true, "count": 1 },
+        { "kind": "item", "id": "b-1", "depth": 2, "group": false, "name": null, "open": false, "count": 0 },
+        { "kind": "item", "id": "a-1", "depth": 1, "group": false, "name": null, "open": false, "count": 0 }
+      ]
+    },
+    {
+      "name": "a closed team shows only its row (count = its top-level nodes)",
+      "teamId": "t-acme",
+      "open": false,
+      "rows": [
+        { "kind": "folder", "id": "f-1", "depth": 0, "group": true, "name": "Mobile", "open": true, "count": 1 },
+        { "kind": "item", "id": "b-1", "depth": 1, "group": false, "name": null, "open": false, "count": 0 },
+        { "kind": "item", "id": "a-1", "depth": 0, "group": false, "name": null, "open": false, "count": 0 }
+      ],
+      "expected": [{ "kind": "team", "id": "t-acme", "depth": 0, "group": true, "name": null, "open": false, "count": 2 }]
+    }
+  ],
+  "drop": [
+    {
+      "name": "a session dropped into a folder",
+      "teamId": "t-acme",
+      "items": ["b-1", "a-1"],
+      "entries": [
+        { "id": "f-1", "kind": "folder", "targetId": null, "parentId": null, "name": "Mobile", "sortOrder": 1 },
+        { "id": "e-1", "kind": "item", "targetId": "b-1", "parentId": "f-1", "name": null, "sortOrder": 1 }
+      ],
+      "session": { "id": "s-1", "teamId": "t-acme", "parentId": null },
+      "move": { "id": "s-1", "into": "f-1" },
+      "newFolderId": "f-new",
+      "expected": {
+        "upserts": [
+          { "id": null, "kind": "item", "targetId": "s-1", "parentId": "f-1", "name": null, "sortOrder": 2 },
+          { "id": null, "kind": "item", "targetId": "a-1", "parentId": null, "name": null, "sortOrder": 2 }
+        ],
+        "deletes": [],
+        "createdFolderId": null
+      }
+    },
+    {
+      "name": "a session of another team is refused",
+      "teamId": "t-acme",
+      "items": ["b-1"],
+      "entries": [],
+      "session": { "id": "s-9", "teamId": "t-side", "parentId": null },
+      "move": { "id": "s-9", "after": "b-1" },
+      "newFolderId": "f-new",
+      "expected": null
+    },
+    {
+      "name": "a child session is refused (roots only)",
+      "teamId": "t-acme",
+      "items": ["b-1"],
+      "entries": [],
+      "session": { "id": "s-5", "teamId": "t-acme", "parentId": "s-1" },
+      "move": { "id": "s-5", "after": "b-1" },
+      "newFolderId": "f-new",
+      "expected": null
+    },
+    {
+      "name": "a session already in the tree is a plain move",
+      "teamId": "t-acme",
+      "items": ["b-1", "s-1"],
+      "entries": [
+        { "id": "e-1", "kind": "item", "targetId": "b-1", "parentId": null, "name": null, "sortOrder": 1 },
+        { "id": "e-2", "kind": "item", "targetId": "s-1", "parentId": null, "name": null, "sortOrder": 2 }
+      ],
+      "session": { "id": "s-1", "teamId": "t-acme", "parentId": null },
+      "move": { "id": "s-1", "before": "b-1" },
+      "newFolderId": "f-new",
+      "expected": {
+        "upserts": [
+          { "id": "e-2", "kind": "item", "targetId": "s-1", "parentId": null, "name": null, "sortOrder": 1 },
+          { "id": "e-1", "kind": "item", "targetId": "b-1", "parentId": null, "name": null, "sortOrder": 2 }
+        ],
+        "deletes": [],
+        "createdFolderId": null
+      }
+    }
+  ]
+}
