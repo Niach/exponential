@@ -68,7 +68,12 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> 
         ("supervise", rest) if rest.first().map(String::as_str) == Some("--") && rest.len() >= 2 => {
             let (ui, changes) = open()?;
             print_changes(&changes);
-            let mut supervisor = ede_ui::supervise::Supervisor::new(ui, rest[1..].to_vec(), |report| println!("{report:?}")).map_err(|e| e.to_string())?;
+            let mut supervisor = ede_ui::supervise::Supervisor::new(ui, rest[1..].to_vec(), |report| {
+                #[cfg(feature = "diagnostics")]
+                diagnostics::report(&report);
+                println!("{report:?}");
+            })
+            .map_err(|e| e.to_string())?;
             let stop = std::sync::atomic::AtomicBool::new(false);
             supervisor.run(&stop).map_err(|e| e.to_string())?;
         }
@@ -173,7 +178,49 @@ fn safe_mode_dir() -> PathBuf {
     dir
 }
 
+/// #ERR-29: the supervisor's diagnostics, the compositor's own
+/// (ede-observability): its panics and native crashes, and the shell's
+/// crashes as errors. Every other command is a one-shot and starts none.
+#[cfg(feature = "diagnostics")]
+mod diagnostics {
+    use ede_ui::supervise::{shell_failed, Report};
+
+    pub fn start() -> ede_observability::Guard {
+        let guard = ede_observability::init("ui-supervise", "info", ede_observability::Output::Stderr);
+        ede_observability::watch_native_crashes("ui-supervise");
+        guard
+    }
+
+    /// A shell that crashed is an error (one GlitchTip issue, the status a
+    /// field); one the session stopped is a warning.
+    pub fn report(report: &Report) {
+        match report {
+            Report::Crashed { status } => {
+                let how = status.map_or_else(|| "unknown".to_string(), |s| s.to_string());
+                if shell_failed(*status) {
+                    tracing::error!(status = %how, "the shell crashed; starting it again");
+                } else {
+                    tracing::warn!(status = %how, "the shell ended; starting it again");
+                }
+            }
+            Report::Reverted { .. } | Report::Factory { .. } => tracing::warn!(?report, "a document was rolled back after shell crashes"),
+            _ => {}
+        }
+    }
+
+    /// The supervisor gave up (the shell kept dying, the ui directory
+    /// would not open). What exactly is on stderr: it names a path under
+    /// the person's home.
+    pub fn failed() {
+        tracing::error!("the shell supervisor stopped");
+        ede_observability::flush();
+    }
+}
+
 fn main() -> ExitCode {
+    // A crash-monitor process (ede-observability) runs and exits here.
+    #[cfg(feature = "diagnostics")]
+    ede_observability::run_crash_monitor_if_requested();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let safe_mode = std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty() && v != "0");
     let mut dir = if safe_mode { safe_mode_dir() } else { ede_ui::default_dir() };
@@ -193,11 +240,19 @@ fn main() -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
+    #[cfg(feature = "diagnostics")]
+    let supervising = args.first().map(String::as_str) == Some("supervise");
+    #[cfg(feature = "diagnostics")]
+    let _diagnostics = supervising.then(diagnostics::start);
     match run(dir, factory, &args) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(e) => {
             eprintln!("exponential-ui: {e}");
+            #[cfg(feature = "diagnostics")]
+            if supervising {
+                diagnostics::failed();
+            }
             ExitCode::from(2)
         }
     }
