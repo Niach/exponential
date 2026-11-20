@@ -513,7 +513,7 @@ impl Ede {
                 // window capture is always drawn (a parked window's commits
                 // are never presented, #EDE-100).
                 if since == Some(self.frame_serial) && matches!(target, CaptureTarget::Output { .. }) {
-                    let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
+                    let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true, notice: None };
                     return Ok(Some((serde_json::to_value(info).unwrap(), None)));
                 }
                 let frame = match target {
@@ -525,7 +525,7 @@ impl Ede {
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
                     CaptureTarget::Space { space } => {
                         let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
-                        return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id });
+                        return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id }, false);
                     }
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
@@ -538,7 +538,7 @@ impl Ede {
                     }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
-                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false };
+                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false, notice: None };
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
             }

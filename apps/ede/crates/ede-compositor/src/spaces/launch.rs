@@ -345,11 +345,23 @@ impl Ede {
     pub(crate) fn space_launches_tick(&mut self) {
         self.space_slices_tick();
         self.write_space_guard_state();
+        let mut ended = Vec::new();
         self.spaces.launches.retain_mut(|launch| {
             if launch.closed.is_some_and(|at| at.elapsed() > TERM_GRACE) && !std::mem::replace(&mut launch.killed, true) {
                 launch.signal(Signal::KILL);
             }
-            matches!(launch.child.try_wait(), Ok(None))
+            match launch.child.try_wait() {
+                Ok(None) => true,
+                Ok(Some(status)) => {
+                    ended.push((launch.pid(), status));
+                    false
+                }
+                Err(_) => false,
+            }
         });
+        // #EDE-162: how a GPU space's launches ended (`frames::net`).
+        for (pid, status) in ended {
+            self.space_net_ended(pid, status);
+        }
     }
 }
