@@ -90,6 +90,12 @@ impl Ede {
             Request::Hello { .. } => unreachable!("hello is answered before the scope"),
             Request::CreateSpace { width, height } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_create(session, width, height)?).unwrap(), None)))),
             Request::ListSpaces => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_infos(Some(session))).unwrap(), None)))),
+            // #EXP-1514 (D 10): its session's turn runs.
+            Request::SpaceBusy => {
+                let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
+                self.space_mark_busy(desk);
+                Ok(Scoped::Reply(Some((serde_json::Value::Null, None))))
+            }
             Request::DestroySpace { space } => {
                 self.space_destroy(Some(session), &space)?;
                 Ok(Scoped::Reply(Some((serde_json::Value::Null, None))))
