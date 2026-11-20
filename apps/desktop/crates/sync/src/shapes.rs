@@ -88,7 +88,7 @@ impl ShapeSpec {
     }
 }
 
-/// The 37 shapes, in §5.9 order (#EXP-778's `pins` left with #EXP-2027; #EXP-1656 appended `skills`; #FEED-219
+/// The 37 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
 /// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
 /// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only

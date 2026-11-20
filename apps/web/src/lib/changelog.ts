@@ -36,15 +36,6 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu.`,
   },
   {
-    id: `2026-11-20-pins-removed`,
-    date: `2026-11-20`,
-    title: `Pins are gone`,
-    summary: `The Pinned group and every Pin and Unpin button are removed on web, desktop, iOS and Android.`,
-    body: `- **Sidebar**: no Pinned group any more; boards, agents and apps keep their folders and order.
-- **Issues and chats**: the Pin button and the Pin and Unpin menu items are gone.
-- **Phone shortcuts**: the app icon's long-press menu lists your Assistant and your newest chats.`,
-  },
-  {
     id: `2026-11-20-assistant-skills-mcp-per-team`,
     date: `2026-11-20`,
     title: `Your Assistant's skills and MCP servers, per team`,
@@ -3701,7 +3692,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Stop reaches the machine**: Stop pressed on the web or the phone now interrupts the running turn on the machine. Every client had been sending it; the relay was dropping it.
 - **One session header**: the desktop session header lost its Back button, centers the run's identity like the web, carries a quieter Plan chip and the web's usage and open-issue icons, and the issue band is the real issue header with Open issue in the Watch slot.
 - **One usage sheet**: the usage overlay has the same structure on web and desktop: the active account once, Context, the windows, the other accounts, and one footer note.
-- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, pinned rows unpin on hover, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
+- **A sidebar header that stays put**: the team switcher, Search and New issue sit fixed above the sliding pane, and the sidebar issue list gets batch selection with a bulk bar, the row context menu and inline status.
 - **Switching accounts clears the wall**: a run ended by an account switch no longer keeps Rate limited on its row for good, and a resumed run no longer re-arms a rate limit from its replayed transcript.`,
   },
   {

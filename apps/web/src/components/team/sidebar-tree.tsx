@@ -84,7 +84,7 @@ const AddIcon = conceptIcon(`ui-add`)
 const MoreIcon = conceptIcon(`ui-more`)
 const FolderIcon = conceptIcon(`ui-folder`)
 const InviteIcon = conceptIcon(`ui-invite`)
-const RemoveIcon = conceptIcon(`ui-unpin`)
+const RemoveIcon = conceptIcon(`ui-minus`)
 const DeviceDefaultIcon = conceptIcon(`ui-device-default`)
 
 /** The New submenu's glyph per kind (the draft: board, agent, app, chat). */

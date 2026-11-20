@@ -116,9 +116,8 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_130_131]; only the sessions shape refetches.
     // v132 (#EXP-1943): sessions.voice_call (a call session's call), explicit
     //      [MIGRATION_131_132]; only the sessions shape refetches.
-    // v133 (#EXP-2027): the personal Pins feature is gone; the local `pins`
-    //      table drops with its shape offset, explicit [MIGRATION_132_133];
-    //      nothing refetches.
+    // v133 (#EXP-2027): a retired local table drops with its shape offset,
+    //      explicit [MIGRATION_132_133]; nothing refetches.
     version = 133,
     exportSchema = false,
 )
