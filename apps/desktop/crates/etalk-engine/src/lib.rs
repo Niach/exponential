@@ -1271,6 +1271,110 @@ impl sink::Sink for StreamSink {
     }
 }
 
+/// What [`speak_parts`] synthesizes with (the [`Speaker`]; tests fake it).
+trait Synth {
+    fn synthesize(&mut self, text: &str, on_audio: &mut dyn FnMut(&[f32])) -> Result<(), String>;
+    fn streams(&self) -> bool;
+}
+
+impl Synth for Speaker {
+    fn synthesize(&mut self, text: &str, on_audio: &mut dyn FnMut(&[f32])) -> Result<(), String> {
+        Speaker::synthesize(self, text, on_audio)
+    }
+    fn streams(&self) -> bool {
+        Speaker::streams(self)
+    }
+}
+
+/// #EXP-2016: the most audio one synthesis call may give for `part`, in
+/// samples at `rate`: [`SPEECH_SECONDS_PER_CHAR`] per character, at least
+/// [`SPEECH_MIN_SECONDS`], at most [`SPEECH_MAX_SECONDS`] (the speech
+/// model's own step cap, `etalk_crispasr::MAX_CODEC_STEPS`, bounds the call).
+fn speech_budget(part: &str, rate: u32) -> usize {
+    let seconds = (part.chars().count() as f64 * SPEECH_SECONDS_PER_CHAR).clamp(SPEECH_MIN_SECONDS, SPEECH_MAX_SECONDS);
+    (seconds * f64::from(rate)) as usize
+}
+
+/// #EXP-2016: a sentence is heard at ~15 characters a second; three times
+/// that is a trajectory that does not end (a degenerate sentence runs on).
+const SPEECH_SECONDS_PER_CHAR: f64 = 0.2;
+const SPEECH_MIN_SECONDS: f64 = 10.0;
+const SPEECH_MAX_SECONDS: f64 = 60.0;
+
+/// A reply's synthesis, sentence by sentence, each sample to `push` while
+/// `current`; `started` once audio goes out (a remote call's before its
+/// first push). #EXP-2016: a sentence past its [`speech_budget`] is cut
+/// there and the next one goes on, so a reply the model cannot finish
+/// never runs it to its ceiling. The error a reply failed with, if none
+/// of it went out.
+fn speak_parts(
+    synth: &mut dyn Synth,
+    text: &str,
+    rate: u32,
+    remote: bool,
+    current: &dyn Fn() -> bool,
+    started_now: &mut dyn FnMut(),
+    push: &mut dyn FnMut(&[f32]) -> Result<(), String>,
+) -> Option<String> {
+    let mut started = false;
+    let mut failed = None;
+    for part in speech_chunks(text, synth.streams()) {
+        if !current() {
+            break;
+        }
+        let budget = speech_budget(part, rate);
+        let (mut heard, mut cut) = (0usize, false);
+        // NEW-91: on a streaming speaker the audio arrives in chunks while
+        // the sentence is still being synthesized.
+        let mut broken = false;
+        let result = synth.synthesize(part, &mut |pcm| {
+            if broken || cut || pcm.is_empty() || !current() {
+                return;
+            }
+            let pcm = &pcm[..pcm.len().min(budget - heard)];
+            heard += pcm.len();
+            cut = heard >= budget;
+            if pcm.is_empty() {
+                return;
+            }
+            if remote && !started {
+                // The stream sits between Started and Finished.
+                started = true;
+                started_now();
+            }
+            // #1231 review: a player that takes no audio (pw-play without a
+            // PipeWire session) fails the reply, never reports it played.
+            if let Err(err) = push(pcm) {
+                eprintln!("audio output failed: {err}");
+                if !started {
+                    failed = Some(err);
+                }
+                broken = true;
+                return;
+            }
+            if !started {
+                started = true;
+                started_now();
+            }
+        });
+        if broken {
+            break;
+        }
+        if cut {
+            eprintln!("a sentence ran past its speech budget ({budget} samples): cut, the reply goes on");
+        }
+        if let Err(err) = result {
+            let err = scrub(&err, text);
+            eprintln!("synthesis failed: {err}");
+            if !started {
+                failed = Some(err);
+            }
+            break;
+        }
+    }
+    failed
+}
+
 fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, generation: u64) {
     let current = |shared: &Shared| shared.generation.load(Ordering::SeqCst) == generation;
     let emit = |event: Event| (shared.emit)(&event);
@@ -1323,51 +1427,15 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
         }
         *speaking = Some(id.to_string());
     }
-    let mut started = false;
-    let mut failed = None;
-    for part in speech_chunks(text, loaded.session.streams()) {
-        if !current(shared) {
-            break;
-        }
-        // NEW-91: on a streaming speaker the audio arrives in chunks while
-        // the sentence is still being synthesized.
-        let mut broken = false;
-        let result = loaded.session.synthesize(part, &mut |pcm| {
-            if broken || pcm.is_empty() || !current(shared) {
-                return;
-            }
-            if remote && !started {
-                // The stream sits between Started and Finished.
-                started = true;
-                emit(Event::Started { id: id.into() });
-            }
-            // #1231 review: a player that takes no audio (pw-play without a
-            // PipeWire session) fails the reply, never reports it played.
-            if let Err(err) = sink.push(pcm) {
-                eprintln!("audio output failed: {err}");
-                if !started {
-                    failed = Some(err);
-                }
-                broken = true;
-                return;
-            }
-            if !started {
-                started = true;
-                emit(Event::Started { id: id.into() });
-            }
-        });
-        if broken {
-            break;
-        }
-        if let Err(err) = result {
-            let err = scrub(&err, text);
-            eprintln!("synthesis failed: {err}");
-            if !started {
-                failed = Some(err);
-            }
-            break;
-        }
-    }
+    let failed = speak_parts(
+        &mut loaded.session,
+        text,
+        loaded.sample_rate,
+        remote,
+        &|| current(shared),
+        &mut || emit(Event::Started { id: id.into() }),
+        &mut |pcm| sink.push(pcm),
+    );
     if let Some(error) = failed {
         sink.stop();
         clear_current(shared, &sink);
@@ -1725,5 +1793,45 @@ mod tests {
         assert_eq!(sentences("E X P dreizehn neunzig ist erledigt."), ["E X P dreizehn neunzig ist erledigt."]);
         assert_eq!(sentences("Version 1.5 ships."), ["Version 1.5 ships."], "a decimal point is no sentence end");
         assert!(sentences("  ").is_empty());
+    }
+
+    /// #EXP-2016: a speech model that never ends a sentence (hundreds of
+    /// consonants: it would run to its ceiling) is cut at the sentence's
+    /// budget, the next sentence goes on, and the next reply is spoken.
+    #[test]
+    fn a_sentence_the_model_never_ends_is_cut_and_the_next_reply_is_spoken() {
+        struct Endless {
+            calls: Vec<String>,
+        }
+        impl Synth for Endless {
+            fn synthesize(&mut self, text: &str, on_audio: &mut dyn FnMut(&[f32])) -> Result<(), String> {
+                self.calls.push(text.to_string());
+                // "Never" ends: 340 s of audio (4096 frames), one second at a time.
+                let seconds = if text.starts_with("Endless") { 340 } else { 1 };
+                for _ in 0..seconds {
+                    on_audio(&[0.1; 24_000]);
+                }
+                Ok(())
+            }
+            fn streams(&self) -> bool {
+                true
+            }
+        }
+        let mut synth = Endless { calls: Vec::new() };
+        let mut speak = |text: &str| {
+            let (mut pushed, mut started) = (0usize, 0);
+            let failed = speak_parts(&mut synth, text, 24_000, true, &|| true, &mut || started += 1, &mut |pcm| {
+                pushed += pcm.len();
+                Ok(())
+            });
+            (failed, pushed, started)
+        };
+        let (failed, pushed, started) = speak("Endless bcdfg. Then this.");
+        assert_eq!((failed, started), (None, 1));
+        assert_eq!(pushed, speech_budget("Endless bcdfg.", 24_000) + 24_000, "cut at its budget, the next sentence whole");
+        assert_eq!(speech_budget("Endless bcdfg.", 24_000), 10 * 24_000, "a short sentence gets the floor");
+        assert_eq!(speak("The next reply."), (None, 24_000, 1), "the next reply is spoken");
+        assert_eq!(synth.calls, ["Endless bcdfg.", "Then this.", "The next reply."]);
+        assert_eq!(speech_budget(&"word ".repeat(200), 24_000), 60 * 24_000, "never past the ceiling");
     }
 }
