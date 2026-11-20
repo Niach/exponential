@@ -25,8 +25,12 @@ pub(crate) struct Stats {
     window: Instant,
     /// µs of thread CPU per tick.
     ticks: Vec<u32>,
-    /// µs of thread CPU and of wall time per capture pass.
+    /// µs of thread CPU and of wall time per capture pass (on the GPU: its
+    /// submit).
     passes: Vec<(u32, u32)>,
+    /// GPU passes: µs of thread CPU to read one back, µs from submit to
+    /// its fence.
+    gpu: Vec<(u32, u32)>,
     /// Captures that waited for their turn.
     waits: u32,
     /// µs a timer of the loop fired late.
@@ -36,7 +40,7 @@ pub(crate) struct Stats {
 impl Default for Stats {
     fn default() -> Self {
         let on = std::env::var("EXP_FRAME_STATS").is_ok_and(|v| v.trim() == "1");
-        Self { on, window: Instant::now(), ticks: Vec::new(), passes: Vec::new(), waits: 0, lateness: Vec::new() }
+        Self { on, window: Instant::now(), ticks: Vec::new(), passes: Vec::new(), gpu: Vec::new(), waits: 0, lateness: Vec::new() }
     }
 }
 
@@ -55,6 +59,14 @@ impl Stats {
     pub fn pass(&mut self, cpu: Duration, wall: Duration) {
         if self.on {
             self.passes.push((micros(cpu), micros(wall)));
+            self.flush();
+        }
+    }
+
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    pub fn gpu_done(&mut self, cpu: Duration, latency: Duration) {
+        if self.on {
+            self.gpu.push((micros(cpu), micros(latency)));
             self.flush();
         }
     }
@@ -88,15 +100,20 @@ impl Stats {
         let cpu: Vec<u32> = self.passes.iter().map(|p| p.0).collect();
         let wall: Vec<u32> = self.passes.iter().map(|p| p.1).collect();
         let sum = |v: &[u32]| v.iter().map(|&x| x as u64).sum::<u64>() as f32 / 1000.0;
+        let read: Vec<u32> = self.gpu.iter().map(|p| p.0).collect();
+        let latency: Vec<u32> = self.gpu.iter().map(|p| p.1).collect();
         format!(
-            "space stats {secs:.1}s: {} ticks ({:.1}/s) cpu {}; {} captures cpu {}, wall {} ({:.1} ms/s); {} waited; loop late {}",
+            "space stats {secs:.1}s: {} ticks ({:.1}/s) cpu {}; {} captures cpu {}, wall {} ({:.1} ms/s); {} on the GPU: read cpu {}, fence after {}; {} waited; loop late {}",
             self.ticks.len(),
             self.ticks.len() as f32 / secs,
             spread(&self.ticks),
             self.passes.len(),
             spread(&cpu),
             spread(&wall),
-            sum(&cpu) / secs,
+            (sum(&cpu) + sum(&read)) / secs,
+            self.gpu.len(),
+            spread(&read),
+            spread(&latency),
             self.waits,
             spread(&self.lateness),
         )
@@ -124,10 +141,11 @@ mod tests {
         assert_eq!(spread(&[7]), "p50 7 p99 7 max 7 µs");
         let hundred: Vec<u32> = (1..=100).collect();
         assert_eq!(spread(&hundred), "p50 50 p99 99 max 100 µs");
-        let s = Stats { on: true, window: Instant::now(), ticks: vec![10, 20], passes: vec![(1500, 2000), (2500, 3000)], waits: 3, lateness: vec![40] };
+        let s = Stats { on: true, window: Instant::now(), ticks: vec![10, 20], passes: vec![(1500, 2000), (2500, 3000)], gpu: vec![(200, 900)], waits: 3, lateness: vec![40] };
         let line = s.summary(Duration::from_secs(2));
         assert!(line.starts_with("space stats 2.0s: 2 ticks (1.0/s) cpu p50 10 p99 20 max 20 µs; 2 captures cpu p50 1500 p99 2500 max 2500 µs"), "{line}");
-        assert!(line.contains("(2.0 ms/s); 3 waited; loop late p50 40"), "{line}");
+        assert!(line.contains("(2.1 ms/s); 1 on the GPU: read cpu p50 200 p99 200 max 200 µs, fence after p50 900"), "{line}");
+        assert!(line.contains("; 3 waited; loop late p50 40"), "{line}");
     }
 
     #[test]

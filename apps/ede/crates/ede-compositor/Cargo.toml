@@ -8,7 +8,10 @@ license.workspace = true
 publish = false
 
 [features]
-default = ["winit", "xwayland"]
+default = ["winit", "xwayland", "gpu"]
+# #EDE-162: agent spaces render on a GPU's render node (EGL device platform,
+# GLES); without it they render in software.
+gpu = ["smithay/backend_drm"]
 # X11 apps and games through Xwayland (needs the Xwayland binary at runtime).
 xwayland = ["smithay/xwayland"]
 # Nested in a window on X11 or Wayland (Cinnamon/X11 for development).
@@ -17,6 +20,7 @@ winit = ["smithay/backend_winit", "smithay/backend_drm"]
 # The real session: libseat, udev, DRM/KMS + GBM, libinput. Needs
 # libudev, libinput, libgbm, libseat and libdrm headers to build.
 udev = [
+    "gpu",
     "smithay/backend_drm",
     "smithay/backend_gbm",
     "smithay/backend_libinput",
