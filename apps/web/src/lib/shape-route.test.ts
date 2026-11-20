@@ -11,7 +11,7 @@ import { Route as issueRelationsRoute } from "@/routes/api/shapes/issue-relation
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
-import { Route as pinsRoute } from "@/routes/api/shapes/pins"
+import { Route as retiredRoute } from "@/routes/api/shapes/$"
 import { Route as sessionReadsRoute } from "@/routes/api/shapes/session-reads"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
 import { Route as composerDraftsRoute } from "@/routes/api/shapes/composer-drafts"
@@ -720,41 +720,26 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     }
   })
 
-  // EXP-778: the pins shape — the caller's own rows, static per user, no
-  // trash mirror (clients resolve the target from the scoped shapes).
-  it(`pins clause is fully static per user and never anonymous`, async () => {
+  it(`a shape no longer served answers empty, never a 404`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
 
-    await shapeHandler(pinsRoute)({
-      request: new Request(`https://example.com/api/shapes/pins`, {
+    await shapeHandler(retiredRoute)({
+      request: new Request(`https://example.com/api/shapes/retired`, {
         headers: { authorization: `Bearer t` },
       }),
     })
 
-    expect(originUrl.searchParams.get(`where`)).toBe(`"user_id" = 'user-1'`)
+    expect(originUrl.searchParams.get(`table`)).toBe(`teams`)
+    expect(originUrl.searchParams.get(`columns`)).toBe(`id`)
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
+    )
     expect(membership.getUserTeamIds).not.toHaveBeenCalled()
-    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toEqual([
-      `id`,
-      `user_id`,
-      `team_id`,
-      `kind`,
-      `issue_id`,
-      `session_id`,
-      `sort_order`,
-      `created_at`,
-      `updated_at`,
-    ])
-
-    resolveSession.mockResolvedValue(null)
-    const anon = await shapeHandler(pinsRoute)({
-      request: new Request(`https://example.com/api/shapes/pins`),
-    })
-    expect(anon.status).toBe(401)
   })
 
-  // EXP-1323: the session-reads shape — static per user like pins.
+  // EXP-1323: the session-reads shape — static per user.
   it(`session-reads clause is fully static per user and never anonymous`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -787,7 +772,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   })
 
   // EXP-878: the issue-drafts shape — the caller's own drafts, static per
-  // user like pins, never team/trash-scoped (clients resolve the board).
+  // user, never team/trash-scoped (clients resolve the board).
   it(`issue-drafts clause is fully static per user and never anonymous`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -863,7 +848,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   })
 
   // #EXP-1832: the sidebar-layout shape — the caller's own folders + order,
-  // static per user like pins.
+  // static per user.
   it(`sidebar-layout clause is fully static per user and never anonymous`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
@@ -1038,7 +1023,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`issues`, issuesRoute],
     [`labels`, labelsRoute],
     [`notifications`, notificationsRoute],
-    [`pins`, pinsRoute],
     [`pull-request-issues`, pullRequestIssuesRoute],
     [`pull-request-checks`, pullRequestChecksRoute],
     [`pull-requests`, pullRequestsRoute],

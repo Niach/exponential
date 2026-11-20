@@ -125,7 +125,7 @@ describe(`the IDE's search palette searches issues and nothing else`, () => {
   it(`holds issue hits alone`, () => {
     // One list, one kind of row: a file/symbol pass would need its own.
     expect(source).toContain(`hits: Vec<IssueHit>,`)
-    expect(source).toContain(`search_list::local_issue_hits(`)
+    expect(source).toContain(`search_list::local_issue_hits_teams(`)
     expect(source).not.toMatch(/file_hits|path_hits|symbol_hits|Vec<SearchHit>/)
   })
 

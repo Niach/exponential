@@ -9,6 +9,10 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
+/// #EXP-1992: the host side of a call (`hostCases`): the one machine the
+/// desktop app and the CLI daemon run their calls on.
+pub mod host;
+
 pub const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
 
 #[derive(Debug, Clone, Deserialize)]
@@ -319,7 +323,8 @@ pub struct HostVoice {
 }
 
 /// FEED-276 (`hostVoice`): the agent's own voice on the call's host.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum CallVoice {
     /// The agent has no clip: the built-in voice IS its voice.
     #[default]
@@ -719,6 +724,24 @@ pub fn call_target(input: &CallTargetInput<'_>) -> CallTarget {
         name: Some(target.name.clone()),
         fallback: Some(target.id.as_str()) != input.agent_device,
         local: Some(target.id.as_str()) == input.here,
+    }
+}
+
+/// #EXP-1878 (`tapCases`): what a press on the telephone does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTap {
+    pub call: bool,
+    /// A phone's tap on a disabled telephone toasts its reason.
+    pub toast: Option<String>,
+}
+
+/// #EXP-1878 (`tapCases`): an enabled telephone (`reason` None) calls; a
+/// disabled one never does, and a PHONE's tap toasts the reason (web and
+/// the desktop show it as the disabled control's tooltip).
+pub fn call_tap(platform: CallPlatform, reason: Option<&str>) -> CallTap {
+    match reason {
+        None => CallTap { call: true, toast: None },
+        Some(reason) => CallTap { call: false, toast: (platform == CallPlatform::Phone).then(|| reason.to_string()) },
     }
 }
 
@@ -1263,6 +1286,16 @@ mod tests {
             assert_eq!(target.name.as_deref(), expected["name"].as_str(), "{name}");
             assert_eq!(target.fallback, expected["fallback"].as_bool().unwrap(), "{name}");
             assert_eq!(target.local, expected["local"].as_bool().unwrap(), "{name}");
+        }
+    }
+
+    #[test]
+    fn tap_matches_the_fixture() {
+        for case in fixture()["tapCases"].as_array().unwrap() {
+            let (input, expected, name) = (&case["input"], &case["expected"], &case["name"]);
+            let tap = call_tap(platform(&input["platform"]), input["availability"]["reason"].as_str());
+            assert_eq!(tap.call, expected["call"].as_bool().unwrap(), "{name}");
+            assert_eq!(tap.toast.as_deref(), expected["toast"].as_str(), "{name}");
         }
     }
 

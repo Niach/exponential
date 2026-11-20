@@ -560,7 +560,7 @@ impl MachinesSection {
     /// FEED-149: the team a teammate's shared row can be removed from — the
     /// current team, when I OWN it. `None` = no row carries the control.
     fn owned_team_id(&self, cx: &App) -> Option<String> {
-        crate::navigation::active_team_id(&self.nav, cx)
+        crate::navigation::screen_team_id(&self.nav, cx)
             .filter(|team_id| crate::settings::is_owner(cx, team_id))
     }
 

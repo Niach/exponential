@@ -204,12 +204,6 @@ export interface DomainContract {
     editKinds: readonly string[]
   }
   subscriberSource: { values: readonly string[] }
-  /**
-   * EXP-778: what a `pins` row points at — an issue, a coding session or an
-   * action. One target column per kind; the sidebar's Pinned group renders
-   * each kind with its own row.
-   */
-  pinKind: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
   /**
    * EXP-736: issue relation types, with BOTH label halves in `values` order —

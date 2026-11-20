@@ -9643,6 +9643,7 @@ public object ExpIcons {
         "nav-drafts" -> `file-pen-line`
         "nav-files" -> `folder`
         "nav-getting-started" -> `sparkles`
+        "nav-home" -> `house`
         "nav-inbox" -> `inbox`
         "nav-issues" -> `list`
         "nav-my-issues" -> `list`
@@ -9695,6 +9696,8 @@ public object ExpIcons {
         "run-pause" -> `pause`
         "run-resume" -> `rotate-ccw`
         "sc-push" -> `upload`
+        "search-agent" -> `bot`
+        "search-chat" -> `message-circle`
         "session-shell" -> `terminal`
         "session-tree" -> `workflow`
         "settings-about" -> `info`
@@ -10066,6 +10069,8 @@ public object ExpIcons {
     public val navFiles: ImageVector get() = `folder`
     /** Concept `nav-getting-started`. */
     public val navGettingStarted: ImageVector get() = `sparkles`
+    /** Concept `nav-home`. */
+    public val navHome: ImageVector get() = `house`
     /** Concept `nav-inbox`. */
     public val navInbox: ImageVector get() = `inbox`
     /** Concept `nav-issues`. */
@@ -10170,6 +10175,10 @@ public object ExpIcons {
     public val runResume: ImageVector get() = `rotate-ccw`
     /** Concept `sc-push`. */
     public val scPush: ImageVector get() = `upload`
+    /** Concept `search-agent`. */
+    public val searchAgent: ImageVector get() = `bot`
+    /** Concept `search-chat`. */
+    public val searchChat: ImageVector get() = `message-circle`
     /** Concept `session-shell`. */
     public val sessionShell: ImageVector get() = `terminal`
     /** Concept `session-tree`. */

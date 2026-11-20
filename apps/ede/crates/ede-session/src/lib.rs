@@ -590,4 +590,63 @@ mod tests {
         assert!(device.contains("ExecStart=/usr/bin/exponential-session --device\n") && device.contains("Restart=on-failure\n"));
         assert!(device.contains("After=graphical-session.target exponential-shell.service\n"), "the panel comes first");
     }
+
+    /// #ERR-29: every long-running binary the packages ship reports its
+    /// panics, errors and native crashes (ede-observability, one init for
+    /// all of eDE) under its own component tag; the one-shots do not.
+    #[test]
+    fn every_long_running_binary_starts_diagnostics() {
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let shell = crates.join("../../desktop/crates/ede-shell/src");
+        // The binary, its main, the start of its `init` call, what it and
+        // `watch_native_crashes` are called with, the component tags it
+        // reports under. The person's content passes through the shell and
+        // the sealed surfaces: `init_with(.., Trail::Places)`, no line's text.
+        let long_running: [(&str, std::path::PathBuf, &str, &str, &[&str]); 7] = [
+            ("exponential-compositor", crates.join("ede-compositor/src/main.rs"), "init", "\"compositor\"", &["compositor"]),
+            ("exponential-session", crates.join("ede-session/src/main.rs"), "init", "\"session\"", &["session"]),
+            ("exponential-services", crates.join("ede-services/src/main.rs"), "init", "\"services\"", &["services"]),
+            ("xdg-desktop-portal-exponential", crates.join("ede-portal/src/main.rs"), "init", "\"portal\"", &["portal"]),
+            ("exponential-ui supervise", crates.join("ede-ui/src/main.rs"), "init", "\"ui-supervise\"", &["ui-supervise"]),
+            ("exponential-shell", shell.join("main.rs"), "init_with", "\"shell\"", &["shell"]),
+            ("exponential-sealed", shell.join("bin/ede-sealed/main.rs"), "init_with", "component", &["sealed-lock", "sealed-polkit", "sealed-consent", "sealed-share"]),
+        ];
+        for (bin, path, init, tag, components) in long_running {
+            let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{bin}: {}: {e}", path.display()));
+            // `main` alone: the crash monitor's dispatch is in it, before
+            // anything there starts diagnostics or the program (other
+            // dispatches of their own argv may come first, #EDE-138's).
+            let main = &source[source.find("\nfn main(").unwrap_or_else(|| panic!("{bin}: no main")) + 1..];
+            let main = &main[..main.find("\n}\n").unwrap_or(main.len())];
+            let dispatch = main.find("ede_observability::run_crash_monitor_if_requested();").unwrap_or_else(|| panic!("{bin}: main dispatches no crash monitor"));
+            let starts = ["ede_observability::init", "watch_native_crashes(", "diagnostics::start", "run()", "run(dir", "parse_args("].iter().filter_map(|call| main.find(call)).min();
+            assert!(starts.is_none_or(|at| dispatch < at), "{bin}: the crash monitor's dispatch comes before diagnostics and the program start");
+            assert!(source.contains(&format!("ede_observability::{init}({tag},")), "{bin} starts diagnostics as {tag}");
+            assert_eq!(init == "init_with", source.contains("ede_observability::Trail::Places)"), "{bin}: where a line was logged, never its text, exactly where the person's content passes through");
+            assert!(source.contains(&format!("ede_observability::watch_native_crashes({tag})")), "{bin} reports its native crashes as {tag}");
+            for component in components {
+                assert!(source.contains(&format!("\"{component}\"")), "{bin}: tagged {component}");
+            }
+            // A second global subscriber would panic at start (the
+            // compositor's `doctor` and the services' one-shots use one
+            // instead of diagnostics).
+            assert!(!source.contains("tracing_subscriber::fmt()") || ["exponential-compositor", "exponential-services"].contains(&bin), "{bin}: ede-observability owns the subscriber");
+        }
+        // stdout is a protocol there (frame lines, answers, reports).
+        for path in [shell.join("main.rs"), shell.join("bin/ede-sealed/main.rs"), crates.join("ede-ui/src/main.rs"), crates.join("ede-portal/src/main.rs")] {
+            let source = std::fs::read_to_string(&path).unwrap();
+            assert!(source.contains("ede_observability::Output::Stderr") && !source.contains("Output::Stdout"), "{}: logs to stderr", path.display());
+        }
+        // The packaged supervisor has it; the IDE (through uicore-gpui) does not.
+        let ui = std::fs::read_to_string(crates.join("ede-ui/Cargo.toml")).unwrap();
+        assert!(ui.contains("default = [\"diagnostics\"]"), "exponential-ui reports by default");
+        let stage = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/stage.sh")).unwrap();
+        assert!(stage.contains("-p ede-ui") && !stage.contains("--no-default-features"), "the packaged exponential-ui is built with diagnostics");
+        let uicore = std::fs::read_to_string(crates.join("../../desktop/crates/uicore-gpui/Cargo.toml")).unwrap();
+        assert!(uicore.contains("ede-ui = { path = \"../../../ede/crates/ede-ui\", default-features = false }"), "the IDE never links eDE's diagnostics");
+        // One-shot commands start none.
+        for one_shot in ["ede-theme/src/main.rs", "ede-ctl/src/main.rs"] {
+            assert!(!std::fs::read_to_string(crates.join(one_shot)).unwrap().contains("ede_observability"), "{one_shot}");
+        }
+    }
 }

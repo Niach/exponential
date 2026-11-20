@@ -5,6 +5,15 @@
 //! `exponential-compositor doctor`: what this machine is missing for eDE.
 //! `exponential-compositor recovery --reason … [--next …]`: the message a failed
 //! session leaves on the displays, without a GPU ([`ede_compositor::fallback`]).
+//! `exponential-compositor space-run <launch> -- program …`: what the compositor
+//! starts a launch into an agent space as; it puts itself into the space's
+//! systemd scope (`space-enter` is the first program there, `space-exec`
+//! the last) and becomes the program ([`ede_compositor::spaces::slice`]).
+//! `exponential-compositor space-enter <spaces> -- argv`: the first program
+//! in every systemd scope into a space; it becomes `argv`.
+//! `exponential-compositor space-end <pid>`: ends what the agent spaces of the
+//! compositor with that process id left; exponential-session runs it when
+//! its compositor has ended.
 //!
 //! A run that cannot drive the display ends with [`FATAL_EXIT`] and the
 //! reason in [`failure_file`] (#EDE-40), which exponential-session shows; a crash
@@ -31,6 +40,16 @@ fn failure_file() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
+    // #EDE-138: a launch into a space (it becomes the program, or ends),
+    // and the end of a compositor's spaces.
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("space-run") => ede_compositor::spaces::slice::run_main(args),
+        Some("space-enter") => ede_compositor::spaces::slice::enter_main(args),
+        Some("space-exec") => ede_compositor::spaces::slice::exec_main(args),
+        Some("space-end") => ede_compositor::spaces::slice::end_main(args),
+        _ => {}
+    }
     // #ERR-12: the crash monitor (this binary) runs and exits here.
     ede_observability::run_crash_monitor_if_requested();
     if let Err(e) = run() {
@@ -175,12 +194,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             h.add_output(&mut state, "HEADLESS-1", size);
             let outputs = h.outputs.clone();
-            let mut clock = ede_compositor::backend::headless::FrameClock::new()?;
             let tick = ede_compositor::backend::headless::FrameClock::TICK;
-            event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
-                clock.tick(state, &outputs);
-                smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
-            })?;
+            // #EDE-162: the measuring rig draws the person's output on a GPU.
+            #[cfg(feature = "gpu")]
+            let rig = std::env::var_os("EDE_HEADLESS_GLES").filter(|v| !v.is_empty());
+            #[cfg(not(feature = "gpu"))]
+            let rig: Option<std::ffi::OsString> = None;
+            match rig {
+                #[cfg(feature = "gpu")]
+                Some(node) => {
+                    let clock = ede_compositor::backend::headless::GlesClock::start(std::path::Path::new(&node), &mut state)?;
+                    event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
+                        clock.borrow_mut().tick(state, &outputs);
+                        smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
+                    })?;
+                }
+                _ => {
+                    let mut clock = ede_compositor::backend::headless::FrameClock::new()?;
+                    event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
+                        clock.tick(state, &outputs);
+                        smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
+                    })?;
+                }
+            }
             Some(h)
         }
         #[cfg(feature = "winit")]
@@ -193,9 +229,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     state.start_session();
+    // #EDE-162: agent spaces on a GPU when there is one (headless and nested).
+    state.start_space_gpu(safe_mode || std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty()));
     ede_compositor::backend::watch_main_loop(&event_loop.handle());
+    ede_compositor::backend::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 
     event_loop.run(None, &mut state, |state| {
+        // #EDE-162: after the person's frames, the spaces' captures.
+        state.spaces_after_frames();
         let _ = state.display_handle.flush_clients();
     })?;
     Ok(())

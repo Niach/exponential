@@ -38,7 +38,9 @@ export type CreateBoardError =
   | { kind: `error`; message: string }
 
 export type CreateBoardResult =
-  | { ok: true }
+  // #EXP-2027: the new board's slug + the write's txid, so the New board
+  // page can land on it once it has synced.
+  | { ok: true; slug: string; txId: number }
   | { ok: false; error: CreateBoardError }
 
 function mapError(err: unknown): CreateBoardError {
@@ -61,7 +63,7 @@ export function useCreateBoard() {
   const createBoard = useCallback(
     async (input: CreateBoardInput): Promise<CreateBoardResult> => {
       try {
-        await trpc.boards.create.mutate(
+        const result = await trpc.boards.create.mutate(
           {
             teamId: input.teamId,
             name: input.name.trim(),
@@ -76,7 +78,7 @@ export function useCreateBoard() {
           { context: { skipErrorToast: true } }
         )
         invalidateBillingCache()
-        return { ok: true }
+        return { ok: true, slug: result.board.slug, txId: result.txId }
       } catch (err) {
         return { ok: false, error: mapError(err) }
       }

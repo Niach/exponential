@@ -9,7 +9,8 @@ use gpui::*;
 
 use super::CollapsedCaretAffinity;
 use super::{
-    Block, BlockEvent, BlockKind, InlineFormat, InlineTextTree, PastedImageSource, UndoCaptureKind,
+    Block, BlockEvent, BlockKind, ImageResolvedSource, InlineFormat, InlineTextTree, PastedImageSource,
+    UndoCaptureKind,
 };
 use crate::components::markdown::paste::should_split_plain_multiline_paste;
 use crate::components::{
@@ -1411,11 +1412,12 @@ impl Block {
             // EXP-824 vendoring: a media tile opens its link on click (the
             // host routes it to the system player); the block still takes
             // focus so keyboard removal works, but never expands to source.
-            if let Some(src) = self
-                .image_runtime()
-                .filter(|runtime| runtime.media.is_some())
-                .map(|runtime| runtime.src.clone())
-            {
+            // #EXP-1968 vendoring: so does a refused picture's link (THE
+            // external-link path, never the viewer).
+            if let Some(src) = self.image_runtime().and_then(|runtime| match &runtime.resolved_source {
+                ImageResolvedSource::StandIn(stand_in) => stand_in.href.clone(),
+                _ => runtime.media.is_some().then(|| runtime.src.clone()),
+            }) {
                 if !self.focus_handle.is_focused(window) {
                     cx.emit(BlockEvent::RequestFocus);
                 }

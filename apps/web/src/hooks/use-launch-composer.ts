@@ -21,6 +21,7 @@ import {
   pickForSubject,
   seedPick,
   subjectAfterPick,
+  TEMPORARY_PICK,
   type ComposerAgentRowState,
 } from "@exp/domain-contract/composer-agent-row"
 import { issueCollection, sessionCollection } from "@/lib/collections"
@@ -187,6 +188,9 @@ export function buildSendInput(args: {
       : {}),
     ...(text ? { text: args.text } : {}),
     ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+    // #EXP-2027 (composer-menu.json `teamsPick`): a plain chat's OTHER picked
+    // teams (its own = `teamId`); none = its own team only, nothing sent.
+    ...(args.scopeTeamIds && args.scopeTeamIds.length > 0 ? { scopeTeamIds: [...args.scopeTeamIds] } : {}),
     ...(subject?.kind === `issues`
       ? { issueIds: [...subject.ids] }
       : {
@@ -230,7 +234,45 @@ async function awaitSynced(txid: number, ms: number): Promise<void> {
   clearTimeout(timer)
 }
 
+/** #EXP-2027 (sidebar-tree.json HOME's composer): the team-less Home's
+ *  composer spans every member team. */
+export interface LaunchComposerHome {
+  /** The member teams in team order (sidebar-tree.json `sidebarTeams`). */
+  teams: readonly { id: string; name: string; iconUrl: string | null }[]
+  /** `/home?team=<id>` (a team menu's New › Session): that team as the plain
+   *  chat's Teams pick, the agent row on Temporary session. A fresh object
+   *  applies again. */
+  seedTeam?: { id: string } | null
+}
+
+/** The plain chat's teams (#EXP-2027): the pick kept in team order, at least
+ *  one; nothing picked (or nothing left) = the first team. Pure. */
+export function plainChatTeamIds(
+  picked: readonly string[] | null,
+  teams: readonly { id: string }[],
+  fallback: string
+): string[] {
+  const kept = teams.filter((team) => picked?.includes(team.id)).map((team) => team.id)
+  if (kept.length > 0) return kept
+  return teams.length > 0 ? [teams[0].id] : [fallback]
+}
+
+/** The team a Home send lands in (#EXP-2027): a team agent's own team, the
+ *  Assistant's as before (the composer's `teamId`), a plain chat's first
+ *  picked team. Pure. */
+export function homeEffectiveTeamId(input: {
+  teamId: string
+  recipient: Pick<ComposerAgent, `teamId`> | null
+  toAssistant: boolean
+  plainTeamIds: readonly string[]
+}): string {
+  if (input.recipient === null) return input.plainTeamIds[0] ?? input.teamId
+  if (input.toAssistant) return input.teamId
+  return input.recipient.teamId ?? input.teamId
+}
+
 export interface LaunchComposerModel {
+  /** The team everything team-scoped follows (Home: the EFFECTIVE team). */
   teamId: string
   subject: LaunchSubject
   /** The subject prompt's row (null while it is not synced, or no prompt). */
@@ -302,8 +344,13 @@ export function useLaunchComposer({
   onStarted,
   agentRow: withAgentRow = false,
   me = null,
+  home = null,
 }: {
+  /** The composer's team (Home: the default team, which keys the draft and
+   *  carries the Assistant's sends). */
   teamId: string
+  /** #EXP-2027: the team-less Home (every member team); null = one team. */
+  home?: LaunchComposerHome | null
   /** S-3: draw the agent row (the agent home and, EXP-1451, the
    *  start-coding dialog). */
   agentRow?: boolean
@@ -331,24 +378,18 @@ export function useLaunchComposer({
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  const repos = useTeamRepos(teamId)
-  const seededRepo = useRef(false)
-  useEffect(() => {
-    if (!repos || seededRepo.current) return
-    seededRepo.current = true
-    setRepoId(defaultChatRepoId(repos))
-  }, [repos])
-  const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
-
-  const { prompts } = usePrompts(teamId)
-  const selectedPrompt =
-    subject?.kind !== `prompt`
-      ? null
-      : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
   // S-3: the agent row (composer-home.json `agentRow`): the viewer's
   // Assistant first and preselected, the team agents, Temporary session.
   // #EXP-1714: the team's agents + the viewer's global Assistant.
-  const teamAgents = useTeamAgentRows(withAgentRow ? [teamId] : [], me)
+  // #EXP-2027: Home lists the Assistant + the agents of EVERY member team.
+  const homeTeams = home?.teams ?? null
+  const homeTeamKey = homeTeams?.map((team) => team.id).join(`,`) ?? null
+  const homeTeamIds = useMemo(
+    () => homeTeams?.map((team) => team.id) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [homeTeamKey]
+  )
+  const teamAgents = useTeamAgentRows(withAgentRow ? (homeTeams ? homeTeamIds : [teamId]) : [], me)
   const agentRows = withAgentRow ? teamAgents : null
   const [picked, setPicked] = useState<string | null>(null)
   const agentRow = useMemo(
@@ -372,9 +413,69 @@ export function useLaunchComposer({
   )
   const [teamsPicked, setTeamsPicked] = useState<string[] | null>(null)
   const toAssistant = recipient !== null && recipient.role === `assistant` && recipient.ownerId === me
+  // #EXP-2027 (sidebar-tree.json HOME): a plain chat (Temporary session)
+  // carries THE same Teams pick: at least one team, the first by default.
+  const [plainPicked, setPlainPicked] = useState<string[] | null>(null)
+  // The PRIMARY team (repos, prompts, skills, MCP servers, device) leads:
+  // `?team=`'s preset while it stays picked, else the first in team order.
+  const [primaryTeamId, setPrimaryTeamId] = useState<string | null>(null)
+  const plainTeamIds = useMemo(() => {
+    const ids = plainChatTeamIds(plainPicked, homeTeams ?? [], teamId)
+    return primaryTeamId && ids.includes(primaryTeamId) ? [primaryTeamId, ...ids.filter((id) => id !== primaryTeamId)] : ids
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plainPicked, homeTeamKey, teamId, primaryTeamId])
+  const homePickTeams = useMemo(
+    () => homeTeams?.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl })) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [homeTeamKey, homeTeams?.map((team) => `${team.name}:${team.iconUrl ?? ``}`).join(`|`)]
+  )
+  const effectiveTeamId = homeTeams
+    ? homeEffectiveTeamId({ teamId, recipient, toAssistant, plainTeamIds })
+    : teamId
+  const effectiveTeamRef = useRef(effectiveTeamId)
+  effectiveTeamRef.current = effectiveTeamId
   const teams: ComposerTeamsBinding | null = toAssistant
     ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked }
-    : null
+    : homeTeams && recipient === null
+      ? {
+          teams: homePickTeams,
+          picked: plainTeamIds,
+          // Every team checked again (null) = every team, still a list.
+          onChange: (next) => setPlainPicked(next ?? homeTeamIds),
+        }
+      : null
+  // `?team=`: the plain chat in that team.
+  const seedTeam = home?.seedTeam ?? null
+  useEffect(() => {
+    if (!seedTeam) return
+    setPlainPicked([seedTeam.id])
+    setPrimaryTeamId(seedTeam.id)
+    setPicked(TEMPORARY_PICK)
+  }, [seedTeam])
+
+  const repos = useTeamRepos(effectiveTeamId)
+  // The default repository, seeded once per team: a team change waits for
+  // that team's list (never the previous team's stale one).
+  const repoSeed = useRef<{ team: string; stale: ChatRepoOption[] | null; done: boolean } | null>(null)
+  useEffect(() => {
+    if (repoSeed.current?.team !== effectiveTeamId) {
+      const first = repoSeed.current === null
+      repoSeed.current = { team: effectiveTeamId, stale: first ? null : repos, done: false }
+      if (!first) setRepoId(``)
+    }
+    const latch = repoSeed.current
+    if (latch.done || !repos || repos === latch.stale) return
+    latch.done = true
+    setRepoId(defaultChatRepoId(repos))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repos, effectiveTeamId])
+  const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
+
+  const { prompts } = usePrompts(effectiveTeamId)
+  const selectedPrompt =
+    subject?.kind !== `prompt`
+      ? null
+      : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
   const pickRecipient = useCallback((id: string) => {
     setPicked(id)
     // EXP-1450 (`agentRow.pickCases`): a pick NEVER drops the issue chips (a
@@ -385,13 +486,41 @@ export function useLaunchComposer({
   // S-3 (composer-home.json `agentRow.subjectCases`): an issue or prompt
   // subject is a launch: the row follows to Temporary session (a later tap
   // on an agent still wins: it changes no subject).
+  // #EXP-2027: on Home that move keeps the team the subject came from (a
+  // team agent's prompts and issues are its team's).
+  const homeRef = useRef(homeTeams !== null)
+  homeRef.current = homeTeams !== null
   useEffect(() => {
+    if (homeRef.current && (subject?.kind === `issues` || subject?.kind === `prompt`)) {
+      setPicked((current) => {
+        const next = pickForSubject(subject?.kind, current)
+        if (next !== current) setPlainPicked([effectiveTeamRef.current])
+        return next
+      })
+      return
+    }
     setPicked((current) => pickForSubject(subject?.kind, current))
   }, [subject])
+  // #EXP-2027: a team change drops what belongs to the team left behind (a
+  // prompt; issues of another team; an issue not synced yet stays).
+  const subjectTeam = useRef(effectiveTeamId)
+  useEffect(() => {
+    if (subjectTeam.current === effectiveTeamId) return
+    subjectTeam.current = effectiveTeamId
+    setSubject((current) => {
+      if (current?.kind === `prompt`) return null
+      if (current?.kind !== `issues`) return current
+      const ids = current.ids.filter((id) => {
+        const row = issueCollection.get(id) as Issue | undefined
+        return !row || row.teamId === effectiveTeamId
+      })
+      return ids.length === current.ids.length ? current : ids.length > 0 ? { kind: `issues`, ids } : null
+    })
+  }, [effectiveTeamId])
 
   // Codeable issues live on boards that HAVE a repo (coding gates on repo
   // presence). Sorted ids keep the dep string stable.
-  const boards = useTeamBoards(teamId)
+  const boards = useTeamBoards(effectiveTeamId)
   const repoBoardIds = useMemo(() => {
     const ids = boards.filter((board) => board.repositoryId).map((board) => board.id)
     ids.sort()
@@ -453,9 +582,9 @@ export function useLaunchComposer({
     () => (devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
     [devices]
   )
-  const mcp = useMcpServers(teamId)
-  const { skills, isReady: skillsReady } = useSkills(teamId)
-  const team = useTeamById(teamId)
+  const mcp = useMcpServers(effectiveTeamId)
+  const { skills, isReady: skillsReady } = useSkills(effectiveTeamId)
+  const team = useTeamById(effectiveTeamId)
   const teamSlug = team?.slug ?? null
   const mcpConnectHref = useCallback(
     (serverId: string) =>
@@ -468,7 +597,7 @@ export function useLaunchComposer({
     open: true,
     devices: candidateDevices,
     initialDeviceId: seed?.deviceId,
-    teamId,
+    teamId: effectiveTeamId,
     mcpServers: mcp.servers,
     skills: skillsReady ? skills : null,
   })
@@ -499,6 +628,14 @@ export function useLaunchComposer({
     if (seedPicked) setPicked(seedPicked)
     if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
+      // #EXP-2027: on Home the issues' team is the plain chat's.
+      const issueTeam = homeTeams
+        ? (issueCollection.get(seed.issueIds[0]) as Issue | undefined)?.teamId
+        : undefined
+      if (issueTeam) {
+        setPlainPicked([issueTeam])
+        subjectTeam.current = issueTeam
+      }
     }
     // EXP-836: an explicit machine is a REQUEST that outranks the default.
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
@@ -616,7 +753,7 @@ export function useLaunchComposer({
         for (const image of current) {
           if (image.uploadedId) continue
           // #EXP-1714: into the Assistant's own (personal) team, where its chat claims them.
-          const uploaded = await uploadTeamSessionImageFile(recipient?.teamId ?? teamId, image.file)
+          const uploaded = await uploadTeamSessionImageFile(recipient?.teamId ?? effectiveTeamId, image.file)
           current = markPendingImageUploaded(current, image.url, uploaded.id, uploaded.filename)
           // The live strip, not the snapshot: a pick added or removed
           // meanwhile keeps its edit (composer-send.json).
@@ -630,8 +767,10 @@ export function useLaunchComposer({
         .map((image) => image.uploadedId)
         .filter((id): id is string => Boolean(id))
       const options = launch.buildOptions()
+      // #EXP-2027: Home sends into the effective team; a plain chat's other
+      // picked teams ride as `scopeTeamIds` (sessions.send, #3194).
       const input = buildSendInput({
-        teamId,
+        teamId: effectiveTeamId,
         deviceId: device?.deviceId ?? ``,
         options,
         text: sentText,
@@ -640,7 +779,11 @@ export function useLaunchComposer({
         repoId,
         agentId: recipient?.id ?? null,
         issueIdentifiers: checkedIssues.map((issue) => issue.identifier),
-        ...(teams ? { scopeTeamIds: teams.picked } : {}),
+        ...(toAssistant && teams
+          ? { scopeTeamIds: teams.picked }
+          : homeTeams && recipient === null
+            ? { scopeTeamIds: plainTeamIds.filter((id) => id !== effectiveTeamId) }
+            : {}),
       })
       let result: { sessionId: string; txid: number }
       try {
@@ -684,7 +827,7 @@ export function useLaunchComposer({
   submitRef.current = submit
 
   return {
-    teamId,
+    teamId: effectiveTeamId,
     subject,
     selectedPrompt,
     prompts,

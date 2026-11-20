@@ -107,6 +107,10 @@ fn writes_serialize_camel_case_with_whole_sort_orders() {
     assert_eq!(serde_json::to_value(&half).unwrap()["sortOrder"], json!(1.5));
     assert_eq!(SidebarSection::Agent.as_str(), "agent");
     assert_eq!(serde_json::to_value(SidebarSection::App).unwrap(), json!("app"));
+    // #EXP-2027: `team` comes first, like the TS SIDEBAR_SECTIONS.
+    assert_eq!(SidebarSection::ALL.map(SidebarSection::as_str), ["team", "board", "agent", "app"]);
+    assert_eq!(SidebarSection::parse("team"), Some(SidebarSection::Team));
+    assert_eq!(serde_json::from_value::<SidebarSection>(json!("team")).unwrap(), SidebarSection::Team);
 }
 
 /// A List `move` context reads `{id, before | after | into}`; no id = none.

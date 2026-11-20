@@ -58,6 +58,7 @@ use state::NodeCache;
 
 pub(crate) use input::Field;
 pub use composer_paste::{clipboard_has_files, clipboard_images, PastedImage};
+pub use events::ListExternalPhase;
 pub use motion::NodeEntrance;
 pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 

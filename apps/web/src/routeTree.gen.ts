@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
@@ -17,6 +18,11 @@ import { Route as Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport } f
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AppChatsRouteImport } from './routes/_app/chats'
+import { Route as AppDraftsRouteImport } from './routes/_app/drafts'
+import { Route as AppHomeRouteImport } from './routes/_app/home'
+import { Route as AppNeedsYouRouteImport } from './routes/_app/needs-you'
+import { Route as AppSettingsRouteRouteImport } from './routes/_app/settings/route'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedExponentialUiKitchenSinkRouteImport } from './routes/_authenticated/exponential-ui-kitchen-sink'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
@@ -40,6 +46,11 @@ import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as STokenRouteImport } from './routes/s/$token'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
+import { Route as AppSettingsAssistantRouteImport } from './routes/_app/settings/assistant'
+import { Route as AppSettingsNotificationsRouteImport } from './routes/_app/settings/notifications'
+import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as AuthenticatedAdminConnectionsRouteImport } from './routes/_authenticated/admin/connections'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
@@ -57,6 +68,7 @@ import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-o
 import { Route as ApiMcpAppsRouteImport } from './routes/api/mcp_/apps'
 import { Route as ApiMonitoringIndexRouteImport } from './routes/api/monitoring/index'
 import { Route as ApiMonitoringConfigRouteImport } from './routes/api/monitoring/config'
+import { Route as ApiShapesSplatRouteImport } from './routes/api/shapes/$'
 import { Route as ApiShapesAgentsRouteImport } from './routes/api/shapes/agents'
 import { Route as ApiShapesAppRecordsRouteImport } from './routes/api/shapes/app-records'
 import { Route as ApiShapesAppVersionsRouteImport } from './routes/api/shapes/app-versions'
@@ -81,7 +93,6 @@ import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesMessagesRouteImport } from './routes/api/shapes/messages'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
-import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompts'
 import { Route as ApiShapesPullRequestChecksRouteImport } from './routes/api/shapes/pull-request-checks'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
@@ -111,6 +122,8 @@ import { Route as TTeamSlugNeedsYouRouteImport } from './routes/t/$teamSlug/need
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugTeamRouteImport } from './routes/t/$teamSlug/team'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport } from './routes/[.well-known]/oauth-authorization-server_/api/auth'
+import { Route as AppDevicesDeviceIdIndexRouteImport } from './routes/_app/devices/$deviceId/index'
+import { Route as AppDevicesDeviceIdSettingsRouteImport } from './routes/_app/devices/$deviceId/settings'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as ApiAgentsAgentIdVoiceClipRouteImport } from './routes/api/agents/$agentId/voice-clip'
@@ -133,6 +146,9 @@ import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/d
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamSlug/issues/$identifier'
+import { Route as TTeamSlugNewAgentRouteImport } from './routes/t/$teamSlug/new/agent'
+import { Route as TTeamSlugNewAppRouteImport } from './routes/t/$teamSlug/new/app'
+import { Route as TTeamSlugNewBoardRouteImport } from './routes/t/$teamSlug/new/board'
 import { Route as TTeamSlugReposNameRouteImport } from './routes/t/$teamSlug/repos/$name'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
@@ -178,6 +194,10 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -216,6 +236,31 @@ const Char91DotwellKnownChar93OauthProtectedResourceRoute =
     path: '/.well-known/oauth-protected-resource',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppChatsRoute = AppChatsRouteImport.update({
+  id: '/chats',
+  path: '/chats',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDraftsRoute = AppDraftsRouteImport.update({
+  id: '/drafts',
+  path: '/drafts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHomeRoute = AppHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNeedsYouRoute = AppNeedsYouRouteImport.update({
+  id: '/needs-you',
+  path: '/needs-you',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRouteRoute = AppSettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -332,6 +377,32 @@ const TTeamSlugRouteRoute = TTeamSlugRouteRouteImport.update({
   path: '/t/$teamSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsRouteRoute,
+} as any)
+const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AppSettingsRouteRoute,
+} as any)
+const AppSettingsAssistantRoute = AppSettingsAssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
+  getParentRoute: () => AppSettingsRouteRoute,
+} as any)
+const AppSettingsNotificationsRoute =
+  AppSettingsNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => AppSettingsRouteRoute,
+  } as any)
+const AppSettingsSecurityRoute = AppSettingsSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => AppSettingsRouteRoute,
+} as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -421,6 +492,11 @@ const ApiMonitoringIndexRoute = ApiMonitoringIndexRouteImport.update({
 const ApiMonitoringConfigRoute = ApiMonitoringConfigRouteImport.update({
   id: '/api/monitoring/config',
   path: '/api/monitoring/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesSplatRoute = ApiShapesSplatRouteImport.update({
+  id: '/api/shapes/$',
+  path: '/api/shapes/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesAgentsRoute = ApiShapesAgentsRouteImport.update({
@@ -543,11 +619,6 @@ const ApiShapesMessagesRoute = ApiShapesMessagesRouteImport.update({
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
   id: '/api/shapes/notifications',
   path: '/api/shapes/notifications',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
-  id: '/api/shapes/pins',
-  path: '/api/shapes/pins',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesPromptsRoute = ApiShapesPromptsRouteImport.update({
@@ -698,6 +769,17 @@ const Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute =
     path: '/.well-known/oauth-authorization-server/api/auth',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppDevicesDeviceIdIndexRoute = AppDevicesDeviceIdIndexRouteImport.update({
+  id: '/devices/$deviceId/',
+  path: '/devices/$deviceId/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDevicesDeviceIdSettingsRoute =
+  AppDevicesDeviceIdSettingsRouteImport.update({
+    id: '/devices/$deviceId/settings',
+    path: '/devices/$deviceId/settings',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AuthenticatedAdminTeamsTeamIdRoute =
   AuthenticatedAdminTeamsTeamIdRouteImport.update({
     id: '/teams_/$teamId',
@@ -817,6 +899,21 @@ const TTeamSlugIssuesIdentifierRoute =
     path: '/issues/$identifier',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
+const TTeamSlugNewAgentRoute = TTeamSlugNewAgentRouteImport.update({
+  id: '/new/agent',
+  path: '/new/agent',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugNewAppRoute = TTeamSlugNewAppRouteImport.update({
+  id: '/new/app',
+  path: '/new/app',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugNewBoardRoute = TTeamSlugNewBoardRouteImport.update({
+  id: '/new/board',
+  path: '/new/board',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugReposNameRoute = TTeamSlugReposNameRouteImport.update({
   id: '/repos/$name',
   path: '/repos/$name',
@@ -1047,12 +1144,17 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/robots.txt': typeof RobotsDottxtRoute
+  '/settings': typeof AppSettingsRouteRouteWithChildren
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/chats': typeof AppChatsRoute
+  '/drafts': typeof AppDraftsRoute
+  '/home': typeof AppHomeRoute
+  '/needs-you': typeof AppNeedsYouRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/share': typeof AuthenticatedShareRoute
@@ -1075,6 +1177,10 @@ export interface FileRoutesByFullPath {
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/assistant': typeof AppSettingsAssistantRoute
+  '/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
   '/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
@@ -1090,6 +1196,7 @@ export interface FileRoutesByFullPath {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1114,7 +1221,6 @@ export interface FileRoutesByFullPath {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1141,10 +1247,12 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
+  '/devices/$deviceId/settings': typeof AppDevicesDeviceIdSettingsRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
@@ -1163,6 +1271,9 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
+  '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
+  '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1182,6 +1293,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/devices/$deviceId/': typeof AppDevicesDeviceIdIndexRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/chats/': typeof TTeamSlugChatsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
@@ -1215,6 +1327,10 @@ export interface FileRoutesByTo {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/chats': typeof AppChatsRoute
+  '/drafts': typeof AppDraftsRoute
+  '/home': typeof AppHomeRoute
+  '/needs-you': typeof AppNeedsYouRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/share': typeof AuthenticatedShareRoute
@@ -1236,6 +1352,10 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/assistant': typeof AppSettingsAssistantRoute
+  '/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
   '/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
@@ -1251,6 +1371,7 @@ export interface FileRoutesByTo {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1275,7 +1396,6 @@ export interface FileRoutesByTo {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1302,10 +1422,12 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/settings': typeof AppSettingsIndexRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
+  '/devices/$deviceId/settings': typeof AppDevicesDeviceIdSettingsRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
@@ -1324,6 +1446,9 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
+  '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
+  '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1343,6 +1468,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/devices/$deviceId': typeof AppDevicesDeviceIdIndexRoute
   '/t/$teamSlug/apps': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/chats': typeof TTeamSlugChatsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
@@ -1371,15 +1497,21 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/about': typeof AboutRoute
   '/robots.txt': typeof RobotsDottxtRoute
+  '/_app/settings': typeof AppSettingsRouteRouteWithChildren
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/t/$teamSlug': typeof TTeamSlugRouteRouteWithChildren
   '/.well-known/apple-app-site-association': typeof Char91DotwellKnownChar93AppleAppSiteAssociationRoute
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/_app/chats': typeof AppChatsRoute
+  '/_app/drafts': typeof AppDraftsRoute
+  '/_app/home': typeof AppHomeRoute
+  '/_app/needs-you': typeof AppNeedsYouRoute
   '/_authenticated/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/share': typeof AuthenticatedShareRoute
@@ -1402,6 +1534,10 @@ export interface FileRoutesById {
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
+  '/_app/settings/account': typeof AppSettingsAccountRoute
+  '/_app/settings/assistant': typeof AppSettingsAssistantRoute
+  '/_app/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/_app/settings/security': typeof AppSettingsSecurityRoute
   '/_authenticated/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/_authenticated/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/_authenticated/admin/email': typeof AuthenticatedAdminEmailRoute
@@ -1417,6 +1553,7 @@ export interface FileRoutesById {
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
   '/api/mcp_/apps': typeof ApiMcpAppsRoute
   '/api/monitoring/config': typeof ApiMonitoringConfigRoute
+  '/api/shapes/$': typeof ApiShapesSplatRoute
   '/api/shapes/agents': typeof ApiShapesAgentsRoute
   '/api/shapes/app-records': typeof ApiShapesAppRecordsRoute
   '/api/shapes/app-versions': typeof ApiShapesAppVersionsRoute
@@ -1441,7 +1578,6 @@ export interface FileRoutesById {
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
-  '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
@@ -1468,10 +1604,12 @@ export interface FileRoutesById {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/.well-known/oauth-authorization-server_/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
+  '/_app/devices/$deviceId/settings': typeof AppDevicesDeviceIdSettingsRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/agents/$agentId/voice-clip': typeof ApiAgentsAgentIdVoiceClipRoute
@@ -1490,6 +1628,9 @@ export interface FileRoutesById {
   '/t/$teamSlug/ci/$runId': typeof TTeamSlugCiRunIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
+  '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
+  '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
+  '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1509,6 +1650,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/_app/devices/$deviceId/': typeof AppDevicesDeviceIdIndexRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
   '/t/$teamSlug/chats/': typeof TTeamSlugChatsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
@@ -1540,12 +1682,17 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/robots.txt'
+    | '/settings'
     | '/admin'
     | '/t/$teamSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/chats'
+    | '/drafts'
+    | '/home'
+    | '/needs-you'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/share'
@@ -1568,6 +1715,10 @@ export interface FileRouteTypes {
     | '/s/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
+    | '/settings/account'
+    | '/settings/assistant'
+    | '/settings/notifications'
+    | '/settings/security'
     | '/admin/connections'
     | '/admin/conversions'
     | '/admin/email'
@@ -1583,6 +1734,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1607,7 +1759,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -1634,10 +1785,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/settings/'
     | '/admin/'
     | '/api/monitoring/'
     | '/t/$teamSlug/'
     | '/.well-known/oauth-authorization-server/api/auth'
+    | '/devices/$deviceId/settings'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
     | '/api/agents/$agentId/voice-clip'
@@ -1656,6 +1809,9 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/new/agent'
+    | '/t/$teamSlug/new/app'
+    | '/t/$teamSlug/new/board'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1675,6 +1831,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
+    | '/devices/$deviceId/'
     | '/t/$teamSlug/apps/'
     | '/t/$teamSlug/chats/'
     | '/t/$teamSlug/drafts/'
@@ -1708,6 +1865,10 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/chats'
+    | '/drafts'
+    | '/home'
+    | '/needs-you'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/share'
@@ -1729,6 +1890,10 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/s/$token'
     | '/support/$token'
+    | '/settings/account'
+    | '/settings/assistant'
+    | '/settings/notifications'
+    | '/settings/security'
     | '/admin/connections'
     | '/admin/conversions'
     | '/admin/email'
@@ -1744,6 +1909,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1768,7 +1934,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -1795,10 +1960,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/settings'
     | '/admin'
     | '/api/monitoring'
     | '/t/$teamSlug'
     | '/.well-known/oauth-authorization-server/api/auth'
+    | '/devices/$deviceId/settings'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
     | '/api/agents/$agentId/voice-clip'
@@ -1817,6 +1984,9 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/new/agent'
+    | '/t/$teamSlug/new/app'
+    | '/t/$teamSlug/new/board'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1836,6 +2006,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
+    | '/devices/$deviceId'
     | '/t/$teamSlug/apps'
     | '/t/$teamSlug/chats'
     | '/t/$teamSlug/drafts'
@@ -1863,15 +2034,21 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/_app'
     | '/_authenticated'
     | '/about'
     | '/robots.txt'
+    | '/_app/settings'
     | '/_authenticated/admin'
     | '/t/$teamSlug'
     | '/.well-known/apple-app-site-association'
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/_app/chats'
+    | '/_app/drafts'
+    | '/_app/home'
+    | '/_app/needs-you'
     | '/_authenticated/exponential-ui-kitchen-sink'
     | '/_authenticated/onboarding'
     | '/_authenticated/share'
@@ -1894,6 +2071,10 @@ export interface FileRouteTypes {
     | '/s/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
+    | '/_app/settings/account'
+    | '/_app/settings/assistant'
+    | '/_app/settings/notifications'
+    | '/_app/settings/security'
     | '/_authenticated/admin/connections'
     | '/_authenticated/admin/conversions'
     | '/_authenticated/admin/email'
@@ -1909,6 +2090,7 @@ export interface FileRouteTypes {
     | '/api/mcp-oauth/client.json'
     | '/api/mcp_/apps'
     | '/api/monitoring/config'
+    | '/api/shapes/$'
     | '/api/shapes/agents'
     | '/api/shapes/app-records'
     | '/api/shapes/app-versions'
@@ -1933,7 +2115,6 @@ export interface FileRouteTypes {
     | '/api/shapes/labels'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
-    | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
@@ -1960,10 +2141,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/_app/settings/'
     | '/_authenticated/admin/'
     | '/api/monitoring/'
     | '/t/$teamSlug/'
     | '/.well-known/oauth-authorization-server_/api/auth'
+    | '/_app/devices/$deviceId/settings'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
     | '/api/agents/$agentId/voice-clip'
@@ -1982,6 +2165,9 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/ci/$runId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/issues/$identifier'
+    | '/t/$teamSlug/new/agent'
+    | '/t/$teamSlug/new/app'
+    | '/t/$teamSlug/new/board'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2001,6 +2187,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
+    | '/_app/devices/$deviceId/'
     | '/t/$teamSlug/apps/'
     | '/t/$teamSlug/chats/'
     | '/t/$teamSlug/drafts/'
@@ -2029,6 +2216,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AboutRoute: typeof AboutRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
@@ -2064,6 +2252,7 @@ export interface RootRouteChildren {
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
   ApiMcpAppsRoute: typeof ApiMcpAppsRoute
   ApiMonitoringConfigRoute: typeof ApiMonitoringConfigRoute
+  ApiShapesSplatRoute: typeof ApiShapesSplatRoute
   ApiShapesAgentsRoute: typeof ApiShapesAgentsRoute
   ApiShapesAppRecordsRoute: typeof ApiShapesAppRecordsRoute
   ApiShapesAppVersionsRoute: typeof ApiShapesAppVersionsRoute
@@ -2088,7 +2277,6 @@ export interface RootRouteChildren {
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
   ApiShapesMessagesRoute: typeof ApiShapesMessagesRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
-  ApiShapesPinsRoute: typeof ApiShapesPinsRoute
   ApiShapesPromptsRoute: typeof ApiShapesPromptsRoute
   ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
@@ -2134,6 +2322,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -2184,6 +2379,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/.well-known/oauth-protected-resource'
       preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/chats': {
+      id: '/_app/chats'
+      path: '/chats'
+      fullPath: '/chats'
+      preLoaderRoute: typeof AppChatsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/drafts': {
+      id: '/_app/drafts'
+      path: '/drafts'
+      fullPath: '/drafts'
+      preLoaderRoute: typeof AppDraftsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/home': {
+      id: '/_app/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof AppHomeRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/needs-you': {
+      id: '/_app/needs-you'
+      path: '/needs-you'
+      fullPath: '/needs-you'
+      preLoaderRoute: typeof AppNeedsYouRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
@@ -2346,6 +2576,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppSettingsRouteRoute
+    }
+    '/_app/settings/account': {
+      id: '/_app/settings/account'
+      path: '/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof AppSettingsAccountRouteImport
+      parentRoute: typeof AppSettingsRouteRoute
+    }
+    '/_app/settings/assistant': {
+      id: '/_app/settings/assistant'
+      path: '/assistant'
+      fullPath: '/settings/assistant'
+      preLoaderRoute: typeof AppSettingsAssistantRouteImport
+      parentRoute: typeof AppSettingsRouteRoute
+    }
+    '/_app/settings/notifications': {
+      id: '/_app/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof AppSettingsNotificationsRouteImport
+      parentRoute: typeof AppSettingsRouteRoute
+    }
+    '/_app/settings/security': {
+      id: '/_app/settings/security'
+      path: '/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof AppSettingsSecurityRouteImport
+      parentRoute: typeof AppSettingsRouteRoute
+    }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
       path: '/'
@@ -2463,6 +2728,13 @@ declare module '@tanstack/react-router' {
       path: '/api/monitoring/config'
       fullPath: '/api/monitoring/config'
       preLoaderRoute: typeof ApiMonitoringConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/$': {
+      id: '/api/shapes/$'
+      path: '/api/shapes/$'
+      fullPath: '/api/shapes/$'
+      preLoaderRoute: typeof ApiShapesSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/agents': {
@@ -2631,13 +2903,6 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/notifications'
       fullPath: '/api/shapes/notifications'
       preLoaderRoute: typeof ApiShapesNotificationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/pins': {
-      id: '/api/shapes/pins'
-      path: '/api/shapes/pins'
-      fullPath: '/api/shapes/pins'
-      preLoaderRoute: typeof ApiShapesPinsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/prompts': {
@@ -2843,6 +3108,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/devices/$deviceId/': {
+      id: '/_app/devices/$deviceId/'
+      path: '/devices/$deviceId'
+      fullPath: '/devices/$deviceId/'
+      preLoaderRoute: typeof AppDevicesDeviceIdIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/devices/$deviceId/settings': {
+      id: '/_app/devices/$deviceId/settings'
+      path: '/devices/$deviceId/settings'
+      fullPath: '/devices/$deviceId/settings'
+      preLoaderRoute: typeof AppDevicesDeviceIdSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_authenticated/admin/teams_/$teamId': {
       id: '/_authenticated/admin/teams_/$teamId'
       path: '/teams/$teamId'
@@ -2995,6 +3274,27 @@ declare module '@tanstack/react-router' {
       path: '/issues/$identifier'
       fullPath: '/t/$teamSlug/issues/$identifier'
       preLoaderRoute: typeof TTeamSlugIssuesIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/new/agent': {
+      id: '/t/$teamSlug/new/agent'
+      path: '/new/agent'
+      fullPath: '/t/$teamSlug/new/agent'
+      preLoaderRoute: typeof TTeamSlugNewAgentRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/new/app': {
+      id: '/t/$teamSlug/new/app'
+      path: '/new/app'
+      fullPath: '/t/$teamSlug/new/app'
+      preLoaderRoute: typeof TTeamSlugNewAppRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/new/board': {
+      id: '/t/$teamSlug/new/board'
+      path: '/new/board'
+      fullPath: '/t/$teamSlug/new/board'
+      preLoaderRoute: typeof TTeamSlugNewBoardRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/repos/$name': {
@@ -3273,6 +3573,47 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppSettingsRouteRouteChildren {
+  AppSettingsAccountRoute: typeof AppSettingsAccountRoute
+  AppSettingsAssistantRoute: typeof AppSettingsAssistantRoute
+  AppSettingsNotificationsRoute: typeof AppSettingsNotificationsRoute
+  AppSettingsSecurityRoute: typeof AppSettingsSecurityRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+}
+
+const AppSettingsRouteRouteChildren: AppSettingsRouteRouteChildren = {
+  AppSettingsAccountRoute: AppSettingsAccountRoute,
+  AppSettingsAssistantRoute: AppSettingsAssistantRoute,
+  AppSettingsNotificationsRoute: AppSettingsNotificationsRoute,
+  AppSettingsSecurityRoute: AppSettingsSecurityRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+}
+
+const AppSettingsRouteRouteWithChildren =
+  AppSettingsRouteRoute._addFileChildren(AppSettingsRouteRouteChildren)
+
+interface AppRouteChildren {
+  AppSettingsRouteRoute: typeof AppSettingsRouteRouteWithChildren
+  AppChatsRoute: typeof AppChatsRoute
+  AppDraftsRoute: typeof AppDraftsRoute
+  AppHomeRoute: typeof AppHomeRoute
+  AppNeedsYouRoute: typeof AppNeedsYouRoute
+  AppDevicesDeviceIdSettingsRoute: typeof AppDevicesDeviceIdSettingsRoute
+  AppDevicesDeviceIdIndexRoute: typeof AppDevicesDeviceIdIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppSettingsRouteRoute: AppSettingsRouteRouteWithChildren,
+  AppChatsRoute: AppChatsRoute,
+  AppDraftsRoute: AppDraftsRoute,
+  AppHomeRoute: AppHomeRoute,
+  AppNeedsYouRoute: AppNeedsYouRoute,
+  AppDevicesDeviceIdSettingsRoute: AppDevicesDeviceIdSettingsRoute,
+  AppDevicesDeviceIdIndexRoute: AppDevicesDeviceIdIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 interface AuthenticatedAdminRouteRouteChildren {
   AuthenticatedAdminConnectionsRoute: typeof AuthenticatedAdminConnectionsRoute
   AuthenticatedAdminConversionsRoute: typeof AuthenticatedAdminConversionsRoute
@@ -3419,6 +3760,9 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugCiRunIdRoute: typeof TTeamSlugCiRunIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
+  TTeamSlugNewAgentRoute: typeof TTeamSlugNewAgentRoute
+  TTeamSlugNewAppRoute: typeof TTeamSlugNewAppRoute
+  TTeamSlugNewBoardRoute: typeof TTeamSlugNewBoardRoute
   TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
@@ -3444,6 +3788,9 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugCiRunIdRoute: TTeamSlugCiRunIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
+  TTeamSlugNewAgentRoute: TTeamSlugNewAgentRoute,
+  TTeamSlugNewAppRoute: TTeamSlugNewAppRoute,
+  TTeamSlugNewBoardRoute: TTeamSlugNewBoardRoute,
   TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
@@ -3464,6 +3811,7 @@ const TTeamSlugRouteRouteWithChildren = TTeamSlugRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AboutRoute: AboutRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
@@ -3503,6 +3851,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
   ApiMcpAppsRoute: ApiMcpAppsRoute,
   ApiMonitoringConfigRoute: ApiMonitoringConfigRoute,
+  ApiShapesSplatRoute: ApiShapesSplatRoute,
   ApiShapesAgentsRoute: ApiShapesAgentsRoute,
   ApiShapesAppRecordsRoute: ApiShapesAppRecordsRoute,
   ApiShapesAppVersionsRoute: ApiShapesAppVersionsRoute,
@@ -3527,7 +3876,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
   ApiShapesMessagesRoute: ApiShapesMessagesRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
-  ApiShapesPinsRoute: ApiShapesPinsRoute,
   ApiShapesPromptsRoute: ApiShapesPromptsRoute,
   ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,

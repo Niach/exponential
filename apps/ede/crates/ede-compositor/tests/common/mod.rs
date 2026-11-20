@@ -9,7 +9,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -26,6 +26,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_l
 #[derive(Default)]
 pub struct Client {
     pub compositor: Option<wl_compositor::WlCompositor>,
+    pub subcompositor: Option<wl_subcompositor::WlSubcompositor>,
     pub shm: Option<wl_shm::WlShm>,
     pub wm_base: Option<xdg_wm_base::XdgWmBase>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
@@ -463,6 +464,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "ext_idle_notifier_v1" => state.idle_notifier = Some(registry.bind(name, 1, qh, ())),
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), qh, ())),
                 "wl_compositor" => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
+                "wl_subcompositor" => state.subcompositor = Some(registry.bind(name, 1, qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
                 "zwlr_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, version.min(4), qh, ())),
@@ -762,6 +764,8 @@ delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManager
 delegate_noop!(Client: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1);
 delegate_noop!(Client: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
 delegate_noop!(Client: ignore wl_compositor::WlCompositor);
+delegate_noop!(Client: ignore wl_subcompositor::WlSubcompositor);
+delegate_noop!(Client: ignore wl_subsurface::WlSubsurface);
 delegate_noop!(Client: ignore wl_surface::WlSurface);
 delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
@@ -829,6 +833,37 @@ impl Session {
             self.roundtrip();
         }
         Popup { surface, xdg_surface, popup }
+    }
+
+    /// Commits one new `w`×`h` buffer per colour of `argbs`, back to back,
+    /// without waiting for a frame or a roundtrip between them (an app
+    /// with vsync off).
+    pub fn draw_burst(&mut self, t: &Toplevel, w: i32, h: i32, argbs: &[u32]) {
+        if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
+            t.xdg_surface.ack_configure(serial);
+        }
+        for &argb in argbs {
+            let buffer = self.buffer(w, h, argb);
+            t.surface.attach(Some(&buffer), 0, 0);
+            t.surface.damage_buffer(0, 0, w, h);
+            t.surface.commit();
+        }
+        self.roundtrip();
+    }
+
+    /// A drawn `w`x`h` subsurface of `parent` at `at` (synchronized: it
+    /// shows with the parent's next commit, which this makes).
+    pub fn subsurface(&mut self, parent: &wl_surface::WlSurface, at: (i32, i32), (w, h): (i32, i32), argb: u32) -> (wl_surface::WlSurface, wl_subsurface::WlSubsurface) {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let sub = self.state.subcompositor.as_ref().expect("wl_subcompositor advertised").get_subsurface(&surface, parent, &self.qh, ());
+        sub.set_position(at.0, at.1);
+        let buffer = self.buffer(w, h, argb);
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, w, h);
+        surface.commit();
+        parent.commit();
+        self.roundtrip();
+        (surface, sub)
     }
 }
 

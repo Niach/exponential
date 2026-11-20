@@ -149,3 +149,42 @@ pub fn assistant_scope(input: &AssistantScopeInput) -> Vec<String> {
     }
     teams
 }
+
+/// #EXP-2027: what a tree's ROOT is: the Assistant's conversation, a team
+/// agent's tree, or a plain chat (no acting agent, or the Assistant's).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TreeRootKind {
+    Assistant,
+    Agent,
+    Chat,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeScopeInput {
+    pub root: TreeRootKind,
+    /// The root's own team (the Assistant's: the personal team).
+    pub own_team_id: String,
+    /// The teams the member belongs to now, in their order.
+    pub member_team_ids: Vec<String>,
+    /// The root's stored Teams pick (`sessions.scope_team_ids`).
+    pub picked_team_ids: Option<Vec<String>>,
+}
+
+/// #EXP-2027 (access.json `treeScope`): the teams a tree may touch: the
+/// Assistant's = [`assistant_scope`] (`None` = all); a team agent's = its own
+/// team; a chat's = its own team, then its pick ∩ the member's (`None` =
+/// none picked).
+pub fn tree_scope(input: &TreeScopeInput) -> Vec<String> {
+    let picked = match input.root {
+        TreeRootKind::Agent => return vec![input.own_team_id.clone()],
+        TreeRootKind::Chat => Some(input.picked_team_ids.clone().unwrap_or_default()),
+        TreeRootKind::Assistant => input.picked_team_ids.clone(),
+    };
+    assistant_scope(&AssistantScopeInput {
+        personal_team_id: input.own_team_id.clone(),
+        member_team_ids: input.member_team_ids.clone(),
+        picked_team_ids: picked,
+    })
+}

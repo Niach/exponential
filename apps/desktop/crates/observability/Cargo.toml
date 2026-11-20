@@ -20,3 +20,8 @@ crash-monitor = { path = "../crash-monitor" }
 [dev-dependencies]
 # The tunnel test builds its own reqwest client.
 exp-http = { path = "../exp-http" }
+
+# #ERR-29: a helper process (the speech worker) really crashes: its own `main`.
+[[test]]
+name = "helper_crash"
+harness = false

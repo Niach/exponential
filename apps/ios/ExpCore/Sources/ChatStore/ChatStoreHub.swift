@@ -325,6 +325,11 @@ public final class ChatStoreHub: @unchecked Sendable {
         try? store(accountId: accountId)?.searchChat(rootId: rootId, query: query, limit: UInt32(limit))
     }
 
+    /// #EDE-99 GLOBAL SEARCH off the store (blocking, off main): `{chats, total}`.
+    public func searchAll(accountId: String, query: String, limit: Int) -> String? {
+        try? store(accountId: accountId)?.searchAll(query: query, limit: UInt32(limit))
+    }
+
     // MARK: - The storage setting
 
     /// `Keep tool steps` moved: stored, the walks take it, and every open

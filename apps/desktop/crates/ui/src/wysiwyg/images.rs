@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use gpui_markdown_editor::{
-    ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageTarget, MediaInfo,
-    PastedImage,
+    ImagePasteHandler, ImageSourceResolution, ImageSourceResolver, ImageStandIn, ImageTarget,
+    MediaInfo, PastedImage,
 };
 
 use crate::markdown::image_paste::{
@@ -41,6 +41,9 @@ pub(crate) struct SharedImageState {
     /// the synced `attachments` rows; the matching `resolutions` entry is
     /// the POSTER frame (`Pending` when the row has none).
     pub media: Mutex<HashMap<String, MediaInfo>>,
+    /// #EXP-1968: the active account's instance origin (`imageSource`),
+    /// mirrored by the wrapper on every sync.
+    pub origin: Mutex<String>,
 }
 
 /// Query-stripped cache key (the `?w=` display width never affects identity —
@@ -90,6 +93,19 @@ impl ImageSourceResolver for WysiwygImageResolver {
             .ok()?
             .get(cache_key(src))
             .cloned()
+    }
+
+    /// #EXP-1968 (`image-actions.json` `editModeSource`): a picture the
+    /// source rule refuses is never fetched: THE link (another website) or
+    /// its alt, else its src, in the picture's place. A `draft://` paste =
+    /// bytes this editor holds already (a local source).
+    fn stand_in(&self, src: &str, alt: &str) -> Option<ImageStandIn> {
+        if src.starts_with(DRAFT_SCHEME) {
+            return None;
+        }
+        let origin = self.state.origin.lock().ok()?.clone();
+        let (text, href) = crate::image_actions::edit_mode_verdict(src, alt, &origin)?;
+        Some(ImageStandIn { text, href })
     }
 
     fn resolve(&self, src: &str) -> Option<ImageSourceResolution> {

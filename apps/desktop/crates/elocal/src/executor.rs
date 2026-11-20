@@ -241,6 +241,7 @@ impl LocalExecutor {
             "composerDrafts.delete" => self.composer_drafts_delete(input),
             "sidebarLayout.save" => self.sidebar_layout_save(input),
             "sidebarLayout.rename" => self.sidebar_layout_rename(input),
+            "sidebarLayout.remove" => self.sidebar_layout_remove(input),
             "comments.create" => self.comments_create(input),
             "comments.update" => self.comments_update(input),
             "comments.delete" => self.comments_delete(input),
@@ -696,6 +697,10 @@ impl LocalExecutor {
                 }
             }
         }
+        if section == "team" {
+            let targets: Vec<&str> = upserts.iter().filter(|w| text(w, "kind") == Some("item")).filter_map(|w| text(w, "targetId")).collect();
+            self.sidebar_team_targets(&targets)?;
+        }
         for id in &deletes {
             if let Some(row) = mine.iter().find(|row| text(row, "id") == Some(id.as_str())) {
                 if !(is_folder(row) && of_section(row)) {
@@ -728,6 +733,57 @@ impl LocalExecutor {
             self.write_many("sidebar_layout", rows)?;
         }
         let gone: Vec<String> = deletes.into_iter().filter(|id| mine.iter().any(|row| text(row, "id") == Some(id.as_str()) && is_folder(row))).collect();
+        if !gone.is_empty() {
+            self.delete_many("sidebar_layout", &gone)?;
+        }
+        Ok(json!({"txId": self.txid()}))
+    }
+
+    /// #EXP-2027 (sidebar-tree.json, the server's `assertSidebarTargetsInTeam`):
+    /// an item of the `team` list places one of the team's boards, agents
+    /// (role agent, never an Assistant), apps or root sessions the identity
+    /// started or that are shared.
+    fn sidebar_team_targets(&self, targets: &[&str]) -> Result<(), Refusal> {
+        if targets.is_empty() {
+            return Ok(());
+        }
+        let user = self.identity().user_id;
+        let of_team = |row: &Row| text(row, "team_id") == Some(self.team_id.as_str());
+        let mut found: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (table, keep) in [
+            ("boards", &(|_: &Row| true) as &dyn Fn(&Row) -> bool),
+            ("agents", &|row: &Row| text(row, "role") == Some("agent")),
+            ("apps", &|_: &Row| true),
+            ("sessions", &|row: &Row| {
+                row.get("parent_id").is_none_or(Value::is_null)
+                    && (text(row, "user_id") == Some(user.as_str()) || row.get("shared").and_then(Value::as_bool) == Some(true))
+            }),
+        ] {
+            for row in self.rows(table)? {
+                if of_team(&row) && keep(&row) {
+                    if let Some(id) = text(&row, "id").filter(|id| targets.contains(id)) {
+                        found.insert(id.to_string());
+                    }
+                }
+            }
+        }
+        if targets.iter().any(|id| !found.contains(*id)) {
+            return Err(bad("Not a board, agent, app or session of this team"));
+        }
+        Ok(())
+    }
+
+    /// #EXP-2027: `Remove from sidebar`: the identity's `team` item entries
+    /// for the target go (deleting nothing is fine).
+    fn sidebar_layout_remove(&self, input: Row) -> Out {
+        let target = need(&input, "targetId")?;
+        let gone: Vec<String> = self
+            .sidebar_rows()?
+            .iter()
+            .filter(|row| text(row, "section") == Some("team") && text(row, "kind") == Some("item") && text(row, "target_id") == Some(target))
+            .filter_map(|row| text(row, "id"))
+            .map(str::to_string)
+            .collect();
         if !gone.is_empty() {
             self.delete_many("sidebar_layout", &gone)?;
         }

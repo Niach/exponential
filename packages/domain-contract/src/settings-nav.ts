@@ -111,3 +111,45 @@ export function settingsNavGroups(
   }
   return out
 }
+
+// #EXP-2027 (owner 2026-11-20): THE SPLIT on web md+ and the desktop IDE.
+// `desktopNavs` = the personal nav (the gear by the member's name), a team's
+// nav (its row menu › Settings, `issues` keeps its `children` folded) and the
+// This device pages (the device page's, desktop only). `desktopNavCases` lock it.
+export interface SettingsDesktopNavGroup {
+  id: string
+  label: string
+  items: string[]
+}
+
+export interface SettingsDesktopNavs {
+  personal: string[]
+  team: string[]
+  device: string[]
+}
+
+const DESKTOP_NAVS = fixture.nav.desktopNavs as {
+  personal: SettingsDesktopNavGroup[]
+  team: SettingsDesktopNavGroup[]
+  device: string[]
+}
+
+export const SETTINGS_DESKTOP_NAV_GROUPS = {
+  personal: DESKTOP_NAVS.personal,
+  team: DESKTOP_NAVS.team,
+}
+export const SETTINGS_DESKTOP_DEVICE_PAGES = DESKTOP_NAVS.device
+
+/** The visible page ids of each desktop nav for a viewer on a platform. */
+export function settingsDesktopNavs(viewer: {
+  platform: SettingsNavPlatform
+  isOwner: boolean
+  isCloud: boolean
+}): SettingsDesktopNavs {
+  const visible = (id: string) => settingsNavItemVisible(id, viewer.platform, viewer)
+  return {
+    personal: DESKTOP_NAVS.personal.flatMap((g) => g.items).filter(visible),
+    team: DESKTOP_NAVS.team.flatMap((g) => g.items).filter(visible),
+    device: DESKTOP_NAVS.device.filter(visible),
+  }
+}

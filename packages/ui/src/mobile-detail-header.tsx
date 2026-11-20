@@ -19,7 +19,7 @@ import { conceptIcon } from "./icons.generated"
 const UiBackIcon = conceptIcon(`ui-back`)
 
 /** The round ghost control both ends of the header use — no circle stroke, no
- *  fill, the pin toggle's weight (EXP-850 §10). */
+ *  fill (EXP-850 §10). */
 export const HEADER_BUTTON_CLASS = `size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground`
 
 /** The fixed slot each end occupies — the balance that centres the title. */

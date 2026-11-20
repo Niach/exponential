@@ -91,6 +91,9 @@ data class UpdateAgentPatch(
     val skillIds: List<String>? = null,
     /** #EXP-1793: the agent's MCP servers; the WHOLE list is replaced. */
     val mcpServerIds: List<String>? = null,
+    /** #EXP-1988 (`assistant.teamPicks`): a team section's write: [skillIds]
+     *  / [mcpServerIds] are that team's rows and replace ONLY its picks. */
+    val pickTeamId: String? = null,
     /** #EXP-1847: the agent's own voice, a partial write ([AgentVoicePatch]). */
     val voice: AgentVoicePatch? = null,
 )
@@ -137,6 +140,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
         patch.sortOrder?.let { put("sortOrder", it) }
         patch.skillIds?.let { ids -> put("skillIds", JsonArray(ids.map(::JsonPrimitive))) }
         patch.mcpServerIds?.let { ids -> put("mcpServerIds", JsonArray(ids.map(::JsonPrimitive))) }
+        patch.pickTeamId?.let { put("pickTeamId", it) }
         patch.voice?.let { put("voice", it.toJson()) }
     }
 
@@ -232,32 +236,46 @@ class AgentsApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
-     * S-3: the caller's Assistant in [teamId], created on first use on their
-     * newest own desktop (null = no device yet). The composer home, the
-     * chats list and the settings Agents group call it on mount; the row
-     * arrives through the agents shape.
+     * S-3: the caller's Assistant, created on first use on their newest own
+     * desktop (null = no device yet); the row arrives through the agents
+     * shape. #EXP-1987: [teamId] = the current team where the caller has one
+     * (switch off: that team's Assistant; switch on: a membership check only);
+     * null = sent WITHOUT a team (the account's Settings › Assistant, account
+     * deep links): the member's ONE Assistant whatever team it sits in.
      */
-    suspend fun ensureAssistant(accountId: String, teamId: String) {
+    suspend fun ensureAssistant(accountId: String, teamId: String?) {
         trpc.mutationUnit(
             accountId,
             path = "agents.ensureAssistant",
-            input = kotlinx.serialization.json.buildJsonObject { put("teamId", kotlinx.serialization.json.JsonPrimitive(teamId)) },
+            input = kotlinx.serialization.json.buildJsonObject {
+                if (teamId != null) put("teamId", kotlinx.serialization.json.JsonPrimitive(teamId))
+            },
             inputSerializer = JsonObject.serializer(),
         )
     }
 }
 
 /**
- * S-3: `agents.ensureAssistant` once per (account, team) per app run — the
- * composer home, the chats list and the settings Agents group all ask; a
- * failure (no device yet, offline) is retried on the next mount.
+ * S-3: `agents.ensureAssistant` once per (account, team) per app run where a
+ * team is sent (the composer home, the chats list, the team settings), once
+ * per ACCOUNT where none is (#EXP-1987: Settings › Assistant); a failure (no
+ * device yet, offline) is retried on the next mount.
  */
 object AssistantEnsurer {
     private val done: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
+    /** A team-scoped caller: [teamId] null = nothing to ensure yet. */
     suspend fun ensure(api: AgentsApi, accountId: String?, teamId: String?) {
-        if (accountId.isNullOrEmpty() || teamId.isNullOrEmpty()) return
-        val key = "$accountId:$teamId"
+        if (teamId.isNullOrEmpty()) return
+        call(api, accountId, teamId)
+    }
+
+    /** #EXP-1987: no team at all (the account's Assistant page). */
+    suspend fun ensureForAccount(api: AgentsApi, accountId: String?) = call(api, accountId, null)
+
+    private suspend fun call(api: AgentsApi, accountId: String?, teamId: String?) {
+        if (accountId.isNullOrEmpty()) return
+        val key = if (teamId == null) accountId else "$accountId:$teamId"
         if (!done.add(key)) return
         try {
             api.ensureAssistant(accountId, teamId)

@@ -137,6 +137,9 @@ function clampComputerUseModel(value: string | null | undefined): string {
     : contract.deviceComputerUseDefaults.model
 }
 
+/** #EXP-2027: the dialog's frame (phones, the old Devices page) around THE
+ *  body; md+ renders the same body as the device's settings PAGE
+ *  (`/devices/$deviceId/settings`). */
 export function DeviceSettingsDialog({
   device,
   open,
@@ -152,6 +155,65 @@ export function DeviceSettingsDialog({
   latestVersions?: { desktop: string | null; cli: string | null } | null
   /** Refresh the caller's device list after an update request or a remove. */
   onChanged?: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* EXP-686: no description — the machine's name is already the row you
+          opened this from, and repeating it pushed the settings down a line
+          on every client. `aria-describedby={undefined}` keeps Radix from
+          pointing at a description that no longer exists. */}
+      <DialogContent
+        mobile="sheet-full"
+        // EXP-862: height = CONTENT, capped. Losing the account block left a
+        // fixed 46rem sheet half empty; the columns still scroll on their own
+        // once the cap bites.
+        className="gap-4 sm:max-h-[min(90dvh,46rem)] sm:max-w-3xl"
+        aria-describedby={undefined}
+        // EXP-698: Radix autofocuses the first field and SELECTS its text, so
+        // the Name row opened as a white selection block filling the row (and
+        // the phone keyboard shot up over the sheet). The sheet is a list of
+        // settings, not a form to type into — focus stays on the panel until
+        // the field is tapped.
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Device settings</DialogTitle>
+        </DialogHeader>
+        <DeviceSettingsBody
+          device={device}
+          active={open}
+          latestVersions={latestVersions}
+          onChanged={onChanged}
+          // The row is gone — so is the thing this dialog edits.
+          onRemoved={() => onOpenChange(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** The device settings themselves: the dialog's body and the settings
+ *  page. Drafts seed while `active` and flush when it ends (or on unmount). */
+export function DeviceSettingsBody({
+  device,
+  active: open = true,
+  latestVersions,
+  onChanged,
+  onRemoved,
+  className,
+}: {
+  /** The row being edited (must be one of the caller's own machines). */
+  device: SteerDevice | null
+  /** The host is showing it (the dialog is open); a page = always. */
+  active?: boolean
+  /** EXP-420: what the Update section compares the device's version against. */
+  latestVersions?: { desktop: string | null; cli: string | null } | null
+  /** Refresh the caller's device list after an update request or a remove. */
+  onChanged?: () => void
+  /** The device was removed: the host leaves (closes, navigates away). */
+  onRemoved?: () => void
+  /** The scroller's classes (the dialog's default fills its panel). */
+  className?: string
 }) {
   const rowId = device?.rowId
   const deviceId = device?.deviceId
@@ -707,8 +769,7 @@ export function DeviceSettingsDialog({
       await trpc.devices.remove.mutate({ deviceId }, SKIP_ERROR_TOAST)
       setRemoveOpen(false)
       onChanged?.()
-      // The row is gone — so is the thing this dialog edits.
-      onOpenChange(false)
+      onRemoved?.()
     } catch (error) {
       failedAction(`remove`, `the device`, error)
     } finally {
@@ -721,35 +782,14 @@ export function DeviceSettingsDialog({
   const removeCopy = removeDevicePrompt(promptName)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* EXP-686: no description — the machine's name is already the row you
-          opened this from, and repeating it pushed the settings down a line
-          on every client. `aria-describedby={undefined}` keeps Radix from
-          pointing at a description that no longer exists. */}
-      <DialogContent
-        mobile="sheet-full"
-        // EXP-862: height = CONTENT, capped. Losing the account block left a
-        // fixed 46rem sheet half empty; the columns still scroll on their own
-        // once the cap bites.
-        className="gap-4 sm:max-h-[min(90dvh,46rem)] sm:max-w-3xl"
-        aria-describedby={undefined}
-        // EXP-698: Radix autofocuses the first field and SELECTS its text, so
-        // the Name row opened as a white selection block filling the row (and
-        // the phone keyboard shot up over the sheet). The sheet is a list of
-        // settings, not a form to type into — focus stays on the panel until
-        // the field is tapped.
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogTitle>Device settings</DialogTitle>
-        </DialogHeader>
+    <>
         {/* EXP-694: one inset-grouped card stack — the same rows, in the same
             order, as the iOS/Android device sheets. 8px between groups. ONE
             column on every width since EXP-1020 took the worktrees away: the
             landscape split (EXP-798) existed to park them beside the
             settings, and a single column is what the phone sheet and the
             three native clients show. */}
-        <SubShellHost className="min-h-0 flex-1 gap-2 overflow-y-auto">
+        <SubShellHost className={className ?? `min-h-0 flex-1 gap-2 overflow-y-auto`}>
           <div className="flex flex-col gap-2 *:shrink-0">
             {/* ── Name ─────────────────────────────────────────────────── */}
             {/* EXP-924: the identity row every form shares (board, action):
@@ -1071,7 +1111,6 @@ export function DeviceSettingsDialog({
             remove: { busy: deviceBusy, onSelect: () => removeDevice() },
           })}
         />
-      </DialogContent>
-    </Dialog>
+    </>
   )
 }

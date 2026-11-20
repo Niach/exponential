@@ -157,4 +157,18 @@ pub struct ListDragState {
     pub x: f32,
     pub y: f32,
     pub drop: Option<ListDrop>,
+    /// A row from OUTSIDE the List (`Surface::list_drag_external`), else
+    /// None.
+    pub external: Option<ListExternalRow>,
+}
+
+/// A row from outside a reorderable List dragged onto it (web's
+/// `startListDrag` with its own `rows()`): it counts as the LAST row at its
+/// own top and height (depth 0), and only the List's rows named in `keys`
+/// (None = all) take the drop; a List row with the dragged key steps aside.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ListExternalRow {
+    pub top: f32,
+    pub height: f32,
+    pub keys: Option<Vec<String>>,
 }

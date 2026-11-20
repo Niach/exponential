@@ -18,7 +18,7 @@ use gpui_component::ActiveTheme as _;
 
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, navigate, Navigation, Screen};
+use crate::navigation::{screen_team_id, navigate, Navigation, Screen};
 use crate::queries;
 use crate::sidebar::select_settings_section;
 
@@ -166,7 +166,7 @@ impl PromptsPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// The team's prompts, whether the shape is ready, and owner.

@@ -22,7 +22,8 @@
 //! in-process, but only within a bounded flush and through a tunnel that can
 //! answer 5xx; so the event is also written beside the native crashes and
 //! deleted once the tunnel answered 2xx for it, else the next launch sends
-//! it.
+//! it. #ERR-29: the hook is ours ([`install_panic_hook`]) and sends through
+//! the MAIN hub, whatever thread panicked.
 //!
 //! Never a dependency of `crates/eagent` or the Engine runner.
 
@@ -83,6 +84,27 @@ fn crashes_dir(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join("crashes")
 }
 
+/// The person's consent to native crash reports: the "Send diagnostics"
+/// switch, unless `EXP_DIAGNOSTICS=0` opts the process out.
+fn crash_consent(data_dir: &std::path::Path) -> bool {
+    config::load(data_dir).send_diagnostics && !config::env_opt_out()
+}
+
+/// #ERR-29: a helper process of this binary (the speech worker, where the
+/// voice model's native code runs) reports its native crashes like the
+/// binary does: a monitor of its own writes them to the host's
+/// `{data_dir}/crashes` with the binary's release and `component`, and the
+/// host's next client sends them. Nothing without the person's consent.
+pub fn watch_helper_crashes(product: Product, version: &str, data_dir: &std::path::Path, component: &str) {
+    if crash_consent(data_dir) {
+        crash_monitor::install(crash_monitor::Setup {
+            dir: crashes_dir(data_dir),
+            release: format!("{}@{version}", product.release_name()),
+            component: component.to_string(),
+        });
+    }
+}
+
 struct State {
     product: Product,
     version: String,
@@ -102,7 +124,7 @@ static FORWARDING: AtomicBool = AtomicBool::new(false);
 /// events this process kept.
 static PANIC_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static KEPT_PANICS: Mutex<Vec<(sentry::types::Uuid, PathBuf)>> = Mutex::new(Vec::new());
-static SETTLE_HOOK: Once = Once::new();
+static PANIC_HOOK: Once = Once::new();
 /// How long a panicking process waits, after sentry's own flush, for the
 /// tunnel to take its event before leaving it for the next launch.
 const PANIC_DELIVERY_WAIT: Duration = Duration::from_secs(3);
@@ -130,7 +152,7 @@ fn keep_panic(event: &sentry::protocol::Event<'_>) {
     }
 }
 
-/// After sentry's panic hook (capture + its flush): delete each kept event
+/// After the panic hook's capture and flush: delete each kept event
 /// the tunnel took; a panic the tunnel never took stays for the next launch.
 fn settle_kept_panics(wait: Duration) {
     let Ok(mut kept) = KEPT_PANICS.try_lock() else { return };
@@ -148,14 +170,30 @@ fn settle_kept_panics(wait: Duration) {
     });
 }
 
-/// Wrap the panic hook sentry's panic integration installed (when the first
-/// client is built) so the settle step runs after it. Once per process.
-fn install_settle_hook() {
-    SETTLE_HOOK.call_once(|| {
+/// #ERR-29: the panic hook, in place of sentry's panic integration (left
+/// out of every client): sentry's sends through the panicking thread's own
+/// hub, a snapshot of the main hub taken when that thread first touched
+/// sentry, so after a client rebuild (the "Send diagnostics" switch, a new
+/// server config) the panics of every thread that had touched it went to
+/// the closed client, nowhere. This one sends through the main hub (the
+/// live client, the person's id, the newest breadcrumbs) and flushes
+/// (sentry's bound), runs the previous hook (the log file's panic line),
+/// then settles the kept event. Once per process.
+fn install_panic_hook() {
+    PANIC_HOOK.call_once(|| {
         let previous = std::panic::take_hook();
+        let integration = sentry::integrations::panic::PanicIntegration::new();
         std::panic::set_hook(Box::new(move |info| {
+            let hub = sentry::Hub::main();
+            let client = hub.client().filter(|client| sentry_enabled() && client.is_enabled());
+            if let Some(client) = &client {
+                hub.capture_event(integration.event_from_panic_info(info));
+                client.flush(None);
+            }
             previous(info);
-            settle_kept_panics(PANIC_DELIVERY_WAIT);
+            if client.is_some() {
+                settle_kept_panics(PANIC_DELIVERY_WAIT);
+            }
         }));
     });
 }
@@ -184,7 +222,7 @@ pub fn init(setup: Setup) {
     let frame_stats = frame_stats_requested();
     let file = config::load(&setup.data_dir);
     let server = file.last_server.clone();
-    if setup.native_crashes && file.send_diagnostics && !config::env_opt_out() {
+    if setup.native_crashes && crash_consent(&setup.data_dir) {
         crash_monitor::install(crash_monitor::Setup {
             dir: crashes_dir(&setup.data_dir),
             release: format!("{}@{}", setup.product.release_name(), setup.version),
@@ -389,9 +427,10 @@ fn apply(remote: RemoteConfig) {
     options.transport = Some(transport::TunnelTransport::factory(config::tunnel_url(&server), state.http));
     let mut options = sentry::apply_defaults(options);
     options.server_name = None;
+    // #ERR-29: panics are [`install_panic_hook`]'s, through the main hub.
+    options.integrations.retain(|integration| integration.name() != "panic");
     let client = Arc::new(sentry::Client::from(options));
-    // Building the client installed sentry's panic hook (once).
-    install_settle_hook();
+    install_panic_hook();
     hub.bind_client(Some(client));
     SENTRY_ON.store(true, Ordering::Relaxed);
     let crashes = crashes_dir(&state.data_dir);

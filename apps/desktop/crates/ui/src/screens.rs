@@ -40,7 +40,7 @@ use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
-    active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
+    screen_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
     shapes_ready, Navigation, PendingOrigin, Screen, TabOrigin,
 };
 use crate::sidebar::{rail_shared_for_window, ListPanel, RailShared};
@@ -171,9 +171,7 @@ pub(crate) fn build_screen_content(
         Screen::Terminal { .. } => cx.new(|_| NeverUndocked).into(),
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
-        Screen::Devices => cx
-            .new(|cx| crate::devices_view::DevicesView::new(window, cx))
-            .into(),
+        Screen::Device { .. } | Screen::DeviceSettings { .. } | Screen::NewItem { .. } => cx.new(|_| NeverUndocked).into(),
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
@@ -694,7 +692,11 @@ pub struct ScreensPanel {
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
     /// The Devices page (EXP-686 — the user's machines; the same tab-less
     /// full-page mode).
-    devices: Entity<crate::devices_view::DevicesView>,
+    /// #EXP-2027: a device's page, its settings page, a creation page (one
+    /// view each, re-pointed on entry).
+    device_page: Entity<crate::device_page::DevicePageView>,
+    device_settings_page: Entity<crate::device_page::DeviceSettingsPage>,
+    new_item: Entity<crate::new_item_page::NewItemPage>,
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
     drafts: Entity<crate::drafts_view::DraftsView>,
@@ -988,7 +990,9 @@ impl ScreensPanel {
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
-        let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
+        let device_page = cx.new(|cx| crate::device_page::DevicePageView::new(window, cx));
+        let device_settings_page = cx.new(|cx| crate::device_page::DeviceSettingsPage::new(window, cx));
+        let new_item = cx.new(|cx| crate::new_item_page::NewItemPage::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let needs_you = cx.new(|cx| crate::needs_you::NeedsYouView::new(window, cx));
         let issue_draft =
@@ -1077,7 +1081,9 @@ impl ScreensPanel {
             settings,
             source_control,
             file_viewer,
-            devices,
+            device_page,
+            device_settings_page,
+            new_item,
             drafts,
             needs_you,
             issue_draft,
@@ -1230,7 +1236,7 @@ impl ScreensPanel {
         // never set it) — consumed HERE, unconditionally, so a marker left by
         // a navigation that never reached its tab can't survive to the next.
         let mut pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
-        // EXP-1250: the window's CHOSEN team — `active_team_id`'s fallback
+        // EXP-1250: the window's CHOSEN team — `screen_team_id`'s fallback
         // (its row still syncing) never counts as a switch.
         let team = crate::navigation::tabs_team_id(&self.nav, cx);
         if team != self.tabs_team {
@@ -1404,7 +1410,9 @@ impl ScreensPanel {
             Screen::BoardIssues { .. }
                 | Screen::Files
             | Screen::SourceControl
-            | Screen::Devices
+            | Screen::Device { .. }
+            | Screen::DeviceSettings { .. }
+            | Screen::NewItem { .. }
             | Screen::Drafts
             | Screen::NeedsYou
             | Screen::IssueDraft { .. }
@@ -2190,7 +2198,7 @@ impl ScreensPanel {
                     .into_any_element();
             }
         }
-        let active_team = active_team_id(&self.nav, cx);
+        let active_team = screen_team_id(&self.nav, cx);
         // EXP-470: a just-created/joined team exists only as an optimistic
         // seed until the Electric echo confirms it — its real boards (join)
         // haven't synced yet, so "No boards yet" would be a wrong empty
@@ -2495,11 +2503,11 @@ impl ScreensPanel {
                 if !signed_in {
                     return None;
                 }
-                active_team_id(&self.nav, cx)?;
+                screen_team_id(&self.nav, cx)?;
                 DevDialogTarget::Search
             }
             DevDialog::CreateBoard => DevDialogTarget::CreateBoard {
-                team_id: active_team_id(&self.nav, cx)?,
+                team_id: screen_team_id(&self.nav, cx)?,
             },
             DevDialog::CreateTeam => {
                 if !signed_in {
@@ -2539,7 +2547,7 @@ impl ScreensPanel {
                 if !signed_in {
                     return None;
                 }
-                active_team_id(&self.nav, cx)?;
+                screen_team_id(&self.nav, cx)?;
                 DevDialogTarget::GettingStarted
             }
             DevDialog::AppExport(slug) => {
@@ -2547,7 +2555,7 @@ impl ScreensPanel {
                 if !store.collections().app_records.read(cx).is_ready() {
                     return None;
                 }
-                let team_id = active_team_id(&self.nav, cx);
+                let team_id = screen_team_id(&self.nav, cx);
                 let entry = crate::apps_view::find_app(slug, team_id.as_deref(), cx)?;
                 DevDialogTarget::AppExport { app_id: entry.id }
             }
@@ -2562,7 +2570,7 @@ impl ScreensPanel {
                     return None;
                 }
                 DevDialogTarget::AppImport {
-                    team_id: active_team_id(&self.nav, cx)?,
+                    team_id: screen_team_id(&self.nav, cx)?,
                 }
             }
             DevDialog::Run(issue_ids) => {
@@ -2695,7 +2703,21 @@ impl Render for ScreensPanel {
             Some(Screen::BoardIssues { .. }) => self.list.clone().into_any_element(),
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
-            Some(Screen::Devices) => self.devices.clone().into_any_element(),
+            Some(Screen::Device { device_id }) => {
+                let id = device_id.clone();
+                self.device_page.update(cx, |page, cx| page.set_device(id, window, cx));
+                self.device_page.clone().into_any_element()
+            }
+            Some(Screen::DeviceSettings { device_id }) => {
+                let id = device_id.clone();
+                self.device_settings_page.update(cx, |page, cx| page.set_device(id, window, cx));
+                self.device_settings_page.clone().into_any_element()
+            }
+            Some(Screen::NewItem { team_id, kind }) => {
+                let (team, kind) = (team_id.clone(), *kind);
+                self.new_item.update(cx, |page, cx| page.set_target(team, kind, window, cx));
+                self.new_item.clone().into_any_element()
+            }
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::NeedsYou) => self.needs_you.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),

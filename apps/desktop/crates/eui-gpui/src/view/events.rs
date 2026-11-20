@@ -1548,6 +1548,30 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// #EXP-2027: a row from OUTSIDE the surface dragged onto the
+    /// reorderable List `list` (window coordinates: `row` = the outside
+    /// row's bounds, `position` = the pointer). `start` begins it (`keys` =
+    /// the List rows that take the drop, None = all), `move` updates the
+    /// drop the List draws, `end` fires the List's `move` {id: `key`, ...}
+    /// when it has a slot, `cancel` drops it. Returns whether a drag is live.
+    pub fn list_drag_external(&mut self, list: &str, key: &str, row: gpui::Bounds<Pixels>, keys: Option<Vec<String>>, phase: ListExternalPhase, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        use eui_core::surface::ListDragInput;
+        let Some(index) = self.cache.index_of(list) else { return false };
+        let (sx, sy) = self.scroll_above(index);
+        let (x, y) = (f32::from(position.x - self.origin.x) + sx, f32::from(position.y - self.origin.y) + sy);
+        let input = match phase {
+            ListExternalPhase::Start => ListDragInput::Start { x, y },
+            ListExternalPhase::Move => ListDragInput::Move { x, y },
+            ListExternalPhase::End => ListDragInput::End { x, y },
+            ListExternalPhase::Cancel => ListDragInput::Cancel,
+        };
+        let frame = eui_core::surface::Frame { x: f32::from(row.origin.x - self.origin.x) + sx, y: f32::from(row.origin.y - self.origin.y) + sy, w: f32::from(row.size.width), h: f32::from(row.size.height) };
+        let events = self.surface.list_drag_external(list, key, frame, keys, &input);
+        self.dispatch(events, None, cx);
+        cx.notify();
+        self.surface.list_dragging()
+    }
+
     /// EXP-1832: Esc while a List drag is live drops it (nothing fires);
     /// true when one was live.
     pub fn list_drag_cancel(&mut self, cx: &mut Context<Self>) -> bool {
@@ -1935,4 +1959,14 @@ mod tests {
         assert_eq!(mime_of(std::path::Path::new("notes.md")), "text/plain");
         assert_eq!(mime_of(std::path::Path::new("blob")), "application/octet-stream");
     }
+}
+
+/// #EXP-2027: the phase of an outside row's drag onto a List
+/// ([`SurfaceView::list_drag_external`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListExternalPhase {
+    Start,
+    Move,
+    End,
+    Cancel,
 }

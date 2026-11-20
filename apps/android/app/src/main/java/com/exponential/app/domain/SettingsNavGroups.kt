@@ -10,7 +10,8 @@ package com.exponential.app.domain
 object SettingsNavGroups {
     const val PLATFORM = "android"
 
-    const val ASSISTANT = "@assistant"
+    /** #EXP-1987: the Assistant is an ACCOUNT page (Personal, after Account). */
+    const val ASSISTANT = "assistant"
     const val AGENTS = "@agents"
     const val NEW_AGENT = "@new-agent"
     const val BOARDS = "@boards"
@@ -25,10 +26,10 @@ object SettingsNavGroups {
     val GROUPS: List<Group> = listOf(
         Group("team", "Team", items = listOf("general", "members", "issues", "repositories", "prompts", "widget", "storage", "billing", "import")),
         Group("boards", "Boards", items = listOf(BOARDS, NEW_BOARD, "all-boards")),
-        Group("agents", "Agents", items = listOf(ASSISTANT, AGENTS, NEW_AGENT, "mcp", "skills")),
+        Group("agents", "Agents", items = listOf(AGENTS, NEW_AGENT, "mcp", "skills")),
         Group("apps", "Apps", items = listOf(APPS, NEW_APP)),
         Group("device", "This device", platforms = listOf("desktop"), items = listOf("tools", "coding-clis", "worktrees", "sessions")),
-        Group("personal", "Personal", items = listOf("account", "notifications", "security", "about")),
+        Group("personal", "Personal", items = listOf("account", ASSISTANT, "notifications", "security", "about")),
     )
 
     val CHILDREN: Map<String, List<String>> = mapOf("issues" to listOf("labels", "statuses"))
@@ -42,6 +43,7 @@ object SettingsNavGroups {
         "worktrees" to Page("Worktrees", "settings-local-repos", "all", listOf("desktop")),
         "sessions" to Page("Sessions", "settings-sessions", "all", listOf("desktop")),
         "account" to Page("Account", "settings-account", "all"),
+        ASSISTANT to Page("Assistant", "settings-agents", "all"),
         "notifications" to Page("Notifications", "settings-notifications", "all"),
         "security" to Page("Security", "settings-api", "all"),
         "about" to Page("About", "settings-about", "all", listOf("desktop", "ios", "android")),

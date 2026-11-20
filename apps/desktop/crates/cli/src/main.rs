@@ -196,6 +196,11 @@ fn main() -> ExitCode {
     // #EXP-1858: the speech worker of a server's calls (`__speech-worker`,
     // one child of the daemon, killable by it): the IDE's, headless.
     if etalk::requested() {
+        // #ERR-29: its native crashes reach the daemon's next report
+        // (the panics reach the daemon on its stdout, etalk-engine).
+        if let Some(data_dir) = etalk::data_dir_arg() {
+            observability::watch_helper_crashes(observability::Product::Cli, cli_version(), &data_dir, "speech-worker");
+        }
         etalk_engine::run_and_exit();
     }
     // The CLI is its own 426-gated platform: every request must say

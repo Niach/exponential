@@ -4,7 +4,7 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // #FEED-219 (fixture `composer-draft.json`): the caller's composer drafts —
 // the text every comment, reply, session, agent, app and New chat composer
-// keeps per target. Like `issue-drafts` and `pins`, the where clause is the
+// keeps per target. Like `issue-drafts`, the where clause is the
 // fully STATIC `user_id = me`: never anonymous, never team- or
 // trash-scoped (a composer only reads the row of the target it shows).
 /** The synced columns. Checked against the schema by

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import type { Issue } from "@/db/schema"
 
@@ -7,6 +7,8 @@ import type { Issue } from "@/db/schema"
 // behaviour (autoscroll, open-in-new-tab) never fires. EVERY tab takes it.
 
 const updateWorkTabs = vi.hoisted(() => vi.fn())
+const navigate = vi.hoisted(() => vi.fn())
+const T = { teamId: `t1`, teamSlug: `acme` }
 const openNewRunPage = vi.hoisted(() => vi.fn())
 const pathname = vi.hoisted(() => ({ value: `/t/acme/inbox` }))
 const tabs = vi.hoisted(() => ({
@@ -15,7 +17,7 @@ const tabs = vi.hoisted(() => ({
 const issues = vi.hoisted(() => ({ value: [] as unknown[] }))
 
 vi.mock(`@tanstack/react-router`, () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
   useRouterState: () => pathname.value,
 }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
@@ -68,9 +70,11 @@ function auxClick(node: Element, button: number) {
 function renderStrip() {
   return render(
     <WorkTabsStrip
-      teamId="t1"
-      teamSlug="acme"
-      boards={[{ id: `b1`, slug: `web` }] as never}
+      teams={[
+        { id: `t1`, slug: `acme` },
+        { id: `t2`, slug: `beta` },
+      ]}
+      boards={[{ id: `b1`, slug: `web`, teamId: `t1` }] as never}
     />
   )
 }
@@ -84,7 +88,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 
   it(`closes the tab on a middle click, and swallows the browser's own`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i1`, from: null },
+      { kind: `issue`, issueId: `i1`, from: null, ...T },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i1`)
@@ -95,12 +99,12 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 
     auxClick(tab, 1)
     expect(updateWorkTabs).toHaveBeenCalledTimes(1)
-    expect(updateWorkTabs.mock.calls[0]![0]).toBe(`t1`)
+    expect(typeof updateWorkTabs.mock.calls[0]![0]).toBe(`function`)
   })
 
   it(`leaves a left click and a right click alone`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i1`, from: null },
+      { kind: `issue`, issueId: `i1`, from: null, ...T },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i1`)
@@ -117,7 +121,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
         rows: [{ sessionId: `t1`, teamId: `t1`, title: `Reduce cold start`, private: false, busy: true, needsYou: false, activityAt: `` }],
       },
     ]
-    tabs.value = [{ kind: `chat`, chatId: `t1`, from: null }]
+    tabs.value = [{ kind: `chat`, chatId: `t1`, from: null, ...T }]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-chat:t1`)
     expect(screen.getAllByLabelText(`Close tab`).length).toBeGreaterThan(0)
@@ -130,7 +134,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 // keyboard focus shows it), a "+" after the last tab opens the New run tab,
 // and the New run chip is the Agent page's tab.
 describe(`WorkTabsStrip New run (EXP-1255)`, () => {
-  const issueTab = { kind: `issue`, issueId: `i1`, from: null }
+  const issueTab = { kind: `issue`, issueId: `i1`, from: null, ...T }
 
   beforeEach(() => {
     updateWorkTabs.mockClear()
@@ -160,12 +164,12 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
     expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(plus.nextElementSibling).toBeNull()
     fireEvent.click(plus)
-    expect(openNewRunPage).toHaveBeenCalledWith(`t1`, `acme`, expect.anything())
+    expect(openNewRunPage).toHaveBeenCalledWith(navigate)
   })
 
-  it(`draws the New run chip, active on the Agent page`, () => {
+  it(`draws the New run chip, active on Home`, () => {
     tabs.value = [issueTab, { kind: `new`, from: null }]
-    pathname.value = `/t/acme/agent`
+    pathname.value = `/home`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-new`)
     expect(chip.textContent).toContain(`New session`)
@@ -192,7 +196,7 @@ describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
   })
 
   it(`titles a chat chip and marks it as needing you`, () => {
-    tabs.value = [{ kind: `chat`, chatId: `th1`, from: null }]
+    tabs.value = [{ kind: `chat`, chatId: `th1`, from: null, ...T }]
     pathname.value = `/t/acme/sessions/th1`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-chat:th1`)
@@ -204,7 +208,7 @@ describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
   })
 
   it(`names an agent chip, active on its channel`, () => {
-    tabs.value = [{ kind: `agent`, agentId: `ag1`, from: null }]
+    tabs.value = [{ kind: `agent`, agentId: `ag1`, from: null, ...T }]
     pathname.value = `/t/acme/agents/ag1`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-agent:ag1`)
@@ -223,7 +227,7 @@ describe(`WorkTabsStrip unloaded subject (D8)`, () => {
 
   it(`keeps the tab and draws the placeholder bar instead of text`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i9`, from: null },
+      { kind: `issue`, issueId: `i9`, from: null, ...T },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i9`)
@@ -231,5 +235,51 @@ describe(`WorkTabsStrip unloaded subject (D8)`, () => {
       tab.querySelector(`[data-testid=work-tab-title-placeholder]`)
     ).not.toBeNull()
     expect(screen.queryByText(`Loading…`)).toBeNull()
+  })
+})
+
+// #EXP-2027: one strip across every member team; a tab links into its own
+// entity's team, whatever page is open.
+describe(`WorkTabsStrip across teams (#EXP-2027)`, () => {
+  beforeEach(() => {
+    navigate.mockClear()
+    issues.value = [issue]
+    chatGroups.value = []
+    pathname.value = `/home`
+  })
+
+  it(`draws every team's tabs and opens each in its own team`, () => {
+    chatGroups.value = [
+      {
+        key: `recent`,
+        title: `Recent`,
+        rows: [{ sessionId: `c2`, teamId: `t2`, title: `Beta chat`, private: false, busy: false, needsYou: false, activityAt: `` }],
+      },
+    ]
+    tabs.value = [
+      { kind: `issue`, issueId: `i1`, from: null, ...T },
+      { kind: `chat`, chatId: `c2`, from: null, teamId: `t2`, teamSlug: `old-beta` },
+    ]
+    renderStrip()
+    fireEvent.click(within(screen.getByTestId(`work-tab-chat:c2`)).getByText(`Beta chat`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `beta`, sessionId: `c2` },
+      search: {},
+    })
+    navigate.mockClear()
+    fireEvent.click(within(screen.getByTestId(`work-tab-issue:i1`)).getByText(`Fix the sync loop`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug: `acme`, boardSlug: `web`, issueIdentifier: `EXP-1` },
+      search: {},
+    })
+  })
+
+  it(`marks an issue active only under its own team's route`, () => {
+    tabs.value = [{ kind: `issue`, issueId: `i1`, from: null, ...T }]
+    pathname.value = `/t/beta/boards/web/issues/EXP-1`
+    renderStrip()
+    expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
   })
 })

@@ -262,8 +262,10 @@ class AppViewModel @Inject constructor(
             db.issueDao().observeAll(),
             db.boardDao().observeAll(),
             teamSelection.selectedId,
-        ) { notifications, issues, boards, teamId ->
-            activeTeamUnread(notifications, issues, boards, teamId)
+            // #EXP-1987: the synced teams (the personal team's rows count everywhere).
+            db.teamDao().observeAll(),
+        ) { notifications, issues, boards, teamId, teams ->
+            activeTeamUnread(notifications, issues, boards, teamId, teams.map { it.id })
         }
     }.distinctUntilChanged()
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, 0)
@@ -403,6 +405,13 @@ class AppViewModel @Inject constructor(
     suspend fun planTeamSwitch(accountId: String?, teamId: String?): TeamSwitch? {
         val account = accountId ?: auth.activeAccountId.value ?: return null
         if (teamId == null) return null
+        // #EXP-1987: a team none of the synced teams rows name (the member's
+        // hidden personal team, where the Assistant and its chat live after
+        // the move) is never selected: the link opens in the current team.
+        val synced = runCatching {
+            databaseHolder.database(forAccountId = account).teamDao().observeAll().first().map { it.id }
+        }.getOrDefault(emptyList())
+        if (synced.isNotEmpty() && teamId !in synced) return null
         return teamSelection.planTeamSwitch(databaseHolder, account, teamId)
     }
 

@@ -46,7 +46,7 @@ use crate::github_connect::{
     copy as gh_copy, fetch_github_repos, GithubRepo, GithubReposResult, Prerequisite,
 };
 use crate::native_dialog::{self, DialogContent, DialogSpec};
-use crate::navigation::{active_team_id, nav_for_window};
+use crate::navigation::{screen_team_id, nav_for_window};
 use crate::queries;
 use crate::settings::open_url;
 use crate::icons::registry;
@@ -139,7 +139,7 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &NewBoard, cx| {
         crate::navigation::on_active_window(cx, |window, cx| {
             let nav = nav_for_window(window, cx);
-            let Some(team_id) = active_team_id(&nav, cx) else {
+            let Some(team_id) = screen_team_id(&nav, cx) else {
                 return;
             };
             open(window, cx, team_id);

@@ -4,14 +4,14 @@ import { db } from "@/db/connection"
 import { sessions } from "@/db/schema"
 import { isSessionPrincipal } from "@/lib/sessions/host"
 import { resolveMcpAccessClampedToTeams, type McpAccess } from "@/lib/emcp/scope"
-import { treeTeams } from "@/lib/sessions/tree-teams"
+import { treeReach } from "@/lib/sessions/tree-teams"
 
 // #EXP-1383: the session a request SPEAKS FOR (the launcher's
 // X-Exp-Session-Id), verified to be the caller's own (its starter, or the
 // host of its device: lib/sessions/host.ts `isSessionPrincipal`). Its ROOT's
 // `agent_id` is the ACTING AGENT: writes made through it are stamped with
-// that agent (agent-settings.json `actor`) and the request is confined to
-// the session's team (/api/mcp, `sessions.send`). A foreign or vanished id
+// that agent (agent-settings.json `actor`). #EXP-2027: every such request
+// is confined to the session's tree's teams (/api/mcp, `sessions.send`). A foreign or vanished id
 // resolves to null: the header is an identifier, never a credential.
 // Resolved ONCE per request (a WeakMap on the Request object): every tool
 // call and every tRPC procedure it drives reads the same answer.
@@ -85,10 +85,11 @@ export function actingSessionForRequest(
 }
 
 /** /api/mcp (defense in depth behind the team agent's scoped key): a
- *  request speaking for an AGENT-tree session of the caller's is confined to
- *  its tree's teams (#EXP-1720: a team agent's = its team; the Assistant's =
- *  its scope, lib/sessions/tree-teams.ts), whatever credential carried it;
- *  any other request keeps its access. */
+ *  request speaking for a session of the caller's is confined to its tree's
+ *  teams (#EXP-1720: a team agent's = its team; the Assistant's = its
+ *  scope; #EXP-2027: a plain chat's = its team + its Teams pick,
+ *  lib/sessions/tree-teams.ts), whatever credential carried it; a request
+ *  speaking for no session keeps its access. */
 export async function confineMcpAccessToActingSession(
   access: McpAccess,
   request: Request,
@@ -96,6 +97,7 @@ export async function confineMcpAccessToActingSession(
   sessionId: string | null
 ): Promise<McpAccess> {
   const acting = await actingSessionForRequest(request, userId, sessionId)
-  if (!acting?.rootAgentId) return access
-  return resolveMcpAccessClampedToTeams(access, await treeTeams(acting.rootId))
+  if (!acting) return access
+  const reach = await treeReach(acting.rootId)
+  return resolveMcpAccessClampedToTeams(access, reach?.teams ?? [], reach?.kind === `agent` ? `agent` : `session`)
 }

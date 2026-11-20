@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.14.170"
+version = "0.14.171"
 dependencies = [
  "crash-handler",
  "futures-executor",
@@ -891,11 +891,12 @@ dependencies = [
 
 [[package]]
 name = "ede-compositor"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "bitflags 2.13.2",
  "ede-observability",
  "ede-protocol",
+ "ede-space-guard",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -916,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ctl"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-compositor",
  "ede-protocol",
@@ -927,9 +928,10 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "crash-monitor",
+ "log",
  "reqwest",
  "rustls",
  "sentry",
@@ -937,15 +939,17 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "ede-portal"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "blocking",
  "ede-compositor",
+ "ede-observability",
  "ede-protocol",
  "futures-util",
  "pipewire",
@@ -966,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.170"
+version = "0.14.171"
 dependencies = [
  "ecore",
  "serde",
@@ -975,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -991,19 +995,28 @@ dependencies = [
 
 [[package]]
 name = "ede-session"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "ede-observability",
  "ede-theme",
  "libc",
+ "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
+name = "ede-space-guard"
+version = "0.2.30"
+dependencies = [
+ "ede-protocol",
+ "libc",
+]
+
+[[package]]
 name = "ede-theme"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -1012,14 +1025,16 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
+ "ede-observability",
  "eui-core",
  "libc",
  "notify",
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -4004,7 +4019,7 @@ dependencies = [
 [[package]]
 name = "smithay"
 version = "0.7.0"
-source = "git+https://github.com/Niach/smithay?rev=bacaea68caf8fe24b223ceda7ca67b6ea6ec9838#bacaea68caf8fe24b223ceda7ca67b6ea6ec9838"
+source = "git+https://github.com/Niach/smithay?rev=095290f8ecec2f9056de0a5a1928610c6d581dae#095290f8ecec2f9056de0a5a1928610c6d581dae"
 dependencies = [
  "aliasable",
  "appendlist",

@@ -2,7 +2,7 @@ use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     reexports::wayland_server::{
         protocol::{wl_buffer, wl_surface::WlSurface},
-        Client,
+        Client, Resource,
     },
     wayland::{
         buffer::BufferHandler,
@@ -33,6 +33,11 @@ impl CompositorHandler for Ede {
     fn new_surface(&mut self, surface: &WlSurface) {
         super::dmabuf::install_blockers(surface);
         crate::spaces::tag_surface(self, surface);
+        // #EDE-162: a space's Wayland apps present at most once per tick.
+        let space_client = self.display_handle.get_client(surface.id()).ok().and_then(|c| c.get_data::<ClientState>().map(|d| d.desk != crate::desk::DeskId::PERSON));
+        if space_client == Some(true) {
+            crate::spaces::frames::pace::install(surface);
+        }
     }
 
     fn commit(&mut self, surface: &WlSurface) {

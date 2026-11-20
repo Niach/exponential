@@ -1461,17 +1461,13 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v33 (EXP-778 pins): the synced `pins` table — the 21st shape, static
-        // per user (`user_id = me`), NOT team-scoped: every team's pins land
-        // here and the reader filters on `team_id` + resolves the target
-        // locally. A brand-new shape has no offset row, so no reset (the v20
-        // precedent).
+        // v33: a per-user table (retired in v113). A brand-new shape has no
+        // offset row, so no reset (the v20 precedent).
         migrator.registerMigration("v33_pins") { db in
             try db.create(table: "pins", ifNotExists: true) { t in
                 t.primaryKey("id", .text)
                 t.column("user_id", .text).notNull()
                 t.column("team_id", .text).notNull()
-                // issue | session | action (contract pinKind).
                 t.column("kind", .text).notNull()
                 // Exactly one of the three is set.
                 t.column("issue_id", .text)
@@ -1599,7 +1595,7 @@ public final class DatabaseManager: @unchecked Sendable {
         }
 
         // v39 (EXP-878): issue drafts — a composed-but-unfiled issue, per USER
-        // (the 22nd shape, static `user_id = me` like `pins`). A brand-new
+        // (the 22nd shape, static `user_id = me`). A brand-new
         // table, so no shape offset is reset. `label_ids` holds the Postgres
         // uuid[] the same way `devices.shared_team_ids` does (the wire literal
         // on a partial, GRDB's JSON on a full row) — both parse back.
@@ -2722,8 +2718,8 @@ public final class DatabaseManager: @unchecked Sendable {
 
         // v78 (NEW-8): actions and the legacy session columns leave the
         // client. The `actions` table drops with its cursor (the shape is no
-        // longer subscribed); `pins` loses `action_id` and its `action` rows
-        // (an action pin is ignored); `sessions` drops the columns the server
+        // longer subscribed); the v33 table loses `action_id` and its `action`
+        // rows; `sessions` drops the columns the server
         // drops in NEW-8 step 4 (kind, dispatch, the move/handoff, caption and
         // aside, the action, the agent mirrors), and `session_issues` drops
         // `assigned_session_id`. Indexes covering a dropped column go first;
@@ -3456,6 +3452,16 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v113 (#EXP-2027): the v33 table drops with its cursor (the shape is
+        // no longer subscribed); guarded so fresh installs and re-runs
+        // converge.
+        migrator.registerMigration("v113_drop_pins") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS \"pins\"")
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: "DELETE FROM \"electric_offsets\" WHERE \"shape\" = 'pins'")
+            }
+        }
+
         return migrator
     }
 
@@ -3865,8 +3871,6 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
-            // EXP-778: pins point at issues/sessions — first.
-            try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
             // #FEED-219: the composers' drafts.

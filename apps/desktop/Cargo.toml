@@ -11,7 +11,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.14.170"
+version = "0.14.171"
 # The whole repo is Apache-2.0 (EXP-352; verbatim text in the repo-root LICENSE).
 # Every crate inherits this via `license.workspace = true`, except the vendored
 # gpui-markdown-editor which pins its own explicit Apache-2.0.
@@ -215,7 +215,7 @@ strip = true
 
 # #VAPP-266: the desktop runner's release assets (release-eengine.yml):
 # symbols stripped, thin LTO; `log`'s release_max_level_off (the runner's
-# Cargo.toml) compiles every log macro out.
+# `runner` feature, #ERR-32) compiles every log macro out.
 [profile.runner]
 inherits = "release"
 lto = "thin"

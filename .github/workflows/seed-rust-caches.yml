@@ -1,0 +1,197 @@
+name: seed-rust-caches
+
+# CI review P1 (2026-11-20): hosted rust-cache restores hit 0 of 81. test.yml
+# never runs on master, every PR and train ref saved an entry no other ref
+# can read, and the 10 GB Actions cache evicted each one within the hour, so
+# a hosted fallback built from scratch (desktop ~15 min, against ~3 on the
+# Mint). Now every rust-cache in test.yml saves on master only, and this
+# writes those master entries for the hosted Linux families, BUILD only
+# (no test runs, so a flaky test never costs the seed), with exactly what the
+# test.yml jobs sharing the key compile.
+#
+# The match is load-bearing: rust-cache keys on `shared-key` (else the job
+# id), the runner OS, rustc and the CARGO*/RUST*/CC* env (none is set here or
+# there before the cache step), and the GitHub cache version on the cached
+# paths (`workspaces`). A job here keeps its test.yml twin's key, `runs-on`
+# image, system deps, `workspaces` and cargo commands (features, `-p` sets).
+# Three entries serve two jobs each (`shared-key`): desktop + ede-shell,
+# ede + ede-goldens-lite, android + runner-android. desktop-scope (~1.5 min
+# cold) is not seeded: the ~8 GB budget goes where the minutes are.
+#
+# It runs when the Cargo inputs change on master: rust-cache drops the
+# workspaces' own crates, so only dependencies (Cargo.lock, Cargo.toml,
+# the toolchain) change the entry. A PR whose Cargo inputs differ restores
+# the newest master entry by prefix and rebuilds only what moved.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/desktop/Cargo.lock
+      - apps/desktop/**/Cargo.toml
+      - apps/desktop/rust-toolchain.toml
+      - apps/desktop/.cargo/config.toml
+      - apps/ede/Cargo.lock
+      - apps/ede/**/Cargo.toml
+      - apps/ede/rust-toolchain.toml
+      - .github/workflows/seed-rust-caches.yml
+      - .github/actions/cargo-fetch/action.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-rust-caches
+  cancel-in-progress: true
+
+jobs:
+  # test.yml `desktop`: cargo check of the workspace + the nextest set + the
+  # vendored gpui-pre-linux tests.
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (wgpu/gpui)
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/desktop
+          shared-key: desktop
+      - uses: ./.github/actions/cargo-fetch
+      - name: Cargo check
+        working-directory: apps/desktop
+        run: cargo check --workspace --locked
+      # test.yml `ede-shell` restores this entry too (its own feature set).
+      - name: Cargo check (ede-shell's graph)
+        working-directory: apps/desktop
+        run: cargo check -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --all-targets --locked
+      - name: Build ede-shell's tests
+        working-directory: apps/desktop
+        run: cargo test --no-run -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --locked
+      # nextest builds through `cargo test --no-run` with these flags.
+      - name: Build the eCore, Engine, coding and UI tests
+        working-directory: apps/desktop
+        run: >-
+          cargo test --no-run --locked
+          -p ecore -p ecode-core -p ecode -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli -p git-remote-exp -p eui-shot -p updater
+          -p epilot -p epilot-screen -p emcp -p enet-core -p exponential-net-ffi -p steer -p etalk
+          --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
+      - name: Build the vendored gpui-pre-linux patch tests
+        working-directory: apps/desktop
+        run: cargo test --no-run --locked -p gpui-pre-linux --lib
+
+  # test.yml `ede`: the compositor workspace's tests and checks, and epilot's
+  # lib tests in the desktop workspace.
+  ede:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      # The ede job's set plus ede-goldens-lite's (the lock client links
+      # fontconfig and xcb).
+      - name: Linux system deps (smithay + wgpu/gpui)
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev xwayland libegl1 \
+            libpipewire-0.3-dev libclang-dev pipewire wireplumber dbus \
+            libxcb1-dev libssl-dev libfontconfig1-dev clang
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: |
+            apps/ede
+            apps/desktop
+          shared-key: ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - name: Build the workspace's tests
+        working-directory: apps/ede
+        run: cargo test --workspace --no-run --locked
+      - name: Cargo check (udev backend)
+        working-directory: apps/ede
+        run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
+      - name: Cargo check (no default features)
+        working-directory: apps/ede
+        run: cargo check --locked -p ede-compositor --no-default-features
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
+      - name: Build epilot's lib tests
+        working-directory: apps/desktop
+        run: cargo test --no-run --locked -p epilot --lib
+      # test.yml `ede-goldens-lite` restores this entry too: the lock client.
+      - name: Build the lock client (exponential-sealed)
+        working-directory: apps/desktop
+        run: cargo build --locked -p ede-shell --bin exponential-sealed
+
+  # test.yml `ede-scope` (always hosted, pinned image).
+  ede-scope:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (smithay)
+        run: sudo apt-get install -y libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config dbus dbus-user-session
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - name: Build the space slice test
+        working-directory: apps/ede
+        run: cargo test --no-run --locked -p ede-compositor --test space_slice_real
+
+  # test.yml `android` and `runner-android` (one entry): the facades' host
+  # release builds the JVM tests load, and the bundle test's build.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          workspaces: apps/desktop
+          shared-key: android
+      - uses: ./.github/actions/cargo-fetch
+      - name: Build the eNet, Engine and chat store facades
+        working-directory: apps/desktop
+        run: |
+          cargo build -p exponential-net-ffi --release --features cli --locked
+          cargo build -p eengine-ffi --release --features cli --locked
+          cargo build -p chat-store-ffi --release --locked
+      - name: Build the Android bundle test
+        working-directory: apps/desktop
+        run: cargo test --no-run --locked -p eengine-bundle --test android
+
+  # rust-cache never deletes the entry a new one replaces: keep the newest
+  # master entry per family, so the replaced ones don't crowd the 10 GB.
+  prune:
+    needs: [desktop, ede, ede-scope, android]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the replaced master entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for job in desktop ede ede-scope android; do
+            gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "v0-rust-$job-Linux-" --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
+              | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
+          done

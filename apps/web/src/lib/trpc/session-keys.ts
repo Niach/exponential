@@ -16,9 +16,10 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { deviceCommands, devices, installs, sessionKeys, sessions, teamMembers, type Session } from "@/db/schema"
+import { deviceCommands, devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
+import { teamMemberPairs } from "@/lib/auth/membership"
 import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
@@ -180,12 +181,10 @@ export async function requestTreeKey(
   rootId: string
 ): Promise<RequestKeyResult & { queued: number }> {
   const root = await loadRoot(database, rootId)
-  const member = (
-    await database
-      .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.teamId, root.teamId), eq(teamMembers.userId, userId)))
-  ).some((row) => row.teamId === root.teamId && row.userId === userId)
+  // #EXP-1984: a personal team's owner is its member (teamMemberPairs).
+  const member = (await teamMemberPairs(database, [root.teamId], [userId])).some(
+    (row) => row.teamId === root.teamId && row.userId === userId
+  )
   const tree = (
     await database
       .select({ id: sessions.id, rootId: sessions.rootId, deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
@@ -410,13 +409,9 @@ export const sessionKeysRouter = router({
         (row) => input.rootIds.includes(row.id) && row.parentId === null && row.sealPublicKey && row.sealEpoch !== null
       )
       if (rows.length === 0) return []
+      // #EXP-1984: the root teams the caller belongs to, their personal team included.
       const teams = new Set(
-        (
-          await ctx.db
-            .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
-            .from(teamMembers)
-            .where(eq(teamMembers.userId, userId))
-        )
+        (await teamMemberPairs(ctx.db, [...new Set(rows.map((row) => row.teamId))], [userId]))
           .filter((row) => row.userId === userId)
           .map((row) => row.teamId)
       )

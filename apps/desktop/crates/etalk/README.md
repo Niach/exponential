@@ -8,7 +8,7 @@ Exponential and spezl.
 
 | Crate | What it is | Links |
 | --- | --- | --- |
-| `etalk` | The host side: `SpeechClient` (spawns and talks to the speech worker over JSON lines), the wire (`Request`, `Event`), the microphone doctor, per-app desktop audio, and the pure state machines `etalk::voice` (settings, push to talk, wake word, tray, spoken-reply rules), `etalk::call` (the phone call) and `etalk::meeting`. gpui-free, engine-free. | serde, regex, chrono |
+| `etalk` | The host side: `SpeechClient` (spawns and talks to the speech worker over JSON lines), the wire (`Request`, `Event`), the microphone doctor, per-app desktop audio, and the pure state machines `etalk::voice` (settings, push to talk, wake word, tray, spoken-reply rules), `etalk::call` (the phone call; `etalk::call::host` is the call host itself, the one machine the desktop app and the CLI daemon run their calls on) and `etalk::meeting`. gpui-free, engine-free. | serde, regex, chrono |
 | `etalk-engine` | The engines, run ONLY inside the speech worker: Silero VAD, Parakeet, Qwen3-TTS (through CrispASR), echo cancelling, playback, the wake word. | `etalk`, `etalk-crispasr` |
 | `etalk-crispasr` | The pinned CrispASR runtime + models: sha256-verified downloads, loaded at run time with `libloading`, nothing linked. | |
 | `etalk-codec` | The call's Opus (pure-Rust `opus-rs` by default, `libopus` behind a feature). | |

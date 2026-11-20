@@ -22,11 +22,13 @@ const h = vi.hoisted(() => ({
   deleted: 0,
   updated: [] as Record<string, unknown>[],
   updateRows: [{ id: `x` }] as { id: string }[],
+  assertTargets: vi.fn(async (..._args: unknown[]) => undefined),
 }))
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({ resolveTeamAccess: h.resolveTeamAccess }))
+vi.mock(`@/lib/sidebar-targets`, () => ({ assertSidebarTargetsInTeam: h.assertTargets }))
 
 import { sidebarLayoutRouter } from "@/lib/trpc/sidebar-layout"
 
@@ -81,6 +83,37 @@ describe(`sidebarLayout`, () => {
     h.deleted = 0
     h.updated = []
     h.updateRows = [{ id: `x` }]
+    h.assertTargets.mockReset()
+    h.assertTargets.mockImplementation(async () => undefined)
+  })
+
+  it(`save (#EXP-2027): a team list's items are checked against the team, folders are not`, async () => {
+    await caller.save({
+      teamId: TEAM,
+      section: `team`,
+      upserts: [
+        { id: FOLDER, kind: `folder`, targetId: null, parentId: null, name: `Mobile`, sortOrder: 1 },
+        { id: null, kind: `item`, targetId: BOARD, parentId: FOLDER, name: null, sortOrder: 1 },
+      ],
+      deletes: [],
+    })
+    expect(h.assertTargets).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM, [BOARD])
+    h.assertTargets.mockImplementation(async () => {
+      throw new Error(`Not a board, agent, app or session of this team`)
+    })
+    await expect(
+      caller.save({
+        teamId: TEAM,
+        section: `team`,
+        upserts: [{ id: null, kind: `item`, targetId: OTHER, parentId: null, name: null, sortOrder: 1 }],
+        deletes: [],
+      })
+    ).rejects.toThrow(/of this team/)
+  })
+
+  it(`remove (#EXP-2027): deletes the caller's item entry`, async () => {
+    expect((await caller.remove({ targetId: BOARD })).txId).toBeDefined()
+    expect(h.deleted).toBe(1)
   })
 
   it(`save: a new folder and its items, the caller's team checked`, async () => {

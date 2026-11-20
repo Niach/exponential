@@ -13,7 +13,8 @@ import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { isSessionPrincipal } from "@/lib/sessions/host"
-import { builtinSkill, isBuiltinName, sessionSkillIds } from "@/lib/skills/builtin"
+import { builtinSkill, isBuiltinName } from "@/lib/skills/builtin"
+import { sessionLaunchSkillIds, sessionLaunchTeams } from "@/lib/agents/team-picks"
 
 // #EXP-1656: team SKILLS (fixtures/skills.json): a name, the description
 // that triggers it and a SKILL.md body; no files, no history. Listing is
@@ -250,6 +251,7 @@ export const skillsRouter = router({
           status: sessions.status,
           skillIds: sessions.skillIds,
           appId: sessions.appId,
+          rootId: sessions.rootId,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
@@ -265,12 +267,17 @@ export const skillsRouter = router({
       // (`builtin.editorDelivery`), after its own picks, deduped; the same
       // pick `sessions.skillPicks` reads back, so the device's between-turn
       // check never sees it move.
-      const ids = await sessionSkillIds(ctx.db, run)
+      // #EXP-1988 (agent-settings.json `assistant.teamPicks`): the pick of
+      // the run's launch teams (the Assistant's conversation: its tree's
+      // teams); a name picked in two teams launches the first (the device
+      // skips a duplicate name).
+      const ids = await sessionLaunchSkillIds(ctx.db, run)
       if (ids.length === 0) return { skills: [], skipped: [] }
+      const launchTeams = await sessionLaunchTeams(ctx.db, run)
       const rows = await ctx.db
         .select({ id: skills.id, name: skills.name, description: skills.description, body: skills.body, builtin: skills.builtin })
         .from(skills)
-        .where(and(eq(skills.teamId, run.teamId), inArray(skills.id, ids)))
+        .where(and(inArray(skills.teamId, launchTeams), inArray(skills.id, ids)))
       const byId = new Map(rows.map((row) => [row.id, row]))
       return {
         skills: ids.flatMap((id): ResolvedSkill[] => {
