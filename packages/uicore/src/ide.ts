@@ -157,6 +157,8 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
   const folders = (section: SidebarSection, base: IdeRowBase[]) => folderRows(base, input.layout?.[section] ?? [], input.closed ?? [], input.editingFolder ?? null)
   const rows: IdeNavRow[] = []
+  // #EDE-171: Agent (the composer page) leads, needs-you.json's wide order.
+  rows.push(nav(`home`, `action-chat`, screen === `home`, 0, `muted`))
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
   rows.push(nav(`chats`, `nav-chats`, screen === `chats`, input.chats.count, input.chats.tone))
   rows.push(nav(`devices`, `nav-devices`, screen === `devices`, 0, `muted`))
