@@ -10,6 +10,7 @@
 mod damage;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod net;
 pub mod pace;
 #[cfg(feature = "gpu")]
 mod passes;
@@ -44,6 +45,8 @@ use crate::{
 pub(crate) struct Frames {
     queue: queue::Queue,
     stats: stats::Stats,
+    /// What catches a GPU app that fails ([`net`]).
+    net: net::Net,
     /// Per space, the surfaces that hold a commit for a tick ([`pace`]).
     pacing: std::collections::HashMap<DeskId, Vec<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>>,
     /// The spaces' GPU renderer, the spaces captured on it, the passes on
@@ -180,27 +183,45 @@ impl Ede {
         let mut renderer = self.space_renderer().ok_or("no software renderer")?;
         // A space's output is always at scale 1 and its scene is built at 1
         // ([`Self::space_elements`]): the tracker's scale matches (#EDE-113).
-        let frame = draw_offscreen(&mut renderer, size, 1.0, clear, |renderer| self.space_elements(id, renderer));
+        let mut undrawable = None;
+        let frame = draw_offscreen(&mut renderer, size, 1.0, clear, |renderer| {
+            let (elements, failed) = self.space_elements(id, renderer);
+            undrawable = failed;
+            elements
+        });
         self.spaces.renderer = Some(renderer);
+        if let Some(app) = undrawable {
+            self.space_undrawable(id, &app);
+        }
         frame
     }
 
     /// Front to back, in the space's output's pixels (scale 1, at (0, 0)).
-    fn space_elements<R>(&self, id: DeskId, renderer: &mut R) -> Vec<OutputElements<R>>
+    /// Also names the first window whose buffers `renderer` could not
+    /// draw (#EDE-162): it is a grey placeholder, never blank.
+    fn space_elements<R>(&self, id: DeskId, renderer: &mut R) -> (Vec<OutputElements<R>>, Option<String>)
     where
         R: Renderer + ImportAll + ImportMem,
         R::TextureId: Clone + 'static,
     {
         let mut elements = Vec::new();
-        self.space_walk(id, |window, at, protected| match protected.then(|| protected_black(window, at)) {
-            Some(black) => elements.push(OutputElements::Solid(black)),
-            None => elements.extend(
-                AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(window, renderer, at.to_physical(1), 1.0.into(), 1.0)
-                    .into_iter()
-                    .map(OutputElements::Surface),
-            ),
+        let mut undrawable = None;
+        self.space_walk(id, |window, at, protected| {
+            if protected {
+                elements.push(OutputElements::Solid(protected_black(window, at)));
+                return;
+            }
+            let drawn: Vec<WaylandSurfaceRenderElement<R>> = AsRenderElements::<R>::render_elements(window, renderer, at.to_physical(1), 1.0.into(), 1.0);
+            let mut wanted = Vec::new();
+            damage::window_damage(window, at.to_physical(1), &mut wanted);
+            if drawn.len() < wanted.len() {
+                undrawable.get_or_insert_with(|| crate::ipc::window_title(window).1.or(crate::ipc::window_title(window).0).unwrap_or_else(|| "an app".into()));
+                elements.push(OutputElements::Solid(placeholder(window, at)));
+                return;
+            }
+            elements.extend(drawn.into_iter().map(OutputElements::Surface));
         });
-        elements
+        (elements, undrawable)
     }
 
     /// The same scene as [`Self::space_elements`], as the damage tracker
@@ -223,6 +244,14 @@ impl Ede {
             f(window, at - window.geometry().loc, self.is_protected_window(window));
         }
     }
+}
+
+/// A window whose buffers cannot be drawn: solid grey over its box, never
+/// blank ([`net::PLACEHOLDER`]).
+fn placeholder(window: &Window, at: Point<i32, Logical>) -> SolidColorRenderElement {
+    let mut bbox = window.bbox();
+    bbox.loc += at;
+    SolidColorRenderElement::new(damage::protected_id(window), bbox.to_physical(1), CommitCounter::default(), net::PLACEHOLDER, Kind::Unspecified)
 }
 
 /// A protected window: solid black over its whole box, with the same id on

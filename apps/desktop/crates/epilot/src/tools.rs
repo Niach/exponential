@@ -863,9 +863,11 @@ fn screenshot(backend: &dyn Backend, screen: &Screen, current: usize, frame: Fra
     let shot = backend.screenshot(&screen.displays[current])?;
     let png = encode_png(&shot, frame.image)?;
     let which = if screen.displays.len() > 1 { format!(" of display {current} ({} work displays)", screen.work.len()) } else { String::new() };
+    // #EDE-162: an app whose GPU path failed in the space, said once.
+    let notice = backend.take_notice().map(|n| format!(" {n}")).unwrap_or_default();
     Ok(json!({
         "content": [
-            { "type": "text", "text": format!("Screenshot {}x{}{} (its pixels are {}x{}); coordinates are in this image's pixels.", frame.image.0, frame.image.1, which, frame.screen.0, frame.screen.1) },
+            { "type": "text", "text": format!("Screenshot {}x{}{} (its pixels are {}x{}); coordinates are in this image's pixels.{notice}", frame.image.0, frame.image.1, which, frame.screen.0, frame.screen.1) },
             { "type": "image", "data": base64(&png), "mimeType": "image/png" }
         ],
         "structuredContent": { "width": frame.image.0, "height": frame.image.1, "display": current, "displays": screen.displays_json(current) }
@@ -939,6 +941,8 @@ pub(crate) mod tests {
         pub fail_ups: bool,
         /// #ERR-29: the compositor releases what it holds (eDE).
         pub lets_go: bool,
+        /// #EDE-162: what the space's compositor says with the next screenshot.
+        pub notice: Mutex<Option<String>>,
     }
 
     impl FakeBackend {
@@ -1024,6 +1028,9 @@ pub(crate) mod tests {
         }
         fn lets_go_itself(&self) -> bool {
             self.lets_go
+        }
+        fn take_notice(&self) -> Option<String> {
+            self.notice.lock().unwrap().take()
         }
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
@@ -1220,6 +1227,19 @@ pub(crate) mod tests {
         backend.log.lock().unwrap().clear();
         one(&backend, "double_click", json!({ "x": 0, "y": 0 }));
         assert_eq!(backend.log.lock().unwrap().as_slice(), ["move 0,0", "Left down", "Left up", "Left down", "Left up"]);
+    }
+
+    /// #EDE-162: an app whose GPU path failed in the space is named with
+    /// the next screenshot, once, so the agent starts it again.
+    #[test]
+    fn a_space_notice_comes_with_the_next_screenshot_once() {
+        let backend = FakeBackend { space: Some(41), ..Default::default() };
+        *backend.notice.lock().unwrap() = Some("vkcube ended at start on the GPU (exit 134); this space now draws in software: start it again.".into());
+        let shot = one(&backend, "screenshot", json!({}));
+        let text = shot["content"][0]["text"].as_str().unwrap();
+        assert!(text.ends_with("vkcube ended at start on the GPU (exit 134); this space now draws in software: start it again."), "{text}");
+        let again = one(&backend, "screenshot", json!({}));
+        assert!(!again["content"][0]["text"].as_str().unwrap().contains("vkcube"), "said once");
     }
 
     #[test]

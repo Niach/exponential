@@ -70,6 +70,8 @@ impl Ede {
         if !new_buffer {
             return;
         }
+        // #EDE-162: its launch drew something ([`super::net`]).
+        self.space_net_drew(desk, surface.client());
         let held = with_states(surface, |s| {
             s.data_map.insert_if_missing_threadsafe(|| Mutex::new(Paced::default()));
             let mut p = s.data_map.get::<Mutex<Paced>>().unwrap().lock().unwrap();

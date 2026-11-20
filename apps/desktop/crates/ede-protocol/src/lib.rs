@@ -763,6 +763,10 @@ pub struct CaptureInfo {
     /// Nothing was drawn since `since`: no pixel frame follows.
     #[serde(default)]
     pub unchanged: bool,
+    /// #EDE-162: what the space's own agent must know, once (an app whose
+    /// GPU path failed and the space that now draws in software).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

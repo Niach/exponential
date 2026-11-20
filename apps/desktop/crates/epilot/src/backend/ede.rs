@@ -409,7 +409,7 @@ pub(crate) fn open(session: &Session) -> Result<Box<dyn Backend>, String> {
 /// ([`Session::connect_as`]; a space run's: [`Session::connect_space`], and
 /// its space, made on its first call).
 pub(crate) fn open_as(session: &Session, run: Option<&str>, target: Target) -> Result<Box<dyn Backend>, String> {
-    let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: run.map(str::to_string), target, space };
+    let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: run.map(str::to_string), target, space, notice: Mutex::new(None) };
     if target == Target::Person {
         return Ok(Box::new(ede(session.connect_as(run)?, None)));
     }
@@ -417,7 +417,7 @@ pub(crate) fn open_as(session: &Session, run: Option<&str>, target: Target) -> R
 }
 
 fn open_space(session: &Session, run: &str, target: Target, timing: Timing) -> Result<Box<dyn Backend>, String> {
-    let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: Some(run.to_string()), target, space };
+    let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: Some(run.to_string()), target, space, notice: Mutex::new(None) };
     let mut client = session.connect_space(run, timing)?;
     session.keep(run, timing);
     let made = SPACES.lock().unwrap_or_else(|p| p.into_inner()).get(run).filter(|(socket, _)| *socket == session.socket).map(|(_, space)| space.clone());
@@ -450,6 +450,9 @@ pub(crate) struct Ede {
     target: Target,
     /// A space run's space; `None` = the person's desk.
     space: Option<SpaceInfo>,
+    /// #EDE-162: what the space's compositor said with the last capture
+    /// (an app's GPU path failed, the space draws in software now).
+    notice: Mutex<Option<String>>,
 }
 
 fn e(what: &str) -> impl Fn(ede_protocol::Error) -> String + '_ {
@@ -564,7 +567,14 @@ impl Backend for Ede {
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
         let capture = self.ask("eDE capture", |client| client.capture(CaptureTarget::Output { name: display.name.clone() }))?;
+        if let Some(notice) = capture.info.notice.clone() {
+            *self.notice.lock().unwrap() = Some(notice);
+        }
         rgba_of(&capture)
+    }
+
+    fn take_notice(&self) -> Option<String> {
+        self.notice.lock().unwrap().take()
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -814,7 +824,7 @@ mod tests {
 
     #[test]
     fn captures_become_rgba_and_buttons_evdev() {
-        let info = ede_protocol::CaptureInfo { width: 2, height: 1, stride: 12, format: "argb8888".into(), serial: 0, unchanged: false };
+        let info = ede_protocol::CaptureInfo { width: 2, height: 1, stride: 12, format: "argb8888".into(), serial: 0, unchanged: false, notice: None };
         let pixels = [0xff10_2030u32, 0xff00_00ff, 0].iter().flat_map(|p| p.to_le_bytes()).collect();
         let image = rgba_of(&ede_protocol::Capture { info, pixels }).unwrap();
         assert_eq!((image.width, image.height), (2, 1));
@@ -947,7 +957,7 @@ mod tests {
         });
         let client = Client::over(ours, Token::new("a".repeat(64)).unwrap()).unwrap();
         let session = Session { socket: PathBuf::from("/nonexistent"), token_file: PathBuf::from("/nonexistent"), token: None };
-        (Ede { client: Mutex::new(client), session, run: None, target: Target::Person, space: None }, server)
+        (Ede { client: Mutex::new(client), session, run: None, target: Target::Person, space: None, notice: Mutex::new(None) }, server)
     }
 
     /// What [`fake_socket_of`] plays.

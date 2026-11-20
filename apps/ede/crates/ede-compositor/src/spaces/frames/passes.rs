@@ -160,12 +160,15 @@ impl Ede {
             }
         };
         self.space_used(desk);
-        let elements = self.space_elements(desk, &mut gpu.renderer);
+        let (elements, undrawable) = self.space_elements(desk, &mut gpu.renderer);
         let serial = self.spaces.get(desk).map_or(0, |s| s.serial);
         let submitted = gpu.submit(desk, size, clear, elements);
         let live: Vec<DeskId> = self.spaces.iter().map(|s| s.desk.id).collect();
         gpu.sweep(&live);
         self.spaces.frames.gpu = Gpu::Ready(gpu);
+        if let Some(app) = undrawable {
+            self.space_undrawable(desk, &app);
+        }
         let flight = match submitted {
             Ok(flight) => flight,
             Err(e) => {
@@ -243,9 +246,11 @@ impl Ede {
         let serial = self.spaces.get(desk).map(|_| serial);
         match (pixels, serial) {
             (Ok(bytes), Some(serial)) => {
-                let info = serde_json::to_value(CaptureInfo { width: w, height: h, stride: w * 4, format: "argb8888".into(), serial, unchanged: false }).unwrap();
+                let info = serde_json::to_value(CaptureInfo { width: w, height: h, stride: w * 4, format: "argb8888".into(), serial, unchanged: false, notice: None }).unwrap();
+                let notice = jobs.iter().any(|j| j.own).then(|| self.space_take_notice(desk)).flatten();
                 for job in jobs {
-                    self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((info.clone(), Some(bytes.clone()))));
+                    let info = super::queue::with_notice(info.clone(), notice.as_ref().filter(|_| job.own));
+                    self.ipc_reply_later_with(job.caller.conn, job.caller.call, Ok((info, Some(bytes.clone()))));
                 }
             }
             (_, None) => {
@@ -269,6 +274,10 @@ impl Ede {
         tracing::warn!("agent spaces on the GPU: {what}");
         if lost {
             self.spaces.frames.gpu = Gpu::Software(format!("the GPU context was lost ({what})"));
+            let on_gpu: Vec<DeskId> = self.spaces.frames.on_gpu.iter().filter(|(_, on)| **on).map(|(desk, _)| *desk).collect();
+            for desk in on_gpu {
+                self.space_latch(desk, "the GPU renderer's context was lost".into());
+            }
             self.spaces.frames.on_gpu.clear();
         } else if let Gpu::Ready(gpu) = &mut self.spaces.frames.gpu {
             gpu.reset_targets();
