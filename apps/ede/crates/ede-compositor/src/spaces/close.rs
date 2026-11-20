@@ -2,6 +2,7 @@
 //! directory, no global, and once nothing refers to it any more, no seat.
 
 use std::{
+    os::unix::fs::DirBuilderExt,
     path::PathBuf,
     process::Child,
     time::{Duration, Instant},
@@ -45,6 +46,77 @@ pub(crate) struct Leftover {
 /// How many 1 s ticks a closed space's directory is tried again.
 pub const DIR_RETRIES: u32 = 30;
 
+/// Removes `dir` with all in it. A space's own user manager leaves
+/// `systemd/inaccessible/dir` with mode 000 in it (#EDE-138), which the
+/// owner may not open to empty: what the owner cannot enter is made
+/// theirs to enter first.
+pub fn remove_tree(dir: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::remove_dir_all(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            open_up(dir);
+            std::fs::remove_dir_all(dir)
+        }
+        done => done,
+    }
+}
+
+/// The FUSE mount points at or under `dir` in `mountinfo`
+/// (`/proc/self/mountinfo`), the deepest first.
+pub fn fuse_mounts_under(mountinfo: &str, dir: &std::path::Path) -> Vec<PathBuf> {
+    // `\040` and the like: a mount point's spaces, tabs and backslashes.
+    let unescape = |text: &str| {
+        let mut out = String::new();
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            let code: String = if c == '\\' { chars.clone().take(3).collect() } else { String::new() };
+            match u8::from_str_radix(&code, 8) {
+                Ok(byte) if code.len() == 3 => {
+                    out.push(byte as char);
+                    chars.nth(2);
+                }
+                _ => out.push(c),
+            }
+        }
+        out
+    };
+    let mut points: Vec<PathBuf> = mountinfo
+        .lines()
+        .filter_map(|line| {
+            let point = line.split(' ').nth(4)?;
+            let kind = line.split(" - ").nth(1)?.split(' ').next()?;
+            (kind == "fuse" || kind.starts_with("fuse.")).then(|| PathBuf::from(unescape(point)))
+        })
+        .filter(|point| point.starts_with(dir))
+        .collect();
+    points.sort_by_key(|point| std::cmp::Reverse(point.components().count()));
+    points
+}
+
+/// `fusermount3 -u -z` (else `fusermount`): detached now, gone once
+/// nothing uses it; it does not wait for the FUSE daemon.
+fn unmount_lazily(point: &std::path::Path) {
+    for tool in ["fusermount3", "fusermount"] {
+        let done = std::process::Command::new(tool).args(["-u", "-z"]).arg(point).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        if done.is_ok_and(|status| status.success()) {
+            tracing::info!("{}: unmounted what a closed space left mounted there", point.display());
+            return;
+        }
+    }
+}
+
+/// Every directory under `dir` (never through a link) open to its owner.
+fn open_up(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let path = entry.path();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+            open_up(&path);
+        }
+    }
+}
+
 /// The slice of a closed space (or of a compositor that is gone) while
 /// it ends (#EDE-138). The user manager stops it: SIGTERM to every process
 /// of every unit in it, SIGKILL two seconds later. A scope that asked to
@@ -77,13 +149,43 @@ impl Spaces {
         self.dir = Some(dir);
     }
 
+    /// Sets where this compositor's spaces keep their homes: `p<pid>` in
+    /// `root` (`$XDG_CACHE_HOME/exponential-desktop/spaces`), first removing
+    /// what a compositor that is gone left there: a `p<pid>` whose process
+    /// is no running compositor, and an earlier one with this process id.
+    pub fn open_homes(&mut self, root: std::path::PathBuf) {
+        let me = std::process::id();
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(pid) = name.to_str().and_then(|name| name.strip_prefix('p')).and_then(|pid| pid.parse::<u32>().ok()) else { continue };
+                if pid == me || !slice::is_compositor(pid) {
+                    let _ = (self.remove_dir)(&entry.path());
+                }
+            }
+        }
+        let homes = root.join(format!("p{me}"));
+        match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&homes) {
+            Ok(()) => self.homes = Some(homes),
+            Err(e) => tracing::warn!("{}: {e}: agent spaces keep their homes in the runtime directory", homes.display()),
+        }
+    }
+
     /// No closed space's seat is left to remove.
     pub fn settled(&self) -> bool {
         self.closing.is_empty() && self.leftovers.is_empty() && self.stopping.is_empty()
     }
 
-    /// Removes `dir`; `true` = it is gone.
+    /// Removes `dir`; `true` = it is gone. What the space's bus started
+    /// mounts FUSE file systems in its runtime directory (the document
+    /// portal's `doc`, gvfs's `gvfs`); when the space's slice ends their
+    /// daemons, the mounts stay, so they are let go of first (#EDE-138).
     fn remove(&self, dir: &std::path::Path) -> bool {
+        if let Ok(mountinfo) = std::fs::read_to_string("/proc/self/mountinfo") {
+            for point in fuse_mounts_under(&mountinfo, dir) {
+                unmount_lazily(&point);
+            }
+        }
         (self.remove_dir)(dir).is_ok() || !dir.exists()
     }
 }
@@ -94,8 +196,8 @@ impl Drop for Spaces {
     fn drop(&mut self) {
         self.kill_launches();
         // Everything under the spaces' directory is a space's: the live
-        // ones and what a close left behind.
-        if let Some(dir) = &self.dir {
+        // ones and what a close left behind; their homes likewise.
+        for dir in [&self.dir, &self.homes].into_iter().flatten() {
             self.remove(dir);
         }
     }
@@ -107,7 +209,9 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
-        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, .. } = self.spaces.list.remove(at);
+        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, .. } = self.spaces.list.remove(at);
+        // Its user manager ends with its slice; reaped on the tick.
+        self.spaces.ended_sessions.extend(session.take());
 
         // Its seat lets go of everything: what is held down, a grab, the focus.
         let time = InputTime::from_millis(crate::ipc::now_ms() as u32);
@@ -127,13 +231,16 @@ impl Ede {
 
         // No new client, no old one, nothing on disk.
         self.loop_handle.remove(listener);
-        // What was launched is told to end first: its home is in `dir`.
+        // What was launched is told to end first: it writes in its home.
+        let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
         if sliced {
             self.space_slice_closed(id.number());
         }
-        if !self.spaces.remove(&dir) {
-            self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+        for dir in std::iter::once(dir).chain(home) {
+            if !self.spaces.remove(&dir) {
+                self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
+            }
         }
         for client in clients {
             self.display_handle.backend_handle().kill_client(client.id(), DisconnectReason::ConnectionClosed);
@@ -180,7 +287,7 @@ impl Ede {
                 self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
             }
         }
-        tracing::info!("agent spaces run in systemd scopes (systemd {})", units.version);
+        tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
         self.spaces.units = Some(units);
     }
 
@@ -264,6 +371,7 @@ impl Ede {
     /// kept: a leaked seat is cheap, a handle without its seat panics.
     pub fn spaces_tick(&mut self) {
         self.spaces_expire();
+        self.space_sessions_tick();
         self.space_launches_tick();
         let mut closing = std::mem::take(&mut self.spaces.closing);
         closing.retain_mut(|c| {
@@ -294,5 +402,42 @@ impl Ede {
         });
         leftovers.append(&mut self.spaces.leftovers);
         self.spaces.leftovers = leftovers;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    /// The document portal's and gvfs's mounts in a space's directory are
+    /// found, the deepest first; nothing of another directory or kind.
+    #[test]
+    fn a_spaces_fuse_mounts_are_found_in_mountinfo() {
+        let info = "29 1 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw
+329 2286 0:55 / /run/user/1000/x.spaces/space-1/doc rw,nosuid,nodev,relatime shared:644 - fuse.portal portal rw,user_id=1000
+409 2286 0:56 / /run/user/1000/x.spaces/space-1/gvfs rw,nosuid,nodev,relatime shared:735 - fuse.gvfsd-fuse gvfsd-fuse rw,user_id=1000
+410 409 0:57 / /run/user/1000/x.spaces/space-1/gvfs/a\\040b rw - fuse.sshfs x rw
+411 2286 0:58 / /run/user/1000/x.spaces/space-10/doc rw - fuse.portal portal rw
+412 2286 0:59 / /run/user/1000/doc rw - fuse.portal portal rw
+413 2286 0:60 / /run/user/1000/x.spaces/space-1/tmp rw - tmpfs tmpfs rw
+";
+        let points = super::fuse_mounts_under(info, std::path::Path::new("/run/user/1000/x.spaces/space-1"));
+        assert_eq!(points, ["/run/user/1000/x.spaces/space-1/gvfs/a b", "/run/user/1000/x.spaces/space-1/doc", "/run/user/1000/x.spaces/space-1/gvfs"].map(std::path::PathBuf::from));
+    }
+
+    /// What a space's user manager leaves: a directory nobody may enter.
+    #[test]
+    fn a_directory_nobody_may_enter_goes_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let space = dir.path().join("space-1");
+        let locked = space.join("systemd/inaccessible/dir");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(space.join("systemd/inaccessible/reg"), "").unwrap();
+        std::fs::set_permissions(space.join("systemd/inaccessible/reg"), std::fs::Permissions::from_mode(0)).unwrap();
+        std::fs::create_dir(locked.join("inside")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0)).unwrap();
+        assert!(std::fs::remove_dir_all(&space).is_err(), "the plain removal fails here");
+        super::remove_tree(&space).unwrap();
+        assert!(!space.exists());
     }
 }

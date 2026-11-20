@@ -43,6 +43,9 @@ final class TranscriptFind {
     /// The ringed row's key while its ring shows (`DeepLinkScroll`).
     var ringKey: String?
 
+    /// #EDE-99: a global search pick's start, re-resolved as stops arrive
+    /// until found or the store's answer is in.
+    private var pendingTarget: SearchList.GlobalChatTarget?
     private var lowestSeq: Int?
     private var sessionId = ""
     /// #EXP-1998: the synced messages the screen draws as bubbles (nil = a
@@ -65,13 +68,15 @@ final class TranscriptFind {
     /// the loaded feed does not reach the first event and the device is
     /// online, the device; start at the newest stop.
     func search(
-        _ next: String, model: AgentSessionModel, inputs: [NoFeedInput], synced: FindInChat.Synced?,
+        _ next: String, target: SearchList.GlobalChatTarget? = nil,
+        model: AgentSessionModel, inputs: [NoFeedInput], synced: FindInChat.Synced?,
         accountId: String, rootId: String, sessionId: String
     ) {
         guard next != query else { return }
         for task in searches { task.cancel() }
         searches = []
         query = next
+        pendingTarget = next.isEmpty ? nil : target
         current = nil
         focus = nil
         ringKey = nil
@@ -126,6 +131,7 @@ final class TranscriptFind {
     func step(_ request: ChatFind.StepRequest?) {
         guard let request, request.n != lastStep else { return }
         lastStep = request.n
+        pendingTarget = nil
         guard let next = FindInChat.step(current: index, total: stops.count, request.dir) else { return }
         land(stops[next])
     }
@@ -137,6 +143,16 @@ final class TranscriptFind {
         )
         let next = FindInChat.stops(rows: rows.map(\.row), older: hits)
         if next != stops { stops = next }
+        // #EDE-99: a pick starts at the hit's stop (`globalChatStart`); it
+        // waits for it until the store's answer is in, then the newest.
+        if current == nil, let target = pendingTarget {
+            let start = SearchList.globalChatStart(stops, target: target)
+            let found = start.map { stops[$0].key == target.key && stops[$0].output == target.output } ?? false
+            guard found || older.storePhase != .searching else { return }
+            pendingTarget = nil
+            if let start { land(stops[start]) }
+            return
+        }
         // A new query starts at the NEWEST stop and lands there.
         if current == nil, let newest = stops.last { return land(newest) }
         // A paged-in older message that turned out not drawn vanished while
@@ -332,7 +348,8 @@ struct TranscriptFindDriver: ViewModifier {
             .onChange(of: query, initial: true) { _, next in
                 transcriptFind.deviceName = model.hostDevice.displayLabel
                 transcriptFind.search(
-                    next, model: model, inputs: inputs, synced: synced, accountId: accountId, rootId: rootId, sessionId: sessionId
+                    next, target: find?.target, model: model, inputs: inputs, synced: synced,
+                    accountId: accountId, rootId: rootId, sessionId: sessionId
                 )
             }
             .onChange(of: query.isEmpty ? -1 : model.findRevision) { _, _ in

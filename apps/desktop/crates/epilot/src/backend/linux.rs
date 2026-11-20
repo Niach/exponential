@@ -24,7 +24,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
@@ -688,12 +688,8 @@ impl Backend for X11 {
             ),
         )?;
         self.flush()?;
-        let until = Instant::now() + Duration::from_millis(600);
-        while Instant::now() < until {
-            if self.active_window() == Some(window) {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        if super::wait_active(super::ACTIVATE_WAIT, || self.active_window() == Some(window)) {
+            return Ok(());
         }
         Err(format!("The window manager did not activate window {id}."))
     }

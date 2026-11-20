@@ -18,6 +18,7 @@ import {
   type ComboboxSelection,
 } from "./combobox-core"
 import { ListEmpty } from "./empty-state"
+import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 import { MENU_SURFACE_CLASS } from "./menu-surface"
 import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
@@ -87,8 +88,25 @@ export function typeaheadPrefill(text: string, caret: number): TypeaheadPrefill 
 /** cmdk's own pick event — Enter dispatches it on the selected row. */
 const CMDK_SELECT_EVENT = `cmdk-item-select`
 
+/** #EDE-99 (search-list.json SECTIONS): a titled run of rows (the global
+ *  search's Issues, then Chats): THE Section band (title, count, the
+ *  refetch spinner) over its rows; ↑/↓ cross the sections. */
+export interface SearchListSection<T extends string = string> {
+  key: string
+  title: string
+  count: number
+  loading?: boolean
+  items: readonly PickerItem<T>[]
+  /** Rows taller than the list's one height (a two-line chat row). */
+  rowClassName?: string
+  rowTestId?: string
+  testId?: string
+}
+
 interface SearchListBase<T extends string> {
   items: readonly PickerItem<T>[]
+  /** Titled sections instead of the one run of `items`. */
+  sections?: readonly SearchListSection<T>[]
   /** Controlled search text (an external engine: `useIssueSearchResults`);
    *  pass `shouldFilter={false}` with it so the order renders verbatim. */
   query?: string
@@ -159,6 +177,7 @@ function ResultCount() {
 export function SearchList<T extends string = string>(props: SearchListProps<T>) {
   const {
     items,
+    sections,
     query: queryProp,
     onQueryChange,
     shouldFilter,
@@ -236,6 +255,33 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
       : null),
   }
 
+  const renderRow = (item: PickerItem<T>, sectionRowClass?: string, rowTestId?: string) => {
+    const state = selection.stateOf(item)
+    const selected = state === `selected`
+    // A section's two-line rows keep their second line (the chat snippet).
+    const twoLine = sectionRowClass !== undefined
+    return (
+      <CommandItem
+        key={item.value}
+        value={item.value}
+        keywords={pickerItemKeywords(item)}
+        disabled={selection.isDisabled(item)}
+        aria-pressed={selection.multiple ? selected : undefined}
+        data-testid={rowTestId ?? spec.testIds.row}
+        data-picked={selected ? `true` : undefined}
+        className={cn(`min-h-0 py-0`, twoLine ? sectionRowClass : ROW_CLASS[density], rowClassName)}
+        onSelect={() => selection.pick(item)}
+      >
+        {renderItem ? (
+          renderItem(item, { selected })
+        ) : (
+          <PickerItemBody item={twoLine ? item : { ...item, description: undefined }} />
+        )}
+        <SelectionCheck state={state} />
+      </CommandItem>
+    )
+  }
+
   return (
     <Command
       data-slot="search-list"
@@ -310,32 +356,16 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
             <CommandEmpty className="">
               <ListEmpty>{emptyText}</ListEmpty>
             </CommandEmpty>
-            <CommandGroup>
-              {items.map((item) => {
-                const state = selection.stateOf(item)
-                const selected = state === `selected`
-                return (
-                  <CommandItem
-                    key={item.value}
-                    value={item.value}
-                    keywords={pickerItemKeywords(item)}
-                    disabled={selection.isDisabled(item)}
-                    aria-pressed={selection.multiple ? selected : undefined}
-                    data-testid={spec.testIds.row}
-                    data-picked={selected ? `true` : undefined}
-                    className={cn(`min-h-0 py-0`, ROW_CLASS[density], rowClassName)}
-                    onSelect={() => selection.pick(item)}
-                  >
-                    {renderItem ? (
-                      renderItem(item, { selected })
-                    ) : (
-                      <PickerItemBody item={{ ...item, description: undefined }} />
-                    )}
-                    <SelectionCheck state={state} />
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
+            {sections ? (
+              sections.map((section) => (
+                <CommandGroup key={section.key} data-testid={section.testId}>
+                  <GlassSectionHeader label={section.title} count={section.count} loading={section.loading} />
+                  {section.items.map((item) => renderRow(item, section.rowClassName, section.rowTestId))}
+                </CommandGroup>
+              ))
+            ) : (
+              <CommandGroup>{items.map((item) => renderRow(item))}</CommandGroup>
+            )}
           </>
         )}
       </CommandList>

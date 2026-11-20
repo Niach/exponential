@@ -615,6 +615,8 @@ export const SEMANTIC_ICONS = {
   "run-pause": `pause`,
   "run-resume": `rotate-ccw`,
   "sc-push": `upload`,
+  "search-agent": `bot`,
+  "search-chat": `message-circle`,
   "session-shell": `terminal`,
   "session-tree": `workflow`,
   "settings-about": `info`,

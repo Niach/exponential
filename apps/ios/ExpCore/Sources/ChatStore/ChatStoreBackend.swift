@@ -22,6 +22,7 @@ public protocol ChatStoreBackend: AnyObject, Sendable {
     func page(sessionId: String, deviceId: String, beforeSeq: UInt64, limit: UInt32) throws -> String
     func count(sessionId: String, deviceId: String) throws -> UInt64
     func searchChat(rootId: String, query: String, limit: UInt32) throws -> String
+    func searchAll(query: String, limit: UInt32) throws -> String
     func applyRetention(nowMs: Int64, windowDays: UInt32?) throws -> UInt64
     func meta(key: String) throws -> String?
     func setMeta(key: String, value: String) throws

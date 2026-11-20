@@ -26,4 +26,31 @@ class ChatStoreSearchCodecTest {
         assertTrue(ChatStoreCodec.parseHits("nope").isEmpty())
         assertTrue(ChatStoreCodec.parseHits("{}").isEmpty())
     }
+
+    @Test
+    fun `searchAll's chats keep their root, count and newest hit (EDE-99)`() {
+        val chats = ChatStoreCodec.parseAll(
+            """{"chats":[
+              {"rootId":"r1","count":4,"hit":{"rootId":"r1","sessionId":"c1","deviceId":"d1","kind":"tool_output","at":1794823200000,"seq":7,"snippet":"disk cache hit","matchStart":5,"matchLen":5}},
+              {"rootId":"r2","count":1,"hit":{"rootId":"r2","sessionId":"r2","kind":"message","at":4,"messageId":"m3","snippet":"x","matchStart":0,"matchLen":1}},
+              {"rootId":"r3","count":1}
+            ],"total":3}""",
+        )
+        assertEquals(listOf("r1", "r2"), chats.map { it.rootId })
+        assertEquals(4, chats[0].count)
+        assertEquals(
+            com.exponential.app.domain.SearchList.ChatHit("r1", "c1", "d1", "tool_output", 1794823200000, 7, null, "disk cache hit", 5, 5),
+            chats[0].hit,
+        )
+        assertEquals("m3", chats[1].hit.messageId)
+        assertTrue(ChatStoreCodec.parseAll("nope").isEmpty())
+    }
+
+    @Test
+    fun `a synced message's Postgres-style createdAt is a time (EDE-99)`() {
+        // Electric delivers `2026-11-17 16:18:48.948+00`: an ISO-only parse
+        // would store no synced message at all (the iOS store's bug).
+        assertEquals(1794932328948L, ChatStoreCodec.epochMs("2026-11-17 16:18:48.948+00"))
+        assertEquals(1794932328948L, ChatStoreCodec.epochMs("2026-11-17T16:18:48.948Z"))
+    }
 }

@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import { Button, conceptIcon, EmptyState } from "@exp/ui"
@@ -14,6 +14,8 @@ import {
 } from "@/lib/issue-search"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { useAgentRows } from "@/hooks/use-agent-row"
+import { useGlobalChatSearch } from "@/hooks/use-global-chat-search"
+import { SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
@@ -70,6 +72,9 @@ export function IssueSearchSheet({
   teamSlug,
 }: IssueSearchSheetProps) {
   const navigate = useNavigate()
+  // #EDE-99 (search-list.json CHATS): the Chats section after the issues.
+  const [query, setQuery] = useState(``)
+  const chats = useGlobalChatSearch({ teamId, teamSlug, query, open })
   const boards = useTeamBoards(teamId)
   const boardIds = useMemo(() => boards.map((p: Board) => p.id), [boards])
   const boardMap = useMemo(
@@ -133,7 +138,7 @@ export function IssueSearchSheet({
         description={ISSUE_SEARCH_EMPTY_DETAIL}
       />
     ) : (
-      <EmptyState icon={NoMatchGlyph} title={ISSUE_SEARCH_NO_RESULTS} />
+      <EmptyState icon={NoMatchGlyph} title={chats ? SEARCH_LIST_CHATS.copy.noResults : ISSUE_SEARCH_NO_RESULTS} />
     )
 
   return (
@@ -156,7 +161,9 @@ export function IssueSearchSheet({
           updatedAt: null,
         }
       }
-      searchPlaceholder={ISSUE_SEARCH_PLACEHOLDER}
+      searchPlaceholder={chats ? SEARCH_LIST_CHATS.copy.placeholder : ISSUE_SEARCH_PLACEHOLDER}
+      chats={chats}
+      onQueryInput={setQuery}
       emptyText={emptyState}
       onPick={handlePick}
       backButton={(close) => (

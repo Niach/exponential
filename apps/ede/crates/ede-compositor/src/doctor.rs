@@ -87,10 +87,10 @@ pub fn check_xwayland(binary: Option<&Path>, version_output: Option<&str>) -> Ch
 /// own when the user manager can be asked; `found` is its systemd's
 /// version, or why it cannot (what the session's start finds: the same
 /// questions, a scope of a moment included).
-pub fn check_spaces(found: Result<u32, String>) -> Check {
+pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     let name = "Agent spaces";
     match found {
-        Ok(version) => Check { name, level: Level::Ok, detail: format!("systemd {version}: a slice per space, limited by [spaces] in compositor.toml") },
+        Ok((version, limits)) => Check { name, level: Level::Ok, detail: format!("systemd {version}: a slice per space; {limits} ([spaces] in compositor.toml)") },
         Err(reason) => Check {
             name,
             level: Level::Warn,
@@ -986,7 +986,10 @@ pub fn run_checks() -> Vec<Check> {
         check_vulkan(vulkan.as_deref(), &icds, compositor_gpu),
         check_keyboard(system_keyboard.as_ref()),
         check_xwayland(binary.as_deref(), xwayland.as_deref()),
-        check_spaces(crate::spaces::slice::Units::probe().map(|units| units.version)),
+        check_spaces(crate::spaces::slice::Units::probe().map(|units| {
+            let config = crate::config::Config::default_path().map(|path| crate::config::Config::load(&path).0).unwrap_or_default();
+            (units.version, crate::spaces::slice::described(&config.spaces, units.machine))
+        })),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
         nv.suspend_units = command_output("systemctl", &["is-enabled", "nvidia-suspend.service", "nvidia-resume.service"]);
@@ -1062,8 +1065,8 @@ mod tests {
     /// what the person gets instead.
     #[test]
     fn doctor_says_where_an_agent_spaces_programs_run() {
-        let ok = check_spaces(Ok(255));
-        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "systemd 255: a slice per space, limited by [spaces] in compositor.toml"));
+        let ok = check_spaces(Ok((255, "8 spaces at most".into())));
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "systemd 255: a slice per space; 8 spaces at most ([spaces] in compositor.toml)"));
         let old = check_spaces(Err("systemd 249 is older than 252".into()));
         assert_eq!(old.level, Level::Warn);
         assert!(old.detail.starts_with("systemd 249 is older than 252: what an agent space starts runs in your login session, without limits"), "{}", old.detail);

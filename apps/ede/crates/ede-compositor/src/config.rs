@@ -108,10 +108,15 @@ pub struct Protected {
 
 /// `[spaces]`: what agent spaces may take of this machine (#EDE-138).
 /// The person's to set; no grant and no agent's call carries a limit.
-/// Read when a space starts its first program.
+/// Read when a space starts its first program, and when one is made.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Spaces {
+    /// How many spaces there may be at once; unset = one per GiB of what
+    /// all spaces together may use, at most 32 ([`crate::spaces::slice::max_spaces`]).
+    pub max: Option<u32>,
+    /// How many processes one space may have launched at once.
+    pub launches: u32,
     /// Percent of all cores that all spaces together may use.
     pub cpu_quota: u32,
     /// Percent of the memory that all spaces together may use.
@@ -125,7 +130,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 }
+        Self { max: None, launches: 32, cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 }
     }
 }
 
@@ -276,6 +281,12 @@ impl Config {
         if cfg.spaces.tasks_max < 64 {
             return Err(format!("[spaces] tasks_max must be 64 or more, got {}", cfg.spaces.tasks_max));
         }
+        if cfg.spaces.max.is_some_and(|max| !(1..=32).contains(&max)) {
+            return Err(format!("[spaces] max is from 1 to 32, got {}", cfg.spaces.max.unwrap_or_default()));
+        }
+        if !(1..=256).contains(&cfg.spaces.launches) {
+            return Err(format!("[spaces] launches is from 1 to 256, got {}", cfg.spaces.launches));
+        }
         for o in &cfg.outputs {
             if o.name.is_empty() {
                 return Err("[[outputs]] needs a name".into());
@@ -365,10 +376,10 @@ mod tests {
     /// #EDE-138: the person sets what agent spaces may take.
     #[test]
     fn spaces_take_half_of_the_machine_unless_the_person_says() {
-        assert_eq!(Config::parse("").unwrap().spaces, Spaces { cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 });
-        let cfg = Config::parse("[spaces]\ncpu_quota = 25\nspace_memory_max = 10\n").unwrap();
-        assert_eq!(cfg.spaces, Spaces { cpu_quota: 25, space_memory_max: 10, ..Spaces::default() });
-        for wrong in ["cpu_quota = 0", "cpu_quota = 101", "memory_max = 0", "space_memory_max = 200", "tasks_max = 8", "cpu_weight = 3"] {
+        assert_eq!(Config::parse("").unwrap().spaces, Spaces { max: None, launches: 32, cpu_quota: 50, memory_max: 50, space_memory_max: 30, tasks_max: 4096 });
+        let cfg = Config::parse("[spaces]\ncpu_quota = 25\nspace_memory_max = 10\nmax = 6\nlaunches = 64\n").unwrap();
+        assert_eq!(cfg.spaces, Spaces { max: Some(6), launches: 64, cpu_quota: 25, space_memory_max: 10, ..Spaces::default() });
+        for wrong in ["cpu_quota = 0", "cpu_quota = 101", "memory_max = 0", "space_memory_max = 200", "tasks_max = 8", "cpu_weight = 3", "max = 0", "max = 33", "launches = 0", "launches = 1000"] {
             assert!(Config::parse(&format!("[spaces]\n{wrong}\n")).is_err(), "{wrong}");
         }
     }

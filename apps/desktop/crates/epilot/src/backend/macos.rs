@@ -60,7 +60,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSString};
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, PERSON_BUTTONS};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
 use crate::Permission;
 
@@ -374,7 +374,7 @@ impl Backend for Mac {
         // #EXP-1979: the window itself, not just its app: a raise that
         // missed leaves another of the app's windows in front.
         let front = u32::try_from(pid).ok();
-        settle_activation(id, activated, ACTIVATE_WAIT, || {
+        settle_activation(id, activated, crate::backend::ACTIVATE_WAIT, || {
             let named = ax_front_windows(pid);
             window_in_front(id, frontmost_pid() == front, named.as_deref(), || self.list_windows().ok().and_then(|windows| front_window(&windows)))
         })
@@ -481,12 +481,6 @@ impl Backend for Mac {
 /// (transient) an entry carrying these types.
 const CONCEALED_TYPE: &str = "org.nspasteboard.ConcealedType";
 const TRANSIENT_TYPE: &str = "org.nspasteboard.TransientType";
-/// The most of the person's clipboard `save` keeps; types past it are
-/// skipped.
-const SAVE_CAP: usize = 32 << 20;
-/// macOS cannot tell when the focused app read the pasteboard: the settle
-/// after the paste key.
-const PASTE_SETTLE: Duration = Duration::from_millis(400);
 
 /// The general pasteboard. Never logs what it holds. `Retained` keeps it
 /// off other threads (not `Send`); NSPasteboard itself works off the main
@@ -539,7 +533,7 @@ impl Clipboard for MacClipboard {
                         continue;
                     };
                     let len = data.len();
-                    if total.saturating_add(len) > SAVE_CAP {
+                    if total.saturating_add(len) > CLIPBOARD_SAVE_MAX {
                         partial = true;
                         continue;
                     }
@@ -571,11 +565,8 @@ impl Clipboard for MacClipboard {
     }
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
-        std::thread::sleep(timeout.min(PASTE_SETTLE));
-        match self.ours.get() {
-            Some(ours) if self.board.changeCount() != ours => Pasted::Missed,
-            _ => Pasted::Settled,
-        }
+        // macOS cannot tell when the focused app read the pasteboard.
+        settle_paste(timeout, self.ours.get().map(|ours| ours as u64), || self.board.changeCount() as u64)
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
@@ -703,28 +694,15 @@ fn below_notch(window: &WindowInfo, displays: &[DisplayInfo]) -> bool {
     })
 }
 
-/// How long an accepted activation may take to put the window in front.
-const ACTIVATE_WAIT: Duration = Duration::from_millis(600);
-
 /// #EXP-1921: `activate_window`'s answer: an activation macOS refused, or
 /// one that did not put the window in front within `wait` (`in_front`;
 /// #EXP-1979: the window, not just its app), is an error (the agent's keys
 /// would go to the window in front).
-fn settle_activation(id: u64, activated: bool, wait: Duration, mut in_front: impl FnMut() -> bool) -> Result<(), String> {
-    let refused = || Err(format!("macOS did not activate window {id}."));
-    if !activated {
-        return refused();
+fn settle_activation(id: u64, activated: bool, wait: Duration, in_front: impl FnMut() -> bool) -> Result<(), String> {
+    if activated && crate::backend::wait_active(wait, in_front) {
+        return Ok(());
     }
-    let until = Instant::now() + wait;
-    loop {
-        if in_front() {
-            return Ok(());
-        }
-        if Instant::now() >= until {
-            return refused();
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Err(format!("macOS did not activate window {id}."))
 }
 
 /// #EXP-1979: the window in front of a [`Backend::list_windows`] answer:

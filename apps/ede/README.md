@@ -800,6 +800,33 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   'app-exponential_p*.slice'` shows them. The CPU limit is a quota: the
   person's apps are in a sibling of the whole user manager, so a weight
   inside it could not keep spaces below half of a busy machine.
+- **How many, and the memory they share.** `[spaces] max` spaces at once
+  (unset: one per GiB of what all spaces may use: 8 GB of RAM = 4, 16 GB =
+  8, 64 GB = 31, at most 32), `[spaces] launches` programs each (32). The
+  spaces SHARE their memory: one may take up to its 30 % while the others
+  are still, so together they are promised more than the 50 % they have.
+  The fence is room: a new space is made only while what the spaces hold
+  (anonymous and shared memory of their slice) plus one still space (1 GiB:
+  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`;
+  else `create_space` answers `limit`, `no memory for another space: …`.
+  At `MemoryHigh` every space is slowed until memory is freed; at
+  `MemoryMax` the kernel ends programs inside the spaces, the biggest
+  first, never the person's. The log and the doctor's line say the
+  numbers. Without a user manager: 4 spaces and 32 launches in all, as
+  before.
+- **Homes on disk.** A launch's `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
+  `XDG_DATA_HOME`, `XDG_STATE_HOME` and `GNUPGHOME` are in
+  `$XDG_CACHE_HOME/exponential-desktop/spaces/p<compositor pid>/space-<n>/`
+  (a cache: no backup wants an agent's browser profile), removed at the
+  close; the next compositor's start removes what a gone one left. Only
+  sockets and the bus are in the runtime directory, a tmpfs the person's
+  session shares.
+- **The environment is an allowlist**: of the compositor's, a launch gets
+  who the person is, the language, `PATH`, the desktop's name and the
+  toolkits' hints, nothing else (no `SSH_AUTH_SOCK`, `TMUX`, `STY`,
+  `NOTIFY_SOCKET`, `DOCKER_HOST`, keyring or gpg-agent variables). It gets
+  a tmux server (`TMUX_TMPDIR`) and screen sessions (`SCREENDIR`) of the
+  space's own: an agent's `tmux` never opens in the person's server.
 - **The close ends everything.** The space's slice is stopped (SIGTERM,
   SIGKILL two seconds later), then the kernel ends what is left in its
   cgroup (`cgroup.kill`): a process that started a session of its own, a
@@ -834,6 +861,25 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   process group. The log says so once at the session's start, and
   `exponential-compositor doctor` asks the same questions for its line
   `Agent spaces`.
+- **The space's own user manager and bus.** At a space's first launch the
+  compositor starts `systemd --user` for the space, in a `Delegate=yes`
+  scope of its slice (`exponential-p<pid>-s<n>-session<k>.scope`): the
+  space's directory is its runtime directory, and it can load only the
+  units written into `<space dir>/units` (its bus, nothing of the
+  distribution's or of `~/.config/systemd/user`). Its `dbus.service` is the
+  space's ONE session bus (`<space dir>/bus` and an abstract
+  `/tmp/dbus-ede-<random>`, which strict snaps can reach), with what it
+  activates (dconf, gvfs, portals with the GTK backend; screen capture,
+  remote control, shortcuts, notifications and inhibit are `none` in the
+  space). Every launch of the space gets that bus and waits for it in its
+  own process. So `snap run`, Ptyxis, `systemd-run --user` and anything
+  that asks "the" user manager for a scope find the space's, and their
+  scopes are in the space's slice. A manager that ends is started once
+  more; when it ends again the space closes (its session's next call reads
+  "new and empty"). Needs `dbus-daemon` (the packages depend on it).
+  A Flatpak installed for the person alone (`flatpak install --user`) is
+  not there in a space: its installation is under `XDG_DATA_HOME`, and a
+  space has its own; system-wide ones are (#EDE-158).
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
@@ -869,6 +915,8 @@ lock_after = 600      # seconds without input; 0 = never
 app_ids = ["org.example.Bank"]   # on top of the built-in list
 
 [spaces]              # what agent spaces may take of this machine (#EDE-138); the defaults:
+# max = 8             # spaces at once; unset = one per GiB of memory_max (rounded), at most 32
+launches = 32         # programs one space may have launched at once
 cpu_quota = 50        # percent of all cores, for all spaces together
 memory_max = 50       # percent of the memory, for all spaces together
 space_memory_max = 30 # percent of the memory for one space (at least 2 GiB, never more than memory_max)
@@ -884,7 +932,7 @@ send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or lo
 
 ## Diagnostics (#LOGS-2)
 
-`crates/ede-observability`: the Sentry SDK in the compositor and `exponential-session` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
+`crates/ede-observability`: the Sentry SDK in every long-running binary (#ERR-29: the compositor, `exponential-session`, `exponential-services serve`, `exponential-shell`, `exponential-sealed`, the portal and `exponential-ui supervise`, each with its own `component` tag; panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions, native crashes; the shell and the sealed surfaces, where the person's content passes through, send only WHERE a line was logged, never its text: `Trail::Places`),
 OFF unless the signed-in account's server turns it on. Nothing is baked in: the server of the first
 account in the IDE's shared `accounts.json` answers `GET <server>/api/monitoring/config?platform=ede`
 (`{"enabled", "dsn", "environment", "tracesSampleRate"}`), the answer is cached in

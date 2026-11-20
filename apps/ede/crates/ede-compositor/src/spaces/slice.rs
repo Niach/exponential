@@ -61,6 +61,11 @@ use smithay::reexports::rustix::io::{fcntl_setfd, FdFlags};
 
 use crate::config;
 
+/// Where systemd's manager is, merged `/usr` or not.
+const MANAGERS: [&str; 2] = ["/usr/lib/systemd/systemd", "/lib/systemd/systemd"];
+/// How long a launch waits for its space's bus at the space's start.
+const BUS_SECONDS: u64 = 5;
+
 /// The oldest systemd whose user manager is asked: 252 delegates the cpu
 /// controller to it, so the CPU limit is real (Debian 12 has 252, Ubuntu
 /// 22.04 has 249 and runs its spaces as before).
@@ -78,6 +83,12 @@ pub const EXIT_STOP: Duration = Duration::from_secs(3);
 const GIB: u64 = 1 << 30;
 /// Every memory limit is a multiple of this: the largest page there is.
 const MEMORY_STEP: u64 = 64 << 10;
+/// What a still space takes: its manager and bus, the helpers a toolkit
+/// starts, one browser page. Measured on mint (#EXP-1514, 3.6): 0.5 GB with
+/// Chromium, 0.9 GB with Firefox. A new space is made only while this fits.
+pub const STILL_SPACE: u64 = GIB;
+/// The most spaces there may be, whatever the memory.
+pub const MAX_SPACES: u32 = 32;
 
 /// The person's user manager and the tools that talk to it; in
 /// [`super::Spaces::units`] when launches run in scopes.
@@ -104,6 +115,10 @@ pub struct Units {
     /// of the compositor's own found it ([`Units::probe`]): where the
     /// slices' cgroups are. Never taken from a launch.
     pub app_slice: PathBuf,
+    /// `systemd`, run as a space's own user manager ([`super::session`]).
+    pub manager: PathBuf,
+    /// `dbus-daemon`, the space's bus under that manager.
+    pub dbus_daemon: PathBuf,
 }
 
 /// The machine's size.
@@ -184,6 +199,56 @@ pub fn limits(spaces: &config::Spaces, machine: Machine) -> (Vec<(String, u64)>,
     (all, space)
 }
 
+/// How many spaces there may be: the person's `[spaces] max`, else one per
+/// GiB of what all spaces together may use (rounded), at least 1 and at
+/// most [`MAX_SPACES`]: 8 GB of RAM = 4, 16 GB = 8, 64 GB = 31.
+pub fn max_spaces(spaces: &config::Spaces, machine: Machine) -> u32 {
+    if let Some(max) = spaces.max {
+        return max.clamp(1, MAX_SPACES);
+    }
+    let all = limits(spaces, machine).0.iter().find(|(name, _)| name == "MemoryMax").map_or(0, |(_, bytes)| *bytes);
+    ((all + GIB / 2) / GIB).clamp(1, u64::from(MAX_SPACES)) as u32
+}
+
+/// `anon` + `shmem` of a cgroup's `memory.stat`: what its processes hold
+/// that only swap could take away.
+pub fn held(memory_stat: &str) -> u64 {
+    memory_stat.lines().filter_map(|line| line.split_once(' ')).filter(|(name, _)| matches!(*name, "anon" | "shmem")).filter_map(|(_, bytes)| bytes.trim().parse::<u64>().ok()).sum()
+}
+
+/// Whether a new space fits: what the spaces hold now (`memory.stat` of the
+/// slice of all spaces; none = nothing yet) plus one still space under the
+/// slice's `MemoryHigh`. Above it every process of every space is
+/// throttled for as long as nothing frees memory, and every agent's calls
+/// time out. `Err` is the refusal's sentence.
+pub fn room(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>) -> Result<(), String> {
+    let high = limits(spaces, machine).0.iter().find(|(name, _)| name == "MemoryHigh").map_or(0, |(_, bytes)| *bytes);
+    let held = memory_stat.map_or(0, held);
+    if held + STILL_SPACE <= high {
+        return Ok(());
+    }
+    let mib = |bytes: u64| bytes >> 20;
+    Err(format!("no memory for another space: the agent spaces hold {} MiB of their {} MiB", mib(held), mib(high)))
+}
+
+/// What the spaces may take, in words for the log and the doctor: the
+/// count, and that the spaces share their memory (one may take more than
+/// its part while the others are still).
+pub fn described(spaces: &config::Spaces, machine: Machine) -> String {
+    let (all, one) = limits(spaces, machine);
+    let value = |list: &[(String, u64)], name: &str| list.iter().find(|(n, _)| n == name).map_or(0, |(_, v)| *v);
+    let gib = |bytes: u64| format!("{:.1} GiB", bytes as f64 / GIB as f64);
+    format!(
+        "{} spaces at most, {} launches each; together {} of memory, one up to {}: they share it, a new space is made only while {} is free under {}",
+        max_spaces(spaces, machine),
+        spaces.launches,
+        gib(value(&all, "MemoryMax")),
+        gib(value(&one, "MemoryMax")),
+        gib(STILL_SPACE),
+        gib(value(&all, "MemoryHigh")),
+    )
+}
+
 /// What `space-run` is told: one launch of one space.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
@@ -197,6 +262,14 @@ pub struct Run {
     pub cgroup: PathBuf,
     /// The launch's scope.
     pub unit: String,
+    /// A scope whose cgroup is handed to its program (`Delegate=yes`): the
+    /// space's own user manager.
+    #[serde(default)]
+    pub delegate: bool,
+    /// The space's bus: the program starts once it answers (a launch at the
+    /// space's start waits for its manager in its own process).
+    #[serde(default)]
+    pub wait_bus: Option<PathBuf>,
     pub no_expand: bool,
     /// The space's directory: the program's `XDG_RUNTIME_DIR`.
     pub space_dir: PathBuf,
@@ -250,7 +323,8 @@ impl Units {
             return Err(format!("no systemd user manager in {}", runtime.display()));
         }
         let tool = |name: &str| on_path(name).ok_or(format!("{name} is not installed"));
-        let (systemd_run, busctl, systemctl) = (tool("systemd-run")?, tool("busctl")?, tool("systemctl")?);
+        let (systemd_run, busctl, systemctl, dbus_daemon) = (tool("systemd-run")?, tool("busctl")?, tool("systemctl")?, tool("dbus-daemon")?);
+        let manager = MANAGERS.iter().map(PathBuf::from).find(|path| path.is_file()).ok_or("systemd's manager (/usr/lib/systemd/systemd) is not there")?;
         let mut asked = Command::new(&systemd_run);
         asked.arg("--version");
         let output = output_within(asked, Duration::from_secs(u64::from(ASK_SECONDS))).ok_or_else(|| format!("{} --version does not answer", systemd_run.display()))?;
@@ -269,6 +343,8 @@ impl Units {
             compositor: std::process::id(),
             machine: Machine::read(),
             app_slice: PathBuf::new(),
+            manager,
+            dbus_daemon,
         })
     }
 
@@ -293,6 +369,13 @@ impl Units {
         self.all_cgroup().join(space_slice(self.compositor, space))
     }
 
+    /// Whether a new space fits ([`room`]), by what the slice of all spaces
+    /// holds now: one small file, read in the event loop.
+    pub fn room(&self, spaces: &config::Spaces) -> Result<(), String> {
+        let stat = std::fs::read_to_string(self.all_cgroup().join("memory.stat")).ok();
+        room(spaces, self.machine, stat.as_deref())
+    }
+
     /// `inner` (a program and its arguments) as launch number `launch` of
     /// space number `space`: the `space-run` that puts it into its scope.
     /// The command has the compositor's environment; the caller sets what
@@ -300,6 +383,17 @@ impl Units {
     /// its standard input as a JSON object ([`exec_main`] reads it in the
     /// scope). None of either is on an argument, here or later.
     pub fn command(&self, spaces: &config::Spaces, space: u32, launch: u32, space_dir: &Path, inner: &[String]) -> Command {
+        self.scoped(spaces, space, launch_scope(self.compositor, space, launch), false, Some(space_dir.join("bus")), space_dir, inner)
+    }
+
+    /// The space's own user manager (`inner`), start number `start`, in a
+    /// `Delegate=yes` scope of its slice ([`super::session`]).
+    pub fn session_command(&self, spaces: &config::Spaces, space: u32, start: u32, space_dir: &Path, inner: &[String]) -> Command {
+        self.scoped(spaces, space, super::session::session_scope(self.compositor, space, start), true, None, space_dir, inner)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scoped(&self, spaces: &config::Spaces, space: u32, unit: String, delegate: bool, wait_bus: Option<PathBuf>, space_dir: &Path, inner: &[String]) -> Command {
         let (all, one) = limits(spaces, self.machine);
         let run = Run {
             systemd_run: self.systemd_run.clone(),
@@ -308,7 +402,9 @@ impl Units {
             bus: self.bus.clone(),
             slices: vec![Slice { name: spaces_slice(self.compositor), properties: all }, Slice { name: space_slice(self.compositor, space), properties: one }],
             cgroup: self.space_cgroup(space),
-            unit: launch_scope(self.compositor, space, launch),
+            unit,
+            delegate,
+            wait_bus,
             no_expand: self.no_expand(),
             space_dir: space_dir.to_path_buf(),
         };
@@ -362,7 +458,7 @@ impl Units {
         let mut list = self.systemctl(&["list-units", "--all", "--plain", "--no-legend", "app-exponential_p*.slice"]);
         list.stdout(Stdio::piped());
         let Some(output) = output_within(list, Duration::from_secs(u64::from(ASK_SECONDS))) else { return Vec::new() };
-        let alive = |pid: u32| pid != self.compositor && std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| "exponential-compositor".starts_with(comm.trim()) && comm.trim().len() >= 15);
+        let alive = |pid: u32| pid != self.compositor && is_compositor(pid);
         String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.split_whitespace().next())
@@ -370,6 +466,12 @@ impl Units {
             .map(str::to_string)
             .collect()
     }
+}
+
+/// Whether process `pid` is a running exponential-compositor (its name, as
+/// the kernel keeps 15 characters of it).
+pub fn is_compositor(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| "exponential-compositor".starts_with(comm.trim()) && comm.trim().len() >= 15)
 }
 
 /// `app-exponential_p41.slice` → 41: a compositor's slice of all spaces.
@@ -465,12 +567,34 @@ pub fn scope(run: &Run, argv: &[String]) -> Command {
         cmd.arg(format!("--slice={}", slice.name));
     }
     cmd.arg(format!("--unit={}", run.unit)).args(["-p", &format!("TimeoutStopSec={STOP_SECONDS}")]);
+    if run.delegate {
+        cmd.args(["-p", "Delegate=yes"]);
+    }
     if run.no_expand {
         cmd.arg("--expand-environment=no");
     }
     cmd.arg(format!("--setenv=XDG_RUNTIME_DIR={}", run.space_dir.display())).arg("--").args(argv);
     cmd.env("XDG_RUNTIME_DIR", &run.runtime);
     cmd
+}
+
+/// Whether the bus at socket `bus` answers with its user manager on it
+/// (`org.freedesktop.systemd1` has an owner: what `snap run` asks for)
+/// within `limit`. Before that, the systemd package's `Exec=/bin/false`
+/// activation file for that name would answer `snap run`.
+fn bus_answers(busctl: &Path, bus: &Path, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        let mut ask = Command::new(busctl);
+        ask.args([&format!("--address=unix:path={}", bus.display()), "--timeout=1", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner", "s", "org.freedesktop.systemd1"]);
+        if bus.exists() && output_within(ask, Duration::from_secs(2)).is_some_and(|output| output.status.success()) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn failed(stage: &str, reason: String) -> ! {
@@ -488,7 +612,14 @@ pub fn run_main(args: impl Iterator<Item = String>) -> ! {
         failed("space-run", "usage: space-run <launch> -- program [arguments]".into())
     };
     let run: Run = serde_json::from_str(spec).unwrap_or_else(|e| failed("space-run", format!("the launch is not JSON: {e}")));
-    // The space's first launch (or its slice was taken away since): the
+    // A launch waits for its space's bus, which its manager brings (that
+    // one is started first and makes the slices).
+    if let Some(bus) = &run.wait_bus {
+        if !bus_answers(&run.busctl, bus, Duration::from_secs(BUS_SECONDS)) {
+            failed("space-run", format!("the space's session did not start within {BUS_SECONDS} s"));
+        }
+    }
+    // The space's first start (or its slice was taken away since): the
     // slice of all spaces gets the person's limits of now, the space's
     // own is made. Asked of what is there, not remembered.
     if !run.cgroup.is_dir() {
@@ -584,6 +715,8 @@ mod tests {
             compositor: 41,
             machine: Machine { cpus: 8, memory: 16 * GIB },
             app_slice: "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice".into(),
+            manager: "/usr/lib/systemd/systemd".into(),
+            dbus_daemon: "/usr/bin/dbus-daemon".into(),
         }
     }
 
@@ -625,6 +758,32 @@ mod tests {
         assert!(!kill_cgroup(Path::new("/nonexistent/cgroup")));
     }
 
+    /// One space per GiB of what all spaces may use, unless the person
+    /// says; a new one only while a still space fits under `MemoryHigh`.
+    #[test]
+    fn how_many_spaces_and_whether_one_more_fits() {
+        let spaces = config::Spaces::default();
+        let machine = |gib: u64| Machine { cpus: 8, memory: gib * GIB };
+        // MemTotal is a little under the nominal size.
+        let total = |gb: u64| Machine { cpus: 8, memory: gb * GIB / 100 * 97 };
+        assert_eq!([4, 8, 16, 32, 64].map(|gb| max_spaces(&spaces, total(gb))), [2, 4, 8, 16, 31]);
+        assert_eq!(max_spaces(&spaces, machine(256)), 32, "never more than 32");
+        assert_eq!(max_spaces(&spaces, machine(2)), 1);
+        assert_eq!(max_spaces(&spaces, Machine { cpus: 1, memory: GIB / 2 }), 1, "at least one");
+        assert_eq!(max_spaces(&config::Spaces { max: Some(3), ..spaces.clone() }, machine(64)), 3, "the person's number");
+
+        assert_eq!(held("anon 1048576\nfile 99999999\nkernel 5\nshmem 2097152\nshmem_thp 7\n"), 3 << 20);
+        assert_eq!(held(""), 0);
+        // 16 GiB: all spaces 8 GiB, MemoryHigh 7.2 GiB; one more fits while
+        // they hold at most 6.2 GiB.
+        let high = pages(8 * GIB / 10 * 9);
+        assert_eq!(room(&spaces, machine(16), None), Ok(()), "nothing made yet");
+        assert_eq!(room(&spaces, machine(16), Some(&format!("anon {}\nshmem 0\n", high - STILL_SPACE))), Ok(()));
+        let refused = room(&spaces, machine(16), Some(&format!("anon {}\nshmem 4096\n", high - STILL_SPACE)));
+        assert_eq!(refused, Err(format!("no memory for another space: the agent spaces hold {} MiB of their {} MiB", (high - STILL_SPACE + 4096) >> 20, high >> 20)));
+        assert_eq!(described(&spaces, machine(16)), "8 spaces at most, 32 launches each; together 8.0 GiB of memory, one up to 4.8 GiB: they share it, a new space is made only while 1.0 GiB is free under 7.2 GiB");
+    }
+
     /// Half of the cores and half of the memory for all spaces together by
     /// default; one space at least 2 GiB, never more than all of them.
     #[test]
@@ -646,7 +805,7 @@ mod tests {
         let (all, one) = limits(&config::Spaces::default(), Machine { cpus: 4, memory: 2 * GIB });
         assert_eq!((value(&all, "MemoryMax"), value(&one, "MemoryMax")), (Some(GIB), Some(GIB)));
         // The person's own numbers.
-        let own = config::Spaces { cpu_quota: 25, memory_max: 20, space_memory_max: 10, tasks_max: 512 };
+        let own = config::Spaces { cpu_quota: 25, memory_max: 20, space_memory_max: 10, tasks_max: 512, ..Default::default() };
         let (all, one) = limits(&own, Machine { cpus: 32, memory: 128 * GIB });
         assert_eq!(value(&all, "CPUQuotaPerSecUSec"), Some(8_000_000));
         assert_eq!(value(&all, "MemoryMax"), Some(pages(128 * GIB * 20 / 100)));
@@ -669,6 +828,7 @@ mod tests {
         assert_eq!(run.unit, "exponential-p41-s3-7.scope");
         assert_eq!(run.cgroup, units().space_cgroup(3));
         assert!(run.no_expand, "systemd 255 knows the switch");
+        assert_eq!((run.delegate, run.wait_bus.as_deref()), (false, Some(Path::new("/run/user/1000/exponential-desktop/wayland-1.spaces/space-3/bus"))), "a launch waits for its space's bus");
         assert_eq!(cmd.get_envs().count(), 0, "the caller sets the space's environment");
 
         let scope = scope(&run, &inner);
@@ -683,6 +843,18 @@ mod tests {
         let old = Units { version: 253, ..units() };
         let run: Run = serde_json::from_str(&args(&old.command(&config::Spaces::default(), 1, 1, Path::new("/s"), &inner))[1]).unwrap();
         assert!(!run.no_expand && !args(&super::scope(&run, &inner)).iter().any(|arg| arg.starts_with("--expand-environment")));
+    }
+
+    /// The space's own user manager: a scope of the space's slice whose
+    /// cgroup is its own to manage, waiting for no bus (it is the bus's).
+    #[test]
+    fn a_spaces_manager_has_a_delegated_scope() {
+        let cmd = units().session_command(&config::Spaces::default(), 3, 2, Path::new("/s/space-3"), &["/usr/lib/systemd/systemd".to_string(), "--user".to_string()]);
+        let run: Run = serde_json::from_str(&args(&cmd)[1]).unwrap();
+        assert_eq!((run.unit.as_str(), run.delegate, run.wait_bus.as_deref()), ("exponential-p41-s3-session2.scope", true, None));
+        let scope = args(&scope(&run, &["systemd".to_string()]));
+        assert!(scope.windows(2).any(|pair| pair == ["-p", "Delegate=yes"]), "{scope:?}");
+        assert_eq!(args(&cmd)[3..], ["/usr/lib/systemd/systemd", "--user"]);
     }
 
     #[test]
