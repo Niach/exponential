@@ -381,6 +381,8 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     // A wake-up each second: the recovery screen (#EDE-16) appears on an
     // idle desktop without waiting for input.
     event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
+    // #EDE-162: agent spaces on a GPU of their own choosing, never in safe mode.
+    state.start_space_gpu(udev.borrow().safe_mode);
     super::watch_main_loop(&event_loop.handle());
     super::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 

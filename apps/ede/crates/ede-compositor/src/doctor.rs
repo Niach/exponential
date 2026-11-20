@@ -811,7 +811,7 @@ pub fn probe_renderer(render_node: &Path) -> Result<RendererProbe, String> {
 }
 
 /// Software renderers Mesa falls back to (a VM without 3D, no GPU driver).
-const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
+pub(crate) const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
 
 /// `None` = this binary has no udev backend, so nothing was probed.
 /// `gpu_driver` = the probed node belongs to a real GPU's driver, where

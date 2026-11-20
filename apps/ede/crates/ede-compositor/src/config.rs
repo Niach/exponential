@@ -22,6 +22,8 @@ pub struct Config {
     pub idle: Idle,
     pub protected: Protected,
     pub spaces: Spaces,
+    /// `[space_gpu]`: the GPU agent spaces render on (#EDE-162).
+    pub space_gpu: SpaceGpu,
     /// Per-output settings (#EDE-18): `[[outputs]]` with the connector name
     /// (`DP-1`, `HEADLESS-1`); an output not listed takes its preferred
     /// mode, scale 1 and the next place to the right.
@@ -106,6 +108,24 @@ pub struct Protected {
     pub app_ids: Vec<String>,
 }
 
+/// `[space_gpu]`: the GPU agent spaces render on (#EDE-162). `device`:
+/// `"auto"` = a GPU the person's displays are not on when the machine (not
+/// a laptop) has two or more, else the one driving the displays, if its
+/// driver is one proven for spaces (nvidia, i915, xe); `"software"` = pixman
+/// and software drawing; a render node (`"/dev/dri/renderD128"`) = that GPU,
+/// whatever its driver. Read at the compositor's start.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpaceGpu {
+    pub device: String,
+}
+
+impl Default for SpaceGpu {
+    fn default() -> Self {
+        Self { device: "auto".into() }
+    }
+}
+
 /// `[spaces]`: what agent spaces may take of this machine (#EDE-138).
 /// The person's to set; no grant and no agent's call carries a limit.
 /// Read when a space starts its first program, and when one is made.
@@ -179,6 +199,7 @@ impl Default for Config {
             idle: Idle::default(),
             protected: Protected::default(),
             spaces: Spaces::default(),
+            space_gpu: SpaceGpu::default(),
             outputs: Vec::new(),
             diagnostics: Diagnostics::default(),
             theme: toml::Table::new(),
@@ -277,6 +298,9 @@ impl Config {
             if !(1..=100).contains(&percent) {
                 return Err(format!("[spaces] {name} is a percentage from 1 to 100, got {percent}"));
             }
+        }
+        if !(cfg.space_gpu.device == "auto" || cfg.space_gpu.device == "software" || cfg.space_gpu.device.starts_with("/dev/dri/")) {
+            return Err(format!("[space_gpu] device is \"auto\", \"software\" or a render node (/dev/dri/renderD128), got {:?}", cfg.space_gpu.device));
         }
         if cfg.spaces.tasks_max < 64 {
             return Err(format!("[spaces] tasks_max must be 64 or more, got {}", cfg.spaces.tasks_max));

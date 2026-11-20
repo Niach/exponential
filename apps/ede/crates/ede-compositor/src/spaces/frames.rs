@@ -8,6 +8,10 @@
 //! at, and the captures' turns after the person's frames ([`queue`]).
 
 mod damage;
+#[cfg(feature = "gpu")]
+pub mod gpu;
+#[cfg(feature = "gpu")]
+mod passes;
 mod queue;
 mod stats;
 
@@ -39,6 +43,36 @@ use crate::{
 pub(crate) struct Frames {
     queue: queue::Queue,
     stats: stats::Stats,
+    /// The spaces' GPU renderer, the spaces captured on it, the passes on
+    /// their way back ([`passes`]).
+    #[cfg(feature = "gpu")]
+    gpu: passes::Gpu,
+    #[cfg(feature = "gpu")]
+    on_gpu: std::collections::HashMap<DeskId, bool>,
+    #[cfg(feature = "gpu")]
+    passes: std::collections::HashMap<u64, passes::Pass>,
+    #[cfg(feature = "gpu")]
+    next_pass: u64,
+    #[cfg(feature = "gpu")]
+    sweeping: bool,
+}
+
+/// Without the `gpu` feature every space draws in software.
+#[cfg(not(feature = "gpu"))]
+impl Ede {
+    pub fn start_space_gpu(&mut self, _safe_mode: bool) {}
+
+    pub fn space_on_gpu(&mut self, _desk: DeskId) -> bool {
+        false
+    }
+
+    fn space_gpu_busy(&self, _desk: DeskId) -> bool {
+        false
+    }
+
+    fn space_gpu_capture(&mut self, _desk: DeskId, jobs: Vec<queue::Waiting>) -> Result<Duration, Vec<queue::Waiting>> {
+        Err(jobs)
+    }
 }
 
 /// A tick this long after a commit while the space is in use: driven or
