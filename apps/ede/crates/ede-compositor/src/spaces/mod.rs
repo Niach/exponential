@@ -11,6 +11,7 @@
 
 mod close;
 pub mod frames;
+pub mod guard;
 mod input;
 pub mod launch;
 pub mod ipc;
@@ -89,11 +90,13 @@ pub struct Spaces {
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
+    /// #EDE-146..148: the space guard, as this session decided ([`guard`]).
+    pub guard: guard::GuardState,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), expiry_grace: close::EXPIRY_GRACE, guard: guard::GuardState::default() }
     }
 }
 

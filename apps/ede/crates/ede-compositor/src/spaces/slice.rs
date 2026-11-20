@@ -20,8 +20,8 @@
 //! 2. `systemd-run --user --scope`, which asks the person's user manager
 //!    for the scope and, inside it, becomes
 //! 3. `exponential-compositor space-enter <spaces> -- …` ([`enter_main`]),
-//!    the first program of every scope into a space (#EDE-146's guard
-//!    goes there; until then it only becomes the next), which becomes
+//!    the first program of every scope into a space (with `--guard` it
+//!    asks the space guard first, #EDE-146..148), which becomes
 //! 4. `exponential-compositor space-exec` ([`exec_main`]), which takes
 //!    the caller's environment from its standard input and becomes the
 //!    program.
@@ -119,6 +119,10 @@ pub struct Units {
     pub manager: PathBuf,
     /// `dbus-daemon`, the space's bus under that manager.
     pub dbus_daemon: PathBuf,
+    /// #EDE-146..148: the space guard's socket when the guard is installed
+    /// ([`super::guard`]). Then every scope into a space asks it first and
+    /// nothing runs in a space it did not guard, for the whole run.
+    pub guard: Option<PathBuf>,
 }
 
 /// The machine's size.
@@ -273,6 +277,9 @@ pub struct Run {
     pub no_expand: bool,
     /// The space's directory: the program's `XDG_RUNTIME_DIR`.
     pub space_dir: PathBuf,
+    /// The space guard `space-enter` asks before anything runs ([`Units::guard`]).
+    #[serde(default)]
+    pub guard: Option<PathBuf>,
 }
 
 impl Units {
@@ -345,6 +352,7 @@ impl Units {
             app_slice: PathBuf::new(),
             manager,
             dbus_daemon,
+            guard: None,
         })
     }
 
@@ -407,6 +415,7 @@ impl Units {
             wait_bus,
             no_expand: self.no_expand(),
             space_dir: space_dir.to_path_buf(),
+            guard: self.guard.clone(),
         };
         let mut cmd = Command::new(&self.shim);
         cmd.arg0("exponential-compositor").arg("space-run").arg(serde_json::to_string(&run).expect("a launch is JSON")).arg("--").args(inner);
@@ -639,23 +648,86 @@ pub fn run_main(args: impl Iterator<Item = String>) -> ! {
     let image = image.unwrap_or_else(|e| failed("space-run", format!("this program's image: {e}")));
     let image_path = format!("/proc/self/fd/{image}");
     let spaces = run.space_dir.parent().unwrap_or(&run.space_dir).to_string_lossy().into_owned();
-    let mut inside = vec![image_path.clone(), "space-enter".to_string(), spaces, "--".to_string(), image_path, "space-exec".to_string(), image.to_string(), "--".to_string()];
+    let mut inside = vec![image_path.clone(), "space-enter".to_string()];
+    if let Some(guard) = &run.guard {
+        inside.extend(["--guard".to_string(), guard.to_string_lossy().into_owned()]);
+    }
+    inside.extend([spaces, "--".to_string(), image_path, "space-exec".to_string(), image.to_string(), "--".to_string()]);
     inside.extend(argv.iter().cloned());
     failed("space-run", format!("{}: {}", run.systemd_run.display(), scope(&run, &inside).exec()))
 }
 
-/// `exponential-compositor space-enter <spaces> -- argv…`: the first
-/// program in every systemd scope into a space (a launch's, and the
-/// space's own user manager's), `<spaces>` = the compositor's directory of
-/// spaces. #EDE-146's guard goes here; until then it becomes `argv` and
-/// does nothing else. Never returns.
+/// `exponential-compositor space-enter [--guard <socket>] <spaces> -- argv…`:
+/// the first program in every systemd scope into a space (a launch's, and
+/// the space's own user manager's), `<spaces>` = the compositor's
+/// directory of spaces. With `--guard` it first asks the space guard
+/// (#EDE-146..148) to guard the space slice it is in, and becomes `argv`
+/// only when the guard says so: a space's first program runs with the
+/// guard's programs on its slice, or not at all. Never returns.
 pub fn enter_main(args: impl Iterator<Item = String>) -> ! {
-    let args: Vec<String> = args.collect();
-    let (Some(_spaces), Some("--"), Some(argv)) = (args.first(), args.get(1).map(String::as_str), args.get(2..).filter(|argv| !argv.is_empty())) else {
-        failed("space-enter", "usage: space-enter <spaces> -- program [arguments]".into())
+    let mut args: Vec<String> = args.collect();
+    let guard = match args.first().map(String::as_str) {
+        Some("--guard") if args.len() > 1 => {
+            let socket = args.remove(1);
+            args.remove(0);
+            Some(PathBuf::from(socket))
+        }
+        _ => None,
     };
+    let (Some(spaces), Some("--"), Some(argv)) = (args.first(), args.get(1).map(String::as_str), args.get(2..).filter(|argv| !argv.is_empty())) else {
+        failed("space-enter", "usage: space-enter [--guard <socket>] <spaces> -- program [arguments]".into())
+    };
+    if let Some(socket) = guard {
+        if let Err(reason) = ede_space_guard::client::ask(&socket, &ede_space_guard::Request::Enter { spaces: spaces.clone() }) {
+            failed("space-enter", reason);
+        }
+    }
     failed("space-enter", format!("{}: {}", argv[0], Command::new(&argv[0]).args(&argv[1..]).exec()))
 }
+
+/// Does the space guard answer at `socket` (it loads its programs on this
+/// kernel)? `Err` says why not. Blocks for at most the guard client's
+/// timeout: in the session's probe thread and in `space-enter` only.
+pub fn guard_probe(socket: &Path) -> Result<(), String> {
+    if !socket.exists() {
+        return Err("the space guard is not installed (exponential-space-guard.socket)".into());
+    }
+    ede_space_guard::client::ask(socket, &ede_space_guard::Request::Probe)
+}
+
+/// #EDE-146: polkit refuses a space's programs. Asked of polkit itself: a
+/// probe in a scope of the slice of all spaces (no connect program there,
+/// so it reaches polkit) checks the package's probe action, which anyone is
+/// allowed and the package's rule answers with a challenge for a space's
+/// process: `pkcheck` exits 2 exactly when the rule was read. `Err` says
+/// why not. Blocks for at most 5 s: in the session's probe thread only.
+pub fn polkit_probe(units: &Units) -> Result<(), String> {
+    let mut probe = Command::new(&units.systemd_run);
+    probe.args(["--user", "--scope", "--quiet", "--collect", &format!("--slice={}", spaces_slice(units.compositor)), &format!("--unit=exponential-p{}-polkit.scope", units.compositor), "-p", "RuntimeMaxSec=10"]);
+    // From systemd 258 on a scope's argv has its `$…` replaced: `$$` would
+    // reach the shell as `$`.
+    if units.no_expand() {
+        probe.arg("--expand-environment=no");
+    }
+    // The shell is the subject (in the scope); its line tells pkcheck's
+    // answer apart from systemd-run's own failure. Both by their paths:
+    // nothing on the person's PATH stands in for them.
+    probe.args(["--", "/bin/sh", "-c", &format!("/usr/bin/pkcheck --action-id {POLKIT_PROBE_ACTION} --process $$ >/dev/null 2>&1; echo pkcheck=$?")]).env("XDG_RUNTIME_DIR", &units.runtime);
+    let Some(out) = output_within(probe, Duration::from_secs(5)) else { return Err("the polkit probe did not answer".into()) };
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "pkcheck=2" => Ok(()),
+        "pkcheck=0" => Err(format!("polkit authorizes a space's programs: {POLKIT_RULE} is missing or not read")),
+        "pkcheck=1" => Err("polkit refuses the probe outright: another rule answers before the package's".into()),
+        "pkcheck=3" => Err("the polkit probe was dismissed".into()),
+        "" => Err(format!("the polkit probe could not start ({})", out.status)),
+        other => Err(format!("the polkit probe ended with {other} (no pkcheck, no polkit, or no probe action)")),
+    }
+}
+
+/// The package's polkit rule (#EDE-146).
+pub const POLKIT_RULE: &str = "/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules";
+/// The package's probe action, which the rule answers with a challenge.
+pub const POLKIT_PROBE_ACTION: &str = "at.exponential.desktop.space-probe";
 
 /// `… space-exec <descriptor> -- argv…`, in the launch's scope: closes
 /// the descriptor it was found through, reads the caller's environment
@@ -717,7 +789,43 @@ mod tests {
             app_slice: "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice".into(),
             manager: "/usr/lib/systemd/systemd".into(),
             dbus_daemon: "/usr/bin/dbus-daemon".into(),
+            guard: None,
         }
+    }
+
+    /// #EDE-146: the polkit probe asks polkit from a scope of the slice of
+    /// all spaces and reads pkcheck's answer: 1 (not authorized) = the rule
+    /// is read; 0 = it is not; anything else, or no answer, says why.
+    #[test]
+    fn the_polkit_probe_reads_pkchecks_answer_from_a_scope_of_the_spaces_slice() {
+        let dir = std::env::temp_dir().join(format!("ede-polkit-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("systemd-run");
+        // A stand-in that writes down its arguments, prints what the probe's
+        // shell would, and exits as systemd-run would.
+        let answer = |line: &str, code: u8| {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf '{line}'\nexit {code}\n", dir.join("args").display())).unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            polkit_probe(&Units { systemd_run: fake.clone(), ..units() })
+        };
+        assert_eq!(answer("pkcheck=2\\n", 0), Ok(()));
+        let args = std::fs::read_to_string(dir.join("args")).unwrap();
+        assert_eq!(
+            args.lines().collect::<Vec<_>>(),
+            ["--user", "--scope", "--quiet", "--collect", "--slice=app-exponential_p41.slice", "--unit=exponential-p41-polkit.scope", "-p", "RuntimeMaxSec=10", "--expand-environment=no", "--", "/bin/sh", "-c", "/usr/bin/pkcheck --action-id at.exponential.desktop.space-probe --process $$ >/dev/null 2>&1; echo pkcheck=$?"]
+        );
+        assert_eq!(answer("pkcheck=0\\n", 0), Err(format!("polkit authorizes a space's programs: {POLKIT_RULE} is missing or not read")));
+        // A plain NO (another rule, a broken one) does not prove ours.
+        assert!(answer("pkcheck=1\\n", 0).unwrap_err().contains("another rule"));
+        assert!(answer("pkcheck=127\\n", 0).unwrap_err().contains("no pkcheck"));
+        // systemd-run's own failure (exit 1, the shell never ran) is no answer.
+        assert!(answer("", 1).unwrap_err().contains("could not start"));
+        // systemd before 254 has no --expand-environment (and expands nothing).
+        let _ = answer("pkcheck=2\\n", 0);
+        assert_eq!(polkit_probe(&Units { systemd_run: fake.clone(), version: 253, ..units() }), Ok(()));
+        assert!(!std::fs::read_to_string(dir.join("args")).unwrap().contains("--expand-environment"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn args(cmd: &Command) -> Vec<String> {
