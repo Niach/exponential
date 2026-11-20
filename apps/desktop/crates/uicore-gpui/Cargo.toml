@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 eui-core = { path = "../eui-core" }
 eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor", "vendored-spinner"] }
-ede-ui = { path = "../../../ede/crates/ede-ui" }
+ede-ui = { path = "../../../ede/crates/ede-ui", default-features = false }
 uicore-data = { path = "../uicore-data" }
 uicore-docs = { path = "../uicore-docs" }
 # #EDE-65: the rail glyphs' tokens and the Claude mark's brand colour, as the IDE paints them.
