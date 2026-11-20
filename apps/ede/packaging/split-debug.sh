@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # #LOGS-2: moves the DWARF out of the staged binaries for GlitchTip's
 # symbolication: apps/ede/packaging/split-debug.sh <stage> <out>
-# Each ELF in <stage>/usr/bin and the portal backend gets <out>/<name>.debug
+# Each ELF in <stage>/usr/bin, the portal backend and the space guard gets <out>/<name>.debug
 # (objcopy --only-keep-debug, the GNU build-id note kept), then loses its
 # debug sections in place (--strip-debug, a .gnu_debuglink to the file), so
 # what ships is what a release without debug info ships (cargo's default
@@ -12,7 +12,7 @@ set -euo pipefail
 stage="$1"
 out="$2"
 mkdir -p "$out"
-for bin in "$stage"/usr/bin/* "$stage"/usr/libexec/xdg-desktop-portal-exponential; do
+for bin in "$stage"/usr/bin/* "$stage"/usr/libexec/xdg-desktop-portal-exponential "$stage"/usr/libexec/exponential-space-guard; do
   [ -f "$bin" ] || continue
   file -b "$bin" | grep -q '^ELF' || continue
   name="$(basename "$bin")"

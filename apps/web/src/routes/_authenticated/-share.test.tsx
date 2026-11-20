@@ -22,9 +22,11 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
 }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useLiveQuery: () => ({ data: mocks.agents }),
+  // Every query reads the page team's agents (#EXP-1987: the page lists them
+  // through agentsInTeam, so each carries the team).
+  useLiveQuery: () => ({ data: (mocks.agents as object[]).map((agent) => ({ teamId: `id-acme`, ...agent })) }),
 }))
-vi.mock(`@/lib/collections`, () => ({ agentCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ agentCollection: {}, teamCollection: {} }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamMemberships: () => ({ myTeams: mocks.teams }),
 }))

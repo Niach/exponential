@@ -6,6 +6,7 @@ import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
+import { mergedAgentPick } from "@/lib/agents/team-picks"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { gatedComputerUse } from "@/lib/sessions/computer-use"
 import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
@@ -43,15 +44,26 @@ export async function configureSession(
   })
   // #EXP-1984: the Assistant's conversation (its member's personal team)
   // picks among the rows of every team of theirs.
-  const pickTeams =
+  const personal =
     (input.mcpServerIds !== undefined || input.skillIds !== undefined) && target.teamId === (await getPersonalTeamId(userId))
-      ? await getUserTeamIds(userId)
-      : [target.teamId]
+  const pickTeams = personal ? await getUserTeamIds(userId) : [target.teamId]
+  // #EXP-1988 (agent-settings.json `assistant.teamPicks`): there a write
+  // replaces the picks of the teams it names and keeps another team's.
+  const merged = async (kind: `skills` | `mcp`, existing: string[] | null, written: string[] | null) => {
+    if (!personal) return written
+    const next = await mergedAgentPick(db, kind, { existing, written: written ?? [], pickTeamId: null, agentTeamId: target.teamId })
+    return next.length > 0 ? next : null
+  }
   const mcpServerIds =
-    input.mcpServerIds === undefined ? undefined : await assertMcpServers(pickTeams, input.mcpServerIds)
+    input.mcpServerIds === undefined
+      ? undefined
+      : await merged(`mcp`, target.mcpServerIds, await assertMcpServers(pickTeams, input.mcpServerIds))
   // #EXP-1656: the skill pick, server-only like the MCP pick (the device
   // reads it back through `sessions.skillPicks` / `skills.resolveForLaunch`).
-  const skillIds = input.skillIds === undefined ? undefined : await assertSkillsInTeam(db, pickTeams, input.skillIds)
+  const skillIds =
+    input.skillIds === undefined
+      ? undefined
+      : await merged(`skills`, target.skillIds, await assertSkillsInTeam(db, pickTeams, input.skillIds))
 
   const picks = runnerPicks(input)
   // #EXP-1899: a person's pick (tRPC only), clamped for a build without the gate.

@@ -450,6 +450,10 @@ pub struct DeviceSettingsView {
     body_h: Rc<std::cell::Cell<gpui::Pixels>>,
     /// The content height the window was last fitted to.
     fitted: Option<gpui::Pixels>,
+    /// #EXP-2027 (sidebar-tree.json): the body hosted as a PAGE in the
+    /// content card ([`crate::device_page::DeviceSettingsPage`]): no window
+    /// fit, no scroll pane of its own, a Remove goes back instead of closing.
+    page: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -626,8 +630,16 @@ impl DeviceSettingsView {
             content_h: Rc::default(),
             body_h: Rc::default(),
             fitted: None,
+            page: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// #EXP-2027: the same body for the device settings PAGE.
+    pub(crate) fn new_page(device_row_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut view = Self::new(device_row_id, window, cx);
+        view.page = true;
+        view
     }
 
     // -- data ------------------------------------------------------------------
@@ -1987,7 +1999,9 @@ impl DeviceSettingsView {
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DeviceSettingsView").entered();
-        self.fit_window(window, cx);
+        if !self.page {
+            self.fit_window(window, cx);
+        }
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let row = self.row(cx);
@@ -1997,7 +2011,14 @@ impl Render for DeviceSettingsView {
         // close DEFERS, so calling it from a render is safe (and the confirm's
         // `on_ok` runs inside the alert window, which cannot close this one).
         if self.removed {
-            native_dialog::close_dialog_window(window, cx);
+            if self.page {
+                // #EXP-2027: the page has no window to close: back to where
+                // the person came from, once.
+                self.removed = false;
+                window.defer(cx, |window, cx| crate::navigation::go_back(window, cx));
+            } else {
+                native_dialog::close_dialog_window(window, cx);
+            }
         }
         let muted = cx.theme().muted_foreground;
         let server = row
@@ -2122,6 +2143,10 @@ impl Render for DeviceSettingsView {
         // EXP-1020: ONE column. The second one (EXP-762/798) existed to park
         // the worktrees beside the settings, and a machine's worktrees are a
         // LOCAL surface now — Settings → Worktrees.
+        // #EXP-2027: the page's scaffold scrolls; the body goes in as it is.
+        if self.page {
+            return div().w_full().min_w_0().child(body).into_any_element();
+        }
         let body = div().w_full().child(body.pr_2().pb_2()).on_prepaint(move |bounds, _, cx| {
             if content_slot.get() != bounds.size.height {
                 content_slot.set(bounds.size.height);
@@ -2151,6 +2176,7 @@ impl Render for DeviceSettingsView {
                         }
                     }),
             )
+            .into_any_element()
     }
 }
 

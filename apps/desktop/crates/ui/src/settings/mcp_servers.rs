@@ -54,7 +54,7 @@ use eui_gpui::view::SurfaceView;
 use sync::Store;
 
 use crate::native_dialog::{open_alert, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{empty_state, eq, failed_state, hex, mount_with, not, path, IdeToasts, Ink, PillPaint, SM, XS};
@@ -387,7 +387,7 @@ impl McpServersPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// The instance the built-in rows' URLs start with (the active

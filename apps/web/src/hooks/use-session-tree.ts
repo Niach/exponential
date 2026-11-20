@@ -329,7 +329,7 @@ export function useChatsList(teamId: string | readonly string[] | null | undefin
 
 /** #EDE-99: the Chats list's title of every root of a team (the global
  *  search's chat rows), over the same team-wide title context. */
-export function useTeamChatTitles(teamId: string | null | undefined): Map<string, string> {
+export function useTeamChatTitles(teamId: string | readonly string[] | null | undefined): Map<string, string> {
   const teamIds = teamScopeIds(teamId ?? undefined)
   const { tree } = useTeamSessions(teamIds)
   const context = useTitleContext(teamIds)

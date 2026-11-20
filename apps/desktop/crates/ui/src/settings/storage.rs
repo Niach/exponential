@@ -39,7 +39,7 @@ use crate::icons::ExpIcon;
 use crate::attachment_markdown_preview::{open_markdown_preview, MarkdownPreviewTarget};
 use crate::issue_files::{format_bytes, icon_for_content_type, is_markdown_attachment};
 use crate::native_dialog::{open_alert, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{and, empty_state, failed_state, hex, mount, not, path, skeleton, IdeToasts, Ink, SM, XS};
@@ -296,7 +296,7 @@ impl StoragePane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = screen_team_id(&self.nav, cx) else {
             return;
         };
         let view = cx.entity().downgrade();
@@ -368,7 +368,7 @@ impl StoragePane {
         if let Some(team) = &self.shot_team {
             return Some(team.clone());
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     /// The pane as the document binds it; the issue identifier and the
@@ -460,7 +460,7 @@ impl StoragePane {
             "preview" => {
                 let url = format!("/api/attachments/{}", row.id);
                 if is_markdown_attachment(Some(&row.content_type), Some(&row.filename)) {
-                    let target = MarkdownPreviewTarget { attachment_id: row.id.clone(), filename: row.filename.clone(), size_bytes: row.size_bytes, team_id: active_team_id(&self.nav, cx) };
+                    let target = MarkdownPreviewTarget { attachment_id: row.id.clone(), filename: row.filename.clone(), size_bytes: row.size_bytes, team_id: screen_team_id(&self.nav, cx) };
                     open_markdown_preview(target, window, cx);
                 } else {
                     crate::image_preview::open_image_preview(url, row.filename.clone(), None, None, window, cx);

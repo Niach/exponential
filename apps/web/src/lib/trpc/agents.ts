@@ -16,6 +16,7 @@ import {
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
+import { mergedAgentPick } from "@/lib/agents/team-picks"
 import { db } from "@/db/connection"
 import { appTriggerIssues, keepUnknownKinds, mergeTriggerWrite, TRIGGER_ISSUE_MESSAGES } from "@/lib/agents/app-triggers"
 import {
@@ -410,6 +411,11 @@ export const agentsRouter = router({
         skillIds: agentSkillIdsSchema.optional(),
         // #EXP-1793: the team MCP servers every run of the agent starts with.
         mcpServerIds: agentMcpServerIdsSchema.optional(),
+        // #EXP-1988 (agent-settings.json `assistant.teamPicks`): the team
+        // whose picks `skillIds` / `mcpServerIds` replace (a section of
+        // Settings › Assistant); unset = the agent's own team and the teams
+        // the written ids name (`mergeTeamPicks`).
+        pickTeamId: uuid.optional(),
         // #EXP-1847 (agent-settings.json `voice`): the agent's own voice; a
         // key set to null clears it (the clip has its own route).
         voice: agentVoicePatchSchema.optional(),
@@ -485,13 +491,41 @@ export const agentsRouter = router({
         const accountWrite = input.account !== undefined || account !== agent.account ? { account } : {}
         // #EXP-1984: an Assistant (personal team) picks among the rows of
         // every team of its member; a team agent among its own team's.
-        const pickTeams = agent.role === `assistant` ? await getUserTeamIds(agent.ownerId) : agent.teamId
+        const pickTeams = agent.role === `assistant` ? await getUserTeamIds(agent.ownerId) : [agent.teamId]
+        // #EXP-1988: a write names one team's picks (`pickTeamId`) or merges
+        // per team (`mergeTeamPicks`): another team's picks stay.
+        if (input.pickTeamId && !pickTeams.includes(input.pickTeamId)) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `Not a team of this agent` })
+        }
+        const writeTeams = input.pickTeamId ? [input.pickTeamId] : pickTeams
+        const pickTeamId = input.pickTeamId ?? null
+        // Read under the row lock: two sections saving at once both land.
+        const [current] =
+          input.skillIds !== undefined || input.mcpServerIds !== undefined
+            ? await tx
+                .select({ skillIds: agents.skillIds, mcpServerIds: agents.mcpServerIds })
+                .from(agents)
+                .where(eq(agents.id, agent.id))
+                .for(`update`)
+            : [agent]
         const skillIds =
-          input.skillIds === undefined ? undefined : ((await assertSkillsInTeam(tx, pickTeams, input.skillIds)) ?? [])
+          input.skillIds === undefined
+            ? undefined
+            : await mergedAgentPick(tx, `skills`, {
+                existing: current?.skillIds ?? agent.skillIds,
+                written: (await assertSkillsInTeam(tx, writeTeams, input.skillIds)) ?? [],
+                pickTeamId,
+                agentTeamId: agent.teamId,
+              })
         const mcpServerIds =
           input.mcpServerIds === undefined
             ? undefined
-            : ((await assertMcpServersInTeam(tx, pickTeams, input.mcpServerIds)) ?? [])
+            : await mergedAgentPick(tx, `mcp`, {
+                existing: current?.mcpServerIds ?? agent.mcpServerIds,
+                written: (await assertMcpServersInTeam(tx, writeTeams, input.mcpServerIds)) ?? [],
+                pickTeamId,
+                agentTeamId: agent.teamId,
+              })
         const [updated] = await tx
           .update(agents)
           .set({

@@ -30,36 +30,126 @@ struct AssistantAvatar: View {
     }
 }
 
-/// `agents.ensureAssistant` once per team per app run (the Settings Agents
-/// group mounting is one of its callers).
+/// #EXP-1987 (agent-settings.json `assistant`): `agents.ensureAssistant`
+/// once per app run per (account, team) where the screen has a current team
+/// (the composer home, the chats list, the Settings Agents group: switch off,
+/// that team gets its Assistant on first use), and once per ACCOUNT WITHOUT a
+/// team where it has none (Settings › Assistant, account-level links). The
+/// account-level answer is kept, so that page finds the agent even before
+/// its row syncs; the synced row stays the truth.
 @MainActor
 enum AssistantEnsure {
     private static var ensured: Set<String> = []
+    private static var answers: [String: String] = [:]
 
-    static func run(_ deps: AppDependencies, accountId: String, teamId: String) async {
-        let key = "\(accountId)/\(teamId)"
-        guard !accountId.isEmpty, !ensured.contains(key) else { return }
+    /// The Assistant the team-less `ensureAssistant` answered for this
+    /// account (nil = not asked yet, or no device to run it on).
+    static func agentId(accountId: String) -> String? { answers[accountId] }
+
+    @discardableResult
+    static func run(_ deps: AppDependencies, accountId: String, teamId: String?) async -> String? {
+        guard !accountId.isEmpty else { return nil }
+        let key = teamId.map { "\(accountId)/\($0)" } ?? accountId
+        guard !ensured.contains(key) else { return teamId == nil ? answers[accountId] : nil }
         ensured.insert(key)
         do {
-            try await deps.agentsApi.ensureAssistant(accountId: accountId, teamId: teamId)
+            let agent = try await deps.agentsApi.ensureAssistant(accountId: accountId, teamId: teamId)
+            if teamId == nil { answers[accountId] = agent?.id }
+            // No device yet: ask again on the next mount.
+            if agent == nil { ensured.remove(key) }
+            return agent?.id
         } catch {
-            // Quiet: the next mount in a later run retries; the page reads
-            // `noDevice` until the row syncs.
+            // Quiet: the next mount retries; the page reads `noDevice`
+            // until the row syncs.
             ensured.remove(key)
+            return nil
         }
     }
 }
 
+extension SessionQueries {
+    /// #EXP-1987: the viewer's ONE Assistant for Settings › Assistant,
+    /// whichever team is current: theirs in that team (before the move),
+    /// else the one in a team they do not sync (their personal team after
+    /// it, `agentsInTeam`), else the one `ensureAssistant` answered, else
+    /// their oldest.
+    static func myAssistant(db: Database, teamId: String?, me: String?, answered: String?) throws -> AgentDefinitionEntity? {
+        guard let me else { return nil }
+        if let teamId,
+           let row = try teamAgents(db: db, teamId: teamId, me: me).first(where: { $0.isAssistant && $0.ownerId == me }) {
+            return row
+        }
+        let mine = try agents(db: db, teamId: nil).filter { $0.isAssistant && $0.ownerId == me }
+        let teamIds = Set(try String.fetchAll(db, sql: "SELECT id FROM teams"))
+        return mine.first { !teamIds.contains($0.teamId) }
+            ?? mine.first { $0.id == answered }
+            ?? mine.min { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+    }
+}
+
+/// #EXP-1987 (settings-nav.json `nav`): Settings › Assistant is an ACCOUNT
+/// page: no team of its own. It finds the viewer's ONE Assistant through
+/// `ensureAssistant` (no team: the page has none) and the synced agents, so it reads the same
+/// before the move (theirs in the current team) and after it (the one in
+/// their personal team). The current team only feeds the device list and
+/// the per-team pickers.
 struct AssistantSettingsPage: View {
-    let teamId: String
-    /// nil = not created yet (the member has no device): `copy.noDevice`.
-    let agentId: String?
+    /// An agent page pushed for an Assistant (settings, chats, chat);
+    /// nil = the viewer's own, resolved here.
+    var agentId: String? = nil
 
     @Environment(\.accountId) private var accountId
+    @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
+    @State private var resolved: String?
+    @State private var loaded = false
+
+    private var teamId: String { teamState.activeTeamId ?? "" }
 
     var body: some View {
-        AssistantSettingsContent(teamId: teamId, agentId: agentId, accountId: accountId)
-            .id("\(accountId)/\(agentId ?? "")")
+        Group {
+            if let agentId {
+                content(agentId)
+            } else if loaded {
+                // nil = not created yet (no device): `copy.noDevice`.
+                content(resolved)
+            } else {
+                AppBackground()
+            }
+        }
+        .task(id: "\(accountId)/\(teamId)/\(agentId ?? "")") { await resolve() }
+    }
+
+    private func content(_ id: String?) -> some View {
+        AssistantSettingsContent(teamId: teamId, agentId: id, accountId: accountId)
+            .id("\(accountId)/\(id ?? "")")
+    }
+
+    /// The synced row of the viewer's Assistant, re-read as the agents
+    /// shape changes (its first creation, the move into the personal team).
+    private func resolve() async {
+        guard agentId == nil else { return }
+        let ensure = Task { await AssistantEnsure.run(deps, accountId: accountId, teamId: nil) }
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else {
+            loaded = true
+            return
+        }
+        let teamId = teamState.activeTeamId
+        let me = deps.auth.userId
+        let answered = AssistantEnsure.agentId(accountId: accountId)
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.myAssistant(db: db, teamId: teamId, me: me, answered: answered)?.id
+        }.removeDuplicates()
+        do {
+            for try await next in observation.values(in: pool) {
+                resolved = next
+                // A first read with nothing synced waits for the answer.
+                if next == nil, !loaded { _ = await ensure.value }
+                loaded = true
+            }
+        } catch {
+            loaded = true
+        }
     }
 }
 

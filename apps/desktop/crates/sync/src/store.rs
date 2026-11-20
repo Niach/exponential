@@ -609,7 +609,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
 }
 
 /// Local tables of shapes that left the registry ([`migrate_legacy_schema`]).
-const LEGACY_TABLES: [&str; 5] = ["automations", "coding_sessions", "threads", "thread_items", "actions"];
+const LEGACY_TABLES: [&str; 6] = ["automations", "coding_sessions", "threads", "thread_items", "actions", "pins"];
 
 /// `PRAGMA user_version` once [`backfill_one_tree_columns`] ran.
 const ONE_TREE_STORE_VERSION: i64 = 1730;

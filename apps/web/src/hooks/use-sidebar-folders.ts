@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from "react"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "@exp/ui"
 import {
+  SIDEBAR_FOLDER_DEFAULT_NAME,
   sidebarFolderOpenKey,
   sidebarMove,
   sidebarRows,
@@ -13,11 +14,17 @@ import {
   type SidebarSection,
   type SidebarWrites,
 } from "@exp/domain-contract/sidebar-folders"
+import { sidebarDropSession, type SidebarSessionInput } from "@exp/domain-contract/sidebar-tree"
 import { sidebarLayoutCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { teamListMove } from "@/hooks/use-sidebar-tree"
 
 // #EXP-1832 (fixtures/sidebar-folders.json): one sidebar group's folders and
-// order, x web. The member's synced `sidebar_layout` rows of the active team
+// order, x web. #EXP-2027 (sidebar-tree.json): section `team` = ONE mixed
+// list per team (its boards, agents, apps and placed sessions); a move onto
+// the team row lands at the list's end, New folder appends an empty folder
+// SHOWN while it is named, and a root session dropped from the Active band
+// joins the list (`sidebarDropSession`). The member's synced `sidebar_layout` rows of the active team
 // and section feed the pure `sidebarTree` / `sidebarRows`; a drop runs
 // `sidebarMove` locally, shows its result AT ONCE (an optimistic overlay
 // until the write's txId lands) and sends the writes (`sidebarLayout.save`).
@@ -98,6 +105,8 @@ export function applySidebarWrites(entries: readonly SidebarEntry[], writes: Sid
 
 export interface SidebarFolders {
   rows: SidebarRow[]
+  /** The list's visible targets in DEFAULT order. */
+  items: readonly string[]
   /** The folder whose name is being edited in place. */
   editingId: string | null
   setEditingId: (id: string | null) => void
@@ -105,13 +114,34 @@ export interface SidebarFolders {
   toggle: (folderId: string) => void
   rename: (folderId: string, name: string) => void
   ungroup: (folderId: string) => void
+  /** New folder: an empty `New folder` at the end, its name in edit. */
+  addFolder: () => void
+  /** A root session dropped onto the list (refused for another team / a child). */
+  dropSession: (session: SidebarSessionInput, move: SidebarMove) => void
 }
 
-/** `ids` = the section's visible targets in DEFAULT order. */
+/** The empty folder being named is SHOWN (sidebar-tree.json New folder):
+ *  appended at the end while `editingId` names a folder entry with no row. */
+export function withEditingFolder(
+  rows: readonly SidebarRow[],
+  entries: readonly SidebarEntry[],
+  editingId: string | null
+): SidebarRow[] {
+  if (!editingId || rows.some((row) => row.id === editingId)) return [...rows]
+  const folder = entries.find((entry) => entry.id === editingId && entry.kind === `folder`)
+  if (!folder) return [...rows]
+  return [
+    ...rows,
+    { kind: `folder`, id: folder.id, depth: 0, group: true, name: folder.name ?? SIDEBAR_FOLDER_DEFAULT_NAME, open: true, count: 0 },
+  ]
+}
+
+/** `ids` = the section's visible targets in DEFAULT order, or (#EXP-2027,
+ *  a team list whose placed sessions are entries) a function of the entries. */
 export function useSidebarFolders(
   teamId: string | undefined,
   section: SidebarSection,
-  ids: readonly string[]
+  ids: readonly string[] | ((entries: readonly SidebarEntry[]) => readonly string[])
 ): SidebarFolders {
   const { data } = useLiveQuery(
     (query) =>
@@ -128,14 +158,16 @@ export function useSidebarFolders(
   const [editingId, setEditingId] = useState<string | null>(null)
   const closed = useSyncExternalStore(subscribeOpen, closedSnapshot, () => ``)
   const closedSet = useMemo(() => new Set(closed.split(`\n`)), [closed])
-  const idsKey = ids.join(`,`)
+  const resolved = typeof ids === `function` ? ids(entries) : ids
+  const idsKey = resolved.join(`,`)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by content
-  const stableIds = useMemo(() => [...ids], [idsKey])
+  const stableIds = useMemo(() => [...resolved], [idsKey])
 
   const rows = useMemo(() => {
     const tree = sidebarTree(stableIds, entries)
-    return sidebarRows(tree, (folderId) => !teamId || !closedSet.has(sidebarFolderOpenKey(teamId, folderId)))
-  }, [stableIds, entries, closedSet, teamId])
+    const shown = sidebarRows(tree, (folderId) => !teamId || !closedSet.has(sidebarFolderOpenKey(teamId, folderId)))
+    return withEditingFolder(shown, entries, editingId)
+  }, [stableIds, entries, closedSet, teamId, editingId])
 
   const send = useCallback(
     (writes: SidebarWrites | null) => {
@@ -151,14 +183,64 @@ export function useSidebarFolders(
     [teamId, section, entries]
   )
 
+  /** A team list's move onto its team row → the list's end. */
+  const resolveMove = useCallback(
+    (moveInput: SidebarMove) =>
+      section === `team` && teamId ? teamListMove(moveInput, teamId, stableIds, entries) : { move: moveInput },
+    [section, teamId, stableIds, entries]
+  )
+
   const move = useCallback(
     (moveInput: SidebarMove) => {
-      const writes = sidebarMove({ items: stableIds, entries, move: moveInput, newFolderId: crypto.randomUUID() })
+      const resolvedMove = resolveMove(moveInput)
+      if (!resolvedMove || !(`move` in resolvedMove)) return
+      const writes = sidebarMove({ items: stableIds, entries, move: resolvedMove.move, newFolderId: crypto.randomUUID() })
       send(writes)
       if (writes?.createdFolderId) setEditingId(writes.createdFolderId)
     },
-    [stableIds, entries, send]
+    [resolveMove, stableIds, entries, send]
   )
+
+  const dropSession = useCallback(
+    (session: SidebarSessionInput, moveInput: SidebarMove) => {
+      if (!teamId) return
+      const resolvedMove = resolveMove(moveInput)
+      if (!resolvedMove) return
+      if (!(`move` in resolvedMove)) {
+        // An empty team: the session is its list's first node.
+        if (session.teamId !== teamId || session.parentId !== null) return
+        send({
+          upserts: [{ id: null, kind: `item`, targetId: session.id, parentId: null, name: null, sortOrder: 1 }],
+          deletes: [],
+          createdFolderId: null,
+        })
+        return
+      }
+      const writes = sidebarDropSession({
+        teamId,
+        items: stableIds,
+        entries,
+        session,
+        move: resolvedMove.move,
+        newFolderId: crypto.randomUUID(),
+      })
+      send(writes)
+      if (writes?.createdFolderId) setEditingId(writes.createdFolderId)
+    },
+    [teamId, resolveMove, stableIds, entries, send]
+  )
+
+  const addFolder = useCallback(() => {
+    if (!teamId) return
+    const id = crypto.randomUUID()
+    const top = sidebarTree(stableIds, entries).length
+    send({
+      upserts: [{ id, kind: `folder`, targetId: null, parentId: null, name: SIDEBAR_FOLDER_DEFAULT_NAME, sortOrder: top + 1 }],
+      deletes: [],
+      createdFolderId: id,
+    })
+    setEditingId(id)
+  }, [teamId, stableIds, entries, send])
 
   const ungroup = useCallback(
     (folderId: string) => send(sidebarUngroup(stableIds, entries, folderId)),
@@ -184,5 +266,5 @@ export function useSidebarFolders(
     [teamId, closedSet]
   )
 
-  return { rows, editingId, setEditingId, move, toggle, rename, ungroup }
+  return { rows, items: stableIds, editingId, setEditingId, move, toggle, rename, ungroup, addFolder, dropSession }
 }

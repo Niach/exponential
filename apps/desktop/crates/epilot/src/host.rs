@@ -251,7 +251,9 @@ impl Host {
         let (label, seq) = (lock.label.clone(), lock.seq);
         drop(lock);
         if engaged {
-            log::info!("[computer] input locked for {label}");
+            // #ERR-33: the session's id, never its label (a title: the
+            // breadcrumbs of a report carry this line).
+            log::info!("[computer] input locked for session {session_id}");
             self.announce(seq, Some(label));
             self.start_janitor();
         }

@@ -24,20 +24,25 @@ pub const SIDEBAR_MAX_DEPTH: u8 = 2;
 /// A folder name's longest saved form (UTF-16 code units, like JS `slice`).
 pub const SIDEBAR_FOLDER_NAME_MAX: usize = 80;
 
-/// One sidebar group's rows (the `section` column).
+/// One sidebar group's rows (the `section` column). `Team` (#EXP-2027,
+/// sidebar-tree.json) = one mixed list per team; board, agent, app = the
+/// phones' old per-kind groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SidebarSection {
+    Team,
     Board,
     Agent,
     App,
 }
 
 impl SidebarSection {
-    pub const ALL: [SidebarSection; 3] = [SidebarSection::Board, SidebarSection::Agent, SidebarSection::App];
+    pub const ALL: [SidebarSection; 4] =
+        [SidebarSection::Team, SidebarSection::Board, SidebarSection::Agent, SidebarSection::App];
 
     pub fn as_str(self) -> &'static str {
         match self {
+            SidebarSection::Team => "team",
             SidebarSection::Board => "board",
             SidebarSection::Agent => "agent",
             SidebarSection::App => "app",

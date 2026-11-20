@@ -100,7 +100,7 @@ describe(`desktop attribution`, () => {
   })
 
   test(`an unmatched desktop module widens the whole lane`, () => {
-    const result = scope(`apps/desktop/crates/ui/src/sidebar.rs`)
+    const result = scope(`apps/desktop/crates/ui/src/controls.rs`)
     expect(views(result, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
     expect(views(result, `web`)).toEqual([])
   })
@@ -793,7 +793,7 @@ describe(`fail-safe`, () => {
 describe(`content drops`, () => {
   test(`a path a content check dropped is reported as ignored, not widened`, () => {
     const result = affectedScope({
-      changedFiles: [`apps/ios/Project.swift`, `apps/desktop/crates/ui/src/sidebar.rs`],
+      changedFiles: [`apps/ios/Project.swift`, `apps/desktop/crates/ui/src/controls.rs`],
       platforms: PLATFORMS,
       includeMissing: false,
       contentIgnored: [{ path: `apps/ios/Project.swift`, why: `version-only bump` }],

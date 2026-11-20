@@ -7,7 +7,8 @@ import { probeRealDb } from "@/test/real-db"
 
 // #EXP-1720 (packages/eagent/fixtures/tree.json `treeTeams`, emcp
 // access.json `assistantScope`): the member's Assistant in their hidden
-// personal team works across their teams. Against the REAL migrated Postgres.
+// personal team works across their teams. #EXP-2027 (`treeScope`): a plain
+// chat works in its team + its Teams pick; every session's MCP is clamped. Against the REAL migrated Postgres.
 
 process.env.BETTER_AUTH_SECRET ||= `assistant-scope-test-secret-0123456789abcdef`
 
@@ -29,10 +30,12 @@ const ready = await probeRealDb(
 )
 if (!ready.ok) console.info(`[assistant-scope.real-db] skipped: ${ready.reason}`)
 
-const { sendSession, SCOPE_ASSISTANT_ONLY_MESSAGE, TEAM_OUT_OF_SCOPE_MESSAGE, AGENT_TEAM_ONLY_MESSAGE } = await import(
+const { sendSession, SCOPE_NOT_PICKABLE_MESSAGE, TEAM_OUT_OF_SCOPE_MESSAGE, AGENT_TEAM_ONLY_MESSAGE } = await import(
   `@/lib/sessions/send`
 )
 const { treeTeams } = await import(`@/lib/sessions/tree-teams`)
+const { confineMcpAccessToActingSession } = await import(`@/lib/sessions/acting`)
+const { FULL_ACCESS } = await import(`@/lib/emcp/scope`)
 const { watchSessions } = await import(`@/lib/sessions/bus`)
 const { getMemberTeamIds, getTeamMember, getUserTeamIds } = await import(`@/lib/auth/membership`)
 const { invalidateMembershipCaches } = await import(`@/lib/auth/membership-cache`)
@@ -137,15 +140,78 @@ describe.skipIf(!ready.ok)(`#EXP-1720 the Assistant's teams`, () => {
     expect(sent.sessionId).toBe(w.conv)
   })
 
-  it(`a Teams pick into anything but the Assistant's conversation is refused`, async () => {
+  it(`#EXP-2027: a Teams pick into a child or a team agent's tree is refused`, async () => {
     const w = await world()
     const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
+    const as = { userId: w.me, callerSessionId: chat.sessionId, viaMcp: true }
+    const child = await sendSession({ ...as, input: { parentId: chat.sessionId, text: `Help.` } })
     await expect(
-      sendSession({ userId: w.me, input: { sessionId: chat.sessionId, text: `Hi.`, scopeTeamIds: [w.a] } })
-    ).rejects.toThrow(SCOPE_ASSISTANT_ONLY_MESSAGE)
+      sendSession({ userId: w.me, input: { sessionId: child.sessionId, text: `Hi.`, scopeTeamIds: [w.b] } })
+    ).rejects.toThrow(SCOPE_NOT_PICKABLE_MESSAGE)
     await expect(
       sendSession({ userId: w.me, input: { agentId: w.teamAgent.id, text: `Hi.`, scopeTeamIds: [w.a] } })
-    ).rejects.toThrow(SCOPE_ASSISTANT_ONLY_MESSAGE)
+    ).rejects.toThrow(SCOPE_NOT_PICKABLE_MESSAGE)
+  })
+
+  it(`#EXP-2027: a plain chat's Teams pick becomes its scope; null = its own team only`, async () => {
+    const w = await world()
+    const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
+    expect(await treeTeams(chat.sessionId)).toEqual([w.a])
+    await sendSession({
+      userId: w.me,
+      input: { sessionId: chat.sessionId, text: `B too.`, scopeTeamIds: [w.b, w.foreign, w.a, w.b] },
+    })
+    const [root] = await db.select({ scope: sessions.scopeTeamIds }).from(sessions).where(eq(sessions.id, chat.sessionId))
+    expect(root!.scope).toEqual([w.b])
+    expect(await treeTeams(chat.sessionId)).toEqual([w.a, w.b])
+    await sendSession({ userId: w.me, input: { sessionId: chat.sessionId, text: `A only.`, scopeTeamIds: null } })
+    expect(await treeTeams(chat.sessionId)).toEqual([w.a])
+  })
+
+  it(`#EXP-2027: a new plain chat starts with its Teams pick; its children start in any of its teams`, async () => {
+    const w = await world()
+    const chat = await sendSession({
+      userId: w.me,
+      input: { teamId: w.a, deviceId: w.deviceId, text: `Both boards.`, scopeTeamIds: [w.b, w.foreign] },
+    })
+    const [root] = await db.select().from(sessions).where(eq(sessions.id, chat.sessionId))
+    expect(root).toMatchObject({ teamId: w.a, scopeTeamIds: [w.b], startedByAgentId: null })
+    const as = { userId: w.me, callerSessionId: chat.sessionId, viaMcp: true }
+    const child = await sendSession({ ...as, input: { parentId: chat.sessionId, teamId: w.b, text: `Read B.` } })
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, child.sessionId))
+    expect(row).toMatchObject({ teamId: w.b, rootId: chat.sessionId })
+    await expect(sendSession({ ...as, input: { teamId: w.foreign, text: `Not mine.` } })).rejects.toThrow(
+      TEAM_OUT_OF_SCOPE_MESSAGE
+    )
+  })
+
+  it(`#EXP-2027: a plain chat's session neither starts nor picks outside its teams`, async () => {
+    const w = await world()
+    const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
+    const as = { userId: w.me, callerSessionId: chat.sessionId, viaMcp: true }
+    await expect(sendSession({ ...as, input: { teamId: w.b, deviceId: w.deviceId, text: `B.` } })).rejects.toThrow(
+      TEAM_OUT_OF_SCOPE_MESSAGE
+    )
+    await expect(
+      sendSession({ ...as, input: { sessionId: chat.sessionId, text: `Widen.`, scopeTeamIds: [w.b] } })
+    ).rejects.toThrow(TEAM_OUT_OF_SCOPE_MESSAGE)
+  })
+
+  it(`#EXP-2027: the gate clamps every session's request to its tree's teams`, async () => {
+    const w = await world()
+    const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })
+    const clamp = (sessionId: string | null) =>
+      confineMcpAccessToActingSession(FULL_ACCESS, new Request(`http://test/api/mcp`), w.me, sessionId)
+    expect((await clamp(null)).full).toBe(true)
+    const own = await clamp(chat.sessionId)
+    expect(own).toMatchObject({ full: false, origin: `session` })
+    expect([...own.visibleTeamIds]).toEqual([w.a])
+    await sendSession({ userId: w.me, input: { sessionId: chat.sessionId, text: `B too.`, scopeTeamIds: [w.b] } })
+    expect([...(await clamp(chat.sessionId)).visibleTeamIds].sort()).toEqual([w.a, w.b].sort())
+    const agentConv = await sendSession({ userId: w.me, input: { agentId: w.teamAgent.id, text: `Hi.` } })
+    const agent = await clamp(agentConv.sessionId)
+    expect(agent).toMatchObject({ full: false, origin: `agent` })
+    expect([...agent.visibleTeamIds]).toEqual([w.a])
   })
 
   it(`its children and chats start in a team of its scope, never outside it`, async () => {

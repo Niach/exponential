@@ -4,7 +4,7 @@
 import fixture from "../fixtures/ide-sidebar.json" with { type: "json" }
 // #EXP-1832: the folder tree is domain-contract's (sidebar-folders.json), by
 // path: uicore takes no package dependencies.
-import { sidebarRows, sidebarTree, type SidebarEntry, type SidebarSection } from "../../domain-contract/src/sidebar-folders"
+import { SIDEBAR_FOLDER_DEFAULT_NAME, sidebarRows, sidebarTree, type SidebarEntry, type SidebarNode } from "../../domain-contract/src/sidebar-folders"
 
 export type IdeDot = `amber` | `green` | `primary`
 
@@ -17,21 +17,51 @@ export interface IdeCount {
   tone: IdeTone
 }
 
+/** #EXP-2027 (domain-contract sidebar-tree.json): one item of a team's mixed
+ *  list in the host's default order (`sidebarTeamItems`). */
+export interface IdeItemInput {
+  kind: `board` | `agent` | `app` | `session`
+  id: string
+  name: string
+  icon: string
+  /** An app's slug (its row lights on it too). */
+  slug?: string
+  /** An agent: needs you / its conversation's unread agent messages. */
+  needsYou?: boolean
+  unread?: number
+  /** A session: every session of its tree (its row lights on any). */
+  sessionIds?: string[]
+}
+
+export interface IdeTeamInput {
+  id: string
+  name: string
+  /** The team mark the host paints. */
+  mark: string
+  /** Device-local expanded flag (`openKeys.team`; absent = open). */
+  open?: boolean
+  /** Owners get New › Board | Agent | App and the board gears. */
+  owner?: boolean
+  /** The team's needs-you count (attention). */
+  needsYou?: number
+  items: IdeItemInput[]
+  /** The member's `sidebar_layout` rows of the team's `team` list. */
+  layout?: SidebarEntry[]
+}
+
 export interface IdeSidebarInput {
   /** The open screen as `<kind>` or `<kind>:<id>`. */
   screen: string
   needsYou: number
   drafts: number
   chats: IdeCount
-  owner: boolean
-  pins: { id: string; identifier: string; title: string }[]
-  agents: { id: string; name: string; icon: string; needsYou: boolean; unread: number }[]
-  apps: { id: string; slug: string; name: string; icon: string }[]
-  boards: { id: string; name: string; icon: string }[]
-  active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean }[]
-  /** #EXP-1832: the member's `sidebar_layout` rows per section (none = default order). */
-  layout?: Partial<Record<SidebarSection, SidebarEntry[]>>
-  /** #EXP-1832: the folders this device keeps folded (`sidebarFolderOpenKey`; none = open). */
+  /** #EXP-2027: the Devices row's children in `sidebarDeviceRows` order, and whether it is open. */
+  devices?: { id: string; name: string; icon: string; online: boolean; teamMark?: string | null }[]
+  devicesOpen?: boolean
+  /** #EXP-2027: one entry per team (`sidebarTeams`). */
+  teams?: IdeTeamInput[]
+  active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean; teamMark?: string | null; team?: string | null }[]
+  /** #EXP-1832: the folders this device keeps folded (none = open). */
   closed?: string[]
   /** #EXP-1832: the folder whose name is being edited in place. */
   editingFolder?: string | null
@@ -60,42 +90,89 @@ export interface IdeNavRow {
   tone: IdeTone | null
 }
 
-/** #EXP-1832: a Boards / Agents / Apps row: a target (`item`) or a folder
- *  (`group`, never selected, no badge or gear; its press folds it). */
+export interface IdeMenuEntry {
+  label: string
+  value: string
+  icon: string
+}
+
+/** #EXP-2027: one row of a team's List: the team row (depth 0), a folder
+ *  (depth 1) or an item (depth 1, or 2 inside a folder). */
 export interface IdeRow {
-  kind: `item` | `folder`
+  kind: `team` | `item` | `folder`
+  item: IdeItemInput[`kind`] | null
   id: string
-  /** 0 = top level, 1 = inside a folder. */
-  depth: 0 | 1
+  depth: 0 | 1 | 2
   group: boolean
-  /** A folder's expanded flag (false on an item). */
+  /** A team's or folder's expanded flag (false on an item). */
   open: boolean
   title: string
   icon: string
   selected: boolean
   count: string | null
   tone: IdeTone | null
+  /** The hover gear: agents and apps for every member, boards for owners. */
   gear: boolean
   /** A FOLDED folder's item count; null otherwise. */
   meta: string | null
-  /** A folder's fold glyph: ui-chevron-down open, ui-chevron-right folded. */
+  /** A team's or folder's fold glyph: ui-chevron-down open, ui-chevron-right folded. */
   foldIcon: string | null
   /** The folder's name is an Input in place. */
   editing: boolean
+  /** The team row's New submenu (empty elsewhere). */
+  newItems: IdeMenuEntry[]
 }
 
-type IdeRowBase = Pick<IdeRow, `id` | `title` | `icon` | `selected` | `count` | `tone` | `gear`>
+export interface IdeDeviceRow {
+  kind: `devices` | `device`
+  id: string
+  depth: 0 | 1
+  group: boolean
+  open: boolean
+  title: string
+  icon: string
+  selected: boolean
+  /** Offline: drawn muted. */
+  muted: boolean
+  /** A teammate's server: its team's mark; an online device: the green dot. */
+  mark: string | null
+  foldIcon: string | null
+}
 
-/** The section's rows as the member arranged it: its targets in default
- *  order, placed by its layout; a folded folder's items left out. */
+type IdeRowBase = Pick<IdeRow, `item` | `id` | `title` | `icon` | `selected` | `count` | `tone` | `gear`>
+
+const foldIcon = (open: boolean) => (open ? `ui-chevron-down` : `ui-chevron-right`)
+
+/** `sidebarTree`, plus the folder being named while it holds no item yet
+ *  (sidebar-tree.json New folder), placed among the placed nodes by its
+ *  sortOrder. */
+function teamTree(ids: string[], entries: readonly SidebarEntry[], editing: string | null): SidebarNode[] {
+  const tree = sidebarTree(ids, entries)
+  const folder = entries.find((e) => e.kind === `folder` && e.id === editing)
+  if (!folder || tree.some((n) => n.id === folder.id)) return tree
+  const key = (node: SidebarNode) =>
+    node.kind === `folder` ? entries.find((e) => e.kind === `folder` && e.id === node.id) : [...entries].sort(compareEntries).find((e) => e.kind === `item` && e.targetId === node.id)
+  const at = tree.findIndex((node) => {
+    const entry = key(node)
+    return !entry || compareEntries(entry, folder) > 0
+  })
+  const empty: SidebarNode = { kind: `folder`, id: folder.id, name: folder.name ?? SIDEBAR_FOLDER_DEFAULT_NAME, children: [] }
+  return at < 0 ? [...tree, empty] : [...tree.slice(0, at), empty, ...tree.slice(at)]
+}
+
+const compareEntries = (a: SidebarEntry, b: SidebarEntry) => (a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+
+/** A team's rows as the member arranged them, one level under the team
+ *  row: a folded folder's items left out. */
 export function folderRows(rows: IdeRowBase[], entries: readonly SidebarEntry[], closed: readonly string[], editing: string | null): IdeRow[] {
   const byId = new Map(rows.map((row) => [row.id, row]))
   const shut = new Set(closed)
-  return sidebarRows(sidebarTree(rows.map((row) => row.id), entries), (id) => !shut.has(id)).map((r): IdeRow => {
-    const node = { kind: r.kind, id: r.id, depth: r.depth, group: r.group, open: r.open }
+  return sidebarRows(teamTree(rows.map((row) => row.id), entries, editing), (id) => !shut.has(id)).map((r): IdeRow => {
+    const node = { kind: r.kind, id: r.id, depth: (r.depth + 1) as 1 | 2, group: r.group, open: r.open, newItems: [] }
     if (r.kind === `item`) return { ...node, ...(byId.get(r.id) as IdeRowBase), meta: null, foldIcon: null, editing: false }
     return {
       ...node,
+      item: null,
       title: r.name ?? ``,
       icon: FOLDER_ICON,
       selected: false,
@@ -103,7 +180,7 @@ export function folderRows(rows: IdeRowBase[], entries: readonly SidebarEntry[],
       tone: null,
       gear: false,
       meta: r.open ? null : String(r.count),
-      foldIcon: r.open ? `ui-chevron-down` : `ui-chevron-right`,
+      foldIcon: foldIcon(r.open),
       editing: editing === r.id,
     }
   })
@@ -113,11 +190,9 @@ const FOLDER_ICON = `ui-folder`
 
 export interface IdeSidebar {
   nav: IdeNavRow[]
-  pins: { id: string; identifier: string; title: string; selected: boolean }[]
-  agents: { add: boolean; rows: IdeRow[] }
-  apps: { rows: IdeRow[] }
-  boards: { rows: IdeRow[]; empty: boolean }
-  active: { id: string; title: string; icon: string; selected: boolean; unread: boolean }[]
+  devices: IdeDeviceRow[]
+  teams: { id: string; rows: IdeRow[] }[]
+  active: { id: string; title: string; icon: string; selected: boolean; unread: boolean; teamMark: string | null }[]
   prs: IdePrRow[]
 }
 
@@ -155,38 +230,90 @@ const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: numb
 export const agentCount = (unread: number, needsYou: boolean): IdeCount =>
   needsYou ? { count: Math.max(1, unread), tone: `attention` } : { count: unread, tone: `muted` }
 
+/** The team menu's New entries (sidebar-tree.json `teamMenu`: board, agent and app are the owners'). */
+const newItems = (owner: boolean): IdeMenuEntry[] => [
+  ...(owner
+    ? [
+        { label: COPY.board, value: `board`, icon: `nav-boards` },
+        { label: COPY.agent, value: `agent`, icon: `settings-agents` },
+        { label: COPY.app, value: `app`, icon: `nav-apps` },
+      ]
+    : []),
+  { label: COPY.session, value: `session`, icon: `action-chat` },
+]
+
 export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
-  const folders = (section: SidebarSection, base: IdeRowBase[]) => folderRows(base, input.layout?.[section] ?? [], input.closed ?? [], input.editingFolder ?? null)
-  const rows: IdeNavRow[] = []
+  const on = (kind: string, id: string) => screen === `${kind}:${id}`
+  const rows: IdeNavRow[] = [nav(`home`, `nav-home`, screen === `home`, 0, `muted`)]
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
   rows.push(nav(`chats`, `nav-chats`, screen === `chats`, input.chats.count, input.chats.tone))
-  rows.push(nav(`devices`, `nav-devices`, screen === `devices`, 0, `muted`))
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, input.drafts, `muted`))
+  const devicesOpen = input.devicesOpen ?? true
+  const devices: IdeDeviceRow[] = [
+    { kind: `devices`, id: `devices`, depth: 0, group: true, open: devicesOpen, title: COPY.devices, icon: `nav-devices`, selected: false, muted: false, mark: null, foldIcon: foldIcon(devicesOpen) },
+    ...(devicesOpen ? input.devices ?? [] : []).map((d): IdeDeviceRow => ({
+      kind: `device`,
+      id: d.id,
+      depth: 1,
+      group: false,
+      open: false,
+      title: d.name,
+      icon: d.icon,
+      selected: on(`device`, d.id) || on(`device-settings`, d.id),
+      muted: !d.online,
+      mark: d.teamMark ?? (d.online ? `ide:dot:green` : null),
+      foldIcon: null,
+    })),
+  ]
+  const teams = (input.teams ?? []).map((team) => {
+    const open = team.open ?? true
+    const owner = team.owner ?? false
+    const items = team.items.map((item): IdeRowBase => {
+      const count = item.kind === `agent` ? badge(agentCount(item.unread ?? 0, item.needsYou ?? false).count, agentCount(item.unread ?? 0, item.needsYou ?? false).tone) : { count: null, tone: null }
+      const selected =
+        item.kind === `app`
+          ? on(`app`, item.id) || (item.slug !== undefined && on(`app`, item.slug))
+          : item.kind === `session`
+            ? on(`chat`, item.id) || on(`session`, item.id) || (item.sessionIds ?? []).some((id) => on(`session`, id))
+            : on(item.kind, item.id)
+      const gear = item.kind === `agent` || item.kind === `app` || (item.kind === `board` && owner)
+      return { item: item.kind, id: item.id, title: item.name, icon: item.icon, selected, ...count, gear }
+    })
+    const head: IdeRow = {
+      kind: `team`,
+      item: null,
+      id: team.id,
+      depth: 0,
+      group: true,
+      open,
+      title: team.name,
+      icon: team.mark,
+      selected: false,
+      ...badge(team.needsYou ?? 0, `attention`),
+      gear: false,
+      meta: null,
+      foldIcon: foldIcon(open),
+      editing: false,
+      newItems: newItems(owner),
+    }
+    return { id: team.id, rows: open ? [head, ...folderRows(items, team.layout ?? [], input.closed ?? [], input.editingFolder ?? null)] : [head] }
+  })
   return {
     nav: rows,
-    pins: input.pins.map((p) => ({ ...p, selected: screen === `issue:${p.id}` })),
-    agents: {
-      add: input.owner,
-      rows: folders(`agent`, input.agents.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `agent:${a.id}`, ...badge(agentCount(a.unread, a.needsYou).count, agentCount(a.unread, a.needsYou).tone), gear: true }))),
-    },
-    apps: {
-      rows: folders(`app`, input.apps.map((a) => ({ id: a.id, title: a.name, icon: a.icon, selected: screen === `app:${a.id}` || screen === `app:${a.slug}`, count: null, tone: null, gear: true }))),
-    },
-    boards: {
-      rows: folders(`board`, input.boards.map((b) => ({ id: b.id, title: b.name, icon: b.icon, selected: screen === `board:${b.id}`, count: null, tone: null, gear: input.owner }))),
-      empty: input.boards.length === 0,
-    },
+    devices,
+    teams,
     active: input.active.map((a) => ({
       id: a.id,
       title: a.title,
       icon: a.icon,
-      selected: screen === `chat:${a.id}` || a.sessionIds.some((id) => screen === `session:${id}`),
+      selected: on(`chat`, a.id) || a.sessionIds.some((id) => on(`session`, id)),
       unread: a.unread,
+      teamMark: a.teamMark ?? null,
     })),
     prs: (input.repos ?? []).filter((r) => r.prs.length > 0).flatMap((r): IdePrRow[] => [
-      { id: r.id, repo: r.id, title: r.name, identifier: null, subtitle: null, icon: `ui-repository`, depth: 0, selected: screen === `repo:${r.id}` },
-      ...r.prs.map((p) => ({ id: p.id, repo: r.id, title: p.title, identifier: p.identifier, subtitle: p.subtitle, icon: null, depth: p.depth + 1, selected: p.session != null && (screen === `chat:${p.session}` || screen === `session:${p.session}`) })),
+      { id: r.id, repo: r.id, title: r.name, identifier: null, subtitle: null, icon: `ui-repository`, depth: 0, selected: on(`repo`, r.id) },
+      ...r.prs.map((p) => ({ id: p.id, repo: r.id, title: p.title, identifier: p.identifier, subtitle: p.subtitle, icon: null, depth: p.depth + 1, selected: p.session != null && (on(`chat`, p.session) || on(`session`, p.session)) })),
     ]),
   }
 }

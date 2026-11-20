@@ -39,7 +39,7 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 use api::teams::TeamInviteOut;
 
 use crate::actions::JoinTeam;
-use crate::navigation::switch_team;
+use crate::navigation::reveal_team as switch_team;
 use crate::queries;
 use crate::icons::registry;
 

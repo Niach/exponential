@@ -13,6 +13,8 @@ import { conceptIcon } from "@exp/ui"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import {
   ASSISTANT_LABEL,
+  desktopSettingsNav,
+  firstTeamSettingsPage,
   flattenSettingsNav,
   NEW_AGENT_LABEL,
   SETTINGS_NAV,
@@ -111,9 +113,9 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
     expect(entries).toEqual({
       team: [`general`, `members`, `issues`, `repositories`, `prompts`, `widget`, `storage`, `billing`, `import`],
       boards: [`@boards`, `@new-board`, `all-boards`],
-      agents: [`@assistant`, `@agents`, `@new-agent`, `mcp`, `skills`],
+      agents: [`@agents`, `@new-agent`, `mcp`, `skills`],
       apps: [`@apps`, `@new-app`],
-      personal: [`account`, `notifications`, `security`],
+      personal: [`account`, `assistant`, `notifications`, `security`],
     })
   })
 
@@ -158,7 +160,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
       expect(settingsNavListVisible(list, permissionsFor(`member`)), list).toBe(false)
       expect(settingsNavListVisible(list, permissionsFor(`owner`)), list).toBe(true)
     }
-    expect(settingsNavListVisible(`@assistant`, permissionsFor(`member`))).toBe(true)
+    expect(items.find((entry) => entry.id === `assistant`)!.visible(permissionsFor(`member`), team)).toBe(true)
   })
 
   it(`has no Voice page and titles the Assistant page`, () => {
@@ -245,5 +247,44 @@ describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
     expect(settingsSectionLabel(`boards`)).toBe(`Boards`)
     expect(settingsSectionLabel(`account`)).toBe(`Account`)
     expect(settingsSectionLabel(`apps`)).toBe(`Apps`)
+  })
+})
+
+// #EXP-2027 (settings-nav.json `desktopNavs`): web md+ draws TWO navs, the
+// Personal one (`/settings/<id>`) and a team's (`/t/$teamSlug/settings/<id>`,
+// Issues keeping Labels + Statuses folded); Boards, Agents and Apps are gone.
+describe(`desktopSettingsNav (#EXP-2027)`, () => {
+  it.each(
+    settingsNavFixture.nav.desktopNavCases
+      .filter((navCase) => navCase.platform === `web`)
+      .map((navCase) => [navCase.name, navCase] as const)
+  )(`replays desktopNavCase %s`, (_name, navCase) => {
+    const nav = desktopSettingsNav({ isOwner: navCase.role === `owner`, isCloud: navCase.cloud })
+    expect({
+      personal: nav.personal.items.map((item) => item.id),
+      team: nav.team.items.map((item) => item.id),
+      device: [],
+    }).toEqual(navCase.expected)
+  })
+
+  it(`links Personal team-less and the team's pages under the team`, () => {
+    const nav = desktopSettingsNav({ isOwner: true, isCloud: true })
+    expect(nav.personal.label).toBe(`Personal`)
+    expect(nav.team.label).toBe(`Team`)
+    expect(nav.personal.items.map((item) => item.to)).toEqual([
+      `/settings/account`,
+      `/settings/assistant`,
+      `/settings/notifications`,
+      `/settings/security`,
+    ])
+    expect(nav.team.items.every((item) => item.to.startsWith(`/t/$teamSlug/settings/`))).toBe(true)
+    const issues = nav.team.items.find((item) => item.id === `issues`)!
+    expect(issues.children?.map((item) => item.id)).toEqual([`labels`, `statuses`])
+    expect(nav.team.items.find((item) => item.id === `all-boards`)?.to).toBe(`/t/$teamSlug/settings/boards`)
+  })
+
+  it(`lands bare team settings on General for owners, Members for members`, () => {
+    expect(firstTeamSettingsPage({ isOwner: true, isCloud: false })?.to).toBe(`/t/$teamSlug/settings/general`)
+    expect(firstTeamSettingsPage({ isOwner: false, isCloud: false })?.to).toBe(`/t/$teamSlug/settings/members`)
   })
 })

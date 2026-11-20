@@ -146,7 +146,7 @@ pub(crate) fn team_link_base(team_id: Option<&str>, cx: &App) -> Option<String> 
         Some(team_id) => team_id.to_string(),
         None => {
             let window = cx.active_window()?;
-            navigation::active_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
+            navigation::screen_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
         }
     };
     let team = team_slug_by_id(&team_id, cx)?;
@@ -189,7 +189,7 @@ pub(crate) fn issue_text_links(text: &str, team_id: Option<&str>, cx: &App) -> O
         Some(team_id) => team_id.to_string(),
         None => {
             let window = cx.active_window()?;
-            navigation::active_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
+            navigation::screen_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
         }
     };
     let team = team_slug_by_id(&team_id, cx)?;
@@ -245,7 +245,7 @@ fn open_in_app(link: AppLink, url: Option<String>, window: &mut Window, cx: &mut
     };
     let active_team = match team_id.as_deref() {
         Some(team_id) => navigation::nav_for_window_id(window.window_handle().window_id(), cx)
-            .is_none_or(|nav| navigation::active_team_id(&nav, cx).as_deref() == Some(team_id)),
+            .is_none_or(|nav| navigation::screen_team_id(&nav, cx).as_deref() == Some(team_id)),
         None => true,
     };
     match (link_open_outcome(member, active_team, found, web_only), target) {
@@ -357,6 +357,9 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
             match agent {
                 None => Target::NotFound(Some(Landing::Screen(screen))),
                 Some(row) if row.team_id.as_deref().is_none_or(|team| team == team_id) => found(screen),
+                // #EXP-1987: the viewer's own Assistant opens from every team
+                // (after the move it lives in their personal team).
+                Some(row) if crate::teams_pick::is_my_assistant(&row, cx) => found(screen),
                 Some(_) => Target::NotFound(None),
             }
         }
@@ -364,7 +367,7 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
         AppLink::AgentHome { .. } => found(Screen::Home),
         // #FEED-191: the Inbox is the header's popover.
         AppLink::Inbox { .. } => Target::Found(Landing::Inbox),
-        AppLink::Devices { .. } => found(Screen::Devices),
+        AppLink::Devices { .. } => found(Screen::Device { device_id: String::new() }),
         AppLink::Settings { section, .. } if section.is_empty() => Target::Found(Landing::Settings(None)),
         // `settings-nav.json` `visible: owner`: not an owner reads as missing.
         AppLink::Settings { section, .. }
@@ -403,6 +406,18 @@ fn session_target(session_id: &str, team_id: &str, landing: Landing, cx: &App) -
     match crate::session_data::session(session_id, cx) {
         None => Target::NotFound(Some(landing)),
         Some(row) if row.team_id.as_deref().is_none_or(|team| team == team_id) => Target::Found(landing),
+        // #EXP-1987: the viewer's own session in a team that does not sync
+        // (the Assistant's chat in their personal team) opens from every team.
+        Some(row)
+            if crate::session_data::in_team_or_personal(
+                &row,
+                team_id,
+                &crate::session_data::synced_team_ids(cx),
+                crate::session_data::signed_in_user(cx).as_deref(),
+            ) =>
+        {
+            Target::Found(landing)
+        }
         Some(_) => Target::NotFound(None),
     }
 }
@@ -426,7 +441,7 @@ fn app_target(app_slug: &str, team_id: &str, landing: impl FnOnce(String) -> Lan
 fn land_held(switch_to: Option<String>, landing: Landing, window: &mut Window, cx: &mut App) {
     navigation::leave_held(window, cx, None, move |window, cx| {
         if let Some(team_id) = switch_to {
-            navigation::switch_team(window, cx, team_id);
+            navigation::reveal_team(window, cx, team_id);
         }
         land(landing, window, cx);
     });
@@ -502,7 +517,7 @@ fn link_origin(cx: &App) -> String {
 fn active_team_slug(window: &Window, cx: &App) -> Option<String> {
     Store::try_global(cx)?;
     let nav = navigation::nav_for_window_id(window.window_handle().window_id(), cx)?;
-    team_slug_by_id(&navigation::active_team_id(&nav, cx)?, cx)
+    team_slug_by_id(&navigation::screen_team_id(&nav, cx)?, cx)
 }
 
 fn team_slug_by_id(team_id: &str, cx: &App) -> Option<String> {

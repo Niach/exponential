@@ -1,6 +1,7 @@
-import { useRef, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, useRef, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { startListDrag } from "@exponential_app/eui/web"
-import { SIDEBAR_FOLDER_DEFAULT_NAME, SIDEBAR_MAX_DEPTH, type SidebarRow, type SidebarSection } from "@exp/domain-contract/sidebar-folders"
+import { SIDEBAR_FOLDER_DEFAULT_NAME, SIDEBAR_MAX_DEPTH, type SidebarSection } from "@exp/domain-contract/sidebar-folders"
+import { SIDEBAR_TREE_MAX_DEPTH, sidebarTeamRows, type SidebarTreeRow } from "@exp/domain-contract/sidebar-tree"
 import {
   conceptIcon,
   Input,
@@ -17,12 +18,13 @@ import {
   useSidebar,
   type MenuSessionProps,
 } from "@exp/ui"
-import { useSidebarFolders } from "@/hooks/use-sidebar-folders"
+import { useSidebarFolders, type SidebarFolders } from "@/hooks/use-sidebar-folders"
 import { cn } from "@/lib/utils"
 
 // #EXP-1832 (fixtures/sidebar-folders.json + the genUI List's `reorderable`
 // rules, packages/exponential-ui/fixtures/list-reorder.json): ONE sidebar
-// group (Boards, Agents or Apps) as the member arranged it. Rows drag on wide
+// list as the member arranged it (#EXP-2027: a team's one mixed list, under
+// its team row). Rows drag on wide
 // web (the shared web controller `startListDrag`, the genUI List's own: the
 // line = reorder, the highlighted row = drop INTO); a drop onto a row makes a
 // folder whose name is edited in place (Enter saves, Esc keeps "New folder").
@@ -35,14 +37,18 @@ const ChevronIcon = conceptIcon(`ui-chevron-right`)
 const RenameIcon = conceptIcon(`ui-edit`)
 const UngroupIcon = conceptIcon(`ui-folder-open`)
 
-/** The folder menu's kind (`menuProps`), per section. */
-export const sidebarFolderMenuKind = (section: SidebarSection) => `sidebar-folder-${section}`
+/** The folder menu's kind (`menuProps`), per section (and per team: every
+ *  team's List hosts its own folder menu, #EXP-2027). */
+export const sidebarFolderMenuKind = (section: SidebarSection, teamId?: string) =>
+  teamId ? `sidebar-folder-${section}:${teamId}` : `sidebar-folder-${section}`
 
 /** The guide gutter starts at the menu button's own left padding. */
 const GUIDE_BASE = 8
 
 /** What a row's `SidebarMenuItem` spreads: the drag contract + its indent. */
 export type SidebarRowItemProps = HTMLAttributes<HTMLLIElement> & Record<`data-${string}`, string | undefined>
+
+type RenderItem = (id: string, itemProps: SidebarRowItemProps, guides: ReactNode) => ReactNode
 
 export function SidebarFolderList({
   teamId,
@@ -58,41 +64,92 @@ export function SidebarFolderList({
   ids: readonly string[]
   /** One target's row: a `SidebarMenuItem` spreading `itemProps`, with the
    *  `guides` (the tree gutter of a row inside a folder) as its first child. */
-  renderItem: (id: string, itemProps: SidebarRowItemProps, guides: ReactNode) => ReactNode
+  renderItem: RenderItem
   empty?: ReactNode
   testId?: string
 }) {
   const folders = useSidebarFolders(teamId, section, ids)
+  return (
+    <SidebarFolderRows
+      folders={folders}
+      teamId={teamId}
+      section={section}
+      renderItem={renderItem}
+      empty={empty}
+      testId={testId}
+    />
+  )
+}
+
+/** #EXP-2027 (sidebar-tree.json): a TEAM's list: its row heads the List at
+ *  depth 0 (`sidebarTeamRows`), its nodes one level deeper, maxDepth 3. */
+export interface SidebarFolderTeamHead {
+  open: boolean
+  /** The team row: a `SidebarMenuItem` spreading `itemProps`. */
+  render: (itemProps: SidebarRowItemProps) => ReactNode
+}
+
+/** The rows of one list over a `useSidebarFolders` the caller owns. */
+export function SidebarFolderRows({
+  folders,
+  teamId,
+  section,
+  renderItem,
+  empty,
+  testId,
+  team,
+  menus,
+  listProps,
+}: {
+  folders: SidebarFolders
+  teamId: string | undefined
+  section: SidebarSection
+  renderItem: RenderItem
+  empty?: ReactNode
+  testId?: string
+  /** Heads the List with the team row (section `team`). */
+  team?: SidebarFolderTeamHead
+  /** More context menus this List's host answers (the team's own). */
+  menus?: Record<string, (session: MenuSessionProps) => ReactNode>
+  listProps?: Record<`data-${string}`, string>
+}) {
   const { isMobile } = useSidebar()
   const listRef = useRef<HTMLUListElement>(null)
   const draggable = !isMobile
-  const guides = treeGuides(folders.rows.map((row) => row.depth))
-  const menuKind = sidebarFolderMenuKind(section)
+  const menuKind = sidebarFolderMenuKind(section, team ? teamId : undefined)
+  const rows: SidebarTreeRow[] =
+    team && teamId ? sidebarTeamRows({ teamId, open: team.open, rows: folders.rows }) : folders.rows
+  const maxDepth = team ? SIDEBAR_TREE_MAX_DEPTH : SIDEBAR_MAX_DEPTH
+  const guides = treeGuides(rows.map((row) => row.depth))
 
-  const dragProps = (row: SidebarRow): SidebarRowItemProps => ({
-    "data-reorder-key": row.id,
-    "data-reorder-depth": String(row.depth),
-    "data-reorder-group": row.group ? `true` : undefined,
-    "data-reorder-indent": String(row.depth * TREE_INDENT),
-    "data-sidebar-row": row.kind,
-    style: row.depth > 0 ? { paddingLeft: `${row.depth * TREE_INDENT}px` } : undefined,
-    onDragStart: (e) => e.preventDefault(),
-    onPointerDown: draggable
-      ? (e: ReactPointerEvent<HTMLLIElement>) => {
-          if ((e.target as Element).closest(`input, textarea, [contenteditable="true"]`)) return
-          startListDrag(
-            e.nativeEvent,
-            row.id,
-            {
-              rows: () => [...(listRef.current?.querySelectorAll<HTMLElement>(`[data-reorder-key]`) ?? [])],
-              maxDepth: SIDEBAR_MAX_DEPTH,
-              color: `var(--primary)`,
-            },
-            { move: (context) => folders.move(context) }
-          )
-        }
-      : undefined,
-  })
+  const dragProps = (row: SidebarTreeRow): SidebarRowItemProps => {
+    const indent = row.depth * TREE_INDENT
+    return {
+      "data-reorder-key": row.id,
+      "data-reorder-depth": String(row.depth),
+      "data-reorder-group": row.group ? `true` : undefined,
+      "data-reorder-indent": String(indent),
+      "data-sidebar-row": row.kind,
+      style: row.depth > 0 ? { paddingLeft: `${indent}px` } : undefined,
+      onDragStart: (e) => e.preventDefault(),
+      onPointerDown:
+        draggable && row.kind !== `team`
+          ? (e: ReactPointerEvent<HTMLLIElement>) => {
+              if ((e.target as Element).closest(`input, textarea, [contenteditable="true"]`)) return
+              startListDrag(
+                e.nativeEvent,
+                row.id,
+                {
+                  rows: () => [...(listRef.current?.querySelectorAll<HTMLElement>(`[data-reorder-key]`) ?? [])],
+                  maxDepth,
+                  color: `var(--primary)`,
+                },
+                { move: (context) => folders.move(context) }
+              )
+            }
+          : undefined,
+    }
+  }
 
   const folderMenu = ({ target, open, onOpenChange }: MenuSessionProps) => (
     <Menu
@@ -111,15 +168,17 @@ export function SidebarFolderList({
   )
 
   return (
-    <MenuGestureHost menus={{ [menuKind]: folderMenu }}>
-      <SidebarMenu ref={listRef} data-testid={testId}>
-        {folders.rows.length === 0 && empty}
-        {folders.rows.map((row, index) => {
+    <MenuGestureHost menus={{ ...menus, [menuKind]: folderMenu }}>
+      <SidebarMenu ref={listRef} data-testid={testId} {...listProps}>
+        {folders.rows.length === 0 && !team && empty}
+        {rows.map((row, index) => {
           const gutter = row.depth > 0 ? <TreeGuides guide={guides[index]} base={GUIDE_BASE} /> : null
+          if (row.kind === `team`) return <Fragment key={row.id}>{team?.render(dragProps(row))}</Fragment>
           if (row.kind === `item`) return renderItem(row.id, dragProps(row), gutter)
           const editing = folders.editingId === row.id
           return (
             <SidebarMenuItem key={row.id} {...dragProps(row)} data-testid="sidebar-folder">
+              {gutter}
               <SidebarMenuButton
                 density="compact"
                 aria-expanded={row.open}

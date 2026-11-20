@@ -58,6 +58,13 @@ export function TeamPickSearchList({
   )
 }
 
+/** Whether the pick rides as chips: a subset of the teams, not empty. */
+export function teamPickShowsChips(picked: readonly string[] | null, teams: readonly PickTeam[]): boolean {
+  if (picked === null) return false
+  const chosen = teams.filter((team) => picked.includes(team.id)).length
+  return chosen > 0 && chosen < teams.length
+}
+
 /** The picked teams as the composer's chips (a subset only). */
 export function TeamPickChips({
   teams,
@@ -70,9 +77,8 @@ export function TeamPickChips({
   onChange: (next: string[] | null) => void
   disabled?: boolean
 }) {
-  if (picked === null) return null
+  if (picked === null || !teamPickShowsChips(picked, teams)) return null
   const chosen = teams.filter((team) => picked.includes(team.id))
-  if (chosen.length === 0 || chosen.length === teams.length) return null
   return (
     <>
       {chosen.map((team) => (

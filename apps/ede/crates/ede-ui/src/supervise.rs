@@ -274,17 +274,24 @@ impl Supervisor {
                 // (`exponential-ui set`), or nothing changed since the machine last saw it.
                 Change::Applied { name, commit } => {
                     let at = now_ms();
-                    let (bytes, git) = {
+                    // #EDE-161: the commit and what IT holds, never the file as it
+                    // is by now. The file may have moved on since the watcher
+                    // committed (another process's `set` the moment a git lock
+                    // went): that edit comes as a change of its own, and paired
+                    // with this commit's id it counted as known, was never
+                    // supervised, and the rollback found "its" commit replaced.
+                    let taken = {
                         let ui = self.ui.lock().unwrap_or_else(|p| p.into_inner());
-                        let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
                         let git = match commit {
                             Some(git) => Some(git),
                             None => ui.committed(&name)?.map(|c| c.id),
                         };
-                        (bytes, git)
+                        match git {
+                            Some(git) => ui.digest_at(&git, &name)?.map(|digest| (git, digest)),
+                            None => None,
+                        }
                     };
-                    let digest = crate::digest(&bytes);
-                    let Some(git) = git.filter(|_| self.known.get(&name) != Some(&digest)) else { continue };
+                    let Some((git, digest)) = taken.filter(|(_, digest)| self.known.get(&name) != Some(digest)) else { continue };
                     self.known.insert(name.clone(), digest.clone());
                     let effects = self.step(Event::Edit { at, name: name.clone(), valid: true, issues: Vec::new() })?;
                     for effect in effects {
@@ -604,6 +611,32 @@ mod tests {
         s.step(expired()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
+    }
+
+    /// #EDE-161: the watcher's commit reaches the supervisor after the file
+    /// moved on: another process's `set` wrote and committed meanwhile (in
+    /// `a_failed_rollback_does_not_end_the_supervisor`, the moment the git
+    /// lock went). That commit is taken in as what IT holds, and the later
+    /// edit is one of its own, supervised: nobody draws it, it rolls back.
+    /// Before, the commit's id was paired with the later bytes, so the later
+    /// edit counted as known, and its rollback found "its" commit replaced:
+    /// nothing was rolled back.
+    #[test]
+    fn a_commit_the_file_moved_on_from_is_taken_in_as_it_was() {
+        let (mut s, fx) = supervised();
+        let commit_of = |changes: Vec<Change>| changes.into_iter().find_map(|c| if let Change::Applied { commit, .. } = c { commit } else { None }).expect("a commit");
+        // The watcher's reload committed `first`; before its change reached
+        // the supervisor, `exponential-ui set` wrote and committed `second`.
+        let first = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap()));
+        let second = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap()));
+        s.on_changes(vec![Change::Applied { name: "panel".into(), commit: Some(first.clone()) }]).unwrap();
+        s.on_changes(applied()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Edit { commit: a, .. }, Report::Edit { commit: b, .. }] if *a == first && *b == second), "{heard:?}");
+        s.step(expired()).unwrap();
+        let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
+        assert!(matches!(&heard[..], [Report::Reverted { .. }]), "{heard:?}");
+        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "back to what was shown");
     }
 
     /// #EDE-137 (1): another document's hand edit landing while a rollback

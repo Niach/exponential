@@ -38,7 +38,6 @@ public enum DomainContract {
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other"]
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let pinKindValues: [String] = ["issue", "session"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed", "title_changed"]
     public static let issueRelationTypeValues: [String] = ["blocks", "parent", "duplicate", "related"]
     public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
@@ -256,8 +255,6 @@ public enum DomainContract {
     public static let subscriberSourceManual: String = "manual"
     public static let subscriberSourceMention: String = "mention"
     public static let subscriberSourceWidgetReporter: String = "widget_reporter"
-    public static let pinKindIssue: String = "issue"
-    public static let pinKindSession: String = "session"
     public static let issueEventTypeStatusChanged: String = "status_changed"
     public static let issueEventTypeAssigneeChanged: String = "assignee_changed"
     public static let issueEventTypeLabelAdded: String = "label_added"

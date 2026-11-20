@@ -65,7 +65,7 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::OpenSearch;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, navigate, Screen};
+use crate::navigation::{screen_team_id, nav_for_window, navigate, Screen};
 use crate::picker::search_list::{self, IssueHit, SearchListState};
 
 /// Web `sm:max-w-lg` (32rem).
@@ -136,7 +136,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
         return;
     }
     let nav = nav_for_window(window, cx);
-    let Some(team_id) = active_team_id(&nav, cx) else {
+    let Some(team_id) = screen_team_id(&nav, cx) else {
         return;
     };
 
@@ -176,7 +176,9 @@ enum Entry {
 /// The Chats rows of a store answer (`globalChatRows`): the active team's
 /// roots (the Chats list's titles, agent conversations = the agent icon).
 fn chat_rows(team_id: &str, query: &str, answer: Vec<chat_store::ChatRow>, cx: &mut App) -> Vec<ChatHitRow> {
-    let model = crate::session_data::chats_model(team_id, cx);
+    // #EXP-2027: every member team's chats.
+    let _ = team_id;
+    let model = crate::session_data::chats_model_all(cx);
     let mut roots: HashMap<String, GlobalChatRoot> = HashMap::new();
     for row in model.list.rows.iter().chain(model.archived.rows.iter()) {
         roots.insert(row.session_id.clone(), GlobalChatRoot { title: row.title.clone(), agent: false });
@@ -227,6 +229,8 @@ fn chat_rows(team_id: &str, query: &str, answer: Vec<chat_store::ChatRow>, cx: &
 /// window needs, EXP-415) over its rows. Owns the keys.
 struct SearchSheetView {
     team_id: String,
+    /// #EXP-2027: every member team (search spans them all).
+    teams: Vec<String>,
     list: SearchListState,
     hits: Vec<IssueHit>,
     /// The query `hits` answer.
@@ -282,6 +286,7 @@ impl SearchSheetView {
         );
         let mut this = Self {
             team_id,
+            teams: Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| team.id).collect(),
             list,
             hits: Vec::new(),
             searched: String::new(),
@@ -314,10 +319,10 @@ impl SearchSheetView {
             cx.notify();
             return;
         }
-        self.hits = search_list::local_issue_hits(&self.team_id, &query, cx);
+        self.hits = search_list::local_issue_hits_teams(&self.teams, &query, cx);
         self.search_chats(query.clone(), cx);
-        self.server = Some(search_list::server_issue_search(
-            self.team_id.clone(),
+        self.server = Some(search_list::server_issue_search_teams(
+            self.teams.clone(),
             query,
             window,
             cx,
@@ -327,7 +332,7 @@ impl SearchSheetView {
                 }
                 let key = this.selected_key();
                 let local = std::mem::take(&mut this.hits);
-                this.hits = search_list::splice_server_hits(&this.team_id, local, &hits, cx);
+                this.hits = search_list::splice_server_hits_teams(&this.teams, local, &hits, cx);
                 this.restore_key(key);
                 cx.notify();
             },

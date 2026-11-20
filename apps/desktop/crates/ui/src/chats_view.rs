@@ -28,7 +28,7 @@ use domain::session_tree::{chat_in_stack, chat_row_word_on, chat_row_word_waitin
 
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation, Screen};
 use crate::session_data;
 
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
@@ -232,11 +232,9 @@ impl ChatsView {
         }
     }
 
+    /// #EXP-2027: every member team's chats.
     fn model(&self, cx: &mut App) -> std::rc::Rc<session_data::ChatsModel> {
-        active_team_id(&self.nav, cx)
-            .as_deref()
-            .map(|team_id| session_data::chats_model(team_id, cx))
-            .unwrap_or_default()
+        session_data::chats_model_all(cx)
     }
 
     fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
@@ -301,12 +299,67 @@ type OnSelect = std::rc::Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 /// its click toggles), the flat hover / selected fill; a click opens the
 /// chat (or toggles it while selecting), a right-click its menu: Select,
 /// then the chat's entries.
+/// #EXP-2027 (sidebar-tree.json): the Chats page spans every team: a row
+/// wears its team's mark (its image, else the team glyph), as in the
+/// sidebar; the viewer's Assistant wears none.
+type TeamMarks = std::rc::Rc<std::collections::HashMap<String, Option<crate::markdown::CachedImage>>>;
+
+/// The size of a Chats row's team mark (the sidebar's row glyph).
+const TEAM_MARK_PX: f32 = 16.;
+
+fn team_mark(marks: &TeamMarks, team_id: Option<&str>) -> Option<gpui::AnyElement> {
+    let image = marks.get(team_id?)?.clone();
+    Some(crate::user_avatar::team_avatar_of(image, TEAM_MARK_PX))
+}
+
+/// #EXP-2027 (sidebar-tree.json `drop`): a Chats row dragged onto its
+/// team's list in the sidebar (the sidebar region takes it as an outside
+/// row of its tree List: `sidebarDropSession` through `ide_move`). Only a
+/// root row drags, never while selecting.
+#[derive(Clone)]
+pub(crate) struct ChatRowDrag {
+    pub(crate) id: String,
+    pub(crate) team_id: String,
+    /// The row's bounds in the window (its last paint).
+    pub(crate) bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+    pub(crate) row: ChatRow,
+    pub(crate) mark: Option<crate::markdown::CachedImage>,
+}
+
+/// The dragged Chats row's copy under the pointer: the row again, lifted
+/// as the List's own lifted copy is (`LIST_LIFT_OFFSET` right of it, the
+/// popover colour, radius md, the overlay shadow, `LIST_LIFT_OPACITY`).
+struct ChatDragPreview {
+    drag: ChatRowDrag,
+}
+
+impl Render for ChatDragPreview {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use eui_core::list_reorder::{LIST_LIFT_OFFSET, LIST_LIFT_OPACITY};
+        let row = &self.drag.row;
+        let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
+        let lead = crate::chat_list::chat_lead_disc(row.lead, agent, false, cx);
+        let mark = self.drag.mark.clone().map(|image| crate::user_avatar::team_avatar_of(Some(image), TEAM_MARK_PX));
+        let content = crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), mark, cx);
+        let shadow = gpui::BoxShadow { color: gpui::black().opacity(0.35), offset: gpui::point(px(0.0), px(8.0)), blur_radius: px(24.0), spread_radius: px(0.0), inset: false };
+        gpui::div()
+            .ml(px(LIST_LIFT_OFFSET))
+            .w(self.drag.bounds.get().size.width)
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().popover)
+            .shadow(vec![shadow])
+            .opacity(LIST_LIFT_OPACITY)
+            .child(crate::chat_list::chat_selectable(SharedString::from(format!("chat-drag-{}", row.session_id)), &row.session_id, None, |_, _, _| {}, content, cx))
+    }
+}
+
 fn chats_page_row(
     row: &ChatRow,
     selected: bool,
     selecting: bool,
     on_click: OnRowClick,
     on_select: OnSelect,
+    marks: &TeamMarks,
     cx: &App,
 ) -> gpui::AnyElement {
     use crate::controls::PointerContextMenuExt as _;
@@ -317,15 +370,26 @@ fn chats_page_row(
     let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();
     let on_toggle = on_select.clone();
+    let root = session_data::session(&row.session_id, cx).is_some_and(|session| session.parent_id.is_none());
+    let drag = (root && !selecting).then(|| ChatRowDrag {
+        id: row.session_id.clone(),
+        team_id: row.team_id.clone(),
+        bounds: Default::default(),
+        row: row.clone(),
+        mark: marks.get(&row.team_id).cloned().flatten(),
+    });
+    let bounds = drag.as_ref().map(|drag| drag.bounds.clone());
     crate::chat_list::chat_selectable(
         SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)),
         &row.session_id,
         Some((selected, selecting)),
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
-        crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx),
+        crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), team_mark(marks, Some(&row.team_id)), cx),
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
+    .when_some(bounds, |row, cell| row.relative().child(gpui::canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {}).absolute().top_0().left_0().size_full()))
+    .when_some(drag, |row, drag| row.on_drag(drag, |drag, _, _, cx| gpui::AppContext::new(cx, |_| ChatDragPreview { drag: drag.clone() })))
     .pointer_context_menu(move |menu, _, cx| {
         let root = menu_root.clone();
         let on_select = on_select.clone();
@@ -347,7 +411,7 @@ impl Render for ChatsView {
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         // S-3: the viewer's Assistant is created on first use.
-        if let Some(team_id) = active_team_id(&self.nav, cx) {
+        if let Some(team_id) = screen_team_id(&self.nav, cx) {
             session_data::ensure_assistant(&team_id, cx);
         }
         let model = self.model(cx);
@@ -365,6 +429,15 @@ impl Render for ChatsView {
         }
         let view_kind = self.view;
         let rows = self.visible_rows(&model);
+        // #EXP-2027: each team's mark, loaded once per render.
+        let marks: TeamMarks = std::rc::Rc::new(
+            sync::Store::try_global(cx)
+                .map(|store| store.collections().teams_sorted(cx))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|team| (team.id.clone(), crate::user_avatar::team_image(team.icon_url.as_deref(), cx)))
+                .collect(),
+        );
         // The selection keeps only rows still in the list, in list order.
         if ready && !self.selected.is_empty() {
             let kept: Vec<String> = rows
@@ -441,7 +514,7 @@ impl Render for ChatsView {
                             &row.agent_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::agent_chat_row(row, cx),
+                            crate::chat_list::agent_chat_row_in_team(row, (!row.assistant).then(|| team_mark(&marks, agent_team(&row.agent_id, cx).as_deref())).flatten(), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -473,7 +546,7 @@ impl Render for ChatsView {
                             &row.app_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::app_chat_row(row, cx),
+                            crate::chat_list::app_chat_row_in_team(row, team_mark(&marks, app_team(&row.app_id, cx).as_deref()), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -485,7 +558,7 @@ impl Render for ChatsView {
             });
             let paint = |row: &ChatRow, cx: &mut gpui::Context<Self>| {
                 let selected = self.selected.contains(&row.session_id);
-                chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
+                chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), &marks, cx)
             };
             let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() && apps_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
@@ -619,7 +692,13 @@ impl Render for ChatsView {
                 this.selected = ids;
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ClearChatSelection, _, cx| {
+            .on_action(cx.listener(|this, _: &ClearChatSelection, window, cx| {
+                // #EXP-2027: Esc drops a row's drag onto the sidebar.
+                if cx.has_active_drag() {
+                    cx.stop_active_drag(window);
+                    crate::shell_regions::cancel_chat_drag(cx);
+                    return;
+                }
                 if this.selected.is_empty() {
                     cx.propagate();
                     return;
@@ -696,4 +775,14 @@ mod tests {
         assert_eq!(ChatRowWord::Stack.text(), Some("stack"));
         assert_eq!(ChatRowWord::Question.text(), Some("question"));
     }
+}
+
+/// #EXP-2027: an agent row's team (its definition's).
+fn agent_team(agent_id: &str, cx: &App) -> Option<String> {
+    sync::Store::try_global(cx)?.collections().agents.read(cx).get(agent_id)?.team_id.clone()
+}
+
+/// #EXP-2027: an app row's team.
+fn app_team(app_id: &str, cx: &App) -> Option<String> {
+    sync::Store::try_global(cx)?.collections().apps.read(cx).get(app_id)?.team_id.clone()
 }

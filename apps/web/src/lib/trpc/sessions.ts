@@ -49,7 +49,7 @@ import { markConsumedLinesRead } from "@/lib/sessions/reads"
 import { fireAndForgetDismiss, markSessionNotificationsRead } from "@/lib/notification-dismiss"
 import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
 import { unwatch as unwatchSession } from "@/lib/sessions/watches"
-import { sessionSkillIds } from "@/lib/skills/builtin"
+import { sessionLaunchPick, sessionLaunchSkillIds } from "@/lib/agents/team-picks"
 import {
   cardAnswerInput,
   loadCardForAnswer,
@@ -665,7 +665,8 @@ export const sessionsRouter = router({
     .query(async ({ ctx, input }): Promise<{ mcpServerIds: string[] }> => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertCanSteer(ctx.session.user.id, session)
-      return { mcpServerIds: mcpPicks(session) }
+      // #EXP-1988: the launch pick `mcpServers.resolveForLaunch` answers.
+      return { mcpServerIds: mcpPicks({ mcpServerIds: await sessionLaunchPick(ctx.db, `mcp`, session, session.mcpServerIds) }) }
     }),
 
   /** #EXP-1656: the session's server-only skill pick (sorted ids), for
@@ -677,7 +678,8 @@ export const sessionsRouter = router({
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertCanSteer(ctx.session.user.id, session)
       // #VAPP-213: + the built-ins an app editor session always runs with.
-      return { skillIds: skillPicks({ skillIds: await sessionSkillIds(ctx.db, session) }) }
+      // #EXP-1988: the launch pick `skills.resolveForLaunch` answers.
+      return { skillIds: skillPicks({ skillIds: await sessionLaunchSkillIds(ctx.db, session) }) }
     }),
 
   /** queued → running: the device took it (idempotent for its own device). */

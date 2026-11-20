@@ -303,6 +303,8 @@ pub(crate) fn board_data_key(cx: &App) -> BoardDataKey {
 /// [`BoardDataKey`].
 #[derive(PartialEq, Eq)]
 pub(crate) struct InboxDataKey {
+    /// #EXP-1987: the inbox's team (`None` = every team).
+    team: Option<String>,
     notifications: u64,
     issues: u64,
     boards: u64,
@@ -310,9 +312,10 @@ pub(crate) struct InboxDataKey {
     ready: bool,
 }
 
-pub(crate) fn inbox_data_key(cx: &App) -> InboxDataKey {
+pub(crate) fn inbox_data_key(team_id: Option<&str>, cx: &App) -> InboxDataKey {
     let collections = Store::global(cx).collections();
     InboxDataKey {
+        team: team_id.map(str::to_string),
         notifications: collections.notifications.read(cx).revision(),
         issues: collections.issues.read(cx).revision(),
         boards: collections.boards.read(cx).revision(),
@@ -817,9 +820,10 @@ impl InboxEntry {
 }
 
 /// The inbox read: is-ready gate + grouped notifications. The notifications
-/// shape is already user-scoped server-side; like web, groups are NOT
-/// team-filtered (the join to a synced issue+board is the only membership
-/// requirement; issue-less rows need none).
+/// shape is already user-scoped server-side; #EXP-1987: the rows = the ones
+/// `team_id`'s inbox lists ([`inbox_row_listed`], inbox-route.json
+/// `listCases`: the team's own, plus the team-less and the personal team's
+/// session rows, the Assistant's chat after the move).
 pub struct InboxData {
     pub is_ready: bool,
     pub groups: Vec<InboxEntry>,
@@ -831,23 +835,26 @@ pub struct InboxData {
 /// `inbox-view.tsx` grouping: notifications ⨝ issues ⨝ boards grouped by
 /// issue, plus one entry per issue-less `agent_message` / `session_blocked`
 /// row; group order = newest first item.
-pub fn inbox(cx: &App) -> InboxData {
+pub fn inbox(team_id: Option<&str>, cx: &App) -> InboxData {
     let collections = Store::global(cx).collections();
     let is_ready = collections.notifications.read(cx).is_ready()
         && collections.issues.read(cx).is_ready()
         && collections.boards.read(cx).is_ready()
         && collections.teams.read(cx).is_ready();
 
+    let issues = collections.issues.read(cx);
+    let boards = collections.boards.read(cx);
+    let teams = collections.teams.read(cx);
+    let team_ids = crate::session_data::synced_team_ids(cx);
+    let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
+
     let notifications: Vec<domain::rows::Notification> = collections
         .notifications
         .read(cx)
         .iter()
+        .filter(|notification| inbox_row_listed(notification, team_id, &team_ids, &issues, &boards))
         .cloned()
         .collect();
-
-    let issues = collections.issues.read(cx);
-    let boards = collections.boards.read(cx);
-    let teams = collections.teams.read(cx);
 
     let groups = build_inbox_entries(
         notifications,
@@ -881,36 +888,52 @@ fn issueless_kind_renderable(kind: Option<&str>) -> bool {
     )
 }
 
+/// #EXP-1987 (`domain::inbox_route::inbox_row_listed`): whether `team_id`'s
+/// inbox lists `notification`. An issue row's team = its synced issue's
+/// board's (an issue that has not synced, or whose board has not, lists
+/// nowhere); an issue-less row's = its own.
+fn inbox_row_listed(
+    notification: &domain::rows::Notification,
+    team_id: Option<&str>,
+    team_ids: &[&str],
+    issues: &sync::collections::Collection<domain::rows::Issue>,
+    boards: &sync::collections::Collection<domain::rows::Board>,
+) -> bool {
+    let issue_id = notification.issue_id.as_deref().filter(|id| !id.is_empty());
+    let row_team = match issue_id {
+        Some(issue_id) => issues
+            .get(issue_id)
+            .and_then(|issue| boards.get(&issue.board_id))
+            .map(|board| board.team_id.as_str()),
+        None => notification.team_id.as_deref(),
+    };
+    domain::inbox_route::inbox_row_listed(notification.kind.as_deref(), row_team, issue_id, team_id, team_ids)
+}
+
 /// #FEED-232: the Inbox button's count = the active team's unread
-/// notifications the inbox can render (issue-keyed rows need the issue AND
-/// its board synced, issue-less rows count only as `agent_message`,
-/// `session_blocked` or `agent_signed_out`): the [`inbox`] renderability rule
-/// without the grouping work. A row of another team never counts; a
-/// team-less row (a device's lost login) counts everywhere.
+/// notifications its inbox lists (#EXP-1987 [`inbox_row_listed`]: the
+/// team's own, the team-less ones and the personal team's session rows),
+/// the [`inbox`] rule without the grouping work.
 pub fn inbox_unread_count(team_id: Option<&str>, cx: &App) -> usize {
+    inbox_unread_ids(team_id, cx).len()
+}
+
+/// #EXP-1987: the unread rows `team_id`'s inbox lists (its badge; Mark all
+/// read marks exactly these).
+pub fn inbox_unread_ids(team_id: Option<&str>, cx: &App) -> Vec<String> {
     let collections = Store::global(cx).collections();
     let issues = collections.issues.read(cx);
     let boards = collections.boards.read(cx);
+    let team_ids = crate::session_data::synced_team_ids(cx);
+    let team_ids: Vec<&str> = team_ids.iter().map(String::as_str).collect();
     collections
         .notifications
         .read(cx)
         .iter()
-        .filter(|notification| {
-            if notification.read_at.is_some() {
-                return false;
-            }
-            match notification.issue_id.as_deref() {
-                Some(issue_id) => issues
-                    .get(issue_id)
-                    .and_then(|issue| boards.get(&issue.board_id))
-                    .is_some_and(|board| team_id.is_none_or(|team| board.team_id == team)),
-                None => {
-                    issueless_kind_renderable(notification.kind.as_deref())
-                        && notification.team_id.as_deref().is_none_or(|own| team_id.is_none_or(|team| own == team))
-                }
-            }
-        })
-        .count()
+        .filter(|notification| notification.read_at.is_none())
+        .filter(|notification| inbox_row_listed(notification, team_id, &team_ids, &issues, &boards))
+        .map(|notification| notification.id.clone())
+        .collect()
 }
 
 /// The pure grouping core of [`inbox`]. `resolve_issue` returns the synced

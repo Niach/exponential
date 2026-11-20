@@ -39,6 +39,29 @@ object InboxRoute {
         else -> RowTarget.None
     }
 
+    /**
+     * #EXP-1987 (`listCases`): whether team [teamId]'s inbox (null = every
+     * team) lists a row, its badge and Mark all read alike. [rowTeamId] = the
+     * row's own team, else its issue's board's team (null = unknown);
+     * [teamIds] = the synced teams rows (never a personal team).
+     * `agent_signed_out` and a session row of a team the viewer does not sync
+     * (the Assistant's chat in the personal team) list in every team.
+     */
+    fun inboxRowListed(
+        type: String?,
+        rowTeamId: String?,
+        issueId: String?,
+        teamId: String?,
+        teamIds: Collection<String>,
+    ): Boolean {
+        val team = rowTeamId?.takeIf { it.isNotEmpty() }
+        if (!issueId.isNullOrEmpty()) return team != null && (teamId == null || team == teamId)
+        if (type == DomainContract.notificationTypeAgentSignedOut) return true
+        if (type !in SESSION_ROW_TYPES) return false
+        if (teamId == null) return true
+        return team == teamId || team == null || team !in teamIds
+    }
+
     sealed interface SessionTarget {
         /** The viewer's own agent conversation root: the agent's page (its channel). */
         data class Agent(val agentId: String) : SessionTarget

@@ -230,6 +230,8 @@ pub mod session_title;
 pub mod session_screen;
 // #EXP-1832: sidebar folders + drag reorder (sidebar-folders.json), fixture-locked ×4.
 pub mod sidebar_folders;
+// #EXP-2027: the sidebar tree (sidebar-tree.json), fixture-locked ×4.
+pub mod sidebar_tree;
 // EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;
 // #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.

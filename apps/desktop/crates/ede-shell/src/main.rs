@@ -4241,6 +4241,31 @@ mod diagnostics {
         starts_diagnostics("exponential-shell", include_str!("main.rs"), &["shell"]);
         starts_diagnostics("exponential-sealed", include_str!("bin/ede-sealed/main.rs"), &["sealed-lock", "sealed-polkit", "sealed-consent", "sealed-share"]);
     }
+
+    /// #ERR-32: a release build of both binaries keeps the `log` lines of
+    /// the libraries they link (api, sync, elocal, emcp, eengine-desktop,
+    /// gpui, crash-monitor) at least from WARN. Cargo unifies features, so
+    /// one crate turning on a `log` level feature compiles the lines out of
+    /// every binary in its graph: the runner's `release_max_level_off` did.
+    /// The features `cargo tree` resolves for this package alone, the way
+    /// `apps/ede/packaging/stage.sh` builds it (`-p ede-shell --bins`).
+    #[test]
+    fn a_release_build_keeps_the_log_lines() {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        let out = std::process::Command::new(cargo)
+            .args(["tree", "--locked", "--offline", "--manifest-path", manifest, "-p", "ede-shell", "-e", "features,no-dev", "-i", "log", "--depth", "1", "--prefix", "none"])
+            .output()
+            .expect("cargo runs");
+        let tree = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && tree.lines().any(|line| line.starts_with("log v")), "cargo tree: {}{tree}", String::from_utf8_lossy(&out.stderr));
+        // `log`'s STATIC_MAX_LEVEL in a release build: the strictest
+        // `release_max_level_*`, else the strictest `max_level_*`, else trace.
+        const LEVELS: [&str; 6] = ["off", "error", "warn", "info", "debug", "trace"];
+        let strictest = |prefix: &str| LEVELS.iter().position(|level| tree.contains(&format!("log feature \"{prefix}{level}\"")));
+        let kept = strictest("release_max_level_").or_else(|| strictest("max_level_")).unwrap_or(LEVELS.len() - 1);
+        assert!(kept >= 2, "a release build compiles `log` down to `{}`:\n{tree}", LEVELS[kept]);
+    }
 }
 
 #[cfg(test)]

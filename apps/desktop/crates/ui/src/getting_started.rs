@@ -37,7 +37,7 @@ use theme::tokens as t;
 
 use crate::controls::{ide_chrome, WebControl as _};
 use crate::icons::{registry, ExpIcon};
-use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -736,7 +736,7 @@ pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) ->
     if queries::active_account(cx).is_none() {
         return false;
     }
-    let Some(team_id) = active_team_id(nav, cx) else {
+    let Some(team_id) = screen_team_id(nav, cx) else {
         return false;
     };
     let progress = GettingStartedProgress::global(cx);
@@ -1053,7 +1053,7 @@ fn dialog_content_h(entries: usize, has_next: bool) -> f32 {
 /// [`MAX_W`] wide.
 pub(crate) fn open_dialog(window: &mut Window, cx: &mut App) {
     let nav = nav_for_window(window, cx);
-    let Some(team_id) = active_team_id(&nav, cx) else {
+    let Some(team_id) = screen_team_id(&nav, cx) else {
         return;
     };
     let model = GettingStartedProgress::global(cx)

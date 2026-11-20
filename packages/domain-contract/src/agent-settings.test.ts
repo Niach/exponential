@@ -6,6 +6,10 @@ import {
   triggerDetail,
   agentMcpServersValue,
   agentsInTeam,
+  assistantPickAgent,
+  launchPick,
+  mergeTeamPicks,
+  teamPick,
   assistantMoveOf,
   coordinatorOf,
   coordinatorOptions,
@@ -121,6 +125,34 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.teamAgentsCases) {
     it(`teamAgentsCases: ${c.name}`, () => {
       expect(agentsInTeam(c.agents, c.teamId, c.teamIds, c.me).map((agent) => agent.id)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.teamPicks.teamPickCases) {
+    it(`teamPicks teamPickCases: ${c.name}`, () => {
+      expect(teamPick(c.ids, c.rowTeams as Record<string, string>, c.teamId)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.teamPicks.mergeCases) {
+    it(`teamPicks mergeCases: ${c.name}`, () => {
+      expect(
+        mergeTeamPicks({
+          existing: c.existing,
+          written: c.written,
+          rowTeams: c.rowTeams as Record<string, string>,
+          pickTeamId: c.pickTeamId,
+          agentTeamId: c.agentTeamId,
+        })
+      ).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.teamPicks.launchCases) {
+    it(`teamPicks launchCases: ${c.name}`, () => {
+      expect(launchPick(c.ids, c.rowTeams as Record<string, string>, c.launchTeams)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.teamPicks.pickAgentCases) {
+    it(`teamPicks pickAgentCases: ${c.name}`, () => {
+      expect(assistantPickAgent(c.agents, c.teamId, c.teamIds, c.me, c.pageAgentId)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.move.keepCases) {

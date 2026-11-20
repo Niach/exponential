@@ -1,0 +1,46 @@
+// Exponential Desktop (#EDE-146): a program in an agent space is never
+// authorized. polkit takes a space's processes for the person's active
+// session (they are the person's user), so without this rule every
+// allow_active action (suspend, reboot, power off, network, mounts) passes
+// for them without a prompt. A space's processes run in a systemd slice of
+// their own (app-exponential_p<compositor>-s<n>.slice); this rule reads the
+// subject's cgroup and answers NO for anything in one. It never answers YES:
+// for everyone else nothing changes. Named 00-00-… so that it runs before
+// the other rules (polkit sorts the files of all its directories by name;
+// an earlier rule that answers wins).
+polkit.addRule(function(action, subject) {
+    // In a login session scope: never a space's (a space's processes are in
+    // none, and none can get back into one).
+    if (subject.session) {
+        return undefined;
+    }
+    // A system service: not a space's.
+    var unit = subject.system_unit;
+    if (typeof unit === "string" && unit !== "" && !/^user@[0-9]+\.service$/.test(unit)) {
+        return undefined;
+    }
+    var cgroup;
+    try {
+        cgroup = polkit.spawn(["/usr/bin/cat", "/proc/" + subject.pid + "/cgroup"]);
+    } catch (gone) {
+        try {
+            polkit.spawn(["/usr/bin/cat", "/proc/self/cgroup"]);
+        } catch (broken) {
+            // polkitd cannot run cat now (out of descriptors or tasks):
+            // nobody gets an action without a password meanwhile.
+            return polkit.Result.AUTH_ADMIN;
+        }
+        // The subject is gone.
+        return polkit.Result.NO;
+    }
+    if (/\/app-exponential_p[0-9]+\.slice\//.test(cgroup)) {
+        // Exponential Desktop's own check that this rule is read: a
+        // challenge, which no other rule gives this action.
+        if (action.id == "at.exponential.desktop.space-probe") {
+            return polkit.Result.AUTH_ADMIN;
+        }
+        polkit.log("exponential: " + action.id + " refused for process " + subject.pid + " of an agent space");
+        return polkit.Result.NO;
+    }
+    return undefined;
+});
