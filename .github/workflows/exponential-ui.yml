@@ -284,6 +284,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Core + facade tests (core conformance)
@@ -394,6 +395,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the xcframework (iOS device + simulator + macOS)
@@ -536,6 +538,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Set up JDK 21
@@ -558,16 +561,15 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - name: Size gate (the x86_64 .so, VAPP-106; the arm ABIs gate in release-eui.yml)
         run: bun packages/exponential-ui/release/size.ts android --check
-      - name: Gradle cache
+      # Restore only (review P6): seed-gradle-caches.yml saves the entry on
+      # master; a tag or PR ref's entry no other ref can read.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-ui-gradle-${{ hashFiles('packages/exponential-ui-compose/**/*.gradle*', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties', 'packages/exponential-ui-compose/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-ui-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -626,6 +628,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Host build of the facade (the JVM tests load it through JNA)
@@ -641,6 +644,15 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
+      # Restore only (review P6): seed-gradle-caches.yml saves the entry on
+      # master; a tag or PR ref's entry no other ref can read.
+      - name: Restore the Gradle caches
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Kotlin binding suite (the committed binding vs the host .so, VAPP-151)
         if: ${{ !inputs.conformance_only }}
         # Before Gradle, to fail fast: the script pins kotlin + JNA to the Compose

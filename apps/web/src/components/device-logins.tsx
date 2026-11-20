@@ -196,7 +196,9 @@ export function DeviceAccountIcons({
 }
 
 /** #EXP-1643: the open login's panel. */
-function LoginPanel({
+/** THE account panel of one login (the device card's, #EXP-2027 the device
+ *  page's too), its actions on the viewer's online machine. */
+export function LoginPanel({
   device,
   row,
   item,

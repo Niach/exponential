@@ -777,12 +777,13 @@ pub(crate) fn title_row(title: &str, marks: &[domain::chats::ChatMark], cx: &App
 /// Web `permissions.isMember` for the chat's team (route `sessions/$sessionId`):
 /// the one gate on the strip's `+` and the Guide menu's Close PR. A root
 /// with no team (never synced that far) is not a member of anything.
+/// #EXP-1987: the viewer's own chat in their personal team is theirs.
 fn chat_member(model: &ChatModel, cx: &App) -> bool {
     model
         .root
         .team_id
         .as_deref()
-        .is_some_and(|team_id| crate::settings::is_member(cx, team_id))
+        .is_some_and(|team_id| crate::settings::is_chat_member(cx, team_id, model.root.user_id.as_deref()))
 }
 
 /// EXP-1307 — the Guide `…` over the Guide PR (#EXP-1710: merge-train.json

@@ -189,7 +189,7 @@ pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option
         // NEW-2: a prompt opens the (prompt-backed) action page.
         "action" | "prompt" => EntityTarget::Action(id.to_string()),
         "agent" => EntityTarget::Screen(Screen::Settings),
-        "device" => EntityTarget::Screen(Screen::Devices),
+        "device" => EntityTarget::Screen(Screen::Device { device_id: id.to_string() }),
         "label" | "status" | "member" | "invite" | "team" => EntityTarget::Screen(Screen::Settings),
         "notification" => EntityTarget::Inbox,
         "comment" | "attachment" => EntityTarget::Screen(Screen::IssueDetail {
@@ -856,7 +856,7 @@ mod tests {
         assert_eq!(target_for("automation", "au-1", &synced()), None);
         // SLOP-3: so is `workflow` — an old ref renders as plain text.
         assert_eq!(target_for("workflow", "w-1", &synced()), None);
-        assert_eq!(target_for("device", "d-1", &synced()), Some(EntityTarget::Screen(Screen::Devices)));
+        assert_eq!(target_for("device", "d-1", &synced()), Some(EntityTarget::Screen(Screen::Device { device_id: "d-1".into() })));
         for kind in ["label", "status", "member", "invite", "team"] {
             assert_eq!(
                 target_for(kind, "x", &synced()),

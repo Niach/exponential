@@ -56,10 +56,28 @@ if [ "$1" = configure ]; then
     [ -f "$f" ] || continue
     sed -i -e 's/^\(X\{0,1\}Session\)=ede$/\1=exponential/' -e 's/^\(X\{0,1\}Session\)=ede-safe$/\1=exponential-safe/' "$f" || true
   done
+  # #EDE-146..148: the space guard's socket listens from now on (the
+  # package's link in sockets.target.wants starts it at every boot); a
+  # guard of the old version still running takes the new one.
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl start exponential-space-guard.socket || true
+    systemctl try-restart exponential-space-guard.service || true
+  fi
 fi
 exit 0
 POSTINST
 chmod 755 "$stage/DEBIAN/postinst"
+# Removal stops the space guard (an upgrade keeps it listening).
+cat > "$stage/DEBIAN/prerm" <<'PRERM'
+#!/bin/sh
+set -e
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+  systemctl stop exponential-space-guard.socket exponential-space-guard.service || true
+fi
+exit 0
+PRERM
+chmod 755 "$stage/DEBIAN/prerm"
 debversion="$version-1"
 [ "$suite" = noble ] && debversion="$version-1~noble1"
 cat > "$stage/DEBIAN/control" <<CONTROL
@@ -70,7 +88,7 @@ Maintainer: Exponential <hello@exponential.at>
 Section: x11
 Priority: optional
 Homepage: https://exponential.at/desktop/
-Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
+Depends: $depends, dbus-user-session | dbus-x11, dbus-daemon, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
 Recommends: exponential-repo, mesa-vulkan-drivers, vulkan-tools, gnome-keyring, fonts-inter
 Replaces: ede
 Conflicts: ede

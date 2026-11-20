@@ -88,6 +88,9 @@ enum AppRoute: Hashable {
     case voiceSettings(accountId: String)
     /// #EXP-1815: the account's Settings › Notifications (the source switches).
     case notificationSettings(accountId: String)
+    /// #EXP-1987: the account's Settings › Assistant (the viewer's ONE
+    /// Assistant, whichever team is current).
+    case assistantSettings(accountId: String)
     /// #EXP-1381 (settings-nav.json): a Team page row → that category's
     /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
@@ -565,10 +568,10 @@ struct MainNavigator: View {
     @State private var shareTargets: ShareTargetsPublisher?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
-    /// EXP-1373: the team of every unread notification the inbox can render
-    /// (nil = a team-less row): the page header's Inbox count reads the
-    /// ACTIVE team's (#FEED-232).
-    @State private var unreadTeamIds: [String?] = []
+    /// EXP-1373: every unread notification the inbox can render: the page
+    /// header's Inbox count reads the ACTIVE team's (#FEED-232) through
+    /// `InboxRoute.inboxRowListed` (#EXP-1987), like the inbox's own list.
+    @State private var unreadRows = UnreadRows()
     /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
     /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
     /// The team id of every resolvable draft (one entry per draft); the
@@ -994,7 +997,12 @@ struct MainNavigator: View {
     }
 
     private var activeInboxUnreadCount: Int {
-        unreadTeamIds.filter { $0 == nil || $0 == teamState.activeTeamId }.count
+        let teamId = teamState.activeTeamId
+        return unreadRows.rows.filter {
+            InboxRoute.inboxRowListed(
+                type: $0.type, rowTeamId: $0.teamId, issueId: $0.issueId, teamId: teamId, teamIds: unreadRows.teamIds
+            )
+        }.count
     }
 
     /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
@@ -1561,6 +1569,9 @@ extension MainNavigator {
         case let .notificationSettings(accountId):
             NotificationSettingsPage(accountId: accountId)
                 .environment(\.accountId, accountId)
+        case let .assistantSettings(accountId):
+            AssistantSettingsPage()
+                .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
             TeamSettingsPage(teamId: teamId, section: section)
                 .environment(\.accountId, accountId)
@@ -1648,12 +1659,13 @@ extension MainNavigator {
         // unread rows keep syncing while their issues drop out of the local
         // store — a raw count would light the dot forever over an inbox that
         // shows "All caught up".
-        let notifObs = ValueObservation.tracking { db -> [String?] in
+        let notifObs = ValueObservation.tracking { db -> UnreadRows in
             // `InboxViewModel.isRenderable` in SQL: an issue row needs its
             // issue synced; issue-less rows are agent messages and blocked
             // runs. The team = the row's own, else its issue's board's.
-            try Row.fetchAll(db, sql: """
-                SELECT COALESCE("n"."team_id", "b"."team_id") AS "team_id"
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT "n"."type" AS "type", "n"."issue_id" AS "issue_id",
+                       COALESCE("n"."team_id", "b"."team_id") AS "team_id"
                 FROM "notifications" AS "n"
                 LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
                 LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
@@ -1664,12 +1676,15 @@ extension MainNavigator {
                     DomainContract.notificationTypeSessionBlocked,
                     // #EXP-1534: team-less (`team_id` NULL = every team's dot).
                     DomainContract.notificationTypeAgentSignedOut,
-                ]).map { $0["team_id"] as String? }
+                ]).map {
+                    UnreadRows.Row(type: $0["type"], teamId: $0["team_id"], issueId: $0["issue_id"])
+                }
+            return UnreadRows(rows: rows, teamIds: Set(try String.fetchAll(db, sql: #"SELECT "id" FROM "teams""#)))
         }
         let notifTask = Task { @MainActor in
             do {
-                for try await teamIds in notifObs.values(in: pool) {
-                    unreadTeamIds = teamIds
+                for try await next in notifObs.values(in: pool) {
+                    unreadRows = next
                 }
             } catch {}
         }
@@ -2181,4 +2196,17 @@ extension Notification.Name {
     /// A team was deleted in-app (EXP-43) — MainNavigator pops to root so
     /// no pushed view still targets the deleted team.
     static let teamDeleted = Notification.Name("teamDeleted")
+}
+
+/// #EXP-1987: the unread rows the Inbox count reads (`inboxRowListed`'s
+/// inputs) and the synced teams (never a personal team).
+struct UnreadRows: Equatable, Sendable {
+    struct Row: Equatable, Sendable {
+        let type: String
+        let teamId: String?
+        let issueId: String?
+    }
+
+    var rows: [Row] = []
+    var teamIds: Set<String> = []
 }

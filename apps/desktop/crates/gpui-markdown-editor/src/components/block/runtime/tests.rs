@@ -2983,3 +2983,53 @@ async fn typing_a_backslash_beside_a_link_stays_visible_exp697(cx: &mut TestAppC
         assert_eq!(block.record.title.visible_text(), "see x a\\.b");
     });
 }
+
+/// #EXP-1968 vendoring: a picture the host refuses is its stand-in, never
+/// a `Remote` source handed to `img()`; one it accepts keeps the default.
+#[gpui::test]
+async fn refused_image_source_is_the_hosts_stand_in_exp1968(cx: &mut TestAppContext) {
+    struct Refuser;
+    impl crate::host::ImageSourceResolver for Refuser {
+        fn resolve(&self, _src: &str) -> Option<crate::host::ImageSourceResolution> {
+            None
+        }
+        fn stand_in(&self, src: &str, alt: &str) -> Option<crate::host::ImageStandIn> {
+            src.starts_with("https://example.com").then(|| crate::host::ImageStandIn {
+                text: if alt.is_empty() { "Image: example.com".into() } else { alt.into() },
+                href: Some(src.into()),
+            })
+        }
+    }
+    let environment = Arc::new(crate::environment::MarkdownEditorEnvironment {
+        image_source_resolver: Some(Arc::new(Refuser)),
+        ..Default::default()
+    });
+    for (markdown, want) in [
+        ("![](https://example.com/cat.png)", Some("Image: example.com")),
+        ("![A cat](https://example.com/cat.png)", Some("A cat")),
+        ("![ok](https://elsewhere.test/cat.png)", None),
+    ] {
+        let environment = environment.clone();
+        let block = cx.new(|cx| {
+            Block::with_record_and_environment(
+                cx,
+                BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(markdown)),
+                environment,
+            )
+        });
+        block.update(cx, |block, _cx| {
+            block.sync_render_cache();
+            let runtime = block.image_runtime().expect("a standalone image");
+            match (&runtime.resolved_source, want) {
+                (super::ImageResolvedSource::StandIn(stand_in), Some(text)) => {
+                    assert_eq!(stand_in.text, text);
+                    assert_eq!(stand_in.href.as_deref(), Some(runtime.src.as_str()));
+                }
+                (super::ImageResolvedSource::Remote(_), None) => {}
+                (other, want) => panic!("{markdown}: got {other:?}, want {want:?}"),
+            }
+            // The Markdown keeps the picture.
+            assert_eq!(block.record.title.serialize_markdown(), markdown);
+        });
+    }
+}

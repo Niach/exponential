@@ -8,10 +8,11 @@
 // layers max: a folder holds items only. A row with no entry keeps the
 // default order (the caller's `items`), after the placed ones.
 
-export type SidebarSection = `board` | `agent` | `app`
+/** `team` (#EXP-2027) = one mixed list per team; board, agent, app = the phones' old per-kind groups. */
+export type SidebarSection = `team` | `board` | `agent` | `app`
 export type SidebarEntryKind = `folder` | `item`
 
-export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [`board`, `agent`, `app`]
+export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [`team`, `board`, `agent`, `app`]
 export const SIDEBAR_FOLDER_DEFAULT_NAME = `New folder`
 /** Nesting levels: top level + one folder level. */
 export const SIDEBAR_MAX_DEPTH = 2

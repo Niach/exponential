@@ -367,9 +367,7 @@ a card is pending.
 
 ## 10. Session header (web + desktop)
 
-`[Back] [dot identifier subject / caption]  …  [Plan chip (read-only, when in plan)] [Pin] [Context] [Diff] [Merge] [Stop]`
-- Pin: ghost / borderless icon button, no circle stroke, no fill; the same
-  variant everywhere a pin toggle renders (issue header, action dialog).
+`[Back] [dot identifier subject / caption]  …  [Plan chip (read-only, when in plan)] [Context] [Diff] [Merge] [Stop]`
 - Context: a small pill `199k / 200k` (clock glyph) opening the existing usage
   sheet/dialog; hidden when usage is unknown or the run ended.
 - Diff: a small pill with the `coding-diff` glyph and `+N -M`; toggles the

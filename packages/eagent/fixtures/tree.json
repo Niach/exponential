@@ -1,5 +1,5 @@
 {
-  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per root session: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED root session REVIVES the same row (idle, nothing flagged, message pending) and, as at its start, it is WATCHED again (#FEED-206: its report had dropped every watch): by its starter (the live session carrying its `thread_started` card, whoever revives it) and by a calling session outside its tree; to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped). The server resolves the Assistant root's NULL scope as every team its member belongs to (the hub knows no memberships: its cases name scopes explicitly) and clamps a stored pick to their teams of the moment (lib/sessions/tree-teams.ts).",
+  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per root session: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED root session REVIVES the same row (idle, nothing flagged, message pending) and, as at its start, it is WATCHED again (#FEED-206: its report had dropped every watch): by its starter (the live session carrying its `thread_started` card, whoever revives it) and by a calling session outside its tree; to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 + #EXP-2027 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (its Teams pick; emcp access.json `treeScope`). WHO PICKS: the Assistant's conversation root (an `assistant` agent's: the teams picked for the turn) and every PLAIN CHAT root (no acting agent, or one the Assistant's tree started: the composer's + menu Teams); never a team agent's tree (its conversation, or a root its tree started: its own team only) and never a child (`invalid`, copy.scopeNotPickable). A message's `scopeTeamIds` into such a root replaces its scope (deduplicated, its own team dropped); a NEW plain chat takes one at its start (`send.start` without parentId: `teamId` = its primary team, the others its scope). A calling session picks only teams its own tree works in, else `forbidden` (copy.teamOutOfScope): a session never widens a chat past its own reach; the server adds that the pick is its root's STARTER's and ∩ their teams of the moment. NULL: the server resolves the Assistant root's null as every team its member belongs to; a plain chat's null (or `[]`) = ITS OWN TEAM ONLY (a chat picking every team stores them by id), a team agent's tree = its own team whatever is stored. The hub knows no memberships: its cases name scopes explicitly and read null as none picked. A new session of a tree (a child, or a root ANY calling session starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team, the Assistant's children spawn in their target team and a chat's children start in any of its picked teams. The gate clamps every MCP request speaking for a session to its tree's teams (lib/sessions/tree-teams.ts, acting.ts).",
   "cases": [
     {
       "name": "a person starts a root: queued, its first message pending",
@@ -2190,7 +2190,7 @@
           },
           "failure": {
             "code": "forbidden",
-            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
             "retryable": false
           }
         },
@@ -2207,7 +2207,7 @@
           },
           "failure": {
             "code": "forbidden",
-            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
             "retryable": false
           }
         },
@@ -2225,7 +2225,7 @@
           },
           "failure": {
             "code": "forbidden",
-            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
             "retryable": false
           }
         },
@@ -2286,7 +2286,7 @@
       }
     },
     {
-      "name": "#EXP-1720: a turn's teams become the Assistant root's scope (its own team dropped); any other session refuses them",
+      "name": "#EXP-1720: a turn's teams become the Assistant root's scope (its own team dropped); a team agent's tree refuses them",
       "given": {
         "sessions": [
           {
@@ -2300,7 +2300,12 @@
             ]
           },
           {
-            "id": "r1"
+            "id": "a2",
+            "agentId": "ag2"
+          },
+          {
+            "id": "r1",
+            "startedByAgentId": "ag2"
           }
         ],
         "agents": [
@@ -2310,6 +2315,11 @@
             "teamId": "p1",
             "role": "assistant",
             "rootSessionId": "as1"
+          },
+          {
+            "id": "ag2",
+            "ownerId": "u1",
+            "rootSessionId": "a2"
           }
         ]
       },
@@ -2360,7 +2370,25 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "Only your Assistant's conversation takes teams for a turn",
+            "message": "Teams are picked on a chat or your Assistant's conversation, never on a team agent's chat or a session inside a chat",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "a2",
+              "text": "Hi.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Teams are picked on a chat or your Assistant's conversation, never on a team agent's chat or a session inside a chat",
             "retryable": false
           }
         }
@@ -2375,6 +2403,420 @@
           },
           "r1": {
             "scopeTeamIds": null
+          },
+          "a2": {
+            "scopeTeamIds": null
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-2027: a plain chat's Teams pick becomes its root's scope; its children start in any of its teams, a child takes no pick",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "text": "Also t2 and t3.",
+              "scopeTeamIds": [
+                "t3",
+                "t1",
+                "t2",
+                "t3"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Also t2 and t3.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "r1",
+              "callerId": "r1",
+              "teamId": "t3",
+              "text": "Fix EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "Fix EXP-12.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "r1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m2"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c2",
+              "parentId": "r1",
+              "callerId": "r1",
+              "teamId": "t4",
+              "text": "Fix EXP-12."
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "text": "Hi.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Teams are picked on a chat or your Assistant's conversation, never on a team agent's chat or a session inside a chat",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c3",
+              "parentId": "r1",
+              "callerId": "r1",
+              "text": "Fix EXP-13.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Teams are picked on a chat or your Assistant's conversation, never on a team agent's chat or a session inside a chat",
+            "retryable": false
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r1": {
+            "teamId": "t1",
+            "scopeTeamIds": [
+              "t3",
+              "t2"
+            ],
+            "updatedAt": 60000
+          },
+          "c1": {
+            "teamId": "t3",
+            "rootId": "r1"
+          },
+          "c2": null,
+          "c3": null
+        }
+      }
+    },
+    {
+      "name": "#EXP-2027: a new plain chat starts with its Teams pick: teamId = its primary team, the others its scope",
+      "given": {},
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "deviceId": "d1",
+              "teamId": "t2",
+              "text": "Compare both boards.",
+              "scopeTeamIds": [
+                "t1",
+                "t2"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Compare both boards.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "r2",
+              "callerId": "r2",
+              "teamId": "t1",
+              "text": "Read t1's board."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "Read t1's board.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "r2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m2"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r2": {
+            "teamId": "t2",
+            "scopeTeamIds": [
+              "t1"
+            ],
+            "parentId": null
+          },
+          "c1": {
+            "teamId": "t1",
+            "rootId": "r2"
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-2027: a calling session never widens past its own tree: a plain chat starts and picks only in its teams; the Assistant narrows a new chat to its scope",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "teamId": "p1",
+            "deviceId": "d7",
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "teamId": "p1",
+            "role": "assistant",
+            "rootSessionId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "r1",
+              "deviceId": "d1",
+              "teamId": "t2",
+              "text": "Look at t2."
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r3",
+              "callerId": "r1",
+              "deviceId": "d1",
+              "text": "Look at t2 too.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r4",
+              "callerId": "as1",
+              "teamId": "t1",
+              "text": "Plan both.",
+              "scopeTeamIds": [
+                "t2",
+                "t3"
+              ]
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This chat doesn't work in that team: only in the teams picked for it",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r5",
+              "callerId": "as1",
+              "teamId": "t1",
+              "text": "Plan both.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r5",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "Plan both.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r5"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r5",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r2": null,
+          "r3": null,
+          "r4": null,
+          "r5": {
+            "teamId": "t1",
+            "scopeTeamIds": [
+              "t2"
+            ],
+            "startedByAgentId": "ag1"
           }
         }
       }

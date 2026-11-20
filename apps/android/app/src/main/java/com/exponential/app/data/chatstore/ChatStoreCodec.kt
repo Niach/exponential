@@ -96,6 +96,34 @@ object ChatStoreCodec {
         }
     }.getOrDefault(emptyList())
 
+    /** #EDE-99: `searchAll`'s `{chats, total}` (newest chat first); empty = none or unreadable. */
+    fun parseAll(text: String): List<com.exponential.app.domain.SearchList.ChatMatch> = runCatching {
+        val obj = Json.parseToJsonElement(text).jsonObject
+        (obj["chats"] as? JsonArray).orEmpty().mapNotNull { row ->
+            val chat = row as? JsonObject ?: return@mapNotNull null
+            val rootId = (chat["rootId"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val hit = chat["hit"] as? JsonObject ?: return@mapNotNull null
+            fun str(key: String) = (hit[key] as? JsonPrimitive)?.contentOrNull
+            fun long(key: String) = (hit[key] as? JsonPrimitive)?.longOrNull
+            com.exponential.app.domain.SearchList.ChatMatch(
+                rootId = rootId,
+                count = ((chat["count"] as? JsonPrimitive)?.longOrNull ?: 1L).toInt(),
+                hit = com.exponential.app.domain.SearchList.ChatHit(
+                    rootId = str("rootId") ?: rootId,
+                    sessionId = str("sessionId") ?: return@mapNotNull null,
+                    deviceId = str("deviceId"),
+                    kind = str("kind").orEmpty(),
+                    at = long("at") ?: 0L,
+                    seq = long("seq"),
+                    messageId = str("messageId"),
+                    snippet = str("snippet").orEmpty(),
+                    matchStart = (long("matchStart") ?: 0L).toInt(),
+                    matchLen = (long("matchLen") ?: 0L).toInt(),
+                ),
+            )
+        }
+    }.getOrDefault(emptyList())
+
     /** `putMessages`' input (`StoredMessage`, camelCase, `createdAt` in ms). */
     fun messagesJson(rows: List<StoredMessageRow>): String = buildJsonArray {
         for (row in rows) {

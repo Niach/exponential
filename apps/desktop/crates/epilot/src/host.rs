@@ -251,7 +251,9 @@ impl Host {
         let (label, seq) = (lock.label.clone(), lock.seq);
         drop(lock);
         if engaged {
-            log::info!("[computer] input locked for {label}");
+            // #ERR-33: the session's id, never its label (a title: the
+            // breadcrumbs of a report carry this line).
+            log::info!("[computer] input locked for session {session_id}");
             self.announce(seq, Some(label));
             self.start_janitor();
         }
@@ -755,6 +757,9 @@ mod tests {
         }
         fn key(&self, key: crate::keys::Key, down: bool) -> Result<(), String> {
             self.inner.key(key, down)
+        }
+        fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+            self.inner.char_stroke(ch, down)
         }
         fn type_char(&self, ch: char) -> Result<(), String> {
             if let Some(hook) = &self.on_type {

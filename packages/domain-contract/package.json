@@ -68,6 +68,7 @@
     "./results-tab": "./src/results-tab.ts",
     "./chat-store": "./src/chat-store.ts",
     "./find-in-chat": "./src/find-in-chat.ts",
+    "./search-list": "./src/search-list.ts",
     "./nav-badges": "./src/nav-badges.ts",
     "./needs-you": "./src/needs-you.ts",
     "./dock": "./src/dock.ts",
@@ -94,6 +95,7 @@
     "./via-app": "./src/via-app.ts",
     "./app-share": "./src/app-share.ts",
     "./sidebar-folders": "./src/sidebar-folders.ts",
+    "./sidebar-tree": "./src/sidebar-tree.ts",
     "./image-actions": "./src/image-actions.ts"
   }
 }

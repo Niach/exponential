@@ -8,14 +8,13 @@ import SwiftUI
 /// page (`AgentSettingsPage`); members open it read-only. Creating one is the
 /// owner's, like a board.
 ///
-/// S-3 (settings-nav.json `nav` Agents group): `@assistant` = the viewer's
-/// OWN Assistant first (the brand mark, `AssistantCopy.title`; it opens the
-/// Assistant page, even before it exists: `copy.noDevice`), then `@agents` =
-/// the team agents (role agent only: another member's Assistant is never
-/// listed), `@new-agent` = the owner's New agent.
+/// S-3 (settings-nav.json `nav` Agents group): `@agents` = the team agents
+/// (role agent only: another member's Assistant is never listed),
+/// `@new-agent` = the owner's New agent. #EXP-1987: the viewer's own
+/// Assistant left the group for Settings › Personal › Assistant.
 struct TeamAgentsSection: View {
     /// The team's agent definitions (`SessionQueries.agents`), in their sort
-    /// order. Assistants in it are dropped (the viewer's own is its row).
+    /// order. Assistants in it are dropped.
     let agents: [AgentDefinitionEntity]
     let isOwner: Bool
     /// #EXP-1788: the agents have not synced yet: skeleton rows in the
@@ -23,8 +22,6 @@ struct TeamAgentsSection: View {
     var loading = false
     /// nil = a new agent.
     let onOpen: (String?) -> Void
-    /// The `@assistant` row; nil hides it (the styleguide specimen).
-    var onOpenAssistant: (() -> Void)? = nil
 
     private var teamAgents: [AgentDefinitionEntity] {
         agents.filter { !$0.isAssistant }
@@ -43,23 +40,6 @@ struct TeamAgentsSection: View {
 
             if loading {
                 SkeletonRows(rows: 2, rowHeight: Self.rowHeight)
-            } else if let onOpenAssistant {
-                Button(action: onOpenAssistant) {
-                    HStack(spacing: 10) {
-                        AssistantAvatar(size: 20)
-                        Text(AgentSettings.AssistantCopy.title)
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .flatRow()
-                .accessibilityIdentifier("assistant-settings-row")
             }
 
             ForEach(loading ? [] : teamAgents) { agent in

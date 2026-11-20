@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { SidebarProvider, TooltipProvider } from "@exp/ui"
+import { SidebarMenu, SidebarProvider, TooltipProvider } from "@exp/ui"
 import type { AppListEntry } from "@/hooks/use-apps"
 
 // #FEED-203 (fixtures/apps.json DESKTOP NAV): every app row carries the hover
@@ -29,21 +29,8 @@ vi.mock(`@tanstack/react-router`, () => ({
     </a>
   ),
 }))
-vi.mock(`@/components/apps/apps-new-menu`, () => ({ AppsNewMenu: () => null }))
-// #EXP-1832: no synced layout = the default order, every row at the top.
-vi.mock(`@/hooks/use-sidebar-folders`, () => ({
-  useSidebarFolders: (_teamId: string, _section: string, ids: readonly string[]) => ({
-    rows: ids.map((id) => ({ kind: `item`, id, depth: 0, group: false, name: null, open: false, count: 0 })),
-    editingId: null,
-    setEditingId: () => {},
-    move: () => {},
-    toggle: () => {},
-    rename: () => {},
-    ungroup: () => {},
-  }),
-}))
 
-import { SidebarAppsSection } from "@/components/team/sidebar-apps"
+import { SidebarAppRow } from "@/components/team/sidebar-apps"
 
 const app = (slug: string, name: string, createdBy: string | null) =>
   ({ id: slug, slug, name, createdBy, icon: null, color: null }) as unknown as AppListEntry
@@ -53,12 +40,11 @@ describe(`#FEED-203: the sidebar's app settings gear`, () => {
     render(
       <TooltipProvider>
         <SidebarProvider>
-          <SidebarAppsSection
-            teamId="t1"
-            teamSlug="prep"
-            apps={[app(`autotax`, `Autotax`, `someone-else`), app(`imported`, `Imported`, null)]}
-            activeAppSlug={null}
-          />
+          <SidebarMenu>
+            {[app(`autotax`, `Autotax`, `someone-else`), app(`imported`, `Imported`, null)].map((entry) => (
+              <SidebarAppRow key={entry.id} app={entry} teamSlug="prep" active={false} itemProps={{}} guides={null} />
+            ))}
+          </SidebarMenu>
         </SidebarProvider>
       </TooltipProvider>
     )

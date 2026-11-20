@@ -35,9 +35,9 @@ import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
 import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
-import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember } from "@/lib/auth/membership"
+import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
-import { treeTeams } from "@/lib/sessions/tree-teams"
+import { treeReach, treeRootKind, treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
   appRootDevice,
@@ -105,6 +105,7 @@ import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
 import { copyChatIntoCall } from "@/lib/sessions/call-chat"
+import { pickOfTeam } from "@/lib/agents/team-picks"
 
 // EXP-1291/NEW-1/NEW-2: `sessions.send` — THE entrypoint (tRPC
 // `sessions.send` and MCP `exponential_sessions_send` both land here). Four
@@ -151,9 +152,9 @@ export const AGENT_TEAM_ONLY_MESSAGE = `A team agent works only in its own team`
 /** #EXP-1720 (eagent rules.json copy.teamOutOfScope): a tree's new session
  *  or send outside its teams. */
 export const TEAM_OUT_OF_SCOPE_MESSAGE = eagentRules.copy.teamOutOfScope
-/** #EXP-1720 (copy.scopeAssistantOnly): a Teams pick into anything but the
- *  Assistant's conversation. */
-export const SCOPE_ASSISTANT_ONLY_MESSAGE = eagentRules.copy.scopeAssistantOnly
+/** #EXP-1720/#EXP-2027 (copy.scopeNotPickable): a Teams pick into a child
+ *  or a team agent's tree. */
+export const SCOPE_NOT_PICKABLE_MESSAGE = eagentRules.copy.scopeNotPickable
 
 /** #EXP-1383: a tree's ACTING agent: the agent of a conversation root,
  *  else the agent whose session started the root (`started_by_agent_id`). */
@@ -197,17 +198,21 @@ async function sendTargetTeam(input: SessionsSendInput, caller: Session | null):
   return input.teamId ?? caller?.teamId ?? null
 }
 
-/** #EXP-1383: a caller speaking for an agent-tree session sends into, and
- *  starts sessions in, its tree's teams only (FORBIDDEN else). #EXP-1720:
- *  a team agent's tree = its team; the Assistant's = its scope. */
-async function assertAgentTreeTeam(input: SessionsSendInput, caller: Session | null): Promise<void> {
-  if (!caller || !(await callerTreeAgentId(caller))) return
-  const allowed = await treeTeams(caller.rootId)
+/** #EXP-1383: a caller speaking for a session sends into, and starts
+ *  sessions in, its tree's teams only (FORBIDDEN else). #EXP-1720: a team
+ *  agent's tree = its team; the Assistant's = its scope. #EXP-2027: every
+ *  tree, a plain chat's = its team + its Teams pick; and a pick it passes
+ *  stays inside them (a session never widens a chat past its own reach). */
+async function assertCallerTreeTeam(input: SessionsSendInput, caller: Session | null): Promise<void> {
+  if (!caller) return
+  const reach = await treeReach(caller.rootId)
+  const allowed = reach?.teams ?? []
   const target = await sendTargetTeam(input, caller)
-  if ((input.teamId && !allowed.includes(input.teamId)) || (target && !allowed.includes(target))) {
+  const outside = (id: string | null | undefined) => !!id && !allowed.includes(id)
+  if (outside(input.teamId) || outside(target) || input.scopeTeamIds?.some(outside)) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: allowed.length > 1 ? TEAM_OUT_OF_SCOPE_MESSAGE : AGENT_TEAM_ONLY_MESSAGE,
+      message: reach?.kind === `agent` && allowed.length === 1 ? AGENT_TEAM_ONLY_MESSAGE : TEAM_OUT_OF_SCOPE_MESSAGE,
     })
   }
 }
@@ -296,35 +301,31 @@ async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: stri
 
 /** A session's (or an agent's, #EXP-1793) MCP server pick: deduped, pick
  *  order, every id a row of `teamId` (else BAD_REQUEST); empty = null. */
-export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: string, ids: readonly string[] | undefined) {
+export async function assertMcpServersInTeam(tx: Pick<Tx, `select`>, teamId: string | readonly string[], ids: readonly string[] | undefined) {
   const unique = [...new Set(ids ?? [])]
   if (unique.length === 0) return null
   const rows = await tx
     .select({ id: mcpServers.id })
     .from(mcpServers)
-    .where(and(eq(mcpServers.teamId, teamId), inArray(mcpServers.id, unique)))
+    .where(and(inArray(mcpServers.teamId, typeof teamId === `string` ? [teamId] : [...teamId]), inArray(mcpServers.id, unique)))
   if (rows.length !== unique.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Unknown MCP server for this team` })
   }
   return unique
 }
 
-/** #EXP-1656: an agent's default skills (null = none). */
-async function agentSkillIds(tx: Tx, agentId: string): Promise<string[] | null> {
+/** #EXP-1656: an agent's default skills for a root in `teamId` (null =
+ *  none; #EXP-1988: the Assistant's picks of that team). */
+async function agentSkillIds(tx: Tx, agentId: string, teamId: string): Promise<string[] | null> {
   const [row] = await tx.select({ skillIds: agents.skillIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
-  return row?.skillIds?.length ? row.skillIds : null
+  return pickOfTeam(tx, `skills`, row?.skillIds, teamId)
 }
 
 /** #EXP-1793: an agent's default MCP servers for a root in `teamId` (null =
- *  none; an Assistant's root in another team gets none: the servers are its
- *  own team's). */
+ *  none; #EXP-1988: the Assistant's picks of that team). */
 async function agentMcpServerIds(tx: Tx, agentId: string, teamId: string): Promise<string[] | null> {
-  const [row] = await tx
-    .select({ mcpServerIds: agents.mcpServerIds })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.teamId, teamId)))
-    .limit(1)
-  return row?.mcpServerIds?.length ? row.mcpServerIds : null
+  const [row] = await tx.select({ mcpServerIds: agents.mcpServerIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
+  return pickOfTeam(tx, `mcp`, row?.mcpServerIds, teamId)
 }
 
 /**
@@ -497,10 +498,12 @@ export async function assertNotPlainInSealedTree(
  *  `author_session_id`; `asSession` = the message is that SESSION's input
  *  into another one (a child asking its parent, #EXP-1452 an agent starting
  *  a session), agent-authored. */
-/** #EXP-1720 (eagent tree.json, emcp access.json `assistantScope`): a
- *  Teams pick is the member's Assistant's alone: into its conversation ROOT,
- *  by its member. Stored ∩ their teams (deduplicated, the root's own team
- *  dropped); null = every team. Returns what was stored. */
+/** #EXP-1720 + #EXP-2027 (eagent tree.json `treeTeams`, emcp access.json
+ *  `treeScope`): a Teams pick lands on a ROOT whose tree has no team agent
+ *  (the member's Assistant's conversation, a plain chat or one the
+ *  Assistant started), by its starter. Stored ∩ their teams (deduplicated,
+ *  the root's own team dropped); null = the Assistant's every team, a
+ *  chat's own team only. Returns what was stored. */
 async function applyTeamsPick(
   tx: Tx,
   session: Pick<Session, `id` | `rootId` | `teamId` | `userId`>,
@@ -508,13 +511,17 @@ async function applyTeamsPick(
   picked: string[] | null
 ): Promise<string[] | null> {
   const [root] = await tx
-    .select({ parentId: sessions.parentId, userId: sessions.userId, role: agents.role })
+    .select({
+      parentId: sessions.parentId,
+      userId: sessions.userId,
+      agentId: sessions.agentId,
+      startedByAgentId: sessions.startedByAgentId,
+    })
     .from(sessions)
-    .leftJoin(agents, eq(agents.id, sessions.agentId))
     .where(eq(sessions.id, session.id))
     .limit(1)
-  if (!root || root.parentId !== null || root.role !== `assistant` || root.userId !== authorId) {
-    throw new TRPCError({ code: `BAD_REQUEST`, message: SCOPE_ASSISTANT_ONLY_MESSAGE })
+  if (!root || root.parentId !== null || root.userId !== authorId || (await treeRootKind(root, tx)) === `agent`) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: SCOPE_NOT_PICKABLE_MESSAGE })
   }
   const member = new Set(await getMemberTeamIds(authorId))
   const scope = picked === null ? null : [...new Set(picked)].filter((id) => id !== session.teamId && member.has(id))
@@ -535,7 +542,7 @@ async function postSendMessage(
   // agent acts with its host's key, so the caller is the uploader set's
   // first entry, never the effective starter).
   const sealUserId = uploaderIds[0]!
-  // #EXP-1720: the turn's Teams pick becomes the Assistant root's scope, even with nothing to post.
+  // #EXP-1720/#EXP-2027: the turn's Teams pick becomes the root's scope, even with nothing to post.
   const scope = input.scopeTeamIds === undefined ? undefined : await applyTeamsPick(tx, session, authorId, input.scopeTeamIds)
   let text = input.text ?? ``
   // EXP-1458: the tree's key arrives with its first sealed message.
@@ -890,6 +897,11 @@ export interface SendExtras {
    *  server code sets it (suggestions.ts, agent-handoff.ts, the link wake
    *  line); tRPC and MCP inputs never reach it. */
   serverComposed?: boolean
+  /** #EXP-2014: a call session's own server line (the call-back request,
+   *  the hang-up's summary request): the chat's catch-up does not ride with
+   *  it (it lands before the next utterance), so the reply to it answers it
+   *  alone (the call-back's reply is the spoken opening line). */
+  callPrompt?: boolean
 }
 
 interface SendOutcome extends SessionsSendResult {
@@ -934,7 +946,7 @@ async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promis
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
   if (!input.sessionId && !input.agentId) assertRunnerVocabulary(input)
-  await assertAgentTreeTeam(input, caller)
+  await assertCallerTreeTeam(input, caller)
   if (args.meeting) await assertMeetingSend(args.userId, input, args.viaMcp === true)
 
   const clientMessageId = args.viaMcp ? undefined : args.clientMessageId
@@ -1465,7 +1477,7 @@ async function messageSession(
       }
       const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
       // #EXP-1961: a call reads what was typed in its chat before its next answer.
-      if (target.voiceCall && !from) await copyChatIntoCall(tx, target)
+      if (target.voiceCall && !from && !extras.callPrompt) await copyChatIntoCall(tx, target)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
       // A PERSON's message into a worker = it takes its issues again.
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)
@@ -1582,10 +1594,15 @@ async function messageAgent(
     // #EXP-1793: the sender's MCP servers / skills pick = the conversation's
     // from now on (its device re-reads `sessions.mcpPicks` between turns);
     // an id outside the agent's team is refused, never dropped.
+    // #EXP-1984: the Assistant lives in its member's personal team and is
+    // written to from every team of theirs, so its pick may name any of
+    // their teams' rows (the member's own rights; #EXP-1988 uses each for
+    // its team's work).
+    const pickTeams = agent.role === `assistant` ? await getUserTeamIds(userId) : agent.teamId
     const mcpServerIds =
-      input.mcpServerIds === undefined ? undefined : await assertMcpServersInTeam(tx, agent.teamId, input.mcpServerIds)
+      input.mcpServerIds === undefined ? undefined : await assertMcpServersInTeam(tx, pickTeams, input.mcpServerIds)
     const skillIds =
-      input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, agent.teamId, input.skillIds)
+      input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, pickTeams, input.skillIds)
     if (mcpServerIds !== undefined || skillIds !== undefined) {
       await tx
         .update(sessions)
@@ -1898,12 +1915,16 @@ async function startChild(
     if (!root.shared && device.ownerId !== userId) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `A private session's child runs on your own device` })
     }
-    // #EXP-1720: a child in another team than its parent takes nothing team-bound from it.
+    // #EXP-1720: a child in another team than its parent takes nothing team-bound from it,
+    // #EXP-1988 (`assistant.teamPicks`) but its parent's picks of that team.
     const sameTeam = teamId === parent.teamId
     const mcpServerIds =
-      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ?? (sameTeam ? parent.mcpServerIds : null)
+      (await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)) ??
+      (sameTeam ? parent.mcpServerIds : await pickOfTeam(tx, `mcp`, parent.mcpServerIds, teamId))
     // #EXP-1656: a child without its own pick inherits its parent's skills.
-    const skillIds = (await assertSkillsInTeam(tx, teamId, input.skillIds)) ?? (sameTeam ? parent.skillIds : null)
+    const skillIds =
+      (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??
+      (sameTeam ? parent.skillIds : await pickOfTeam(tx, `skills`, parent.skillIds, teamId))
     const id = crypto.randomUUID()
     const child = await insertSession(tx, {
       id,
@@ -2025,7 +2046,7 @@ async function startRoot(
     // #EXP-1656: the pick, else (a root an agent tree starts) the agent's.
     const skillIds =
       (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??
-      (startedByAgentId ? await agentSkillIds(tx, startedByAgentId) : null)
+      (startedByAgentId ? await agentSkillIds(tx, startedByAgentId, teamId) : null)
 
     // NEW-2: a prompt run: the body plus what was typed is the first
     // message; the prompt names the session unless a name was passed.

@@ -327,6 +327,18 @@ export function useChatsList(teamId: string | readonly string[] | null | undefin
   }, [tree, context, isReady, reads, nowIso])
 }
 
+/** #EDE-99: the Chats list's title of every root of a team (the global
+ *  search's chat rows), over the same team-wide title context. */
+export function useTeamChatTitles(teamId: string | readonly string[] | null | undefined): Map<string, string> {
+  const teamIds = teamScopeIds(teamId ?? undefined)
+  const { tree } = useTeamSessions(teamIds)
+  const context = useTitleContext(teamIds)
+  return useMemo(
+    () => sessionTitles(tree, context.sessionIssues, context.issues, context.messages),
+    [tree, context]
+  )
+}
+
 /** NEW-2: the rail's Agents section: the team's `agents` definitions, like
  *  boards; busy / needs-you from the viewer's own conversation with each. */
 export function useAgents(
@@ -882,12 +894,19 @@ function useFoldedIssues(
  *  #EXP-1380: its NEWEST ones (`useNewestMessages`; a root shares its
  *  chat's limit), its waiting card always. */
 export function useSessionMessages(sessionId: string | null | undefined): MessageRow[] {
+  return useSessionMessagePage(sessionId).rows
+}
+
+/** #EXP-1998: `useSessionMessages` + `more` = older ones exist unloaded
+ *  (`loadEarlierMessages(sessionId)` loads one `windowStep` more). */
+export function useSessionMessagePage(sessionId: string | null | undefined): { rows: MessageRow[]; more: boolean } {
   const sessionIds = useMemo(() => (sessionId ? [sessionId] : []), [sessionId])
-  const { rows } = useNewestMessages({ key: sessionId, sessionIds })
+  const { rows, more } = useNewestMessages({ key: sessionId, sessionIds })
   // EXP-1459: a new array when a tree key arrives, so readers re-open.
   const keyVersion = useKeyVersion()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => keyMessageRows(rows), [rows, keyVersion])
+  const opened = useMemo(() => keyMessageRows(rows), [rows, keyVersion])
+  return useMemo(() => ({ rows: opened, more }), [opened, more])
 }
 
 /** #EXP-1464 (chat-row-action.json): an expanded session row's waiting

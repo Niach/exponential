@@ -71,7 +71,7 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
   useIsMobile: () => false,
 }))
 
-import { HomeColumn } from "@/routes/t/$teamSlug/agent"
+import { HomeColumn } from "@/components/home/home-column"
 
 class ResizeObserverStub {
   observe() {}

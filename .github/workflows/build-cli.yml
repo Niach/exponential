@@ -53,10 +53,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # Saves on master only, which never runs this: a tag or release ref's
+      # entry no other ref can read, ~1.5 GB each, evicted the master seeds
+      # (2026-11-20). So these builds compile cold.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
           key: cli-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       # Version from the cli-v* tag (0.0.0 on workflow_dispatch) — compiled
       # in via EXP_CLI_VERSION so `exponential version`, the x-client-version
       # header (`cli/<version>`) and the self-update compare all agree.

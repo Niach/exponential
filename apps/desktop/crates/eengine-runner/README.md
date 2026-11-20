@@ -2,7 +2,7 @@
 
 The desktop runner (#VAPP-266, E6): `exponential-runner`, the prebuilt shell an exported app runs in on macOS, Windows and Linux. E7's `exponential bundle` copies it next to an `app/` directory. The contract is `packages/eengine/fixtures/runner.json`; its `$comment` is the spec.
 
-The runner has no chrome of its own. It paints four genUI surfaces with eui-gpui's `ExponentialHost`, bottom to top: `app`, `consent`, `permissions` and `toast`. Nothing else is painted. It ships with no updater, no telemetry and no account. Nothing installs a logger, and `log`'s `release_max_level_off` compiles every log macro out of release builds.
+The runner has no chrome of its own. It paints four genUI surfaces with eui-gpui's `ExponentialHost`, bottom to top: `app`, `consent`, `permissions` and `toast`. Nothing else is painted. It ships with no updater, no telemetry and no account. Nothing installs a logger, and `log`'s `release_max_level_off` compiles every log macro out of its release builds. That feature comes with the binary's `runner` feature, never with the library, so the eDE shell, which hosts the library, keeps its log lines.
 
 ## How it runs
 

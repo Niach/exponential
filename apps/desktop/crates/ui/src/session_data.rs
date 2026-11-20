@@ -80,42 +80,107 @@ pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     store.collections().sessions.read(cx).get(session_id).cloned()
 }
 
-/// S-3: the teams whose Assistant this app run already ensured.
+/// S-3 / #EXP-1987: the (account, team) pairs whose Assistant this app run
+/// already ensured (team `None` = the account-level call), with the agent id
+/// the server answered (`None` = asked, no answer yet or no device;
+/// agent-settings.json `assistant.copy.noDevice`).
 #[derive(Default)]
-struct EnsuredAssistants(HashSet<String>);
+struct EnsuredAssistants(HashMap<(String, Option<String>), Option<String>>);
 
 impl gpui::Global for EnsuredAssistants {}
 
-/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats list
-/// and the Settings Agents group call it on mount; it runs ONCE per team per
-/// app run (fire-and-forget, the synced `agents` row is the answer; a
-/// failure only logs and re-arms).
+/// S-3 `agents.ensureAssistant({teamId})`: the composer home, the chats
+/// list and the Settings nav call it on mount with their CURRENT team
+/// (#EXP-1987: switch off = that team gets its Assistant on first use, as
+/// always; switch on = a membership check only, the answer is the member's
+/// ONE Assistant), ONCE per (account, team) per app run (fire-and-forget:
+/// the synced `agents` row is the answer, its id is kept for
+/// [`ensured_assistant_id`]; a failure only logs and re-arms).
 pub(crate) fn ensure_assistant(team_id: &str, cx: &mut App) {
     if team_id.is_empty() {
         return;
     }
-    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains(team_id)) {
+    ensure(Some(team_id.to_string()), cx);
+}
+
+/// #EXP-1987: [`ensure_assistant`] where there is NO team at all (the
+/// account's Settings › Assistant page, `~/settings/assistant`): without a
+/// team, once per account.
+pub(crate) fn ensure_my_assistant(cx: &mut App) {
+    ensure(None, cx);
+}
+
+fn ensure(team: Option<String>, cx: &mut App) {
+    let Some(account) = signed_in_user(cx) else {
+        return;
+    };
+    let key = (account, team);
+    if cx.try_global::<EnsuredAssistants>().is_some_and(|done| done.0.contains_key(&key)) {
         return;
     }
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return;
     };
-    cx.default_global::<EnsuredAssistants>().0.insert(team_id.to_string());
-    let team = team_id.to_string();
+    cx.default_global::<EnsuredAssistants>().0.insert(key.clone(), None);
     cx.spawn(async move |cx| {
-        let probe = team.clone();
+        let team = key.1.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { api::agents::ensure_assistant(&trpc, &probe) })
+            .spawn(async move { api::agents::ensure_assistant(&trpc, team.as_deref()) })
             .await;
-        if let Err(err) = result {
-            log::warn!("[ui] agents.ensureAssistant failed: {err}");
-            let _ = cx.update(|cx| {
-                cx.default_global::<EnsuredAssistants>().0.remove(&team);
-            });
-        }
+        let _ = cx.update(|cx| match result {
+            Ok(agent) => {
+                cx.default_global::<EnsuredAssistants>().0.insert(key, agent.map(|agent| agent.id));
+                cx.refresh_windows();
+            }
+            Err(err) => {
+                log::warn!("[ui] agents.ensureAssistant failed: {err}");
+                cx.default_global::<EnsuredAssistants>().0.remove(&key);
+            }
+        });
     })
     .detach();
+}
+
+/// #EXP-1987: an id `agents.ensureAssistant` answered for the signed-in
+/// account this app run (the account-level call's first, else any team's).
+pub(crate) fn ensured_assistant_id(cx: &App) -> Option<String> {
+    let account = signed_in_user(cx)?;
+    let done = cx.try_global::<EnsuredAssistants>()?;
+    done.0
+        .get(&(account.clone(), None))
+        .cloned()
+        .flatten()
+        .or_else(|| done.0.iter().find(|((who, _), id)| *who == account && id.is_some()).and_then(|(_, id)| id.clone()))
+}
+
+/// #EXP-1987: the viewer's own Assistant WHATEVER team is current: the one
+/// `team_id` lists (its own row before the move, the global one after),
+/// else the one `agents.ensureAssistant` answered, else any synced
+/// Assistant of theirs (the personal team's first). Settings › Assistant,
+/// the FAB and voice read it.
+pub(crate) fn my_assistant_anywhere(team_id: Option<&str>, cx: &App) -> Option<domain::rows::AgentDefRow> {
+    if let Some(found) = team_id.and_then(|team| my_assistant(team, cx)) {
+        return Some(found);
+    }
+    let store = Store::try_global(cx)?;
+    let me = signed_in_user(cx)?;
+    let agents = store.collections().agents.read(cx);
+    if let Some(found) = ensured_assistant_id(cx)
+        .and_then(|id| agents.get(id.as_str()).cloned())
+        .filter(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me.as_str()))
+    {
+        return Some(found);
+    }
+    let team_ids = synced_team_ids(cx);
+    let mine: Vec<&domain::rows::AgentDefRow> = agents
+        .iter()
+        .filter(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me.as_str()))
+        .collect();
+    mine.iter()
+        .find(|agent| agent.team_id.as_deref().is_none_or(|team| !team_ids.iter().any(|id| id == team)))
+        .or(mine.first())
+        .map(|agent| (*agent).clone())
 }
 
 /// #EXP-1714: the synced teams' ids (`collections().teams_sorted()`; a
@@ -1499,6 +1564,40 @@ struct ChatsKey {
 struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>, Option<std::time::Instant>, Option<std::time::Instant>);
 
 impl gpui::Global for ChatsMemo {}
+
+/// #EXP-2027 (sidebar-tree.json): the Chats page spans EVERY member team:
+/// each team's model merged, the rows newest activity first (each carries
+/// its `team_id`, drawn as its team's mark).
+pub(crate) fn chats_model_all(cx: &mut App) -> Rc<ChatsModel> {
+    let Some(store) = Store::try_global(cx) else {
+        return Rc::new(ChatsModel::default());
+    };
+    let teams: Vec<String> = store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect();
+    let models: Vec<Rc<ChatsModel>> = teams.iter().map(|team| chats_model(team, cx)).collect();
+    Rc::new(merge_chats_models(&models))
+}
+
+/// [`chats_model_all`]'s pure merge.
+pub(crate) fn merge_chats_models(models: &[Rc<ChatsModel>]) -> ChatsModel {
+    let mut out = ChatsModel::default();
+    for model in models {
+        out.list.rows.extend(model.list.rows.iter().cloned());
+        out.list.archived += model.list.archived;
+        out.archived.rows.extend(model.archived.rows.iter().cloned());
+        out.archived.archived += model.archived.archived;
+        // A global Assistant lists once.
+        for row in &model.agent_rows {
+            if !out.agent_rows.iter().any(|seen| seen.agent_id == row.agent_id) {
+                out.agent_rows.push(row.clone());
+            }
+        }
+        out.app_rows.extend(model.app_rows.iter().cloned());
+    }
+    let newest = |a: &domain::chats::ChatRow, b: &domain::chats::ChatRow| b.activity_at.cmp(&a.activity_at).then_with(|| a.session_id.cmp(&b.session_id));
+    out.list.rows.sort_by(newest);
+    out.archived.rows.sort_by(newest);
+    out
+}
 
 /// [`ChatsModel`] of `team_id` (`domain::chats::chat_list`), memoised per
 /// store change.

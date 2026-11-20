@@ -84,5 +84,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[features]
+# #ERR-29: `log_capture`, for the tests of epilot-screen's dead ends.
+test-support = []
+
 [[example]]
 name = "serve"

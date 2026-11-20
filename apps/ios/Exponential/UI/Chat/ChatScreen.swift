@@ -123,7 +123,8 @@ struct ChatScreen: View {
         self.rootId = rootId
         self.initialPage = initialPage
         self.editor = editor
-        _find = State(initialValue: ChatFind(chatKey: rootId))
+        let find = ChatFind(chatKey: rootId)
+        _find = State(initialValue: find)
         switch initialPage {
         case .results:
             _ownTab = State(initialValue: .results)
@@ -147,6 +148,15 @@ struct ChatScreen: View {
             // chat has loaded (`land(on:)`).
             _ownTab = State(initialValue: .chat)
             _pendingPage = State(initialValue: initialPage)
+        case let .find(seed):
+            // #EDE-99: a global search pick: find open on its session.
+            find.seed(seed)
+            if let child = seed.sessionId {
+                _ownTab = State(initialValue: .sessions)
+                _pendingPage = State(initialValue: .session(child))
+            } else {
+                _ownTab = State(initialValue: .chat)
+            }
         }
     }
 
@@ -260,7 +270,7 @@ struct ChatScreen: View {
                 .workHeaderBand {
                     if docked {
                         CallChatBar()
-                    } else if find.open {
+                    } else if find.open, find.sessionId == nil {
                         FindInChatHeader(find: find)
                     } else {
                         chatHeader(rows: rows, view: view)
@@ -398,7 +408,11 @@ struct ChatScreen: View {
             }
             syncIssueModels()
         }
-        .onChange(of: opened) { _, _ in syncIssueModels() }
+        .onChange(of: opened) { old, _ in
+            syncIssueModels()
+            // #EDE-99: find over a child closes with its page.
+            if let scoped = find.sessionId, old == .session(scoped), opened != old { find.close() }
+        }
         // A page of older messages landed under a held plan link.
         .onChange(of: rows?.messages.count) { _, _ in
             guard var link = planLink else { return }
@@ -682,11 +696,14 @@ struct ChatScreen: View {
     /// A member may link and file here (`resolveTeamAccess`: every member
     /// comments and creates issues). #EXP-1714: the viewer's own Assistant
     /// conversation stays editable while its team (the personal one) never
-    /// syncs.
+    /// syncs. #EXP-1987 (agent-settings.json `assistant`): a chat of a team
+    /// not synced here (no teams row, no team_members rows) whose starter is
+    /// the viewer is the member's own, even while its agent row is away.
     private var canEdit: Bool {
         guard let rows else { return false }
         if AgentSettings.isMyAssistant(rows.agent, me: deps.auth.userId) { return true }
-        return teamState.teams.contains { $0.id == rows.root.teamId }
+        if teamState.teams.contains(where: { $0.id == rows.root.teamId }) { return true }
+        return !teamState.teams.isEmpty && rows.root.userId == deps.auth.userId
     }
 
     // MARK: - Tabs and opened items
@@ -736,9 +753,13 @@ struct ChatScreen: View {
             .environment(\.chatIssueOutlet, issueOutlet)
             .environment(\.chatPlanOutlet, planOutlet)
         case let .session(sessionId):
-            SessionScreenItemPage(title: rows.flatMap { $0.session(id: sessionId) }.map(sessionName) ?? "") {
+            SessionScreenItemPage(
+                title: rows.flatMap { $0.session(id: sessionId) }.map(sessionName) ?? "",
+                find: find.sessionId == sessionId ? find : nil
+            ) {
                 if let rows { sessionPage(sessionId, rows: rows) }
             }
+            .environment(\.chatFind, find.sessionId == sessionId ? find : nil)
             // #EXP-1785: a child's waiting question scrolls its page too.
             .environment(\.waitingFocus, waitingFocus)
             .environment(\.chatIssueOutlet, issueOutlet)
@@ -791,7 +812,8 @@ struct ChatScreen: View {
             editorMove: editor?.appMove,
             editorPicks: editor?.picks
         )
-        .environment(\.chatFind, find)
+        // #EDE-99: find searches ONE transcript, a child's while scoped to it.
+        .environment(\.chatFind, find.sessionId == nil ? find : nil)
         .id(rows.root.id)
     }
 
@@ -1279,6 +1301,17 @@ struct ChatScreen: View {
         case let .plan(messageId):
             setTab(.chat)
             hold(request, item: .plan(messageId))
+        case let .find(seed):
+            // #EDE-99: a global search pick on a chat already open.
+            find.seed(seed)
+            if let child = seed.sessionId {
+                setTab(.sessions)
+                hold(.session(child), item: .session(child))
+            } else {
+                pendingPage = nil
+                opened = nil
+                setTab(.chat)
+            }
         case .settings:
             // #FEED-239: settings open over the Chat once the chat is there.
             guard model?.view != nil else {

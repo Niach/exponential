@@ -1,10 +1,25 @@
 //! `xdg-desktop-portal-exponential`: D-Bus activated by the portal frontend inside
 //! an eDE session (`/usr/libexec/xdg-desktop-portal-exponential`).
 
-use std::sync::Arc;
+use std::{process::ExitCode, sync::Arc};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+fn main() -> ExitCode {
+    // A crash-monitor process (ede-observability) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
+    // #ERR-29: the compositor's diagnostics (panics, errors, native
+    // crashes), tagged `portal`.
+    let _diagnostics = ede_observability::init("portal", "info", ede_observability::Output::Stderr);
+    ede_observability::watch_native_crashes("portal");
+    match serve() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            tracing::error!(error = %e, "the portal stopped");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn serve() -> Result<(), Box<dyn std::error::Error>> {
     // #EDE-15: the root token only mints; every portal connection holds
     // the narrow grant (capture, the person's input for RemoteDesktop,
     // ui for shortcuts) and nothing more.

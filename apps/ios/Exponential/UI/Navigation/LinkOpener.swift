@@ -348,18 +348,25 @@ enum LinkOpener {
             } else {
                 AppRoute.chat(accountId: accountId, chatId: sessionId, child: nil)
             }
-            return Target(found: row != nil, teamId: row?.teamId ?? teamId, destination: .push(route, over: nil))
+            return Target(
+                found: row != nil, teamId: await landingTeam(row?.teamId, linkTeam: teamId, pool: pool),
+                destination: .push(route, over: nil)
+            )
         case let .plan(_, sessionId, messageId):
             let row = await session(sessionId, pool: pool)
             return Target(
-                found: row != nil, teamId: row?.teamId ?? teamId,
+                found: row != nil, teamId: await landingTeam(row?.teamId, linkTeam: teamId, pool: pool),
                 destination: .push(await AppRoute.openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps), over: nil)
             )
         case .chats:
             return Target(teamId: teamId, destination: .tab(.chats))
         case let .agent(_, agentId):
+            // #EXP-1987: the viewer's own Assistant opens whatever its team
+            // (their personal team after the move).
+            let me = deps.auth.accounts.first(where: { $0.id == accountId })?.userId ?? ""
             let id = await rowId(
-                #"SELECT "id" FROM "agents" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, agentId, pool: pool
+                #"SELECT "id" FROM "agents" WHERE "id" = ? AND ("team_id" = ? OR ("role" = 'assistant' AND "owner_id" = ?)) LIMIT 1"#,
+                agentId, teamId, me, pool: pool
             )
             return Target(
                 found: id != nil, teamId: teamId,
@@ -376,6 +383,11 @@ enum LinkOpener {
             ))
         case let .settings(_, section):
             if section.isEmpty { return Target(teamId: teamId, destination: .tab(.team)) }
+            // #EXP-1987: Settings › Assistant is the account's page (the
+            // viewer's ONE Assistant), whichever team the link names.
+            if section == "assistant" {
+                return Target(teamId: teamId, destination: .push(.assistantSettings(accountId: accountId), over: .team))
+            }
             // A category with no phone page (billing, statuses…) is web-only.
             guard let page = TeamSettingsSection(rawValue: section) else {
                 return Target(webOnly: true, teamId: teamId)
@@ -436,6 +448,23 @@ enum LinkOpener {
         (try? await pool.read { db -> String? in
             try String.fetchOne(db, sql: sql, arguments: [first, second])
         }) ?? nil
+    }
+
+    private static func rowId(_ sql: String, _ first: String, _ second: String, _ third: String, pool: DatabasePool) async -> String? {
+        (try? await pool.read { db -> String? in
+            try String.fetchOne(db, sql: sql, arguments: [first, second, third])
+        }) ?? nil
+    }
+
+    /// #EXP-1987: a session lands in its own team, unless that team is not
+    /// synced here (the Assistant's chat in the personal team): then the
+    /// link's team, never a switch into a team the viewer cannot see.
+    private static func landingTeam(_ rowTeam: String?, linkTeam: String, pool: DatabasePool) async -> String {
+        guard let rowTeam, !rowTeam.isEmpty, rowTeam != linkTeam else { return linkTeam }
+        let synced = (try? await pool.read { db in
+            try TeamEntity.fetchOne(db, key: rowTeam) != nil
+        }) ?? false
+        return synced ? rowTeam : linkTeam
     }
 
     private static func session(_ id: String, pool: DatabasePool) async -> SessionEntity? {

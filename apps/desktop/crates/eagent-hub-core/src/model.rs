@@ -141,8 +141,9 @@ pub struct HubSession {
     /// A ROOT's tree key epoch (EXP-1458): `Some` = keyed, its tree takes sealed text only (#FEED-185).
     #[serde(default)]
     pub seal_epoch: Option<i64>,
-    /// #EXP-1720: a ROOT's OTHER teams its tree may work in besides its own (the Assistant's picked teams ∩ the
-    /// member's, emcp access.json `assistantScope`); `None` = its own team only.
+    /// #EXP-1720/#EXP-2027: a ROOT's OTHER teams its tree may work in besides its own (the Teams pick of the
+    /// Assistant's conversation or a plain chat, emcp access.json `treeScope`); `None` = its own team only (the hub
+    /// knows no memberships: the server reads the Assistant's `None` as every team).
     #[serde(default)]
     pub scope_team_ids: Option<Vec<String>>,
     /// EXP-1961: a CALL session's call (etalk voice-call.json `callSession`); `None` = not a call.

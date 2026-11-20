@@ -25,6 +25,18 @@ enum ChatPage: Hashable {
     /// #FEED-239: the kind's settings opened over the Chat (an agent row's
     /// `…` › settings).
     case settings
+    /// #EDE-99 (search-list.json `globalChatPick`): a global search pick:
+    /// find in chat open on the query over the hit's session, starting at
+    /// the hit's stop.
+    case find(ChatFindSeed)
+}
+
+/// #EDE-99: what a global search pick opens find in chat with.
+struct ChatFindSeed: Hashable, Sendable {
+    /// The child the hit was said in (nil = the root).
+    let sessionId: String?
+    let query: String
+    let target: SearchList.GlobalChatTarget
 }
 
 /// #EXP-1732: what an app EDITOR puts into THE session screen hosting its

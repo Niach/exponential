@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1456 (owner 2026-10-30): WHERE AN INBOX ROW OPENS ×4, the inbox row tap and the push tap alike. inboxRowTarget(row): a row with `issueId` opens its ISSUE (an `agent_message` about an issue opens that issue's Results face, EXP-933; every other issue row the issue). An issue-less row (`agent_message`, `session_blocked`) with `sessionId` opens THAT SESSION, whatever its type: an Assistant's or team agent's decision (#EXP-1439: question or plan card, `agent_message` titled `copy.decisionPush` of agent-settings.json), an @mention in a conversation (EXP-1291), a wall (EXP-980). An issue-less row without a session (an agent's broadcast, a device share removal, a pruned session) opens NOTHING. #EXP-1534: an `agent_signed_out` row (one of the viewer's devices lost a login it held healthy: one row per login until it reads `ok` again, server-decided) is team-less and carries `deviceId` (the devices row id; absent = null): it opens THAT DEVICE'S SETTINGS (the Devices page with the device's settings open, where its logins are repaired) on every client; a removed device (`deviceId` null) opens nothing. It lists in the inbox of every team (it belongs to the viewer, not a team), as the same issue-less message row as a wall, with the `notification-agent-signed-out` concept icon. Any other issue-less type is not listed. Every tap marks the row read first. sessionTarget(session, viewerId): where a session opens, the S-3 inter-session rule (web lib/session-back.ts): the VIEWER's OWN agent CONVERSATION ROOT (its root is itself, carries `agentId`, and `userId` = the viewer) opens the AGENT's page (its channel: the waiting question or plan sits in its dock); a chat ROOT opens the CHAT; a chat's CHILD opens inside its chat (`chatId` + `sessionId`); anything else under an agent (a teammate's conversation, a child of a conversation) opens AS A SESSION on its own screen. `rootId` null = the row is its own root. A session the client has not synced opens the session route's not-found state, never nothing. A SESSION ROW LANDS ON ITS CARD ×4 (waiting-cards.json DEEP LINKS, Danny 2026-11-13): a question / plan push carries its card (notification-actions.json `messageId` + `cardKind`, question-push.json `rootId`), an inbox row takes the session's waiting card (chat-row-action `sessionWaitingCard` over ALL its synced messages, never the chat's newest-200 window); a plan opens THE plan page, a question its chat at that card (web/desktop `?card=`, phones the chat's card page; a descendant's card opens that session in place, `waitingTarget`) as THE pending deep link (paged in, centred, rung); no card, no root, or a session on its own screen = the session as above. Mirrors: TS src/inbox-route.ts, desktop `domain::inbox_route`, iOS ExpCore `InboxRoute.swift`, Android `domain/InboxRoute.kt`.",
+  "$comment": "#EXP-1456 (owner 2026-10-30): WHERE AN INBOX ROW OPENS ×4, the inbox row tap and the push tap alike. inboxRowTarget(row): a row with `issueId` opens its ISSUE (an `agent_message` about an issue opens that issue's Results face, EXP-933; every other issue row the issue). An issue-less row (`agent_message`, `session_blocked`) with `sessionId` opens THAT SESSION, whatever its type: an Assistant's or team agent's decision (#EXP-1439: question or plan card, `agent_message` titled `copy.decisionPush` of agent-settings.json), an @mention in a conversation (EXP-1291), a wall (EXP-980). An issue-less row without a session (an agent's broadcast, a device share removal, a pruned session) opens NOTHING. #EXP-1534: an `agent_signed_out` row (one of the viewer's devices lost a login it held healthy: one row per login until it reads `ok` again, server-decided) is team-less and carries `deviceId` (the devices row id; absent = null): it opens THAT DEVICE'S SETTINGS (the Devices page with the device's settings open, where its logins are repaired) on every client; a removed device (`deviceId` null) opens nothing. It lists in the inbox of every team (it belongs to the viewer, not a team), as the same issue-less message row as a wall, with the `notification-agent-signed-out` concept icon. Any other issue-less type is not listed. Every tap marks the row read first. sessionTarget(session, viewerId): where a session opens, the S-3 inter-session rule (web lib/session-back.ts): the VIEWER's OWN agent CONVERSATION ROOT (its root is itself, carries `agentId`, and `userId` = the viewer) opens the AGENT's page (its channel: the waiting question or plan sits in its dock); a chat ROOT opens the CHAT; a chat's CHILD opens inside its chat (`chatId` + `sessionId`); anything else under an agent (a teammate's conversation, a child of a conversation) opens AS A SESSION on its own screen. `rootId` null = the row is its own root. A session the client has not synced opens the session route's not-found state, never nothing. A SESSION ROW LANDS ON ITS CARD ×4 (waiting-cards.json DEEP LINKS, Danny 2026-11-13): a question / plan push carries its card (notification-actions.json `messageId` + `cardKind`, question-push.json `rootId`), an inbox row takes the session's waiting card (chat-row-action `sessionWaitingCard` over ALL its synced messages, never the chat's newest-200 window); a plan opens THE plan page, a question its chat at that card (web/desktop `?card=`, phones the chat's card page; a descendant's card opens that session in place, `waitingTarget`) as THE pending deep link (paged in, centred, rung); no card, no root, or a session on its own screen = the session as above. #EXP-1987 (the Assistant move, #EXP-1984): WHICH TEAM'S INBOX LISTS A ROW, the list and its badge/unread count alike (`listCases`, inboxRowListed(row, teamId, teamIds)): `row.teamId` = the row's own team, else its issue's board's team (issue rows carry none), null = unknown; `teamId` = the inbox's team (null = every team: a row of a listed type always lists); `teamIds` = the viewer's synced teams rows (never a personal team). An `agent_signed_out` row lists in every team; an `agent_message` / `session_blocked` row whose team is NONE of `teamIds` (the Assistant's chat, which lives in the member's hidden personal team after the move) lists in every team too, exactly like `agent_signed_out`, and opens its session by id (`sessionTarget`: the viewer's own Assistant conversation = the Assistant's page) from whichever team the inbox is in; every other row lists only in its own team; an issue row whose issue the client has not synced, and any unknown issue-less type, lists nowhere. Mark all read ×4 marks exactly the rows the inbox lists. Mirrors: TS src/inbox-route.ts, desktop `domain::inbox_route`, iOS ExpCore `InboxRoute.swift`, Android `domain/InboxRoute.kt`.",
   "cases": [
     {
       "name": "assistant decision (agent conversation ask)",
@@ -210,6 +210,157 @@
         "sessionId": "s-agent-child"
       },
       "$comment": "`agentId` and `userId` are the ROOT's (a child carries no agent: it resolves through its root)."
+    }
+  ],
+  "listCases": [
+    {
+      "name": "a team's own agent message",
+      "row": {
+        "type": "agent_message",
+        "teamId": "t-acme",
+        "issueId": null
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": true
+    },
+    {
+      "name": "another team's agent message",
+      "row": {
+        "type": "agent_message",
+        "teamId": "t-beta",
+        "issueId": null
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": false
+    },
+    {
+      "name": "the Assistant's chat in the personal team lists in every team",
+      "row": {
+        "type": "agent_message",
+        "teamId": "t-personal",
+        "issueId": null
+      },
+      "teamId": "t-beta",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": true
+    },
+    {
+      "name": "a wall in the personal team lists in every team",
+      "row": {
+        "type": "session_blocked",
+        "teamId": "t-personal",
+        "issueId": null
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": true
+    },
+    {
+      "name": "agent signed out lists in every team",
+      "row": {
+        "type": "agent_signed_out",
+        "teamId": null,
+        "issueId": null
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme"
+      ],
+      "expected": true
+    },
+    {
+      "name": "an issue row of this team",
+      "row": {
+        "type": "issue_comment",
+        "teamId": "t-acme",
+        "issueId": "i-1"
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": true
+    },
+    {
+      "name": "an issue row of another team",
+      "row": {
+        "type": "issue_comment",
+        "teamId": "t-beta",
+        "issueId": "i-1"
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme",
+        "t-beta"
+      ],
+      "expected": false
+    },
+    {
+      "name": "an issue row whose issue is not synced",
+      "row": {
+        "type": "issue_comment",
+        "teamId": null,
+        "issueId": "i-gone"
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme"
+      ],
+      "expected": false
+    },
+    {
+      "name": "an unknown issue-less type",
+      "row": {
+        "type": "something_new",
+        "teamId": "t-personal",
+        "issueId": null
+      },
+      "teamId": "t-acme",
+      "teamIds": [
+        "t-acme"
+      ],
+      "expected": false
+    },
+    {
+      "name": "every team: a listed type always lists",
+      "row": {
+        "type": "agent_message",
+        "teamId": "t-personal",
+        "issueId": null
+      },
+      "teamId": null,
+      "teamIds": [
+        "t-acme"
+      ],
+      "expected": true
+    },
+    {
+      "name": "every team: an unsynced issue lists nowhere",
+      "row": {
+        "type": "issue_comment",
+        "teamId": null,
+        "issueId": "i-gone"
+      },
+      "teamId": null,
+      "teamIds": [
+        "t-acme"
+      ],
+      "expected": false
     }
   ]
 }

@@ -42,7 +42,7 @@ On the desktop app only. Hold the shortcut and speak. The overlay shows what it 
 
 ## Calls
 
-Call your voice device's agent from iPhone, Android, the web or the desktop app. It rings while the voice device loads speech and the voice, then answers with “Hello?”. The call screen shows the agent, the timer and what is being said, with mute, speaker and end buttons. The audio rides [P2P](/docs/sdk/p2p/)'s call channel.
+Call your agents from iPhone, Android, the web or the desktop app. It rings the desktop the agent runs on, or another of yours that can speak (the call screen names it), while it loads speech and the voice, then picks up with the agent's own opening line. The call screen shows the agent, the timer and what is being said, with mute, speaker and end buttons. The audio rides [P2P](/docs/sdk/p2p/)'s call channel.
 
 ![The call screen on iOS](/shots/voice-call/ios.webp)
 

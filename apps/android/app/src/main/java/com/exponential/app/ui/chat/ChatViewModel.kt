@@ -850,12 +850,23 @@ class ChatViewModel @Inject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1307: the viewer is a member of the chat's team (the header
-     *  `…`'s Close PR, `MergeTrain.mergeMenuEntries`). */
-    val isMember: StateFlow<Boolean> = combine(teamId, auth.userId) { team, user -> team to user }
-        .flatMapLatest { (team, user) ->
+     *  `…`'s Close PR, `MergeTrain.mergeMenuEntries`). #EXP-1987
+     *  (agent-settings.json `assistant`): a chat whose team is none of the
+     *  synced teams (the Assistant's chat in the member's personal team, which
+     *  has no team_members rows) and whose starter is the viewer is the
+     *  member's own: a member's rights, never a non-member's view. */
+    val isMember: StateFlow<Boolean> = combine(teamId, auth.userId, root.map { it?.userId }.distinctUntilChanged()) { team, user, starter ->
+        Triple(team, user, starter)
+    }
+        .flatMapLatest { (team, user, starter) ->
             if (team == null || user == null) flowOf(false)
-            else dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
-                .map { members -> members.any { it.userId == user } }
+            else combine(
+                dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) },
+                dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+            ) { members, teams ->
+                members.any { it.userId == user } ||
+                    com.exponential.app.domain.AgentSettings.Assistant.ownChat(team, starter, teams.map { it.id }, user)
+            }
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 

@@ -36,7 +36,7 @@ use domain::repo_ci;
 use domain::repo_page::{repo_branches, repo_pr_tree, RepoBranch, RepoPr, REPO_PAGE};
 use domain::rows::{CiJobRow, CiRunRow, PullRequestRow};
 
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{failed_state, mount_with, IdeToasts, Ink};
@@ -220,7 +220,7 @@ impl RepoPage {
         if let Some(pinned) = &self.shot {
             return pinned.owner;
         }
-        active_team_id(&self.nav, cx).is_some_and(|team| super::is_owner(cx, &team))
+        screen_team_id(&self.nav, cx).is_some_and(|team| super::is_owner(cx, &team))
     }
 
     /// #EXP-1617: the repo's managers = its sharer or a team owner.
@@ -285,7 +285,7 @@ impl RepoPage {
         if self.started || self.pinned() {
             return;
         }
-        let (Some(team_id), Some(trpc)) = (active_team_id(&self.nav, cx), queries::trpc_client(cx)) else { return };
+        let (Some(team_id), Some(trpc)) = (screen_team_id(&self.nav, cx), queries::trpc_client(cx)) else { return };
         self.started = true;
         let key = self.key.clone();
         cx.spawn(async move |this, cx| {

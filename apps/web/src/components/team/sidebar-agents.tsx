@@ -1,40 +1,31 @@
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { agentChatRows } from "@exp/domain-contract/chats"
 import { rowBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import {
   AGENT_ROW_MENU_KIND,
   Badge,
-  conceptIcon,
   ExponentialLogo,
   getActionIcon,
   menuProps,
-  SidebarGroup,
-  SidebarGroupAction,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
 } from "@exp/ui"
-import { CHATS_LIST_COPY, type AgentRow } from "@/lib/session-tree"
+import type { AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
-import { SidebarFolderList } from "@/components/team/sidebar-folders"
+import type { SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use-session-tree"
 
-// EXP-1293: the rail's AGENTS section, ABOVE Boards and drawn like them —
-// one row per team agent (`listAgents`, fixture-locked: sortOrder, then
-// name): its icon in its color + its name, and (#FEED-232) THE count badge
-// `rowBadge` of the viewer's conversation with it (unread agent messages,
-// yellow while it needs you; busy alone = no badge). A row opens the agent's channel; its
-// right-click / long-press is THE session screen menu (#FEED-239: no gear;
-// Agent settings opens that chat with its settings), and the "+" files a
-// new agent. #FEED-239 / #EXP-1837: the host passes `railAgents(agents,
-// apps)`: an app's agent is listed under Apps only, and the viewer's
-// Assistant is THE FAB (`assistant-fab.tsx`), never a row here.
-
-const UiAddIcon = conceptIcon(`ui-add`)
+// EXP-1293 / #EXP-2027: an AGENT's row, drawn like a board's inside its
+// team's list: its icon in its color + its name, and (#FEED-232) THE count
+// badge `rowBadge` of the viewer's conversation with it (unread agent
+// messages, yellow while it needs you; busy alone = no badge). A row opens the
+// agent's channel; its right-click / long-press is THE session screen menu
+// (#FEED-239: no gear). #FEED-239 / #EXP-1837: the host lists
+// `railAgents(agents, apps)`: an app's agent is listed as its app only, and
+// the viewer's Assistant is THE FAB (`assistant-fab.tsx`), never a row here.
 
 /** An agent's glyph: the curated icon set boards and actions share; S-3:
  *  the viewer's Assistant = the Exponential brand mark in the foreground
@@ -97,75 +88,41 @@ function AgentBadge({ badge }: { badge: CountBadgeValue | undefined }) {
   )
 }
 
-export function SidebarAgentsSection({
-  teamId,
+/** #EXP-2027: an agent's row in its team's list (sidebar-tree.json `teamItems`):
+ *  its icon in its color + its name opening its channel, THE agent menu on
+ *  right-click, its count badge trailing. */
+export function SidebarAgentRow({
+  agent,
   teamSlug,
-  agents,
-  isOwner,
-  activeAgentId,
-  badges,
+  active,
+  badge,
+  itemProps,
+  guides,
 }: {
-  /** #EXP-1832: the team the member's folders and order belong to. */
-  teamId: string | undefined
+  agent: AgentRow
   teamSlug: string
-  agents: readonly AgentRow[]
-  /** #FEED-232: `useAgentBadges`, by agent id. */
-  badges?: ReadonlyMap<string, CountBadgeValue>
-  isOwner: boolean
-  activeAgentId: string | null
+  active: boolean
+  /** #FEED-232: `useAgentBadges`'s value for this agent. */
+  badge: CountBadgeValue | undefined
+  itemProps: SidebarRowItemProps
+  guides: ReactNode
 }) {
-  // #EXP-1832: the default order is the list's (listAgents); the member's
-  // folders and drag order sit on top (sidebar-folders.json).
-  const ids = useMemo(() => agents.map((agent) => agent.agentId), [agents])
-  const byId = useMemo(() => new Map(agents.map((agent) => [agent.agentId, agent])), [agents])
   return (
-    <SidebarGroup data-testid="sidebar-agents">
-      <SidebarGroupLabel>{CHATS_LIST_COPY.agents}</SidebarGroupLabel>
-      {isOwner && (
-        <SidebarGroupAction asChild title="New agent">
-          <Link
-            to="/t/$teamSlug/settings/agents/new"
-            params={{ teamSlug }}
-            aria-label="New agent"
-          >
-            <UiAddIcon className="h-4 w-4" />
-          </Link>
-        </SidebarGroupAction>
-      )}
-      <SidebarGroupContent>
-        <SidebarFolderList
-          teamId={teamId}
-          section="agent"
-          ids={ids}
-          renderItem={(id, itemProps, guides) => {
-            const agent = byId.get(id)
-            if (!agent) return null
-            return (
-              <SidebarMenuItem key={agent.agentId} {...itemProps}>
-                {guides}
-                <SidebarMenuButton
-                  asChild
-                  density="compact"
-                  isActive={activeAgentId === agent.agentId}
-                >
-                  <Link
-                    to="/t/$teamSlug/agents/$agentId"
-                    params={{ teamSlug, agentId: agent.agentId }}
-                    data-testid="agents-row"
-                    // Chat 58cb32df: THE agent menu on right-click / long-press.
-                    {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
-                  >
-                    <AgentIcon agent={agent} />
-                    <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-                  </Link>
-                </SidebarMenuButton>
-                <AgentBadge badge={badges?.get(agent.agentId)} />
-              </SidebarMenuItem>
-            )
-          }}
-        />
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <SidebarMenuItem key={agent.agentId} {...itemProps}>
+      {guides}
+      <SidebarMenuButton asChild density="compact" isActive={active}>
+        <Link
+          to="/t/$teamSlug/agents/$agentId"
+          params={{ teamSlug, agentId: agent.agentId }}
+          data-testid="agents-row"
+          // Chat 58cb32df: THE agent menu on right-click / long-press.
+          {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
+        >
+          <AgentIcon agent={agent} />
+          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+        </Link>
+      </SidebarMenuButton>
+      <AgentBadge badge={badge} />
+    </SidebarMenuItem>
   )
 }
-

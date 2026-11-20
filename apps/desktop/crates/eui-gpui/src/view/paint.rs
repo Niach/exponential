@@ -2286,6 +2286,11 @@ impl SurfaceView {
             if let Some((x, y, w, h)) = p.ring.map(at) {
                 layer = layer.child(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).rounded_full().bg(background).border_2().border_color(primary));
             }
+            // #EXP-2027: a row from outside the List: the host's drag
+            // carries its copy, the List paints only the drop.
+            if p.external {
+                continue;
+            }
             let (x, y, w, h) = at(p.lift);
             let row = self.frames.get(p.row as usize).copied().unwrap_or_default();
             self.ghosting.set(true);
