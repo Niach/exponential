@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { chatSections, CHATS_COPY, type ChatListView, type ChatSelectionRow } from "@exp/domain-contract/chats"
-import { ChatList, conceptIcon, FAB_FOOT_CLASS } from "@exp/ui"
+import { ChatList, conceptIcon, FAB_FOOT_CLASS, TeamAvatar } from "@exp/ui"
 import { ChatSelectionBar } from "@/components/chat/chat-selection-bar"
 import { useCrossTeamChatList } from "@/components/chat/cross-team-chat-list"
 import { useChatListSelection } from "@/components/chat/use-chat-list-selection"
@@ -121,6 +121,10 @@ function ChatsRoute() {
               waitingOf={waitingOf}
               wallOf={wallOf}
               marksOf={marksOf}
+              teamOf={(id) => {
+                const team = memberTeams.byId.get(teamOf(id) ?? ``)
+                return team ? <TeamAvatar iconUrl={team.iconUrl} size={16} /> : null
+              }}
               loading={memberTeams.teamIds.length === 0 || !isReady}
               entering={entering}
               emptyTitle={archivedView ? COPY.archived.empty : undefined}

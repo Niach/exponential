@@ -220,6 +220,7 @@ function ChatRowText({
   waiting = null,
   wall = null,
   marks = [],
+  team = null,
   className,
 }: {
   title: string
@@ -234,6 +235,8 @@ function ChatRowText({
   wall?: ChatWallWord | null
   /** #EDE-98: the title's glyphs (chats.json `chatMarks`). */
   marks?: readonly ChatMark[]
+  /** #EXP-2027: the row's team mark on a cross-team list (md+). */
+  team?: ReactNode
   className?: string
 }) {
   const unread = unreadCount > 0
@@ -263,6 +266,7 @@ function ChatRowText({
             </span>
             <ChatMarks marks={marks} />
           </span>
+          {team && <span className="flex shrink-0 items-center self-center">{team}</span>}
           <span
             className={cn(
               `shrink-0 text-xs tabular-nums`,
@@ -314,6 +318,7 @@ export function ChatRow({
   waiting = null,
   wall = null,
   marks = [],
+  team = null,
   onOpen,
   onRowClick,
   onSelectToggle,
@@ -323,6 +328,8 @@ export function ChatRow({
   ...props
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: ChatRowModel
+  /** #EXP-2027: the row's team mark on a cross-team list (md+). */
+  team?: ReactNode
   agent?: string | null
   /** #NEW-49: the root's `sessionWaiting` (the `waiting` word's labels). */
   waiting?: string | null
@@ -423,6 +430,7 @@ export function ChatRow({
         waiting={waiting}
         wall={wall}
         marks={marks}
+        team={team}
         className={isSelected ? `max-md:border-transparent` : undefined}
       />
     </button>
@@ -612,6 +620,7 @@ export function ChatList({
   waitingOf,
   wallOf,
   marksOf,
+  teamOf,
   loading = false,
   entering,
   emptyTitle,
@@ -640,6 +649,8 @@ export function ChatList({
   wallOf?: (sessionId: string) => ChatWallWord | null
   /** #EDE-98: a root's title glyphs (chats.json `chatMarks`). */
   marksOf?: (sessionId: string) => readonly ChatMark[]
+  /** #EXP-2027: a row's team mark on a cross-team list (md+), else null. */
+  teamOf?: (sessionId: string) => ReactNode
   loading?: boolean
   /** The `motion-enter` class for a row that arrived after the first paint. */
   entering?: (sessionId: string) => string
@@ -671,6 +682,7 @@ export function ChatList({
       waiting={waitingOf?.(row.sessionId) ?? null}
       wall={wallOf?.(row.sessionId) ?? null}
       marks={marksOf?.(row.sessionId)}
+      team={teamOf?.(row.sessionId) ?? null}
       className={entering?.(row.sessionId)}
       onOpen={onOpen}
       onRowClick={onRowClick}

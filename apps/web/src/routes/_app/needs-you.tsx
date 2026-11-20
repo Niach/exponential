@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { NEEDS_YOU_COPY, type NeedsYouRow } from "@exp/domain-contract/needs-you"
-import { FAB_CLEARANCE_CLASS, NeedsYouList, SkeletonRows } from "@exp/ui"
+import { FAB_CLEARANCE_CLASS, NeedsYouList, SkeletonRows, TeamAvatar } from "@exp/ui"
 import { NeedsYouStuckActions, useNeedsYouPress } from "@/components/needs-you-stuck-actions"
 import { useMemberTeams } from "@/components/home/use-member-teams"
 import { useCrossTeamNeedsYou, useOpenNeedsYouIn, type CrossTeamNeedsYouRow } from "@/hooks/use-needs-you"
@@ -46,7 +46,15 @@ function NeedsYouRoute() {
         {memberTeams.teamIds.length === 0 || (!isReady && rows.length === 0) ? (
           <SkeletonRows />
         ) : (
-          <NeedsYouList rows={rows} onOpen={press.press} actions={(row) => <NeedsYouStuckActions row={row} />} />
+          <NeedsYouList
+            rows={rows}
+            onOpen={press.press}
+            actions={(row) => <NeedsYouStuckActions row={row} />}
+            teamOf={(row) => {
+              const team = memberTeams.byId.get((row as CrossTeamNeedsYouRow).teamId ?? ``)
+              return team ? <TeamAvatar iconUrl={team.iconUrl} size={14} /> : null
+            }}
+          />
         )}
         {press.dialog}
       </div>
