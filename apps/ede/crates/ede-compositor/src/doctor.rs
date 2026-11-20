@@ -102,6 +102,22 @@ pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
     }
 }
 
+/// #EDE-138: a space's Vulkan apps draw on lavapipe (Mesa's software
+/// Vulkan) while spaces have no GPU path ([`crate::spaces::render`]);
+/// `lavapipe` = its manifests found.
+pub fn check_space_rendering(lavapipe: &[PathBuf]) -> Check {
+    let name = "Agent spaces: Vulkan";
+    if lavapipe.is_empty() {
+        return Check {
+            name,
+            level: Level::Warn,
+            detail: "no lavapipe (Mesa's software Vulkan): a Vulkan app in an agent space does not start (install mesa-vulkan-drivers; on Arch vulkan-swrast)".into(),
+        };
+    }
+    let names: Vec<String> = lavapipe.iter().filter_map(|icd| icd.file_name()).map(|name| name.to_string_lossy().into_owned()).collect();
+    Check { name, level: Level::Ok, detail: format!("lavapipe ({}): Vulkan apps in an agent space draw on the CPU", names.join(", ")) }
+}
+
 /// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
 pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
 /// What stays open to a space in this build.
@@ -1029,6 +1045,7 @@ pub fn run_checks() -> Vec<Check> {
             let config = crate::config::Config::default_path().map(|path| crate::config::Config::load(&path).0).unwrap_or_default();
             (units.version, crate::spaces::slice::described(&config.spaces, units.machine))
         })),
+        check_space_rendering(&crate::spaces::render::lavapipe_icds(root, std::env::var_os("XDG_DATA_DIRS").as_deref())),
         check_space_guard(running_guard_state().as_deref()),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
@@ -1132,6 +1149,17 @@ mod tests {
         let old = check_spaces(Err("systemd 249 is older than 252".into()));
         assert_eq!(old.level, Level::Warn);
         assert!(old.detail.starts_with("systemd 249 is older than 252: what an agent space starts runs in your login session, without limits"), "{}", old.detail);
+    }
+
+    /// #EDE-138: without lavapipe a space's Vulkan apps do not start: a
+    /// warning that names the package.
+    #[test]
+    fn doctor_says_whether_a_spaces_vulkan_apps_can_draw() {
+        let ok = check_space_rendering(&[PathBuf::from("/usr/share/vulkan/icd.d/lvp_icd.x86_64.json")]);
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "lavapipe (lvp_icd.x86_64.json): Vulkan apps in an agent space draw on the CPU"));
+        let none = check_space_rendering(&[]);
+        assert_eq!(none.level, Level::Warn);
+        assert!(none.detail.contains("install mesa-vulkan-drivers"), "{}", none.detail);
     }
 
     #[test]
