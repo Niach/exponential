@@ -899,7 +899,14 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   the space's seat and output only) and whose window manager puts its
   windows on the space's desk; the person's X server and window manager
   are untouched. One that dies is started again at the space's next
-  launch; it ends with the space (its socket and lock go).
+  launch; it ends with the space (its socket and lock go). Its CLIPBOARD
+  is the space's: an X11 copy there is the space's selection (the agent
+  reads it, the space's Wayland apps paste it), and a copy by the space's
+  Wayland apps or by the agent pastes in its X11 apps. Only the X11 app
+  holding the space's keyboard reads it, and the person's clipboard and
+  X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
+  on the space's seat. A space that closes in the middle of a paste ends
+  it there (an agent's read is answered `unavailable`).
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
