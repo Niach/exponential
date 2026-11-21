@@ -872,7 +872,14 @@ impl HostPlugin for Host {
                 let session = args.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
                 let large = args.get("size").and_then(Value::as_str).map(|s| s == "large");
                 cx.defer(move |cx| {
+                    let picked = session.is_some() && large.is_none();
                     shell.borrow_mut().spaces.pin(session.as_deref(), large);
+                    // A row's press: the list makes way for the view it pinned
+                    // (as the switcher's pick closes its menu, #EDE-65).
+                    if picked {
+                        let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
+                        uicore_gpui::dismiss_hosted(hosted, cx);
+                    }
                     spaces_changed(&shell, cx);
                 });
             }
@@ -4626,6 +4633,38 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out)), (Some(out.0), Some(out.1), -1), "{out:?}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
+    }
+
+    /// #EXP-2024 (section 8, 6d): the pinned view of an agent space is an
+    /// on-demand top layer at the bottom right, above the taskbar, that
+    /// never takes the keyboard; the taskbar lists the spaces in a hosted
+    /// Popover (never a popup document: those take the keyboard) and may
+    /// call the two functions the view and the list use.
+    #[test]
+    fn the_space_view_takes_no_keyboard_and_the_list_is_hosted() {
+        let view = factory(spaces::VIEW);
+        let SurfaceHeader::Layer { layer, anchor, keyboard, on_demand, functions, margin, .. } = &view.surface else { panic!("a layer") };
+        assert_eq!((*layer, *keyboard, *on_demand), (DocLayer::Top, ede_ui::surface::Keyboard::None, true));
+        assert_eq!(anchor, &vec![ede_ui::surface::Edge::Bottom, ede_ui::surface::Edge::Right]);
+        assert_eq!((margin.right, margin.bottom), (shell_layout().panel_margin, shell_layout().panel_margin), "beside the edge, above the taskbar's zone");
+        assert_eq!(functions, &vec!["ede_space".to_string()]);
+        let taskbar: Value = serde_json::from_str(uicore_docs::doc("taskbar").unwrap().source).unwrap();
+        fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+            if n["id"] == id {
+                return Some(n);
+            }
+            match n {
+                Value::Object(m) => m.values().find_map(|v| node(v, id)),
+                Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+                _ => None,
+            }
+        }
+        let list = node(&taskbar["root"], spaces::LIST).expect("the Agent spaces list");
+        assert_eq!(list["component"], "Popover", "the list is a hosted Popover of the taskbar");
+        assert_eq!(list["slots"]["trigger"]["props"]["label"], "Agent spaces");
+        assert!(!uicore_docs::DOCS.iter().any(|d| d.source.contains("\"anchor\": \"agent_spaces")), "no popup document anchors at it");
+        let functions: Vec<&str> = taskbar["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(functions.contains(&"ede_space") && functions.contains(&"ede_space_close"));
     }
 
     /// #EDE-65: Settings open into the sidebar like the IDE's: over the
