@@ -269,6 +269,14 @@ pub trait RunBackend: Send + Sync + 'static {
     /// EXP-1273: a turn the PERSON opened started (the computer-use abort
     /// answer).
     fn turn_started(&self, _session_id: &str) {}
+
+    /// #EXP-1514 (D 10): the run's TURN signal flipped: `true` = a turn
+    /// started, whoever opened it (the person, a report, a CI wake, the
+    /// agent's own continuation); `false` = it ended. Edges only, never the
+    /// background tasks a turn left running (`agent_busy`). A run that ends
+    /// mid-turn may hear no `false`: a backend that pairs them closes the
+    /// open turn in its [`Self::end`].
+    fn turn(&self, _session_id: &str, _running: bool) {}
 }
 
 /// EXP-1426 part 4d: the server-free backend. Messages queue through the
@@ -1624,7 +1632,7 @@ impl SessionCtx {
             if !idle {
                 self.turns_started.fetch_add(1, Ordering::SeqCst);
             }
-            self.turn_signal.set_idle(idle);
+            self.set_turn_idle(idle);
             // (EXP-1273's computer-use abort is NOT answered here: this
             // edge also fires for a turn the agent opens on its own — see
             // `start_turn`.)
@@ -1659,6 +1667,17 @@ impl SessionCtx {
             fold_workflow_caption(&mut workflows, cards)
         };
         self.caption_signal.set(caption);
+    }
+
+    /// #EXP-1514 (D 10): the turn signal flips to `idle`; an edge is told
+    /// to the backend ([`RunBackend::turn`]). The seed `idle` at the start
+    /// of a run is no turn's end and goes to the signal alone.
+    pub(crate) fn set_turn_idle(&self, idle: bool) {
+        if self.turn_signal.set_idle(idle) {
+            if let Some(backend) = self.backend.get() {
+                backend.turn(&self.session_id, !idle);
+            }
+        }
     }
 
     /// EXP-1330: an aside's turn edge — its first answer ends the run (the
@@ -3000,7 +3019,7 @@ fn start_turn(
     ctx.signed_out.store(false, Ordering::SeqCst);
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turns_started.fetch_add(1, Ordering::SeqCst);
-    ctx.turn_signal.set_idle(false);
+    ctx.set_turn_idle(false);
     // EXP-1273: the PERSON's message answers an Esc that aborted the run's
     // computer use. Only here, never on the mapper's idle edge: a turn the
     // agent opens by itself (EXP-1224) is not the person speaking again, and

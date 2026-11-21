@@ -85,6 +85,9 @@ pub struct EngineParts<A> {
     /// EXP-1292: write the Conversation (replies, consumes) through this
     /// instead of the run's tRPC client — a test's recording fake.
     pub conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
+    /// #EXP-1514: tell the device's computer use through this instead of
+    /// ePilot — a test's recorder. `None` = ePilot.
+    pub computer: Option<Arc<dyn crate::lifecycle::RunComputer>>,
 }
 
 /// Open an ENDED run's transcript read-only (a Past row on the desktop).
@@ -213,6 +216,8 @@ impl EngineSession {
             attachments: None,
             embeds: steer::ImageEmbeds::default(),
             audience: None,
+            computer: None,
+            space_run: false,
         }));
         let session = SessionSpec {
             session_id,
@@ -337,6 +342,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
             child_exit,
             sink: None,
             conversation: None,
+            computer: None,
         },
     )
 }
@@ -390,6 +396,8 @@ where
         attachments: Some(hook),
         embeds,
         audience: prepared.audience.clone(),
+        computer: parts.computer,
+        space_run: acp.computer_space,
     }));
     let session = SessionSpec {
         session_id: prepared.session_id.clone(),

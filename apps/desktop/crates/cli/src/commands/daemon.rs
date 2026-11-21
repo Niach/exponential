@@ -391,6 +391,15 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // Installed before any session can launch (first caller wins,
     // process-wide).
     registry::install_end_observer(ctx.data_dir.clone());
+    // #EXP-1514 (row 15): this daemon's own sessions' agent spaces (their
+    // records name this device), held at once so nothing expires while the
+    // rows load, settled once they are in sync (the loop below); with the
+    // switch off they are destroyed instead. Never the desktop app's.
+    let mut adoption = Some(coding::session_teardown::start_spaces(
+        &ctx.data_dir,
+        &device_id,
+        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).computer_use,
+    ));
 
     // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
     // nothing runs any more; a live sibling's (the desktop app on this
@@ -814,6 +823,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 };
             }
         }
+        // #EXP-1514 (row 15): the adoption's second step, once the rows are
+        // the server's: live here = kept, ended or elsewhere = destroyed
+        // (unless a run of it is live on this machine), no row = its own
+        // grants decide. Off the loop (the compositor).
+        if adoption.is_some() && synced.ready(SWEEP_SHAPES) {
+            if let Some(store) = pickup.store() {
+                if let Some(held) = adoption.take() {
+                    let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+                    let (data_dir, device) = (ctx.data_dir.clone(), device_id.clone());
+                    std::thread::spawn(move || coding::session_teardown::settle_spaces(held, &data_dir, &rows, &device));
+                }
+            }
+        }
         // S-4: a chat nobody ends (no Stop/End in the UI) gives its agent
         // process back once quiescent for `codingSession.idleReleaseMinutes`:
         // suspended, so the row idles, the worktree stays (the reaper skips
@@ -880,7 +902,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let data_dir = ctx.data_dir.clone();
             let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
+            let (account_id, device) = (ctx.account.id.clone(), device_id.clone());
             std::thread::spawn(move || {
+                // #EXP-1514 (row 14): the agent spaces this daemon keeps for
+                // sessions that ended, were deleted or moved away while no
+                // run of them was live here close within this beat.
+                if let Some(rows) = &synced_sessions {
+                    coding::session_teardown::sweep_spaces(&data_dir, rows, &account_id, &device);
+                }
                 if let (Some(rows), Some(store)) = (synced_sessions, sweep_store) {
                     // #EXP-1909: one teardown can take minutes; each next one
                     // reads its row and the live runs again (a revived

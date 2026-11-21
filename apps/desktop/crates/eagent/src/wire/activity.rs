@@ -860,12 +860,14 @@ impl TurnSignal {
     }
 
     /// Record the agent's turn state. A false→true edge wakes every waiter;
-    /// repeated `true`s are cheap no-ops.
-    pub fn set_idle(&self, idle: bool) {
+    /// repeated `true`s are cheap no-ops. Answers whether it was an edge
+    /// (the state changed).
+    pub fn set_idle(&self, idle: bool) -> bool {
         let was = self.idle.swap(idle, Ordering::Relaxed);
         if idle && !was {
             self.wake();
         }
+        was != idle
     }
 
     /// A receiver that fires once the agent is between turns — IMMEDIATELY

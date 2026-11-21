@@ -152,6 +152,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             skills_dir: None,
+            computer_space: false,
         },
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),
@@ -204,6 +205,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: None,
+            computer: None,
         },
     )
     .expect("the engine starts");
