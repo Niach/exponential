@@ -1907,6 +1907,19 @@ mod tests {
         logged(faked).iter().filter(|line| line.starts_with("mint ")).count()
     }
 
+    /// #EXP-1514: a process that asks once (`exponential doctor`) reads the
+    /// compositor's first answer, not the empty cache's older desktop.
+    #[test]
+    fn a_one_shot_read_waits_for_the_first_answer() {
+        let faked = fake_socket_of(Fake::READY);
+        assert_eq!(space_offer_settled(&faked.session, Duration::from_secs(5)), SpaceOffer::Offered);
+        let featureless = fake_socket_of(Fake { ready: None, ..Fake::READY });
+        assert_eq!(space_offer_settled(&featureless.session, Duration::from_secs(5)), SpaceOffer::No(SpaceBlock::OlderDesktop));
+        for dir in [&faked.dir, &featureless.dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
     fn until(what: &str, mut ok: impl FnMut() -> bool) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !ok() {
@@ -2345,19 +2358,6 @@ mod tests {
         until("the refresh never answered", || space_offer(&older.session) == SpaceOffer::No(SpaceBlock::OlderDesktop));
         assert_eq!(logged(&ready).iter().filter(|line| *line == "space_readiness").count(), 1, "one question while the answer is fresh");
         for dir in [&silent.dir, &ready.dir, &older.dir] {
-            let _ = std::fs::remove_dir_all(dir);
-        }
-    }
-
-    /// #EXP-1514: a process that asks once (`exponential doctor`) reads the
-    /// compositor's first answer, not the empty cache's older desktop.
-    #[test]
-    fn a_one_shot_read_waits_for_the_first_answer() {
-        let faked = fake_socket_of(Fake::READY);
-        assert_eq!(space_offer_settled(&faked.session, Duration::from_secs(5)), SpaceOffer::Offered);
-        let featureless = fake_socket_of(Fake { ready: None, ..Fake::READY });
-        assert_eq!(space_offer_settled(&featureless.session, Duration::from_secs(5)), SpaceOffer::No(SpaceBlock::OlderDesktop));
-        for dir in [&faked.dir, &featureless.dir] {
             let _ = std::fs::remove_dir_all(dir);
         }
     }
