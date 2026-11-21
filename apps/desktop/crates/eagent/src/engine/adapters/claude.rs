@@ -130,13 +130,22 @@ const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
 const START_ATTEMPTS: u32 = 2;
 
 /// #FEED-253: the run-scoped override of the startup `initialize` wait
-/// (milliseconds, on the child's own spawn env); unset = [`CONTROL_TIMEOUT`].
+/// (milliseconds, on the child's own spawn env); unset = [`CONTROL_TIMEOUT`]
+/// for every attempt. One value is every attempt's window; a list is one
+/// per attempt, the last for any later one (#EXP-2053: `1500,20000` lets a
+/// test's silent first child go after 1.5 s and gives the restart 20 s,
+/// which a loaded runner needs).
 pub const START_TIMEOUT_ENV: &str = "EXP_CLAUDE_START_TIMEOUT_MS";
 
-fn start_timeout(env: &[(String, String)]) -> Duration {
+/// The startup window of `attempt` (the first is 1).
+fn start_timeout(env: &[(String, String)], attempt: u32) -> Duration {
     env.iter()
         .find(|(key, _)| key == START_TIMEOUT_ENV)
-        .and_then(|(_, value)| value.parse::<u64>().ok())
+        .and_then(|(_, value)| {
+            let windows: Vec<&str> = value.split(',').collect();
+            let index = (attempt.max(1) as usize - 1).min(windows.len() - 1);
+            windows[index].trim().parse::<u64>().ok()
+        })
         .filter(|ms| *ms > 0)
         .map_or(CONTROL_TIMEOUT, Duration::from_millis)
 }
@@ -1422,9 +1431,9 @@ impl ClaudeSession {
         // parent told only "Ended without a summary.". It is stopped (its
         // process group) and spawned once more; a second silent start
         // fails the start with the reason (EXP-1669's `Could not start`).
-        let timeout = start_timeout(&self.spec.spawn.env);
         let mut attempt = 1;
         let child = loop {
+            let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
                 Error::internal_error()
                     .data(json!({ "reason": format!("could not start claude: {error}") }))
@@ -5943,6 +5952,24 @@ fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #FEED-253 / #EXP-2053: unset, every startup waits the control
+    /// timeout; one value is every attempt's window, a list one per
+    /// attempt with the last for any later one.
+    #[test]
+    fn the_startup_window_is_per_attempt_when_the_env_lists_several() {
+        let env = |value: &str| vec![(START_TIMEOUT_ENV.to_string(), value.to_string())];
+        for attempt in 1..=START_ATTEMPTS {
+            assert_eq!(start_timeout(&[], attempt), CONTROL_TIMEOUT);
+            assert_eq!(start_timeout(&env("1000"), attempt), Duration::from_secs(1));
+            assert_eq!(start_timeout(&env("soon"), attempt), CONTROL_TIMEOUT);
+        }
+        let listed = env("1500, 20000");
+        assert_eq!(start_timeout(&listed, 1), Duration::from_millis(1500));
+        assert_eq!(start_timeout(&listed, 2), Duration::from_secs(20));
+        assert_eq!(start_timeout(&listed, 3), Duration::from_secs(20));
+        assert_eq!(start_timeout(&env("1500,0"), 2), CONTROL_TIMEOUT);
+    }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.
     #[test]
