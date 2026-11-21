@@ -94,7 +94,9 @@ impl Guard {
         match request {
             // Both programs load on this kernel; asked once per run (the
             // connect program for a directory of spaces of the asker's).
-            Request::Probe => {
+            // This guard refuses the person's Wayland socket (#EDE-145):
+            // asked so, it answers the same.
+            Request::Probe | Request::ProbeWayland => {
                 if self.probed.is_none() {
                     let devices = self.devices().map(drop);
                     let connect = self.load_connect(&connect::Policy { uid, spaces: format!("/run/user/{uid}/exponential-desktop/probe.spaces") }).map(drop);

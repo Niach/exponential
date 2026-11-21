@@ -1,9 +1,9 @@
-//! #EDE-146, #EDE-147: the connect program. Attached to a space's slice (for
+//! #EDE-146, #EDE-147, #EDE-145: the connect program. Attached to a space's slice (for
 //! `connect()` and for a datagram's `sendto()`) it decides every connect of
 //! a unix socket CREATED in the space (stream, seqpacket, datagram) by the
 //! path string the caller passed, before the kernel looks the path up. It cannot follow links or `..`; it keeps
 //! ordinary programs, whatever their environment, off the person's system
-//! bus, sound servers, user manager, session bus and eDE's own sockets.
+//! bus, sound servers, user manager, session bus, Wayland socket and eDE's own sockets.
 
 use crate::ebpf::{Asm, Cond, Size, PROBE_READ_KERNEL, R0, R1, R2, R3, R6, R7, R8, R10};
 
@@ -43,7 +43,8 @@ fn matches(bytes: &[u8], pattern: &[Byte]) -> bool {
 
 /// What the program decides for one space: the person's user `uid`, and
 /// `spaces`, the compositor's directory of spaces (its sockets stay
-/// reachable).
+/// reachable; its name is the person's Wayland socket's,
+/// [`crate::protocol::display_of`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
     pub uid: u32,
@@ -98,9 +99,18 @@ impl Policy {
 
     /// Under `/run` (or `/var/run`), paths ending in these are refused:
     /// the person's sound servers by every default name, also as a snap's
-    /// launch helper spells it (`/run/user/U/snap.x/../pulse/native`). [#147]
-    pub fn sound(&self) -> Vec<&'static str> {
-        vec!["/pulse/native", "/pipewire-#", "/pipewire-#-manager"]
+    /// launch helper spells it (`/run/user/U/snap.x/../pulse/native`)
+    /// [#147]; the person's Wayland socket by the name of the directory of
+    /// spaces, `/run/user/U/wayland-1` for `wayland-1.spaces`, also as
+    /// a snap's link to it (`/run/user/U/snap.x/wayland-1`, its desktop
+    /// launcher's) and a Flatpak's bind of it (`/run/flatpak/wayland-1`)
+    /// spell it [#145]. The space's own socket is in its directory
+    /// (`…/space-n/wayland-0`) and passes; eDE's socket is never
+    /// `wayland-0`, the name a space's Flatpak gives the space's own.
+    pub fn ends(&self) -> Vec<String> {
+        let mut ends: Vec<String> = ["/pulse/native", "/pipewire-#", "/pipewire-#-manager"].map(String::from).into();
+        ends.extend(crate::protocol::display_of(&self.spaces).map(|name| format!("/{name}")));
+        ends
     }
 
     /// The reference: does the program allow a connect to `path` (the
@@ -119,7 +129,7 @@ impl Policy {
             return false;
         }
         let under_run = path.starts_with(b"/run/") || path.starts_with(b"/var/run/");
-        !(under_run && self.sound().iter().any(|s| { let p = pattern(s); path.len() >= p.len() && matches(&path[path.len() - p.len()..], &p) }))
+        !(under_run && self.ends().iter().any(|s| { let p = pattern(s); path.len() >= p.len() && matches(&path[path.len() - p.len()..], &p) }))
     }
 
     /// The program (`BPF_PROG_TYPE_CGROUP_SOCK_ADDR`, attach type
@@ -189,10 +199,11 @@ impl Policy {
             compare(&mut a, 0, &pattern(path), false, "deny", &format!("prefix{n}"));
         }
         // By the path's end: only under /run.
-        if !self.sound().is_empty() {
-            compare(&mut a, 0, &pattern("/run/"), false, "sound", "run");
-            compare(&mut a, 0, &pattern("/var/run/"), false, "sound", "varrun");
-            a.goto("allow").label("sound");
+        let ends = self.ends();
+        if !ends.is_empty() {
+            compare(&mut a, 0, &pattern("/run/"), false, "ends", "run");
+            compare(&mut a, 0, &pattern("/var/run/"), false, "ends", "varrun");
+            a.goto("allow").label("ends");
             for i in 0..SUN_PATH {
                 byte(&mut a, i);
                 a.jump_if(Cond::Eq, R0, 0, &format!("end{i}"));
@@ -200,7 +211,7 @@ impl Policy {
             a.goto(&format!("end{SUN_PATH}"));
             for end in 0..=SUN_PATH {
                 a.label(&format!("end{end}"));
-                for (n, suffix) in self.sound().iter().enumerate() {
+                for (n, suffix) in ends.iter().enumerate() {
                     let p = pattern(suffix);
                     if end >= p.len() {
                         compare(&mut a, end - p.len(), &p, false, "deny", &format!("end{end}-{n}"));
@@ -288,14 +299,32 @@ mod tests {
             "/run/pipewire/pipewire-0",
             "/run/user/1000/exponential-desktop/wayland-1.spaces/../wayland-1.sock",
             "/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/../../../bus",
+            // #EDE-145: the person's Wayland socket, snaps' links to it,
+            // a Flatpak's bind of it, spelt with `.` or `//`.
+            "/run/user/1000/wayland-1",
+            "/var/run/user/1000/wayland-1",
+            "/run/user/1000/snap.firefox/wayland-1",
+            "/run/user/1000/snap.firefox_beta/wayland-1",
+            "/run/user/1000/snap.firefox/../wayland-1",
+            "/run/flatpak/wayland-1",
+            "/run/user/1000/./wayland-1",
+            "/run/user/1000//wayland-1",
             // The space's own, and the rest: allowed.
             "/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/bus",
             "/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/wayland-0",
             "/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/pulse/native",
             "/run/user/1000/exponential-desktop/wayland-1.spaces/space-2/systemd/private",
+            "/run/user/1000/exponential-desktop/wayland-1.spaces/space-2/wayland-1",
+            // Other Wayland sockets: a space's Flatpak's link to the
+            // space's own socket (`wayland-0`), other names.
             "/run/user/1000/wayland-0",
-            "/run/user/1000/wayland-1",
+            "/run/user/1000/wayland-10",
+            "/run/user/1000/wayland-1.lock",
+            "/run/user/1000/xwayland-1",
             "/run/user/1000/snap.firefox/wayland-0",
+            "/run/flatpak/wayland-0",
+            "/tmp/wayland-1",
+            "/home/niach/wayland-1",
             "/run/user/1000/doc/socket",
             "/run/user/1000/pipewire-x",
             "/run/user/1000/pipewire-0x",
@@ -334,7 +363,7 @@ mod tests {
         .to_vec();
         // As long as an address holds: the end of the path at every place.
         for len in [96, 100, 104, 105, 106, 107, 108] {
-            for end in ["/pulse/native", "/pipewire-7", "/pipewire-0-manager", "/wayland-0"] {
+            for end in ["/pulse/native", "/pipewire-7", "/pipewire-0-manager", "/wayland-0", "/wayland-1"] {
                 let mut path = String::from("/run/user/1000/snap.app");
                 while path.len() + end.len() < len {
                     path.push('a');
@@ -361,7 +390,7 @@ mod tests {
     #[test]
     fn a_space_reaches_its_own_sockets_and_none_of_the_persons() {
         let policy = policy();
-        for refused in ["/run/dbus/system_bus_socket", "/run/user/1000/snap.firefox/../bus", "/run/user/1000/pulse/native", "/run/user/1000/snap.firefox/pulse/native", "/run/user/1000/pipewire-0", "/run/user/1000/pipewire-0-manager", "/run/pulse/native", "/dev/shm/jack_default_1000_0/jack_0", "/run/user/1000/systemd/private", "/run/user/1000/bus", "/run/user/1000/exponential-desktop/services.sock", "/tmp/tmux-1000/default", "/run/systemd/io.systemd.Login", "/run/systemd/private"] {
+        for refused in ["/run/dbus/system_bus_socket", "/run/user/1000/snap.firefox/../bus", "/run/user/1000/wayland-1", "/run/user/1000/snap.firefox/wayland-1", "/run/user/1000/pulse/native", "/run/user/1000/snap.firefox/pulse/native", "/run/user/1000/pipewire-0", "/run/user/1000/pipewire-0-manager", "/run/pulse/native", "/dev/shm/jack_default_1000_0/jack_0", "/run/user/1000/systemd/private", "/run/user/1000/bus", "/run/user/1000/exponential-desktop/services.sock", "/tmp/tmux-1000/default", "/run/systemd/io.systemd.Login", "/run/systemd/private"] {
             assert!(!policy.allows(refused.as_bytes()), "{refused}");
         }
         for refused in ["/run/wpa_supplicant/wlan0", "/run/docker.sock", "/run/libvirt/libvirt-sock", "/var/snap/lxd/common/lxd/unix.socket"] {
@@ -369,6 +398,48 @@ mod tests {
         }
         for allowed in ["/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/bus", "/run/systemd/journal/stdout", "/run/snapd.socket", "/run/flatpak/bus", "/run/user/1000/wayland-0", "/tmp/.X11-unix/X10", "/tmp/rig/pulse/native"] {
             assert!(policy.allows(allowed.as_bytes()), "{allowed}");
+        }
+    }
+
+    /// #EDE-145: the person's Wayland socket is the one the directory of
+    /// spaces is named after: refused, also through a snap's link and a
+    /// Flatpak's bind; the space's own socket, and every other name, pass.
+    #[test]
+    fn the_persons_wayland_socket_is_the_one_the_spaces_are_named_after() {
+        let policy = policy();
+        for refused in ["/run/user/1000/wayland-1", "/run/user/1000/snap.firefox/wayland-1", "/run/user/1000/snap.chromium/wayland-1", "/var/run/user/1000/wayland-1", "/run/flatpak/wayland-1"] {
+            assert!(!policy.allows(refused.as_bytes()), "{refused}");
+        }
+        for allowed in ["/run/user/1000/exponential-desktop/wayland-1.spaces/space-1/wayland-0", "/run/user/1000/wayland-0", "/run/user/1000/wayland-2", "/run/user/1000/wayland-10", "/run/user/1000/snap.firefox/wayland-0", "/tmp/.X11-unix/X0"] {
+            assert!(policy.allows(allowed.as_bytes()), "{allowed}");
+        }
+        // Another compositor's spaces: its own socket's name.
+        let other = Policy { uid: 1000, spaces: "/run/user/1000/exponential-desktop/wayland-12.spaces".into() };
+        let program = other.program(LAYOUT).unwrap();
+        for (path, want) in [("/run/user/1000/wayland-12", false), ("/run/user/1000/snap.firefox/wayland-12", false), ("/run/user/1000/wayland-1", true), ("/run/user/1000/wayland-2", true), ("/run/user/1000/exponential-desktop/wayland-12.spaces/space-1/wayland-0", true)] {
+            assert_eq!(other.allows(path.as_bytes()), want, "{path}");
+            assert!(every_spelling(&program, path).into_iter().all(|got| got == want), "{path}: the program does not answer {want}");
+        }
+    }
+
+    /// The longest directory of spaces the guard takes (the largest uid, a
+    /// name of 64 bytes) still makes a program whose jumps reach (an eBPF
+    /// jump spans at most 32767 instructions), and it answers as the
+    /// reference.
+    #[test]
+    fn the_longest_directory_of_spaces_makes_a_program_that_answers_as_the_reference() {
+        let name = format!("wayland-{}", "9".repeat(56));
+        let policy = Policy { uid: u32::MAX, spaces: format!("/run/user/{}/exponential-desktop/{name}.spaces", u32::MAX) };
+        assert_eq!(crate::protocol::spaces_dir_of(&policy.spaces, u32::MAX), Ok(()));
+        let program = policy.program(LAYOUT).unwrap();
+        let persons = [format!("/run/user/{}/{name}", u32::MAX), format!("/run/user/{}/snap.a/{name}", u32::MAX), format!("/run/user/{}/bus", u32::MAX)];
+        assert!(persons.iter().all(|path| !policy.allows(path.as_bytes())), "{persons:?}");
+        let mut paths = persons.to_vec();
+        paths.push("/run/user/1000/wayland-1".to_string());
+        paths.extend(table());
+        for path in paths {
+            let want = policy.allows(path.as_bytes());
+            assert!(every_spelling(&program, &path).into_iter().all(|got| got == want), "{path}: the program does not answer {want}");
         }
     }
 
