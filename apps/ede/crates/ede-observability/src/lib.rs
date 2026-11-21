@@ -16,6 +16,12 @@
 //! to that DSN). `EXP_FRAME_STATS=1` prints a frame-time summary to stderr
 //! with or without Sentry ([`stats`]).
 //!
+//! #EDE-185: no thread that logs writes the log itself. Every line goes
+//! through a bounded queue to the log's own thread (`sink`), so a busy
+//! disk or a stuck journald never holds up the compositor's main loop; a
+//! line that finds the queue full is dropped and counted in the next one
+//! written. The [`Guard`]'s drop and [`flush`] write what is queued.
+//!
 //! Native crashes (#ERR-12): a long-running binary calls
 //! [`watch_native_crashes`]; a monitor process (the same binary, see
 //! [`run_crash_monitor_if_requested`]) writes a walked report of every
@@ -31,9 +37,11 @@
 pub mod config;
 mod limit;
 pub mod scrub;
+mod sink;
 pub mod stats;
 pub mod transport;
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use tracing::Level;
@@ -70,14 +78,77 @@ pub fn watch_native_crashes(component: &'static str) {
     }
 }
 
-/// Keeps the Sentry client alive; dropping it flushes what is queued.
-pub struct Guard(Option<sentry::ClientInitGuard>);
+/// Keeps the Sentry client and the log's thread alive; dropping it
+/// flushes what is queued for both (Sentry first: the log writes last).
+pub struct Guard {
+    sentry: Option<sentry::ClientInitGuard>,
+    _log: Option<sink::Worker>,
+}
 
 impl Guard {
     /// Whether this process reports to Sentry.
     pub fn enabled(&self) -> bool {
-        self.0.is_some()
+        self.sentry.is_some()
     }
+}
+
+/// #EDE-185: the log's thread, once [`init_with`] started it.
+static LOG: OnceLock<sink::Sink> = OnceLock::new();
+
+/// One line to the log's output (stderr or stdout, as [`init_with`] was
+/// told), written by the log's thread: the `EXP_FRAME_STATS` summaries.
+/// Not through tracing, so no filter hides it and none of it is sent.
+/// Straight to stderr in a process that never started diagnostics.
+pub fn line(text: &str) {
+    let mut bytes = Vec::with_capacity(text.len() + 1);
+    bytes.extend_from_slice(text.as_bytes());
+    bytes.push(b'\n');
+    match LOG.get() {
+        Some(log) => log.line(bytes),
+        None => {
+            use std::io::Write as _;
+            let _ = std::io::stderr().write_all(&bytes);
+        }
+    }
+}
+
+/// Writes what the log's thread has queued, waiting [`sink::FLUSH_WAIT`]
+/// at most for a stuck output.
+fn flush_log() {
+    if let Some(log) = LOG.get() {
+        log.flush(sink::FLUSH_WAIT);
+    }
+}
+
+/// `std::process::exit` skips the [`Guard`]'s drop but runs the C
+/// library's exit handlers: the queued lines are written there.
+extern "C" fn flush_log_at_exit() {
+    let _ = std::panic::catch_unwind(flush_log);
+}
+
+extern "C" {
+    fn atexit(handler: extern "C" fn()) -> std::ffi::c_int;
+}
+
+/// The log's thread for `output`, its handle in [`LOG`], and the places a
+/// process ends without the [`Guard`]'s drop: an exit, a panic (the lines
+/// before it come before its message). None when no thread can be
+/// started: the lines are then written in place, as before.
+fn start_log(output: Output) -> Option<(sink::Sink, sink::Worker)> {
+    let (log, worker) = sink::start(output).ok()?;
+    LOG.set(log.clone()).ok()?;
+    // SAFETY: registers a handler that never unwinds (catch_unwind).
+    unsafe {
+        atexit(flush_log_at_exit);
+    }
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().name() != Some(sink::THREAD) {
+            flush_log();
+        }
+        previous(info);
+    }));
+    Some((log, worker))
 }
 
 /// Where the human-readable log goes.
@@ -184,9 +255,13 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
     let _ = rustls::crypto::ring::default_provider().install_default();
     let plan = config::resolve();
 
-    let writer = match output {
-        Output::Stdout => BoxMakeWriter::new(std::io::stdout),
-        Output::Stderr => BoxMakeWriter::new(std::io::stderr),
+    // #EDE-185: the log's own thread writes every line.
+    let (writer, log) = match start_log(output) {
+        Some((log, worker)) => (BoxMakeWriter::new(log), Some(worker)),
+        None => match output {
+            Output::Stdout => (BoxMakeWriter::new(std::io::stdout), None),
+            Output::Stderr => (BoxMakeWriter::new(std::io::stderr), None),
+        },
     };
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into());
     let fmt = tracing_subscriber::fmt::layer().with_writer(writer).with_filter(env_filter);
@@ -217,7 +292,7 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
             crash_monitor::discard_pending(&crashes_dir());
         }
         stats::init(false);
-        return Guard(None);
+        return Guard { sentry: None, _log: log };
     };
     let user = plan.user_id.clone().map(|id| sentry::User { id: Some(id), ..Default::default() });
     let guard = sentry::init(options(&plan));
@@ -240,7 +315,7 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
         });
     }
     tracing::info!(environment = %plan.environment, "diagnostics on");
-    Guard(Some(guard))
+    Guard { sentry: Some(guard), _log: log }
 }
 
 /// The reports another launch left, through `hub`; deleted once flushed.
@@ -271,12 +346,14 @@ fn reports_hub(client: Option<std::sync::Arc<sentry::Client>>, user: Option<sent
     sentry::Hub::new(client, std::sync::Arc::new(scope))
 }
 
-/// Sends what is queued (up to 2 s): before a `std::process::exit`, which
-/// skips the [`Guard`]'s drop.
+/// Sends what is queued (up to 2 s), then writes the log's queued lines
+/// (up to 1 s more): before a `std::process::exit` or an `exec`, which skip
+/// the [`Guard`]'s drop.
 pub fn flush() {
     if let Some(client) = sentry::Hub::current().client() {
         client.flush(Some(Duration::from_secs(2)));
     }
+    flush_log();
 }
 
 fn options(plan: &config::Plan) -> sentry::ClientOptions {

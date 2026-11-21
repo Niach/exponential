@@ -2,7 +2,8 @@
 //! frames. With `EXP_FRAME_STATS=1` every space tick and capture pass is
 //! timed in thread CPU (what that thread spent, not the wall clock a
 //! loaded machine stretches), and the loop's own lateness is sampled; a
-//! line goes to stderr every 5 s. These numbers stay apart from the
+//! line goes to stderr every 5 s, written by the log's thread
+//! (`ede_observability::line`, #EDE-185). These numbers stay apart from the
 //! person's frame times (`ede_observability`'s histogram and Sentry's
 //! frames): space work is not a frame of the person's.
 
@@ -97,7 +98,7 @@ impl Stats {
         if over < PRINT_EVERY {
             return;
         }
-        eprintln!("exponential-desktop: {}", self.summary(over));
+        ede_observability::line(&format!("exponential-desktop: {}", self.summary(over)));
         let on = self.on;
         *self = Self { on, ..Self::default() };
     }
@@ -155,6 +156,45 @@ mod tests {
         assert!(line.starts_with("space stats 2.0s: 2 ticks (1.0/s) cpu p50 10 p99 20 max 20 µs; 2 captures cpu p50 1500 p99 2500 max 2500 µs"), "{line}");
         assert!(line.contains("(2.1 ms/s); 1 on the GPU: read cpu p50 200 p99 200 max 200 µs, fence after p50 900"), "{line}");
         assert!(line.contains("; 3 waited; 5 commits paced; loop late p50 40"), "{line}");
+    }
+
+    /// #EDE-185: the compositor never writes stderr or stdout itself (a
+    /// write there held its loop 841 ms on a busy disk): its lines go
+    /// through tracing or `ede_observability::line`, which the log's thread
+    /// writes. Allowed: what runs before the loop or instead of it (main's
+    /// arguments and last error, the doctor's report) and the `space-*`
+    /// dispatches, which are other processes.
+    #[test]
+    fn the_compositor_never_writes_its_output_itself() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let allowed = ["main.rs", "doctor.rs", "spaces/slice.rs"];
+        let writes = ["eprintln!", "println!", "eprint!", "print!(", "dbg!(", "io::stderr()", "io::stdout()"];
+        let (mut found, mut files, mut dirs) = (Vec::new(), 0, vec![src.clone()]);
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                let rel = path.strip_prefix(&src).unwrap().to_string_lossy().into_owned();
+                if !rel.ends_with(".rs") || allowed.contains(&rel.as_str()) {
+                    continue;
+                }
+                files += 1;
+                let source = std::fs::read_to_string(&path).unwrap();
+                // A file's tests, at its end, print what they like.
+                let code = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+                for (i, line) in code.lines().enumerate() {
+                    let line = line.trim_start();
+                    if !line.starts_with("//") && writes.iter().any(|w| line.contains(w)) {
+                        found.push(format!("{rel}:{}: {line}", i + 1));
+                    }
+                }
+            }
+        }
+        assert!(files > 50, "the compositor's sources: {files}");
+        assert!(found.is_empty(), "written on the compositor's own threads:\n{}", found.join("\n"));
     }
 
     #[test]

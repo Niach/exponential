@@ -8,7 +8,9 @@
 //!   [`HANG`] or more is a `ui.hang` transaction for the time the loop was
 //!   blocked, and a loop stuck for [`STUCK`] (a deadlock never ticks again)
 //!   is a warning event from the watchdog thread.
-//! - `EXP_FRAME_STATS=1` prints a summary to stderr every 5 s, Sentry or not.
+//! - `EXP_FRAME_STATS=1` prints a summary to stderr every 5 s, Sentry or not,
+//!   through the log's thread ([`crate::line`], #EDE-185: the line that
+//!   blocked the main loop 841 ms on a busy disk).
 //!
 //! The transactions are sampled like every other (`tracesSampleRate`), and
 //! at most one long-frame or hang span goes out a second.
@@ -189,7 +191,7 @@ pub fn record_frame(output: &str, took: Duration) {
 /// Prints the stderr window when due; hands back the Sentry minute when due.
 fn flush_windows(s: &mut State, now: Instant, stats: bool, sentry: bool) -> Option<(Duration, Histogram)> {
     if stats && now.duration_since(s.printed) >= PRINT_EVERY {
-        eprintln!("exponential-desktop: {}", s.print.summary(now.duration_since(s.printed)));
+        crate::line(&format!("exponential-desktop: {}", s.print.summary(now.duration_since(s.printed))));
         s.print = Histogram::default();
         s.printed = now;
     }
