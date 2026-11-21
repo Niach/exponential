@@ -71,8 +71,9 @@ pub struct Ede {
     /// GLES, which reads the GPU clients' dmabufs pixman cannot, #EDE-100);
     /// `None` = pixman (headless).
     pub capture_renderer: Option<crate::backend::CaptureRenderer>,
-    /// Explicit sync (drm-syncobj), when the primary GPU supports it.
-    #[cfg(feature = "udev")]
+    /// Explicit sync (drm-syncobj), when the primary GPU (udev) or the
+    /// spaces' GPU (#EDE-162) supports it.
+    #[cfg(feature = "gpu")]
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
 
     #[cfg(feature = "xwayland")]
@@ -243,7 +244,7 @@ impl Ede {
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
             dmabuf_importer: None,
             capture_renderer: None,
-            #[cfg(feature = "udev")]
+            #[cfg(feature = "gpu")]
             syncobj_state: None,
             #[cfg(feature = "xwayland")]
             xwayland_shell_state: smithay::wayland::xwayland_shell::XWaylandShellState::new::<Self>(&dh),
@@ -914,6 +915,9 @@ pub struct ClientState {
     pub compositor_state: CompositorClientState,
     /// The desk its socket belongs to; the person's unless said otherwise.
     pub desk: DeskId,
+    /// #EDE-162: its space draws on the GPU (decided when it connected): it
+    /// sees the spaces' linux-dmabuf and drm-syncobj ([`crate::desk::on_gpu_space`]).
+    pub gpu: bool,
 }
 
 impl ClientData for ClientState {

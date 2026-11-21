@@ -14,11 +14,13 @@ use smithay::{
         renderer::gles::GlesRenderer,
         SwapBuffersError,
     },
-    reexports::calloop::{
-        channel::{self, Event as ChannelEvent},
-        generic::Generic,
-        timer::{TimeoutAction, Timer},
-        Interest, Mode, PostAction,
+    reexports::{
+        calloop::{
+            channel::{self, Event as ChannelEvent},
+            generic::Generic,
+            timer::{TimeoutAction, Timer},
+            Interest, Mode, PostAction,
+        },
     },
 };
 
@@ -48,6 +50,10 @@ pub(crate) struct Pass {
     /// The space's serial its pixels show.
     serial: u64,
 }
+
+/// GPU buffers one client of a space may make per second (each import is
+/// work on the person's thread; a swapchain makes three or four).
+pub const IMPORTS_PER_SECOND: usize = 32;
 
 /// How long a pass may take before its fence is given up on.
 const FENCE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -98,7 +104,10 @@ impl Ede {
     }
 
     fn space_gpu_opened(&mut self, picked: &Picked, context: Result<EGLContext, String>) {
-        self.spaces.frames.gpu = match context.and_then(|c| SpacesGpu::new(c, picked.node.clone())) {
+        self.spaces.frames.gpu = match context.and_then(|c| SpacesGpu::new(c, picked.node.clone())).map(|mut gpu| {
+            gpu.driver = picked.driver.clone();
+            gpu
+        }).and_then(|gpu| self.space_gpu_buffers(picked, gpu)) {
             Ok(gpu) => {
                 tracing::info!(
                     "agent spaces render on {} ({} {}, {}; priority {:?})",
@@ -117,11 +126,119 @@ impl Ede {
         };
     }
 
+    /// Offers a GPU space's clients linux-dmabuf on the spaces' renderer
+    /// (its device as the main device, the formats and explicit modifiers it
+    /// imports: an implicit modifier across devices could import and draw
+    /// garbage) and drm-syncobj on its render node when no backend made one.
+    /// An NVIDIA renderer without explicit sync offers none: its buffers carry
+    /// no implicit fence, a capture would read frames half drawn.
+    fn space_gpu_buffers(&mut self, picked: &Picked, gpu: SpacesGpu) -> Result<SpacesGpu, String> {
+        use smithay::{
+            backend::{
+                allocator::{format::FormatSet, Modifier},
+                drm::{DrmDeviceFd, DrmNode},
+                renderer::ImportDma,
+            },
+            utils::DeviceFd,
+            wayland::{
+                dmabuf::DmabufFeedbackBuilder,
+                drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState},
+            },
+        };
+        let formats: FormatSet = gpu.renderer.dmabuf_formats().iter().filter(|f| f.modifier != Modifier::Invalid).copied().collect();
+        if formats.iter().next().is_none() {
+            return Err(format!("{}: no explicit-modifier format to offer", gpu.name));
+        }
+        if self.syncobj_state.is_none() {
+            let opened = std::fs::OpenOptions::new().read(true).write(true).open(&picked.node).map_err(|e| e.to_string());
+            match opened.map(|f| DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(f)))) {
+                Ok(fd) if supports_syncobj_eventfd(&fd) => {
+                    self.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&self.display_handle, fd, crate::desk::on_gpu_space));
+                }
+                _ => tracing::info!("agent spaces: no explicit sync (drm-syncobj) on {}", picked.node.display()),
+            }
+        }
+        if picked.driver.as_deref() == Some("nvidia") && self.syncobj_state.is_none() {
+            return Err(format!("{}: NVIDIA without explicit sync (drm-syncobj) on its render node", picked.node.display()));
+        }
+        let node = DrmNode::from_path(&picked.node).map_err(|e| e.to_string())?;
+        let feedback = DmabufFeedbackBuilder::new(node.dev_id(), formats).build().map_err(|e| e.to_string())?;
+        let global = self.dmabuf_state.create_global_with_filter_and_default_feedback::<Ede, _>(&self.display_handle, &feedback, crate::desk::on_gpu_space);
+        self.spaces.frames.dmabuf = Some(global);
+        Ok(gpu)
+    }
+
     /// Tests: spaces render on Mesa's software EGL device (which `auto`
-    /// never takes), so the GPU path runs without a GPU.
+    /// never takes), so the GPU path runs without a GPU, and its clients
+    /// are offered linux-dmabuf (without feedback: the device has no node).
     pub fn open_space_gpu_for_tests(&mut self) -> Result<(), String> {
-        self.spaces.frames.gpu = Gpu::Ready(Box::new(SpacesGpu::software_for_tests()?));
+        use smithay::backend::{
+            allocator::{format::FormatSet, Format, Fourcc, Modifier},
+            renderer::ImportDma,
+        };
+        let gpu = SpacesGpu::software_for_tests()?;
+        let mut formats: FormatSet = gpu.renderer.dmabuf_formats().iter().filter(|f| f.modifier != Modifier::Invalid).copied().collect();
+        if formats.iter().next().is_none() {
+            formats = [Format { code: Fourcc::Argb8888, modifier: Modifier::Linear }].into_iter().collect();
+        }
+        let global = self.dmabuf_state.create_global_with_filter::<Ede, _>(&self.display_handle, formats, crate::desk::on_gpu_space);
+        self.spaces.frames.dmabuf = Some(global);
+        self.spaces.frames.gpu = Gpu::Ready(Box::new(gpu));
         Ok(())
+    }
+
+    /// The kernel driver of the GPU spaces render on, when they do.
+    pub(crate) fn space_gpu_driver(&self) -> Option<&str> {
+        match &self.spaces.frames.gpu {
+            Gpu::Ready(gpu) => gpu.driver.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// A GPU space's clients are offered linux-dmabuf.
+    pub(super) fn space_offers_gpu_buffers(&self) -> bool {
+        self.spaces.frames.dmabuf.is_some() && matches!(self.spaces.frames.gpu, Gpu::Ready(_))
+    }
+
+    pub(crate) fn is_spaces_dmabuf_global(&self, global: &smithay::wayland::dmabuf::DmabufGlobal) -> bool {
+        self.spaces.frames.dmabuf.as_ref() == Some(global)
+    }
+
+    /// A GPU space's client made a dmabuf: it is imported (so validated)
+    /// on the spaces' renderer, the one that will draw it, within a budget
+    /// of [`IMPORTS_PER_SECOND`] per client (each import is work on the
+    /// person's thread). A refused one latches the client's space.
+    pub(crate) fn space_dmabuf_imported(&mut self, dmabuf: smithay::backend::allocator::dmabuf::Dmabuf, notifier: smithay::wayland::dmabuf::ImportNotifier) {
+        use smithay::backend::{allocator::Buffer as _, renderer::ImportDma};
+        let client = notifier.client();
+        let desk = client.as_ref().and_then(crate::desk::desk_of_client);
+        // Clients with no import in the last second are forgotten (gone ones too).
+        self.spaces.frames.imports.retain(|_, recent| recent.back().is_some_and(|at| at.elapsed() < Duration::from_secs(1)));
+        let over = client.as_ref().is_some_and(|c| {
+            let recent = self.spaces.frames.imports.entry(c.id()).or_default();
+            recent.retain(|at| at.elapsed() < Duration::from_secs(1));
+            recent.push_back(Instant::now());
+            recent.len() > IMPORTS_PER_SECOND
+        });
+        let started = Instant::now();
+        let imported = !over
+            && match &mut self.spaces.frames.gpu {
+                Gpu::Ready(gpu) => gpu.renderer.import_dmabuf(&dmabuf, None).is_ok(),
+                _ => false,
+            };
+        let took = started.elapsed();
+        if took > Duration::from_millis(5) {
+            tracing::info!("a space's GPU buffer took {took:?} to import ({:?} {}x{})", dmabuf.format(), dmabuf.width(), dmabuf.height());
+        }
+        if imported {
+            let _ = notifier.successful::<Ede>();
+            return;
+        }
+        notifier.failed();
+        if let Some(desk) = desk {
+            let why = if over { format!("an app made more than {IMPORTS_PER_SECOND} GPU buffers a second") } else { format!("an app's GPU buffer ({:?}) cannot be drawn on the spaces' GPU", dmabuf.format()) };
+            self.space_latch(desk, why);
+        }
     }
 
     /// What spaces render on: `Ok(GL_RENDERER)` or why they are in software.
@@ -137,7 +254,7 @@ impl Ede {
     /// Space `desk` is captured on the GPU: decided at its first capture
     /// and kept for its life.
     pub fn space_on_gpu(&mut self, desk: DeskId) -> bool {
-        let ready = matches!(self.spaces.frames.gpu, Gpu::Ready(_));
+        let ready = matches!(self.spaces.frames.gpu, Gpu::Ready(_)) && self.spaces_may_start_on_gpu();
         *self.spaces.frames.on_gpu.entry(desk).or_insert(ready)
     }
 

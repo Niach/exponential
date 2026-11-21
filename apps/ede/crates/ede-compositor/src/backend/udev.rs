@@ -306,7 +306,8 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         let fd = primary_node.and_then(|n| u.devices.get(&n)).map(|d| d.manager.device().device_fd().clone());
         match fd {
             Some(fd) if supports_syncobj_eventfd(&fd) => {
-                state.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&state.display_handle, fd, crate::desk::on_person));
+                // #EDE-162: and a GPU space's clients.
+                state.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&state.display_handle, fd, |c| crate::desk::on_person(c) || crate::desk::on_gpu_space(c)));
                 tracing::info!("explicit sync (drm-syncobj) on");
             }
             _ => tracing::info!("explicit sync (drm-syncobj) unavailable on this GPU/kernel"),

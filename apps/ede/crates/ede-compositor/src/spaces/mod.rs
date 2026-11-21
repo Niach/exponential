@@ -308,7 +308,7 @@ impl Ede {
             self.loop_handle
                 .insert_source(Generic::new(socket, Interest::READ, LoopMode::Level), move |_, socket, state| {
                     while let Some(stream) = socket.accept()? {
-                        let client = ClientState { desk: id, ..Default::default() };
+                        let client = ClientState { desk: id, gpu: state.space_gpu_allowed(id), ..Default::default() };
                         match state.display_handle.insert_client(stream, Arc::new(client)) {
                             Ok(client) => state.space_client(id, client),
                             Err(e) => tracing::warn!("space client refused: {e}"),
