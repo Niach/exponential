@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-21-phones-agent-space`,
+    date: `2026-11-21`,
+    title: `An agent space on the phones' Work screen`,
+    summary: `Android 0.14.153 and iOS 0.14.141: the Work screen lists an agent space when your device offers one.`,
+    body: `- **Agent space on the Work screen**: while your device offers an agent space, the Work screen picker in a device's settings reads Auto · Agent space, followed by Agent space only; a device without one shows the picker as before.`,
+  },
+  {
     id: `2026-11-20-sidebar-tree`,
     date: `2026-11-20`,
     title: `One sidebar for all your teams`,
