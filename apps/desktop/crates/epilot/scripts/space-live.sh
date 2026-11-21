@@ -13,7 +13,8 @@
 # `serve --space` asks the offer (Offered), takes a screenshot (the
 # space's, its background), launches a program (in a scope of the space's
 # own slice) and lists the windows (the space's: none). Then the
-# compositor ends as a session ends it, and nothing of its slice is left.
+# compositor ends as a session ends it (SIGTERM, then `space-end`), and
+# nothing of its slice is left.
 set -eu
 
 compositor=$1
@@ -120,13 +121,16 @@ slice="app-exponential_p$cpid.slice"
 grep -q "/$slice/app-exponential_p$cpid-s1.slice/" "/proc/$pid/cgroup" || fail "the launched program is not in its space's slice: $(cat "/proc/$pid/cgroup")"
 echo "space-live: launched $pid in $(cut -d: -f3 "/proc/$pid/cgroup")"
 
-# The end: serve goes (its grant is the space's for up to five minutes), the
-# compositor ends as a session ends it; its own exit stops the slice.
+# The end, as a session ends it: serve goes (its grant is the space's for up
+# to five minutes), the compositor gets SIGTERM, and once it has ended
+# exponential-session runs `space-end` for it, whatever ended it. Then
+# nothing of the slice is left, also with the user manager lingering on.
 kill "$spid" 2>/dev/null || true
 spid=
 kill -TERM "$cpid"
 within 15 '! kill -0 "$cpid" 2>/dev/null' || fail "the compositor did not end on SIGTERM"
 wait "$cpid" 2>/dev/null || true
+"$compositor" space-end "$cpid" || fail "space-end did not stop the slice of all spaces"
 within 10 '[ ! -e "/proc/$pid" ]' || fail "a process of the space outlived the compositor (lingering $linger)"
 if systemctl --user is-active --quiet "$slice"; then
   fail "the slice of all spaces outlived the compositor"
