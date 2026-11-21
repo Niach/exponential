@@ -4,6 +4,7 @@ export const DESKTOP = {
   items: [
     { label: `Overview`, link: `/docs/desktop/features/` },
     { label: `Install`, link: `/docs/desktop/install/` },
+    { label: `Agent spaces`, link: `/docs/desktop/agent-spaces/` },
     { label: `Reference`, link: `/docs/desktop/reference/` },
   ],
 }
