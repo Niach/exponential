@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-phones-agent-space",
+    date: "2026-11-21",
+    title: "An agent space on the phones' Work screen",
+    summary: "Android 0.14.153 and iOS 0.14.141: the Work screen lists an agent space when your device offers one.",
+    body: r##"- **Agent space on the Work screen**: while your device offers an agent space, the Work screen picker in a device's settings reads Auto · Agent space, followed by Agent space only; a device without one shows the picker as before."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_343: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-sidebar-tree",
     date: "2026-11-20",
     title: "One sidebar for all your teams",
