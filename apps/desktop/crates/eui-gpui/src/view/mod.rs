@@ -431,8 +431,9 @@ pub struct SurfaceView {
     anim_start: RefCell<HashMap<SharedString, Instant>>,
     /// Each Image's last decoded picture (by painted id): a new `src` keeps
     /// it on screen until its own decode lands, as a browser's `<img>` does
-    /// (#EDE-65: live thumbnails blanked at every refresh).
-    pub(crate) held_images: RefCell<HashMap<SharedString, std::sync::Arc<gpui::RenderImage>>>,
+    /// (#EDE-65: live thumbnails blanked at every refresh); a `data:`
+    /// picture it moves off is released (#EXP-2024).
+    pub(crate) held_images: RefCell<crate::media::HeldImages>,
     /// When the pending repaint of the `shimmer` Texts fires (they share one).
     shimmer_armed_until: Cell<Option<Instant>>,
     /// When the pending repaint of the looping keyframe animations fires
@@ -686,7 +687,7 @@ impl SurfaceView {
             wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
-            held_images: RefCell::new(HashMap::new()),
+            held_images: RefCell::new(crate::media::HeldImages::default()),
             shimmer_armed_until: Cell::new(None),
             loop_armed_until: Cell::new(None),
             entrance: None,
@@ -1409,8 +1410,9 @@ impl SurfaceView {
             self.anim_start
                 .borrow_mut()
                 .retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && !n.hidden));
-            self.held_images.borrow_mut().retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
+            self.held_images.borrow_mut().retain(|id| cache.by_id.get(id).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
         }
+        crate::media::release_let_go(window, cx);
         self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;
         self.sync_toasts(&out.toasts, window, cx);
