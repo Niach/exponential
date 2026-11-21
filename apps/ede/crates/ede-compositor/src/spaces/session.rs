@@ -15,6 +15,10 @@
 //! compositor's event loop waits for nothing. A manager that ends is
 //! started once more; a space whose manager ends a second time closes,
 //! and its session's next call reads "new and empty".
+//!
+//! #EXP-1514 (the latch, [`super::readiness`]): a manager that could not
+//! start, or that ended, makes readiness answer `session` until a start
+//! succeeds: a manager that runs and whose bus is there.
 
 use std::{
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
@@ -58,6 +62,8 @@ pub(crate) struct Session {
     child: Option<Child>,
     /// How many times it was started.
     starts: u32,
+    /// Its latest start is up: the manager runs and its bus is there.
+    up: bool,
     /// The bus's abstract socket name (`/tmp/dbus-ede-<random>`: a strict
     /// snap's AppArmor profile admits `@/tmp/dbus-*` and no path of ours).
     abstract_name: String,
@@ -70,7 +76,7 @@ impl Session {
             let _ = std::io::Read::read_exact(&mut urandom, &mut random);
         }
         let hex: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-        Self { child: None, starts: 0, abstract_name: format!("/tmp/dbus-ede-{hex}") }
+        Self { child: None, starts: 0, up: false, abstract_name: format!("/tmp/dbus-ede-{hex}") }
     }
 
     /// The bus every launch of space `dir` gets: the path first (Flatpak's
@@ -175,36 +181,53 @@ impl Ede {
     pub(crate) fn space_session(&mut self, desk: DeskId) -> Result<(), Failure> {
         let Some(units) = self.spaces.units.clone() else { return Ok(()) };
         let Some(space) = self.spaces.get_mut(desk) else { return Err(Failure::new(ErrorCode::NotFound, "no such space")) };
+        let mut ended = None;
         if let Some(child) = &mut space.session.child {
             if matches!(child.try_wait(), Ok(None)) {
                 return Ok(());
             }
             space.session.child = None;
-            if space.session.starts >= 2 {
-                let name = space.id.as_str().to_string();
+            ended = Some((space.id.as_str().to_string(), space.session.starts));
+        }
+        if let Some((name, starts)) = ended {
+            self.spaces.session_failed = Some(format!("{name}: its user manager ended"));
+            if starts >= 2 {
                 tracing::warn!("{name}: its user manager ended twice; the space closes");
                 self.close_space(desk);
                 return Err(Failure::new(ErrorCode::Unavailable, "the space's session ended twice: the space was closed"));
             }
-            tracing::warn!("{}: its user manager ended; it is started once more", space.id.as_str());
+            tracing::warn!("{name}: its user manager ended; it is started once more");
         }
+        let space = self.spaces.get(desk).expect("there a moment ago");
         let dir = space.dir.clone();
         let abstract_name = space.session.abstract_name.clone();
         let starts = space.session.starts + 1;
-        let space = self.spaces.get(desk).expect("there a moment ago");
         let config = Some(self.spaces.home_of(space).join("config"));
         let unavailable = |what: &str, e: &dyn std::fmt::Display| Failure::new(ErrorCode::Unavailable, &format!("{what}: {e}"));
-        prepare(&dir, config.as_deref(), &units.dbus_daemon, &abstract_name).map_err(|e| unavailable("the space's session", &e))?;
+        let name = space.id.as_str().to_string();
+        if let Err(e) = prepare(&dir, config.as_deref(), &units.dbus_daemon, &abstract_name) {
+            self.spaces.session_failed = Some(format!("{name}: its session could not be prepared: {e}"));
+            return Err(unavailable("the space's session", &e));
+        }
+        // The bus of an earlier start is no sign of this one's.
+        let _ = std::fs::remove_file(dir.join("bus"));
         let inner = [units.manager.to_string_lossy().into_owned(), "--user".to_string()];
         let mut cmd = units.session_command(&self.config.spaces, desk.number(), starts, &dir, &inner);
         let environment = self.space_environment(desk, Profile::Space)?;
         cmd.env_clear().envs(environment).envs(manager_environment(&dir)).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null());
         super::launch::own_group_dying_with_us(&mut cmd);
-        let child = cmd.spawn().map_err(|e| unavailable("the space's user manager", &e))?;
+        let child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                self.spaces.session_failed = Some(format!("{name}: its user manager could not start: {e}"));
+                return Err(unavailable("the space's user manager", &e));
+            }
+        };
         tracing::info!("{}: its user manager starts (pid {})", dir.file_name().unwrap_or_default().to_string_lossy(), child.id());
         let space = self.spaces.get_mut(desk).expect("there a moment ago");
         space.session.child = Some(child);
         space.session.starts = starts;
+        space.session.up = false;
         Ok(())
     }
 
@@ -219,6 +242,19 @@ impl Ede {
             .collect();
         for desk in ended {
             let _ = self.space_session(desk);
+        }
+        // The latch opens with a start that succeeded: its manager runs and
+        // its bus is there.
+        let mut started = None;
+        for space in self.spaces.list.iter_mut().filter(|space| !space.session.up) {
+            if space.session.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None))) && space.dir.join("bus").exists() {
+                space.session.up = true;
+                started = Some(space.id.as_str().to_string());
+            }
+        }
+        if let (Some(name), Some(why)) = (started, self.spaces.session_failed.as_ref()) {
+            tracing::info!("{name}: its session started; agent spaces are offered again (after: {why})");
+            self.spaces.session_failed = None;
         }
         self.spaces.ended_sessions.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
     }
@@ -246,7 +282,7 @@ mod tests {
         assert!(unit("dbus.socket").contains("ListenStream=%t/bus"));
         assert!(unit("dbus.service").contains("ExecStart=/usr/bin/dbus-daemon --config-file=/run/user/1000/x/space-1/dbus.conf --nofork --nopidfile --syslog-only"));
         assert!(!unit("dbus.service").contains("systemd-activation"), "services start by their Exec= line, in the space");
-        let session = Session { child: None, starts: 0, abstract_name: "/tmp/dbus-ede-0011".into() };
+        let session = Session { child: None, starts: 0, up: false, abstract_name: "/tmp/dbus-ede-0011".into() };
         assert_eq!(session.address(Path::new("/run/user/1000/x/space-1")), "unix:path=/run/user/1000/x/space-1/bus;unix:abstract=/tmp/dbus-ede-0011");
         assert_eq!(session_scope(41, 3, 2), "exponential-p41-s3-session2.scope");
         assert!(Session::new().abstract_name.len() > "/tmp/dbus-ede-".len() + 8);

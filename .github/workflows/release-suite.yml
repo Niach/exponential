@@ -21,8 +21,9 @@ run-name: release-suite${{ inputs.only && format(' (only {0})', inputs.only) || 
 # runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml) and the ExpCore
 # SwiftPM replay (ios-core.yml; informational on PRs), and every
-# Exponential UI renderer + conformance + bench (exponential-ui.yml), and
-# eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites).
+# Exponential UI renderer + conformance + bench (exponential-ui.yml),
+# eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites),
+# and ePilot's live agent space on a ready desktop (epilot-space-live).
 
 on:
   push:
@@ -249,6 +250,79 @@ jobs:
             shots/ede-panel-menu
           retention-days: 14
           if-no-files-found: ignore
+
+  # #EXP-1514 (#EXP-2011, the flip): ePilot's live test of an agent space on
+  # a desktop that is READY for one: this user's systemd user manager
+  # (lingering on, as the installed daemon has it), the space guard installed
+  # as the package installs it, polkit with the package's rule. A headless
+  # compositor on the runner user's runtime directory; `serve --space`
+  # drives a space through the host's gate (epilot/scripts/space-live.sh:
+  # the offer, a screenshot of the space, a launch in its slice, nothing left
+  # after the compositor's end), then ePilot's own space-run test
+  # (EDE_SPACE_LIVE=1). The gate's container has no user manager: there the
+  # compositor answers `no_user_manager` (`headless_ede_says_why_it_makes_no_space`).
+  epilot-space-live:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'epilot-space-live')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps, the user's session bus, polkit, lingering
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
+            libpipewire-0.3-dev libclang-dev dbus dbus-user-session polkitd
+          # `busctl --user` reaches the user manager over the session bus.
+          [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
+          busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
+          sudo loginctl enable-linger "$(id -un)"
+          loginctl show-user "$(id -un)" --property=Linger
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/ede
+            apps/desktop
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+      - name: Build the compositor and the space guard
+        working-directory: apps/ede
+        run: cargo build --locked -p ede-compositor --bin exponential-compositor -p ede-space-guard --bin exponential-space-guard
+      - name: Install the space guard and polkit's rule as the package does
+        run: |
+          target="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug"
+          sudo install -Dm755 "$target/exponential-space-guard" /usr/libexec/exponential-space-guard
+          sudo install -Dm644 apps/ede/packaging/system/exponential-space-guard.socket /etc/systemd/system/exponential-space-guard.socket
+          sudo install -Dm644 apps/ede/packaging/system/exponential-space-guard.service /etc/systemd/system/exponential-space-guard.service
+          sudo install -Dm644 apps/ede/packaging/polkit/00-00-exponential-agent-spaces.rules /usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules
+          sudo install -Dm644 apps/ede/packaging/polkit/at.exponential.desktop.space-probe.policy /usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy
+          sudo systemctl daemon-reload
+          sudo systemctl start exponential-space-guard.socket
+          sudo systemctl restart polkit
+      - name: Build the serve example
+        working-directory: apps/desktop
+        run: cargo build --locked -p epilot --example serve
+      - name: An agent space through serve --space
+        run: |
+          sh apps/desktop/crates/epilot/scripts/space-live.sh \
+            "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" \
+            "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/examples/serve"
+      - name: ePilot's space run on the same desktop
+        working-directory: apps/desktop
+        env:
+          EDE_SPACE_LIVE: '1'
+        run: |
+          EDE_COMPOSITOR="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" \
+            cargo test --locked -p epilot --lib headless_ede_runs_a_space_run -- --test-threads=1
+      - name: What the guard and polkit said
+        if: failure()
+        run: |
+          sudo journalctl -u exponential-space-guard.service -u polkit.service --no-pager -n 200 || true
 
   migrations:
     needs: [dedupe, pick]

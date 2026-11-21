@@ -279,6 +279,7 @@ fn block_of(block: Option<&str>) -> SpaceBlock {
         Some("driver") => SpaceBlock::Driver,
         Some("no_user_manager") => SpaceBlock::Unavailable("no systemd user manager".to_string()),
         Some("session") => SpaceBlock::Unavailable("an agent space's session did not start".to_string()),
+        Some("guard") => SpaceBlock::Unavailable("the space guard or polkit does not guard agent spaces".to_string()),
         Some(other) => SpaceBlock::Unavailable(other.to_string()),
         None => SpaceBlock::Unavailable("not ready".to_string()),
     }
@@ -309,8 +310,8 @@ pub(crate) fn no_space(offer: &SpaceOffer) -> String {
 /// this process has heard this compositor say `space-readiness`
 /// ([`HEARD`]): before that it reads as an older desktop, so a launch
 /// right after the host started, a busy compositor or one restarting
-/// gives the person's screen exactly as before spaces. Until the flip no
-/// compositor says it, so nothing here ever reads `Unknown`.
+/// gives the person's screen exactly as before spaces. eDE says it from
+/// the flip on (#EXP-2011); 0.2.29 and before never do.
 pub(crate) fn space_offer(session: &Session) -> SpaceOffer {
     let offer = cached_offer(session);
     if offer == SpaceOffer::Unknown && !lock(&HEARD).contains(&session.socket) {
@@ -2224,8 +2225,10 @@ mod tests {
             (Fake { root_system: false, ..Fake::READY }, unavailable(NO_MINT), "cannot mint a space grant"),
             (Fake { ready: Some(Ready::Block("no_user_manager")), ..Fake::READY }, unavailable("no systemd user manager"), "no systemd user manager"),
             (Fake { ready: Some(Ready::Block("session")), ..Fake::READY }, unavailable("an agent space's session did not start"), "session did not start"),
+            // #EDE-146..148: the guard or polkit.
+            (Fake { ready: Some(Ready::Block("guard")), ..Fake::READY }, unavailable("the space guard or polkit does not guard agent spaces"), "(the space guard or polkit"),
             // A block this build does not know is a no all the same.
-            (Fake { ready: Some(Ready::Block("guard")), ..Fake::READY }, unavailable("guard"), "(guard)"),
+            (Fake { ready: Some(Ready::Block("later")), ..Fake::READY }, unavailable("later"), "(later)"),
             (Fake { ready: Some(Ready::Block("driver")), ..Fake::READY }, SpaceOffer::No(SpaceBlock::Driver), "graphics driver"),
         ];
         for (n, (fake, offer, words)) in cases.into_iter().enumerate() {
@@ -2336,8 +2339,8 @@ mod tests {
         }
     }
 
-    /// #EXP-1514 (dark until the flip): until a compositor says
-    /// `space-readiness` (none does before the flip), every launch reads
+    /// #EXP-1514: until a compositor says `space-readiness` (eDE 0.2.29
+    /// and every build before the flip, #EXP-2011), every launch reads
     /// what it read before spaces: an older desktop, so the launcher's
     /// `computer_place` resolves Auto to the person's screen. That holds for
     /// the empty cache (the first read after the host started), for a
@@ -2368,7 +2371,7 @@ mod tests {
             assert_eq!(ask(&session, Duration::from_millis(50)).offer, SpaceOffer::Unknown, "{socket}: it did not answer");
             assert_eq!(space_offer(&session), older, "{socket}: no answer before one was heard is not Unknown");
         }
-        // After the flip: heard once, then silent = Unknown.
+        // A compositor of the flip: heard once, then silent = Unknown.
         let silent = fake_socket_of(Fake { ready: Some(Ready::Silent), ..Fake::READY });
         until("the hello was never heard", || space_offer(&silent.session) == SpaceOffer::Unknown);
         for dir in [&featureless.dir, &dir, &silent.dir] {
@@ -2599,39 +2602,63 @@ mod tests {
         assert_eq!(pixels, [(2560, 1440), (1600, 1000)], "the current mode, else the scaled size");
     }
 
-    /// A headless `exponential-compositor` on a runtime directory of its
-    /// own, ended and removed with the guard.
+    /// A headless `exponential-compositor`, ended with the guard: on a
+    /// runtime directory of its own (removed with it), or, live
+    /// ([`live_compositor`]), on this machine's (`XDG_RUNTIME_DIR`), where
+    /// the user manager, the space guard and polkit are real.
     struct Kill {
         child: std::process::Child,
         runtime: PathBuf,
         binary: std::ffi::OsString,
-        /// #EXP-1514: started with the compositor's dev switch
-        /// (`EDE_DEV_SPACE_READINESS=1`, a debug build's), so it says a
-        /// space is ready before the flip (#EXP-2011) answers it for real.
-        ready: bool,
+        /// The test's own directory: the config, and the runtime directory
+        /// unless the run is live. Removed at the end.
+        own: PathBuf,
+        /// #EXP-1514 (live): the file its first program writes its
+        /// `WAYLAND_DISPLAY` into (the machine's runtime directory has other
+        /// compositors' sockets too).
+        display_file: Option<PathBuf>,
     }
 
     impl Drop for Kill {
         fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-            let _ = std::fs::remove_dir_all(&self.runtime);
+            match self.display_file {
+                // Live: ended as a session ends it (SIGTERM, then its own
+                // exit stops the slice of its spaces), never left to the
+                // lingering user manager.
+                Some(_) => {
+                    let pid = self.child.id();
+                    let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                    while matches!(self.child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    let _ = std::process::Command::new(&self.binary).args(["space-end", &pid.to_string()]).status();
+                }
+                None => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                }
+            }
+            let _ = std::fs::remove_dir_all(&self.own);
         }
     }
 
     impl Kill {
-        fn spawn(binary: &std::ffi::OsStr, runtime: &Path, ready: bool) -> std::process::Child {
+        fn spawn(binary: &std::ffi::OsStr, runtime: &Path, own: &Path, display_file: Option<&Path>) -> std::process::Child {
             let mut command = std::process::Command::new(binary);
             command
                 .args(["--headless", "640x480", "--no-xwayland", "--config"])
-                .arg(runtime.join("compositor.toml"))
+                .arg(own.join("compositor.toml"))
                 .env("XDG_RUNTIME_DIR", runtime)
                 .env_remove("DISPLAY")
                 .env_remove("WAYLAND_DISPLAY")
-                .env_remove("EDE_DEV_SPACE_READINESS")
                 .env("RUST_LOG", "warn");
-            if ready {
-                command.env("EDE_DEV_SPACE_READINESS", "1");
+            if let Some(file) = display_file {
+                // Its first program says where it listens and lives as long as it does.
+                let line = format!("printf %s \"$WAYLAND_DISPLAY\" > '{0}.tmp' && mv '{0}.tmp' '{0}'; while kill -0 $PPID 2>/dev/null; do sleep 1; done", file.display());
+                command.args(["--", "sh", "-c", &line]);
             }
             command.spawn().unwrap()
         }
@@ -2641,13 +2668,21 @@ mod tests {
         /// socket and token file are still there).
         fn session(&self) -> Session {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            let of = |display: &str| session_of(env(&[("XDG_CURRENT_DESKTOP", "Exponential"), ("XDG_RUNTIME_DIR", self.runtime.to_str().unwrap()), ("WAYLAND_DISPLAY", display)])).unwrap().unwrap();
             loop {
-                let sockets = std::fs::read_dir(self.runtime.join("exponential-desktop")).into_iter().flatten().flatten().map(|entry| entry.path());
-                for socket in sockets.filter(|path| path.extension().is_some_and(|ext| ext == "sock")) {
-                    let display = socket.file_stem().unwrap().to_string_lossy().into_owned();
-                    let session = session_of(env(&[("XDG_CURRENT_DESKTOP", "Exponential"), ("XDG_RUNTIME_DIR", self.runtime.to_str().unwrap()), ("WAYLAND_DISPLAY", &display)]))
-                        .unwrap()
-                        .unwrap();
+                let displays: Vec<String> = match &self.display_file {
+                    Some(file) => std::fs::read_to_string(file).into_iter().collect(),
+                    None => std::fs::read_dir(self.runtime.join("exponential-desktop"))
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|path| path.extension().is_some_and(|ext| ext == "sock"))
+                        .map(|socket| socket.file_stem().unwrap().to_string_lossy().into_owned())
+                        .collect(),
+                };
+                for display in displays {
+                    let session = of(&display);
                     if session.root_token().and_then(|root| session.connect_token(root)).is_ok() {
                         return session;
                     }
@@ -2662,50 +2697,87 @@ mod tests {
         fn restart(&mut self) -> Session {
             let _ = self.child.kill();
             let _ = self.child.wait();
-            self.child = Kill::spawn(&self.binary, &self.runtime, self.ready);
+            if let Some(file) = &self.display_file {
+                let _ = std::fs::remove_file(file);
+            }
+            self.child = Kill::spawn(&self.binary, &self.runtime, &self.own, self.display_file.as_deref());
             self.session()
         }
     }
 
-    /// `None` = `EDE_COMPOSITOR` is unset: the test is skipped, unless
-    /// `EDE_COMPOSITOR_REQUIRED` is set (CI, #EDE-140): then it fails.
-    fn headless_compositor() -> Option<(Kill, Session)> {
-        headless_compositor_with(false)
-    }
-
-    /// [`headless_compositor`] with the dev switch on ([`Kill::ready`]): a
-    /// debug build's (the gate's `ede` job builds one).
-    fn headless_compositor_with(ready: bool) -> Option<(Kill, Session)> {
-        let Some(binary) = std::env::var_os("EDE_COMPOSITOR") else {
+    fn compositor_binary() -> Option<std::ffi::OsString> {
+        let binary = std::env::var_os("EDE_COMPOSITOR");
+        if binary.is_none() {
             assert!(std::env::var_os("EDE_COMPOSITOR_REQUIRED").is_none(), "EDE_COMPOSITOR_REQUIRED is set but EDE_COMPOSITOR is not");
             eprintln!("EDE_COMPOSITOR unset: skipping the headless eDE run");
-            return None;
-        };
+        }
+        binary
+    }
+
+    /// The test's own directory, with the compositor's config.
+    fn own_dir() -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
-        let runtime = std::env::temp_dir().join(format!("epilot-ede-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&runtime).unwrap();
-        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::write(runtime.join("compositor.toml"), "background = \"#102030\"\n").unwrap();
-        let kill = Kill { child: Kill::spawn(&binary, &runtime, ready), runtime, binary, ready };
+        let own = std::env::temp_dir().join(format!("epilot-ede-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(own.join("compositor.toml"), "background = \"#102030\"\n").unwrap();
+        own
+    }
+
+    /// `None` = `EDE_COMPOSITOR` is unset: the test is skipped, unless
+    /// `EDE_COMPOSITOR_REQUIRED` is set (CI, #EDE-140): then it fails. On a
+    /// runtime directory of its own: no user manager, so no agent space.
+    fn headless_compositor() -> Option<(Kill, Session)> {
+        let binary = compositor_binary()?;
+        let own = own_dir();
+        let kill = Kill { child: Kill::spawn(&binary, &own, &own, None), runtime: own.clone(), binary, own, display_file: None };
+        let session = kill.session();
+        Some((kill, session))
+    }
+
+    /// #EXP-1514 (#EXP-2011): a compositor on this machine's runtime
+    /// directory, so that its readiness is real: the person's user manager,
+    /// the space guard and polkit. Only with `EDE_SPACE_LIVE=1` (the release
+    /// suite's `epilot-space-live` job, a hosted runner with all three);
+    /// skipped elsewhere: the gate's container has no user manager.
+    fn live_compositor() -> Option<(Kill, Session)> {
+        if std::env::var_os("EDE_SPACE_LIVE").is_none_or(|live| live != "1") {
+            eprintln!("EDE_SPACE_LIVE unset: an agent space needs a desktop that is ready for one (the release suite's epilot-space-live job runs this)");
+            return None;
+        }
+        let binary = std::env::var_os("EDE_COMPOSITOR").expect("EDE_SPACE_LIVE=1 needs EDE_COMPOSITOR");
+        let runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").expect("EDE_SPACE_LIVE=1 needs this machine's XDG_RUNTIME_DIR"));
+        let own = own_dir();
+        let display_file = own.join("display");
+        let kill = Kill { child: Kill::spawn(&binary, &runtime, &own, Some(&display_file)), runtime, binary, own, display_file: Some(display_file) };
         let session = kill.session();
         Some((kill, session))
     }
 
     /// #EDE-126 against a real headless `exponential-compositor` that makes
-    /// spaces (`EDE_COMPOSITOR=<binary> cargo test -p epilot headless_ede`;
-    /// skipped without it): a space run's backend and tools end to end.
-    /// #EXP-1514: through the gate, on a DEBUG build started with the dev
-    /// switch (`EDE_DEV_SPACE_READINESS=1`) until the flip answers for real.
-    /// Its grant is `[space]`, its screen is its space's, its keys, clicks
-    /// and clipboard stay there, `launch_app` starts a process the space's
-    /// end takes along, and the person's desk hears nothing of it.
-    /// `EDE_SPACE_APP=<a Wayland program>` also checks its window.
+    /// spaces: a space run's backend and tools end to end. #EXP-1514: through
+    /// the gate, on a desktop whose readiness is real (`EDE_SPACE_LIVE=1`,
+    /// [`live_compositor`]): the space run waits for the answer the session's
+    /// probes give and makes its space only once it says ready. Its grant is
+    /// `[space]`, its screen is its space's, its keys, clicks and clipboard
+    /// stay there, `launch_app` starts a process in the space's slice that
+    /// the space's end takes along, and the person's desk hears nothing of
+    /// it. `EDE_SPACE_APP=<a Wayland program>` also checks its window.
     #[test]
     fn headless_ede_runs_a_space_run() {
-        let Some((_kill, session)) = headless_compositor_with(true) else { return };
+        let Some((kill, session)) = live_compositor() else { return };
         use serde_json::json;
         let run = "epilot-live-space";
-        assert_eq!(ask(&session, GATE_WITHIN).offer, SpaceOffer::Offered, "the dev switch says a space is ready");
+        // The guard's and polkit's probes run at the session's start.
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let offer = loop {
+            let offer = ask(&session, GATE_WITHIN).offer;
+            if offer == SpaceOffer::Offered || std::time::Instant::now() > deadline {
+                break offer;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        assert_eq!(offer, SpaceOffer::Offered, "this desktop says a space is ready (its user manager, the space guard, polkit)");
         let hello = session.connect_space(run, RUN_TIMING).unwrap().hello;
         assert_eq!((hello.capabilities, hello.session_id.as_str()), (vec![Capability::Space], run));
         let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
@@ -2766,6 +2838,10 @@ mod tests {
         assert!(var("XDG_CONFIG_HOME").is_some_and(|home| home.contains("/space-1/") && home.ends_with("/config")), "a profile of the space's own: {:?}", var("XDG_CONFIG_HOME"));
         assert_eq!((var("DISPLAY"), var("EDE_TOKEN")), (None, None));
         assert!(Path::new(&format!("/proc/{pid}")).exists());
+        // #EXP-1514: in a scope of the space's own slice, never the person's session.
+        let compositor = kill.child.id();
+        let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap();
+        assert!(cgroup.contains(&format!("/app-exponential_p{compositor}.slice/app-exponential_p{compositor}-s1.slice/")), "{cgroup}");
         if let Ok(app) = std::env::var("EDE_SPACE_APP") {
             ok(tool("launch_app", json!({ "argv": [app] })));
             until("the app's window never opened in the space", || tool("list_windows", json!({}))["structuredContent"]["windows"].as_array().is_some_and(|w| !w.is_empty()));
@@ -2800,22 +2876,26 @@ mod tests {
         close_space(&session, run);
     }
 
-    /// #EXP-1514 against the real compositor WITHOUT the dev switch, as
-    /// every desktop in the field is until the flip (#EXP-2011): it says
-    /// `spaces` and not `space-readiness`, so ePilot makes NO space on it.
+    /// #EXP-1514 against the real compositor in a place without a user
+    /// manager (its own runtime directory; the gate's container has none
+    /// either): it says `space-readiness` (#EXP-2011, the flip) and answers
+    /// why not, so ePilot makes NO space there, and a space run's first call
+    /// says why. Never the person's screen.
     #[test]
-    fn headless_ede_without_the_dev_switch_makes_no_space() {
+    fn headless_ede_says_why_it_makes_no_space() {
         let Some((_kill, session)) = headless_compositor() else { return };
-        let run = "epilot-live-dark";
+        let run = "epilot-live-unready";
         let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
-        assert!(root.hello.offers_spaces() && !root.hello.says_space_readiness(), "{:?}", root.hello.features);
-        assert_eq!(ask(&session, GATE_WITHIN).offer, SpaceOffer::No(SpaceBlock::OlderDesktop));
+        assert!(root.hello.offers_spaces() && root.hello.says_space_readiness(), "{:?}", root.hello.features);
+        let answer = root.space_readiness().unwrap();
+        assert_eq!((answer.ready, answer.block.as_deref()), (false, Some("no_user_manager")), "{answer:?}");
+        let offer = SpaceOffer::No(SpaceBlock::Unavailable("no systemd user manager".into()));
+        assert_eq!(ask(&session, GATE_WITHIN).offer, offer);
         let refused = open_as(&session, Some(admitted(run)), Target::Space(1)).err().unwrap();
-        assert!(refused.contains("too old"), "{refused}");
+        assert_eq!(refused, no_space(&offer));
+        assert!(refused.contains("not available here (no systemd user manager)"), "{refused}");
         assert!(root.spaces().unwrap().is_empty(), "a space was made");
         assert!(!RUN_GRANTS.lock().unwrap().contains_key(run), "a grant was minted");
-        // The op itself reads as an older compositor's would.
-        assert!(matches!(root.space_readiness(), Err(ede_protocol::Error::Unsupported(_))));
         assert!(root.windows().is_ok());
     }
 

@@ -10,9 +10,9 @@
 //!   compositor's socket (`<wayland-N>.guard`), which the doctor reads:
 //!   also whether the guard refuses the person's Wayland socket (#EDE-145:
 //!   a guard from before leaves it open, and the doctor says so).
-//! - **Readiness** (the flip's `space-readiness`, F5): ready only with a
-//!   user manager, the guard installed, the guard's probe answered ok, and
-//!   polkit refusing a space's process (the package's rule is read).
+//! - **Readiness** (the flip's `space-readiness`, [`super::readiness`]):
+//!   ready only with the guard installed, the guard's probe answered ok,
+//!   and polkit refusing a space's process (the package's rule is read).
 
 use std::{
     path::{Path, PathBuf},
@@ -37,11 +37,6 @@ pub struct GuardState {
     pub polkit: Arc<Mutex<Option<Result<(), String>>>>,
     /// The state file the doctor reads.
     pub file: Option<PathBuf>,
-    /// #EXP-1514, DEV ONLY until the flip (#EXP-2011): the hello says
-    /// `space-readiness` and the answer is `ready`, whatever the checks
-    /// say ([`dev_readiness`], a test's [`Ede::pretend_space_readiness`]).
-    /// Off, this compositor reads the op as an older one does.
-    pub pretend_ready: bool,
 }
 
 /// The guard's socket when the guard is installed (a debug build may name
@@ -53,18 +48,6 @@ pub fn installed() -> Option<PathBuf> {
     }
     let socket = PathBuf::from(ede_space_guard::SOCKET);
     (socket.exists() || GUARD_UNITS.iter().any(|unit| Path::new(unit).exists())).then_some(socket)
-}
-
-/// #EXP-1514, DEV ONLY: `EDE_DEV_SPACE_READINESS=1` makes a DEBUG build
-/// say `space-readiness` and answer `ready` (the headless runs of ePilot,
-/// `serve --space` by hand), so a space can be made before the flip
-/// (#EXP-2011) answers it for real and removes this. A release build never
-/// reads it; it is no setting a person has.
-pub fn dev_readiness() -> bool {
-    #[cfg(debug_assertions)]
-    return std::env::var_os("EDE_DEV_SPACE_READINESS").is_some_and(|on| on == "1");
-    #[cfg(not(debug_assertions))]
-    false
 }
 
 /// The state file of the compositor whose spaces live in `spaces_dir`
@@ -90,15 +73,23 @@ pub fn state_text(required: bool, probe: Option<&Result<Probed, String>>, units:
     format!("guard {}\nprobe {}\nuser-manager {}\npolkit {}\nwayland {wayland}\n", if required { "required" } else { "absent" }, answer(probe), if units { "yes" } else { "no" }, answer(polkit))
 }
 
-/// Can spaces be offered: `Err` = the readiness block (design §2 P4). A
-/// guard from before #EDE-145 counts: the doctor names what it leaves open.
-pub fn readiness(units: bool, required: bool, probe: Option<&Result<Probed, String>>, polkit: Option<&Result<(), String>>) -> Result<(), &'static str> {
-    if !units {
-        return Err("no_user_manager");
+/// Does the guard guard agent spaces here: installed, its probe answered
+/// ok, polkit refusing a space's process. `Err` says why not ([`super::readiness`]'s
+/// `guard`). A guard from before #EDE-145 counts: the doctor names what it
+/// leaves open.
+pub fn verdict(required: bool, probe: Option<&Result<Probed, String>>, polkit: Option<&Result<(), String>>) -> Result<(), String> {
+    if !required {
+        return Err("the space guard is not installed (exponential-space-guard.socket)".into());
     }
-    match (required, probe, polkit) {
-        (true, Some(Ok(_)), Some(Ok(()))) => Ok(()),
-        _ => Err("guard"),
+    match probe {
+        None => return Err("the space guard has not answered the session's probe yet".into()),
+        Some(Err(reason)) => return Err(reason.clone()),
+        Some(Ok(_)) => {}
+    }
+    match polkit {
+        None => Err("polkit has not answered the session's probe yet".into()),
+        Some(Err(reason)) => Err(format!("polkit does not refuse agent spaces: {reason}")),
+        Some(Ok(())) => Ok(()),
     }
 }
 
@@ -155,22 +146,11 @@ impl crate::state::Ede {
         }
     }
 
-    /// #EXP-1514: whether the hello says `space-readiness`. Until the flip
-    /// (#EXP-2011) only the dev switch ([`GuardState::pretend_ready`]).
-    pub fn says_space_readiness(&self) -> bool {
-        self.spaces.dir.is_some() && self.spaces.guard.pretend_ready
-    }
-
-    /// Tests: [`dev_readiness`] without the environment.
-    pub fn pretend_space_readiness(&mut self) {
-        self.spaces.guard.pretend_ready = true;
-    }
-
-    /// The flip's readiness answer (F5's `space-readiness`).
-    pub fn space_readiness(&self) -> Result<(), &'static str> {
+    /// What the guard and polkit decided so far ([`verdict`]).
+    pub fn space_guard_verdict(&self) -> Result<(), String> {
         let probe = self.spaces.guard.probe.lock().unwrap_or_else(|p| p.into_inner()).clone();
         let polkit = self.spaces.guard.polkit.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        readiness(self.spaces.units.is_some(), self.spaces.guard.required.is_some(), probe.as_ref(), polkit.as_ref())
+        verdict(self.spaces.guard.required.is_some(), probe.as_ref(), polkit.as_ref())
     }
 }
 
@@ -179,18 +159,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ready_only_with_a_user_manager_a_guard_that_answered_and_polkit_refusing() {
+    fn the_guard_guards_only_installed_answered_and_with_polkit_refusing() {
         let (ok, older, yes) = (Ok(Probed::Wayland), Ok(Probed::Older), Ok(()));
-        let no = Err::<Probed, String>("busy".into());
-        let polkit_no = Err::<(), String>("busy".into());
-        assert_eq!(readiness(true, true, Some(&ok), Some(&yes)), Ok(()));
-        assert_eq!(readiness(true, true, Some(&older), Some(&yes)), Ok(()), "a guard from before #EDE-145");
-        assert_eq!(readiness(false, true, Some(&ok), Some(&yes)), Err("no_user_manager"));
-        assert_eq!(readiness(true, false, None, Some(&yes)), Err("guard"));
-        assert_eq!(readiness(true, true, None, Some(&yes)), Err("guard"), "still asking");
-        assert_eq!(readiness(true, true, Some(&no), Some(&yes)), Err("guard"));
-        assert_eq!(readiness(true, true, Some(&ok), None), Err("guard"), "polkit still asked");
-        assert_eq!(readiness(true, true, Some(&ok), Some(&polkit_no)), Err("guard"), "polkit does not refuse");
+        let no = Err::<Probed, String>("the space guard: busy".into());
+        let polkit_no = Err::<(), String>("pkcheck=0".into());
+        assert_eq!(verdict(true, Some(&ok), Some(&yes)), Ok(()));
+        assert_eq!(verdict(true, Some(&older), Some(&yes)), Ok(()), "a guard from before #EDE-145");
+        assert_eq!(verdict(false, None, Some(&yes)), Err("the space guard is not installed (exponential-space-guard.socket)".into()));
+        assert_eq!(verdict(true, None, Some(&yes)), Err("the space guard has not answered the session's probe yet".into()), "still asking");
+        assert_eq!(verdict(true, Some(&no), Some(&yes)), Err("the space guard: busy".into()));
+        assert_eq!(verdict(true, Some(&ok), None), Err("polkit has not answered the session's probe yet".into()), "polkit still asked");
+        assert_eq!(verdict(true, Some(&ok), Some(&polkit_no)), Err("polkit does not refuse agent spaces: pkcheck=0".into()));
     }
 
     #[test]

@@ -269,9 +269,9 @@ impl Ede {
                 }
             };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
-                // #EXP-1514: before the flip this compositor reads the op as
-                // an older one does (it cannot parse it), unless the dev
-                // switch says `space-readiness`.
+                // #EXP-1514: a compositor that makes no spaces reads the op as
+                // an older one does (it cannot parse it): its hello does
+                // not say `space-readiness`.
                 Ok(Call { request: Request::SpaceReadiness, .. }) if !self.says_space_readiness() => (0, Err(fail(ErrorCode::Invalid, "unknown variant `space_readiness`"))),
                 Ok(call) => {
                     // Busy before the call runs (#EDE-74): a deferred read
@@ -420,7 +420,7 @@ impl Ede {
                 c.scope = Some(scope);
             }
             let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
-            // #EXP-1514: never said in the field before the flip (#EXP-2011).
+            // #EXP-1514 (#EXP-2011, the flip): what offers a space to people.
             if self.says_space_readiness() {
                 features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
             }
@@ -674,9 +674,8 @@ impl Ede {
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
             Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.process_answer(pid)).unwrap()),
-            // #EXP-1514: reached only with the dev switch (`ipc_serve`); the
-            // flip (#EXP-2011) answers it from the real checks.
-            Request::SpaceReadiness => json(serde_json::to_value(ede_protocol::SpaceReadiness { ready: true, block: None, max: Some(self.space_max() as u32) }).unwrap()),
+            // #EXP-1514 (#EXP-2011, the flip): from what holds now (`spaces::readiness`).
+            Request::SpaceReadiness => json(serde_json::to_value(self.space_readiness_reply()).unwrap()),
         }
     }
 

@@ -37,7 +37,8 @@
 //! why) and all of them run as before, in the person's login session and
 //! without limits. That is decided once: a compositor that found its user
 //! manager never starts a launch unwrapped, and one that then loses it
-//! answers `unavailable` ([`Units::reachable`]).
+//! answers `unavailable` ([`Units::reachable`]). Whether spaces are offered
+//! to people at all is [`super::readiness`]'s answer.
 //!
 //! Like the grants, this guards against accidents. Every cgroup under the
 //! user manager belongs to the user: a process that works at it raises
