@@ -212,7 +212,7 @@ pub fn demo_mode() -> Option<String> {
 impl Spaces {
     pub fn demo(mode: &str) -> Self {
         let space = |id: &str, session: &str| SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new() };
-        let session = |id: &str, title: &str, parent: Option<&str>, root: &str| SpaceSession { id: id.into(), title: title.into(), parent_id: parent.map(String::from), root_id: Some(root.into()) };
+        let session = |id: &str, title: &str, parent: Option<&str>, root: &str| SpaceSession { id: id.into(), title: Some(title.into()), parent_id: parent.map(String::from), root_id: Some(root.into()) };
         let mut s = Spaces {
             list: vec![space("space-1", "demo-chat"), space("space-2", "demo-child"), space("space-4", "exponential-ctl-4242")],
             sessions: vec![
@@ -293,7 +293,7 @@ mod tests {
 
     fn spaces() -> Spaces {
         let mut s = Spaces { list: vec![space("space-1", "s1"), space("space-2", "s2")], ..Default::default() };
-        s.sessions = vec![SpaceSession { id: "s1".into(), title: "Fix the login page".into(), parent_id: None, root_id: Some("s1".into()) }];
+        s.sessions = vec![SpaceSession { id: "s1".into(), title: Some("Fix the login page".into()), parent_id: None, root_id: Some("s1".into()) }];
         s
     }
 
