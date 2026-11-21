@@ -70,6 +70,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (the Engine, every feature)
@@ -111,6 +112,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Swift binding suite (the committed binding vs the host dylib)
@@ -247,6 +249,7 @@ jobs:
         run: for t in ${{ matrix.targets }}; do rustup target add "$t"; done
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: runner-${{ matrix.os }}
       - uses: ./.github/actions/cargo-fetch
