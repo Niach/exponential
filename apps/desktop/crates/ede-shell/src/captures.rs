@@ -22,6 +22,8 @@
 //! does. An IO error (a call slower than ede-protocol's call timeout ends
 //! the connection) reconnects with a back-off; a target whose captures
 //! failed for 5 s shows Image's fallback; a space that is gone is said.
+//! A log line when the windows' or the spaces' targets start and stop
+//! carries [`CAPTURES`].
 //! Frames are pictures in memory: never written, logged or sent anywhere
 //! but the shell's own documents.
 
@@ -410,6 +412,7 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
     let mut retry_at = Instant::now();
     let mut spaces: Option<Vec<SpaceInfo>> = None;
     let mut space_targets = false;
+    let mut window_targets = false;
     // Asks wait for a connection.
     let mut asks: Vec<Ask> = Vec::new();
     loop {
@@ -429,6 +432,17 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
                     tracing::info!(view = plan.view.is_some(), thumbnails = plan.thumbs.len(), captures, "space targets started");
                 } else {
                     tracing::info!(captures, "space targets stopped");
+                }
+            }
+            // The switcher's, the previews' and Expo's windows: the same
+            // counter, so a log shows what was captured while they showed.
+            if plan.windows.is_empty() == window_targets {
+                window_targets = !plan.windows.is_empty();
+                let captures = CAPTURES.load(Ordering::Relaxed);
+                if window_targets {
+                    tracing::info!(windows = plan.windows.len(), captures, "window targets started");
+                } else {
+                    tracing::info!(captures, "window targets stopped");
                 }
             }
         }
