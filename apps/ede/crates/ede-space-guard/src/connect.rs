@@ -51,6 +51,9 @@ pub struct Policy {
     pub spaces: String,
 }
 
+/// The person's sound servers by every default name, as path ends [#147].
+const SOUND: [&str; 3] = ["/pulse/native", "/pipewire-#", "/pipewire-#-manager"];
+
 /// A path with these at both `/run` and `/var/run` (a link to it).
 fn both_runs(paths: &[String]) -> Vec<String> {
     paths.iter().flat_map(|p| [p.clone(), p.replacen("/run/", "/var/run/", 1)]).collect()
@@ -108,7 +111,7 @@ impl Policy {
     /// (`…/space-n/wayland-0`) and passes; eDE's socket is never
     /// `wayland-0`, the name a space's Flatpak gives the space's own.
     pub fn ends(&self) -> Vec<String> {
-        let mut ends: Vec<String> = ["/pulse/native", "/pipewire-#", "/pipewire-#-manager"].map(String::from).into();
+        let mut ends: Vec<String> = SOUND.map(String::from).into();
         ends.extend(crate::protocol::display_of(&self.spaces).map(|name| format!("/{name}")));
         ends
     }
@@ -116,6 +119,11 @@ impl Policy {
     /// The reference: does the program allow a connect to `path` (the
     /// bytes the kernel's address holds up to its length or first NUL)?
     pub fn allows(&self, path: &[u8]) -> bool {
+        self.allows_ending(path, &self.ends())
+    }
+
+    /// [`Self::allows`] with `ends` for [`Self::ends`].
+    fn allows_ending(&self, path: &[u8], ends: &[String]) -> bool {
         if path.is_empty() {
             return true; // unnamed, or abstract
         }
@@ -129,7 +137,7 @@ impl Policy {
             return false;
         }
         let under_run = path.starts_with(b"/run/") || path.starts_with(b"/var/run/");
-        !(under_run && self.ends().iter().any(|s| { let p = pattern(s); path.len() >= p.len() && matches(&path[path.len() - p.len()..], &p) }))
+        !(under_run && ends.iter().any(|s| { let p = pattern(s); path.len() >= p.len() && matches(&path[path.len() - p.len()..], &p) }))
     }
 
     /// The program (`BPF_PROG_TYPE_CGROUP_SOCK_ADDR`, attach type
@@ -420,6 +428,25 @@ mod tests {
             assert_eq!(other.allows(path.as_bytes()), want, "{path}");
             assert!(every_spelling(&program, path).into_iter().all(|got| got == want), "{path}: the program does not answer {want}");
         }
+    }
+
+    /// #EDE-145: what the caller's directory of spaces adds (its name) can
+    /// only refuse, and only paths under /run ending in that name: every
+    /// path refused without it stays refused.
+    #[test]
+    fn the_wayland_rule_only_adds_refusals() {
+        let policy = policy();
+        let sound: Vec<String> = SOUND.map(String::from).into();
+        let mut added = 0;
+        for path in table() {
+            let (now, before) = (policy.allows(path.as_bytes()), policy.allows_ending(path.as_bytes(), &sound));
+            assert!(before || !now, "{path}: refused without the Wayland rule, allowed with it");
+            if now != before {
+                assert!((path.starts_with("/run/") || path.starts_with("/var/run/")) && path.ends_with("/wayland-1"), "{path}: refused by the Wayland rule");
+                added += 1;
+            }
+        }
+        assert!(added >= 7, "the table holds the person's Wayland socket's spellings");
     }
 
     /// The longest directory of spaces the guard takes (the largest uid, a
