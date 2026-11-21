@@ -673,7 +673,7 @@ impl Ede {
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
-            Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.space_of_process(pid)).unwrap()),
+            Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.process_answer(pid)).unwrap()),
             // #EXP-1514: reached only with the dev switch (`ipc_serve`); the
             // flip (#EXP-2011) answers it from the real checks.
             Request::SpaceReadiness => json(serde_json::to_value(ede_protocol::SpaceReadiness { ready: true, block: None, max: Some(self.space_max() as u32) }).unwrap()),
