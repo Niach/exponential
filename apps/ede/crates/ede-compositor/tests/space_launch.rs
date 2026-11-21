@@ -380,34 +380,75 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     }
 }
 
+/// A stand-in browser named `name` in `bin`: it writes its arguments to
+/// `args`, one a line, and stays.
+fn stand_in(bin: &Path, name: &str, args: &Path) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(bin).unwrap();
+    let path = bin.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}.tmp && mv {0}.tmp {0}\nexec sleep 60\n", args.display())).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+fn args_of(args: &Path) -> Vec<String> {
+    until("the browser never ran", || args.exists());
+    std::fs::read_to_string(args).unwrap().lines().map(str::to_string).collect()
+}
+
 /// #EDE-138: a browser launched into a space gets the space's profile and
 /// the switches of a space that renders in software (here a stand-in
 /// `chromium` of the system that writes down its arguments); a launch that
-/// names a profile itself is refused; the profile goes with the space.
+/// names the person's own profile is refused; the profile goes with the
+/// space.
 #[test]
 fn a_browser_in_a_space_gets_the_spaces_profile() {
-    use std::os::unix::fs::PermissionsExt;
     let (h, dir) = start_with_spaces(&[(800, 600)]);
     let (mut agent, space) = agent(&h, "run-1");
-    let bin = dir.path().join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let chromium = bin.join("chromium");
     let args = dir.path().join("chromium.args");
-    std::fs::write(&chromium, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}.tmp && mv {0}.tmp {0}\nexec sleep 60\n", args.display())).unwrap();
-    std::fs::set_permissions(&chromium, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let chromium = chromium.to_string_lossy().into_owned();
+    let chromium = stand_in(&dir.path().join("bin"), "chromium", &args);
 
     agent.launch(vec![chromium.clone(), "https://example.org".into()], Default::default(), None).unwrap();
-    until("the browser never ran", || args.exists());
-    let got: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+    let got = args_of(&args);
     let profile = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str()).join("browsers/chromium");
     assert_eq!(got, [format!("--user-data-dir={}", profile.display()), "--enable-unsafe-swiftshader".into(), "--use-angle=swiftshader".into(), "https://example.org".into()]);
     assert!(profile.is_dir(), "the profile was not made");
 
-    // The caller's own profile is not the space's to take.
-    let refused = agent.launch(vec![chromium.clone(), "--user-data-dir=/tmp/mine".into()], Default::default(), None);
-    assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Invalid), "{refused:?}");
+    // The person's own profile is not the space's to take (#EDE-186): not
+    // by its path, not by a link to it.
+    let home = std::env::var("HOME").unwrap();
+    let link = dir.path().join("persons-profile");
+    std::os::unix::fs::symlink(format!("{home}/.config/chromium"), &link).unwrap();
+    for persons in [format!("--user-data-dir={home}/.config/chromium"), format!("--user-data-dir={}/Default", link.display())] {
+        let refused = agent.launch(vec![chromium.clone(), persons.clone()], Default::default(), None);
+        assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Invalid), "{persons}: {refused:?}");
+    }
 
     agent.destroy_space(space.id.clone()).unwrap();
     until("the browser's profile outlived its space", || !profile.exists());
+}
+
+/// #EDE-186: Chromium's own binary `chrome` (Chrome for Testing's, which
+/// Playwright drives) is of the Chromium family. Launched as Playwright
+/// launches it, with a profile of its own in a temporary directory, it
+/// keeps that profile and gets the switches of a space in software; the
+/// space makes no profile for it.
+#[test]
+fn playwrights_chrome_keeps_its_own_profile_and_draws_in_software() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let args = dir.path().join("chrome.args");
+    let chrome = stand_in(&dir.path().join("ms-playwright/chromium-1248/chrome-linux64"), "chrome", &args);
+    let own = tempfile::tempdir().unwrap();
+    let own = own.path().join("playwright_chromiumdev_profile-x");
+    std::fs::create_dir(&own).unwrap();
+
+    let launch = [format!("--user-data-dir={}", own.display()), "--remote-debugging-pipe".into(), "--no-first-run".into(), "about:blank".into()];
+    agent.launch([chrome.clone()].into_iter().chain(launch.iter().cloned()).collect(), Default::default(), None).unwrap();
+    let got = args_of(&args);
+    assert_eq!(got, ["--enable-unsafe-swiftshader".to_string(), "--use-angle=swiftshader".into()].into_iter().chain(launch).collect::<Vec<_>>());
+    let spaces = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str()).join("browsers");
+    assert!(!spaces.join("chrome").exists(), "the space made a profile the browser does not use");
+
+    agent.destroy_space(space.id.clone()).unwrap();
 }
