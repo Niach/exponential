@@ -693,13 +693,14 @@ pub fn enter_main(args: impl Iterator<Item = String>) -> ! {
 }
 
 /// Does the space guard answer at `socket` (it loads its programs on this
-/// kernel)? `Err` says why not. Blocks for at most the guard client's
-/// timeout: in the session's probe thread and in `space-enter` only.
-pub fn guard_probe(socket: &Path) -> Result<(), String> {
+/// kernel), and does it refuse the person's Wayland socket too (#EDE-145;
+/// a guard from before does not)? `Err` says why not. Blocks for at most
+/// the guard client's timeout: in the session's probe thread only.
+pub fn guard_probe(socket: &Path) -> Result<ede_space_guard::client::Probed, String> {
     if !socket.exists() {
         return Err("the space guard is not installed (exponential-space-guard.socket)".into());
     }
-    ede_space_guard::client::ask(socket, &ede_space_guard::Request::Probe)
+    ede_space_guard::client::probe(socket)
 }
 
 /// #EDE-146: polkit refuses a space's programs. Asked of polkit itself: a

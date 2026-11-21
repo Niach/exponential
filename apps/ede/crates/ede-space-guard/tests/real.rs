@@ -3,9 +3,10 @@
 //! this user when a process inside it asks; then nothing in that slice opens
 //! a sound, camera, uinput or (for writing) rfkill node, nor connects or
 //! sends to the system bus, the person's session bus, user manager, sound
-//! servers or tmux server (with the NUL in the address's length, without
+//! servers, tmux server or Wayland socket (also through a snap's link to
+//! it; with the NUL in the address's length, without
 //! it as libdbus connects, and the whole struct as libpulse and GLib pass
-//! it), while the space's own tmux server is reached; outside it everything is as
+//! it), while the space's own tmux server and Wayland socket are reached; outside it everything is as
 //! before, and the user cannot take the programs off. polkit, with the
 //! package's rule installed, challenges the probe action for a process of
 //! the slice of all spaces and allows it outside.
@@ -165,7 +166,14 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     // (an unused name), and a socket of the space's own.
     let runtime = PathBuf::from(format!("/run/user/{uid}"));
     let test_dir = runtime.join(format!("ede-guard-test-{me}"));
-    let spaces_dir = runtime.join(format!("exponential-desktop/ede-guard-test-{me}.spaces"));
+    // #EDE-145: the directory of spaces is named after the person's Wayland
+    // socket (a stand-in of an unused name); a snap's link to it, as the
+    // snap's desktop launcher makes it, and one to the space's own socket.
+    let display = format!("ede-guard-wayland-{me}");
+    let spaces_dir = runtime.join(format!("exponential-desktop/{display}.spaces"));
+    let person_wayland = runtime.join(&display);
+    let snap_dir = runtime.join(format!("snap.ede-guard-test-{me}"));
+    let space_wayland = spaces_dir.join("space-1/wayland-0");
     // The package's polkit rule and probe action, installed for the test.
     let rule = PathBuf::from("/etc/polkit-1/rules.d/00-00-exponential-agent-spaces.rules");
     let action = PathBuf::from("/usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy");
@@ -175,27 +183,33 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     let tmux_dir = PathBuf::from(format!("/tmp/tmux-{uid}"));
     let person_tmux = tmux_dir.join(format!("ede-guard-test-{me}"));
     let space_tmux = spaces_dir.join(format!("space-1/tmux-{uid}/default"));
-    let mut leftovers = vec![person_tmux.clone()];
+    let mut leftovers = vec![person_tmux.clone(), person_wayland.clone()];
     if !tmux_dir.exists() {
         leftovers.push(tmux_dir.clone());
     }
-    let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice, runtime_dirs: vec![test_dir.clone(), spaces_dir.clone()], leftovers, polkit_files: [&rule, &action].into_iter().filter(|p| !p.exists()).cloned().collect() };
+    let run = Run { dir: dir.clone(), socket_dir: socket_dir.clone(), guard, slice, runtime_dirs: vec![test_dir.clone(), spaces_dir.clone(), snap_dir.clone()], leftovers, polkit_files: [&rule, &action].into_iter().filter(|p| !p.exists()).cloned().collect() };
     std::fs::create_dir_all(test_dir.join("pulse")).unwrap();
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&tmux_dir).unwrap();
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(space_tmux.parent().unwrap()).unwrap();
-    let listeners: Vec<std::os::unix::net::UnixListener> = [test_dir.join("pulse/native"), test_dir.join("pipewire-0"), spaces_dir.join("space-1/bus"), person_tmux.clone(), space_tmux.clone()].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&snap_dir).unwrap();
+    let listeners: Vec<std::os::unix::net::UnixListener> = [test_dir.join("pulse/native"), test_dir.join("pipewire-0"), spaces_dir.join("space-1/bus"), person_tmux.clone(), space_tmux.clone(), person_wayland.clone(), space_wayland.clone()].iter().map(|p| std::os::unix::net::UnixListener::bind(p).unwrap()).collect();
+    std::os::unix::fs::symlink(&person_wayland, snap_dir.join(&display)).unwrap();
+    std::os::unix::fs::symlink(&space_wayland, snap_dir.join("wayland-0")).unwrap();
     let person = |p: &Path| p.to_string_lossy().into_owned();
-    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir)), person(&test_dir.join("pulse/native")), person(&test_dir.join("pipewire-0")), format!("{}/../pulse/native", person(&test_dir)), person(&person_tmux)]
+    let refused: Vec<String> = ["/run/dbus/system_bus_socket".to_string(), format!("/run/user/{uid}/bus"), format!("/run/user/{uid}/systemd/private"), format!("{}/../bus", person(&test_dir)), person(&test_dir.join("pulse/native")), person(&test_dir.join("pipewire-0")), format!("{}/../pulse/native", person(&test_dir)), person(&person_tmux), person(&person_wayland), person(&snap_dir.join(&display))]
         .into_iter()
         .filter(|p| Path::new(p).exists() || p.contains("/../"))
         .collect();
-    let reached = vec![person(&spaces_dir.join("space-1/bus")), person(&space_tmux), "/run/systemd/journal/stdout".to_string()];
+    let reached = vec![person(&spaces_dir.join("space-1/bus")), person(&space_tmux), person(&space_wayland), person(&snap_dir.join("wayland-0")), "/run/systemd/journal/stdout".to_string()];
+    assert!(refused.contains(&person(&person_wayland)) && refused.contains(&person(&snap_dir.join(&display))), "{refused:?}");
     let deadline = Instant::now() + Duration::from_secs(10);
     while !socket.exists() {
         assert!(Instant::now() < deadline, "the guard never listened");
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(ede_space_guard::client::ask(&socket, &Request::Probe), Ok(()), "this kernel does not load the device program");
+    // #EDE-145: this guard refuses the person's Wayland socket, and says so.
+    assert_eq!(ede_space_guard::client::probe(&socket), Ok(ede_space_guard::client::Probed::Wayland));
 
     // Review B1/M1: another user (nobody: no runtime directory, the shared
     // bucket) holding 16 silent connections does not refuse this user, and
@@ -255,8 +269,9 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     for (name, mode) in [("null", "rw"), ("rfkill", "r")] {
         assert_ne!(errno(&lines, name, mode), libc::EPERM, "{name} {mode} is closed in a space: {lines:?}");
     }
-    // The person's buses, user manager and sound servers, every way of passing the
-    // address; the space's own socket and journald reachable.
+    // The person's buses, user manager, sound servers and Wayland socket,
+    // every way of passing the address; the space's own sockets (its
+    // Wayland socket also through a snap's link) and journald reachable.
     assert!(refused.len() >= 6, "too few of the person's sockets on this machine: {refused:?}");
     for path in &refused {
         for how in ["nul", "bare", "full", "send"] {

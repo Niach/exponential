@@ -1052,6 +1052,7 @@ way to (`crates/ede-space-guard/src/connect.rs`):
 | `/run/wpa_supplicant/…`, `/run/hostapd/…`, `/run/tailscale/…`, `/run/mullvad-vpn`, `/run/cloudflare-warp/…` | `wpa_cli disconnect` (a member of `netdev`), `tailscale down` and the like |
 | `/run/docker.sock`, `/run/user/<uid>/docker.sock`, `/run/libvirt/…`, `/run/incus/…`, `/var/lib/incus/…`, `/var/lib/lxd/…`, `/var/snap/lxd/…` | daemons that act for their group as root, and a rootless docker of the person's |
 | `/run/…/pulse/native`, `/run/…/pipewire-<n>[-manager]`, `/dev/shm/jack…` | the person's sound servers: the microphone (a space has no speakers either), also as a snap's launch helper spells them (`/run/user/<uid>/snap.<name>/../pulse/native`) |
+| `/run/…/<wayland-N>` | the person's Wayland socket (#EDE-145): a program that names it (`WAYLAND_DISPLAY=/run/user/<uid>/wayland-1`) opens its windows on the person's desk. Its name is the one the directory of spaces carries (`<wayland-N>.spaces`, which `enter` hands the guard), and every path under `/run` ending in it is refused: also a snap's link to it (`/run/user/<uid>/snap.<name>/wayland-N`, which the snap's desktop launcher makes) and a Flatpak's bind of it (`/run/flatpak/wayland-N`). A space's own socket is in its directory, and eDE's socket is never `wayland-0`, the name a space's Flatpak gives the space's own |
 | any path with `/../` | so no other rule is walked around by spelling |
 
 It reads the address as the caller passed it, bounded by its length
@@ -1093,6 +1094,11 @@ answers with a challenge; readiness and the doctor's line need it.
   session's start: the session only asks it for readiness and the doctor,
   which reads what the running session decided (`<wayland-N>.guard` beside
   its socket). Uninstalled, launches run as before, and the doctor says so.
+- **A guard from before** (#EDE-145). The session's probe asks
+  `probe wayland`. A guard from before the person's Wayland socket was
+  refused answers it `not a request`; the session then asks `probe`, and
+  the doctor names the person's Wayland socket among what is open in a
+  space (its state file says `wayland open`).
 - **Its three capabilities, no root.** A user of its own (`DynamicUser`),
   `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
   `CAP_PERFMON` (the connect program reads the address it is asked about),

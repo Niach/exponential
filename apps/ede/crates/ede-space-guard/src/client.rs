@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::protocol::{parse_reply, Request, MAX_LINE};
+use crate::protocol::{parse_reply, Request, MAX_LINE, NOT_A_REQUEST};
 
 /// How long one question may take in all: the connect, the first start of
 /// the service, its answer, and the retries after `busy`.
@@ -21,7 +21,35 @@ pub const TIMEOUT: Duration = Duration::from_secs(5);
 /// asked. A `busy` guard is asked again, with a growing pause, until the
 /// whole question has taken [`TIMEOUT`].
 pub fn ask(socket: &Path, request: &Request) -> Result<(), String> {
+    ask_by(socket, request, Instant::now() + TIMEOUT).map_err(|reason| format!("the space guard: {reason}"))
+}
+
+/// What a guard that answers its probe refuses besides what every guard
+/// does (#EDE-145).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Probed {
+    /// The person's Wayland socket too: a guard of this build.
+    Wayland,
+    /// Not the person's Wayland socket: a guard from before, which answers
+    /// `probe wayland` with [`NOT_A_REQUEST`].
+    Older,
+}
+
+/// The session's probe of the guard at `socket`: does it do its work on
+/// this machine, and does it refuse the person's Wayland socket too? It
+/// asks `probe wayland`, and `probe` of a guard from before; both within
+/// [`TIMEOUT`].
+pub fn probe(socket: &Path) -> Result<Probed, String> {
     let deadline = Instant::now() + TIMEOUT;
+    let probed = match ask_by(socket, &Request::ProbeWayland, deadline) {
+        Ok(()) => Ok(Probed::Wayland),
+        Err(reason) if reason == NOT_A_REQUEST => ask_by(socket, &Request::Probe, deadline).map(|()| Probed::Older),
+        Err(reason) => Err(reason),
+    };
+    probed.map_err(|reason| format!("the space guard: {reason}"))
+}
+
+fn ask_by(socket: &Path, request: &Request, deadline: Instant) -> Result<(), String> {
     let mut pause = Duration::from_millis(50);
     loop {
         match ask_once(socket, request, deadline) {
@@ -29,7 +57,7 @@ pub fn ask(socket: &Path, request: &Request) -> Result<(), String> {
                 std::thread::sleep(pause);
                 pause = (pause * 2).min(Duration::from_millis(800));
             }
-            other => return other.map_err(|reason| format!("the space guard: {reason}")),
+            other => return other,
         }
     }
 }
@@ -144,5 +172,53 @@ mod tests {
         drop(guard);
         let answer = exchange(&ours, &Request::Probe, Instant::now() + Duration::from_secs(1));
         assert!(answer.as_ref().is_err_and(|reason| reason != "busy"), "{answer:?}");
+    }
+
+    /// A guard on a socket of the test's own: `answer` gives the reply
+    /// line for each request line; the lines asked come back, each before
+    /// its answer goes out.
+    fn fake_guard(name: &str, answer: fn(&str) -> String) -> (std::path::PathBuf, std::sync::mpsc::Receiver<String>) {
+        use std::io::BufRead;
+        let socket = std::env::temp_dir().join(format!("ede-guard-client-{}-{name}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let mut line = String::new();
+                let _ = std::io::BufReader::new(&stream).read_line(&mut line);
+                let reply = answer(&line);
+                if tx.send(line).is_err() {
+                    return;
+                }
+                let _ = (&stream).write_all(reply.as_bytes());
+            }
+        });
+        (socket, rx)
+    }
+
+    /// #EDE-145: the session tells a guard that refuses the person's
+    /// Wayland socket from one from before, which knows only `probe`; a
+    /// refusal of either is the probe's answer.
+    #[test]
+    fn the_probe_tells_a_guard_that_refuses_the_wayland_socket_from_one_from_before() {
+        // This build's guard: the requests as it parses them.
+        let (current, asked) = fake_guard("current", |line| reply(&Request::parse(line).map(drop)));
+        assert_eq!(probe(&current), Ok(Probed::Wayland));
+        assert_eq!(asked.try_iter().collect::<Vec<_>>(), ["probe wayland\n"]);
+        // A guard from before: `probe` and `enter` only.
+        let (older, asked) = fake_guard("older", |line| reply(&if line == "probe\n" { Ok(()) } else { Err(NOT_A_REQUEST.into()) }));
+        assert_eq!(probe(&older), Ok(Probed::Older));
+        assert_eq!(asked.try_iter().collect::<Vec<_>>(), ["probe wayland\n", "probe\n"]);
+        // Either one refusing: the probe failed, asked once of this build's.
+        let (refusing, asked) = fake_guard("refusing", |_| reply(&Err("this kernel refuses the device program".into())));
+        assert_eq!(probe(&refusing), Err("the space guard: this kernel refuses the device program".into()));
+        assert_eq!(asked.try_iter().count(), 1);
+        let (older_refusing, _asked) = fake_guard("older-refusing", |line| reply(&Err(if line == "probe\n" { "this kernel has no unix connect hook" } else { NOT_A_REQUEST }.into())));
+        assert_eq!(probe(&older_refusing), Err("the space guard: this kernel has no unix connect hook".into()));
+        for socket in [current, older, refusing, older_refusing] {
+            let _ = std::fs::remove_file(socket);
+        }
     }
 }
