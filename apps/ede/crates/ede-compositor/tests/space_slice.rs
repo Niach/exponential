@@ -674,7 +674,10 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     std::env::set_var("EDE_SPACE_GUARD_SOCKET", &socket);
     h.with(|state| state.start_space_guard());
     until("the session never asked the guard", || h.with(|state| state.spaces.guard.probe.lock().unwrap().is_some()));
-    assert!(asked.try_iter().any(|(line, _)| line == "probe\n"));
+    // #EDE-145: asked whether it refuses the person's Wayland socket too;
+    // `busy` is no answer to that (no second question).
+    let probes: Vec<String> = asked.try_iter().map(|(line, _)| line).collect();
+    assert!(!probes.is_empty() && probes.iter().all(|line| line == "probe wayland\n"), "{probes:?}");
     assert_eq!(h.with(|state| state.spaces.guard.required.clone()), Some(socket.clone()), "the guard's busy probe decided against it");
     let (mut agent, space) = agent(&h, "run-1");
 
@@ -704,7 +707,7 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     assert_eq!(h.with(|state| state.space_readiness()), Err("guard"));
     // The doctor reads what the session decided.
     let state = std::fs::read_to_string(ede_compositor::spaces::guard::state_file(&spaces_dir)).unwrap();
-    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\n");
+    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\nwayland open\n");
 
     // The guard's socket is gone (stopped, removed): `unavailable` at once.
     std::fs::remove_file(&socket).unwrap();

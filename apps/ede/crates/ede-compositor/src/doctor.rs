@@ -120,10 +120,19 @@ pub fn check_space_rendering(lavapipe: &[PathBuf]) -> Check {
 
 /// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
 pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
+/// #EDE-145: what a guard of this build also closes, by its path (also as
+/// a snap's link to it spells it): the person's Wayland socket. The
+/// session's state file says whether the guard that answered is one.
+pub const GUARD_CLOSES_WAYLAND: &str = "your Wayland socket (also through a snap's link to it)";
 /// What stays open to a space in this build. #EDE-138: the guard leaves
 /// your Xwayland's socket open, but the server admits only the cookie that
 /// your session's programs are given, which a space's are not.
 pub const GUARD_LEAVES: &str = "your Xwayland's socket (the server asks for your session's X cookie, which a space has not)";
+/// #EDE-145: the person's Wayland socket where the guard that answered is
+/// one from before: a program in a space that names it
+/// (`WAYLAND_DISPLAY=/run/user/<uid>/wayland-1`) opens its windows on the
+/// person's desk.
+pub const GUARD_LEAVES_WAYLAND: &str = "your Wayland socket (a program there that names it opens its windows on your desk: the running guard is an older one)";
 
 /// #EDE-146..148: what the RUNNING compositor decided about the space
 /// guard: `state` = its state file's text (`None` = no Exponential Desktop
@@ -136,13 +145,18 @@ pub fn check_space_guard(state: Option<&str>) -> Check {
     let field = |key: &str| state.lines().find_map(|line| line.strip_prefix(key).map(str::trim)).unwrap_or_default().to_string();
     let (guard, probe, units, polkit) = (field("guard "), field("probe "), field("user-manager "), field("polkit "));
     if guard != "required" {
-        return Check { name, level: Level::Warn, detail: "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into() };
+        return Check { name, level: Level::Warn, detail: "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into() };
     }
     if units != "yes" {
         return Check { name, level: Level::Warn, detail: "no systemd user manager: nothing starts in an agent space".into() };
     }
     match probe.as_str() {
-        "ok" if polkit == "ok" => Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}") },
+        "ok" if polkit == "ok" => {
+            // No such line: a compositor from before, whose guard is not
+            // known to refuse it.
+            let (closed, open) = if field("wayland ") == "closed" { (format!("{GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}"), GUARD_LEAVES.to_string()) } else { (GUARD_CLOSES.to_string(), format!("{GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}")) };
+            Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {closed}; open: {open}") }
+        }
         "ok" if polkit == "pending" => Check { name, level: Level::Warn, detail: "this session is still asking polkit".into() },
         "ok" => Check { name, level: Level::Warn, detail: format!("{polkit}: programs in an agent space may get polkit's yes without a prompt") },
         "pending" => Check { name, level: Level::Warn, detail: "this session is still asking it".into() },
@@ -1121,16 +1135,28 @@ mod tests {
     }
 
     /// #EDE-146..148: the doctor says what the running session decided.
+    /// #EDE-145: the person's Wayland socket is open but where this build's
+    /// guard answered.
     #[test]
     fn doctor_says_what_the_running_session_decided_about_the_space_guard() {
         use crate::spaces::guard::state_text;
-        let ok_ = Ok(());
-        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&ok_))));
+        use ede_space_guard::client::Probed;
+        let (ok_, yes) = (Ok(Probed::Wayland), Ok(()));
+        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&yes))));
         assert_eq!(ok.level, Level::Ok);
-        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES}"));
+        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}; open: {GUARD_LEAVES}"));
+        assert!(ok.detail.ends_with("; your Wayland socket (also through a snap's link to it); open: your Xwayland's socket (the server asks for your session's X cookie, which a space has not)"), "{}", ok.detail);
+        // A guard from before, and the state file of a compositor from before.
+        let older = check_space_guard(Some(&state_text(true, Some(&Ok(Probed::Older)), true, Some(&yes))));
+        let before = check_space_guard(Some("guard required\nprobe ok\nuser-manager yes\npolkit ok\n"));
+        for check in [older, before] {
+            assert_eq!(check.level, Level::Ok);
+            assert_eq!(check.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}"));
+            assert!(check.detail.contains("; open: your Wayland socket (a program there that names it opens its windows on your desk"), "{}", check.detail);
+        }
         for (state, says) in [
             (None, "no Exponential Desktop session runs here: the guard is the session's to ask".to_string()),
-            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices".into()),
+            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into()),
             (Some(state_text(true, Some(&ok_), false, None)), "no systemd user manager: nothing starts in an agent space".into()),
             (Some(state_text(true, None, true, None)), "this session is still asking it".into()),
             (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
