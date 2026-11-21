@@ -430,6 +430,10 @@ struct Shell {
     issue_search: u64,
     /// #EDE-92: the search's selected result (Up, Down; Enter runs it).
     menu_selection: start_menu::Selection,
+    /// #EDE-182: the Date & Time changes timedated is on (a prompt may be
+    /// open): the same change again (the zone picker's close re-fires the
+    /// zone it just picked) waits for that one instead of asking twice.
+    time_changes: Vec<settings_pages::TimeChange>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -729,8 +733,8 @@ impl HostPlugin for Host {
                 with_ede(&self.shell, |ede| ede.logout());
             }
             "ede_power" => {
-                if let Some(action) = args.get("action").and_then(Value::as_str) {
-                    system::power(action);
+                if let Some(action) = args.get("action").and_then(Value::as_str).map(String::from) {
+                    power(&shell, action, cx);
                 }
             }
             "ede_select" => {
@@ -821,11 +825,7 @@ impl HostPlugin for Host {
                 let (domain, action) = (args.get("domain").and_then(Value::as_str).map(String::from), args.get("action").and_then(Value::as_str).map(String::from));
                 if let (Some(domain), Some(action)) = (domain, action) {
                     let call_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
-                    // Off the main loop: a daemon round trip, and polkit may ask.
-                    std::thread::spawn(move || match ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(json!({"op": "call", "domain": domain, "action": action, "args": call_args}))) {
-                        Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
-                        Err(e) => tracing::warn!(%domain, %action, "service: {e}"),
-                    });
+                    service_call(&shell, domain, action, call_args, cx);
                 }
             }
             "ede_output" => {
@@ -929,7 +929,7 @@ impl HostPlugin for Host {
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
             "ede_settings" => match settings_pages::handle(args) {
-                Ok(reload) => {
+                Ok(settings_pages::Handled::Applied { reload }) => {
                     if reload {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
                     }
@@ -939,6 +939,8 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     });
                 }
+                Ok(settings_pages::Handled::Unchanged) => {}
+                Ok(settings_pages::Handled::Asks(change)) => cx.defer(move |cx| settings_time(&shell, change, cx)),
                 Err(e) => tracing::warn!("ede_settings: {e}"),
             },
             "ede_switcher" => {
@@ -2764,6 +2766,82 @@ fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx
     notification_push(shell, failed_toast(verb, thing, message, now_ms()), cx);
 }
 
+/// #EDE-182: a Date & Time change through timedated, off the main loop
+/// (polkit's prompt may stay open as long as the person takes); then the
+/// page as the machine has it, and a refusal (a cancelled prompt, the wrong
+/// password) as the failed action's toast.
+fn settings_time(shell: &SharedShell, change: settings_pages::TimeChange, cx: &mut App) {
+    if shell.borrow().time_changes.contains(&change) {
+        return;
+    }
+    shell.borrow_mut().time_changes.push(change.clone());
+    // The feed follows the person's flip while timedated decides, so the
+    // page a refusal brings back moves the control back.
+    let flipped = shell.borrow().feed.get("/pages").cloned().map(|mut pages| {
+        pages["datetime"] = change.applied(pages["datetime"].take());
+        pages
+    });
+    if let Some(pages) = flipped {
+        shell.borrow_mut().feed.set("/pages", pages);
+        refresh(shell, cx);
+    }
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let asked = change.clone();
+        let (applied, pages) = blocking::unblock(move || settings_pages::apply_time_on_system_bus(&asked)).await;
+        cx.update(|cx| {
+            shell.borrow_mut().time_changes.retain(|c| *c != change);
+            shell.borrow_mut().feed.set("/pages", pages);
+            refresh(&shell, cx);
+            if let Some(toast) = time_toast(&change, &applied, now_ms()) {
+                notification_push(&shell, toast, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// [`settings_time`]'s toast: `None` when timedated took the change.
+fn time_toast(change: &settings_pages::TimeChange, applied: &Result<(), String>, received_ms: i64) -> Option<dbus::Notification> {
+    let message = applied.as_ref().err()?;
+    tracing::warn!("datetime {change:?}: {message}");
+    let (verb, thing) = change.failed();
+    Some(failed_toast(verb, thing, message, received_ms))
+}
+
+/// A page's service action (#EDE-13), off the main loop: a daemon round
+/// trip, and polkit may ask the person for as long as its prompt is open
+/// (#EDE-182); a failure is the failed action's toast.
+fn service_call(shell: &SharedShell, domain: String, action: String, args: Value, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let call = json!({"op": "call", "domain": domain, "action": action, "args": args});
+        let result = blocking::unblock(move || ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(call))).await;
+        match result {
+            Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
+            Err(e) => {
+                let (verb, thing) = settings_pages::service_failed(&domain, &action, &args);
+                cx.update(|cx| failed_action(&shell, &verb, &thing, &e, cx));
+            }
+        }
+    })
+    .detach();
+}
+
+/// The start menu's power rows through logind, off the main loop (#EDE-182:
+/// polkit may ask); a refusal toasts as the Power page's does.
+fn power(shell: &SharedShell, action: String, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let asked = action.clone();
+        if let Err(e) = blocking::unblock(move || system::power(&asked)).await {
+            let (verb, thing) = settings_pages::service_failed("power", &action, &json!({}));
+            cx.update(|cx| failed_action(&shell, &verb, &thing, &e, cx));
+        }
+    })
+    .detach();
+}
+
 /// A toast of the shell's own (`summary`, `body` may be empty).
 fn toast(shell: &SharedShell, summary: &str, body: &str, cx: &mut App) {
     tracing::warn!("{summary} {body}");
@@ -4111,6 +4189,7 @@ fn main() {
             issue_hits: Vec::new(),
             issue_search: 0,
             menu_selection: start_menu::Selection::default(),
+            time_changes: Vec::new(),
             _watcher: watcher,
         }));
         // #EDE-92: Up and Down in the start menu's search move its selection.
@@ -5232,6 +5311,25 @@ mod failed_actions {
         let dump = super::failed_toast("answer", "the question", "{\"code\":\"CONFLICT\"}", 7);
         assert_eq!((dump.summary.as_str(), dump.body.as_str()), ("Couldn't answer the question", ""));
         assert_ne!(toast.id, dump.id, "each its own id");
+    }
+
+    /// #EDE-182: a cancelled polkit prompt and timedated's refusal reach
+    /// the failed action's toast; a change timedated took toasts nothing.
+    #[test]
+    fn a_refused_date_and_time_change_toasts() {
+        use crate::settings_pages::{
+            apply_time,
+            fake_timedated::{serve, Answer},
+            TimeChange,
+        };
+        let toast_for = |answer: Answer, change: TimeChange| {
+            let (_bus, _daemon, client, _) = serve(answer);
+            super::time_toast(&change, &apply_time(&client, &change), 7).map(|t| (t.summary, t.body))
+        };
+        assert_eq!(toast_for(Answer::Cancelled, TimeChange::Ntp(true)), Some(("Couldn't turn on automatic time".into(), "Permission denied".into())));
+        assert_eq!(toast_for(Answer::Cancelled, TimeChange::Ntp(false)), Some(("Couldn't turn off automatic time".into(), "Permission denied".into())));
+        assert_eq!(toast_for(Answer::Fails, TimeChange::TimeZone("Asia/Tokyo".into())), Some(("Couldn't change the time zone".into(), "Invalid or not installed time zone 'Asia/Tokyo'".into())));
+        assert_eq!(toast_for(Answer::Takes, TimeChange::Ntp(true)), None);
     }
 }
 

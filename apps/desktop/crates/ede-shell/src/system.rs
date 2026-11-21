@@ -1,6 +1,6 @@
 //! What the shell does to the system for the menu and the media keys
 //! (#EDE-12): sound through WirePlumber (`wpctl`), the backlight through
-//! sysfs or `brightnessctl`, power through logind (`systemctl`), the
+//! sysfs or `brightnessctl`, power through logind (ede-services' call), the
 //! terminal and the screenshot. Everything shells out to tools the
 //! distribution ships; a missing tool is a warning, never a crash.
 
@@ -109,17 +109,12 @@ pub fn brightness_level() -> Option<Level> {
     Some(Level { icon: "ede-brightness", percent: (now * 100 / max).min(100), muted: false })
 }
 
-/// `suspend`, `reboot` or `poweroff` through logind; the active session is
-/// allowed by polkit's defaults.
-pub fn power(action: &str) -> bool {
-    if !matches!(action, "suspend" | "reboot" | "poweroff" | "hibernate") {
-        tracing::warn!(action, "unknown power action");
-        return false;
-    }
-    Command::new("systemctl").arg(action).spawn().map(|_| true).unwrap_or_else(|e| {
-        tracing::warn!("systemctl {action}: {e}");
-        false
-    })
+/// `suspend`, `hibernate`, `reboot` or `poweroff` through logind, the Power
+/// page's call (#EDE-182): it allows interactive authorization, so where
+/// polkit wants a password (another session open) the person's agent asks.
+/// Blocks while the prompt is open: never on the UI thread.
+pub fn power(action: &str) -> Result<(), String> {
+    ede_services::domains::power::login(&ede_services::domains::system_bus()?, action)
 }
 
 fn launch_command(command: &str, token: Option<&str>) -> Command {

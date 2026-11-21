@@ -232,8 +232,13 @@ the autostart entries, the mime defaults, `[windows]`); a control is two-way
 bound and calls `ede_service {domain, action, args}`, `ede_output`,
 `ede_config {theme}` or `ede_settings {page, key, value}` (the one host
 function for the shell's pages: `[keyboard]` and `[windows]` in
-`compositor.toml` + a reload, `timedatectl`, the user's autostart override
-with `Hidden`, `xdg-mime default`). A setting the machine cannot apply yet
+`compositor.toml` + a reload, timedated's `SetNTP`/`SetTimezone` over the
+system bus, the user's autostart override with `Hidden`, `xdg-mime
+default`). What polkit guards (Date & Time, the Power page's and the start
+menu's power, the other services' actions) runs off the UI thread on calls
+that allow interactive authorization, so the person's polkit agent asks
+instead of the daemon refusing; a refusal (a cancelled prompt, the wrong
+password) is the failed action's toast (#EDE-182). A setting the machine cannot apply yet
 (the pointer options, the workspace count and wrap-around, the 24-hour
 clock) is a read-only value row, never a dead control; what needs the
 Exponential app (the Coding pages, Devices, Security, the notification
