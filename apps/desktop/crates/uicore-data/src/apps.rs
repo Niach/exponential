@@ -238,7 +238,7 @@ fn themes() -> Vec<String> {
     if let Ok(t) = std::env::var("EDE_ICON_THEME") {
         themes.push(t);
     }
-    for t in ["Papirus-Dark", "Papirus", "Yaru", "Adwaita", "breeze-dark", "breeze", "hicolor"] {
+    for t in ["Papirus-Dark", "Papirus", "Yaru-dark", "Yaru", "Adwaita", "breeze-dark", "breeze", "hicolor"] {
         if !themes.iter().any(|x| x == t) {
             themes.push(t.into());
         }

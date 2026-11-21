@@ -115,8 +115,14 @@ and a row press sends the item its `clicked` event. Nested under another
 desktop the well-known names stay with that desktop and the objects answer
 on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
 registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
-Host functions: `ede_notify_close {id}`, `ede_notify_action {id, key}`,
-`ede_notify_clear`, `ede_tray {service}`, `ede_tray_menu {service, id}`.
+A press follows the spec (#EDE-196): an action button sends the app
+`ActionInvoked(id, key)`, a press on the toast or the bell's row its
+`default` action (never drawn as a button) when it gave one; then the
+notification closes (`NotificationClosed(id, 2)`) unless the app marked
+it `resident`. Host functions: `ede_notify_open {id}`, `ede_notify_close
+{id}`, `ede_notify_action {id, key}` (each action in `/notifications`
+carries its row's `id`), `ede_notify_clear`, `ede_tray {service}`,
+`ede_tray_menu {service, id}`.
 
 ### Hotkeys (#EDE-12)
 
@@ -783,8 +789,13 @@ platform theme reads the GTK settings), `environment.d/90-ede-theme.conf`
 clients, and sets `org.gnome.desktop.interface` to match (libadwaita and
 the GTK portal read it). The GTK theme, icon theme, cursor theme and
 fonts are the first installed of a short preference list (Adwaita-dark;
-Papirus-Dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu Sans,
-Cantarell), each overridable in `[theme]` (below).
+Papirus-Dark, Yaru-dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu
+Sans, Cantarell), each overridable in `[theme]` (below). With snapd
+(#EDE-196) a theme the installed snaps carry too comes first
+(`gtk-common-themes`: Yaru-dark, Adwaita, …, read from snapd's
+`/v2/connections`): snap apps draw with the same names, and
+snapd-desktop-integration no longer asks at every login to install a
+Papirus theme snap.
 
 Every file it writes starts with a marker line; `exponential-theme remove` deletes
 only those, puts a person's own file back from `*.before-ede` (moved

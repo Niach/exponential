@@ -223,18 +223,33 @@ impl InboxItem {
 /// `/notifications`: the desktop's notifications (each `(received ms, row)`,
 /// newest first) and the inbox entries merged newest first; the toasts are
 /// the desktop's still showing plus the inbox entries in `inbox_toasts`,
-/// newest three; `count` is the bell's badge (everything listed).
+/// newest three; `count` is the bell's badge (everything listed). Every
+/// action carries its row's `id` ([`with_action_ids`]).
 pub fn merged_feed(desktop: &[(i64, Value)], desktop_toasts: &HashSet<u64>, inbox: &[InboxItem], inbox_toasts: &HashSet<String>, now_ms: i64) -> Value {
     let mut all: Vec<(i64, Value, bool)> = desktop
         .iter()
-        .map(|(at, row)| (*at, row.clone(), row["id"].as_u64().is_some_and(|id| desktop_toasts.contains(&id))))
-        .chain(inbox.iter().map(|i| (i.created_ms, i.to_json(now_ms), inbox_toasts.contains(&i.key))))
+        .map(|(at, row)| (*at, with_action_ids(row.clone()), row["id"].as_u64().is_some_and(|id| desktop_toasts.contains(&id))))
+        .chain(inbox.iter().map(|i| (i.created_ms, with_action_ids(i.to_json(now_ms)), inbox_toasts.contains(&i.key))))
         .collect();
     // Stable: equal times keep the desktop's own order.
     all.sort_by(|a, b| b.0.cmp(&a.0));
     let toasts: Vec<Value> = all.iter().filter(|(_, _, toast)| *toast).take(3).map(|(_, row, _)| row.clone()).collect();
     let list: Vec<Value> = all.into_iter().map(|(_, row, _)| row).collect();
     json!({"toasts": toasts, "count": list.len(), "list": list})
+}
+
+/// #EDE-196: the row's `id` on each of its actions. A toast's action button
+/// is a template item inside the toast's template: its bindings read the
+/// action (`key`, `label`) or the document's root, never the row around it,
+/// so the press finds its notification through this copy.
+fn with_action_ids(mut row: Value) -> Value {
+    let id = row["id"].clone();
+    if let Some(actions) = row.get_mut("actions").and_then(Value::as_array_mut) {
+        for action in actions.iter_mut().filter_map(Value::as_object_mut) {
+            action.insert("id".into(), id.clone());
+        }
+    }
+    row
 }
 
 /// The inbox entries that toast now: unseen, and created since the shell
@@ -567,6 +582,8 @@ mod tests {
         assert_eq!(feed["list"][0]["app"], "Acme");
         let toast_ids: Vec<Value> = feed["toasts"].as_array().unwrap().iter().map(|r| r["id"].clone()).collect();
         assert_eq!(toast_ids, [json!("inbox:n2"), json!(7)]);
+        // #EDE-196: an action button reads its row's id from the action itself.
+        assert_eq!(feed["toasts"][0]["actions"], json!([{"id": "inbox:n2", "key": "open", "label": "Open"}, {"id": "inbox:n2", "key": "read", "label": "Mark read"}]));
     }
 
     #[test]

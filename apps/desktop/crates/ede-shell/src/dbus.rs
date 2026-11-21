@@ -72,8 +72,11 @@ pub struct Notification {
     pub body: String,
     /// A `file:` or `data:` URL, or empty.
     pub icon: String,
-    /// `(key, label)` pairs.
+    /// `(key, label)` pairs, as the app sent them (with its `default`
+    /// action, the press on the notification itself, if it gave one).
     pub actions: Vec<(String, String)>,
+    /// The `resident` hint: an invoked action leaves it in place.
+    pub resident: bool,
     /// 0 low, 1 normal, 2 critical.
     pub urgency: u8,
     /// `None` = stays until closed.
@@ -84,7 +87,14 @@ pub struct Notification {
     pub received_ms: i64,
 }
 
+/// The spec's key of the press on the notification itself (#EDE-196): the
+/// toast's or the bell row's press, never a button of its own.
+pub const DEFAULT_ACTION: &str = "default";
+
 impl Notification {
+    /// The row `/notifications` carries: its `actions` are the buttons, so
+    /// the `default` action is not one of them (`default` says whether the
+    /// app gave it).
     pub fn to_json(&self) -> Value {
         json!({
             "id": self.id,
@@ -92,10 +102,16 @@ impl Notification {
             "summary": self.summary,
             "body": self.body,
             "icon": self.icon,
-            "actions": self.actions.iter().map(|(key, label)| json!({"key": key, "label": label})).collect::<Vec<_>>(),
+            "actions": self.actions.iter().filter(|(key, _)| key != DEFAULT_ACTION).map(|(key, label)| json!({"key": key, "label": label})).collect::<Vec<_>>(),
+            "default": self.has_action(DEFAULT_ACTION),
             "urgency": self.urgency,
             "at": self.at,
         })
+    }
+
+    /// Whether the app offered the action `key`.
+    pub fn has_action(&self, key: &str) -> bool {
+        self.actions.iter().any(|(k, _)| k == key)
     }
 }
 
@@ -138,6 +154,10 @@ fn hint_str(hints: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
     hints.get(key).and_then(|v| String::try_from(v.clone()).ok())
 }
 
+fn hint_bool(hints: &HashMap<String, OwnedValue>, key: &str) -> bool {
+    hints.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false)
+}
+
 #[zbus::interface(name = "org.freedesktop.Notifications")]
 impl Notifications {
     fn get_capabilities(&self) -> Vec<String> {
@@ -162,6 +182,7 @@ impl Notifications {
             body: strip_markup(&body),
             icon: icon_url(&app_icon, image_path.as_deref()),
             actions: actions.chunks(2).filter(|c| c.len() == 2).map(|c| (c[0].clone(), c[1].clone())).collect(),
+            resident: hint_bool(&hints, "resident"),
             urgency,
             expires_at,
             at: (self.clock)(),
@@ -292,7 +313,7 @@ impl Dbus {
     }
 
     /// [`Dbus::start`] on the bus `builder` reaches (a test's private bus).
-    fn start_on(builder: zbus::Result<zbus::blocking::connection::Builder<'static>>, tx: mpsc::Sender<Event>, clock: fn() -> String) -> Option<Dbus> {
+    pub(crate) fn start_on(builder: zbus::Result<zbus::blocking::connection::Builder<'static>>, tx: mpsc::Sender<Event>, clock: fn() -> String) -> Option<Dbus> {
         let items = Arc::new(Mutex::new(Vec::new()));
         let notifications = Notifications { tx: tx.clone(), next_id: Arc::new(AtomicU32::new(1)), clock };
         let watcher = Watcher { items: items.clone(), tx: tx.clone() };
@@ -373,6 +394,8 @@ impl Dbus {
         let _ = self.conn.emit_signal(None::<BusName<'_>>, NOTIFICATIONS_PATH, NOTIFICATIONS_NAME, "NotificationClosed", &(id, reason));
     }
 
+    /// `ActionInvoked(id, key)`: the person pressed the action `key` (the
+    /// spec's `default` = the notification itself).
     pub fn action_invoked(&self, id: u32, key: &str) {
         let _ = self.conn.emit_signal(None::<BusName<'_>>, NOTIFICATIONS_PATH, NOTIFICATIONS_NAME, "ActionInvoked", &(id, key));
     }

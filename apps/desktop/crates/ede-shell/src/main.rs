@@ -261,6 +261,39 @@ impl Notifications {
         self.toasts.retain(|x| *x != id);
         before != self.list.len()
     }
+
+    /// #EDE-196: a press on desktop notification `id` as the freedesktop
+    /// spec has it. The app hears `ActionInvoked(id, key)`: the pressed
+    /// action `key` (only one it offered), or for a press on the
+    /// notification itself (`None`) its `default` action when it gave one.
+    /// Then the notification closes (`NotificationClosed(id, 2)`, the
+    /// person dismissed it), unless the app made it `resident`: then only
+    /// its toast goes and the bell keeps it. `true` when anything changed.
+    fn invoke(&mut self, dbus: Option<&dbus::Dbus>, id: u32, key: Option<&str>) -> bool {
+        let Some(n) = self.list.iter().find(|n| n.id == id) else { return false };
+        let action = match key {
+            Some(key) => n.has_action(key).then_some(key),
+            None => n.has_action(dbus::DEFAULT_ACTION).then_some(dbus::DEFAULT_ACTION),
+        };
+        if key.is_some() && action.is_none() {
+            tracing::warn!(id, key, "a press on an action the notification does not offer");
+            return false;
+        }
+        let resident = n.resident;
+        if let (Some(d), Some(action)) = (dbus, action) {
+            d.action_invoked(id, action);
+        }
+        if resident {
+            let before = self.toasts.len();
+            self.toasts.retain(|x| *x != id);
+            return before != self.toasts.len();
+        }
+        self.remove(id);
+        if let Some(d) = dbus {
+            d.notification_closed(id, 2);
+        }
+        true
+    }
 }
 
 /// What the hosted-popups hook reports: a document's hosted layers.
@@ -712,15 +745,13 @@ impl HostPlugin for Host {
                 }
             }
             // #EDE-65: a row's press; an inbox entry hands off to the Exponential app.
+            // #EDE-196: a toast's own press too: a desktop notification's default action.
             "ede_notify_open" => {
                 if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| inbox_open(&shell, &key, cx));
                 } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
-                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
-                        d.action_invoked(id as u32, "default");
-                    }
                     cx.defer(move |cx| {
-                        notification_close(&shell, id as u32, 2, cx);
+                        notification_invoke(&shell, id as u32, None, cx);
                         close(&shell, "notification-center", cx);
                     });
                 }
@@ -740,10 +771,10 @@ impl HostPlugin for Host {
                 if let (Some(inbox_key), Some(key)) = (inbox_key, key.clone()) {
                     cx.defer(move |cx| if key == "open" { inbox_open(&shell, &inbox_key, cx) } else { inbox_mark_read(&shell, &inbox_key, cx) });
                 } else if let (Some(id), Some(key)) = (id, key) {
-                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
-                        d.action_invoked(id as u32, &key);
-                    }
-                    cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
+                    cx.defer(move |cx| notification_invoke(&shell, id as u32, Some(&key), cx));
+                } else {
+                    // #EDE-196: a press that names no notification reaches no app (it was silent).
+                    tracing::warn!(%args, "a notification action without its notification id or key");
                 }
             }
             "ede_notify_clear" => {
@@ -2756,6 +2787,7 @@ fn own_toast(summary: String, body: String, received_ms: i64) -> dbus::Notificat
         body,
         icon: String::new(),
         actions: Vec::new(),
+        resident: false,
         urgency: 1,
         expires_at: Some(Instant::now() + INBOX_TOAST),
         at: clock::time(),
@@ -3508,6 +3540,19 @@ fn notification_close(shell: &SharedShell, id: u32, reason: u32, cx: &mut App) {
         }
     }
     notifications_changed(shell, cx);
+}
+
+/// #EDE-196: a press on desktop notification `id`: the action `key`, or
+/// (`None`) the notification itself; see [`Notifications::invoke`].
+fn notification_invoke(shell: &SharedShell, id: u32, key: Option<&str>, cx: &mut App) {
+    let changed = {
+        let mut s = shell.borrow_mut();
+        let s = &mut *s;
+        s.notifications.invoke(s.dbus.as_ref(), id, key)
+    };
+    if changed {
+        notifications_changed(shell, cx);
+    }
 }
 
 /// The toast surface shows while toasts exist; every document sees the data.
@@ -4394,6 +4439,200 @@ mod notification_lifetime {
         assert_eq!(n.push(toast(101)), vec![1]);
         assert_eq!(n.list.len(), 100);
         assert!(!n.toasts.contains(&1));
+    }
+}
+
+/// #EDE-196: a toast's presses reach the app that sent it, end to end: a
+/// fake app on a private bus calls `Notify`, the shell's notification
+/// server hears it, the toast document as it ships draws it from the feed,
+/// a press resolves through the document's own bindings, and the app hears
+/// the spec's signals. The release check's snapd question sent
+/// `{"key":"yes"}` alone, so no app ever heard a press.
+#[cfg(test)]
+mod toast_presses {
+    use super::*;
+    use eui_core::surface::{OutEvent, Surface};
+
+    /// An app on the bus: it sends notifications and hears the server's signals.
+    struct FakeApp {
+        conn: zbus::blocking::Connection,
+        signals: mpsc::Receiver<(String, Value)>,
+    }
+
+    impl FakeApp {
+        fn connect(bus: &dbus::private_bus::PrivateBus) -> FakeApp {
+            let conn = bus.builder().and_then(|b| b.build()).expect("the app's connection");
+            let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(dbus::NOTIFICATIONS_NAME).expect("the interface").build();
+            let iter = zbus::blocking::MessageIterator::for_match_rule(rule, &conn, None).expect("the app listens");
+            let (tx, signals) = mpsc::channel();
+            std::thread::spawn(move || {
+                for msg in iter.flatten() {
+                    let member = msg.header().member().map(|m| m.to_string()).unwrap_or_default();
+                    let body = match member.as_str() {
+                        "ActionInvoked" => msg.body().deserialize::<(u32, String)>().map(|(id, key)| json!([id, key])),
+                        "NotificationClosed" => msg.body().deserialize::<(u32, u32)>().map(|(id, reason)| json!([id, reason])),
+                        _ => continue,
+                    };
+                    if tx.send((member, body.expect("the spec's signature"))).is_err() {
+                        break;
+                    }
+                }
+            });
+            FakeApp { conn, signals }
+        }
+
+        /// `Notify` as libnotify sends it; the server's id.
+        fn notify(&self, summary: &str, actions: &[&str], resident: bool) -> u32 {
+            let mut hints: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
+            if resident {
+                hints.insert("resident", zbus::zvariant::Value::from(true));
+            }
+            let reply = self
+                .conn
+                .call_method(Some(dbus::NOTIFICATIONS_NAME), dbus::NOTIFICATIONS_PATH, Some(dbus::NOTIFICATIONS_NAME), "Notify", &("fake-app", 0u32, "", summary, "", actions.to_vec(), hints, 0i32))
+                .expect("Notify answers");
+            reply.body().deserialize::<u32>().expect("an id")
+        }
+
+        /// The next signal the app hears, within a few seconds.
+        fn heard(&self) -> Option<(String, Value)> {
+            self.signals.recv_timeout(Duration::from_secs(5)).ok()
+        }
+
+        /// Nothing more within a moment.
+        fn quiet(&self) -> bool {
+            self.signals.recv_timeout(Duration::from_millis(300)).is_err()
+        }
+    }
+
+    /// The server's next notification, into the shell's list.
+    fn arrived(rx: &mpsc::Receiver<dbus::Event>, n: &mut Notifications) {
+        loop {
+            match rx.recv_timeout(Duration::from_secs(5)).expect("the server heard it") {
+                dbus::Event::Notified(notification) => {
+                    n.push(notification);
+                    return;
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    /// The toast document as it ships, drawn from the shell's feed.
+    fn toasts(n: &Notifications) -> Surface {
+        let source = uicore_docs::doc("notifications").expect("the toast document").json();
+        let doc = ede_ui::validate_document("notifications", &source).expect("it validates as shipped");
+        let mut s = doc.surface(eui_core::themes::builtin_theme("exponential").expect("the theme"));
+        s.set_data("/notifications", Some(n.to_json())).expect("the feed binds");
+        s.set_viewport(380.0, 0.0, None);
+        s.layout(&mut eui_core::measure::FixedMeasure::default());
+        s
+    }
+
+    /// The live nodes `pick` matches.
+    fn find(s: &mut Surface, pick: impl Fn(&eui_core::surface::PlacedNode) -> bool) -> Vec<eui_core::surface::PlacedNode> {
+        s.nodes().into_iter().filter(|n| !n.removed && pick(n)).collect()
+    }
+
+    /// An action button of a toast (the template `toast_action`'s items).
+    fn is_action(n: &eui_core::surface::PlacedNode) -> bool {
+        n.component == "Button" && n.part.is_none() && n.id.starts_with("toast_action.")
+    }
+
+    /// The labels of the toasts' action buttons, sorted.
+    fn button_labels(s: &mut Surface) -> Vec<String> {
+        let mut labels: Vec<String> = find(s, is_action).iter().filter_map(|n| n.props.get("label").and_then(Value::as_str).map(String::from)).collect();
+        labels.sort();
+        labels
+    }
+
+    /// The host function a press on node `index` calls, with its resolved args.
+    fn press(s: &mut Surface, index: u32) -> (String, Value) {
+        s.event(index, "press", None)
+            .into_iter()
+            .find_map(|e| match e {
+                OutEvent::FunctionCall { name, args, .. } => Some((name, args)),
+                _ => None,
+            })
+            .expect("the press calls a host function")
+    }
+
+    fn press_button(s: &mut Surface, label: &str) -> (String, Value) {
+        let button = find(s, |n| is_action(n) && n.props.get("label").and_then(Value::as_str) == Some(label));
+        assert_eq!(button.len(), 1, "one {label} button");
+        press(s, button[0].index)
+    }
+
+    /// The press on the card itself (not on one of its buttons).
+    fn press_card(s: &mut Surface) -> (String, Value) {
+        let cards = find(s, |n| n.component == "Box" && n.pressable && n.id.starts_with("toast."));
+        assert_eq!(cards.len(), 1, "one toast card is a press target");
+        press(s, cards[0].index)
+    }
+
+    /// What the shell's host function does with the press (`ede_notify_open`
+    /// = the card itself, `ede_notify_action` = a button).
+    fn dispatch(n: &mut Notifications, server: &dbus::Dbus, (name, args): (String, Value)) -> bool {
+        let id = args["id"].as_u64().expect("the press names its notification") as u32;
+        match name.as_str() {
+            "ede_notify_open" => n.invoke(Some(server), id, None),
+            "ede_notify_action" => n.invoke(Some(server), id, Some(args["key"].as_str().expect("and its action"))),
+            other => panic!("the toast called {other}"),
+        }
+    }
+
+    #[test]
+    fn an_action_button_reaches_the_app_with_the_toast_s_id_and_its_key() {
+        let bus = dbus::private_bus::PrivateBus::start();
+        let (tx, rx) = mpsc::channel();
+        let server = dbus::Dbus::start_on(bus.builder(), tx, || "12:00".into()).expect("the shell on the private bus");
+        let app = FakeApp::connect(&bus);
+        let mut n = Notifications::default();
+
+        // snapd-desktop-integration's question: Yes, No and the default action.
+        let id = app.notify("Some required themes are missing.", &["yes", "Yes", "no", "No", "default", "default"], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert_eq!(button_labels(&mut s), ["No", "Yes"], "the default action is no button");
+        let call = press_button(&mut s, "Yes");
+        assert_eq!(call, ("ede_notify_action".to_string(), json!({"id": id, "key": "yes"})), "the press names the toast and the action");
+        assert!(dispatch(&mut n, &server, call));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "yes"]))));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))), "then it closes, dismissed");
+        assert!(app.quiet());
+        assert!(n.list.is_empty() && n.toasts.is_empty());
+
+        // The card itself is the default action.
+        let id = app.notify("Release notes", &["default", "Open", "archive", "Archive"], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert_eq!(button_labels(&mut s), ["Archive"], "Open is the card itself");
+        let call = press_card(&mut s);
+        assert_eq!(call, ("ede_notify_open".to_string(), json!({"id": id})));
+        assert!(dispatch(&mut n, &server, call));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "default"]))));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))));
+        assert!(app.quiet());
+
+        // Without a default action the card's press only dismisses it.
+        let id = app.notify("Updates installed", &[], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert!(dispatch(&mut n, &server, press_card(&mut s)));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))), "no ActionInvoked the app never offered");
+        assert!(app.quiet());
+
+        // A resident notification stays (the bell keeps it); its toast goes.
+        let id = app.notify("Call", &["answer", "Answer"], true);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert!(dispatch(&mut n, &server, press_button(&mut s, "Answer")));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "answer"]))));
+        assert!(app.quiet(), "a resident notification does not close");
+        assert!(n.list.iter().any(|x| x.id == id) && !n.toasts.contains(&id));
+        // An action it never offered reaches nothing.
+        assert!(!n.invoke(Some(&server), id, Some("hang-up")));
+        assert!(app.quiet());
     }
 }
 
