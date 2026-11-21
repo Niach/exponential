@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's sealed polkit prompt (#EDE-17, Tier B): compiled into exponential-sealed. polkitd asks the agent to authenticate an action; the person sees the action's message, who asks, and types the password of the identity polkit offers. `sealed_authenticate` runs polkit-agent-helper-1; `sealed_cancel` tells polkit no.",
+  "$comment": "Exponential Desktop's sealed polkit prompt (#EDE-17, Tier B): compiled into exponential-sealed. polkitd asks the agent to authenticate an action; the person sees the action's message, who asks, and types the password of the identity polkit offers. `sealed_authenticate` runs polkit-agent-helper-1; `sealed_cancel` tells polkit no. #EDE-143: while an agent space exists, a request from outside the person's session (not their login session's scope, not a space's) shows the `asker` row, the process that asks, and the prompt waits for the person's click before it takes the keyboard; with no space every prompt takes the keyboard.",
   "root": {
     "id": "polkit",
     "component": "Box",
@@ -53,6 +53,30 @@
                 "@path": "/identity"
               },
               "variant": "muted"
+            }
+          },
+          {
+            "id": "asker",
+            "component": "Text",
+            "props": {
+              "text": {
+                "@path": "/asker"
+              },
+              "variant": "caption"
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "/asker"
+                    },
+                    "b": ""
+                  }
+                }
+              }
             }
           },
           {
@@ -166,6 +190,7 @@
     "identity": "",
     "password": "",
     "busy": false,
-    "error": ""
+    "error": "",
+    "asker": ""
   }
 }

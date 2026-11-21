@@ -170,8 +170,13 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
 
     // Whose process it is: the cgroup says so first.
     let space_id = SpaceId::new("space-1").unwrap();
-    assert_eq!(root.space_of_process(pid).unwrap(), Some(ProcessSpace { space: space_id.clone(), by: Membership::Cgroup, pid }));
-    assert_eq!(root.space_of_process(me).unwrap(), None, "the compositor's own process");
+    assert_eq!(root.space_of_process(pid).unwrap().space, Some(ProcessSpace { space: space_id.clone(), by: Membership::Cgroup, pid }));
+    assert_eq!(root.space_of_process(me).unwrap().space, None, "the compositor's own process");
+    // #EDE-143: a launch in a scope is outside the compositor's own cgroup,
+    // and with scopes no launch is outside one.
+    let answer = root.space_of_process(pid).unwrap();
+    assert!(!answer.session && !answer.unscoped_launches, "{answer:?}");
+    assert!(root.space_of_process(me).unwrap().session);
 
     // #EDE-143: an orphan in a session of its own with an empty environment,
     // started from a launch. Its parent is gone, it left the launch's group,
@@ -185,7 +190,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let lineage = || ede_protocol::process::lineage(orphan).iter().map(|stat| stat.pid).collect::<Vec<u32>>();
     until("the orphan still descends from its launch", || !lineage().contains(&parent));
     assert!(!lineage().contains(&me), "the orphan descends from the compositor: {:?}", lineage());
-    assert_eq!(root.space_of_process(orphan).unwrap(), Some(ProcessSpace { space: space_id.clone(), by: Membership::Cgroup, pid: orphan }));
+    assert_eq!(root.space_of_process(orphan).unwrap().space, Some(ProcessSpace { space: space_id.clone(), by: Membership::Cgroup, pid: orphan }));
     let without_the_cgroup = h.with(move |state| {
         let units = state.spaces.units.take();
         let found = state.space_of_process(orphan);
