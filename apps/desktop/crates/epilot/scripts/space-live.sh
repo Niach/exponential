@@ -39,8 +39,12 @@ cleanup() {
     kill -KILL "$cpid" 2>/dev/null || true
     "$compositor" space-end "$cpid" >/dev/null 2>&1 || true
   fi
-  # A compositor that was signalled leaves its sockets behind.
-  [ -n "${display:-}" ] && rm -rf "$runtime/$display" "$runtime/$display.lock" "$runtime/exponential-desktop/$display".*
+  # A compositor that was signalled leaves its sockets behind (and a space's
+  # user manager its mode-0 `inaccessible` nodes).
+  if [ -n "${display:-}" ]; then
+    chmod -R u+rwx "$runtime/exponential-desktop/$display".spaces 2>/dev/null
+    rm -rf "$runtime/$display" "$runtime/$display.lock" "$runtime/exponential-desktop/$display".*
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
