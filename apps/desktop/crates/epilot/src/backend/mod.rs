@@ -688,14 +688,79 @@ pub(crate) fn before_exit() {
 }
 
 /// #EXP-1925: `run` ended: what was granted at the desktop for it ends
-/// (eDE).
+/// (eDE). #EXP-1514 (row 13): a space run's space and kept grant stay with
+/// the host for its session's next run.
 pub(crate) fn end_run(target: Target, run: &str) {
-    // A space run's grant ends the same way, and its space with it.
-    let _ = target;
     #[cfg(target_os = "linux")]
-    ede::end_run(run);
+    match target {
+        Target::Person => ede::end_run(run),
+        Target::Space(_) => ede::end_space_run(run),
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (target, run);
+}
+
+/// #EXP-1514: a space run of `run` was admitted ([`crate::grant_space`]).
+pub(crate) fn admit_space(run: &str, had_space: bool) {
+    #[cfg(target_os = "linux")]
+    ede::admit(run, had_space);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (run, had_space);
+}
+
+/// #EXP-1514 (D 10): `run`'s turn started or ended.
+pub(crate) fn turn(run: &str, running: bool) {
+    #[cfg(target_os = "linux")]
+    ede::turn(run, running);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (run, running);
+}
+
+/// [`crate::set_space_made_observer`].
+pub(crate) fn set_space_made(hook: std::sync::Arc<dyn Fn(&str) + Send + Sync>) {
+    #[cfg(target_os = "linux")]
+    ede::set_space_made(hook);
+    #[cfg(not(target_os = "linux"))]
+    drop(hook);
+}
+
+/// [`crate::close_space`]: eDE only; nothing elsewhere has spaces.
+pub(crate) fn close_space(run: &str) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::close_space(&session, run);
+    }
     #[cfg(not(target_os = "linux"))]
     let _ = run;
+}
+
+/// [`crate::kept_spaces`].
+pub(crate) fn kept_spaces() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        return ede::kept_spaces(&session);
+    }
+    Vec::new()
+}
+
+/// [`crate::adopt_spaces`], step 1.
+pub(crate) fn hold_spaces(registry: &[String], switch_on: bool) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::hold_spaces(&session, registry, switch_on, ede::SPACE_TIMING);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (registry, switch_on);
+}
+
+/// [`crate::Adoption::settle`], step 2.
+pub(crate) fn settle_spaces(here: &dyn Fn(&str) -> crate::SessionHere, live_run: &dyn Fn(&str) -> bool) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::settle_spaces(&session, here, live_run);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (here, live_run);
 }
 
 /// #EXP-1514: whether this desktop gives a run an agent space now

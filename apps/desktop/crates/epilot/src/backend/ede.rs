@@ -35,6 +35,14 @@
 //! end. `EDE_TOKEN` (a grant handed to this process) is used as it is when
 //! it cannot mint.
 //!
+//! #EXP-1514 (D 5): a space belongs to its SESSION and is kept by the host:
+//! ONE keeper per compositor socket (a host has one eDE session) renews the
+//! kept space grants of every session in [`KEPT`], apart from
+//! [`RUN_GRANTS`] (the person runs'), over one root connection a round, and
+//! says `space_busy` for every kept session whose turn runs. A space run's
+//! end leaves its space and its grants; [`close_space`] and the switch
+//! going off destroy the space, then revoke the grants.
+//!
 //! #EXP-1514: an agent space is made only after the compositor's hello says
 //! `space-readiness` and it answers `ready` ([`Session::space_ready`]):
 //! eDE 0.2.29 says `spaces` and gets none. The answer is kept per
@@ -109,13 +117,21 @@ static GRANT: Mutex<Option<(PathBuf, Token)>> = Mutex::new(None);
 const RUN_GRANT_TTL: Duration = Duration::from_secs(15 * 60);
 const RUN_GRANT_RENEW: Duration = Duration::from_secs(5 * 60);
 
-/// #EDE-126: how often a space run's keeper looks at the clock.
+/// #EDE-126: how often the keeper looks at the clock.
 const KEEPER_TICK: Duration = Duration::from_secs(10);
+
+/// #EXP-1514 (C 12): a kept space grant lives 5 minutes and the next is
+/// minted when less than 4 are left (every minute): a host that stalls for
+/// up to four minutes keeps its spaces, and the compositor's grace is on top.
+const SPACE_GRANT_TTL: Duration = Duration::from_secs(5 * 60);
+const SPACE_GRANT_RENEW: Duration = Duration::from_secs(4 * 60);
+/// A call takes a kept grant with at least this much left, else mints.
+const SPACE_CALL_LEFT: Duration = Duration::from_secs(60);
 
 /// The lifetimes a run's grants are minted and renewed by (the tests'
 /// are short, or on a clock that jumps).
 #[derive(Clone, Copy)]
-struct Timing {
+pub(crate) struct Timing {
     ttl: Duration,
     renew: Duration,
     tick: Duration,
@@ -124,10 +140,50 @@ struct Timing {
 }
 
 const RUN_TIMING: Timing = Timing { ttl: RUN_GRANT_TTL, renew: RUN_GRANT_RENEW, tick: KEEPER_TICK, now: now_ms };
+pub(crate) const SPACE_TIMING: Timing = Timing { ttl: SPACE_GRANT_TTL, renew: SPACE_GRANT_RENEW, tick: KEEPER_TICK, now: now_ms };
 
-/// The space runs with a keeper thread, per compositor socket, and which
-/// one (a run granted again gets a new one; the old one sees it and ends).
-static KEEPERS: LazyLock<Mutex<HashMap<(PathBuf, String), u64>>> = LazyLock::new(Default::default);
+/// The keeper of each compositor socket, and which one (a keeper that
+/// found nothing to keep ends; the next kept space starts a new one).
+static KEEPERS: LazyLock<Mutex<HashMap<PathBuf, u64>>> = LazyLock::new(Default::default);
+
+/// #EXP-1514 (D 5): a session's space as this host keeps it, from its
+/// first `create_space` (or the host's start, [`hold_spaces`]) until
+/// [`close_space`], the switch going off, or the process's end.
+struct Kept {
+    socket: PathBuf,
+    /// Its space grants not yet expired, newest last.
+    grants: Vec<RunGrant>,
+    /// Its space, once it has one.
+    space: Option<SpaceInfo>,
+    /// Held at the host's start and not settled yet ([`settle_spaces`]).
+    held: bool,
+}
+
+/// Per session: its kept space. Never a person run's grant
+/// ([`RUN_GRANTS`]): `connect_run` takes the newest grant of a session,
+/// and a kept `[space]` grant there would be handed to its next person run.
+static KEPT: LazyLock<Mutex<HashMap<String, Kept>>> = LazyLock::new(Default::default);
+
+/// The sessions with an admitted space run ([`admit`]): a call of any other
+/// makes no grant and no space (a call that passed the host's check just
+/// before its run's end, or one after a [`close_space`]).
+static ADMITTED: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+
+/// The sessions whose TURN runs ([`turn`]): the keeper says `space_busy`
+/// for their spaces each round (D 10).
+static TURNS: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+
+/// The sessions that had a space: in this process, or by the host's run
+/// record ([`admit`]). Such a session's first call that finds no space
+/// says it is new and empty; any other gets its first one silently.
+static HAD: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+
+/// Who hears a session's first space ([`crate::set_space_made_observer`]).
+static MADE: Mutex<Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>> = Mutex::new(None);
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
 
 /// One grant minted for a run.
 #[derive(Clone)]
@@ -138,7 +194,7 @@ struct RunGrant {
     expires_at: i64,
 }
 
-/// Per run: the grants minted for it and not yet expired, newest last.
+/// Per person run: the grants minted for it and not yet expired, newest last.
 static RUN_GRANTS: LazyLock<Mutex<HashMap<String, Vec<RunGrant>>>> = LazyLock::new(Default::default);
 
 fn now_ms() -> i64 {
@@ -153,9 +209,6 @@ const CAPABILITIES: [Capability; 3] = [Capability::Capture, Capability::InputPer
 const SPACE_CAPABILITIES: [Capability; 1] = [Capability::Space];
 /// A new space's output: the frame the vision models read best.
 const SPACE_SIZE: (i32, i32) = (crate::tools::MAX_WIDTH as i32, crate::tools::MAX_HEIGHT as i32);
-
-/// Per space run: the compositor it runs on and the space it made there.
-static SPACES: LazyLock<Mutex<HashMap<String, (PathBuf, SpaceInfo)>>> = LazyLock::new(Default::default);
 
 const NO_SPACES: &str = "This eDE makes no agent spaces (update eDE); nothing was done.";
 const NO_SPACE_GRANT: &str = "eDE gave this run no space grant of its own (the token here cannot mint one); nothing was done.";
@@ -291,25 +344,151 @@ fn pixels_of(output: &ede_protocol::OutputInfo) -> (u32, u32) {
 }
 
 /// The switch turned off: the grants this process minted end (#EXP-1897),
-/// every run's too (#EXP-1925).
+/// every run's too (#EXP-1925), and every space this host keeps closes
+/// (#EXP-1514, row 10: `destroy_space`, then the revokes).
 pub(crate) fn revoke_grant() {
     if let Some(Ok(session)) = session() {
+        let kept: Vec<String> = lock(&KEPT).iter().filter(|(_, kept)| kept.socket == session.socket).map(|(run, _)| run.clone()).collect();
+        session.close_spaces(&kept);
         session.revoke();
-        let runs: Vec<String> = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect();
+        let runs: Vec<String> = lock(&RUN_GRANTS).keys().cloned().collect();
         for run in runs {
             session.end_run(&run);
         }
     }
 }
 
-/// #EXP-1925: `run` ended: the grants minted for it end. Touches nothing
-/// when none was.
+/// #EXP-1925: the person run `run` ended: the grants minted for it end.
+/// Touches nothing when none was.
 pub(crate) fn end_run(run: &str) {
-    if !RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).contains_key(run) {
+    if !lock(&RUN_GRANTS).contains_key(run) {
         return;
     }
     if let Some(Ok(session)) = session() {
         session.end_run(run);
+    }
+}
+
+/// #EXP-1514 (row 13): the space run `run` ended (its MCP token is dead):
+/// nothing at the compositor. Its space and kept grant stay with the host
+/// for the session's next run; a call of this one that arrives late makes
+/// nothing.
+pub(crate) fn end_space_run(run: &str) {
+    lock(&ADMITTED).remove(run);
+}
+
+/// #EXP-1514: the space run `run` was admitted ([`crate::grant_space`]);
+/// `had_space` = the host's run record says the session had a space.
+pub(crate) fn admit(run: &str, had_space: bool) {
+    lock(&ADMITTED).insert(run.to_string());
+    if had_space {
+        lock(&HAD).insert(run.to_string());
+    }
+    // A space held at the host's start is this run's now.
+    if let Some(kept) = lock(&KEPT).get_mut(run) {
+        kept.held = false;
+    }
+}
+
+/// #EXP-1514 (D 10): `run`'s turn started (`true`) or ended.
+pub(crate) fn turn(run: &str, running: bool) {
+    let mut turns = lock(&TURNS);
+    if running {
+        turns.insert(run.to_string());
+    } else {
+        turns.remove(run);
+    }
+}
+
+pub(crate) fn set_space_made(hook: std::sync::Arc<dyn Fn(&str) + Send + Sync>) {
+    *lock(&MADE) = Some(hook);
+}
+
+/// #EXP-1514: the sessions this host keeps a space for (its sweep reads them).
+pub(crate) fn kept_spaces(session: &Session) -> Vec<String> {
+    let mut kept: Vec<String> = lock(&KEPT).iter().filter(|(_, kept)| kept.socket == session.socket).map(|(run, _)| run.clone()).collect();
+    kept.sort();
+    kept
+}
+
+/// #EXP-1514 (rows 3, 14, 19): `run`'s space closes, whoever's grants keep
+/// it: `destroy_space`, then this host's revokes. A run of it makes no new
+/// space until its next grant.
+pub(crate) fn close_space(session: &Session, run: &str) {
+    session.close_spaces(&[run.to_string()]);
+}
+
+/// #EXP-1514 (row 15), step 1, at the host's start: a kept grant at once
+/// for every space whose session `registry` (the host's run registry,
+/// which outlives it) lists, so nothing expires while the rows load; with
+/// the switch off they are destroyed instead. The others are left to
+/// their own grants. Answers the sessions held.
+pub(crate) fn hold_spaces(session: &Session, registry: &[String], switch_on: bool, timing: Timing) -> Vec<String> {
+    let listed = session.root_token().and_then(|root| session.connect_token(root)).and_then(|mut root| {
+        if !root.hello.capabilities.contains(&Capability::System) {
+            return Err(NO_MINT.to_string());
+        }
+        let spaces = root.spaces().map_err(e("eDE spaces"))?;
+        Ok((root, spaces))
+    });
+    let (mut root, spaces) = match listed {
+        Ok(listed) => listed,
+        Err(err) => {
+            log::debug!("computer use: no agent space was adopted: {err}");
+            return Vec::new();
+        }
+    };
+    let ours: Vec<SpaceInfo> = spaces.into_iter().filter(|space| registry.iter().any(|run| run == space.session_id.as_str())).collect();
+    if !switch_on {
+        for space in ours {
+            if let Err(err) = root.destroy_space(space.id.clone()) {
+                log::warn!("computer use: an agent space of the switch that is off was not closed: {err}");
+            }
+        }
+        return Vec::new();
+    }
+    let mut held = Vec::new();
+    for space in ours {
+        let run = space.session_id.as_str().to_string();
+        if lock(&KEPT).contains_key(&run) {
+            continue;
+        }
+        let expires_at = (timing.now)() + timing.ttl.as_millis() as i64;
+        match root.mint(space.session_id.clone(), SPACE_CAPABILITIES.to_vec(), Some(expires_at)) {
+            Ok(grant) => {
+                let grants = vec![RunGrant { socket: session.socket.clone(), token: grant.token, expires_at }];
+                lock(&KEPT).insert(run.clone(), Kept { socket: session.socket.clone(), grants, space: Some(space), held: true });
+                lock(&HAD).insert(run.clone());
+                held.push(run);
+            }
+            Err(err) => log::warn!("computer use: an agent space was not held: {err}"),
+        }
+    }
+    drop(root);
+    if !held.is_empty() {
+        session.ensure_keeper(timing);
+    }
+    held
+}
+
+/// #EXP-1514 (row 15), step 2, once the host's rows are in sync: each held
+/// session asked. `Live` here = kept; `Ended` = destroyed, but only while
+/// `live_run` (the host-wide run registry, read right before) has no live
+/// run of it (the desktop app and the daemon are two devices on one
+/// machine); else, and `Unknown`, the hold is dropped and its own grants
+/// decide.
+pub(crate) fn settle_spaces(session: &Session, here: impl Fn(&str) -> crate::SessionHere, live_run: impl Fn(&str) -> bool) {
+    let held: Vec<String> = lock(&KEPT).iter().filter(|(_, kept)| kept.held && kept.socket == session.socket).map(|(run, _)| run.clone()).collect();
+    for run in held {
+        match here(&run) {
+            crate::SessionHere::Live => {
+                if let Some(kept) = lock(&KEPT).get_mut(&run) {
+                    kept.held = false;
+                }
+            }
+            crate::SessionHere::Ended if !live_run(&run) => close_space(session, &run),
+            crate::SessionHere::Ended | crate::SessionHere::Unknown => session.drop_hold(&run),
+        }
     }
 }
 
@@ -342,11 +521,19 @@ impl Session {
     /// the compositor no longer knows it); `None`, or a root that cannot
     /// mint, = [`Session::connect`].
     fn connect_as(&self, run: Option<&str>) -> Result<Client, String> {
-        let Some(run) = run else { return self.connect() };
-        match self.connect_run(run, &CAPABILITIES, RUN_TIMING)? {
-            Some(client) => Ok(client),
-            None => self.connect(),
+        let client = match run {
+            None => self.connect()?,
+            Some(run) => match self.connect_run(run, &CAPABILITIES, RUN_TIMING)? {
+                Some(client) => client,
+                None => self.connect()?,
+            },
+        };
+        // #EXP-1514: a space grant is never a person run's: its scope is an
+        // agent space, and the person's hold, gate and Esc would not be.
+        if client.hello.capabilities.contains(&Capability::Space) || client.hello.unknown_capabilities.iter().any(|name| name == Capability::Space.as_str()) {
+            return Err("eDE answered a person run with an agent space's grant; nothing was done.".to_string());
         }
+        Ok(client)
     }
 
     /// #EDE-126: a connection under a space run's own grant. The
@@ -354,9 +541,30 @@ impl Session {
     /// session, and a compositor that makes spaces; anything else is an
     /// error before a single op goes out. Never [`Session::connect`]: a
     /// space run has no hold, no gate and no Esc, so this process's person
-    /// grant there would type on the person's seat.
+    /// grant there would type on the person's seat. #EXP-1514: the
+    /// session's kept grant ([`KEPT`]) while it has [`SPACE_CALL_LEFT`],
+    /// else one minted now and kept.
     fn connect_space(&self, run: &str, timing: Timing) -> Result<Client, String> {
-        let client = self.connect_run(run, &SPACE_CAPABILITIES, timing)?.ok_or(NO_SPACE_GRANT)?;
+        let floor = (timing.now)() + SPACE_CALL_LEFT.min(timing.ttl / 2).as_millis() as i64;
+        let cached = lock(&KEPT).get(run).filter(|kept| kept.socket == self.socket).and_then(|kept| kept.grants.last()).filter(|grant| grant.expires_at > floor).map(|grant| grant.token.clone());
+        let client = match cached.map(|token| self.hello(token)) {
+            Some(Ok(client)) => client,
+            Some(Err(err)) if !forgotten(&err) => return Err(self.said(err)),
+            _ => {
+                let mut root = self.connect_token(self.root_token()?)?;
+                if !root.hello.capabilities.contains(&Capability::System) {
+                    return Err(NO_SPACE_GRANT.to_string());
+                }
+                // Read before the mint: an older compositor would serve a
+                // `[space]` grant the capability-free ops on the person's desk.
+                if !root.hello.offers_spaces() {
+                    return Err(NO_SPACES.to_string());
+                }
+                let token = self.mint_kept(&mut root, run, timing)?;
+                drop(root);
+                self.connect_token(token)?
+            }
+        };
         if !client.hello.offers_spaces() {
             return Err(NO_SPACES.to_string());
         }
@@ -365,6 +573,23 @@ impl Session {
             return Err(NO_SPACE_GRANT.to_string());
         }
         Ok(client)
+    }
+
+    /// A space grant for `run` over `root`, kept ([`KEPT`]).
+    fn mint_kept(&self, root: &mut Client, run: &str, timing: Timing) -> Result<Token, String> {
+        let now = (timing.now)();
+        let expires_at = now + timing.ttl.as_millis() as i64;
+        let session = SessionId::new(run).map_err(|err| err.to_string())?;
+        let token = root.mint(session, SPACE_CAPABILITIES.to_vec(), Some(expires_at)).map_err(e("eDE grant"))?.token;
+        let mut kept = lock(&KEPT);
+        let entry = kept.entry(run.to_string()).or_insert_with(|| Kept { socket: self.socket.clone(), grants: Vec::new(), space: None, held: false });
+        if entry.socket != self.socket {
+            // Another compositor's (a new login): that one's space is gone.
+            *entry = Kept { socket: self.socket.clone(), grants: Vec::new(), space: None, held: false };
+        }
+        entry.grants.retain(|grant| grant.expires_at > now);
+        entry.grants.push(RunGrant { socket: self.socket.clone(), token: token.clone(), expires_at });
+        Ok(token)
     }
 
     /// `run`'s own grant holding `capabilities`; `None` = the root here
@@ -388,11 +613,6 @@ impl Session {
         let mut root = self.connect_token(self.root_token()?)?;
         if !root.hello.capabilities.contains(&Capability::System) {
             return Ok(None);
-        }
-        // Read before the mint: an older compositor would serve a `[space]`
-        // grant the capability-free ops on the person's desk.
-        if capabilities == SPACE_CAPABILITIES && !root.hello.offers_spaces() {
-            return Err(NO_SPACES.to_string());
         }
         let now = (timing.now)();
         let expires_at = now + timing.ttl.as_millis() as i64;
@@ -455,52 +675,140 @@ impl Session {
         }
     }
 
-    /// #EDE-126: a thread that keeps the space run `run`'s grant alive
-    /// while no call does: a renewal runs only inside a call, and the
-    /// compositor closes a space whose grant stayed expired. It wakes every
-    /// [`Timing::tick`] and compares the wall clock, so the first tick
-    /// after a suspend renews too (inside the compositor's grace). It ends
-    /// with the run ([`Session::end_run`]). One per run; a person run has none.
-    fn keep(&self, run: &str, timing: Timing) {
+    /// #EXP-1514 (D 5, C 12): ONE keeper for this compositor: a thread that
+    /// keeps every kept space's grant alive while no call does (a renewal
+    /// runs only inside a call, and the compositor closes a space whose
+    /// grant stayed expired), and says `space_busy` for every kept session
+    /// whose turn runs (D 10). It wakes every [`Timing::tick`] and compares
+    /// the wall clock, so the first round after a suspend renews them all.
+    /// It ends when nothing is kept here; the next kept space starts it.
+    fn ensure_keeper(&self, timing: Timing) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let key = (self.socket.clone(), run.to_string());
         let mine = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        match KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).entry(key.clone()) {
+        match lock(&KEEPERS).entry(self.socket.clone()) {
             std::collections::hash_map::Entry::Occupied(_) => return,
             std::collections::hash_map::Entry::Vacant(slot) => drop(slot.insert(mine)),
         }
         let session = self.clone();
-        let keeper = Some(mine);
         let _ = std::thread::Builder::new().name("computer-use-space-keeper".into()).spawn(move || loop {
             std::thread::sleep(timing.tick);
-            let now = || KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).get(&key).copied();
-            if now() != keeper {
+            let mut keepers = lock(&KEEPERS);
+            if keepers.get(&session.socket) != Some(&mine) {
                 return;
             }
-            let fresh = (timing.now)() + timing.renew.as_millis() as i64;
-            let newest = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner()).get(&key.1).and_then(|grants| grants.iter().rev().find(|grant| grant.socket == key.0).map(|grant| grant.expires_at));
-            if newest.is_some_and(|expires_at| expires_at > fresh) {
-                continue;
+            if !lock(&KEPT).values().any(|kept| kept.socket == session.socket) {
+                keepers.remove(&session.socket);
+                return;
             }
-            if let Err(err) = session.connect_space(&key.1, timing) {
-                log::debug!("computer use: a space run's eDE grant was not renewed: {err}");
-            }
-            // The run ended while this minted: what was minted ends too.
-            match now() {
-                None => return session.end_run(&key.1),
-                other if other != keeper => return,
-                _ => {}
-            }
+            drop(keepers);
+            session.keeper_round(timing);
         });
     }
 
-    /// `run`'s grants on this compositor end; the compositor forgets them.
-    fn end_run(&self, run: &str) {
-        KEEPERS.lock().unwrap_or_else(|p| p.into_inner()).remove(&(self.socket.clone(), run.to_string()));
-        // A space run's space ends with its grant (the compositor closes it).
-        SPACES.lock().unwrap_or_else(|p| p.into_inner()).retain(|of, (socket, _)| of != run || *socket != self.socket);
+    /// One round of the keeper: every kept grant with less than
+    /// [`Timing::renew`] left is minted anew, all over ONE root connection;
+    /// then `space_busy` for each kept session whose turn runs.
+    fn keeper_round(&self, timing: Timing) {
+        let fresh = (timing.now)() + timing.renew.as_millis() as i64;
+        let due: Vec<String> = lock(&KEPT)
+            .iter()
+            .filter(|(_, kept)| kept.socket == self.socket && kept.space.is_some() && kept.grants.last().is_none_or(|grant| grant.expires_at <= fresh))
+            .map(|(run, _)| run.clone())
+            .collect();
+        if !due.is_empty() {
+            match self.root_token().and_then(|root| self.connect_token(root)) {
+                Ok(mut root) => {
+                    for run in due {
+                        if let Err(err) = self.mint_kept(&mut root, &run, timing) {
+                            log::debug!("computer use: a kept agent space's eDE grant was not renewed: {err}");
+                        }
+                        // Closed while this minted: what was minted ends too.
+                        if !lock(&KEPT).contains_key(&run) {
+                            self.close_spaces(&[run]);
+                        }
+                    }
+                }
+                Err(err) => log::debug!("computer use: the kept agent spaces' eDE grants were not renewed: {err}"),
+            }
+        }
+        let now = (timing.now)();
+        let turns = lock(&TURNS).clone();
+        let busy: Vec<Token> = lock(&KEPT)
+            .iter()
+            .filter(|(run, kept)| kept.socket == self.socket && kept.space.is_some() && turns.contains(*run))
+            .filter_map(|(_, kept)| kept.grants.last().filter(|grant| grant.expires_at > now).map(|grant| grant.token.clone()))
+            .collect();
+        for token in busy {
+            // An older compositor cannot read it: its spaces never give way.
+            if let Err(err) = self.hello(token).and_then(|mut client| client.space_busy()) {
+                log::debug!("computer use: space_busy was not said: {err}");
+            }
+        }
+    }
+
+    /// #EXP-1514: the spaces of `runs` close: each `destroy_space` (the one
+    /// kept, or any the compositor lists for the session: another
+    /// process's grant may keep it, a revoke alone would not close it),
+    /// then this host's revokes, over one root connection. A run of them
+    /// makes no new space until its next grant.
+    fn close_spaces(&self, runs: &[String]) {
+        if runs.is_empty() {
+            return;
+        }
+        let mut grants = Vec::new();
+        {
+            let (mut kept, mut admitted) = (lock(&KEPT), lock(&ADMITTED));
+            for run in runs {
+                admitted.remove(run);
+                if kept.get(run).is_some_and(|kept| kept.socket == self.socket) {
+                    grants.extend(kept.remove(run).map(|kept| kept.grants).unwrap_or_default());
+                }
+            }
+        }
+        let closed = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
+            let spaces = root.spaces().map_err(e("eDE spaces"))?;
+            for space in spaces.into_iter().filter(|space| runs.iter().any(|run| run == space.session_id.as_str())) {
+                match root.destroy_space(space.id) {
+                    Err(err) if !err.has_code(ErrorCode::NotFound) => return Err(format!("eDE space: {err}")),
+                    _ => {}
+                }
+            }
+            let now = now_ms();
+            for grant in grants.into_iter().filter(|grant| grant.expires_at > now) {
+                revoke_token(&mut root, grant.token)?;
+            }
+            Ok(())
+        });
+        if let Err(err) = closed {
+            log::warn!("computer use: an agent space was not closed: {err}");
+        }
+    }
+
+    /// #EXP-1514 (row 15): the hold of `run`'s space at the host's start
+    /// goes and its own grants decide: this host's grants are revoked, its
+    /// space is not destroyed. (Also a grant minted for a space that could
+    /// not be made.)
+    fn drop_hold(&self, run: &str) {
         let grants = {
-            let mut runs = RUN_GRANTS.lock().unwrap_or_else(|p| p.into_inner());
+            let mut kept = lock(&KEPT);
+            match kept.get(run) {
+                Some(entry) if entry.socket == self.socket => kept.remove(run).map(|kept| kept.grants).unwrap_or_default(),
+                _ => return,
+            }
+        };
+        let now = now_ms();
+        let live: Vec<Token> = grants.into_iter().filter(|grant| grant.expires_at > now).map(|grant| grant.token).collect();
+        let dropped = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| live.into_iter().try_for_each(|token| revoke_token(&mut root, token)));
+        if let Err(err) = dropped {
+            log::warn!("computer use: a held agent space's eDE grant was not revoked: {err}");
+        }
+    }
+
+    /// The person run `run`'s grants on this compositor end; the compositor
+    /// forgets them.
+    fn end_run(&self, run: &str) {
+        let grants = {
+            let mut runs = lock(&RUN_GRANTS);
             let Some(grants) = runs.get_mut(run) else { return };
             let ours: Vec<RunGrant> = grants.iter().filter(|grant| grant.socket == self.socket).cloned().collect();
             grants.retain(|grant| grant.socket != self.socket);
@@ -514,9 +822,7 @@ impl Session {
         if live.is_empty() {
             return;
         }
-        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| {
-            live.into_iter().try_for_each(|token| root.call(Request::RevokeGrant { token }).map(|_| ()).map_err(e("eDE grant")))
-        });
+        let revoked = self.root_token().and_then(|root| self.connect_token(root)).and_then(|mut root| live.into_iter().try_for_each(|token| revoke_token(&mut root, token)));
         if let Err(err) = revoked {
             log::warn!("computer use: a run's eDE grant was not revoked: {err}");
         }
@@ -582,26 +888,68 @@ pub(crate) fn open_as(session: &Session, run: Option<&str>, target: Target) -> R
 
 fn open_space(session: &Session, run: &str, target: Target, timing: Timing) -> Result<Box<dyn Backend>, String> {
     let ede = |client, space| Ede { client: Mutex::new(client), session: session.clone(), run: Some(run.to_string()), target, space, notice: Mutex::new(None) };
-    let made = SPACES.lock().unwrap_or_else(|p| p.into_inner()).get(run).filter(|(socket, _)| *socket == session.socket).map(|(_, space)| space.clone());
-    // #EXP-1514: no grant is minted and no space made on a desktop that
-    // does not say a space is ready.
-    if made.is_none() {
+    // #EXP-1514: a session without an admitted run (its end came first, or
+    // its space was closed since its grant) makes no grant and no space.
+    if !lock(&ADMITTED).contains(run) {
+        return Err(crate::host::ENDED.to_string());
+    }
+    let kept = lock(&KEPT).get(run).filter(|kept| kept.socket == session.socket).and_then(|kept| kept.space.clone());
+    // No grant is minted and no space made on a desktop that does not say
+    // a space is ready.
+    if kept.is_none() {
         session.space_ready()?;
     }
     let mut client = session.connect_space(run, timing)?;
-    let space = match made {
+    session.ensure_keeper(timing);
+    let space = match kept {
         Some(space) => space,
-        None => create_space(session, &mut client, run)?,
+        None => {
+            // The session's space may be there already (another process of
+            // this host made it, a restart before the adoption): it is
+            // driven as it is, never told new.
+            let listed = client.spaces().ok().and_then(|spaces| spaces.into_iter().next());
+            let had = lock(&HAD).contains(run);
+            let space = match listed {
+                Some(space) => keep_space(session, run, space),
+                None => {
+                    let made = create_space(session, &mut client, run);
+                    // No space, nothing to keep: the grant goes.
+                    if made.is_err() {
+                        session.drop_hold(run);
+                    }
+                    // "New and empty" only when it is true: the session had one.
+                    match made? {
+                        _ if had => return Err(SPACE_ENDED.to_string()),
+                        space => space,
+                    }
+                }
+            };
+            space
+        }
     };
-    session.keep(run, timing);
     Ok(Box::new(ede(client, Some(space))))
 }
 
-/// A space for `run`, remembered for its next calls.
+/// `space` is `run`'s kept space; the first one a session ever had is told
+/// to the host ([`crate::set_space_made_observer`]: its run record's
+/// `had_space`).
+fn keep_space(session: &Session, run: &str, space: SpaceInfo) -> SpaceInfo {
+    if let Some(kept) = lock(&KEPT).get_mut(run).filter(|kept| kept.socket == session.socket) {
+        kept.space = Some(space.clone());
+    }
+    if lock(&HAD).insert(run.to_string()) {
+        let hook = lock(&MADE).clone();
+        if let Some(hook) = hook {
+            hook(run);
+        }
+    }
+    space
+}
+
+/// A space for `run`, kept for its session's next calls and runs.
 fn create_space(session: &Session, client: &mut Client, run: &str) -> Result<SpaceInfo, String> {
     let space = client.create_space(SPACE_SIZE.0, SPACE_SIZE.1).map_err(|err| session.refused_space(&err))?;
-    SPACES.lock().unwrap_or_else(|p| p.into_inner()).insert(run.to_string(), (session.socket.clone(), space.clone()));
-    Ok(space)
+    Ok(keep_space(session, run, space))
 }
 
 pub(crate) struct Ede {
@@ -619,6 +967,15 @@ pub(crate) struct Ede {
 
 fn e(what: &str) -> impl Fn(ede_protocol::Error) -> String + '_ {
     move |err| format!("{what}: {err}")
+}
+
+/// `revoke_grant` of `token`; one the compositor no longer lists (it drops
+/// expired grants, #EXP-1514) is gone already.
+fn revoke_token(root: &mut Client, token: Token) -> Result<(), String> {
+    match root.call(Request::RevokeGrant { token }) {
+        Err(err) if !err.has_code(ErrorCode::NotFound) => Err(format!("eDE grant: {err}")),
+        _ => Ok(()),
+    }
 }
 
 /// #EXP-1994: the compositor no longer knows the grant (it restarted, or
@@ -673,7 +1030,9 @@ impl Ede {
         if client.spaces().ok()?.iter().any(|live| live.id == space.id) {
             return None;
         }
-        SPACES.lock().unwrap_or_else(|p| p.into_inner()).remove(run);
+        if let Some(kept) = lock(&KEPT).get_mut(run) {
+            kept.space = None;
+        }
         Some(match self.session.space_ready().and_then(|_| create_space(&self.session, client, run)) {
             Ok(_) => SPACE_ENDED.to_string(),
             Err(err) => format!("The agent space had ended, and no new one was made. {err}"),
@@ -1184,6 +1543,8 @@ mod tests {
         /// Forget every grant minted so far (a restart): their hello is
         /// refused `unauthorized`, in words of its own.
         forget: Arc<AtomicBool>,
+        /// #EXP-1514: how many connections said hello with the root token.
+        roots: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     /// #EXP-1925: a fake compositor on a socket of its own: the root token
@@ -1207,15 +1568,16 @@ mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let end_spaces = Arc::new(AtomicBool::new(false));
         let forget = Arc::new(AtomicBool::new(false));
+        let roots = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let minted = Arc::new(Mutex::new(HashMap::<String, (SessionId, Vec<Capability>)>::new()));
         let forgotten = Arc::new(Mutex::new(Vec::<String>::new()));
         let spaces = Arc::new(Mutex::new((0u32, HashMap::<String, SpaceInfo>::new())));
-        let (seen, end, forgets) = (log.clone(), end_spaces.clone(), forget.clone());
+        let (seen, end, forgets, rooted) = (log.clone(), end_spaces.clone(), forget.clone(), roots.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
                 let (log, minted, spaces, end, root) = (seen.clone(), minted.clone(), spaces.clone(), end.clone(), root.clone());
-                let (forgets, forgotten) = (forgets.clone(), forgotten.clone());
+                let (forgets, forgotten, rooted) = (forgets.clone(), forgotten.clone(), rooted.clone());
                 std::thread::spawn(move || {
                     let mut me = SessionId::new("s").unwrap();
                     let mut is_root = false;
@@ -1249,6 +1611,9 @@ mod tests {
                             }
                             Request::Hello { token, .. } => {
                                 is_root = token.as_str() == root;
+                                if is_root {
+                                    rooted.fetch_add(1, Ordering::SeqCst);
+                                }
                                 let mut capabilities = vec![Capability::Capture, Capability::InputPerson, Capability::Ui];
                                 if token.as_str() == root && fake.root_system {
                                     capabilities.push(Capability::System);
@@ -1284,6 +1649,20 @@ mod tests {
                                 log.lock().unwrap().push(format!("launch {argv:?}"));
                                 let (code, words) = fake.launch.unwrap();
                                 Err(Failure::new(code, words))
+                            }
+                            Request::DestroySpace { space } if is_root => {
+                                log.lock().unwrap().push(format!("destroy_space {}", space.as_str()));
+                                spaces.lock().unwrap().1.retain(|_, info| info.id != space);
+                                Ok(serde_json::Value::Null)
+                            }
+                            Request::SpaceBusy => {
+                                log.lock().unwrap().push(format!("space_busy {me}"));
+                                if space.is_some() { Ok(serde_json::Value::Null) } else { Err(Failure::new(ErrorCode::NotFound, "this grant has no space")) }
+                            }
+                            // A session has one space: a second call answers the same.
+                            Request::CreateSpace { width, height } if space.is_some() => {
+                                log.lock().unwrap().push(format!("create_space {width}x{height}"));
+                                Ok(serde_json::to_value(space.clone().unwrap()).unwrap())
                             }
                             Request::ListSpaces if is_root => {
                                 log.lock().unwrap().push(op);
@@ -1325,11 +1704,17 @@ mod tests {
                 });
             }
         });
-        Faked { session: Session { socket, token_file, token: None }, log, dir, end_spaces, forget }
+        Faked { session: Session { socket, token_file, token: None }, log, dir, end_spaces, forget, roots }
     }
 
     fn logged(faked: &Faked) -> Vec<String> {
         faked.log.lock().unwrap().clone()
+    }
+
+    /// `run` as an admitted space run ([`admit`]).
+    fn admitted(run: &str) -> &str {
+        admit(run, false);
+        run
     }
 
     /// The fake itself: a minted grant says hello with what it was minted,
@@ -1367,15 +1752,16 @@ mod tests {
         let client = faked.session.connect_space(run, RUN_TIMING).unwrap();
         assert_eq!((client.hello.capabilities.clone(), client.hello.session_id.as_str()), (vec![Capability::Space], run));
         drop(client);
-        let first = open_as(&faked.session, Some(run), Target::Space(7)).unwrap();
+        let first = open_as(&faked.session, Some(admitted(run)), Target::Space(7)).unwrap();
         assert_eq!(first.target(), Target::Space(7));
         first.mouse_move(10, 10).unwrap();
         drop(first);
-        open_as(&faked.session, Some(run), Target::Space(7)).unwrap().mouse_move(20, 20).unwrap();
-        assert_eq!(logged(&faked), [format!("mint {run} true"), "space_readiness".to_string(), "create_space 1280x800".to_string(), "input".to_string(), "input".to_string()]);
-        // The run's end revokes its grant (the compositor closes the space) and forgets the space.
-        faked.session.end_run(run);
-        assert!(logged(&faked).last().unwrap().starts_with("revoke ") && !SPACES.lock().unwrap().contains_key(run));
+        open_as(&faked.session, Some(admitted(run)), Target::Space(7)).unwrap().mouse_move(20, 20).unwrap();
+        assert_eq!(logged(&faked), [format!("mint {run} true"), "space_readiness".to_string(), "list_spaces".to_string(), "create_space 1280x800".to_string(), "input".to_string(), "input".to_string()]);
+        // #EXP-1514: closing it destroys the space, then revokes the grant, and forgets it.
+        close_space(&faked.session, run);
+        assert_eq!(logged(&faked)[6..].iter().map(|line| line.split(' ').next().unwrap()).collect::<Vec<_>>(), ["list_spaces", "destroy_space", "revoke"]);
+        assert!(!lock(&KEPT).contains_key(run));
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1385,7 +1771,7 @@ mod tests {
     #[test]
     fn an_older_compositor_makes_no_space_and_is_asked_nothing() {
         let faked = fake_socket_of(Fake { spaces: false, ready: None, ..Fake::READY });
-        let refused = open_as(&faked.session, Some("epilot-test-space-old"), Target::Space(1)).err().unwrap();
+        let refused = open_as(&faked.session, Some(admitted("epilot-test-space-old")), Target::Space(1)).err().unwrap();
         assert!(refused.contains("too old"), "{refused}");
         assert_eq!(ask(&faked.session, GATE_WITHIN).offer, SpaceOffer::No(SpaceBlock::OlderDesktop));
         assert_eq!(logged(&faked), Vec::<String>::new());
@@ -1404,7 +1790,7 @@ mod tests {
         // The token file's grant holds no `system`.
         let narrow = fake_socket_of(Fake { root_system: false, ..Fake::READY });
         for faked in [&handed, &narrow] {
-            let refused = open_as(&faked.session, Some("epilot-test-space-p"), Target::Space(1)).err().unwrap();
+            let refused = open_as(&faked.session, Some(admitted("epilot-test-space-p")), Target::Space(1)).err().unwrap();
             assert!(refused.contains("space grant"), "{refused}");
             assert_eq!(logged(faked), Vec::<String>::new(), "nothing was minted, created or driven");
             assert!(faked.session.connect_as(Some("epilot-test-person-p")).is_ok(), "a person run still falls back");
@@ -1420,17 +1806,17 @@ mod tests {
     fn a_space_that_ended_is_made_anew_and_told() {
         let faked = fake_socket_of(Fake::READY);
         let run = "epilot-test-space-e";
-        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
         let missing = ede.activate_window(999).unwrap_err();
         assert!(missing.contains("no such window"), "{missing}");
         faked.end_spaces.store(true, Ordering::SeqCst);
         let told = ede.mouse_move(10, 10).unwrap_err();
         assert!(told.contains("new and empty"), "{told}");
         drop(ede);
-        open_as(&faked.session, Some(run), Target::Space(1)).unwrap().mouse_move(10, 10).unwrap();
-        assert_eq!(logged(&faked)[2..], ["create_space 1280x800", "focus_window", "list_spaces", "input", "list_spaces", "create_space 1280x800", "input"]);
-        assert_eq!(SPACES.lock().unwrap().get(run).unwrap().1.id.as_str(), "space-2");
-        faked.session.end_run(run);
+        open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap().mouse_move(10, 10).unwrap();
+        assert_eq!(logged(&faked)[2..], ["list_spaces", "create_space 1280x800", "focus_window", "list_spaces", "input", "list_spaces", "create_space 1280x800", "input"]);
+        assert_eq!(lock(&KEPT).get(run).unwrap().space.as_ref().unwrap().id.as_str(), "space-2");
+        close_space(&faked.session, run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1440,10 +1826,10 @@ mod tests {
     fn a_space_backend_never_takes_the_persons_hold() {
         let faked = fake_socket_of(Fake::READY);
         let run = "epilot-test-space-h";
-        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
         assert!(ede.lock(Box::new(|| {})).is_err());
-        assert_eq!(logged(&faked), ["space_readiness".to_string(), format!("mint {run} true"), "create_space 1280x800".to_string()]);
-        faked.session.end_run(run);
+        assert_eq!(logged(&faked), ["space_readiness".to_string(), format!("mint {run} true"), "list_spaces".to_string(), "create_space 1280x800".to_string()]);
+        close_space(&faked.session, run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1456,13 +1842,13 @@ mod tests {
         let faked = fake_socket_of(Fake::READY);
         let run = "epilot-test-space-l";
         let before = PIXELS.lock().unwrap().clone();
-        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
         let displays = ede.displays().unwrap();
         assert_eq!(displays.iter().map(|display| (display.name.as_str(), display.width, display.height, display.primary)).collect::<Vec<_>>(), [("space-1", 1280, 800, true)]);
         assert_eq!(ede.list_windows().unwrap().iter().map(|window| (window.id, window.active)).collect::<Vec<_>>(), [(5, true)]);
         assert_eq!(*PIXELS.lock().unwrap(), before);
-        assert_eq!(logged(&faked)[2..], ["create_space 1280x800", "list_outputs", "list_windows"]);
-        faked.session.end_run(run);
+        assert_eq!(logged(&faked)[2..], ["list_spaces", "create_space 1280x800", "list_outputs", "list_windows"]);
+        close_space(&faked.session, run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1473,15 +1859,14 @@ mod tests {
     fn a_launch_goes_to_the_compositor_with_no_environment_of_ours() {
         let faked = fake_socket_of(Fake::READY);
         let run = "epilot-test-space-x";
-        let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
         assert_eq!(ede.launch(&["foot".to_string()], Some("/tmp")).unwrap(), 77);
-        assert_eq!(logged(&faked)[3..], [r#"launch ["foot"] {} Some("/tmp")"#]);
+        assert_eq!(logged(&faked)[4..], [r#"launch ["foot"] {} Some("/tmp")"#]);
         let person = open_as(&faked.session, Some("epilot-test-person-x"), Target::Person).unwrap();
         assert!(person.launch(&["foot".to_string()], None).is_err());
         assert_eq!(logged(&faked).iter().filter(|line| line.starts_with("launch")).count(), 1);
-        for run in [run, "epilot-test-person-x"] {
-            faked.session.end_run(run);
-        }
+        close_space(&faked.session, run);
+        faked.session.end_run("epilot-test-person-x");
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1498,62 +1883,294 @@ mod tests {
     }
 
     fn kept(faked: &Faked, run: &str) -> bool {
-        KEEPERS.lock().unwrap().contains_key(&(faked.session.socket.clone(), run.to_string()))
+        lock(&KEPT).get(run).is_some_and(|kept| kept.socket == faked.session.socket)
     }
 
-    /// #EDE-126: a renewal runs only inside a call, and an idle space run
-    /// makes none: its keeper mints the next grant before the last one
-    /// runs out (the compositor closes a space whose grant expired). It
-    /// ends with the run.
+    fn kept_token(run: &str) -> Token {
+        lock(&KEPT).get(run).unwrap().grants.last().unwrap().token.clone()
+    }
+
+    fn revokes(faked: &Faked) -> Vec<String> {
+        logged(faked).into_iter().filter(|line| line.starts_with("revoke ")).collect()
+    }
+
+    fn roots(faked: &Faked) -> usize {
+        faked.roots.load(Ordering::SeqCst)
+    }
+
+    /// #EXP-1514 (D 5): an idle kept space keeps its grant: the keeper
+    /// mints the next one before the last runs out (the compositor closes
+    /// a space whose grant expired), after its run's end too. It stops once
+    /// the space is closed.
     #[test]
-    fn an_idle_space_run_keeps_its_grant_until_its_end() {
+    fn a_kept_space_keeps_its_grant_until_it_is_closed() {
         let faked = fake_socket_of(Fake::READY);
         let run = "epilot-test-keeper-a";
         let short = Timing { ttl: Duration::from_millis(600), renew: Duration::from_millis(300), tick: Duration::from_millis(20), now: now_ms };
-        drop(open_space(&faked.session, run, Target::Space(1), short).unwrap());
+        drop(open_space(&faked.session, admitted(run), Target::Space(1), short).unwrap());
         assert!(kept(&faked, run));
+        end_space_run(run);
         until("the keeper renewed no grant", || mints(&faked) >= 3);
-        assert_eq!(logged(&faked).iter().filter(|line| line.starts_with("create_space")).count(), 1, "a renewal makes no space");
-        faked.session.end_run(run);
+        assert_eq!(creates(&faked), 1, "a renewal makes no space");
+        assert!(revokes(&faked).is_empty(), "the run's end revoked nothing");
+        close_space(&faked.session, run);
         assert!(!kept(&faked, run));
         std::thread::sleep(Duration::from_millis(100));
-        let ended = mints(&faked);
+        let closed = mints(&faked);
         std::thread::sleep(Duration::from_millis(700));
-        assert_eq!(mints(&faked), ended, "the keeper outlived its run");
-        assert!(!RUN_GRANTS.lock().unwrap().contains_key(run));
+        assert_eq!(mints(&faked), closed, "the keeper outlived the space");
+        assert!(!lock(&KEEPERS).contains_key(&faked.session.socket), "nothing kept, no keeper");
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
-    /// #EDE-126: the keeper compares the wall clock, so a suspend longer
-    /// than the grant's life is renewed at its first tick after it.
+    /// #EXP-1514 (C 12, the clock that jumps): ONE round mints every due
+    /// grant over ONE root connection: each minute (less than 4 of its 5
+    /// left), and at the first tick after a suspend longer than their life.
     #[test]
-    fn the_keeper_renews_after_a_wall_clock_jump() {
+    fn a_round_mints_every_due_grant_over_one_connection_each_minute_and_after_a_jump() {
         static SKEW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
         fn skewed() -> i64 {
             now_ms() + SKEW.load(Ordering::SeqCst)
         }
         let faked = fake_socket_of(Fake::READY);
-        let run = "epilot-test-keeper-j";
-        let long = Timing { tick: Duration::from_millis(20), now: skewed, ..RUN_TIMING };
-        drop(open_space(&faked.session, run, Target::Space(1), long).unwrap());
-        std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(mints(&faked), 1, "a fresh grant is left alone");
-        SKEW.store(2 * 60 * 60 * 1000, Ordering::SeqCst);
-        until("no renewal after the jump", || mints(&faked) == 2);
-        std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(mints(&faked), 2, "one renewal, by the clock");
+        let timing = Timing { tick: Duration::from_millis(20), now: skewed, ..SPACE_TIMING };
+        let runs = ["epilot-test-round-a", "epilot-test-round-b", "epilot-test-round-c"];
+        for run in runs {
+            drop(open_space(&faked.session, admitted(run), Target::Space(1), timing).unwrap());
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(mints(&faked), 3, "fresh grants are left alone");
+        for (round, ahead) in [(1, 61_000), (2, 2 * 60 * 60 * 1000)] {
+            let before = roots(&faked);
+            SKEW.fetch_add(ahead, Ordering::SeqCst);
+            until("no round", || mints(&faked) == 3 + 3 * round);
+            std::thread::sleep(Duration::from_millis(150));
+            assert_eq!(mints(&faked), 3 + 3 * round, "one renewal each, by the clock");
+            assert_eq!(roots(&faked) - before, 1, "round {round}: one root connection for its three grants");
+        }
+        for run in runs {
+            close_space(&faked.session, run);
+        }
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// A person run renews inside its calls and takes the hold: nothing kept.
+    #[test]
+    fn a_person_run_keeps_nothing() {
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-keeper-p";
+        drop(open_as(&faked.session, Some(run), Target::Person).unwrap());
+        assert!(!kept(&faked, run) && lock(&RUN_GRANTS).contains_key(run));
         faked.session.end_run(run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
-    /// A person run renews inside its calls and takes the hold: no keeper.
+    /// #EXP-1514 (row 13): a space run's end revokes nothing at the
+    /// compositor; a call of the ended run that arrives late makes nothing;
+    /// the session's next run drives the SAME space, never told it is new.
     #[test]
-    fn a_person_run_has_no_keeper() {
+    fn a_space_runs_end_sends_no_revoke_and_the_next_run_drives_the_same_space() {
         let faked = fake_socket_of(Fake::READY);
-        let run = "epilot-test-keeper-p";
-        drop(open_as(&faked.session, Some(run), Target::Person).unwrap());
-        assert!(!kept(&faked, run) && RUN_GRANTS.lock().unwrap().contains_key(run));
+        let run = "epilot-test-life";
+        let first = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
+        first.mouse_move(1, 1).unwrap();
+        drop(first);
+        end_space_run(run);
+        assert!(revokes(&faked).is_empty(), "{:?}", logged(&faked));
+        let late = open_as(&faked.session, Some(run), Target::Space(1)).err().unwrap();
+        assert_eq!(late, crate::host::ENDED);
+        let next = open_as(&faked.session, Some(admitted(run)), Target::Space(2)).unwrap();
+        assert_eq!(next.displays().unwrap()[0].name, "space-1");
+        next.mouse_move(2, 2).unwrap();
+        assert_eq!((mints(&faked), creates(&faked)), (1, 1), "the same grant, the same space");
+        drop(next);
+        close_space(&faked.session, run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-1514: a space run, then a person run of the same session: the
+    /// person run never gets the space's grant, and its end revokes its
+    /// own; a space hello handed to the person path is refused.
+    #[test]
+    fn a_space_run_then_a_person_run_of_one_session() {
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-both";
+        drop(open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap());
+        end_space_run(run);
+        let space_token = kept_token(run);
+        let person = faked.session.connect_as(Some(run)).unwrap();
+        assert_ne!(person.token(), &space_token);
+        assert_eq!(person.hello.capabilities, CAPABILITIES.to_vec());
+        let person_token = person.token().clone();
+        drop(person);
         faked.session.end_run(run);
+        assert_eq!(revokes(&faked), [format!("revoke {}", person_token.as_str())], "a person run's end revokes its own");
+        // The old shape: a kept `[space]` grant in the person runs' map.
+        lock(&RUN_GRANTS).insert(run.to_string(), vec![RunGrant { socket: faked.session.socket.clone(), token: space_token, expires_at: now_ms() + 10 * 60_000 }]);
+        let refused = faked.session.connect_as(Some(run)).err().unwrap();
+        assert!(refused.contains("agent space's grant"), "{refused}");
+        lock(&RUN_GRANTS).remove(run);
+        close_space(&faked.session, run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-1514 (row 14): `close_space` closes while another process's
+    /// grant of the session is still live (the process before a restart):
+    /// `destroy_space` first, then this host's revokes, never the other's;
+    /// a call after it makes nothing until the session's next grant.
+    #[test]
+    fn close_space_closes_while_another_processs_grant_is_live() {
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-close";
+        let mut root = faked.session.connect_token(faked.session.root_token().unwrap()).unwrap();
+        let other = root.mint(SessionId::new(run).unwrap(), vec![Capability::Space], Some(now_ms() + 600_000)).unwrap();
+        faked.session.connect_token(other.token.clone()).unwrap().create_space(1280, 800).unwrap();
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
+        assert_eq!(ede.displays().unwrap()[0].name, "space-1", "the space there is driven, not told new");
+        drop(ede);
+        let ours = kept_token(run);
+        close_space(&faked.session, run);
+        let tail: Vec<String> = logged(&faked).into_iter().rev().take(2).collect();
+        assert_eq!(tail, [format!("revoke {}", ours.as_str()), "destroy_space space-1".to_string()], "destroy first, then our revoke");
+        assert!(!revokes(&faked).contains(&format!("revoke {}", other.token.as_str())));
+        assert!(root.spaces().unwrap().is_empty(), "closed whatever grant keeps it");
+        assert_eq!(open_as(&faked.session, Some(run), Target::Space(1)).err().unwrap(), crate::host::ENDED);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-1514 (row 15): a second process holds at once (one root
+    /// connection), then keeps a live session's space, destroys an ended
+    /// one's only while the host-wide registry has no live run of it, and
+    /// drops an unknown one's hold; a space no registry lists is left
+    /// alone. With the switch off at its start: destroyed, nothing held.
+    #[test]
+    fn adoption_holds_at_once_then_keeps_destroys_or_drops() {
+        let faked = fake_socket_of(Fake::READY);
+        let mut root = faked.session.connect_token(faked.session.root_token().unwrap()).unwrap();
+        let made = |root: &mut Client, run: &str| {
+            let grant = root.mint(SessionId::new(run).unwrap(), vec![Capability::Space], Some(now_ms() + 600_000)).unwrap();
+            faked.session.connect_token(grant.token).unwrap().create_space(1280, 800).unwrap().id
+        };
+        let names = ["epilot-adopt-live", "epilot-adopt-ended", "epilot-adopt-ended-busy", "epilot-adopt-unknown"];
+        let ids: Vec<_> = names.iter().map(|run| made(&mut root, run)).collect();
+        made(&mut root, "epilot-adopt-other");
+        let registry: Vec<String> = names.iter().map(|run| run.to_string()).collect();
+        let (before, minted) = (roots(&faked), mints(&faked));
+        let mut held = hold_spaces(&faked.session, &registry, true, SPACE_TIMING);
+        held.sort();
+        let mut expected = registry.clone();
+        expected.sort();
+        assert_eq!(held, expected);
+        assert_eq!((roots(&faked) - before, mints(&faked) - minted), (1, 4), "held at once, over one connection");
+        assert_eq!(kept_spaces(&faked.session), expected);
+        let revoked = revokes(&faked).len();
+        settle_spaces(
+            &faked.session,
+            |run| match run {
+                "epilot-adopt-live" => crate::SessionHere::Live,
+                "epilot-adopt-ended" | "epilot-adopt-ended-busy" => crate::SessionHere::Ended,
+                _ => crate::SessionHere::Unknown,
+            },
+            |run| run == "epilot-adopt-ended-busy",
+        );
+        assert_eq!(kept_spaces(&faked.session), ["epilot-adopt-live"]);
+        let destroyed: Vec<String> = logged(&faked).into_iter().filter(|line| line.starts_with("destroy_space")).collect();
+        assert_eq!(destroyed, [format!("destroy_space {}", ids[1].as_str())], "only the ended one without a live run");
+        assert_eq!(revokes(&faked).len() - revoked, 3, "the ended one's grant after its destroy, two dropped holds");
+        let left: Vec<String> = root.spaces().unwrap().iter().map(|space| space.session_id.as_str().to_string()).collect();
+        assert_eq!(left.len(), 4, "{left:?}");
+        // The live one's next run drives its space as it is.
+        let live = "epilot-adopt-live";
+        let next = open_as(&faked.session, Some({ admit(live, true); live }), Target::Space(1)).unwrap();
+        assert_eq!(next.displays().unwrap()[0].name, ids[0].as_str());
+        drop(next);
+        close_space(&faked.session, live);
+
+        // The switch off at the host's start.
+        let off = fake_socket_of(Fake::READY);
+        let mut root = off.session.connect_token(off.session.root_token().unwrap()).unwrap();
+        let made = |root: &mut Client, run: &str| {
+            let grant = root.mint(SessionId::new(run).unwrap(), vec![Capability::Space], Some(now_ms() + 600_000)).unwrap();
+            off.session.connect_token(grant.token).unwrap().create_space(1280, 800).unwrap().id
+        };
+        let ours = made(&mut root, "epilot-adopt-off");
+        made(&mut root, "epilot-adopt-off-other");
+        assert!(hold_spaces(&off.session, &["epilot-adopt-off".to_string()], false, SPACE_TIMING).is_empty());
+        assert!(!kept(&off, "epilot-adopt-off"));
+        assert_eq!(logged(&off).into_iter().filter(|line| line.starts_with("destroy_space")).collect::<Vec<_>>(), [format!("destroy_space {}", ours.as_str())]);
+        assert_eq!(root.spaces().unwrap().len(), 1, "another host's space is left");
+        for dir in [&faked.dir, &off.dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    /// #EXP-1514 (row 9, D 5-9): "new and empty" only when it is true: a
+    /// session that never had a space gets its first one silently; one
+    /// whose run record says it had one, and whose space is gone, is told
+    /// once and drives the new one after. The host hears a first space once.
+    #[test]
+    fn had_space_decides_new_and_empty() {
+        static HEARD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        crate::backend::set_space_made(std::sync::Arc::new(|run: &str| {
+            if run.starts_with("epilot-test-had") {
+                HEARD.lock().unwrap().push(run.to_string());
+            }
+        }));
+        let faked = fake_socket_of(Fake::READY);
+        let fresh = "epilot-test-had-not";
+        admit(fresh, false);
+        assert!(open_as(&faked.session, Some(fresh), Target::Space(1)).is_ok(), "a first space is made silently");
+        let had = "epilot-test-had";
+        admit(had, true);
+        assert_eq!(open_as(&faked.session, Some(had), Target::Space(1)).err().unwrap(), SPACE_ENDED);
+        assert!(open_as(&faked.session, Some(had), Target::Space(1)).is_ok(), "told once");
+        assert_eq!(creates(&faked), 2);
+        assert_eq!(*HEARD.lock().unwrap(), [fresh.to_string()], "a session that had one is no news");
+        for run in [fresh, had] {
+            close_space(&faked.session, run);
+        }
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-1514 (D 10): `space_busy` goes out each round for a kept
+    /// session whose turn runs, on its own space grant, and stops after
+    /// `turn_ended`; a kept session with no turn never says it.
+    #[test]
+    fn space_busy_goes_out_each_round_while_the_turn_runs_and_stops_after_turn_ended() {
+        let faked = fake_socket_of(Fake::READY);
+        let timing = Timing { tick: Duration::from_millis(20), ..SPACE_TIMING };
+        let (run, idle) = ("epilot-test-busy", "epilot-test-busy-idle");
+        for one in [run, idle] {
+            drop(open_space(&faked.session, admitted(one), Target::Space(1), timing).unwrap());
+        }
+        let said = |who: &str| logged(&faked).iter().filter(|line| **line == format!("space_busy {who}")).count();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(said(run), 0, "no turn runs");
+        crate::backend::turn(run, true);
+        until("no space_busy while the turn runs", || said(run) >= 3);
+        crate::backend::turn(run, false);
+        std::thread::sleep(Duration::from_millis(60));
+        let after = said(run);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(said(run), after, "none after turn_ended");
+        assert_eq!(said(idle), 0);
+        for one in [run, idle] {
+            close_space(&faked.session, one);
+        }
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-1514: an end during an arriving call (it passed the host's
+    /// check just before the run's end) leaves no grant and no space.
+    #[test]
+    fn an_end_during_an_arriving_call_leaves_no_grant_and_no_space() {
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-race";
+        admit(run, false);
+        end_space_run(run);
+        assert_eq!(open_as(&faked.session, Some(run), Target::Space(1)).err().unwrap(), crate::host::ENDED);
+        assert_eq!((mints(&faked), creates(&faked)), (0, 0));
+        assert!(!kept(&faked, run));
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1595,7 +2212,7 @@ mod tests {
             let faked = fake_socket_of(fake);
             assert_eq!(offer_of(&faked), offer, "case {n}");
             let run = format!("epilot-test-block-{n}");
-            let refused = open_as(&faked.session, Some(&run), Target::Space(1)).err().unwrap();
+            let refused = open_as(&faked.session, Some(admitted(&run)), Target::Space(1)).err().unwrap();
             assert!(refused.starts_with("This desktop offers no agent space: ") && refused.contains(words), "case {n}: {refused}");
             assert_eq!((mints(&faked), creates(&faked)), (0, 0), "case {n}: {:?}", logged(&faked));
             assert!(!RUN_GRANTS.lock().unwrap().contains_key(&run) && !kept(&faked, &run), "case {n}");
@@ -1605,9 +2222,9 @@ mod tests {
         let faked = fake_socket_of(Fake::READY);
         assert_eq!(offer_of(&faked), SpaceOffer::Offered);
         let run = "epilot-test-block-ready";
-        drop(open_as(&faked.session, Some(run), Target::Space(1)).unwrap());
+        drop(open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap());
         assert_eq!((mints(&faked), creates(&faked)), (1, 1));
-        faked.session.end_run(run);
+        close_space(&faked.session, run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
@@ -1619,7 +2236,7 @@ mod tests {
     fn a_0229_hello_makes_no_space_also_for_a_run_admitted_on_unknown() {
         let faked = fake_socket_of(Fake { ready: None, ..Fake::READY });
         let run = "epilot-test-0229";
-        let older = || open_as(&faked.session, Some(run), Target::Space(1)).err().unwrap();
+        let older = || open_as(&faked.session, Some(admitted(run)), Target::Space(1)).err().unwrap();
         assert!(older().contains("too old"), "{}", older());
         // The launch found the desktop silent: the run was admitted on Unknown.
         remember(&faked.session.socket, Said { at: Instant::now(), offer: SpaceOffer::Unknown, max: None });
@@ -1633,9 +2250,9 @@ mod tests {
         // The same run on a desktop that says ready: its first call makes the space.
         let ready = fake_socket_of(Fake::READY);
         remember(&ready.session.socket, Said { at: Instant::now(), offer: SpaceOffer::Unknown, max: None });
-        drop(open_as(&ready.session, Some(run), Target::Space(1)).unwrap());
-        assert_eq!(logged(&ready), ["space_readiness".to_string(), format!("mint {run} true"), "create_space 1280x800".to_string()]);
-        ready.session.end_run(run);
+        drop(open_as(&ready.session, Some(admitted(run)), Target::Space(1)).unwrap());
+        assert_eq!(logged(&ready), ["space_readiness".to_string(), format!("mint {run} true"), "list_spaces".to_string(), "create_space 1280x800".to_string()]);
+        close_space(&ready.session, run);
         for dir in [&faked.dir, &ready.dir] {
             let _ = std::fs::remove_dir_all(dir);
         }
@@ -1667,7 +2284,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(ask(&silent.session, within).offer, SpaceOffer::Unknown);
         assert!(started.elapsed() < within * 3, "{:?}", started.elapsed());
-        let refused = open_as(&gone, Some("epilot-test-silent"), Target::Space(1)).err().unwrap();
+        let refused = open_as(&gone, Some(admitted("epilot-test-silent")), Target::Space(1)).err().unwrap();
         assert!(refused.contains("did not answer"), "{refused}");
         assert_eq!(creates(&silent), 0);
         for dir in [&dir, &silent.dir] {
@@ -1704,10 +2321,10 @@ mod tests {
     fn the_counts_the_memorys_and_the_unavailable_texts() {
         let refusal = |fake: Fake| {
             let faked = fake_socket_of(fake);
-            let told = open_as(&faked.session, Some("epilot-test-full"), Target::Space(1)).err().unwrap();
+            let told = open_as(&faked.session, Some(admitted("epilot-test-full")), Target::Space(1)).err().unwrap();
             assert_eq!(creates(&faked), 1);
             assert!(!kept(&faked, "epilot-test-full"), "a run without a space has nothing to keep");
-            faked.session.end_run("epilot-test-full");
+            close_space(&faked.session, "epilot-test-full");
             let _ = std::fs::remove_dir_all(&faked.dir);
             told
         };
@@ -1717,13 +2334,13 @@ mod tests {
         assert_eq!(refusal(memory), SPACES_OUT_OF_MEMORY);
         let broken = Fake { create: Some((ErrorCode::Unavailable, "no runtime directory for spaces")), ..Fake::READY };
         assert_eq!(refusal(broken), "This desktop could not make an agent space: no runtime directory for spaces.");
-        for (code, words) in [(ErrorCode::Limit, "32 launched processes in this space at most"), (ErrorCode::Unavailable, "the systemd user manager is gone")] {
+        for (n, (code, words)) in [(ErrorCode::Limit, "32 launched processes in this space at most"), (ErrorCode::Unavailable, "the systemd user manager is gone")].into_iter().enumerate() {
             let faked = fake_socket_of(Fake { launch: Some((code, words)), ..Fake::READY });
-            let run = "epilot-test-launch-refused";
-            let ede = open_as(&faked.session, Some(run), Target::Space(1)).unwrap();
+            let run = &format!("epilot-test-launch-refused-{n}");
+            let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
             assert_eq!(ede.launch(&["firefox".to_string()], None).unwrap_err(), format!("The agent space could not start firefox: {words}."));
             drop(ede);
-            faked.session.end_run(run);
+            close_space(&faked.session, run);
             let _ = std::fs::remove_dir_all(&faked.dir);
         }
     }
@@ -2033,8 +2650,8 @@ mod tests {
         root.clipboard_set(text_items("persons", false), false).unwrap();
         let before = person(&mut root);
 
-        let ede = open_as(&session, Some(run), Target::Space(1)).unwrap();
-        assert!(KEEPERS.lock().unwrap().contains_key(&(session.socket.clone(), run.to_string())), "a space run has a keeper");
+        let ede = open_as(&session, Some(admitted(run)), Target::Space(1)).unwrap();
+        assert!(lock(&KEEPERS).contains_key(&session.socket) && lock(&KEPT).contains_key(run), "a kept space, and its keeper");
         let spaces = root.spaces().unwrap();
         assert_eq!((spaces.len(), spaces[0].session_id.as_str(), spaces[0].width, spaces[0].height), (1, run, 1280, 800));
         let displays = ede.displays().unwrap();
@@ -2097,18 +2714,27 @@ mod tests {
         assert_eq!(ede_protocol::persons(root.outputs().unwrap()).len(), 1);
         assert!(ede.launch(&["no-such-program-epilot".to_string()], None).unwrap_err().contains("no such program"));
 
-        // The run ends: its grant is revoked, the compositor closes the space and ends what it launched.
+        // #EXP-1514 (D 5): the run ends; its space lives on with its session,
+        // and the session's next run drives it with what ran in it.
         drop(ede);
-        session.end_run(run);
-        until("the space outlived its run", || root.spaces().unwrap().is_empty());
+        end_space_run(run);
+        assert_eq!(root.spaces().unwrap().len(), 1, "the space ended with its run");
+        assert!(Path::new(&format!("/proc/{pid}")).exists());
+        let next = open_as(&session, Some(admitted(run)), Target::Space(2)).unwrap();
+        assert_eq!(next.displays().unwrap()[0].name, "space-1");
+        drop(next);
+        // Closed: `destroy_space`, then the revokes; what it launched ends.
+        close_space(&session, run);
+        until("the space outlived its close", || root.spaces().unwrap().is_empty());
         let stat = || std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
         until("the launched program outlived its space", || stat().is_empty() || stat().contains(") Z "));
-        assert!(!KEEPERS.lock().unwrap().contains_key(&(session.socket.clone(), run.to_string())));
-        // A space run after it gets a new, empty space.
+        assert!(!lock(&KEPT).contains_key(run));
+        // The session's next run: told once that its space is new and empty, then the new one.
+        assert_eq!(open_as(&session, Some(admitted(run)), Target::Space(2)).err().unwrap(), SPACE_ENDED);
         let again = open_as(&session, Some(run), Target::Space(2)).unwrap();
         assert_eq!(again.displays().unwrap()[0].name, "space-2");
         drop(again);
-        session.end_run(run);
+        close_space(&session, run);
     }
 
     /// #EXP-1514 against the real compositor WITHOUT the dev switch, as
@@ -2121,7 +2747,7 @@ mod tests {
         let mut root = session.connect_token(session.root_token().unwrap()).unwrap();
         assert!(root.hello.offers_spaces() && !root.hello.says_space_readiness(), "{:?}", root.hello.features);
         assert_eq!(ask(&session, GATE_WITHIN).offer, SpaceOffer::No(SpaceBlock::OlderDesktop));
-        let refused = open_as(&session, Some(run), Target::Space(1)).err().unwrap();
+        let refused = open_as(&session, Some(admitted(run)), Target::Space(1)).err().unwrap();
         assert!(refused.contains("too old"), "{refused}");
         assert!(root.spaces().unwrap().is_empty(), "a space was made");
         assert!(!RUN_GRANTS.lock().unwrap().contains_key(run), "a grant was minted");
