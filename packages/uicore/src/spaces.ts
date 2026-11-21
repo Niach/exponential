@@ -11,10 +11,10 @@ export interface SpaceInput {
   session: string
 }
 
-/** A session row one of the shell's signed-in accounts holds, its title resolved. */
+/** A session row one of the shell's signed-in accounts holds, its title resolved from what the machine can read; null = no title can be read (#EDE-194). */
 export interface SpaceSession {
   id: string
-  title: string
+  title?: string | null
   parentId?: string | null
   rootId?: string | null
 }

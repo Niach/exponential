@@ -3570,13 +3570,14 @@ fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
 
 /// The tray's rows off the accounts' stores: BLOCKING (SQLite), off the
 /// main loop; #EXP-2024: and the titles of the agent spaces' sessions
-/// (`wanted`), sealed ones opened with the app's keyring.
+/// (`wanted`), sealed ones opened with the keyrings of the account's
+/// installs on this machine (#EDE-194: the app's and the CLI daemon's).
 fn tray_read(sources: &[(String, String, Arc<sync::store::ShapeStore>)], read_locally: &HashSet<String>, wanted: &HashSet<String>, now_ms: i64) -> (Vec<inbox::InboxItem>, Vec<inbox::NeedsYouItem>, Vec<uicore_model::spaces::SpaceSession>) {
     let rows: Vec<inbox::AccountRows> = sources.iter().map(|(account, user, store)| inbox::AccountRows::read(account, user, store)).collect();
     let space_sessions = if wanted.is_empty() {
         Vec::new()
     } else {
-        rows.iter().flat_map(|r| inbox::space_sessions(r, wanted, Some(&sealed::opener(&r.account_id)))).collect()
+        rows.iter().flat_map(|r| inbox::space_sessions(r, wanted, &sealed::space_opener(&r.account_id))).collect()
     };
     (rows.iter().flat_map(|r| inbox::inbox_items(r, read_locally)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now_ms)).collect(), space_sessions)
 }
@@ -4198,7 +4199,7 @@ fn main() {
                 let mut team_chat_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
                     if let sync::ShapeDelta::Applied { shape, account_id, keys, full_replace, .. } = &delta {
-                        if *shape == "teams" || inbox::SHAPES.contains(shape) {
+                        if inbox::refreshes_tray(shape) {
                             tray_changed = true;
                         }
                         // #EDE-65 lane I: the team chat's rows moved; #EDE-141: noted

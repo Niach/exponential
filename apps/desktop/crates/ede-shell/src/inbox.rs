@@ -25,6 +25,14 @@ use serde_json::{json, Value};
 /// The shapes the tray reads besides the switcher's (`accounts::SHAPES`).
 pub const SHAPES: &[&str] = &["notifications", "issues", "boards", "sessions", "session_issues", "agents", "pull_requests"];
 
+/// Whether a delta on `shape` reads the tray again (at most once a second):
+/// its inbox, Needs you and the agent spaces' titles (#EDE-194: a rename,
+/// a sealed title or an issue linked lands on `sessions`, `session_issues`
+/// or `issues`).
+pub fn refreshes_tray(shape: &str) -> bool {
+    shape == "teams" || SHAPES.contains(&shape)
+}
+
 /// A feed id of an inbox entry: never a number, so it never meets a desktop
 /// notification's id in `ede_notify_*`.
 pub const KEY_PREFIX: &str = "inbox:";
@@ -282,9 +290,13 @@ fn first_prompt_candidate(message: &MessageRow, owner: &str) -> bool {
 
 /// #EXP-2024: the session rows of the agent spaces' sessions (`wanted`) this
 /// account holds, and their roots (a child's chat), titled as every client
-/// titles a session; sealed titles and digests opened with the app's
-/// keyring (`opener`), so the list names a sealed chat by its own title.
-pub fn space_sessions(rows: &AccountRows, wanted: &HashSet<String>, opener: Option<&sync::sealed::Opener>) -> Vec<uicore_model::spaces::SpaceSession> {
+/// titles a session; sealed titles and digests opened with `opener`
+/// (#EDE-194: the keyrings of the account's installs on this machine,
+/// [`crate::sealed::space_opener`]), so the list names a sealed chat by its
+/// own title. A title no rung yields (a sealed one no keyring here opens,
+/// with no issue and a first prompt that is sealed too) is `None`: the
+/// row reads `Agent space n`, never `Untitled`.
+pub fn space_sessions(rows: &AccountRows, wanted: &HashSet<String>, opener: &sync::sealed::Opener) -> Vec<uicore_model::spaces::SpaceSession> {
     let by_id: HashMap<&str, &SessionRow> = rows.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
     let mut ids: Vec<&str> = wanted.iter().filter_map(|w| by_id.get(w.as_str()).map(|s| s.id.as_str())).collect();
     let roots: Vec<&str> = ids.iter().filter_map(|id| by_id.get(id)).filter(|s| s.parent_id.is_some()).map(|s| s.root_id_or_self()).collect();
@@ -299,15 +311,13 @@ pub fn space_sessions(rows: &AccountRows, wanted: &HashSet<String>, opener: Opti
         .filter_map(|id| by_id.get(id))
         .map(|row| {
             let mut row = (*row).clone();
-            if let Some(opener) = opener {
-                opener.open_session(&mut row);
-            }
+            opener.open_session(&mut row);
             let digest = domain::chats::ConversationDigest::decode(row.digest.as_ref());
             let messages = digest.map(|d| domain::chats::digest_messages(&row.id, Some(&d))).unwrap_or_default();
             let first: Vec<&MessageRow> = messages.iter().filter(|m| first_prompt_candidate(m, &row.id)).collect();
             let links: Vec<&SessionIssueRow> = rows.session_issues.iter().filter(|l| l.session_id == row.id).collect();
             let tree: Vec<domain::session_tree::TreeIssue> = links.iter().filter_map(|l| issues.get(l.issue_id.as_str())).map(|i| domain::session_tree::TreeIssue::from_issue(i)).collect();
-            uicore_model::spaces::SpaceSession { id: row.id.clone(), title: domain::session_title::session_title(&row, &links, &tree, &first), parent_id: row.parent_id.clone(), root_id: Some(row.root_id_or_self().to_string()) }
+            uicore_model::spaces::SpaceSession { id: row.id.clone(), title: domain::session_title::session_title_if_any(&row, &links, &tree, &first), parent_id: row.parent_id.clone(), root_id: Some(row.root_id_or_self().to_string()) }
         })
         .collect()
 }
@@ -603,6 +613,139 @@ mod tests {
         for shape in SHAPES {
             assert!(crate::accounts::SHAPES.contains(shape), "{shape}");
             assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape}");
+        }
+    }
+
+    /// #EDE-194: the agent spaces' titles, read as the shell reads them:
+    /// one account's own synced store and the keyrings in `data_dir`.
+    mod space_titles {
+        use super::*;
+        use crate::spaces::Spaces;
+        use std::path::Path;
+        use std::sync::Arc;
+        use sync::protocol::{RowKey, ShapeMessage};
+        use sync::sealed::Opener;
+        use sync::store::ShapeStore;
+        use uicore_model::spaces::Display;
+
+        const DISPLAY: Display = Display { width: 1920, height: 1080, scale: 1.0 };
+
+        /// A row as the sync writes it: an insert, or Electric's update
+        /// (the changed columns alone).
+        fn put(store: &ShapeStore, insert: bool, row: Value) {
+            let key = RowKey::Single(row["id"].as_str().unwrap().to_string());
+            let value = row.as_object().unwrap().clone();
+            let msg = if insert { ShapeMessage::Insert { key, value } } else { ShapeMessage::Update { key, value } };
+            store.apply_batch(sync::shapes::shape_by_name("sessions").unwrap(), &[msg], None).unwrap();
+        }
+
+        fn space(id: &str, session: &str) -> ede_protocol::SpaceInfo {
+            ede_protocol::SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new() }
+        }
+
+        /// The opener the shell reads the titles with, over `data_dir`.
+        fn opener(data_dir: &Path) -> Opener {
+            Opener::new(Arc::new(crate::sealed::Keyrings::new(crate::sealed::space_keyring_paths(data_dir, "a1"))))
+        }
+
+        /// main.rs `tray_read` + `exp_tray_refresh`: the titles read again
+        /// into the spaces; `true` = they moved (the feeds go out).
+        fn read_titles(spaces: &mut Spaces, store: &ShapeStore, opener: &Opener) -> bool {
+            let rows = AccountRows::read("a1", "u1", store);
+            let wanted: HashSet<String> = spaces.wanted_sessions().into_iter().collect();
+            let titles = space_sessions(&rows, &wanted, opener);
+            let moved = spaces.sessions != titles;
+            spaces.sessions = titles;
+            moved
+        }
+
+        /// The list's row and the pinned view's title bar.
+        fn shown(spaces: &Spaces) -> (Value, Value) {
+            (spaces.feed()["rows"][0]["title"].clone(), spaces.view_feed(DISPLAY)["title"].clone())
+        }
+
+        fn sealed_fixture() -> Value {
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap()
+        }
+
+        /// The fixture's tree keys under `root`, as a key holder writes its
+        /// keyring file (the app's `seal-keys`, the daemon's `cli-seal-keys`).
+        fn write_keyring(path: &Path, root: &str, fx: &Value) {
+            let keys: serde_json::Map<String, Value> = fx["keys"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(epoch, hex)| (epoch.clone(), json!(enet_core::sealed::b64url_encode(&data_encoding::HEXLOWER.decode(hex.as_str().unwrap().as_bytes()).unwrap()))))
+                .collect();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, json!({"v": 1, "keys": {root: keys}}).to_string()).unwrap();
+        }
+
+        /// A session retitled after its space exists (the CLI's auto-name
+        /// lands on its row in the first minute): the next read carries
+        /// the title into the list and the pinned view; before it, the row
+        /// reads `Agent space n`, never `Untitled`.
+        #[test]
+        fn a_rename_reaches_the_list_and_the_pinned_view_at_the_next_read() {
+            let dir = tempfile::tempdir().unwrap();
+            let store = ShapeStore::open(&dir.path().join("sync.sqlite")).unwrap();
+            put(&store, true, json!({"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "running", "created_at": "2026-11-21T16:00:00Z"}));
+            let opener = opener(dir.path());
+            let mut spaces = Spaces { list: vec![space("space-1", "s1")], ..Default::default() };
+            spaces.pin(Some("s1"), None);
+            assert!(read_titles(&mut spaces, &store, &opener), "the first sighting reads the titles");
+            assert_eq!(shown(&spaces), (json!("Agent space 1"), json!("Agent space 1")), "nothing titles it yet");
+            // The rename: a delta on `sessions` reads the tray again (main.rs, at most once a second).
+            for shape in ["sessions", "session_issues", "issues"] {
+                assert!(refreshes_tray(shape), "{shape}");
+            }
+            put(&store, false, json!({"id": "s1", "title": "Wikipedia search box timing test"}));
+            assert!(read_titles(&mut spaces, &store, &opener), "the titles moved: the feeds go out");
+            assert_eq!(shown(&spaces), (json!("Wikipedia search box timing test"), json!("Wikipedia search box timing test")));
+            put(&store, false, json!({"id": "s1", "title": "Wikipedia timing, second round"}));
+            assert!(read_titles(&mut spaces, &store, &opener));
+            assert_eq!(shown(&spaces), (json!("Wikipedia timing, second round"), json!("Wikipedia timing, second round")));
+            assert!(!read_titles(&mut spaces, &store, &opener), "nothing moved: no feed");
+        }
+
+        /// The real-session proof's case: the host sealed the auto-name and
+        /// the first prompt to the tree. With no keyring here holding that
+        /// tree the row reads `Agent space n` (the title ladder alone ends
+        /// at `Untitled`); the CLI daemon's keyring opens it like the app's.
+        #[test]
+        fn a_sealed_title_opens_with_either_installs_keyring_and_reads_agent_space_n_without() {
+            let fx = sealed_fixture();
+            let case = fx["bodyCases"].as_array().unwrap().iter().find(|c| c["name"] == "sealed, epoch 1").unwrap().clone();
+            let (body, text) = (case["body"].as_str().unwrap(), case["text"].as_str().unwrap());
+            let dir = tempfile::tempdir().unwrap();
+            let store = ShapeStore::open(&dir.path().join("sync.sqlite")).unwrap();
+            let first = json!({"id": "m1", "authorKind": "user", "authorId": "u1", "body": body, "createdAt": "2026-11-21T16:00:00Z"});
+            put(&store, true, json!({"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "running", "sealed_title": body, "digest": {"first": first, "preview": first}, "created_at": "2026-11-21T16:00:00Z"}));
+            let opener = opener(dir.path());
+            let mut spaces = Spaces { list: vec![space("space-3", "s1")], ..Default::default() };
+            spaces.pin(Some("s1"), None);
+            read_titles(&mut spaces, &store, &opener);
+            assert_eq!(spaces.sessions[0].title, None, "no rung yields text");
+            assert_eq!(shown(&spaces), (json!("Agent space 3"), json!("Agent space 3")));
+            let mut row = AccountRows::read("a1", "u1", &store).sessions.remove(0);
+            opener.open_session(&mut row);
+            assert_eq!(domain::session_title::session_title(&row, &[], &[], &[]), "Untitled", "what the row read before #EDE-194");
+            // The daemon hosts the session: its keyring holds the tree.
+            let [app, daemon] = crate::sealed::space_keyring_paths(dir.path(), "a1");
+            write_keyring(&daemon, "s1", &fx);
+            assert!(read_titles(&mut spaces, &store, &opener));
+            assert_eq!(shown(&spaces), (json!(text), json!(text)));
+            // The app hosts it instead: its keyring opens it the same.
+            std::fs::remove_file(&daemon).unwrap();
+            assert!(read_titles(&mut spaces, &store, &opener), "the key gone: locked again");
+            assert_eq!(shown(&spaces).0, json!("Agent space 3"));
+            write_keyring(&app, "s1", &fx);
+            assert!(read_titles(&mut spaces, &store, &opener));
+            assert_eq!(shown(&spaces), (json!(text), json!(text)));
+            // Its first prompt (sealed too) titles it once the title is gone.
+            put(&store, false, json!({"id": "s1", "sealed_title": null}));
+            read_titles(&mut spaces, &store, &opener);
+            assert_eq!(shown(&spaces).0, json!(text), "the opened first prompt");
         }
     }
 

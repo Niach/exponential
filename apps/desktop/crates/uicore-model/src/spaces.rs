@@ -32,12 +32,15 @@ pub struct SpaceInput {
 }
 
 /// A session row one of the shell's signed-in accounts holds, its title
-/// resolved.
+/// resolved from what this machine can read; `None` = no title can be read
+/// (#EDE-194: a sealed title no keyring here opens and nothing else that
+/// yields one; never session-title.json's `Untitled`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceSession {
     pub id: String,
-    pub title: String,
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -80,12 +83,13 @@ pub fn space_rows(spaces: &[SpaceInput], sessions: &[SpaceSession]) -> Vec<Space
         .map(|space| {
             let number = space_number(&space.id);
             let session = by_id.get(space.session.as_str());
-            let title = session.map(|s| trimmed(&s.title)).filter(|t| !t.is_empty()).map_or_else(|| untitled(&space.id, number), str::to_string);
+            let title = session.and_then(|s| s.title.as_deref()).map(trimmed).filter(|t| !t.is_empty()).map_or_else(|| untitled(&space.id, number), str::to_string);
             let subtitle = session
                 .filter(|s| s.parent_id.as_deref().is_some_and(|p| !p.is_empty()))
                 .and_then(|s| s.root_id.as_deref())
                 .and_then(|root| by_id.get(root))
-                .map(|root| trimmed(&root.title))
+                .and_then(|root| root.title.as_deref())
+                .map(trimmed)
                 .filter(|t| !t.is_empty())
                 .map(str::to_string);
             SpaceRow { id: space.id.clone(), session: space.session.clone(), number, title, subtitle }
