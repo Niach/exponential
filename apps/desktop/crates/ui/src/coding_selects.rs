@@ -375,14 +375,16 @@ pub fn choice_select(
 }
 
 /// NEW-59: the Work screen choices (`domain::work_screen::work_screen_options`
-/// over the device's reported displays + the stored pick) as select items,
-/// valued by the contract's picker keys (#FEED-164: Auto's key, else `id:` +
-/// the display's stable id).
+/// over the device's reported displays + the stored pick, #EXP-1514 + whether
+/// its doctor offers an agent space) as select items, valued by the
+/// contract's picker keys (#FEED-164: Auto's key, the space's key, else `id:`
+/// + the display's stable id).
 pub fn work_screen_items(
     displays: &[domain::work_screen::WorkScreenDisplay],
     stored: Option<&str>,
+    space_offered: bool,
 ) -> Vec<ChoiceItem> {
-    domain::work_screen::work_screen_options(displays, stored)
+    domain::work_screen::work_screen_options(displays, stored, space_offered)
         .into_iter()
         .map(|option| ChoiceItem {
             label: SharedString::from(option.label),
@@ -413,16 +415,18 @@ pub(crate) fn demo_displays() -> Vec<domain::work_screen::WorkScreenDisplay> {
 pub fn work_screen_select(
     displays: &[domain::work_screen::WorkScreenDisplay],
     stored: Option<&str>,
+    space_offered: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> ChoiceSelect {
-    let items = work_screen_items(displays, stored);
+    let items = work_screen_items(displays, stored, space_offered);
     let value = work_screen_value(stored);
     let ix = items.iter().position(|item| item.value == value).unwrap_or(0);
     cx.new(|cx| SelectState::new(items, Some(IndexPath::default().row(ix)), window, cx))
 }
 
-/// The Work screen select's pick, a display id (`None` = Auto).
+/// The Work screen select's pick, a display id or #EXP-1514 the space's
+/// value (`None` = Auto).
 pub fn selected_work_screen(state: &ChoiceSelect, cx: &App) -> Option<String> {
     domain::work_screen::work_screen_picked_id(&selected(state, cx))
 }

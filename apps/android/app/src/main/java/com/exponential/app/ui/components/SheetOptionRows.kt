@@ -614,8 +614,9 @@ internal fun ModelPickerRow(
 /**
  * NEW-59: the Work screen row under the Computer use model row (only while
  * computer use is on): THE [PickerRow], its options
- * `WorkScreen.options(displays, value)` (`work-screen.json`); [value] = the
- * stored display id (#FEED-161), null = Auto.
+ * `WorkScreen.options(displays, value, spaceOffered)` (`work-screen.json`);
+ * [value] = the stored display id (#FEED-161) or #EXP-1514 the agent space's
+ * value, null = Auto. [spaceOffered] = `WorkScreen.spaceOffered(doctor)`.
  */
 @Composable
 internal fun WorkScreenPickerRow(
@@ -623,12 +624,17 @@ internal fun WorkScreenPickerRow(
     value: String?,
     onSelect: (String?) -> Unit,
     enabled: Boolean = true,
+    spaceOffered: Boolean = false,
 ) {
-    val options = com.exponential.app.domain.WorkScreen.options(displays, value)
-    // #FEED-164: the contract's picker keys (no display id can read as Auto).
+    val options = com.exponential.app.domain.WorkScreen.options(displays, value, spaceOffered)
+    // #FEED-164: the contract's picker keys (no display id can read as Auto
+    // or, #EXP-1514, as the agent space).
     val key: (String?) -> String = com.exponential.app.domain.WorkScreen::pickerKey
     val labels = options.associate { key(it.value) to it.label }
-    androidx.compose.foundation.layout.Box(
+    // picker-presentation.json N-14 (2): inside the sheet the picker opens
+    // inline and its rows go directly UNDER the trigger, so the tagged
+    // wrapper stacks them (a Box drew them over the row).
+    androidx.compose.foundation.layout.Column(
         modifier = Modifier.testTag(com.exponential.app.domain.WorkScreen.ROW_TEST_ID),
     ) {
         PickerRow(

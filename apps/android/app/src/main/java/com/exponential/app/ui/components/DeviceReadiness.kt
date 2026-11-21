@@ -73,6 +73,8 @@ fun DeviceReadinessBlock(
     computerUseDisplayId: String? = null,
     /** NEW-59: adds the Work screen row under the model row; null = no row. */
     onComputerUseDisplayChange: ((String?) -> Unit)? = null,
+    /** #EXP-1514: the device offers an agent space (`WorkScreen.spaceOffered(doctor)`). */
+    workScreenSpaceOffered: Boolean = false,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("device-readiness")) {
         groups.forEachIndexed { index, group ->
@@ -134,6 +136,7 @@ fun DeviceReadinessBlock(
                             displays = workScreenDisplays,
                             value = computerUseDisplayId,
                             onSelect = onComputerUseDisplayChange,
+                            spaceOffered = workScreenSpaceOffered,
                         )
                     }
                 }

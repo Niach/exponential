@@ -5,7 +5,8 @@ package com.exponential.app.domain
 // epilot crate). A pure mirror of `packages/domain-contract/src/work-screen.ts`
 // (`workScreenOptions`), byte-locked by `fixtures/work-screen.json`
 // (`optionCases`, replayed by WorkScreenTest). The fixture's `$comment` holds
-// the rules.
+// the rules. #EXP-1514: the agent space (`space`, `spaceOffered`;
+// `spaceOptionCases`, `spaceKeyCases`).
 
 object WorkScreen {
 
@@ -27,6 +28,25 @@ object WorkScreen {
         )
     }
 
+    /**
+     * #EXP-1514 `work-screen.json` `space`: the reserved pick [VALUE] (agents
+     * work in an agent space only, never on this device's screen) and the
+     * picker's words for it, kept apart from [Copy] (WorkScreenTest locks
+     * that key set).
+     */
+    object Space {
+        const val VALUE = "space"
+        const val LABEL = "Agent space"
+        const val ONLY = "Agent space only"
+
+        /** Fixture key → constant, for the replay test. */
+        val all: Map<String, String> = mapOf(
+            "value" to VALUE,
+            "label" to LABEL,
+            "only" to ONLY,
+        )
+    }
+
     /** `work-screen.json` `testIds.row`: the device settings picker row. */
     const val ROW_TEST_ID = "device-settings-work-screen"
 
@@ -34,15 +54,37 @@ object WorkScreen {
     object PickerKeys {
         const val AUTO = "auto"
         const val DISPLAY = "id:"
+        /** #EXP-1514: the agent space's key. */
+        const val SPACE = "space"
     }
 
     /** #FEED-164: the picker key of an option value (null = Auto): Auto's
-     *  key, else the display prefix + the id, so no id can read as Auto. */
-    fun pickerKey(value: String?): String = value?.let { "${PickerKeys.DISPLAY}$it" } ?: PickerKeys.AUTO
+     *  key, #EXP-1514 the agent space's key, else the display prefix + the
+     *  id, so no id can read as Auto or as the space. */
+    fun pickerKey(value: String?): String = when (value) {
+        null -> PickerKeys.AUTO
+        Space.VALUE -> PickerKeys.SPACE
+        else -> "${PickerKeys.DISPLAY}$value"
+    }
 
-    /** #FEED-164: the stored value (the bare display id, null = Auto) of a picker key. */
-    fun pickedId(key: String): String? =
-        key.takeIf { it.startsWith(PickerKeys.DISPLAY) }?.removePrefix(PickerKeys.DISPLAY)
+    /** #FEED-164: the stored value (the bare display id, #EXP-1514 the
+     *  space's value, null = Auto) of a picker key. */
+    fun pickedId(key: String): String? = when {
+        key == PickerKeys.SPACE -> Space.VALUE
+        key.startsWith(PickerKeys.DISPLAY) -> key.removePrefix(PickerKeys.DISPLAY)
+        else -> null
+    }
+
+    /** device-doctor.json's agent space row (#EXP-1514). */
+    private const val AGENT_SPACE_ITEM = "agent_space"
+
+    /**
+     * #EXP-1514: whether the device offers an agent space, read by the
+     * picker: its doctor carries the `agent_space` item in state `ok`. No
+     * doctor (an older build) = not offered.
+     */
+    fun spaceOffered(doctor: DeviceDoctor?): Boolean =
+        doctor?.items.orEmpty().any { it.key == AGENT_SPACE_ITEM && it.state == DeviceReadiness.STATE_OK }
 
     private const val SEP = " · "
 
@@ -50,11 +92,22 @@ object WorkScreen {
         Copy.DISPLAY.replace("{number}", number.toString())
 
     /**
-     * The Work screen picker's options: Auto, the reported displays, then a
-     * stored display the device no longer reports.
+     * The Work screen picker's options: Auto, the agent space, the reported
+     * displays, then a stored display the device no longer reports.
+     * #EXP-1514: while the device offers a space ([spaceOffered]) Auto says
+     * it lands there and Agent space only follows it; a stored `space` stays
+     * listed in that place, never Not connected.
      */
-    fun options(displays: List<WorkScreenDisplay>?, stored: String?): List<WorkScreenOption> {
-        val out = mutableListOf(WorkScreenOption(value = null, label = Copy.AUTO))
+    fun options(
+        displays: List<WorkScreenDisplay>?,
+        stored: String?,
+        spaceOffered: Boolean = false,
+    ): List<WorkScreenOption> {
+        val auto = if (spaceOffered) "${Copy.AUTO}$SEP${Space.LABEL}" else Copy.AUTO
+        val out = mutableListOf(WorkScreenOption(value = null, label = auto))
+        if (spaceOffered || stored == Space.VALUE) {
+            out += WorkScreenOption(value = Space.VALUE, label = Space.ONLY)
+        }
         for (display in displays.orEmpty()) {
             var label = "${displayLabel(display.number)}$SEP${display.width} × ${display.height}"
             if (display.primary) label += "$SEP${Copy.PRIMARY}"
@@ -80,9 +133,13 @@ data class WorkScreenDisplay(
     val primary: Boolean,
 )
 
-/** One picker option; [value] = the stored `launch_defaults.computerUseDisplayId` (a display id), null = Auto. */
+/** One picker option; [value] = the stored `launch_defaults.computerUseDisplayId` (a display id or
+ *  #EXP-1514 [WorkScreen.Space.VALUE]), null = Auto. */
 data class WorkScreenOption(val value: String?, val label: String)
 
 /** The TS reference's name. */
-fun workScreenOptions(displays: List<WorkScreenDisplay>?, stored: String?): List<WorkScreenOption> =
-    WorkScreen.options(displays, stored)
+fun workScreenOptions(
+    displays: List<WorkScreenDisplay>?,
+    stored: String?,
+    spaceOffered: Boolean = false,
+): List<WorkScreenOption> = WorkScreen.options(displays, stored, spaceOffered)

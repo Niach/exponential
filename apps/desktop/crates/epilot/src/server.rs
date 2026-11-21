@@ -66,8 +66,9 @@ reply that you are taking the screen before the first action. Enter text with pa
 for any secret, best from a file), not type.";
 
 /// #EDE-126: what a run in an agent space reads instead: nothing of the
-/// person's is taken, held or aborted there.
-pub(crate) const SPACE_INSTRUCTIONS: &str = "An agent space on this computer: a desktop of your own (one screen, its own pointer, keyboard and clipboard), apart from the person's. Nothing you do here reaches their screen or input, they do not see it, and nothing of theirs is in it. It starts empty: start programs with launch_app. Take a screenshot, act on what it shows (every coordinate is in the screenshot's pixels), take another to verify; an unverified effect is not success. Enter text with paste_text (sensitive: true for any secret, best from a file), not type. When a call says the space is new and empty, what ran in it is gone: start it again.";
+/// person's is taken, held or aborted there. #EXP-1514: the person at the
+/// machine can watch it (the live view).
+pub(crate) const SPACE_INSTRUCTIONS: &str = "An agent space on this computer: a desktop of your own (one screen, its own pointer, keyboard and clipboard), apart from the person's. Nothing you do here reaches their screen or input, and nothing of theirs is in it. The person at this computer can watch your space. It starts empty: start programs with launch_app. Take a screenshot, act on what it shows (every coordinate is in the screenshot's pixels), take another to verify; an unverified effect is not success. Enter text with paste_text (sensitive: true for any secret, best from a file), not type. When a call says the space is new and empty, what ran in it is gone: start it again.";
 
 /// Bind loopback and serve `host`; grants and revokes go through the
 /// returned server.
@@ -151,6 +152,8 @@ mod tests {
         let told = initialize(server.url(), space.as_str())["instructions"].as_str().unwrap().to_string();
         assert_eq!(told, SPACE_INSTRUCTIONS);
         assert!(!told.contains("locked") && !told.contains("Esc") && told.contains("launch_app"), "{told}");
+        // #EXP-1514: the live view: never "they do not see it".
+        assert!(told.contains("The person at this computer can watch your space.") && !told.contains("not see"), "{told}");
         let names = |token: &emcp::Token| -> Vec<String> {
             client(&server, token.as_str()).unwrap().list_tools(T).unwrap().iter().map(|tool| tool["name"].as_str().unwrap().to_string()).collect()
         };

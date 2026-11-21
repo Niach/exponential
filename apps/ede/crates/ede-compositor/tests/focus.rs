@@ -418,7 +418,7 @@ fn an_x11_window_takes_the_keyboard_only_from_its_own_app() {
     let display = h.with(|ede| ede.xdisplay).unwrap();
     let (mut app, _a) = focused_app(&h, "editor", RED);
 
-    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let (conn, screen) = (common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"), 0usize);
     let root = conn.setup().roots[screen].root;
     let open = |transient_for: Option<u32>| {
         let win = conn.generate_id().unwrap();

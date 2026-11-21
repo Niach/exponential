@@ -100,9 +100,15 @@ fn layer_on(s: &mut Session, namespace: &str, on: Layer, output: Option<usize>, 
 /// own process plays `exponential-sealed` while the surface maps (a layer's
 /// origin is decided once, then).
 fn sealed_prompt(h: &Harness, s: &mut Session, output: Option<usize>) -> common::Layer {
+    sealed_prompt_taking(h, s, output, KeyboardInteractivity::Exclusive)
+}
+
+/// [`sealed_prompt`] with the keyboard taken at once (Exclusive) or on a
+/// click (OnDemand: #EDE-143, a request from outside the person's session).
+fn sealed_prompt_taking(h: &Harness, s: &mut Session, output: Option<usize>, keyboard: KeyboardInteractivity) -> common::Layer {
     let pid = std::process::id();
     h.with(move |ede| ede.sealed_stand_in = Some(pid));
-    let l = layer_on(s, "polkit", Layer::Overlay, output, Anchor::empty(), (200, 100), KeyboardInteractivity::Exclusive);
+    let l = layer_on(s, "polkit", Layer::Overlay, output, Anchor::empty(), (200, 100), keyboard);
     h.with(|ede| ede.sealed_stand_in = None);
     l
 }
@@ -184,6 +190,50 @@ fn a_sealed_prompt_over_a_fullscreen_window_takes_the_keys_and_its_click_and_giv
     game.state.press_serial = None;
     click(&h, 640.0, 400.0);
     wait_for(&mut game, |c| c.state.press_serial.is_some());
+}
+
+/// #EDE-143: a prompt for a request from outside the person's session
+/// shows above the fullscreen window WITHOUT taking the keyboard: what the
+/// person types stays in their window, until they click into the prompt.
+/// It is as sealed as the other (black in a capture), and closing it gives
+/// the keyboard back.
+#[test]
+fn a_sealed_prompt_that_waits_for_a_click_shows_above_fullscreen_and_leaves_the_keyboard() {
+    let h = harness(1);
+    let mut game = Session::connect(h.connect());
+    game.keyboard();
+    let _game_pointer = game.pointer();
+    let t = fullscreen_window(&h, &mut game, "game", RED, 0);
+    wait_for(&mut game, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+
+    let mut sealed = Session::connect(h.connect());
+    sealed.keyboard();
+    let _sealed_pointer = sealed.pointer();
+    let l = sealed_prompt_taking(&h, &mut sealed, None, KeyboardInteractivity::OnDemand);
+    sealed.draw_layer(&l, BLUE);
+    // It shows, above the fullscreen window.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while h.capture(0).at(640, 400) != BLUE {
+        assert!(std::time::Instant::now() < deadline, "the prompt is not drawn above the fullscreen window");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The person's keys stay theirs.
+    press(&h, KEY_A);
+    wait_for(&mut game, |c| c.state.keys == [KEY_A]);
+    sealed.roundtrip();
+    assert!(sealed.state.keyboard_focus.is_none() && sealed.state.keys.is_empty(), "the prompt took the keyboard by itself");
+
+    // A click into it: the next key is the prompt's, none the window's.
+    click(&h, 640.0, 400.0);
+    wait_for(&mut sealed, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A);
+    wait_for(&mut sealed, |c| c.state.keys == [KEY_A]);
+    game.roundtrip();
+    assert_eq!(game.state.keys, [KEY_A], "the window got a key typed into the prompt");
+    assert_eq!(game.state.press_serial, None, "the window under the prompt took the prompt's click");
+
+    close_layer(&mut sealed, l);
+    wait_for(&mut game, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
 }
 
 /// The panel (top layer) and a pill (an overlay that keeps its clicks) open

@@ -68,7 +68,7 @@
     "spaceReady": "Ready",
     "spaceNeedsDesktop": "Needs Exponential Desktop",
     "spaceNeedsNewerDesktop": "Update Exponential Desktop",
-    "spaceDriver": "Not on this graphics driver yet",
+    "spaceDriver": "Not on this driver yet",
     "spaceOnlyBlocked": "Agent space · {reason}"
   },
   "rules": [

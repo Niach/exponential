@@ -26,6 +26,24 @@ use crate::{
 /// would close every space before its owner could renew.
 pub const EXPIRY_GRACE: u32 = 30;
 
+/// #EXP-1514: the wall clock ran ahead of the ticks by more than this
+/// between two of them (a suspend, a clock set forward): a jump.
+pub const JUMP: Duration = Duration::from_secs(10);
+/// After a jump no space expires for one space grant's life (ePilot mints
+/// them for 5 minutes): every kept grant expired at once during a long
+/// suspend, and [`EXPIRY_GRACE`] ticks are not enough for a keeper on a
+/// machine that is just waking up.
+pub const JUMP_GRACE: Duration = Duration::from_secs(5 * 60);
+
+/// Whether the wall clock jumped ahead between the tick at `last` and the
+/// one `now`, each (monotonic, wall ms): the monotonic clock stands still
+/// in a suspend, the wall clock does not.
+pub fn jumped(last: Option<(Instant, i64)>, now: (Instant, i64)) -> bool {
+    let Some((mono, wall)) = last else { return false };
+    let ticked = now.0.saturating_duration_since(mono).as_millis() as i64;
+    now.1 - wall - ticked > JUMP.as_millis() as i64
+}
+
 /// The seat of a closed space. smithay's handles look their seat up and
 /// panic when it is missing, so it stays until nothing shares it.
 pub(crate) struct Closing {
@@ -217,9 +235,13 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
+        // #EDE-183: what it started outside its slice and its launches'
+        // groups, found while its launches still run (their descendants
+        // still descend from them).
+        let strays = self.traced_to_space(id);
         #[cfg(feature = "xwayland")]
         let x11 = self.spaces.list[at].x11.take();
-        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, .. } = self.spaces.list.remove(at);
+        let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, browser_dirs, .. } = self.spaces.list.remove(at);
         // Its Xwayland goes now; its window manager when its connection does.
         #[cfg(feature = "xwayland")]
         self.space_x11_closed(x11);
@@ -247,11 +269,13 @@ impl Ede {
         // What was launched is told to end first: it writes in its home.
         let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
+        self.space_strays_closed(strays);
         if sliced {
             self.space_flatpaks_closed(id.number());
             self.space_slice_closed(id.number());
         }
-        for dir in std::iter::once(dir).chain(home) {
+        // Its browsers' profiles in snaps' and Flatpaks' data too.
+        for dir in std::iter::once(dir).chain(home).chain(browser_dirs) {
             if !self.spaces.remove(&dir) {
                 self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
             }
@@ -392,8 +416,9 @@ impl Ede {
     /// count over.
     fn spaces_expire(&mut self) {
         let owners: Vec<_> = self.spaces.iter().map(|s| (s.desk.id, s.owner.clone())).collect();
+        let in_grace = self.spaces.grace_until.is_some_and(|until| crate::ipc::now_ms() < until);
         for (desk, owner) in owners {
-            let granted = self.has_space_grant(&owner);
+            let granted = in_grace || self.has_space_grant(&owner);
             let grace = self.spaces.expiry_grace;
             let Some(space) = self.spaces.get_mut(desk) else { continue };
             space.expired_ticks = if granted { 0 } else { space.expired_ticks + 1 };
@@ -404,10 +429,30 @@ impl Ede {
         }
     }
 
+    /// #EXP-1514: the wall clock jumped ([`jumped`]): no space expires for
+    /// [`JUMP_GRACE`], and the count of every space starts over.
+    pub fn spaces_clock_jumped(&mut self) {
+        tracing::info!("the clock jumped ahead: agent spaces keep without a grant for {} s", JUMP_GRACE.as_secs());
+        self.spaces.grace_until = Some(crate::ipc::now_ms() + JUMP_GRACE.as_millis() as i64);
+        for desk in self.spaces.iter().map(|s| s.desk.id).collect::<Vec<_>>() {
+            if let Some(space) = self.spaces.get_mut(desk) {
+                space.expired_ticks = 0;
+            }
+        }
+    }
+
     /// Once a second: a closed space's seat leaves smithay's list as soon
     /// as nothing but that list and we hold it. One that stays shared is
     /// kept: a leaked seat is cheap, a handle without its seat panics.
     pub fn spaces_tick(&mut self) {
+        let (mono, wall) = (Instant::now(), crate::ipc::now_ms());
+        if jumped(self.spaces.clock.replace((mono, wall)), (mono, wall)) {
+            self.spaces_clock_jumped();
+        }
+        // #EXP-1514: an expired grant is dropped; nothing lets it in again,
+        // and every hello, call and event walks the list on this thread
+        // (one kept space mints 1,440 a day).
+        self.ipc.grants.retain(|g| g.expires_at.is_none_or(|e| wall < e));
         self.spaces_expire();
         self.space_sessions_tick();
         self.space_flatpaks_tick();
@@ -447,6 +492,20 @@ impl Ede {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
+
+    /// #EXP-1514: a suspend stops the monotonic clock and not the wall
+    /// clock: the tick after it sees the jump; a slow tick does not.
+    #[test]
+    fn a_jump_is_the_wall_clock_ahead_of_the_ticks() {
+        let mono = std::time::Instant::now();
+        let later = |secs: u64| mono + std::time::Duration::from_secs(secs);
+        assert!(!super::jumped(None, (mono, 1_000_000)), "the first tick");
+        assert!(!super::jumped(Some((mono, 1_000_000)), (later(1), 1_001_000)), "one second, both clocks");
+        assert!(!super::jumped(Some((mono, 1_000_000)), (later(30), 1_030_000)), "a stalled loop: both clocks");
+        assert!(!super::jumped(Some((mono, 1_000_000)), (later(1), 1_009_000)), "a few seconds of NTP slew");
+        assert!(super::jumped(Some((mono, 1_000_000)), (later(1), 1_000_000 + 2 * 3600 * 1000)), "two hours suspended");
+        assert!(!super::jumped(Some((mono, 1_000_000)), (later(1), 900_000)), "a clock set back closes nothing early");
+    }
 
     /// The document portal's and gvfs's mounts in a space's directory are
     /// found, the deepest first; nothing of another directory or kind.

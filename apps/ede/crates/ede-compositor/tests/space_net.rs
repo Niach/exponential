@@ -137,7 +137,7 @@ fn an_app_that_aborts_at_start_without_drawing_latches_its_gpu_space_and_the_age
             std::thread::sleep(Duration::from_millis(20));
         }
         let env = std::fs::read_to_string(&file).unwrap();
-        let driver_files = env.lines().find_map(|l| l.strip_prefix("VK_DRIVER_FILES=")).expect("lavapipe is pointed at");
+        let driver_files = env.lines().find_map(|l| l.strip_prefix("VK_ICD_FILENAMES=")).expect("lavapipe is pointed at");
         assert!(driver_files.split(':').all(|f| f.contains("lvp_icd")), "{driver_files}");
     }
 }
@@ -162,7 +162,7 @@ fn a_gpu_spaces_launch_sees_its_gpus_vulkan_driver_and_lavapipe() {
         std::thread::sleep(Duration::from_millis(20));
     }
     let env = std::fs::read_to_string(&file).unwrap();
-    let seen = env.lines().find_map(|l| l.strip_prefix("VK_DRIVER_FILES="));
+    let seen = env.lines().find_map(|l| l.strip_prefix("VK_ICD_FILENAMES="));
     let data = std::env::var_os("XDG_DATA_DIRS");
     let intel = icds_named(std::path::Path::new("/"), data.as_deref(), "intel_icd");
     let lavapipe = lavapipe_icds(std::path::Path::new("/"), data.as_deref());

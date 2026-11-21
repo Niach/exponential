@@ -75,7 +75,7 @@ fn until(what: &str, mut ok: impl FnMut() -> bool) {
 fn persons_environment() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        for (name, value) in [("DISPLAY", ":77"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
+        for (name, value) in [("DISPLAY", ":77"), ("XAUTHORITY", "/nonexistent/persons-xauthority"), ("WAYLAND_SOCKET", "9"), ("XDG_ACTIVATION_TOKEN", "t"), ("DESKTOP_STARTUP_ID", "t"), ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/persons-bus"), ("EDE_TOKEN", "persons-token")]
             .into_iter()
             .chain(LOGIN_ONLY)
         {
@@ -133,7 +133,7 @@ fn a_launch_opens_in_its_space_with_the_spaces_own_environment_and_ends_with_it(
     assert_eq!(got["WAYLAND_DISPLAY"], space.wayland_display);
     assert_eq!(Path::new(&got["XDG_RUNTIME_DIR"]), runtime);
     // Nothing of the person's session.
-    for gone in ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
+    for gone in ["DISPLAY", "XAUTHORITY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "EDE_TOKEN"].into_iter().chain(LOGIN_ONLY.map(|(name, _)| name)) {
         assert!(!got.contains_key(gone), "{gone} reached the launch");
     }
     // What a launch keeps of the compositor's, and a tmux server, screen
@@ -176,7 +176,7 @@ fn a_launch_is_refused_what_the_compositor_decides() {
     let (mut agent, _space) = agent(&h, "run-1");
     let sleep = || vec!["sleep".to_string(), "30".to_string()];
     // The names the compositor sets or drops are not the caller's.
-    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
+    for name in ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_RUNTIME_DIR", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "XAUTHORITY", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"] {
         assert_eq!(code(agent.launch(sleep(), [(name.to_string(), "x".to_string())].into(), None)), ErrorCode::Invalid, "{name}");
     }
     assert_eq!(code(agent.launch(vec![], Default::default(), None)), ErrorCode::Invalid);
@@ -226,6 +226,76 @@ fn pid_in(file: &Path) -> u32 {
     std::fs::read_to_string(file).unwrap().trim().parse().unwrap()
 }
 
+/// #EDE-143: the answer says when no agent space exists (the polkit agent
+/// then gives every prompt the keyboard, as before #EDE-143): not before
+/// the first space, while one is open or a launch of it is alive, and
+/// again once the space closed and its launches ended. Whatever the
+/// process asked about.
+#[test]
+fn the_answer_says_when_no_agent_space_exists() {
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let person = std::process::id();
+    assert!(root.space_of_process(person).unwrap().no_space, "no space yet");
+    assert!(root.space_of_process(u32::MAX).unwrap().no_space, "about a process that does not exist either");
+    let (mut agent, space) = agent(&h, "run-1");
+    assert!(!root.space_of_process(person).unwrap().no_space, "a space is open");
+    let head = agent.launch(vec!["sleep".into(), "60".into()], Default::default(), None).unwrap();
+    let answer = root.space_of_process(person).unwrap();
+    assert!(!answer.no_space && answer.unscoped_launches, "{answer:?}");
+    assert!(!root.space_of_process(head).unwrap().no_space);
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("no space again once the closed space's launch ended", || {
+        let answer = h.ipc().space_of_process(person).unwrap();
+        answer.no_space && !answer.unscoped_launches
+    });
+    assert_eq!(h.with(|state| state.spaces.launched()), 0);
+}
+
+/// #EDE-183: the close also ends what the space started outside its
+/// launch's group (headless there is no slice: a session of its own is
+/// the way out), so nothing of it is left to ask the person's polkit
+/// agent once no space is left (#EDE-143): a child that left the group
+/// and cleared its environment (its lineage ties it), and an orphan that
+/// left the group and kept the space's environment (that ties it). The
+/// person's process runs on and stays the person's.
+#[test]
+fn the_close_ends_what_the_space_started_outside_its_launchs_group() {
+    use ede_protocol::Membership;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let mut root = h.ipc();
+    let mut person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let d = dir.path().join("pids");
+    std::fs::create_dir(&d).unwrap();
+    // A background job of this shell leads no group: `setsid` keeps its
+    // process id and the shell stays its parent. The subshell's job is
+    // orphaned when the subshell ends.
+    let script = r#"
+        setsid env -i sh -c 'echo $$ > "$0/lineage.tmp"; mv "$0/lineage.tmp" "$0/lineage"; exec sleep 60' "$D" &
+        ( setsid sh -c 'echo $$ > "$D/env.tmp"; mv "$D/env.tmp" "$D/env"; exec sleep 60' & )
+        exec sleep 60"#;
+    let head = agent.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), d.to_string_lossy().into_owned())].into(), None).unwrap();
+    let (lineage, env) = (pid_in(&d.join("lineage")), pid_in(&d.join("env")));
+    until("the strays never ran sleep", || [lineage, env].into_iter().all(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| comm.trim() == "sleep")));
+    until("the orphan never lost its parent", || parent_outside(env, head));
+    let group = |pid: u32| ede_protocol::process::stat(pid).map(|stat| stat.pgid);
+    assert!(group(lineage) != Some(head) && group(env) != Some(head), "a stray is still in the launch's group: the group kill would reach it");
+    let by = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap().space.map(|found| (found.space, found.by));
+    // Its parent is the launched shell, or a process of the launch's group.
+    let tie = by(&mut root, lineage);
+    assert!(matches!(&tie, Some((found, Membership::Launch | Membership::Group)) if *found == space.id), "{tie:?}");
+    assert_eq!(by(&mut root, env), Some((space.id.clone(), Membership::Environment)));
+
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("a process the space started outside its launch's group outlived the close", || !alive(&lineage.to_string()) && !alive(&env.to_string()));
+    until("no space once its strays are gone", || h.ipc().space_of_process(person.id()).unwrap().no_space);
+    let answer = root.space_of_process(person.id()).unwrap();
+    assert!(alive(&person.id().to_string()) && answer.space.is_none() && answer.session, "the person's process: {answer:?}");
+    let _ = person.kill();
+    let _ = person.wait();
+}
+
 /// #EDE-127: the compositor answers which space a process belongs to (the
 /// polkit agent asks before it shows the person a prompt): a launch, what
 /// it started (also after leaving its group, or after its parent died),
@@ -237,14 +307,18 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     let (h, dir) = start_with_spaces(&[(800, 600)]);
     let (mut agent, space) = agent(&h, "run-1");
     let mut root = h.ipc();
-    let of = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap();
+    let answer = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap();
+    let of = |root: &mut Client, pid: u32| answer(root, pid).space;
 
-    // The person's: this process (the compositor's own) and a child of it.
+    // The person's: this process (the compositor's own) and a child of it,
+    // both in the compositor's own cgroup (#EDE-143: the session's); pid 1
+    // is no space's (in a container it may share the cgroup), a process
+    // that does not exist is nobody's.
     let person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
-    assert_eq!(of(&mut root, std::process::id()), None);
-    assert_eq!(of(&mut root, person.id()), None);
-    assert_eq!(of(&mut root, 1), None);
-    assert_eq!(of(&mut root, u32::MAX), None, "no such process");
+    assert_eq!(answer(&mut root, std::process::id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
+    assert_eq!(answer(&mut root, person.id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
+    assert_eq!(answer(&mut root, 1).space, None);
+    assert_eq!(answer(&mut root, u32::MAX), ede_protocol::ProcessAnswer::default(), "no such process");
 
     // A shell in the space that starts three processes: a child, one that
     // cleared its environment and lost its parent (still in the launch's
@@ -259,6 +333,13 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
         wait"#;
     let head = agent.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), d.to_string_lossy().into_owned())].into(), None).unwrap();
     let (child, group, env) = (pid_in(&d.join("child")), pid_in(&d.join("group")), pid_in(&d.join("env")));
+    // Without a user manager the launch runs in the compositor's own
+    // cgroup: while it lives, the session's cgroup vouches for no one.
+    assert!(answer(&mut root, person.id()).unscoped_launches, "an unscoped launch is alive");
+    // Seen from another session's cgroup the person's process is outside it.
+    h.with(|state| state.spaces.session_cgroup = Some("0::/somewhere/else.scope\n".into()));
+    assert!(!answer(&mut root, person.id()).session);
+    h.with(|state| state.spaces.session_cgroup = None);
     let ours = |pid: u32| of(&mut h.ipc(), pid).unwrap_or_else(|| panic!("process {pid} is not known as the space's"));
     assert_eq!(ours(head), ProcessSpace { space: space.id.clone(), by: Membership::Launch, pid: head });
     assert_eq!(ours(child).space, space.id);
@@ -297,4 +378,36 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     for pid in [group, env] {
         let _ = smithay::reexports::rustix::process::kill_process(smithay::reexports::rustix::process::Pid::from_raw(pid as i32).unwrap(), smithay::reexports::rustix::process::Signal::KILL);
     }
+}
+
+/// #EDE-138: a browser launched into a space gets the space's profile and
+/// the switches of a space that renders in software (here a stand-in
+/// `chromium` of the system that writes down its arguments); a launch that
+/// names a profile itself is refused; the profile goes with the space.
+#[test]
+fn a_browser_in_a_space_gets_the_spaces_profile() {
+    use std::os::unix::fs::PermissionsExt;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let chromium = bin.join("chromium");
+    let args = dir.path().join("chromium.args");
+    std::fs::write(&chromium, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}.tmp && mv {0}.tmp {0}\nexec sleep 60\n", args.display())).unwrap();
+    std::fs::set_permissions(&chromium, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let chromium = chromium.to_string_lossy().into_owned();
+
+    agent.launch(vec![chromium.clone(), "https://example.org".into()], Default::default(), None).unwrap();
+    until("the browser never ran", || args.exists());
+    let got: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+    let profile = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str()).join("browsers/chromium");
+    assert_eq!(got, [format!("--user-data-dir={}", profile.display()), "--enable-unsafe-swiftshader".into(), "--use-angle=swiftshader".into(), "https://example.org".into()]);
+    assert!(profile.is_dir(), "the profile was not made");
+
+    // The caller's own profile is not the space's to take.
+    let refused = agent.launch(vec![chromium.clone(), "--user-data-dir=/tmp/mine".into()], Default::default(), None);
+    assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Invalid), "{refused:?}");
+
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("the browser's profile outlived its space", || !profile.exists());
 }

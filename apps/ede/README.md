@@ -336,6 +336,20 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   or an ancestor's naming the space's directory, else the compositor's
   `space_of_process` (what it launched into the space, that launch's
   process group, the space's socket's clients).
+  Everything else of the user is one of two kinds (#EDE-143). A process in
+  the person's login session (the compositor's own cgroup, root's, which
+  no space's process gets back into) gets the prompt as always: it takes
+  the keyboard. A process anywhere else gets a prompt that shows WITHOUT
+  taking the keyboard and names it ("Asked by <command line> (process
+  N)"): the person's user services, snaps, Flatpaks, a coding session's
+  shell, or a space's process that moved itself out of its slice. The
+  person clicks into the prompt to type. While a space has launches
+  outside systemd scopes (no user manager), they are in the session's
+  cgroup too, so every request is of the second kind. The second kind
+  exists only while an agent space does (one is open, a closed one's slice
+  is still stopping, or a launch of one is alive): with no space, before
+  the first and after the last one closed, every prompt takes the keyboard
+  as before #EDE-143.
 - **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
@@ -642,7 +656,9 @@ first; each op needs the Core capability it names:
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
-| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space, by, pid}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`, or `null` for the person's; the polkit agent asks it) | `system` |
+| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches, no_space}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes, `no_space` = no agent space exists (none open, none stopping, no launch alive); the polkit agent asks it) | `system` |
+| `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
+| `space_readiness` (#EXP-1514: `{ready, block?, max?}`, whether a person's runs get an agent space now; only a compositor whose hello says `space-readiness` answers it, and none does before the flip, #EXP-2011: a DEBUG build started with `EDE_DEV_SPACE_READINESS=1` says it and answers `ready`, for the headless runs and `serve --space`; a release build ignores it; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -808,8 +824,21 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   are still, so together they are promised more than the 50 % they have.
   The fence is room: a new space is made only while what the spaces hold
   (anonymous and shared memory of their slice) plus one still space (1 GiB:
-  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`;
-  else `create_space` answers `limit`, `no memory for another space: …`.
+  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`.
+- **A full desktop gives way** (#EXP-1514, D 10). A space lives as long
+  as its session, so when a NEW one does not fit (the count or the room),
+  the space unused longest closes for it: one neither driven nor captured
+  by its own grant for 10 minutes (a space never used counts from its
+  creation) and not busy (its keeper said `space_busy` in the last 90 s:
+  its session's turn runs). For room as many give way as it takes, what
+  each holds read from its own slice, planned before one closes. Only
+  when none may does `create_space` answer `limit` (`N spaces at most`,
+  `no memory for another space: …`), and then none closed. A session's own
+  space is always found again first.
+- **Grants and the clock.** An expired grant leaves the list in the 1 s
+  tick. A space whose owner holds no live space grant closes after 30
+  ticks; after the wall clock jumped ahead of the ticks (a suspend) no space
+  closes for 5 minutes, one space grant's life, so its keeper can renew.
   At `MemoryHigh` every space is slowed until memory is freed; at
   `MemoryMax` the kernel ends programs inside the spaces, the biggest
   first, never the person's. The log and the doctor's line say the
@@ -893,8 +922,9 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   cannot reach it. OpenGL and EGL apps get Mesa's software driver
   (llvmpipe) by themselves. Vulkan apps would pick the GPU and then fail,
   so while a space renders in software its programs see lavapipe, Mesa's
-  software Vulkan, alone (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`; a launch
-  may not set them). The packages recommend `mesa-vulkan-drivers` (Arch:
+  software Vulkan, alone (`VK_ICD_FILENAMES`, which Chromium's SwiftShader
+  may replace; a launch may set neither it nor `VK_DRIVER_FILES`). The
+  packages recommend `mesa-vulkan-drivers` (Arch:
   `vulkan-swrast`); without it a Vulkan app does not start in a space, and
   the doctor says so. The cost: 3D apps and games are slow or do not run
   in a space, and every frame is drawn on the processor. A WebGL page or a
@@ -906,11 +936,79 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   the space's seat and output only) and whose window manager puts its
   windows on the space's desk; the person's X server and window manager
   are untouched. One that dies is started again at the space's next
-  launch; it ends with the space (its socket and lock go).
+  launch; it ends with the space (its socket and lock go). Its CLIPBOARD
+  is the space's: an X11 copy there is the space's selection (the agent
+  reads it, the space's Wayland apps paste it), and a copy by the space's
+  Wayland apps or by the agent pastes in its X11 apps. Only the X11 app
+  holding the space's keyboard reads it, and the person's clipboard and
+  X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
+  on the space's seat. A space that closes in the middle of a paste ends
+  it there (an agent's read is answered `unavailable`).
+- **X authority, both sides.** Every Xwayland of the compositor admits
+  only a client that shows its cookie (MIT-MAGIC-COOKIE-1). The person's
+  file is `$XDG_RUNTIME_DIR/xauth_<wayland socket>`. Its path stays the
+  same for the compositor's life, and it reaches every way the person's
+  apps start: the compositor's children (the shell's launches among them)
+  get `XAUTHORITY`, and `exponential-session --ready` hands it to the user
+  manager and D-Bus activation with `DISPLAY` (terminals and services
+  inherit it from there). A space's file is
+  `$XDG_RUNTIME_DIR/xauth_<wayland socket>-space-<n>`, with a new cookie
+  for each of its servers; only its launches get it, and it goes when the
+  space closes. The `xauth_` names are the ones snaps can read: `snap run`
+  copies only an `XAUTHORITY` under `/tmp`, and the x11 interface lets a
+  snap read `/run/user/<uid>/xauth_*`. So `DISPLAY=:0 xdotool type …` from a
+  space is refused by the person's server, and the person's apps cannot
+  reach a space's either. A snap app in a space that the space's Wayland
+  socket refuses (its AppArmor admits only `/run/user/<uid>/wayland-N`)
+  draws through the space's Xwayland.
+- **Browsers get the space's profile.** Snaps and Flatpaks keep their data
+  under the person's `HOME`, which a space's own directories do not
+  change. Without a profile of the space, its Chromium would hand its
+  window to the person's running one (a window on the person's desk), or
+  browse in the person's signed-in profile, and Firefox would say "already
+  running". So a known browser started in a space gets a profile of its
+  own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi) gets
+  `--user-data-dir=`; Firefox and LibreWolf get
+  `--profile <dir> --new-instance`. For a browser of the system the
+  directory is in the space's home. For a snap or a Flatpak (its command,
+  `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
+  runs the snap) it is in the app's own data, the one place it may write:
+  `~/snap/<name>/common/exponential-space/p<pid>-<space>` or
+  `~/.var/app/<id>/exponential-space/p<pid>-<space>`. It is removed when
+  the space closes, and what a crashed session left there goes at the next
+  start. A launch that names a profile itself is refused. Chromium and
+  Electron apps (VS Code, VSCodium) also always get
+  `--enable-unsafe-swiftshader`, so their WebGL can fall back to software,
+  and `--use-angle=swiftshader` while the space renders in software. A snap
+  of the Chromium family also gets `--ozone-platform=x11`: it exits where
+  the space's Wayland socket is refused, rather than falling back. Firefox
+  gets nothing more: it switches to software WebRender by itself. A browser
+  that is not on the list runs like any other program. A browser of the
+  system then keeps its data in the space's own directories, but a snap or
+  Flatpak one uses the person's profile and may open on the person's desk
+  (#EDE-166).
+- **The person's Xwayland starts again** when it dies, on the same display
+  and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
+  session was given stay right. Its X11 windows are let go of, and its
+  X11 copy goes too. It waits 1 s after the first death, and 2, 4, 8, 16,
+  30, then 60 s after each further death of a server that ran less than
+  a minute. After 8 such deaths in a row it is not started again, and X11
+  apps return at the next login. Each death is logged as an error, which
+  diagnostics report.
 - **Not a wall.** Everything in a space is the person's user. Every cgroup
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
   guards against the accidents of ordinary programs (#EDE-145).
+- **The close also ends what got out** (#EDE-183). A close ends the slice
+  and the launches' process groups. It also ends every process the
+  compositor ties to the space some other way: it descends from one of the
+  space's launches, or the space's directory is in its environment. That
+  holds wherever the process's cgroup is now, and also for a process that
+  left its launch's group. Each one is told to end, and killed after 2 s.
+  Until then a space still counts as there for the polkit prompt's class
+  (#EDE-143), so such a process never gets the person's keyboard prompt. A
+  process that cleared its environment, left its launch's lineage and
+  group, and left the slice is tied to nothing (#EDE-145).
 
 ## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
 
@@ -956,6 +1054,7 @@ way to (`crates/ede-space-guard/src/connect.rs`):
 | `/run/wpa_supplicant/…`, `/run/hostapd/…`, `/run/tailscale/…`, `/run/mullvad-vpn`, `/run/cloudflare-warp/…` | `wpa_cli disconnect` (a member of `netdev`), `tailscale down` and the like |
 | `/run/docker.sock`, `/run/user/<uid>/docker.sock`, `/run/libvirt/…`, `/run/incus/…`, `/var/lib/incus/…`, `/var/lib/lxd/…`, `/var/snap/lxd/…` | daemons that act for their group as root, and a rootless docker of the person's |
 | `/run/…/pulse/native`, `/run/…/pipewire-<n>[-manager]`, `/dev/shm/jack…` | the person's sound servers: the microphone (a space has no speakers either), also as a snap's launch helper spells them (`/run/user/<uid>/snap.<name>/../pulse/native`) |
+| `/run/…/<wayland-N>` | the person's Wayland socket (#EDE-145): a program that names it (`WAYLAND_DISPLAY=/run/user/<uid>/wayland-1`) opens its windows on the person's desk. Its name is the one the directory of spaces carries (`<wayland-N>.spaces`, which `enter` hands the guard), and every path under `/run` ending in it is refused: also a snap's link to it (`/run/user/<uid>/snap.<name>/wayland-N`, which the snap's desktop launcher makes) and a Flatpak's bind of it (`/run/flatpak/wayland-N`). A space's own socket is in its directory, and eDE's socket is never `wayland-0`, the name a space's Flatpak gives the space's own |
 | any path with `/../` | so no other rule is walked around by spelling |
 
 It reads the address as the caller passed it, bounded by its length
@@ -997,6 +1096,11 @@ answers with a challenge; readiness and the doctor's line need it.
   session's start: the session only asks it for readiness and the doctor,
   which reads what the running session decided (`<wayland-N>.guard` beside
   its socket). Uninstalled, launches run as before, and the doctor says so.
+- **A guard from before** (#EDE-145). The session's probe asks
+  `probe wayland`. A guard from before the person's Wayland socket was
+  refused answers it `not a request`; the session then asks `probe`, and
+  the doctor names the person's Wayland socket among what is open in a
+  space (its state file says `wayland open`).
 - **Its three capabilities, no root.** A user of its own (`DynamicUser`),
   `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
   `CAP_PERFMON` (the connect program reads the address it is asked about),
@@ -1063,9 +1167,10 @@ and SwiftShader.
   clients, a space in software and a space's Xwayland never see them (X11
   GL apps in a space draw in software; glamor per space is #EDE-163). Its
   programs see exactly that GPU's Vulkan driver and lavapipe
-  (`VK_DRIVER_FILES`, `VK_ICD_FILENAMES`, as in software; lavapipe alone
-  where that driver is not installed): a Vulkan app takes the space's GPU,
-  never the person's.
+  (`VK_ICD_FILENAMES`, as in software; lavapipe alone where that driver is
+  not installed): a Vulkan app takes the space's GPU, never the person's.
+  A browser in it keeps hardware ANGLE: of F3's software switches it gets
+  only `--enable-unsafe-swiftshader`, ANGLE's own fallback.
 - **The person's frames come first.** A space's tick builds no renderer
   elements and imports nothing. A capture is drawn after the person's frames
   of that turn, read back asynchronously (a fence the loop waits on, never

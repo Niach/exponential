@@ -14,7 +14,10 @@
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
 //!   the prompt, polkit's helper checks the password; it stays up between prompts.
-//!   A request from an agent space is refused and opens nothing (#EDE-127).
+//!   A request from an agent space is refused and opens nothing (#EDE-127);
+//!   one from outside the person's login session opens the prompt without
+//!   the keyboard (on demand: the person clicks into it) and names the
+//!   asking process (#EDE-143).
 //! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
@@ -92,18 +95,25 @@ struct Open {
 /// A sealed document as a full-screen overlay with the keyboard, on the
 /// first output.
 fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option<Open> {
+    open_taking(doc, data, acts, true, cx)
+}
+
+/// [`open`]; `keyboard` = the prompt takes the keyboard as it shows
+/// (Exclusive), else on the person's click (OnDemand: #EDE-143, a polkit
+/// request from outside their session).
+fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, cx: &mut App) -> Option<Open> {
     let (w, h) = ede_protocol::Client::connect_env()
         .ok()
         .and_then(|mut c| c.outputs().ok())
         .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
-    open_on(doc, data, acts, None, (w, h), cx)
+    open_on(doc, data, acts, None, (w, h), keyboard, cx)
 }
 
 /// [`open`] on `display` (`None` = the compositor's choice), whose logical
 /// size is `w`×`h`: the root fills it in px (a layer window takes its
 /// content's size otherwise) and the surface asks for it.
-fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), cx: &mut App) -> Option<Open> {
+fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), keyboard: bool, cx: &mut App) -> Option<Open> {
     let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
     if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
         style.insert("width".into(), json!(w));
@@ -125,7 +135,7 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
         exclusive_zone: Some(px(-1.0)),
         exclusive_edge: None,
         margin: None,
-        keyboard_interactivity: KeyboardInteractivity::Exclusive,
+        keyboard_interactivity: if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand },
     });
     let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
     let out = view_out.clone();
@@ -309,7 +319,7 @@ fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixel
         if shown.iter().any(|s| s.display == display) {
             continue;
         }
-        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), cx) {
+        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), true, cx) {
             Some(open) => shown.push(Shown { display, size, open }),
             None => std::process::exit(1),
         }
@@ -431,9 +441,13 @@ fn polkit_agent() {
                                 cx.update(|cx| close(open, cx));
                             }
                             let identity = format!("{} · as {}", request.action_id, request.users.join(" or "));
-                            let data = json!({"message": request.message, "identity": identity, "password": "", "busy": false, "error": ""});
+                            // #EDE-143: a request from outside the person's
+                            // session names who asks and waits for a click.
+                            let asker = request.asker.as_ref().map(|asker| format!("Asked by {asker}")).unwrap_or_default();
+                            let keyboard = request.asker.is_none();
+                            let data = json!({"message": request.message, "identity": identity, "asker": asker, "password": "", "busy": false, "error": ""});
                             let tx = acts_tx.clone();
-                            if let Some(open) = cx.update(|cx| open(POLKIT, data, tx, cx)) {
+                            if let Some(open) = cx.update(|cx| open_taking(POLKIT, data, tx, keyboard, cx)) {
                                 current = Some((request.cookie, open, answer));
                             }
                             password.clear();

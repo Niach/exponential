@@ -13,6 +13,12 @@
 //!   ([`super::AgentSpace::software_rendering`]) its programs see Mesa's
 //!   software Vulkan (lavapipe) alone. Without lavapipe installed a Vulkan
 //!   app fails as it would without this; the doctor says so.
+//! - The loader is pointed by `VK_ICD_FILENAMES` alone, never
+//!   `VK_DRIVER_FILES` (#EDE-180). Every loader reads the former when the
+//!   latter is unset, and Chromium's ANGLE replaces the former (not the
+//!   latter) with its own SwiftShader for `--use-angle=swiftshader`
+//!   ([`super::browsers`]). With `VK_DRIVER_FILES` a snap's Chromium found
+//!   no Vulkan driver (the manifest named is the host's) and had no WebGL.
 //!
 //! The switch is a space's own and on. #EDE-162 (F7) turns it off for a
 //! space that draws on the GPU (`frames::net::space_gpu_allowed`), before
@@ -30,10 +36,15 @@ use std::{
 
 use crate::{desk::DeskId, doctor::VULKAN_ICD_DIRS, state::Ede};
 
-/// The compositor's to set for a space's programs (in software and on the
-/// GPU), refused in a caller's `env`: `VK_DRIVER_FILES`, and
-/// `VK_ICD_FILENAMES` for Vulkan loaders before 1.3.207.
+/// The loader's driver variables: the compositor's to choose for a space's
+/// programs (in software, and on the GPU since #EDE-162), refused in a
+/// caller's `env`.
 pub const SET: [&str; 2] = ["VK_DRIVER_FILES", "VK_ICD_FILENAMES"];
+
+/// The one of [`SET`] a space renders in software with: the name every
+/// Vulkan loader reads when `VK_DRIVER_FILES` is unset, and the one ANGLE
+/// replaces with its SwiftShader.
+pub const POINTS: &str = "VK_ICD_FILENAMES";
 
 /// lavapipe's ICD manifests under `root` (`/` but in tests): in the
 /// loader's directories and each of `data_dirs` (`XDG_DATA_DIRS`), one per
@@ -82,8 +93,7 @@ pub fn software_environment(icds: &[PathBuf]) -> Vec<(&'static str, OsString)> {
     if icds.is_empty() {
         return Vec::new();
     }
-    let joined = std::env::join_paths(icds).unwrap_or_default();
-    SET.iter().map(|name| (*name, joined.clone())).collect()
+    vec![(POINTS, std::env::join_paths(icds).unwrap_or_default())]
 }
 
 /// #EDE-162: what a space's programs see of Vulkan. In software
@@ -127,7 +137,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lavapipe_is_found_once_per_architecture_and_set_for_both_loaders() {
+    fn lavapipe_is_found_once_per_architecture_and_set_where_angle_can_replace_it() {
         let root = tempfile::tempdir().unwrap();
         let put = |dir: &str, name: &str| {
             let dir = root.path().join(dir.trim_start_matches('/'));
@@ -143,7 +153,7 @@ mod tests {
         assert_eq!(found, [PathBuf::from("/opt/data/vulkan/icd.d/lvp_icd.i686.json"), PathBuf::from("/usr/share/vulkan/icd.d/lvp_icd.x86_64.json")]);
         let env = software_environment(&found);
         let expected = OsString::from("/opt/data/vulkan/icd.d/lvp_icd.i686.json:/usr/share/vulkan/icd.d/lvp_icd.x86_64.json");
-        assert_eq!(env, [("VK_DRIVER_FILES", expected.clone()), ("VK_ICD_FILENAMES", expected)]);
+        assert_eq!(env, [("VK_ICD_FILENAMES", expected)], "never VK_DRIVER_FILES, which ANGLE leaves alone (#EDE-180)");
         // Without lavapipe: nothing is pointed anywhere.
         let none = tempfile::tempdir().unwrap();
         assert!(lavapipe_icds(none.path(), None).is_empty());
@@ -157,11 +167,11 @@ mod tests {
         let lvp = [PathBuf::from("/usr/share/vulkan/icd.d/lvp_icd.json")];
         let intel = [PathBuf::from("/usr/share/vulkan/icd.d/intel_icd.json")];
         let both = OsString::from("/usr/share/vulkan/icd.d/intel_icd.json:/usr/share/vulkan/icd.d/lvp_icd.json");
-        assert_eq!(vulkan_environment(false, Some(&intel[..]), &lvp), [("VK_DRIVER_FILES", both.clone()), ("VK_ICD_FILENAMES", both)]);
+        assert_eq!(vulkan_environment(false, Some(&intel[..]), &lvp), [("VK_ICD_FILENAMES", both)]);
         let soft = OsString::from("/usr/share/vulkan/icd.d/lvp_icd.json");
-        assert_eq!(vulkan_environment(true, Some(&intel[..]), &lvp), [("VK_DRIVER_FILES", soft.clone()), ("VK_ICD_FILENAMES", soft.clone())]);
-        assert_eq!(vulkan_environment(true, None, &lvp), [("VK_DRIVER_FILES", soft.clone()), ("VK_ICD_FILENAMES", soft.clone())]);
-        assert_eq!(vulkan_environment(false, Some(&[][..]), &lvp), [("VK_DRIVER_FILES", soft.clone()), ("VK_ICD_FILENAMES", soft)], "its GPU's Vulkan driver not installed: lavapipe alone, never every GPU");
+        assert_eq!(vulkan_environment(true, Some(&intel[..]), &lvp), [("VK_ICD_FILENAMES", soft.clone())]);
+        assert_eq!(vulkan_environment(true, None, &lvp), [("VK_ICD_FILENAMES", soft.clone())]);
+        assert_eq!(vulkan_environment(false, Some(&[][..]), &lvp), [("VK_ICD_FILENAMES", soft)], "its GPU's Vulkan driver not installed: lavapipe alone, never every GPU");
         assert!(vulkan_environment(false, Some(&[][..]), &[]).is_empty(), "neither installed: nothing is pointed anywhere");
         assert!(vulkan_environment(false, None, &lvp).is_empty(), "the switch off without a GPU renderer: nothing is set (F3's switch as is)");
         assert_eq!(vulkan_icd_of("i915"), Some("intel_icd"));

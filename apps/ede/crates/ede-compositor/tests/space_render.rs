@@ -98,6 +98,16 @@ fn a_spaces_apps_that_ask_for_the_gpu_draw_in_software() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    // Pointed by the variable ANGLE replaces with its SwiftShader alone
+    // (#EDE-180): vulkaninfo above saw lavapipe alone through it.
+    let env = written(&{
+        let file = out("env-software.txt");
+        agent.launch(into("env", &file), Default::default(), None).unwrap();
+        file
+    });
+    assert!(env.lines().any(|line| line.starts_with("VK_ICD_FILENAMES=") && line.contains("lvp_icd")), "{env}");
+    assert!(!env.lines().any(|line| line.starts_with("VK_DRIVER_FILES=")), "{env}");
+
     // The switch off (a space with a GPU path, #EDE-162): Vulkan is left to
     // find its devices.
     assert!(h.with(move |state| state.set_space_software_rendering(desk, false)));

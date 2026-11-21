@@ -57,6 +57,7 @@ pub mod clone_manager;
 pub use eagent::codex_app_server;
 pub use eagent::codex_sessions;
 pub use eagent::codex_trust;
+pub mod computer_place;
 pub mod context_layout;
 pub mod continue_attempts;
 pub mod device_doctor;

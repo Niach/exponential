@@ -1,5 +1,5 @@
 //! What `space-enter` asks the guard, and where. One line each way:
-//! `probe` | `enter <spaces>`, then `ok` | `no <reason>`.
+//! `probe` | `probe wayland` | `enter <spaces>`, then `ok` | `no <reason>`.
 
 use std::path::Path;
 
@@ -7,11 +7,18 @@ use std::path::Path;
 pub const SOCKET: &str = "/run/exponential-space-guard.sock";
 /// The longest line either side sends.
 pub const MAX_LINE: usize = 512;
+/// A guard's reason for a line it does not know (a guard from before a
+/// request was added answers it so).
+pub const NOT_A_REQUEST: &str = "not a request";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Can the guard do its work on this machine (it loads its programs)?
     Probe,
+    /// The same, asked of a guard that also refuses the person's Wayland
+    /// socket (#EDE-145). A guard from before answers it
+    /// [`NOT_A_REQUEST`]: so the session knows which one it has.
+    ProbeWayland,
     /// Guard the space slice the asking process is in. `spaces` = the
     /// compositor's directory of spaces, whose sockets stay reachable.
     Enter { spaces: String },
@@ -21,6 +28,7 @@ impl Request {
     pub fn line(&self) -> String {
         match self {
             Request::Probe => "probe\n".into(),
+            Request::ProbeWayland => "probe wayland\n".into(),
             Request::Enter { spaces } => format!("enter {spaces}\n"),
         }
     }
@@ -29,8 +37,9 @@ impl Request {
         let line = line.strip_suffix('\n').unwrap_or(line);
         match line.split_once(' ') {
             None if line == "probe" => Ok(Request::Probe),
+            Some(("probe", "wayland")) => Ok(Request::ProbeWayland),
             Some(("enter", spaces)) if !spaces.is_empty() => Ok(Request::Enter { spaces: spaces.to_string() }),
-            _ => Err("not a request".into()),
+            _ => Err(NOT_A_REQUEST.into()),
         }
     }
 }
@@ -43,12 +52,26 @@ impl Request {
 pub fn spaces_dir_of(spaces: &str, uid: u32) -> Result<(), String> {
     let prefix = format!("/run/user/{uid}/exponential-desktop/");
     let name = spaces.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(".spaces")).ok_or_else(|| format!("{spaces:?} is not a directory of spaces of user {uid}"))?;
-    let ok = !name.is_empty() && name.len() <= 64 && !name.starts_with('.') && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
-    if ok && Path::new(spaces).components().count() == 6 {
+    if socket_name(name) && Path::new(spaces).components().count() == 6 {
         Ok(())
     } else {
         Err(format!("{spaces:?} is not a directory of spaces of user {uid}"))
     }
+}
+
+/// A Wayland socket's name as a directory of spaces may carry it.
+fn socket_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 64 && !name.starts_with('.') && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+/// #EDE-145: the name of the compositor's Wayland socket, which its
+/// directory of spaces is named after (`$XDG_RUNTIME_DIR/<name>` has
+/// `$XDG_RUNTIME_DIR/exponential-desktop/<name>.spaces`,
+/// `ede_protocol::spaces_path`): so `enter` hands the guard the person's
+/// socket. `None` = not that shape.
+pub fn display_of(spaces: &str) -> Option<&str> {
+    let name = spaces.rsplit_once('/')?.1.strip_suffix(".spaces")?;
+    socket_name(name).then_some(name)
 }
 
 /// The reply line for `result`.
@@ -75,10 +98,10 @@ mod tests {
 
     #[test]
     fn requests_and_replies_are_one_line_each() {
-        for request in [Request::Probe, Request::Enter { spaces: "/run/user/1000/exponential-desktop/wayland-1.spaces".into() }] {
+        for request in [Request::Probe, Request::ProbeWayland, Request::Enter { spaces: "/run/user/1000/exponential-desktop/wayland-1.spaces".into() }] {
             assert_eq!(Request::parse(&request.line()), Ok(request));
         }
-        for bad in ["", "enter", "enter ", "probe x", "attach /x", "PROBE"] {
+        for bad in ["", "enter", "enter ", "probe x", "probe wayland ", "probe  wayland", "attach /x", "PROBE"] {
             assert!(Request::parse(bad).is_err(), "{bad:?}");
         }
         assert_eq!(parse_reply(&reply(&Ok(()))), Ok(()));
@@ -101,6 +124,17 @@ mod tests {
             "/",
         ] {
             assert!(spaces_dir_of(bad, 1001).is_err(), "{bad}");
+        }
+    }
+
+    /// #EDE-145: the person's Wayland socket is the one the directory of
+    /// spaces is named after.
+    #[test]
+    fn the_directory_of_spaces_names_the_persons_wayland_socket() {
+        assert_eq!(display_of("/run/user/1000/exponential-desktop/wayland-1.spaces"), Some("wayland-1"));
+        assert_eq!(display_of("/run/user/1000/exponential-desktop/wayland-12.spaces"), Some("wayland-12"));
+        for bad in ["/run/user/1000/exponential-desktop/.spaces", "/run/user/1000/exponential-desktop/..spaces", "/run/user/1000/exponential-desktop/x#y.spaces", "/run/user/1000/exponential-desktop/wayland-1", "wayland-1.spaces", ""] {
+            assert_eq!(display_of(bad), None, "{bad}");
         }
     }
 }

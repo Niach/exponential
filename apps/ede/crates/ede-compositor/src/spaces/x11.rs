@@ -25,7 +25,10 @@ use smithay::{
     xwayland::{xwm::XwmId, X11Surface, X11Wm, XWayland, XWaylandEvent},
 };
 
+use smithay::wayland::selection::data_device::clear_data_device_selection;
+
 use crate::{
+    clipboard::Owner,
     desk::{DeskId, DeskTag},
     state::Ede,
 };
@@ -62,6 +65,8 @@ pub(crate) struct SpaceX11 {
     pub(crate) display: u32,
     /// Its window manager, once the server is ready.
     xwm: Option<X11Wm>,
+    /// Its X authority file ([`crate::xauth`]), removed at the close.
+    pub(crate) xauthority: std::path::PathBuf,
 }
 
 impl SpaceX11 {
@@ -80,6 +85,17 @@ pub(crate) enum XwmDesk {
     Gone,
 }
 
+impl XwmDesk {
+    /// The desk it acts on, `None` for a gone one.
+    pub(crate) fn desk(self) -> Option<DeskId> {
+        match self {
+            XwmDesk::Person => Some(DeskId::PERSON),
+            XwmDesk::Space(desk) => Some(desk),
+            XwmDesk::Gone => None,
+        }
+    }
+}
+
 impl Ede {
     /// Whose window manager `xwm` is.
     pub(crate) fn desk_of_xwm(&self, xwm: XwmId) -> XwmDesk {
@@ -90,6 +106,23 @@ impl Ede {
             Some(space) => XwmDesk::Space(space.desk.id),
             None => XwmDesk::Gone,
         }
+    }
+
+    /// Desk `desk`'s X11 window manager: the person's, or the space's own
+    /// once its Xwayland is ready.
+    pub(crate) fn desk_xwm(&mut self, desk: DeskId) -> Option<&mut X11Wm> {
+        if desk == DeskId::PERSON {
+            return self.xwm.as_mut();
+        }
+        self.spaces.get_mut(desk)?.x11.as_mut()?.xwm.as_mut()
+    }
+
+    /// The X11 window holding space `desk`'s keyboard is one of window
+    /// manager `xwm`'s: only that client reads the space's clipboard.
+    pub(crate) fn space_x11_focused(&self, desk: DeskId, xwm: XwmId) -> bool {
+        let Some(d) = self.try_desk(desk) else { return false };
+        let Some(focus) = d.seat.get_keyboard().and_then(|keyboard| keyboard.current_focus()) else { return false };
+        d.space.elements().any(|w| w.x11_surface().is_some_and(|x| x.xwm_id() == Some(xwm) && x.wl_surface().as_ref() == Some(&focus)))
     }
 
     /// Space `desk`'s Xwayland runs and its window manager with it.
@@ -111,10 +144,11 @@ impl Ede {
         if !self.spaces.x11 {
             return None;
         }
-        let space = self.spaces.get(desk)?;
-        if let Some(x11) = &space.x11 {
+        if let Some(x11) = &self.spaces.get(desk)?.x11 {
             return Some(x11.display);
         }
+        let tag = self.x11_tag();
+        let space = self.spaces.get(desk)?;
         let dir = std::path::Path::new("/tmp/.X11-unix");
         if !dir.exists() {
             use std::os::unix::fs::PermissionsExt;
@@ -123,8 +157,19 @@ impl Ede {
             }
         }
         let path = crate::doctor::xwayland_search_path(std::env::var_os("PATH").as_deref(), std::path::Path::new(crate::doctor::BUNDLED_XWAYLAND_DIR));
+        // Its own X authority (a new cookie per server): its apps get the
+        // file as `XAUTHORITY`, nothing else of the user's gets in.
+        let xauthority = crate::xauth::space_path(&crate::xauth::runtime_dir(), &tag, space.id.as_str());
+        let cookie = match crate::xauth::new_cookie().and_then(|cookie| crate::xauth::write(&xauthority, None, &cookie).map(|()| cookie)) {
+            Ok(cookie) => cookie,
+            Err(e) => {
+                tracing::warn!("{}: its X authority: {e} (X11 apps won't run in it)", space.id.as_str());
+                return None;
+            }
+        };
+        let auth = [std::ffi::OsString::from("-auth"), xauthority.clone().into_os_string()];
         let spawned = (FIRST_DISPLAY..=LAST_DISPLAY).find_map(|display| {
-            XWayland::spawn(&self.display_handle, display, [("PATH", path.clone())], std::iter::empty::<&str>(), true, Stdio::null(), Stdio::null(), |data| {
+            XWayland::spawn(&self.display_handle, display, [("PATH", path.clone())], auth.iter(), true, Stdio::null(), Stdio::null(), |data| {
                 // The space's: it binds the space's seat and output alone.
                 data.insert_if_missing(|| DeskTag(desk));
             })
@@ -135,6 +180,10 @@ impl Ede {
             tracing::warn!("{}: no Xwayland (X11 apps won't run in it)", space.id.as_str());
             return None;
         };
+        // Its number now that it has one: what Xlib looks up.
+        if let Err(e) = crate::xauth::write(&xauthority, Some(display), &cookie) {
+            tracing::warn!("{}: its X authority: {e}", space.id.as_str());
+        }
         let ready_client = client.clone();
         let inserted = self.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, .. } => {
@@ -146,6 +195,9 @@ impl Ede {
                         if let Some(x11) = &mut space.x11 {
                             x11.xwm = Some(wm);
                         }
+                        // What the space copied before its Xwayland ran (the
+                        // agent's text for an X11 app it launches next).
+                        state.xwm_selection_now(desk);
                     }
                     Err(e) => tracing::warn!("{}: X11 window manager failed: {e}", space.id.as_str()),
                 }
@@ -173,7 +225,7 @@ impl Ede {
             self.spaces.get_mut(desk)?.desk.x11_focus = (seat, None);
         }
         let space = self.spaces.get_mut(desk)?;
-        space.x11 = Some(SpaceX11 { token, client, display, xwm: None });
+        space.x11 = Some(SpaceX11 { token, client, display, xwm: None, xauthority });
         Some(display)
     }
 
@@ -231,6 +283,12 @@ impl Ede {
         space.desk.pending_x11_focus = None;
         let focused = space.desk.x11_focus.1.take();
         let seat = space.desk.x11_focus.0.clone();
+        // An X11 copy went with its server.
+        if matches!(space.desk.clipboard.owner, Owner::X11(_)) {
+            space.desk.clipboard.changed(Owner::Empty);
+            let main = space.desk.seat.clone();
+            clear_data_device_selection(&self.display_handle, &main);
+        }
         // The client first: nothing it buffered reaches a handler of a
         // window manager that is gone.
         self.loop_handle.remove(x11.token);
@@ -262,6 +320,7 @@ impl Ede {
     /// waits for its connection to close.
     pub(crate) fn space_x11_closed(&mut self, x11: Option<SpaceX11>) {
         let Some(x11) = x11 else { return };
+        let _ = std::fs::remove_file(&x11.xauthority);
         // Its Wayland client is killed with the source, but the socket
         // closes only at the display's next dispatch, which an idle desk
         // may not have for a while: the server is told to end as well.

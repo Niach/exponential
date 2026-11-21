@@ -234,15 +234,50 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
     },
-    /// The agent space process `pid` belongs to (#EDE-127):
-    /// `Option<`[`ProcessSpace`]`>`, `null` = the person's (or nobody's).
-    /// eDE's polkit agent asks before it shows the person a prompt, and
-    /// refuses a request from a space. `system` only.
+    /// The agent space process `pid` belongs to (#EDE-127), and whether it
+    /// is the person's session's (#EDE-143): a [`ProcessAnswer`]. eDE's
+    /// polkit agent asks before it shows the person a prompt: it refuses a
+    /// request from a space, and shows one from outside the session
+    /// without the keyboard. `system` only.
     SpaceOfProcess { pid: u32 },
+    /// Whether this desktop gives a person's runs an agent space now
+    /// (#EXP-1514): [`SpaceReadiness`]. Any valid person-scope grant (as
+    /// `list_windows`); never a space grant's. Asked only of a compositor
+    /// whose hello says [`FEATURE_SPACE_READINESS`]; an older one cannot
+    /// read it ([`Error::Unsupported`]).
+    SpaceReadiness,
+    /// The caller's space counts as busy for [`SPACE_BUSY_SECS`] (#EXP-1514,
+    /// D 10): its session's turn runs, so a full desktop does not close it
+    /// for a new space. A space grant only, its own space only.
+    SpaceBusy,
 }
+
+/// How long one [`Request::SpaceBusy`] keeps a space from giving way.
+pub const SPACE_BUSY_SECS: u64 = 90;
 
 /// In [`Hello::features`]: this compositor makes agent spaces.
 pub const FEATURE_SPACES: &str = "spaces";
+
+/// In [`Hello::features`]: this compositor answers
+/// [`Request::SpaceReadiness`] (#EXP-1514). `spaces` alone (eDE 0.2.29)
+/// does not offer a space to anyone: a client makes one only after a
+/// `ready` answer.
+pub const FEATURE_SPACE_READINESS: &str = "space-readiness";
+
+/// A [`Request::SpaceReadiness`] reply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceReadiness {
+    pub ready: bool,
+    /// Why not, when not ready: `no_user_manager`, `session`, `driver`, or
+    /// a block this build does not know (still a no).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block: Option<String>,
+    /// How many spaces this desktop holds at most: a refused
+    /// [`Request::CreateSpace`] (`limit`) with that many spaces open is a
+    /// full desktop, with fewer it is out of memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+}
 
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,13 +316,49 @@ pub enum Membership {
     Unknown,
 }
 
-/// A [`Request::SpaceOfProcess`] reply: the asked process, or the process
-/// `pid` it descends from, is tied to `space` `by` that.
+/// The asked process, or the process `pid` it descends from, is tied to
+/// `space` `by` that ([`ProcessAnswer::space`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessSpace {
     pub space: SpaceId,
     pub by: Membership,
     pub pid: u32,
+}
+
+/// A [`Request::SpaceOfProcess`] reply (#EDE-127, #EDE-143): the space the
+/// process belongs to, if any, and what the polkit agent needs to tell the
+/// person's own processes from everything else of their user.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessAnswer {
+    pub space: Option<ProcessSpace>,
+    /// It runs in the compositor's own cgroup (the person's login session
+    /// scope): a process no space can get back into.
+    #[serde(default)]
+    pub session: bool,
+    /// A space of this compositor has launches alive outside systemd
+    /// scopes (no user manager): such a process can sit in the session's
+    /// cgroup too, so `session` vouches for no one meanwhile.
+    #[serde(default)]
+    pub unscoped_launches: bool,
+    /// No agent space of this compositor exists: none open, no closed one's
+    /// slice still stopping, no launch alive. The polkit agent then gives
+    /// every prompt the keyboard, as before #EDE-143. `false` from a
+    /// compositor that does not say.
+    #[serde(default)]
+    pub no_space: bool,
+}
+
+impl ProcessAnswer {
+    /// The reply as it comes: this answer, or an older compositor's (`null`
+    /// for the person's, a bare [`ProcessSpace`]), which says nothing of
+    /// the session.
+    pub fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        match value {
+            serde_json::Value::Null => Ok(Self::default()),
+            serde_json::Value::Object(ref fields) if fields.contains_key("by") => Ok(Self { space: Some(serde_json::from_value(value)?), ..Self::default() }),
+            other => serde_json::from_value(other),
+        }
+    }
 }
 
 /// A [`Request::Launch`] reply.
@@ -457,7 +528,7 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition => None,
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
@@ -466,7 +537,7 @@ impl Request {
                 Some(Capability::InputPerson)
             }
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
-            Request::CreateSpace { .. } | Request::Launch { .. } => Some(Capability::Space),
+            Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
             Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
         }
     }
@@ -478,7 +549,7 @@ impl Request {
     /// wildcard arm: a new op is outside until it is written here.
     pub fn in_space(&self) -> bool {
         match self {
-            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => true,
+            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceBusy => true,
             Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::PointerPosition => true,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
@@ -486,7 +557,7 @@ impl Request {
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
-            Request::SpaceOfProcess { .. } => false,
+            Request::SpaceOfProcess { .. } | Request::SpaceReadiness => false,
         }
     }
 }
@@ -614,6 +685,11 @@ impl Hello {
     /// asks for one and never falls back to the person's seat.
     pub fn offers_spaces(&self) -> bool {
         self.features.iter().any(|f| f == FEATURE_SPACES)
+    }
+
+    /// The compositor answers [`Request::SpaceReadiness`] (#EXP-1514).
+    pub fn says_space_readiness(&self) -> bool {
+        self.features.iter().any(|f| f == FEATURE_SPACE_READINESS)
     }
 }
 
@@ -870,6 +946,8 @@ pub struct Client {
     token: Token,
     pub hello: Hello,
     call_timeout: std::time::Duration,
+    /// [`Client::connect_within`]: no call of this connection waits past it.
+    deadline: Option<std::time::Instant>,
 }
 
 /// How long a call waits for the compositor to take it and to answer
@@ -884,14 +962,28 @@ impl Client {
         Self::over(UnixStream::connect(socket)?, token)
     }
 
+    /// [`Client::connect`] under ONE deadline over the connect, the hello
+    /// and every call after it (#EXP-1514: a client asking whether a space
+    /// is ready must not wait [`CALL_TIMEOUT`] per step on a desktop that
+    /// does not answer). Past it a call fails `TimedOut` at once.
+    pub fn connect_within(socket: &Path, token: Token, deadline: std::time::Duration) -> Result<Self, Error> {
+        let until = std::time::Instant::now() + deadline;
+        let stream = UnixStream::connect(socket)?;
+        Self::over_until(stream, token, CALL_TIMEOUT, Some(until))
+    }
+
     /// Hello over an already connected stream.
     pub fn over(stream: UnixStream, token: Token) -> Result<Self, Error> {
         Self::over_within(stream, token, CALL_TIMEOUT)
     }
 
     fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
+        Self::over_until(stream, token, call_timeout, None)
+    }
+
+    fn over_until(stream: UnixStream, token: Token, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout };
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -972,9 +1064,19 @@ impl Client {
     /// of what this connection held). Waiting for events keeps its own
     /// timeout ([`Client::set_read_timeout`]).
     fn within<T>(&mut self, exchange: impl FnOnce(&mut Self, std::time::Instant) -> Result<T, Error>) -> Result<T, Error> {
+        let now = std::time::Instant::now();
+        let until = self.deadline.map_or(now + self.call_timeout, |deadline| deadline.min(now + self.call_timeout));
+        let left = until.saturating_duration_since(now);
+        if left.is_zero() {
+            let _ = self.stream.shutdown(std::net::Shutdown::Both);
+            return Err(Error::Io(std::io::ErrorKind::TimedOut.into()));
+        }
         let events = self.stream.read_timeout().ok().flatten();
-        let _ = self.stream.set_read_timeout(Some(self.call_timeout));
-        let out = exchange(self, std::time::Instant::now() + self.call_timeout);
+        let _ = self.stream.set_read_timeout(Some(left));
+        if self.deadline.is_some() {
+            let _ = self.stream.set_write_timeout(Some(left));
+        }
+        let out = exchange(self, until);
         let _ = self.stream.set_read_timeout(events);
         if matches!(out, Err(Error::Io(_))) {
             let _ = self.stream.shutdown(std::net::Shutdown::Both);
@@ -1141,9 +1243,22 @@ impl Client {
         self.call_as::<Launched>(Request::Launch { argv, env, cwd }).map(|l| l.pid)
     }
 
-    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to, `None` = the person's.
-    pub fn space_of_process(&mut self, pid: u32) -> Result<Option<ProcessSpace>, Error> {
-        self.call_as(Request::SpaceOfProcess { pid })
+    /// [`Request::SpaceReadiness`]: ask only when the hello
+    /// [`Hello::says_space_readiness`].
+    pub fn space_readiness(&mut self) -> Result<SpaceReadiness, Error> {
+        self.call_as(Request::SpaceReadiness)
+    }
+
+    /// [`Request::SpaceBusy`]: this grant's space is busy for [`SPACE_BUSY_SECS`].
+    pub fn space_busy(&mut self) -> Result<(), Error> {
+        self.call(Request::SpaceBusy).map(|_| ())
+    }
+
+    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to (`None` =
+    /// none), whether it runs in the person's session, and whether spaces
+    /// have launches outside systemd scopes.
+    pub fn space_of_process(&mut self, pid: u32) -> Result<ProcessAnswer, Error> {
+        ProcessAnswer::from_wire(self.call(Request::SpaceOfProcess { pid })?).map_err(|e| Error::Protocol(e.to_string()))
     }
 
     /// [`Request::LaunchToken`]: for the environment of a launch the person made.
@@ -1414,6 +1529,36 @@ mod tests {
         for (by, name) in [(Membership::Cgroup, "cgroup"), (Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
             assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
         }
+        // #EDE-143: the answer with the session's flags, and what an older
+        // compositor sends (`null`, a bare tie, no `no_space`) read as one;
+        // one that does not say there is no space is taken to have one.
+        let answer = ProcessAnswer { space: tied.clone(), session: false, unscoped_launches: true, no_space: false };
+        let json = serde_json::to_value(&answer).unwrap();
+        assert_eq!(json, serde_json::json!({"space": {"space": "space-2", "by": "environment", "pid": 4241}, "session": false, "unscoped_launches": true, "no_space": false}));
+        assert_eq!(ProcessAnswer::from_wire(json).unwrap(), answer);
+        let none = ProcessAnswer { space: None, session: false, unscoped_launches: false, no_space: true };
+        assert_eq!(ProcessAnswer::from_wire(serde_json::to_value(&none).unwrap()).unwrap(), none);
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": null, "session": true, "unscoped_launches": false})).unwrap(), ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
+        assert_eq!(ProcessAnswer::from_wire(serde_json::Value::Null).unwrap(), ProcessAnswer::default());
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241})).unwrap(), ProcessAnswer { space: tied, ..ProcessAnswer::default() });
+    }
+
+    /// #EXP-1514: `space_readiness` and its answer on the wire; a block and
+    /// a count are absent when there is none, and a block this build does
+    /// not know still reads (as a no).
+    #[test]
+    fn space_readiness_is_flat_json_and_round_trips() {
+        for (request, op) in [(Request::SpaceReadiness, "space_readiness"), (Request::SpaceBusy, "space_busy")] {
+            let call = Call { id: 1, request };
+            let json = serde_json::json!({"id": 1, "op": op});
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let ready = SpaceReadiness { ready: true, block: None, max: Some(8) };
+        assert_eq!(serde_json::to_value(&ready).unwrap(), serde_json::json!({"ready": true, "max": 8}));
+        let blocked: SpaceReadiness = serde_json::from_value(serde_json::json!({"ready": false, "block": "later"})).unwrap();
+        assert_eq!(blocked, SpaceReadiness { ready: false, block: Some("later".into()), max: None });
+        assert_eq!(serde_json::from_value::<SpaceReadiness>(serde_json::to_value(&blocked).unwrap()).unwrap(), blocked);
     }
 
     /// `Hello` as it was before `features`: what an old client parses a reply into.
@@ -1435,6 +1580,8 @@ mod tests {
         assert!(old.features.is_empty() && !old.offers_spaces(), "an older compositor offers no spaces");
         let new = hello(&[FEATURE_SPACES, "later"]);
         assert!(new.offers_spaces());
+        // #EXP-1514: eDE 0.2.29 says `spaces` and cannot say a space is ready.
+        assert!(!new.says_space_readiness() && hello(&[FEATURE_SPACES, FEATURE_SPACE_READINESS]).says_space_readiness());
         let wire = serde_json::to_string(&new).unwrap();
         assert_eq!(serde_json::from_str::<Hello>(&wire).unwrap(), new);
         assert_eq!(serde_json::from_str::<OldHello>(&wire).unwrap().version, 1);
@@ -1598,19 +1745,25 @@ mod tests {
             (Request::ListSpaces, true),
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
             (Request::SpaceOfProcess { pid: 42 }, false),
+            (Request::SpaceReadiness, false),
+            (Request::SpaceBusy, true),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 37, "one row per variant at least");
+        assert_eq!(seen.len(), 39, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
         assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
         assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
         assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), Some(Capability::System));
+        // #EXP-1514: any person-scope grant asks it, as `list_windows`.
+        assert_eq!(Request::SpaceReadiness.capability(), None);
+        // D 10: a space grant's own word for its own space.
+        assert_eq!(Request::SpaceBusy.capability(), Some(Capability::Space));
     }
 
     /// The op's name; no wildcard, so a new variant fails to compile here
@@ -1654,6 +1807,8 @@ mod tests {
             Request::ListSpaces => "list_spaces",
             Request::Launch { .. } => "launch",
             Request::SpaceOfProcess { .. } => "space_of_process",
+            Request::SpaceReadiness => "space_readiness",
+            Request::SpaceBusy => "space_busy",
         }
     }
 
@@ -1698,6 +1853,46 @@ mod tests {
             first && client.windows().is_err()
         });
         assert!(failed);
+    }
+
+    /// #EXP-1514: one deadline over the hello and every call after it, not
+    /// [`CALL_TIMEOUT`] per step: a desktop that does not answer, or
+    /// answers the hello and then nothing, fails inside it.
+    #[cfg(unix)]
+    #[test]
+    fn connect_within_keeps_one_deadline() {
+        let dir = std::env::temp_dir().join(format!("ede-within-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bind = |name: &str| {
+            let socket = dir.join(name);
+            let _ = std::fs::remove_file(&socket);
+            (std::os::unix::net::UnixListener::bind(&socket).unwrap(), socket)
+        };
+        let token = Token::new("0".repeat(64)).unwrap();
+        // Accepted by the kernel, never answered (a stopped compositor).
+        let (_stopped, socket) = bind("stopped.sock");
+        let started = std::time::Instant::now();
+        assert!(finishes("a silent hello", { let token = token.clone(); move || Client::connect_within(&socket, token, SHORT).is_err() }));
+        assert!(started.elapsed() < SHORT * 5, "{:?}", started.elapsed());
+        // The hello answered, the call never: the call fails by the same deadline.
+        let (listener, socket) = bind("silent.sock");
+        let peer = std::thread::spawn(move || {
+            let (mut theirs, _) = listener.accept().unwrap();
+            let _ = read_frame(&mut theirs);
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![FEATURE_SPACE_READINESS.into()], unknown_capabilities: vec![] };
+            write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() }).unwrap()).unwrap();
+            // Read the call, answer nothing, until the client lets go.
+            while read_frame(&mut theirs).is_ok() {}
+        });
+        let started = std::time::Instant::now();
+        let failed = finishes("a silent answer", move || {
+            let mut client = Client::connect_within(&socket, token, SHORT * 2).unwrap();
+            assert!(client.hello.says_space_readiness());
+            client.space_readiness().is_err()
+        });
+        assert!(failed && started.elapsed() < SHORT * 5, "{:?}", started.elapsed());
+        peer.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

@@ -187,6 +187,32 @@ final class DeviceReadinessTests: XCTestCase {
         )
     }
 
+    /// #EXP-1514: the `agent_space` row (parent `computer_use`, its own
+    /// label) draws no row under an off switch; under an on one it is
+    /// indented with its own label and the device's detail.
+    func testAnAgentSpaceRowUnderAnOffSwitchDrawsNoRow() {
+        func doctor(_ switchState: String) -> DeviceDoctor {
+            DeviceDoctor(items: [
+                .init(key: "git", group: "required", state: "ok", detail: "2.55.0"),
+                .init(key: "computer_use", group: "computer_use", state: switchState),
+                .init(
+                    key: "agent_space", group: "computer_use", parent: "computer_use",
+                    label: "Agent space", state: "ok", detail: "Ready"
+                ),
+            ])
+        }
+        func rows(_ doctor: DeviceDoctor, on: Bool? = nil) -> [DeviceReadiness.Row] {
+            DeviceReadiness.groups(doctor, remote: true, computerUseOn: on).flatMap(\.rows)
+        }
+        XCTAssertEqual(rows(doctor("off")).map(\.key), ["git", "computer_use"])
+        XCTAssertEqual(rows(doctor("ok"), on: false).map(\.key), ["git", "computer_use"])
+        let space = rows(doctor("ok")).first { $0.key == "agent_space" }
+        XCTAssertEqual(space?.label, "Agent space")
+        XCTAssertEqual(space?.detail, "Ready")
+        XCTAssertEqual(space?.indented, true)
+        XCTAssertEqual(space?.isSwitch, false)
+    }
+
     func testAttentionRows() throws {
         let f = try fixture()
         XCTAssertEqual(DeviceReadiness.attentionRows(f.cases[0].doctor, remote: true).map(\.key), [])

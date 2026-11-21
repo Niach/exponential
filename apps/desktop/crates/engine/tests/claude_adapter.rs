@@ -401,6 +401,7 @@ fn spec_env(
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         },
         mcp: coding::AgentMcp::ClaudeInline {
             url: "https://app.example/api/mcp".to_string(),

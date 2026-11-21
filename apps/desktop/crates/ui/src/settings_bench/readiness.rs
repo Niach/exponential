@@ -51,7 +51,7 @@ impl BlockShot {
             BlockKind::Device { model, screen } => (model.to_string(), screen),
             _ => (settings.computer_use_model.clone(), None),
         };
-        let screens = domain::work_screen::work_screen_options(&crate::coding_selects::demo_displays(), screen);
+        let screens = domain::work_screen::work_screen_options(&crate::coding_selects::demo_displays(), screen, false);
         Self {
             kind,
             tail: crate::device_settings::computer_use_tail(model, crate::coding_selects::work_screen_value(screen).to_string(), &screens),

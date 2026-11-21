@@ -1017,6 +1017,7 @@ impl LaunchOptionsSection {
             // the machine's switch.
             computer_use: (self.computer_use_offered(cx) && self.computer_use == Some(false))
                 .then_some(false),
+            computer_place: Default::default(),
         }
     }
 
