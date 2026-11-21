@@ -235,6 +235,10 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
+        // #EDE-183: what it started outside its slice and its launches'
+        // groups, found while its launches still run (their descendants
+        // still descend from them).
+        let strays = self.traced_to_space(id);
         #[cfg(feature = "xwayland")]
         let x11 = self.spaces.list[at].x11.take();
         let AgentSpace { id: name, desk, output, output_global, dir, listener, clients, sliced, mut session, browser_dirs, .. } = self.spaces.list.remove(at);
@@ -265,6 +269,7 @@ impl Ede {
         // What was launched is told to end first: it writes in its home.
         let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
+        self.space_strays_closed(strays);
         if sliced {
             self.space_flatpaks_closed(id.number());
             self.space_slice_closed(id.number());

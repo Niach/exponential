@@ -997,6 +997,16 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   under the user manager belongs to that user: a process that works at it
   raises its own limits or moves itself into another cgroup. The slice
   guards against the accidents of ordinary programs (#EDE-145).
+- **The close also ends what got out** (#EDE-183). A close ends the slice
+  and the launches' process groups. It also ends every process the
+  compositor ties to the space some other way: it descends from one of the
+  space's launches, or the space's directory is in its environment. That
+  holds wherever the process's cgroup is now, and also for a process that
+  left its launch's group. Each one is told to end, and killed after 2 s.
+  Until then a space still counts as there for the polkit prompt's class
+  (#EDE-143), so such a process never gets the person's keyboard prompt. A
+  process that cleared its environment, left its launch's lineage and
+  group, and left the slice is tied to nothing (#EDE-145).
 
 ## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
 
