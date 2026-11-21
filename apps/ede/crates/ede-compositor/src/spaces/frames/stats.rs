@@ -2,7 +2,7 @@
 //! frames. With `EXP_FRAME_STATS=1` every space tick and capture pass is
 //! timed in thread CPU (what that thread spent, not the wall clock a
 //! loaded machine stretches), and the loop's own lateness is sampled; a
-//! line goes to stderr every 5 s. These numbers stay apart from the
+//! line goes to stderr every 5 s (from the log's thread, #EDE-185). These numbers stay apart from the
 //! person's frame times (`ede_observability`'s histogram and Sentry's
 //! frames): space work is not a frame of the person's.
 
@@ -97,7 +97,8 @@ impl Stats {
         if over < PRINT_EVERY {
             return;
         }
-        eprintln!("exponential-desktop: {}", self.summary(over));
+        // #EDE-185: through the log's thread, never a write on this one.
+        ede_observability::log_line(format_args!("exponential-desktop: {}", self.summary(over)));
         let on = self.on;
         *self = Self { on, ..Self::default() };
     }
@@ -166,5 +167,44 @@ mod tests {
         }
         std::hint::black_box(x);
         assert!(thread_cpu() > before);
+    }
+
+    /// #EDE-185: the compositor writes no line to stderr or stdout itself:
+    /// its log and these summaries go through ede-observability's log
+    /// thread, so a busy disk never holds the main loop. Direct prints stay
+    /// where no loop runs: the command line (`main.rs`, the doctor) and a
+    /// launch into a space that fails before it becomes its program
+    /// (`spaces/slice.rs`'s `failed`).
+    #[test]
+    fn nothing_on_the_main_loop_prints() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut dirs = vec![src.clone()];
+        let mut prints = std::collections::BTreeMap::<String, Vec<usize>>::new();
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let name = path.strip_prefix(&src).unwrap().to_string_lossy().into_owned();
+                if name == "main.rs" || name == "doctor.rs" {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+                for (i, line) in code.lines().enumerate() {
+                    let line = line.split("//").next().unwrap();
+                    if ["print!", "println!", "dbg!", "io::stderr", "io::stdout"].iter().any(|p| line.contains(p)) {
+                        prints.entry(name.clone()).or_default().push(i + 1);
+                    }
+                }
+            }
+        }
+        let files: Vec<(&str, usize)> = prints.iter().map(|(name, lines)| (name.as_str(), lines.len())).collect();
+        assert_eq!(files, [("spaces/slice.rs", 1)], "a print on the compositor's thread waits on stderr (ede_observability::log_line instead): {prints:?}");
     }
 }
