@@ -15,8 +15,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use coding::device_doctor::{
-    self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_COMPUTER_USE,
-    KEY_GIT,
+    self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_AGENT_SPACE,
+    KEY_COMPUTER_USE, KEY_GIT,
 };
 use coding::doctor::ToolCheck;
 use coding::CodingAgent;
@@ -29,7 +29,8 @@ pub fn run(args: &[String]) -> CommandResult {
     let data_dir = context::data_dir();
     let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
     let doctor = local_doctor(&settings, &data_dir, true);
-    for line in render_block(&doctor, Some(&api::users::hostname())) {
+    let space_cause = device_doctor::agent_space_cause();
+    for line in render_doctor(&doctor, Some(&api::users::hostname()), space_cause.as_deref()) {
         println!("{line}");
     }
     let blocked = nothing_can_run(&doctor);
@@ -60,6 +61,11 @@ pub fn local_doctor(settings: &coding::Settings, data_dir: &Path, deep: bool) ->
         // presence. A hand-typed `exponential doctor` can afford the real
         // handshake.
         deep_probe_codex_acp(settings, &mut report.codex);
+    }
+    // #EXP-1514: this process asks once: the agent space row reads the
+    // desktop's first answer, not an empty cache (a host reads its cache).
+    if settings.computer_use {
+        let _ = coding::computer::space_offer_settled(std::time::Duration::from_secs(3));
     }
     let mut doctor = device_doctor::current(settings, data_dir, &report);
     // #FEED-192: the key holder lives in the daemon's process, so read its
@@ -147,6 +153,13 @@ fn row(indent: usize, item: &DoctorItem, label: &str) -> String {
 /// (or its detail), `– Off` while switched off; permission rows indent under
 /// it.
 pub fn render_block(doctor: &DeviceDoctor, device_label: Option<&str>) -> Vec<String> {
+    render_doctor(doctor, device_label, None)
+}
+
+/// [`render_block`] with the cause behind the agent space row's Not
+/// available here (#EXP-1514; the device's log names it too), on that row
+/// or on the switch row that carries it (Agent space only).
+pub fn render_doctor(doctor: &DeviceDoctor, device_label: Option<&str>, space_cause: Option<&str>) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(label) = device_label {
         lines.push(format!("This device: {label}"));
@@ -162,15 +175,20 @@ pub fn render_block(doctor: &DeviceDoctor, device_label: Option<&str>) -> Vec<St
         }
         lines.push(group_header(group));
         for item in items {
+            let caused = |line: String| match space_cause {
+                Some(cause) if item.key == KEY_AGENT_SPACE && item.detail.as_deref() == Some(device_doctor::UNAVAILABLE) => format!("{line}  ({cause})"),
+                Some(cause) if item.key == KEY_COMPUTER_USE && item.detail.as_deref() == Some(device_doctor::space_only_blocked(device_doctor::UNAVAILABLE).as_str()) => format!("{line}  ({cause})"),
+                _ => line,
+            };
             if item.key == KEY_COMPUTER_USE {
                 let text = match (item.state, item.detail.as_deref()) {
                     (DoctorState::Off, _) => "Off",
                     (_, Some(detail)) => detail,
                     _ => "On",
                 };
-                lines.push(format!("  {} {text}", glyph(item.state)));
+                lines.push(caused(format!("  {} {text}", glyph(item.state))));
             } else if item.parent.is_some() {
-                lines.push(row(4, item, device_doctor::item_label(item)));
+                lines.push(caused(row(4, item, device_doctor::item_label(item))));
             } else {
                 lines.push(row(2, item, device_doctor::item_label(item)));
             }
@@ -225,6 +243,24 @@ mod tests {
                 "  – Off",
             ]
         );
+    }
+
+    /// #EXP-1514: the agent space row indents under the switch; behind Not
+    /// available here `exponential doctor` names the cause, on the row or on
+    /// the switch row of a blocked pick.
+    #[test]
+    fn renders_the_agent_space_row_and_its_cause() {
+        let tail = |index: usize, cause: Option<&str>| render_doctor(&case(index), None, cause)[7..].to_vec();
+        assert_eq!(tail(15, None), ["Computer use (optional)", "  ✓ On", "    ✓ Agent space       Ready"]);
+        assert_eq!(tail(16, None)[2], "    – Agent space       Needs Exponential Desktop");
+        assert_eq!(tail(17, Some("ignored")), ["Computer use (optional)", "  ✓ On", "    – Agent space       Update Exponential Desktop"], "a cause only behind Not available here");
+        assert_eq!(tail(18, None)[2], "    – Agent space       Not available here");
+        assert_eq!(tail(18, Some("no systemd user manager"))[2], "    – Agent space       Not available here  (no systemd user manager)");
+        assert_eq!(tail(19, None), ["Computer use (optional)", "  – Agent space · Update Exponential Desktop"]);
+        let mut blocked = case(19);
+        blocked.items[3].detail = Some(device_doctor::space_only_blocked(device_doctor::UNAVAILABLE));
+        assert_eq!(render_doctor(&blocked, None, Some("an agent space's session did not start"))[8], "  – Agent space · Not available here  (an agent space's session did not start)");
+        assert_eq!(render_block(&case(18), None), render_doctor(&case(18), None, None));
     }
 
     /// One agent is enough: the ready case passes whatever the default

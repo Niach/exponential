@@ -436,6 +436,13 @@ pub fn space_offer() -> SpaceOffer {
     backend::space_offer()
 }
 
+/// #EXP-1514: [`space_offer`] for a process that asks once and ends
+/// (`exponential doctor`): it waits up to `within` for the desktop's first
+/// answer instead of reading an empty cache. Never on a host's beat.
+pub fn space_offer_settled(within: std::time::Duration) -> SpaceOffer {
+    backend::space_offer_settled(within)
+}
+
 /// #EDE-126: admit the run `session_id` into an agent space of its own
 /// (eDE): it drives that space and nothing of the person's. No round trip
 /// (#EXP-1514): its first call asks the desktop, and a desktop that does

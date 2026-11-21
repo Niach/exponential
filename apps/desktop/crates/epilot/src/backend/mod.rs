@@ -773,6 +773,17 @@ pub(crate) fn space_offer() -> crate::SpaceOffer {
     crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop)
 }
 
+/// #EXP-1514: [`space_offer`] for a process that asks once and ends
+/// ([`crate::space_offer_settled`]).
+pub(crate) fn space_offer_settled(within: std::time::Duration) -> crate::SpaceOffer {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        return ede::space_offer_settled(&session, within);
+    }
+    let _ = within;
+    space_offer()
+}
+
 /// [`space_offer`] for this eDE session (`None` = not eDE).
 #[cfg(target_os = "linux")]
 pub(crate) fn space_offer_of(session: Option<Result<ede::Session, String>>) -> crate::SpaceOffer {
