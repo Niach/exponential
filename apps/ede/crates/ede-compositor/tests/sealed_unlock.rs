@@ -152,7 +152,10 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
     // unable to start. A start that waited on any of it would take the
     // config fetch's 10 s at least.
     let tarpit = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    tarpit.set_nonblocking(true).unwrap();
     let server = format!("http://{}", tarpit.local_addr().unwrap());
+    // The calls it took, held open and never answered until the test ends.
+    let mut calls = Vec::new();
     let reporting = dir.path().join("reporting");
     let (data, cache, config) = (reporting.join("data"), reporting.join("cache"), reporting.join("config"));
     let crashes = cache.join("exponential-desktop").join("crashes");
@@ -177,12 +180,14 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
             "EXP_SENTRY_DSN=https://publickey@glitchtip.example/9".to_string(),
         ]
     };
+    // The case, its environment, and whether it has a report to send (the
+    // earlier launch's crash report).
     let cases = [
-        ("reporting off", vec!["EXP_DIAGNOSTICS=0".to_string()]),
-        ("a server that never answers", on(&cache)),
-        ("no crash monitor (its directory cannot be made)", on(&not_a_directory)),
+        ("reporting off", vec!["EXP_DIAGNOSTICS=0".to_string()], false),
+        ("a server that never answers", on(&cache), true),
+        ("no crash monitor (its directory cannot be made)", on(&not_a_directory), false),
     ];
-    for (case, env) in cases {
+    for (case, env, reports) in cases {
         let argv: Vec<String> = std::iter::once("env".to_string()).chain(env).chain([bin.clone(), "lock".into()]).collect();
         let started = Instant::now();
         h.with(move |ede| ede.begin_sealed_lock_with(argv));
@@ -192,11 +197,22 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
         let took = started.elapsed();
         assert!(took < Duration::from_secs(10), "{case}: the lock waited on its error reporting ({took:?})");
         assert!(is_locked(&h), "{case}");
+        if reports {
+            // The report did try to go: the never-answering server was
+            // called. #EDE-188: it goes out in the background, so the call
+            // is waited for while this lock is up (a single look after the
+            // cases missed it on a busy runner); the unlock below then runs
+            // with the report hanging on the server.
+            wait(&format!("{case}: reporting was on, the server was never called"), || match tarpit.accept() {
+                Ok((call, _)) => {
+                    calls.push(call);
+                    true
+                }
+                Err(_) => false,
+            });
+        }
         type_keys(&h, &[A, S, D, F, ENTER]);
         wait(&format!("{case}: the right password did not unlock"), || !is_locked(&h));
         eprintln!("{case}: locked in {took:?}, unlocked");
     }
-    // The reports did try to go: the never-answering server was called.
-    tarpit.set_nonblocking(true).unwrap();
-    assert!(tarpit.accept().is_ok(), "reporting was on, the server was never called");
 }
