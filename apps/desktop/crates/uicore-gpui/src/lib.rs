@@ -594,6 +594,11 @@ impl Surfaces {
         }
     }
 
+    /// The popup window that shows `document`'s hosted layer `owner`.
+    pub fn hosted_window(&self, document: &str, owner: &str) -> Option<gpui::AnyWindowHandle> {
+        self.hosted.get(&(document.to_string(), owner.to_string())).map(|h| (*h).into())
+    }
+
     /// The hosted layers [`dismiss_hosted`] closes, each with its surface.
     pub fn hosted_layers(&self) -> Vec<(Region, String)> {
         self.hosted.keys().filter_map(|(doc, owner)| Some((self.open.get(doc)?.clone(), owner.clone()))).collect()
