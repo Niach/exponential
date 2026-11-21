@@ -28,7 +28,11 @@ use std::{
 };
 
 use ede_protocol::{ErrorCode, Failure, Launched};
-use smithay::reexports::rustix::process::{kill_process_group, set_parent_process_death_signal, Pid, Signal};
+use smithay::reexports::rustix::{
+    event::{poll, PollFd, PollFlags, Timespec},
+    fd::OwnedFd,
+    process::{kill_process_group, pidfd_open, pidfd_send_signal, set_parent_process_death_signal, Pid, PidfdFlags, Signal},
+};
 
 use super::Spaces;
 use crate::{desk::DeskId, state::Ede};
@@ -106,6 +110,37 @@ impl Launch {
     }
 }
 
+/// #EDE-183: a process the compositor traced to a space at its close
+/// ([`Ede::traced_to_space`]) that the close does not reach otherwise: out
+/// of the space's slice and of its launches' groups. Held by a pidfd (its
+/// process id may be another's by the time it is killed), told to end at
+/// the close, killed after [`TERM_GRACE`].
+pub(crate) struct Stray {
+    pidfd: OwnedFd,
+    closed: Instant,
+    killed: bool,
+}
+
+impl Stray {
+    /// Process `pid`, told to end now; `None` = it is gone already.
+    fn ended(pid: u32) -> Option<Self> {
+        let pidfd = pidfd_open(Pid::from_raw(pid as i32)?, PidfdFlags::empty()).ok()?;
+        pidfd_send_signal(&pidfd, Signal::TERM).ok()?;
+        Some(Self { pidfd, closed: Instant::now(), killed: false })
+    }
+
+    /// It has ended (its pidfd reads as soon as it exits).
+    fn gone(&self) -> bool {
+        let mut fds = [PollFd::new(&self.pidfd, PollFlags::IN)];
+        poll(&mut fds, Some(&Timespec { tv_sec: 0, tv_nsec: 0 })).map_or(true, |ready| ready > 0)
+    }
+
+    fn kill(&mut self) {
+        self.killed = true;
+        let _ = pidfd_send_signal(&self.pidfd, Signal::KILL);
+    }
+}
+
 
 /// The caller's variables for a launch in a scope, as its standard input:
 /// a JSON object in a file of the space's directory that has no name any
@@ -163,6 +198,9 @@ impl Spaces {
         for mut launch in self.launches.drain(..) {
             launch.signal(Signal::KILL);
             let _ = launch.child.wait();
+        }
+        for mut stray in self.strays.drain(..) {
+            stray.kill();
         }
     }
 }
@@ -343,6 +381,19 @@ impl Ede {
         }
     }
 
+    /// #EDE-183: the processes traced to a closing space outside its slice
+    /// and its launches' groups (`pids`, found before anything of it was
+    /// told to end) are told to end too; the tick kills what outlives
+    /// [`TERM_GRACE`].
+    pub(crate) fn space_strays_closed(&mut self, pids: Vec<u32>) {
+        for pid in pids {
+            if let Some(stray) = Stray::ended(pid) {
+                tracing::info!("process {pid} of a closed agent space outside its slice and its launch's group: told to end");
+                self.spaces.strays.push(stray);
+            }
+        }
+    }
+
     /// Once a second (and before a launch counts): reaps what ended, and
     /// kills what outlived its space by [`TERM_GRACE`].
     pub(crate) fn space_launches_tick(&mut self) {
@@ -366,5 +417,16 @@ impl Ede {
         for (pid, status) in ended {
             self.space_net_ended(pid, status);
         }
+        // #EDE-183: and what of a closed space ran outside its slice and
+        // its launches' groups.
+        self.spaces.strays.retain_mut(|stray| {
+            if stray.gone() {
+                return false;
+            }
+            if stray.closed.elapsed() > TERM_GRACE && !stray.killed {
+                stray.kill();
+            }
+            true
+        });
     }
 }
