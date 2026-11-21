@@ -14,7 +14,8 @@
     "./shell": "./src/shell.ts",
     "./layout": "./src/layout.ts",
     "./fixtures/*": "./fixtures/*",
-    "./chat": "./src/chat.ts"
+    "./chat": "./src/chat.ts",
+    "./spaces": "./src/spaces.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

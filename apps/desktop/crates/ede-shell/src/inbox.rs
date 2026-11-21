@@ -280,6 +280,38 @@ fn first_prompt_candidate(message: &MessageRow, owner: &str) -> bool {
         && domain::session_title::first_line(message.body_text()).is_some()
 }
 
+/// #EXP-2024: the session rows of the agent spaces' sessions (`wanted`) this
+/// account holds, and their roots (a child's chat), titled as every client
+/// titles a session; sealed titles and digests opened with the app's
+/// keyring (`opener`), so the list names a sealed chat by its own title.
+pub fn space_sessions(rows: &AccountRows, wanted: &HashSet<String>, opener: Option<&sync::sealed::Opener>) -> Vec<uicore_model::spaces::SpaceSession> {
+    let by_id: HashMap<&str, &SessionRow> = rows.sessions.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut ids: Vec<&str> = wanted.iter().filter_map(|w| by_id.get(w.as_str()).map(|s| s.id.as_str())).collect();
+    let roots: Vec<&str> = ids.iter().filter_map(|id| by_id.get(id)).filter(|s| s.parent_id.is_some()).map(|s| s.root_id_or_self()).collect();
+    ids.extend(roots);
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let issues: HashMap<&str, &Issue> = rows.issues.iter().map(|i| (i.id.as_str(), i)).collect();
+    ids.into_iter()
+        .filter_map(|id| by_id.get(id))
+        .map(|row| {
+            let mut row = (*row).clone();
+            if let Some(opener) = opener {
+                opener.open_session(&mut row);
+            }
+            let digest = domain::chats::ConversationDigest::decode(row.digest.as_ref());
+            let messages = digest.map(|d| domain::chats::digest_messages(&row.id, Some(&d))).unwrap_or_default();
+            let first: Vec<&MessageRow> = messages.iter().filter(|m| first_prompt_candidate(m, &row.id)).collect();
+            let links: Vec<&SessionIssueRow> = rows.session_issues.iter().filter(|l| l.session_id == row.id).collect();
+            let tree: Vec<domain::session_tree::TreeIssue> = links.iter().filter_map(|l| issues.get(l.issue_id.as_str())).map(|i| domain::session_tree::TreeIssue::from_issue(i)).collect();
+            uicore_model::spaces::SpaceSession { id: row.id.clone(), title: domain::session_title::session_title(&row, &links, &tree, &first), parent_id: row.parent_id.clone(), root_id: Some(row.root_id_or_self().to_string()) }
+        })
+        .collect()
+}
+
 /// Every team's Needs you of one account (the IDE's `needs_you::input` per
 /// team, the stuck-PR rows aside: they need the devices' presence), the
 /// team's rows in the fold's order, the teams by name.

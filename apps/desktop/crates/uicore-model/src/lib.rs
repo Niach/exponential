@@ -13,6 +13,7 @@ pub mod chat;
 pub mod chats;
 pub mod ide;
 pub mod layout;
+pub mod spaces;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

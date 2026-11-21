@@ -1029,6 +1029,13 @@ impl Client {
         Self::connect_with_token(Self::mint_env(session_id, capabilities, expires_at)?)
     }
 
+    /// How long each call of this connection waits for its answer from now
+    /// on ([`CALL_TIMEOUT`] by default); a call past it ends the connection.
+    pub fn set_call_timeout(&mut self, timeout: std::time::Duration) {
+        self.call_timeout = timeout;
+        let _ = self.stream.set_write_timeout(Some(timeout));
+    }
+
     /// The token this connection said hello with.
     pub fn token(&self) -> &Token {
         &self.token
