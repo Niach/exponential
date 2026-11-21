@@ -543,7 +543,11 @@ impl SidebarRegion {
             uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingTop", json!(0));
             uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingBottom", json!(0));
             uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "height", Value::Null);
-            let footer = uicore_gpui::inline::mount(&corner, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+            // #EXP-2052: the account menu is taller than the 36px row it
+            // hangs from: it is placed against the window (above the row,
+            // `side: top`), not the row's own box, where "below" had more
+            // room and it opened off the window's bottom edge.
+            let footer = uicore_gpui::inline::mount_lifted(&corner, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             Self {
                 view,
                 footer,
