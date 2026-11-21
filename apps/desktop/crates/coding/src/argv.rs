@@ -151,6 +151,11 @@ pub struct LaunchOptions {
     /// is the gate; `Some(false)` = this run opted out, anything else
     /// follows the switch ([`Self::computer_use_on`]).
     pub computer_use: Option<bool>,
+    /// #EXP-1514: where this session's computer use may happen, as the
+    /// session says ([`crate::computer_place::resolve`]). Sessions carry no
+    /// place of their own (the design's option B, not chosen), so it is
+    /// `Auto` and the device's Work screen decides.
+    pub computer_place: crate::computer_place::SessionPlace,
 }
 
 impl LaunchOptions {
@@ -181,6 +186,7 @@ impl LaunchOptions {
             // used login.
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         }
     }
 
@@ -241,6 +247,7 @@ impl LaunchOptions {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         }
         .with_account(account)
     }
@@ -438,6 +445,7 @@ mod tests {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         }
     }
 

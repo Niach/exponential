@@ -116,10 +116,10 @@ pub fn system_append(team_prompt: Option<&str>) -> String {
 /// shell carries neither. `dispatch` picks the dispatcher's [`playbook`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Extras {
-    /// `Some(model)` = the launch wired the `computer` server; `model` is
-    /// `Settings::computer_use_model`, the alias the section tells the agent
-    /// to hand its screen-driving subagents.
-    pub computer_use: Option<String>,
+    /// #EXP-1514: where the launch's computer use happens
+    /// ([`crate::computer_place`]); `None` = no computer use and nothing to
+    /// say about it.
+    pub computer_use: Option<ComputerUse>,
     /// The launch wired the `codemode` server.
     pub code_mode: bool,
     /// An agent's conversation session, the persistent kind
@@ -133,6 +133,21 @@ pub struct Extras {
 impl Extras {
     /// The bare playbook (an agent shell, a test).
     pub const NONE: Extras = Extras { computer_use: None, code_mode: false, dispatch: false, voice_call: false };
+}
+
+/// #EXP-1514: the launch's computer use as its prompt tells it. The models
+/// are `Settings::computer_use_model`, the alias the section tells the agent
+/// to hand its screen-driving subagents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComputerUse {
+    /// The person's screen: [`COMPUTER_USE_SECTION`].
+    Screen(String),
+    /// An agent space of the session's own: [`SPACE_COMPUTER_USE_SECTION`].
+    Space(String),
+    /// The device's switch is on and nothing can be driven (the state
+    /// table's row 5): no `computer` server, ONE line saying why
+    /// ([`computer_use_unavailable`]).
+    Unavailable(String),
 }
 
 /// EXP-1196 — what a run is told when THIS device's Computer use switch is
@@ -168,6 +183,44 @@ fast one by design): there is one pointer and one keyboard, so screen work never
 keep the plan and the final check in this conversation.
 ";
 
+/// #EXP-1514 — [`COMPUTER_USE_SECTION`] for a run in an agent space of its
+/// session's own (Exponential Desktop): nothing of the person's is taken,
+/// the space outlives the run, and away from the machine the person sees it
+/// only through the frames the agent shows. Same byte cap. `{model}` as
+/// there ([`space_computer_use_section`]).
+pub const SPACE_COMPUTER_USE_SECTION: &str = "# Computer use
+
+You have an agent space on this device: a desktop of your own (one screen, its own pointer, \
+keyboard and clipboard), apart from the person's, through the `computer` MCP server: \
+`screenshot`, `list_windows`, `activate_window`, `left_click`, `double_click`, `right_click`, \
+`drag`, `scroll`, `type`, `paste_text`, `copy_selection`, `read_clipboard`, `key`, `mouse_move`, \
+`cursor_position`, `wait`, `launch_app`; read the tool schemas. Nothing of the person's is touched; \
+the person at this computer can watch your space.
+
+- Pixels come last. Prefer the Exponential tools, the team's MCP servers, your shell, a CLI or \
+an API; use the space only when the task needs a desktop app.
+- It started empty: start programs with `launch_app`. Apps start signed out. If the task needs \
+the person's signed-in apps, say so: this device's Work screen decides, and a change applies \
+from this session's next start.
+- It stays as you left it for as long as this session lives and may hold what earlier turns \
+left: look before you act (`screenshot` first). When a call says the space is new and empty, \
+what ran in it is gone.
+- Act on what a `screenshot` shows (every coordinate is in that image's pixels), then \
+`screenshot` again to verify; an unverified effect is not success.
+- Text: `paste_text`, not `type`, past a few characters; a secret is ALWAYS `paste_text` with \
+`sensitive: true` from a private temp `file`.
+- Show the person a labelled frame of each step that matters: `exponential_show` with a \
+`label`ed picture (through its returned upload line). Away from the machine it is their only \
+view of your space.
+- Close apps and sign out of what you no longer need.
+- Drive the space from ONE subagent at a time on model `{model}` (the `Agent` tool's `model`); \
+keep the plan and the final check in this conversation.
+";
+
+/// #EXP-1514 (row 5): how [`computer_use_unavailable`]'s one line starts:
+/// fixed text, so the context layout counts it as the launcher's.
+pub const COMPUTER_USE_UNAVAILABLE_LEAD: &str = "Computer use is on for this device, but this run has no computer tools:";
+
 /// #EXP-1961 (etalk voice-call.json `callSession`): what a CALL session is
 /// told: it is spoken, so short sentences and no Markdown; small things it
 /// does itself, bigger work goes to the chat. Outside the playbook like
@@ -193,14 +246,36 @@ pub fn computer_use_section(model: &str) -> String {
     COMPUTER_USE_SECTION.replace("{model}", model)
 }
 
+/// [`SPACE_COMPUTER_USE_SECTION`] with the subagent model alias filled in.
+pub fn space_computer_use_section(model: &str) -> String {
+    SPACE_COMPUTER_USE_SECTION.replace("{model}", model)
+}
+
+/// #EXP-1514 (row 5): the ONE line a run gets when the device's switch is
+/// on and nothing can be driven, with why (the machine's own words, kept on
+/// one line), so the agent can tell the person.
+pub fn computer_use_unavailable(reason: &str) -> String {
+    let reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{COMPUTER_USE_UNAVAILABLE_LEAD} {reason} If the task needs the screen, say so.")
+}
+
 /// The fixed text every run of a device gets before the team prompt: the
-/// playbook, plus [`COMPUTER_USE_SECTION`] as the launch carries it. S-3:
-/// code mode adds nothing here: the `codemode` server's own instructions
-/// already say it (the old section duplicated them).
+/// playbook, plus the computer-use section (or row 5's line) as the launch
+/// carries it. S-3: code mode adds nothing here: the `codemode` server's
+/// own instructions already say it (the old section duplicated them).
 pub fn fixed_append(extras: &Extras) -> String {
     let mut text = playbook(extras.dispatch).to_string();
-    if let Some(model) = &extras.computer_use {
-        text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
+    match &extras.computer_use {
+        Some(ComputerUse::Screen(model)) => {
+            text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
+        }
+        Some(ComputerUse::Space(model)) => {
+            text = format!("{}\n\n{}", text.trim_end(), space_computer_use_section(model));
+        }
+        Some(ComputerUse::Unavailable(reason)) => {
+            text = format!("{}\n\n{}\n", text.trim_end(), computer_use_unavailable(reason));
+        }
+        None => {}
     }
     if extras.voice_call {
         text = format!("{}\n\n{}", text.trim_end(), VOICE_CALL_SECTION);
@@ -279,7 +354,7 @@ mod tests {
     }
 
     fn computer(model: &str) -> Extras {
-        Extras { computer_use: Some(model.to_string()), ..Extras::NONE }
+        Extras { computer_use: Some(ComputerUse::Screen(model.to_string())), ..Extras::NONE }
     }
 
     /// EXP-1196: the computer-use section sits between the playbook and the
@@ -302,6 +377,62 @@ mod tests {
         assert!(both.contains("model `sonnet`"));
         assert!(!COMPUTER_USE_SECTION.contains('\u{2014}'));
         assert!(COMPUTER_USE_SECTION.len() < 1900, "{} bytes", COMPUTER_USE_SECTION.len());
+    }
+
+    /// #EXP-1514: a space run's section takes the person section's place:
+    /// under the same cap, never "taking the screen", with what a space is
+    /// (its own desktop, `launch_app`, signed out, watched, kept), the show
+    /// duty and look before you act.
+    #[test]
+    fn a_space_run_gets_the_space_section_in_the_same_place() {
+        let space = Extras { computer_use: Some(ComputerUse::Space("haiku".to_string())), ..Extras::NONE };
+        let alone = system_append_with(None, &space);
+        assert!(alone.starts_with(playbook(false).trim_end()));
+        assert!(alone.ends_with(&space_computer_use_section("haiku")));
+        assert!(!alone.contains(COMPUTER_USE_SECTION.lines().nth(2).unwrap()), "never the person's section");
+        let both = system_append_with(Some("Rules"), &Extras { computer_use: Some(ComputerUse::Space("sonnet".to_string())), ..Extras::NONE });
+        let section = both.find("# Computer use").unwrap();
+        assert!(playbook(false).trim_end().len() < section && section < both.find(TEAM_PROMPT_HEADING).unwrap());
+        assert!(both.contains("subagent at a time on model `sonnet`") && !both.contains("{model}"));
+        assert!(SPACE_COMPUTER_USE_SECTION.len() < 1900, "{} bytes", SPACE_COMPUTER_USE_SECTION.len());
+        assert!(!SPACE_COMPUTER_USE_SECTION.contains('\u{2014}'));
+        let lower = SPACE_COMPUTER_USE_SECTION.to_lowercase();
+        assert!(!lower.contains("taking the screen") && !lower.contains("locked") && !lower.contains("esc"), "nothing of the person's seat");
+        for words in [
+            "a desktop of your own",
+            "`launch_app`",
+            "Apps start signed out",
+            "Show the person a labelled frame of each step that matters",
+            "`exponential_show`",
+            "their only view of your space",
+            "the person at this computer can watch your space",
+            "look before you act",
+            "the space is new and empty",
+            "a change applies from this session's next start",
+            "Close apps and sign out",
+        ] {
+            assert!(SPACE_COMPUTER_USE_SECTION.contains(words), "the space section never says {words}");
+        }
+        assert!(mentioned_tools(SPACE_COMPUTER_USE_SECTION) == ["exponential_show"]);
+    }
+
+    /// #EXP-1514 (row 5): the switch is on and nothing can be driven: ONE
+    /// line with the machine's reason where the section would be, and no
+    /// section.
+    #[test]
+    fn nothing_to_drive_is_one_line_with_the_reason() {
+        let none = Extras {
+            computer_use: Some(ComputerUse::Unavailable("No display session (DISPLAY is not set).\n".to_string())),
+            ..Extras::NONE
+        };
+        let text = system_append_with(Some("Rules"), &none);
+        let line = computer_use_unavailable("No display session (DISPLAY is not set).");
+        assert_eq!(line.lines().count(), 1);
+        assert!(line.starts_with(COMPUTER_USE_UNAVAILABLE_LEAD) && line.contains("(DISPLAY is not set). If the task"), "{line}");
+        assert!(text.starts_with(&format!("{}\n\n{line}\n\n{TEAM_PROMPT_HEADING}", playbook(false).trim_end())), "{text}");
+        assert!(!text.contains("# Computer use"));
+        let voice = system_append_with(None, &Extras { voice_call: true, ..none });
+        assert!(voice.ends_with(VOICE_CALL_SECTION) && voice.contains(&format!("{line}\n\n# Voice call")));
     }
 
     /// S-3: code mode adds no section (the codemode server says it itself).
