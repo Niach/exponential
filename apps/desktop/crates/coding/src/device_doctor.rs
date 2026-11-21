@@ -47,6 +47,15 @@ pub const KEY_CARGO_SWEEP: &str = "cargo_sweep";
 /// #EXP-1868: the storage row of a memory-throttled slice (see
 /// [`add_memory`]).
 pub const KEY_MEMORY: &str = "memory";
+/// #EXP-1514: the row under the computer-use switch that says whether this
+/// desktop gives a run an agent space (see [`ComputerState::Supported`]).
+pub const KEY_AGENT_SPACE: &str = "agent_space";
+pub const AGENT_SPACE_LABEL: &str = "Agent space";
+/// #EXP-1514: the agent space row's details (device-doctor.json `copy`).
+pub const SPACE_READY: &str = "Ready";
+pub const SPACE_NEEDS_DESKTOP: &str = "Needs Exponential Desktop";
+pub const SPACE_NEEDS_NEWER_DESKTOP: &str = "Update Exponential Desktop";
+pub const SPACE_DRIVER: &str = "Not on this driver yet";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -257,19 +266,112 @@ pub enum ComputerState {
     /// (empty on X11/Windows, which ask for none).
     Supported {
         permissions: Vec<(crate::computer::Permission, bool)>,
+        /// #EXP-1514: whether this desktop gives a run an agent space, as
+        /// the row shows it ([`space_seen`]: `Unknown` = no answer for three
+        /// beats). `None` = no row: macOS and Windows.
+        space: Option<crate::computer::SpaceOffer>,
     },
 }
 
 impl ComputerState {
-    /// Ask the epilot crate, never prompting.
+    /// Ask the epilot crate, never prompting. The agent space offer is
+    /// ePilot's cached answer: never asked of the desktop here, on the beat.
     pub fn read() -> ComputerState {
         match crate::computer::readiness() {
             crate::computer::Readiness::Unsupported(reason) => ComputerState::Unsupported(Some(reason)),
             _ => ComputerState::Supported {
                 permissions: crate::computer::permissions(),
+                space: cfg!(target_os = "linux").then(|| space_seen(crate::computer::space_offer())),
             },
         }
     }
+}
+
+/// #EXP-1514: the agent space offer across reads (beats).
+#[derive(Debug, Default)]
+struct SpaceSeen {
+    /// The last answer the desktop gave.
+    last: Option<crate::computer::SpaceOffer>,
+    /// Reads in a row without one.
+    silent: u32,
+    /// What the row showed last (for the log and `exponential doctor`).
+    shown: Option<crate::computer::SpaceOffer>,
+}
+
+/// After this many reads in a row without an answer the row says Not
+/// responding; until then the last answer stands.
+const SPACE_SILENT_BEATS: u32 = 3;
+
+impl SpaceSeen {
+    /// What the row shows for this read's offer (`Unknown` = no answer).
+    fn see(&mut self, now: crate::computer::SpaceOffer) -> crate::computer::SpaceOffer {
+        use crate::computer::SpaceOffer;
+        match now {
+            SpaceOffer::Unknown => {
+                self.silent = self.silent.saturating_add(1);
+                match &self.last {
+                    Some(last) if self.silent < SPACE_SILENT_BEATS => last.clone(),
+                    _ => SpaceOffer::Unknown,
+                }
+            }
+            answer => {
+                self.silent = 0;
+                self.last = Some(answer.clone());
+                answer
+            }
+        }
+    }
+}
+
+static SPACE_SEEN: std::sync::Mutex<SpaceSeen> = std::sync::Mutex::new(SpaceSeen { last: None, silent: 0, shown: None });
+
+/// #EXP-1514: the agent space row's offer for this read; a change is logged
+/// with its cause.
+fn space_seen(now: crate::computer::SpaceOffer) -> crate::computer::SpaceOffer {
+    let mut seen = SPACE_SEEN.lock().unwrap_or_else(|p| p.into_inner());
+    let shown = seen.see(now);
+    if seen.shown.as_ref() != Some(&shown) {
+        log::info!("computer use: agent space: {}", space_words(&shown));
+        seen.shown = Some(shown.clone());
+    }
+    shown
+}
+
+/// The row's detail and, behind Not available here, the cause.
+fn space_words(offer: &crate::computer::SpaceOffer) -> String {
+    let (_, detail) = space_row(offer);
+    match offer {
+        crate::computer::SpaceOffer::No(crate::computer::SpaceBlock::Unavailable(cause)) => format!("{detail} ({cause})"),
+        _ => detail.to_string(),
+    }
+}
+
+/// #EXP-1514: the cause behind the agent space row's Not available here, as
+/// the last read showed it (`exponential doctor` prints it beside the row).
+pub fn agent_space_cause() -> Option<String> {
+    match &SPACE_SEEN.lock().unwrap_or_else(|p| p.into_inner()).shown {
+        Some(crate::computer::SpaceOffer::No(crate::computer::SpaceBlock::Unavailable(cause))) => Some(cause.clone()),
+        _ => None,
+    }
+}
+
+/// The agent space row's state and detail for an offer (device-doctor.json).
+fn space_row(offer: &crate::computer::SpaceOffer) -> (DoctorState, &'static str) {
+    use crate::computer::{SpaceBlock, SpaceOffer};
+    match offer {
+        SpaceOffer::Offered => (DoctorState::Ok, SPACE_READY),
+        SpaceOffer::No(SpaceBlock::NotDesktop) => (DoctorState::Missing, SPACE_NEEDS_DESKTOP),
+        SpaceOffer::No(SpaceBlock::OlderDesktop) => (DoctorState::Missing, SPACE_NEEDS_NEWER_DESKTOP),
+        SpaceOffer::No(SpaceBlock::Unavailable(_)) => (DoctorState::Missing, UNAVAILABLE),
+        SpaceOffer::No(SpaceBlock::Driver) => (DoctorState::Missing, SPACE_DRIVER),
+        SpaceOffer::Unknown => (DoctorState::Missing, NOT_RESPONDING),
+    }
+}
+
+/// #EXP-1514: the switch row's detail while the Work screen pick is Agent
+/// space only and no space is offered (`spaceOnlyBlocked`).
+pub fn space_only_blocked(reason: &str) -> String {
+    format!("{AGENT_SPACE_LABEL} · {reason}")
 }
 
 fn item(key: &str, group: DoctorGroup, state: DoctorState) -> DoctorItem {
@@ -426,13 +528,22 @@ fn computer_items(settings: &Settings, computer: &ComputerState) -> Vec<DoctorIt
     if !settings.computer_use {
         return vec![item(KEY_COMPUTER_USE, group, DoctorState::Off)];
     }
-    let permissions = match computer {
+    let (permissions, space) = match computer {
         ComputerState::Unsupported(reason) => {
             let detail = reason.as_deref().unwrap_or(UNAVAILABLE);
             return vec![item(KEY_COMPUTER_USE, group, DoctorState::Missing).detail(detail)];
         }
-        ComputerState::Supported { permissions } => permissions,
+        ComputerState::Supported { permissions, space } => (permissions, space),
     };
+    // #EXP-1514, BLOCKED PICK: with the Work screen pick Agent space only
+    // and no space offered agents can do nothing here: the switch row says
+    // why, and there is no child row.
+    let row = space.as_ref().map(space_row);
+    let space_only = settings.computer_use_display_id.as_deref() == Some(crate::computer::work_screen::SPACE_PICK);
+    if space_only && !matches!(space, Some(crate::computer::SpaceOffer::Offered)) {
+        let reason = row.map_or(SPACE_NEEDS_DESKTOP, |(_, detail)| detail);
+        return vec![item(KEY_COMPUTER_USE, group, DoctorState::Missing).detail(space_only_blocked(reason))];
+    }
     let all_granted = permissions.iter().all(|(_, granted)| *granted);
     let state = if all_granted { DoctorState::Ok } else { DoctorState::Action };
     let mut items = vec![item(KEY_COMPUTER_USE, group, state)];
@@ -445,6 +556,13 @@ fn computer_items(settings: &Settings, computer: &ComputerState) -> Vec<DoctorIt
                 .detail(NOT_GRANTED)
                 .action(DoctorAction::Grant)
         });
+    }
+    // #EXP-1514: the agent space row, after the permission rows: its own
+    // label, no action, never a problem.
+    if let Some((state, detail)) = row {
+        let mut space = item(KEY_AGENT_SPACE, group, state).parent(KEY_COMPUTER_USE).detail(detail);
+        space.label = Some(AGENT_SPACE_LABEL.to_string());
+        items.push(space);
     }
     items
 }
@@ -492,11 +610,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
             check.account.get_or_insert_with(AgentAccount::default).health = health;
         }
     }
-    let computer = if settings.computer_use {
-        ComputerState::read()
-    } else {
-        ComputerState::Unsupported(None)
-    };
+    let computer = computer_state(settings, ComputerState::read);
     let mut doctor = build(&report, settings, computer);
     add_storage(
         &mut doctor,
@@ -510,6 +624,16 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
     doctor
+}
+
+/// The computer state, asked only while the switch is on: nothing is asked
+/// of the OS or of the desktop for a switched-off feature.
+fn computer_state(settings: &Settings, read: impl FnOnce() -> ComputerState) -> ComputerState {
+    if settings.computer_use {
+        read()
+    } else {
+        ComputerState::Unsupported(None)
+    }
 }
 
 /// EXP-1375: append the storage group (pure): the `disk` row (`{size} free`;
@@ -935,6 +1059,7 @@ mod tests {
                         (Permission::ScreenRecording, true),
                         (Permission::Accessibility, false),
                     ],
+                    space: None,
                 },
             ),
             2 => (
@@ -944,7 +1069,7 @@ mod tests {
                     codex: check(Tool::Codex, Some("0.156.1")),
                 },
                 settings(true),
-                ComputerState::Supported { permissions: Vec::new() },
+                ComputerState::Supported { permissions: Vec::new(), space: None },
             ),
             3 => (
                 DoctorReport {
@@ -984,6 +1109,26 @@ mod tests {
                 let (report, _, _) = case_input(0);
                 (report, settings(true), ComputerState::Unsupported(Some(WAYLAND.into())))
             }
+            // #EXP-1514: the first case's machine, switched on, on Linux:
+            // the agent space row says what this desktop can do.
+            15..=18 => {
+                use crate::computer::{SpaceBlock, SpaceOffer};
+                let (report, _, _) = case_input(0);
+                let offer = match index {
+                    15 => SpaceOffer::Offered,
+                    16 => SpaceOffer::No(SpaceBlock::NotDesktop),
+                    17 => SpaceOffer::No(SpaceBlock::OlderDesktop),
+                    _ => SpaceOffer::No(SpaceBlock::Unavailable("no systemd user manager".into())),
+                };
+                (report, settings(true), ComputerState::Supported { permissions: Vec::new(), space: Some(offer) })
+            }
+            // BLOCKED PICK: Agent space only on an eDE before space-readiness.
+            19 => {
+                let (report, _, _) = case_input(0);
+                let settings = Settings { computer_use_display_id: Some("space".into()), ..settings(true) };
+                let space = Some(crate::computer::SpaceOffer::No(crate::computer::SpaceBlock::OlderDesktop));
+                (report, settings, ComputerState::Supported { permissions: Vec::new(), space })
+            }
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -992,7 +1137,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 15, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 20, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -1087,10 +1232,17 @@ mod tests {
             ("keptUncommitted", crate::worktree_lifecycle::KeptReason::Uncommitted.detail()),
             ("keptUnpushed", crate::worktree_lifecycle::KeptReason::Unpushed.detail()),
             ("keptFailed", crate::worktree_lifecycle::KeptReason::Failed.detail()),
+            ("notResponding", NOT_RESPONDING),
+            ("agentSpaceLabel", AGENT_SPACE_LABEL),
+            ("spaceReady", SPACE_READY),
+            ("spaceNeedsDesktop", SPACE_NEEDS_DESKTOP),
+            ("spaceNeedsNewerDesktop", SPACE_NEEDS_NEWER_DESKTOP),
+            ("spaceDriver", SPACE_DRIVER),
         ] {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
         assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
+        assert_eq!(space_only_blocked("{reason}"), copy["spaceOnlyBlocked"].as_str().unwrap());
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_key_holder(&mut doctor, true, Some("ignored"));
         assert!(doctor.items.is_empty(), "a running holder adds no row");
@@ -1168,6 +1320,85 @@ mod tests {
         );
     }
 
+    /// #EXP-1514: the agent space row's every state, under a switch that is
+    /// on; none on macOS and Windows (no space to ask), none in a Wayland
+    /// session that is not eDE (its switch row says why), none while the
+    /// switch is off; the blocked pick turns the switch row itself missing.
+    #[test]
+    fn the_agent_space_row_and_where_there_is_none() {
+        use crate::computer::{SpaceBlock, SpaceOffer};
+        let (report, _, _) = case_input(0);
+        let rows = |settings: &Settings, computer: ComputerState| -> Vec<(String, DoctorState, Option<String>)> {
+            build(&report, settings, computer).items.into_iter().filter(|item| item.group == DoctorGroup::ComputerUse).map(|item| (item.key, item.state, item.detail)).collect()
+        };
+        let on = settings(true);
+        let linux = |offer: SpaceOffer| ComputerState::Supported { permissions: Vec::new(), space: Some(offer) };
+        let row = |state: DoctorState, detail: &str| vec![(KEY_COMPUTER_USE.to_string(), DoctorState::Ok, None), (KEY_AGENT_SPACE.to_string(), state, Some(detail.to_string()))];
+        for (offer, state, detail) in [
+            (SpaceOffer::Offered, DoctorState::Ok, SPACE_READY),
+            (SpaceOffer::No(SpaceBlock::NotDesktop), DoctorState::Missing, SPACE_NEEDS_DESKTOP),
+            (SpaceOffer::No(SpaceBlock::OlderDesktop), DoctorState::Missing, SPACE_NEEDS_NEWER_DESKTOP),
+            (SpaceOffer::No(SpaceBlock::Unavailable("an agent space's session did not start".into())), DoctorState::Missing, UNAVAILABLE),
+            (SpaceOffer::No(SpaceBlock::Driver), DoctorState::Missing, SPACE_DRIVER),
+            (SpaceOffer::Unknown, DoctorState::Missing, NOT_RESPONDING),
+        ] {
+            assert_eq!(rows(&on, linux(offer.clone())), row(state, detail), "{offer:?}");
+        }
+        // macOS: its permission rows, no agent space row.
+        let mac = ComputerState::Supported { permissions: vec![(Permission::ScreenRecording, true), (Permission::Accessibility, true)], space: None };
+        assert!(!rows(&on, mac).iter().any(|(key, ..)| key == KEY_AGENT_SPACE));
+        // Windows asks for no permission: the switch row alone.
+        assert_eq!(rows(&on, ComputerState::Supported { permissions: Vec::new(), space: None }), [(KEY_COMPUTER_USE.to_string(), DoctorState::Ok, None)]);
+        // A Wayland session that is not eDE: the switch row says why.
+        assert_eq!(rows(&on, ComputerState::Unsupported(Some(WAYLAND.into()))).len(), 1);
+        // The switch off: the off row alone, whatever was read.
+        assert_eq!(rows(&settings(false), linux(SpaceOffer::Offered)), [(KEY_COMPUTER_USE.to_string(), DoctorState::Off, None)]);
+
+        // BLOCKED PICK: Agent space only and the row would not be ok.
+        let only = Settings { computer_use_display_id: Some(crate::computer::work_screen::SPACE_PICK.into()), ..settings(true) };
+        for (offer, reason) in [
+            (Some(SpaceOffer::No(SpaceBlock::NotDesktop)), SPACE_NEEDS_DESKTOP),
+            (Some(SpaceOffer::No(SpaceBlock::Unavailable("no systemd user manager".into()))), UNAVAILABLE),
+            (Some(SpaceOffer::Unknown), NOT_RESPONDING),
+            (None, SPACE_NEEDS_DESKTOP),
+        ] {
+            let computer = ComputerState::Supported { permissions: Vec::new(), space: offer.clone() };
+            assert_eq!(rows(&only, computer), [(KEY_COMPUTER_USE.to_string(), DoctorState::Missing, Some(space_only_blocked(reason)))], "{offer:?}");
+        }
+        // Offered: the rows as with any pick.
+        assert_eq!(rows(&only, linux(SpaceOffer::Offered)), row(DoctorState::Ok, SPACE_READY));
+        // A display pick is never blocked by the space.
+        let display = Settings { computer_use_display_id: Some("output:DP-1".into()), ..settings(true) };
+        assert_eq!(rows(&display, linux(SpaceOffer::No(SpaceBlock::OlderDesktop))), row(DoctorState::Missing, SPACE_NEEDS_NEWER_DESKTOP));
+    }
+
+    /// #EXP-1514: nothing is asked of the OS or the desktop while the switch
+    /// is off.
+    #[test]
+    fn nothing_is_asked_while_the_switch_is_off() {
+        assert_eq!(computer_state(&settings(false), || panic!("asked with the switch off")), ComputerState::Unsupported(None));
+        let read = computer_state(&settings(true), || ComputerState::Supported { permissions: Vec::new(), space: Some(crate::computer::SpaceOffer::Offered) });
+        assert!(matches!(read, ComputerState::Supported { space: Some(crate::computer::SpaceOffer::Offered), .. }));
+    }
+
+    /// #EXP-1514: the row reads ePilot's cached answer at each beat; no
+    /// answer for fewer than three beats in a row keeps the last one, the
+    /// third says Not responding, and the next answer stands at once.
+    #[test]
+    fn no_answer_for_three_beats_reads_not_responding() {
+        use crate::computer::{SpaceBlock, SpaceOffer};
+        let mut seen = SpaceSeen::default();
+        assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Unknown, "no answer ever: nothing stands");
+        assert_eq!(seen.see(SpaceOffer::Offered), SpaceOffer::Offered);
+        assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Offered);
+        assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Offered);
+        assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Unknown, "the third beat without an answer");
+        assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Unknown);
+        let older = SpaceOffer::No(SpaceBlock::OlderDesktop);
+        assert_eq!(seen.see(older.clone()), older, "an answer stands at once");
+        assert_eq!(seen.see(SpaceOffer::Unknown), older);
+    }
+
     #[test]
     fn bare_versions() {
         assert_eq!(bare_version("2.55.0 (Apple Git-156)"), "2.55.0");
@@ -1212,7 +1443,7 @@ mod tests {
         let doctor = build(
             &report,
             &settings(true),
-            ComputerState::Supported { permissions: Vec::new() },
+            ComputerState::Supported { permissions: Vec::new(), space: None },
         );
         assert_eq!(doctor.items.len(), 4);
         assert_eq!(doctor.items[3].state, DoctorState::Ok);
