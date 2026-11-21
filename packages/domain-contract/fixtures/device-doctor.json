@@ -342,6 +342,91 @@
       "localPrimary": null,
       "remotePills": { "codex": "sign_in" },
       "composerWarning": "disk"
+    },
+    {
+      "name": "#EXP-1514: Exponential Desktop offering agent spaces",
+      "doctor": {
+        "checkedAt": "2026-11-20T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "ok" },
+          { "key": "agent_space", "group": "computer_use", "parent": "computer_use", "label": "Agent space", "state": "ok", "detail": "Ready" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "spaceOffered": true
+    },
+    {
+      "name": "#EXP-1514: an X11 desktop: the row names why no space is offered",
+      "doctor": {
+        "checkedAt": "2026-11-20T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "ok" },
+          { "key": "agent_space", "group": "computer_use", "parent": "computer_use", "label": "Agent space", "state": "missing", "detail": "Needs Exponential Desktop" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "spaceOffered": false
+    },
+    {
+      "name": "#EXP-1514: an Exponential Desktop before space-readiness",
+      "doctor": {
+        "checkedAt": "2026-11-20T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "ok" },
+          { "key": "agent_space", "group": "computer_use", "parent": "computer_use", "label": "Agent space", "state": "missing", "detail": "Update Exponential Desktop" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "spaceOffered": false
+    },
+    {
+      "name": "#EXP-1514: no systemd user manager",
+      "doctor": {
+        "checkedAt": "2026-11-20T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "ok" },
+          { "key": "agent_space", "group": "computer_use", "parent": "computer_use", "label": "Agent space", "state": "missing", "detail": "Not available here" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "spaceOffered": false
+    },
+    {
+      "name": "#EXP-1514: the pick is Agent space only and none is offered: the switch row says why",
+      "doctor": {
+        "checkedAt": "2026-11-20T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "missing", "detail": "Agent space · Update Exponential Desktop" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "switchDescription": "Agent space · Update Exponential Desktop",
+      "spaceOffered": false
     }
 
   ]

@@ -319,6 +319,19 @@ pub(crate) fn space_offer(session: &Session) -> SpaceOffer {
     offer
 }
 
+/// #EXP-1514: [`space_offer`], once this process's cache holds the
+/// compositor's first answer or `within` has passed: for a process that
+/// asks once and ends (`exponential doctor`), never for a host's beat.
+pub(crate) fn space_offer_settled(session: &Session, within: Duration) -> SpaceOffer {
+    let deadline = Instant::now() + within;
+    let _ = space_offer(session);
+    let answered = || READINESS.lock().unwrap_or_else(|p| p.into_inner()).get(&session.socket).is_some_and(|(said, asking)| said.is_some() && !*asking);
+    while !answered() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    space_offer(session)
+}
+
 /// [`space_offer`]'s cache read and refresh.
 fn cached_offer(session: &Session) -> SpaceOffer {
     let (last, refresh) = {
@@ -1892,6 +1905,19 @@ mod tests {
 
     fn mints(faked: &Faked) -> usize {
         logged(faked).iter().filter(|line| line.starts_with("mint ")).count()
+    }
+
+    /// #EXP-1514: a process that asks once (`exponential doctor`) reads the
+    /// compositor's first answer, not the empty cache's older desktop.
+    #[test]
+    fn a_one_shot_read_waits_for_the_first_answer() {
+        let faked = fake_socket_of(Fake::READY);
+        assert_eq!(space_offer_settled(&faked.session, Duration::from_secs(5)), SpaceOffer::Offered);
+        let featureless = fake_socket_of(Fake { ready: None, ..Fake::READY });
+        assert_eq!(space_offer_settled(&featureless.session, Duration::from_secs(5)), SpaceOffer::No(SpaceBlock::OlderDesktop));
+        for dir in [&faked.dir, &featureless.dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     fn until(what: &str, mut ok: impl FnMut() -> bool) {
