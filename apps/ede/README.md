@@ -967,8 +967,10 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   window to the person's running one (a window on the person's desk), or
   browse in the person's signed-in profile, and Firefox would say "already
   running". So a known browser started in a space gets a profile of its
-  own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi) gets
-  `--user-data-dir=`; Firefox and LibreWolf get
+  own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi, and
+  their binaries started by name: `chrome` of Chrome, Chrome for Testing
+  and Playwright, `chrome-headless-shell`, `headless_shell`, `msedge`,
+  `vivaldi-bin`) gets `--user-data-dir=`; Firefox and LibreWolf get
   `--profile <dir> --new-instance`. For a browser of the system the
   directory is in the space's home. For a snap or a Flatpak (its command,
   `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
@@ -976,10 +978,21 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   `~/snap/<name>/common/exponential-space/p<pid>-<space>` or
   `~/.var/app/<id>/exponential-space/p<pid>-<space>`. It is removed when
   the space closes, and what a crashed session left there goes at the next
-  start. A launch that names a profile itself is refused. Chromium and
-  Electron apps (VS Code, VSCodium) also always get
+  start. A launch that names its own profile (Playwright always does, in a
+  temporary directory) keeps it, and the space makes none, unless that
+  profile is, or is inside, one of the person's:
+  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,mozilla,librewolf}`
+  (and the same under `$XDG_CONFIG_HOME`), `~/.mozilla`, `~/.librewolf`, or
+  a known browser's `~/snap/<name>` or `~/.var/app/<id>` outside its
+  `exponential-space`, each followed through links and `..` from the
+  launch's directory. Such a launch is refused (#EDE-186), and so are
+  Firefox's `-P`, `-ProfileManager` and `-CreateProfile` (they go to the
+  person's `profiles.ini`), a profile flag that names no directory, and a
+  Chromium `--profile-directory=` that is a path, not a name.
+  Chromium and Electron apps (VS Code, VSCodium) also always get
   `--enable-unsafe-swiftshader`, so their WebGL can fall back to software,
-  and `--use-angle=swiftshader` while the space renders in software. A snap
+  and `--use-angle=swiftshader` while the space renders in software, with
+  their own profile as with the space's. A snap
   of the Chromium family also gets `--ozone-platform=x11`: it exits where
   the space's Wayland socket is refused, rather than falling back. Firefox
   gets nothing more: it switches to software WebRender by itself. A browser
