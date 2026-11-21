@@ -58,7 +58,11 @@ printf '<?xml version="1.0"?>\n<fontconfig><dir>%s</dir><cachedir>%s</cachedir><
 export FONTCONFIG_FILE="$scratch/fonts.conf"
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=error,wgpu_hal=error}"
 log="$scratch/run.log"
-"$target/debug/exponential-compositor" --headless "$size" --no-xwayland -- \
+# #EXP-2024: the pinned space view is black in every redacted capture of the
+# person's output; its golden (the view's env) asks for the unredacted one.
+debug=()
+[ "${EDE_SHELL_SHOT_UNREDACTED:-}" = 1 ] && debug=(--debug-captures)
+"$target/debug/exponential-compositor" --headless "$size" --no-xwayland "${debug[@]}" -- \
   "$target/debug/exponential-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$shell_target/debug/exponential-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
 pid=$!
 cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -rf "$scratch"; }

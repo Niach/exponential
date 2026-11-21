@@ -3568,7 +3568,8 @@ export const composerDrafts = pgTable(
 // Agents and Apps groups. #EXP-2027 (sidebar-tree.json): section `team` = ONE
 // mixed list per team (boards, agents, apps and the root sessions the member
 // placed; the target's table is resolved from its uuid, never stored); the
-// per-kind sections were folded into it and stay valid for old clients. Per USER like the drafts (the shape is the static
+// per-kind sections stay its projection for older clients (sidebar-compat.json:
+// a per-kind FOLDER links the team folder it mirrors in `target_id`). Per USER like the drafts (the shape is the static
 // `user_id = me`), team-scoped for the cascade and for grouping. One row per
 // node: a FOLDER (`name`, top level only: two layers max) or an ITEM placing
 // `target_id` (a board / agent / app id; no FK, the section names the table:
@@ -3599,7 +3600,7 @@ export const sidebarLayout = pgTable(
     check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app')`),
     check(
       `sidebar_layout_kind_check`,
-      sql`(kind = 'folder' AND target_id IS NULL AND parent_id IS NULL) OR (kind = 'item' AND target_id IS NOT NULL)`
+      sql`(kind = 'folder' AND parent_id IS NULL AND (target_id IS NULL OR section <> 'team')) OR (kind = 'item' AND target_id IS NOT NULL)`
     ),
     uniqueIndex(`uniq_sidebar_layout_user_target`)
       .on(table.userId, table.section, table.targetId)

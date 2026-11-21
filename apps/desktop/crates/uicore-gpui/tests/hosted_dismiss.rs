@@ -186,3 +186,50 @@ fn a_click_after_the_previews_were_dismissed_reaches_the_button(cx: &mut TestApp
     draw(&mut vcx);
     assert_eq!(presses(&plugin), 2, "the second click reached the button: {:?}", plugin.heard.borrow());
 }
+
+/// #EXP-2024: the Agent spaces list, the FACTORY taskbar's press-opened
+/// hosted Popover. After the compositor dismissed it (a press in another
+/// window, the desktop, the pinned view), the next press on its button
+/// opens it again: it was eaten, every second open took two presses. A
+/// press on the button while it is open closes it.
+#[gpui::test]
+fn after_a_dismissal_elsewhere_the_next_press_opens_the_agent_spaces_list(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
+    let list = node(&factory["root"], "agent_spaces").expect("the Agent spaces list").clone();
+    assert_eq!(list["component"], "Popover");
+    let source = json!({
+        "surface": factory["surface"],
+        "data": {"spaces": {"count": 1, "rows": [{"id": "space-1", "session": "s1", "title": "Agent space 1", "subtitle": null, "picture": ""}]}, "spacesList": {"open": false}},
+        "root": {"id": "taskbar", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": 800, "height": 48}, "children": [list]}
+    });
+    let doc = ede_ui::validate_document("taskbar", &source).expect("the document validates");
+    let plugin = Plugin::default();
+    let for_surface = plugin.clone();
+    let surfaces = Surfaces::new(Box::new(WindowedHost), eui_core::themes::builtin_theme("exponential").expect("the theme"), Rc::new(move |_| Rc::new(for_surface.clone()) as Rc<dyn HostPlugin>), Rc::new(|_, _| {}), "test");
+    *plugin.shell.borrow_mut() = Some(surfaces);
+    assert!(cx.update(|cx| plugin.shell.borrow_mut().as_mut().unwrap().open_layer(&doc, &Feed::new(), cx)));
+    let region = plugin.shell.borrow().as_ref().unwrap().region("taskbar").cloned().expect("the taskbar's region");
+    let mut vcx = VisualTestContext::from_window(region.handle.into(), cx);
+    draw(&mut vcx);
+    let button = region.view.read_with(&vcx, |v, _| v.index_of("agent_spaces_button").expect("the Agent spaces button"));
+    let open = |plugin: &Plugin| plugin.hosted.borrow().iter().any(|l| l.hosted && l.owner == "agent_spaces");
+    let press = |vcx: &mut VisualTestContext| {
+        region.view.update_in(vcx, |v, window, cx| v.press(button, window, cx));
+        draw(vcx);
+    };
+    press(&mut vcx);
+    assert!(open(&plugin), "the first press opens the list");
+    for round in 0..3 {
+        let layers = plugin.hosted.borrow().clone();
+        cx.update(|cx| plugin.shell.borrow_mut().as_mut().unwrap().sync_hosted("taskbar", &layers, cx));
+        let hosted = plugin.shell.borrow().as_ref().unwrap().hosted_layers();
+        cx.update(|cx| dismiss_hosted(hosted, cx));
+        draw(&mut vcx);
+        assert!(!open(&plugin), "round {round}: the dismissal closed it");
+        press(&mut vcx);
+        assert!(open(&plugin), "round {round}: the next press after a dismissal elsewhere opens it");
+    }
+    press(&mut vcx);
+    assert!(!open(&plugin), "a press on the button while it is open closes it");
+}

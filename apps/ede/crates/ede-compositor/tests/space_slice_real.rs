@@ -9,6 +9,9 @@
 //!
 //! One test: it stands for one compositor (the process id is in every unit
 //! name), and the end of its harness stops the slice of all its spaces.
+//! It stands for a 6 GiB machine (a space may hold 2 GiB, all spaces 3
+//! GiB), so a program that takes more than its space may (#EDE-192) is
+//! ended by the kernel within seconds.
 //! The job turns lingering on for its user, as the installed daemon does:
 //! the user manager then outlives a logout, so nothing but the end of the
 //! compositor (its own, or the one exponential-session gives it) stops
@@ -23,7 +26,7 @@ use std::{
 };
 
 use common::space::start_with_spaces;
-use ede_compositor::spaces::slice::limits;
+use ede_compositor::spaces::slice::{limits, number, Machine};
 use ede_protocol::{
     process::{cgroup, space_slice, spaces_slice},
     Capability, Membership, ProcessSpace, SessionId, SpaceId,
@@ -131,6 +134,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
             // A launch's stages are the compositor's binary, not this test.
             if let Some(units) = &mut state.spaces.units {
                 units.shim = COMPOSITOR.into();
+                units.machine = Machine { memory: 6 << 30, ..units.machine };
             }
             state.spaces.units.clone()
         })
@@ -145,7 +149,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let _ = crashed_scope.wait();
 
     let (expected_all, expected_one) = limits(&config, units.machine);
-    let limit = |list: &[(String, u64)], name: &str| list.iter().find(|(n, _)| n == name).map(|(_, v)| *v).unwrap();
+    let limit = |list: &[(String, ede_compositor::spaces::slice::Value)], name: &str| number(list, name).unwrap();
     let grant = h.ipc().mint(SessionId::new("run-1").unwrap(), vec![Capability::Space], None).unwrap();
     let mut agent = h.ipc_with(grant.token).unwrap();
     let space = agent.create_space(640, 480).unwrap();
@@ -174,12 +178,54 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let (space_dir, all_dir): (PathBuf, PathBuf) = (units.space_cgroup(1), units.all_cgroup());
     let read = |dir: &Path, file: &str| std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{}/{file}: {e}", dir.display())).trim().to_string();
     assert_eq!(read(&space_dir, "memory.max"), limit(&expected_one, "MemoryMax").to_string());
-    assert_eq!(read(&space_dir, "memory.high"), limit(&expected_one, "MemoryHigh").to_string());
+    assert_eq!(limit(&expected_one, "MemoryMax"), 2 << 30);
     assert_eq!(read(&space_dir, "pids.max"), "777");
     assert_eq!(read(&all_dir, "memory.max"), limit(&expected_all, "MemoryMax").to_string());
     assert_eq!(read(&all_dir, "memory.swap.max"), limit(&expected_all, "MemorySwapMax").to_string());
+    // #EDE-192: `MemoryMax` is the line on both: no `MemoryHigh` slows a
+    // space down short of it, no space swaps, and the kernel ends one
+    // program at a time.
+    assert_eq!((read(&space_dir, "memory.high"), read(&all_dir, "memory.high")), ("max".to_string(), "max".to_string()));
+    assert_eq!((read(&space_dir, "memory.swap.max"), read(&all_dir, "memory.swap.max")), ("0".to_string(), "0".to_string()));
+    let scope_dir = space_dir.join(launched.trim().rsplit('/').next().unwrap());
+    assert_eq!((read(&space_dir, "memory.oom.group"), read(&scope_dir, "memory.oom.group")), ("0".to_string(), "0".to_string()));
+    // systemd-oomd, where it runs, watches the slice of all spaces at 30 %.
+    let shown = |unit: &str, property: &str| String::from_utf8_lossy(&Command::new("systemctl").args(["--user", "show", unit, "-p", property, "--value"]).output().unwrap().stdout).trim().to_string();
+    assert_eq!(shown(&all, "ManagedOOMMemoryPressure"), "kill");
+    assert!(["1288490189", "30%", "30.00%"].contains(&shown(&all, "ManagedOOMMemoryPressureLimit").as_str()), "{}", shown(&all, "ManagedOOMMemoryPressureLimit"));
+    if systemd >= 253 {
+        assert_eq!(shown(scope_dir.file_name().unwrap().to_str().unwrap(), "OOMPolicy"), "continue");
+    }
     assert_eq!(read(&all_dir, "cpu.max"), format!("{} 100000", limit(&expected_all, "CPUQuotaPerSecUSec") / 10), "microseconds of CPU per 100 ms");
     assert_eq!(read(&all_dir, "cpu.weight"), "10");
+
+    // #EDE-192: a program that takes more than its space may (#EXP-2011's
+    // hog: 100 MiB more, every page touched, until it is ended). The
+    // kernel ends it at the space's `MemoryMax`, inside the space's own slice (the slice of all spaces never reached
+    // its limit), and only it: the shell that started it and the space's
+    // other launch run on.
+    let hog_file = dir.path().join("hog.status");
+    let hog = "import time\nb=[]\nwhile True:\n    b.append(bytearray(100*1024*1024))\n    for i in range(0, len(b[-1]), 4096): b[-1][i]=1\n";
+    let script = format!("python3 -c '{hog}'; echo $? > {0}.tmp && mv {0}.tmp {0}; exec sleep 300", hog_file.display());
+    let shell = agent.launch(vec!["sh".into(), "-c".into(), script], Default::default(), None).unwrap();
+    if systemd >= 253 {
+        until("the kernel did not end the program over its space's limit", || hog_file.exists());
+        assert_eq!(std::fs::read_to_string(&hog_file).unwrap().trim(), "137", "the program ended otherwise than by SIGKILL");
+    } else {
+        // Before `OOMPolicy=`, systemd kills the rest of the scope with it.
+        until("the kernel did not end the program over its space's limit", || !alive(shell));
+    }
+    let events = |dir: &Path, file: &str, name: &str| read(dir, file).lines().find_map(|line| line.strip_prefix(&format!("{name} "))).unwrap_or_else(|| panic!("{}/{file} has no {name}", dir.display())).parse::<u64>().unwrap();
+    assert!(events(&space_dir, "memory.events", "oom_kill") >= 1, "not the kernel's OOM: {}", read(&space_dir, "memory.events"));
+    assert!(events(&space_dir, "memory.events.local", "oom") >= 1, "the space's own limit was not the one reached: {}", read(&space_dir, "memory.events.local"));
+    assert_eq!(events(&all_dir, "memory.events.local", "oom"), 0, "the slice of all spaces reached its limit: {}", read(&all_dir, "memory.events.local"));
+    assert_eq!(events(&space_dir, "memory.events", "oom_group_kill"), 0);
+    if let Ok(peak) = std::fs::read_to_string(space_dir.join("memory.swap.peak")) {
+        assert_eq!(peak.trim(), "0", "the space swapped");
+    }
+    assert!(alive(pid), "the kernel's kill took the space's other launch");
+    assert!(alive(shell) || systemd < 253, "the kernel's kill took more than the program over the limit");
+    assert!(systemctl(&["is-active", "--quiet", &one]), "the space's slice ended");
 
     // Whose process it is: the cgroup says so first.
     let space_id = SpaceId::new("space-1").unwrap();
@@ -244,7 +290,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     // for, and the slice is gone. What moved itself out ends too; the
     // person's scope runs on.
     agent.destroy_space(space.id.clone()).unwrap();
-    until_gone("a process of the closed space still runs", &[("the first launch", pid), ("the orphan's launch", parent), ("the orphan", orphan), ("the stubborn scope's child", stubborn), ("the mover", mover), ("what moved itself out of the slice", moved)]);
+    until_gone("a process of the closed space still runs", &[("the first launch", pid), ("the hog's shell", shell), ("the orphan's launch", parent), ("the orphan", orphan), ("the stubborn scope's child", stubborn), ("the mover", mover), ("what moved itself out of the slice", moved)]);
     let _ = stubborn_scope.wait();
     assert!(alive(person), "the person's scope ended with the space");
     systemctl(&["stop", &person_unit]);

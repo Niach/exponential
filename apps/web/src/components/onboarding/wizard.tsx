@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
+import { invalidateSessionCache } from "@/lib/auth/client"
 import {
   conceptIcon,
   BrandHeading,
@@ -393,6 +394,8 @@ function BoardStep({
     })
     if (result.ok) {
       await trpc.onboarding.complete.mutate()
+      // #EXP-2050: the cached session must not keep saying "not onboarded".
+      invalidateSessionCache()
       onCreated()
       return
     }

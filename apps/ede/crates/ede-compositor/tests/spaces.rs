@@ -340,10 +340,17 @@ fn a_space_has_its_own_frames_and_capture() {
     assert!((1..=7).contains(&slow), "{slow} callbacks in 600 ms on the slow clock");
     assert_eq!(settled(&h).3, serial, "a commit without a new buffer changes nothing");
 
-    // The capture shows the space alone, and makes the clock fast.
+    // The capture shows the space alone. By itself it is no use
+    // (#EXP-2024: a person watching a space does not speed it up)...
     let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
     assert_eq!((frame.width, frame.height, frame.at(320, 240)), (640, 480, RED));
     assert!(!frame.pixels.contains(&BLUE), "nothing of the person's desk");
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+    assert_eq!(settled(&h).1, SLOW);
+    // ...its own agent's capture (its space grant) is: the clock goes fast.
+    let id = h.with(move |state| state.spaces.get(desk).unwrap().id.clone());
+    let token = h.with(|state| state.ipc.mint_for("run-1", vec![Capability::Space]).token);
+    h.ipc_with(token).unwrap().capture(CaptureTarget::Space { space: id }).expect("the agent's capture");
     assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
     assert_eq!(settled(&h).1, FAST);
     // A new buffer moves the serial, once, whoever looks first.

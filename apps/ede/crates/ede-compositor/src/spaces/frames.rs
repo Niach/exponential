@@ -191,9 +191,11 @@ impl Ede {
     /// Space `id` as its output shows it: its windows and their popups on
     /// the configured background, a protected window black. No lock
     /// screen, no layers, no frames, no cursor: those are the person's.
+    /// A capture is not use (#EXP-2024: a person watching a space does not
+    /// speed it up): the queue marks a space used for its own grant's
+    /// captures ([`Self::spaces_after_frames`]).
     pub fn capture_space(&mut self, id: DeskId) -> Result<Frame, String> {
         let size = self.spaces.get(id).and_then(|s| s.output.current_mode()).map(|m| (m.size.w, m.size.h)).ok_or("no such space")?;
-        self.space_used(id);
         self.space_damage(id);
         let clear = self.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0]);
         let mut renderer = self.space_renderer().ok_or("no software renderer")?;

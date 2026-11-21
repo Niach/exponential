@@ -8,7 +8,8 @@
 //!   [`HANG`] or more is a `ui.hang` transaction for the time the loop was
 //!   blocked, and a loop stuck for [`STUCK`] (a deadlock never ticks again)
 //!   is a warning event from the watchdog thread.
-//! - `EXP_FRAME_STATS=1` prints a summary to stderr every 5 s, Sentry or not.
+//! - `EXP_FRAME_STATS=1` prints a summary to stderr every 5 s, Sentry or not,
+//!   through the log's thread (#EDE-185: a frame never waits on stderr).
 //!
 //! The transactions are sampled like every other (`tracesSampleRate`), and
 //! at most one long-frame or hang span goes out a second.
@@ -189,7 +190,7 @@ pub fn record_frame(output: &str, took: Duration) {
 /// Prints the stderr window when due; hands back the Sentry minute when due.
 fn flush_windows(s: &mut State, now: Instant, stats: bool, sentry: bool) -> Option<(Duration, Histogram)> {
     if stats && now.duration_since(s.printed) >= PRINT_EVERY {
-        eprintln!("exponential-desktop: {}", s.print.summary(now.duration_since(s.printed)));
+        crate::log_thread::line(format_args!("exponential-desktop: {}", s.print.summary(now.duration_since(s.printed))));
         s.print = Histogram::default();
         s.printed = now;
     }
@@ -335,6 +336,34 @@ mod tests {
         let line = h.summary(Duration::from_secs(5));
         assert!(line.starts_with("frame stats 5.0s: 1 frames (0.2/s) avg 1.00 ms"), "{line}");
         assert!(line.ends_with("1 hangs (max 150 ms)"), "{line}");
+    }
+
+    /// #EDE-185: with the log's output a pipe nobody reads, a frame and the
+    /// loop's tick return at once although each prints its summary: the
+    /// lines queue, or drop and are counted.
+    #[test]
+    fn a_frame_never_waits_for_the_log() {
+        use crate::log_thread::{self, tests::{assert_never_waited, timed}};
+        let (mut reader, pipe) = std::io::pipe().unwrap();
+        let log = log_thread::install_with(|| log_thread::Log::start(pipe, 16)).expect("the test's log thread");
+        STATS.store(true, Ordering::Relaxed);
+        let mut watch = LoopWatch::start().expect("stats on");
+        let took = timed(5000, |n| {
+            // Due at every call: each one prints.
+            with_state(|s, now| s.printed = now.checked_sub(PRINT_EVERY).unwrap_or(now));
+            if n % 2 == 0 {
+                record_frame("test", Duration::from_millis(2));
+            } else {
+                watch.tick();
+            }
+        });
+        STATS.store(false, Ordering::Relaxed);
+        eprintln!("5000 frames and ticks printing into a pipe nobody reads: median {:?}, worst {:?}", took.0, took.1);
+        assert_never_waited(took);
+        assert!(log.dropped() > 0, "the pipe was full");
+        // Read at last: the lines get out (and the exit has none to wait for).
+        std::thread::spawn(move || std::io::copy(&mut reader, &mut std::io::sink()));
+        assert!(log.flush(Duration::from_secs(10)));
     }
 
     #[test]

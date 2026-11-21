@@ -38,9 +38,8 @@ async function seedIssues(app: AppFixture, count: number) {
 
 async function boardWithIssues(page: Page, app: AppFixture, count = 24) {
   await registerUser(page, app.owner)
-  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
+  const teamSlug = await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
   await seedIssues(app, count)
-  const teamSlug = new URL(page.url()).pathname.split(`/`)[2]
   await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)
   // The first snapshot of a fresh team's shapes can take a while on a busy
   // dev stack.

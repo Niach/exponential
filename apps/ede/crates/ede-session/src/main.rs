@@ -87,6 +87,8 @@ fn device() -> ExitCode {
         DeviceStart::App(argv) => {
             use std::os::unix::process::CommandExt as _;
             tracing::info!("starting the Exponential app: {}", argv.join(" "));
+            // #EDE-185: the exec ends the log's thread; its lines first.
+            ede_observability::flush();
             // #EDE-64: the app runs as the session's device: no window at
             // login, and closing its last window keeps it online.
             let err = Command::new(&argv[0]).args(&argv[1..]).env(DEVICE_ENV, "1").exec();

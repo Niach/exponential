@@ -98,16 +98,24 @@ pub fn title_from_parts(
     issues: &[TitleIssue<'_>],
     prompt: Option<&str>,
 ) -> String {
+    title_if_any(title, issues, prompt).unwrap_or_else(|| copy::UNTITLED.to_string())
+}
+
+/// The ladder without its last rung: `None` = no rung yields text, for a
+/// caller that says something else than `Untitled` then (#EDE-194: an
+/// agent space's row reads `Agent space n`).
+pub fn title_if_any(
+    title: Option<&str>,
+    issues: &[TitleIssue<'_>],
+    prompt: Option<&str>,
+) -> Option<String> {
     if let Some(named) = clean(title) {
-        return named.to_string();
+        return Some(named.to_string());
     }
     if !issues.is_empty() {
-        return issue_label(issues);
+        return Some(issue_label(issues));
     }
-    match prompt.and_then(first_line) {
-        Some(line) => clip(&line, TITLE_MAX),
-        None => copy::UNTITLED.to_string(),
-    }
+    prompt.and_then(first_line).map(|line| clip(&line, TITLE_MAX))
 }
 
 /// The session's OWN rows (`session_id == id`, root or child alike, NEW-1;
@@ -182,6 +190,16 @@ pub fn session_title(
     TitleIndex::new(links, issues, messages).title(session)
 }
 
+/// [`session_title`] without its last rung ([`title_if_any`]).
+pub fn session_title_if_any(
+    session: &SessionRow,
+    links: &[&SessionIssueRow],
+    issues: &[TreeIssue],
+    messages: &[&MessageRow],
+) -> Option<String> {
+    TitleIndex::new(links, issues, messages).title_if_any(session)
+}
+
 /// Every given session's title, keyed by id (the tree's card names).
 pub fn session_titles(
     sessions: &[&SessionRow],
@@ -224,6 +242,11 @@ impl<'a> TitleIndex<'a> {
 
     /// [`session_title`] of `session`.
     pub fn title(&self, session: &SessionRow) -> String {
+        self.title_if_any(session).unwrap_or_else(|| copy::UNTITLED.to_string())
+    }
+
+    /// [`session_title_if_any`] of `session`.
+    pub fn title_if_any(&self, session: &SessionRow) -> Option<String> {
         let own_links = self.links.get(session.id.as_str()).cloned().unwrap_or_default();
         let own: Vec<TitleIssue<'_>> = resolve_links(own_links, &self.issues)
             .into_iter()
@@ -235,7 +258,7 @@ impl<'a> TitleIndex<'a> {
         } else {
             None
         };
-        title_from_parts(session.title.as_deref(), &own, prompt.as_deref())
+        title_if_any(session.title.as_deref(), &own, prompt.as_deref())
     }
 }
 
@@ -310,6 +333,13 @@ mod tests {
                 case["expected"].as_str().unwrap(),
                 "{name}"
             );
+            // #EDE-194: without the last rung, `Untitled` is no title at all.
+            let expected = case["expected"].as_str().filter(|t| *t != copy::UNTITLED);
+            assert_eq!(
+                session_title_if_any(&session, &link_refs, &issues, &message_refs).as_deref(),
+                expected,
+                "{name}"
+            );
         }
     }
 
@@ -330,5 +360,7 @@ mod tests {
         assert_eq!(title_from_parts(None, &[issue], Some("hi")), "#APP-1 Crash");
         assert_eq!(title_from_parts(None, &[], Some("\n![a](b)\n do it ")), "do it");
         assert_eq!(title_from_parts(Some(" "), &[], None), "Untitled");
+        assert_eq!(title_if_any(Some(" "), &[], Some("![a](b)")), None, "no rung yields text");
+        assert_eq!(title_if_any(None, &[issue], None).as_deref(), Some("#APP-1 Crash"));
     }
 }

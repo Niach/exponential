@@ -32,12 +32,16 @@ concurrency:
 
 jobs:
   windows:
+    permissions:
+      contents: read
+      actions: write
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
@@ -54,14 +58,22 @@ jobs:
         run: |
           cargo test --no-run --locked --manifest-path apps/desktop/Cargo.toml -p gpui-pre-windows --lib
           cargo test --no-run --locked --manifest-path apps/desktop/Cargo.toml -p eagent --lib
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: v0-rust-windows-check-Windows_NT-
+          restored-exact: ${{ steps.cache.outputs.cache-hit }}
 
   macos:
+    permissions:
+      contents: read
+      actions: write
     runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
@@ -72,20 +84,7 @@ jobs:
         run: |
           cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app -p exp-cli
           cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests
-
-  # Keep the newest master entry per check (rust-cache never deletes the one
-  # it replaces).
-  prune:
-    needs: [windows, macos]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete the replaced master entries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for prefix in v0-rust-windows-check-Windows_NT- v0-rust-macos-check-Darwin-; do
-            gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "$prefix" --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
-              | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
-          done
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: v0-rust-macos-check-Darwin-
+          restored-exact: ${{ steps.cache.outputs.cache-hit }}

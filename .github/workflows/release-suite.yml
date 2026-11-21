@@ -205,9 +205,13 @@ jobs:
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config libxcb1-dev libssl-dev libfontconfig1-dev clang \
             mesa-vulkan-drivers libegl1
       - uses: dtolnay/rust-toolchain@stable
+      # Every rust-cache here saves on master only, which never runs this:
+      # a tag's or a dispatched branch's entry no other ref can read (~1 GB
+      # each, per branch) evicted the master seeds (2026-11-20/21).
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
             apps/ede
             apps/desktop
@@ -413,6 +417,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests
@@ -454,6 +459,7 @@ jobs:
           echo "IROH_RELAY_VERSION=$(awk '/^name = "iroh-relay"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: enet-wasm-smoke
       - uses: ./.github/actions/cargo-fetch
@@ -491,6 +497,7 @@ jobs:
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: eagent-wasm-replay
       - uses: ./.github/actions/cargo-fetch
@@ -520,6 +527,7 @@ jobs:
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: chat-store-wasm
       - uses: ./.github/actions/cargo-fetch
@@ -549,6 +557,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       # #EXP-1979: computer use's macOS backend (the lock's verdicts, the
@@ -568,6 +577,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (worktree removal, Windows long paths)
@@ -605,6 +615,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop/fuzz
       - uses: ./.github/actions/cargo-fetch
         with:
@@ -639,6 +650,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Facade tests
@@ -676,6 +688,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Swift binding suite (the committed binding vs the host dylib)
@@ -703,6 +716,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -714,16 +728,14 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Android unit tests
         working-directory: apps/android
         run: ./gradlew :app:testProductionDebugUnitTest --no-daemon

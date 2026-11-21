@@ -55,6 +55,9 @@ jobs:
   # facades through JNA only when they run, so no cargo here.
   android:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     env:
       ENET_SKIP_NATIVE: '1'
     steps:
@@ -84,24 +87,10 @@ jobs:
       # look in use or due for a cleanup.
       - name: Drop the lock files
         run: find ~/.gradle/caches \( -name '*.lock' -o -name gc.properties \) -delete
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: gradle-android-
       - uses: actions/cache/save@v4
         with:
           path: ~/.gradle/caches
           key: gradle-android-${{ github.run_id }}
-
-  # actions/cache never replaces an entry: keep the newest master entry per
-  # family, so the replaced ones don't crowd the 10 GB.
-  prune:
-    needs: [android]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete the replaced master entries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for family in gradle-android; do
-            gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "$family-" --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
-              | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
-          done

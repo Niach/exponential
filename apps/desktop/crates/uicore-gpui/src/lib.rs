@@ -194,8 +194,8 @@ pub struct Placed {
 
 /// How a document's surface becomes a window.
 pub trait ShellHost {
-    /// A layer document (`surface.layer`).
-    fn layer(&self, header: &SurfaceHeader) -> Placed;
+    /// A layer document (`surface.layer`) named `name`.
+    fn layer(&self, name: &str, header: &SurfaceHeader) -> Placed;
     /// A popup document (`surface.popup`) under `anchor_rect` of `parent`.
     fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), cx: &mut App) -> Placed;
     /// A hosted Popover / Menu layer of `parent` (VAPP-281).
@@ -219,6 +219,13 @@ impl Default for LayerShellHost {
     fn default() -> Self {
         Self { namespace: "exponential-shell".into() }
     }
+}
+
+/// A layer document's layer-shell namespace: the host's prefix and the
+/// document's name (`exponential-shell:space-view`, the name the compositor
+/// keeps out of captures of the person's output, #EXP-2024).
+pub fn layer_namespace(prefix: &str, name: &str) -> String {
+    format!("{prefix}:{name}")
 }
 
 /// Normal windows: `--windowed`, macOS.
@@ -317,8 +324,8 @@ fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixe
 
 #[cfg(target_os = "linux")]
 impl ShellHost for LayerShellHost {
-    fn layer(&self, header: &SurfaceHeader) -> Placed {
-        let (kind, bounds) = layer_options(&self.namespace, header);
+    fn layer(&self, name: &str, header: &SurfaceHeader) -> Placed {
+        let (kind, bounds) = layer_options(&layer_namespace(&self.namespace, name), header);
         Placed { kind, bounds }
     }
 
@@ -353,7 +360,7 @@ impl ShellHost for LayerShellHost {
 }
 
 impl ShellHost for WindowedHost {
-    fn layer(&self, header: &SurfaceHeader) -> Placed {
+    fn layer(&self, _name: &str, header: &SurfaceHeader) -> Placed {
         Placed { kind: WindowKind::Normal, bounds: layer_bounds(header) }
     }
 
@@ -474,7 +481,7 @@ impl Surfaces {
         if self.open.contains_key(&doc.name) || !matches!(doc.surface, SurfaceHeader::Layer { .. }) {
             return false;
         }
-        let placed = self.host.layer(&doc.surface);
+        let placed = self.host.layer(&doc.name, &doc.surface);
         match self.open_window(doc, placed, feed, cx) {
             Some(region) => {
                 tracing::info!(document = %doc.name, "surface opened");
@@ -585,6 +592,11 @@ impl Surfaces {
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),
             }
         }
+    }
+
+    /// The popup window that shows `document`'s hosted layer `owner`.
+    pub fn hosted_window(&self, document: &str, owner: &str) -> Option<gpui::AnyWindowHandle> {
+        self.hosted.get(&(document.to_string(), owner.to_string())).map(|h| (*h).into())
     }
 
     /// The hosted layers [`dismiss_hosted`] closes, each with its surface.

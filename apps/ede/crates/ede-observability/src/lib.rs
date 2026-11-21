@@ -16,6 +16,12 @@
 //! to that DSN). `EXP_FRAME_STATS=1` prints a frame-time summary to stderr
 //! with or without Sentry ([`stats`]).
 //!
+//! #EDE-185: the thread that logs never writes the line itself. Every line
+//! (the tracing fmt layer's and [`log_line`]'s) goes to a bounded queue
+//! that one thread writes to stderr: a log file or a journald stream that
+//! waits on a busy disk holds that thread, never the compositor's main
+//! loop. A full queue drops lines and says how many (`log_thread`).
+//!
 //! Native crashes (#ERR-12): a long-running binary calls
 //! [`watch_native_crashes`]; a monitor process (the same binary, see
 //! [`run_crash_monitor_if_requested`]) writes a walked report of every
@@ -30,6 +36,7 @@
 
 pub mod config;
 mod limit;
+mod log_thread;
 pub mod scrub;
 pub mod stats;
 pub mod transport;
@@ -45,6 +52,7 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
+pub use log_thread::line as log_line;
 pub use stats::{record_frame, LoopWatch, HANG, LONG_FRAME, TICK};
 
 /// `exponential-ede@<version>`: one release name for every eDE binary.
@@ -70,17 +78,29 @@ pub fn watch_native_crashes(component: &'static str) {
     }
 }
 
-/// Keeps the Sentry client alive; dropping it flushes what is queued.
-pub struct Guard(Option<sentry::ClientInitGuard>);
+/// Keeps the Sentry client and the log's thread alive; dropping it writes
+/// the queued log lines (up to 1 s), then flushes what Sentry has queued.
+pub struct Guard {
+    sentry: Option<sentry::ClientInitGuard>,
+    log: Option<log_thread::Log>,
+}
 
 impl Guard {
     /// Whether this process reports to Sentry.
     pub fn enabled(&self) -> bool {
-        self.0.is_some()
+        self.sentry.is_some()
     }
 }
 
-/// Where the human-readable log goes.
+impl Drop for Guard {
+    fn drop(&mut self) {
+        if let Some(log) = &self.log {
+            log.flush(log_thread::EXIT_FLUSH);
+        }
+    }
+}
+
+/// Where the human-readable log goes (from the log's own thread).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
     Stdout,
@@ -184,10 +204,14 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
     let _ = rustls::crypto::ring::default_provider().install_default();
     let plan = config::resolve();
 
-    let writer = match output {
-        Output::Stdout => BoxMakeWriter::new(std::io::stdout),
-        Output::Stderr => BoxMakeWriter::new(std::io::stderr),
+    // #EDE-185: from the log's own thread; directly if it cannot start.
+    let log = log_thread::install(output);
+    let writer = match (log, output) {
+        (Some(log), _) => BoxMakeWriter::new(log_thread::Writer(log.clone())),
+        (None, Output::Stdout) => BoxMakeWriter::new(std::io::stdout),
+        (None, Output::Stderr) => BoxMakeWriter::new(std::io::stderr),
     };
+    let log = log.cloned();
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into());
     let fmt = tracing_subscriber::fmt::layer().with_writer(writer).with_filter(env_filter);
     // The person's content passes through this binary: where, never what.
@@ -217,7 +241,7 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
             crash_monitor::discard_pending(&crashes_dir());
         }
         stats::init(false);
-        return Guard(None);
+        return Guard { sentry: None, log };
     };
     let user = plan.user_id.clone().map(|id| sentry::User { id: Some(id), ..Default::default() });
     let guard = sentry::init(options(&plan));
@@ -240,7 +264,7 @@ pub fn init_with(component: &'static str, default_filter: &str, output: Output, 
         });
     }
     tracing::info!(environment = %plan.environment, "diagnostics on");
-    Guard(Some(guard))
+    Guard { sentry: Some(guard), log }
 }
 
 /// The reports another launch left, through `hub`; deleted once flushed.
@@ -271,9 +295,11 @@ fn reports_hub(client: Option<std::sync::Arc<sentry::Client>>, user: Option<sent
     sentry::Hub::new(client, std::sync::Arc::new(scope))
 }
 
-/// Sends what is queued (up to 2 s): before a `std::process::exit`, which
-/// skips the [`Guard`]'s drop.
+/// Writes the queued log lines (up to 1 s) and sends what Sentry has
+/// queued (up to 2 s): before a `std::process::exit` or an exec, which skip
+/// the [`Guard`]'s drop (an exit writes the log lines on its own too).
 pub fn flush() {
+    log_thread::flush(log_thread::EXIT_FLUSH);
     if let Some(client) = sentry::Hub::current().client() {
         client.flush(Some(Duration::from_secs(2)));
     }

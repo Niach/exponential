@@ -1,0 +1,182 @@
+{
+  "$comment": "#EXP-2024: the live view of an agent's space on Exponential Desktop (f5-f6-design.md section 6 on #EXP-1514), a pure projection replayed in TS (src/spaces.ts) and Rust (uicore-model spaces.rs); the shell feeds it as `/spaces` (the taskbar's Agent spaces button and its list) and `/spaceView` (the pinned view). ROWS (`spaceRows(spaces, sessions) -> [{id, session, number, title, subtitle}]`, the `rows` cases {name, spaces, sessions, expected}): `spaces` = the compositor's ListSpaces ({id, session}: a space's id is `space-<n>`, n its number, counted up and never reused; `session` = the session its grant names), `sessions` = the session rows the shell's signed-in accounts hold ({id, title, parentId, rootId}, the title already resolved the way every client resolves it from what this machine can read: #EDE-194, a sealed title opens with the keyrings of the account's installs on this machine, the app's and the CLI daemon's, as a space's session runs on this machine and its host sealed it; `title` null or absent = no rung of session-title.json yields text, as for a sealed title and first prompt no keyring here opens: that fixture's `Untitled` never reaches a row). One row per space in the order of the NUMBERS (`space-2` before `space-10`; an id without a number after the numbered ones, by id). `number` = n (1 to 15 digits), null without one (or with more). `title` = its session's title, trimmed of white space (Unicode's White_Space and JavaScript's, U+FEFF and U+0085 too); a session no account holds (another account's, a teammate's private one on a shared device, a space made by hand), an empty title or none (it cannot be read) = `copy.untitled` with {n} = the number (the whole id without one). `subtitle` = a child session's chat (parentId set): its root's title (rootId, trimmed), null for a root session, for a root no account holds and for one whose title is empty or cannot be read. NO state word (the product's Working outlives a dead host; the picture is the state). The count (the button shows while it is above 0) = the number of spaces. VIEW (`spaceView(space, display, large) -> {width, height, picture: {width, height}, pixels: {width, height}, large, canGrow}`, the `view` cases {name, space, display, large, expected}): the pinned view is a box at the bottom right of the FIRST display above the taskbar: inside a `constants.border` px border, `constants.header` px of header (the title, the size and the close button) over the picture. `space` = the space's output size {width, height}; `display` = the first display's logical size and scale {width, height, scale}. The picture's width = min(`constants.maxWidth`, floor(display width / 3)); `large` asks for twice that, granted only where it fits (canGrow): the box at twice the width within display width - 2 x shell-layout.json panelMargin, and its height within display height - taskbarHeight - 2 x panelMargin. A box that does not fit that height is narrowed until it does (floor). The picture's height = round(width x space height / space width) (the space's aspect; a space of no size = 16:10); the box (`width`, `height`, the layer's size) = the picture + 2 x border wide, header + picture + 2 x border tall. `pixels` = the picture's box times the display's scale, rounded: what the capture is shrunk to, so the picture stays sharp at 1.5 and 2 (never bigger than the space itself: the shrink never scales up).",
+  "version": 1,
+  "copy": {
+    "untitled": "Agent space {n}"
+  },
+  "constants": {
+    "maxWidth": 640,
+    "header": 40,
+    "border": 1
+  },
+  "rows": [
+    {
+      "name": "no spaces: no rows",
+      "spaces": [],
+      "sessions": [],
+      "expected": []
+    },
+    {
+      "name": "a session's title, trimmed; a root session has no second line",
+      "spaces": [{"id": "space-1", "session": "s1"}],
+      "sessions": [{"id": "s1", "title": "  Fix the login page  ", "parentId": null, "rootId": "s1"}],
+      "expected": [{"id": "space-1", "session": "s1", "number": 1, "title": "Fix the login page", "subtitle": null}]
+    },
+    {
+      "name": "a child session's chat is the second line",
+      "spaces": [{"id": "space-4", "session": "child"}],
+      "sessions": [
+        {"id": "root", "title": "Release round", "parentId": null, "rootId": "root"},
+        {"id": "child", "title": "Check the store pictures", "parentId": "root", "rootId": "root"}
+      ],
+      "expected": [{"id": "space-4", "session": "child", "number": 4, "title": "Check the store pictures", "subtitle": "Release round"}]
+    },
+    {
+      "name": "a child whose root no account holds has no second line",
+      "spaces": [{"id": "space-2", "session": "child"}],
+      "sessions": [{"id": "child", "title": "Check the store pictures", "parentId": "root", "rootId": "root"}],
+      "expected": [{"id": "space-2", "session": "child", "number": 2, "title": "Check the store pictures", "subtitle": null}]
+    },
+    {
+      "name": "a session no account holds: Agent space n",
+      "spaces": [{"id": "space-7", "session": "exponential-ctl-4242"}],
+      "sessions": [{"id": "other", "title": "Another chat", "parentId": null, "rootId": "other"}],
+      "expected": [{"id": "space-7", "session": "exponential-ctl-4242", "number": 7, "title": "Agent space 7", "subtitle": null}]
+    },
+    {
+      "name": "an empty title: Agent space n",
+      "spaces": [{"id": "space-3", "session": "s3"}],
+      "sessions": [{"id": "s3", "title": "   ", "parentId": null, "rootId": "s3"}],
+      "expected": [{"id": "space-3", "session": "s3", "number": 3, "title": "Agent space 3", "subtitle": null}]
+    },
+    {
+      "name": "a title that cannot be read (a sealed title and first prompt no keyring here opens; every client's Untitled): Agent space n, never Untitled",
+      "spaces": [{"id": "space-8", "session": "sealed"}],
+      "sessions": [{"id": "sealed", "title": null, "parentId": null, "rootId": "sealed"}],
+      "expected": [{"id": "space-8", "session": "sealed", "number": 8, "title": "Agent space 8", "subtitle": null}]
+    },
+    {
+      "name": "a child under a chat whose title cannot be read has no second line; a child whose own title cannot be read is Agent space n under its chat",
+      "spaces": [{"id": "space-11", "session": "kid-a"}, {"id": "space-12", "session": "kid-b"}],
+      "sessions": [
+        {"id": "locked-root", "title": null, "parentId": null, "rootId": "locked-root"},
+        {"id": "kid-a", "title": "Check the store pictures", "parentId": "locked-root", "rootId": "locked-root"},
+        {"id": "open-root", "title": "Release round", "parentId": null, "rootId": "open-root"},
+        {"id": "kid-b", "parentId": "open-root", "rootId": "open-root"}
+      ],
+      "expected": [
+        {"id": "space-11", "session": "kid-a", "number": 11, "title": "Check the store pictures", "subtitle": null},
+        {"id": "space-12", "session": "kid-b", "number": 12, "title": "Agent space 12", "subtitle": "Release round"}
+      ]
+    },
+    {
+      "name": "the order of the numbers, not of the ids; an id without a number last",
+      "spaces": [
+        {"id": "space-10", "session": "a"},
+        {"id": "odd", "session": "b"},
+        {"id": "space-2", "session": "c"},
+        {"id": "space-9", "session": "d"}
+      ],
+      "sessions": [
+        {"id": "a", "title": "Ten", "parentId": null, "rootId": "a"},
+        {"id": "c", "title": "Two", "parentId": null, "rootId": "c"}
+      ],
+      "expected": [
+        {"id": "space-2", "session": "c", "number": 2, "title": "Two", "subtitle": null},
+        {"id": "space-9", "session": "d", "number": 9, "title": "Agent space 9", "subtitle": null},
+        {"id": "space-10", "session": "a", "number": 10, "title": "Ten", "subtitle": null},
+        {"id": "odd", "session": "b", "number": null, "title": "Agent space odd", "subtitle": null}
+      ]
+    },
+    {
+      "name": "two spaces of one tree: each row its own session, both under the chat",
+      "spaces": [
+        {"id": "space-5", "session": "kid-a"},
+        {"id": "space-6", "session": "kid-b"}
+      ],
+      "sessions": [
+        {"id": "root", "title": "Ship 0.3", "parentId": null, "rootId": "root"},
+        {"id": "kid-a", "title": "Web pictures", "parentId": "root", "rootId": "root"},
+        {"id": "kid-b", "title": "Android pictures", "parentId": "kid-a", "rootId": "root"}
+      ],
+      "expected": [
+        {"id": "space-5", "session": "kid-a", "number": 5, "title": "Web pictures", "subtitle": "Ship 0.3"},
+        {"id": "space-6", "session": "kid-b", "number": 6, "title": "Android pictures", "subtitle": "Ship 0.3"}
+      ]
+    },
+    {"name": "white space either twin knows is trimmed: a pasted byte-order mark is no title", "spaces": [{"id": "space-5", "session": "bom"}, {"id": "space-6", "session": "nel"}], "sessions": [{"id": "bom", "title": "\ufeff", "parentId": null, "rootId": "bom"}, {"id": "nel", "title": "\u0085Plan the week\u0085", "parentId": null, "rootId": "nel"}], "expected": [{"id": "space-5", "session": "bom", "number": 5, "title": "Agent space 5", "subtitle": null}, {"id": "space-6", "session": "nel", "number": 6, "title": "Plan the week", "subtitle": null}]},
+    {"name": "a number of more than 15 digits is no number", "spaces": [{"id": "space-123456789012345678901", "session": "x"}, {"id": "space-999999999999999", "session": "y"}], "sessions": [], "expected": [{"id": "space-999999999999999", "session": "y", "number": 999999999999999, "title": "Agent space 999999999999999", "subtitle": null}, {"id": "space-123456789012345678901", "session": "x", "number": null, "title": "Agent space space-123456789012345678901", "subtitle": null}]}
+  ],
+  "view": [
+    {
+      "name": "a 1920-wide display: 640, the space's aspect",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1920, "height": 1080, "scale": 1},
+      "large": false,
+      "expected": {"width": 642, "height": 442, "picture": {"width": 640, "height": 400}, "pixels": {"width": 640, "height": 400}, "large": false, "canGrow": true}
+    },
+    {
+      "name": "a 1280-wide display: a third of it",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1280, "height": 720, "scale": 1},
+      "large": false,
+      "expected": {"width": 428, "height": 308, "picture": {"width": 426, "height": 266}, "pixels": {"width": 426, "height": 266}, "large": false, "canGrow": true}
+    },
+    {
+      "name": "scale 1.5: the picture's pixels are the box times the scale",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1707, "height": 960, "scale": 1.5},
+      "large": false,
+      "expected": {"width": 571, "height": 398, "picture": {"width": 569, "height": 356}, "pixels": {"width": 854, "height": 534}, "large": false, "canGrow": true}
+    },
+    {
+      "name": "scale 2: twice the pixels",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1920, "height": 1200, "scale": 2},
+      "large": false,
+      "expected": {"width": 642, "height": 442, "picture": {"width": 640, "height": 400}, "pixels": {"width": 1280, "height": 800}, "large": false, "canGrow": true}
+    },
+    {
+      "name": "large where it fits: twice the width",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 2560, "height": 1440, "scale": 1},
+      "large": true,
+      "expected": {"width": 1282, "height": 842, "picture": {"width": 1280, "height": 800}, "pixels": {"width": 1280, "height": 800}, "large": true, "canGrow": true}
+    },
+    {
+      "name": "large where it does not fit: the default size",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1920, "height": 900, "scale": 1},
+      "large": true,
+      "expected": {"width": 642, "height": 442, "picture": {"width": 640, "height": 400}, "pixels": {"width": 640, "height": 400}, "large": false, "canGrow": false}
+    },
+    {
+      "name": "large at scale 2: twice the width, its pixels never above the space",
+      "space": {"width": 1280, "height": 800},
+      "display": {"width": 1920, "height": 1200, "scale": 2},
+      "large": true,
+      "expected": {"width": 1282, "height": 842, "picture": {"width": 1280, "height": 800}, "pixels": {"width": 1280, "height": 800}, "large": true, "canGrow": true}
+    },
+    {
+      "name": "a tall space on a short display is narrowed to fit the height",
+      "space": {"width": 800, "height": 1280},
+      "display": {"width": 1920, "height": 720, "scale": 1},
+      "large": false,
+      "expected": {"width": 383, "height": 652, "picture": {"width": 381, "height": 610}, "pixels": {"width": 381, "height": 610}, "large": false, "canGrow": false}
+    },
+    {
+      "name": "the pixels never exceed the space",
+      "space": {"width": 640, "height": 400},
+      "display": {"width": 1920, "height": 1200, "scale": 2},
+      "large": false,
+      "expected": {"width": 642, "height": 442, "picture": {"width": 640, "height": 400}, "pixels": {"width": 640, "height": 400}, "large": false, "canGrow": true}
+    },
+    {
+      "name": "a space of no size: 16:10",
+      "space": {"width": 0, "height": 0},
+      "display": {"width": 1920, "height": 1080, "scale": 1},
+      "large": false,
+      "expected": {"width": 642, "height": 442, "picture": {"width": 640, "height": 400}, "pixels": {"width": 640, "height": 400}, "large": false, "canGrow": true}
+    }
+  ]
+}
