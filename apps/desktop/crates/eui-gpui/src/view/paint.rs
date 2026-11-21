@@ -27,6 +27,10 @@ use crate::paint::parts::{part_visual, px_prop, spacing, theme_color};
 use crate::paint::PaintStyle;
 use crate::text;
 
+/// #EXP-2045: how soon a host's popup window draws again while something in
+/// the surface moves (its enter, a hover's transition).
+const HOSTED_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// The nearest clipping ancestor with rounded corners, in PAINTED surface
 /// coordinates: descendants touching its corners round theirs to match
 /// (gpui's content masks are rectangular).
@@ -1975,8 +1979,39 @@ impl SurfaceView {
         let k = self.layers.iter().position(|l| l.hosted && l.owner == owner)?;
         let layer = self.layers[k].clone();
         let f = self.frames.get(layer.root as usize).copied().unwrap_or_default();
+        // #EXP-2045: the host's popup is a window of its own, with frames of
+        // its own. Its paint reads the clock now: the motion clock is the
+        // one the surface window's last frame set, and that window need not
+        // draw while the popup enters (on eDE it drew none: the list's enter
+        // painted at opacity 0 and stayed so). While anything moves, its own
+        // window draws again a frame later.
+        let now = self.clock();
+        self.motion.now = Some(now);
+        if self.motion.active(now) {
+            cx.spawn_in(window, async move |_, cx| {
+                cx.background_executor().timer(HOSTED_FRAME).await;
+                let _ = cx.update(|window, _| window.refresh());
+            })
+            .detach();
+        }
+        let shown = self.motion.layer_progress(&layer.owner, now).unwrap_or(1.0);
+        let painted = self.hosted_shown.entry(layer.owner.clone()).or_insert((1.0, 0));
+        *painted = (shown, painted.1 + 1);
         let el = self.paint_layer_at(k, &layer, None, window, cx);
         Some(div().relative().w(px(f.w)).h(px(f.h)).child(el).into_any_element())
+    }
+
+    /// #EXP-2045: how much of the hosted popup layer `owner` its host's last
+    /// paint showed: its enter's progress, 1 = all of it (`None` = never
+    /// painted).
+    pub fn hosted_popup_shown(&self, owner: &str) -> Option<f32> {
+        self.hosted_shown.get(owner).map(|(shown, _)| *shown)
+    }
+
+    /// #EXP-2045: how many times its host painted the hosted popup layer
+    /// `owner` since it opened.
+    pub fn hosted_popup_paints(&self, owner: &str) -> u64 {
+        self.hosted_shown.get(owner).map_or(0, |(_, paints)| *paints)
     }
 
     /// VAPP-281: the host closes a hosted popup (its compositor dismissed
