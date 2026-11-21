@@ -34,12 +34,13 @@ fail() {
 
 cleanup() {
   [ -n "$spid" ] && kill "$spid" 2>/dev/null || true
-  if [ -n "$cpid" ] && kill -0 "$cpid" 2>/dev/null; then
-    kill -TERM "$cpid" 2>/dev/null || true
-    sleep 3
+  if [ -n "$cpid" ]; then
+    kill -TERM "$cpid" 2>/dev/null && sleep 3
     kill -KILL "$cpid" 2>/dev/null || true
     "$compositor" space-end "$cpid" >/dev/null 2>&1 || true
   fi
+  # A compositor that was signalled leaves its sockets behind.
+  [ -n "${display:-}" ] && rm -rf "$runtime/$display" "$runtime/$display.lock" "$runtime/exponential-desktop/$display".*
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
