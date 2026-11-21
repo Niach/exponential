@@ -13950,6 +13950,7 @@ dependencies = [
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
+ "gpui-pre-wgpu",
  "image",
  "rust-embed",
  "serde_json",
