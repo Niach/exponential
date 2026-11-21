@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-agent-spaces",
+    date: "2026-11-21",
+    title: "Agents work in a space of their own on Exponential Desktop",
+    summary: "With Computer use on, a session on Exponential Desktop now drives a desktop of its own instead of your screen, and you keep your keyboard and pointer.",
+    body: r##"- **Agent spaces**: every session with Computer use gets a space of its own and keeps it for as long as the session lives, so its next message finds the apps it left open.
+- **Signed out**: apps in a space start signed out, and what an agent signs into there stays signed in until its space closes.
+- **Watch or close**: on that machine the taskbar shows the agent spaces that are open: pin one to watch it, or close it.
+- **Work screen**: Device settings › Work screen picks where agents work: Auto, Agent space only, or one of your displays.
+- **Agent space row**: device settings show whether a device offers an agent space, and why not."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_345: ChangelogEntry = ChangelogEntry {
     id: "2026-11-21-desktop-cli-0-14-172",
     date: "2026-11-21",
     title: "Stop a spoken reply, one call host, steadier computer use",
