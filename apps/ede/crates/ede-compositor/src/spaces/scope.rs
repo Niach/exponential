@@ -105,6 +105,13 @@ impl Ede {
                 match request {
                     Request::Launch { argv, env, cwd } => {
                         let app = argv.first().cloned().unwrap_or_default();
+                        // #EDE-162: a space that draws on the GPU starts its
+                        // programs with the GPU (F3's switch off), from the
+                        // first one on, whose user manager keeps that
+                        // environment; a latch turns it back on (`frames::net`).
+                        if self.space_gpu_allowed(desk) {
+                            self.set_space_software_rendering(desk, false);
+                        }
                         let launched = self.space_launch(desk, argv, env, cwd)?;
                         // #EDE-162: a GPU space watches how it starts.
                         self.space_net_launched(desk, launched.pid, &app);

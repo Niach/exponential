@@ -59,8 +59,10 @@ pub(crate) struct Net {
     latched: HashMap<DeskId, String>,
     /// What the space's agent reads with its next capture.
     notices: HashMap<DeskId, String>,
-    /// Test only: spaces treated as rendering on the GPU without a renderer.
+    /// Test only: spaces treated as rendering on the GPU without a renderer,
+    /// and the kernel driver of that GPU.
     pretend: HashSet<DeskId>,
+    pretend_driver: Option<String>,
     /// The crash poll is armed.
     polling: bool,
 }
@@ -107,7 +109,7 @@ pub fn failed_start(code: Option<i32>, signal: Option<i32>) -> Option<String> {
 impl Ede {
     /// Space `desk` draws on the GPU and has not latched back to software.
     pub fn space_gpu_allowed(&mut self, desk: DeskId) -> bool {
-        (self.spaces.frames.net.pretend.contains(&desk) || self.space_on_gpu(desk)) && !self.spaces.frames.net.latched.contains_key(&desk)
+        (self.spaces.frames.net.pretend.contains(&desk) || (self.space_offers_gpu_buffers() && self.space_on_gpu(desk))) && !self.spaces.frames.net.latched.contains_key(&desk)
     }
 
     /// Why space `desk` latched back to software, if it did.
@@ -124,6 +126,16 @@ impl Ede {
     /// it, without a GPU renderer.
     pub fn pretend_space_on_gpu(&mut self, desk: DeskId) {
         self.spaces.frames.net.pretend.insert(desk);
+    }
+
+    /// Tests: the GPU of [`Self::pretend_space_on_gpu`] has kernel driver
+    /// `driver` (what a space's Vulkan is pointed at follows it).
+    pub fn pretend_space_gpu_driver(&mut self, driver: &str) {
+        self.spaces.frames.net.pretend_driver = Some(driver.into());
+    }
+
+    pub(crate) fn space_pretended_driver(&self) -> Option<&str> {
+        self.spaces.frames.net.pretend_driver.as_deref()
     }
 
     /// A launch of space `desk` started: watched for [`START`] if the space
@@ -199,6 +211,8 @@ impl Ede {
         tracing::warn!("{desk:?}: {why}; the space draws in software from now on");
         let notice = format!("{why}; this space now draws in software: start it again.");
         self.spaces.frames.net.notices.insert(desk, notice);
+        // Its later launches see lavapipe alone (F3's switch, read at each launch).
+        self.set_space_software_rendering(desk, true);
         self.spaces.frames.net.latched.insert(desk, why);
         if !self.spaces_may_start_on_gpu() {
             tracing::warn!("{LATCHES_MAX} spaces fell back to software in this run: new spaces start in software");

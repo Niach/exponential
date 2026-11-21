@@ -240,10 +240,9 @@ impl Ede {
         if self.spaces.units.is_some() {
             set("DBUS_SESSION_BUS_ADDRESS", &space.session.address(&space.dir));
         }
-        if space.software_rendering {
-            for (name, value) in super::render::software_environment(&super::render::lavapipe_icds(Path::new("/"), std::env::var_os("XDG_DATA_DIRS").as_deref())) {
-                set(name, &value);
-            }
+        // #EDE-162: lavapipe alone in software; on the GPU its own driver and lavapipe.
+        for (name, value) in self.space_vulkan_environment(space.software_rendering) {
+            set(name, &value);
         }
         if profile == Profile::Space {
             let home = self.spaces.home_of(space);

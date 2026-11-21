@@ -68,6 +68,13 @@ pub fn on_person(client: &Client) -> bool {
     desk_of_client(client) == Some(DeskId::PERSON)
 }
 
+/// The filter of the spaces' GPU buffers (#EDE-162): a client of a space
+/// that drew on the GPU when it connected. Never the person's, never a
+/// space's Xwayland (it stays on shm, #EDE-163), never a client of no desk.
+pub fn on_gpu_space(client: &Client) -> bool {
+    client.get_data::<ClientState>().is_some_and(|s| s.gpu && s.desk != DeskId::PERSON)
+}
+
 /// The filter of a global that belongs to desk `id` alone.
 pub fn on_desk(id: DeskId) -> impl Fn(&Client) -> bool + Send + Sync + 'static {
     move |client| desk_of_client(client) == Some(id)
