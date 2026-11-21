@@ -224,6 +224,61 @@ fn the_more_menu_opens_below_the_top_band() {
     std::mem::forget(cx);
 }
 
+/// #EXP-2052: the footer's account menu (What's new, About, Sign out) opens
+/// ABOVE its row and inside the window, at a small window and a large one
+/// (it flipped under the row, off the window's bottom edge, so Sign out
+/// could not be reached): the footer's popups are placed against the
+/// window, not the row's own box.
+#[test]
+fn the_account_menu_opens_above_the_footer() {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
+    if !gpu_or_skip("the_account_menu_opens_above_the_footer") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    for (window_w, window_h) in [(777., 465.), (2228., 1423.)] {
+        let handle = open(&mut cx, size(px(window_w), px(window_h)));
+        let window: gpui::AnyWindowHandle = handle.into();
+        let footer = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region().read(cx).footer());
+        let settle = |cx: &mut HeadlessAppContext| {
+            for _ in 0..4 {
+                draw(window, cx);
+                cx.run_until_parked();
+            }
+        };
+        let input = |cx: &mut HeadlessAppContext, event: PlatformInput| {
+            cx.update_window(window, |_, window, cx| {
+                window.dispatch_event(event, cx);
+            })
+            .expect("the window");
+        };
+        settle(&mut cx);
+        let row = cx.update(|cx| footer.read(cx).painted_bounds("ide_account_trigger")).expect("the account row painted");
+        assert!(f32::from(row.bottom()) <= window_h && f32::from(row.bottom()) > window_h - 60., "{window_w}x{window_h}: the row sits at the window's bottom: {row:?}");
+        assert!(cx.update(|cx| footer.read(cx).layers().is_empty()), "closed until the row is pressed");
+        let at = row.center();
+        input(&mut cx, PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }));
+        input(&mut cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
+        input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }));
+        settle(&mut cx);
+        let (menu, sign_out) = cx.update(|cx| {
+            let view = footer.read(cx);
+            let layer = view.layers().iter().find(|l| l.owner == "ide_account").expect("the row opens the account menu");
+            let origin = view.origin();
+            let menu = view.frame(layer.root).map(|f| (f32::from(origin.x) + f.x, f32::from(origin.y) + f.y, f.w, f.h)).expect("the menu's frame");
+            let sign_out = view.placed_nodes().iter().find(|n| n.component == "Text" && n.props.get("text").and_then(|t| t.as_str()) == Some("Sign out")).and_then(|n| view.painted_bounds(&n.id));
+            (menu, sign_out)
+        });
+        let (x, y, w, h) = menu;
+        assert!(h > 0. && y >= 0. && y + h <= f32::from(row.top()), "{window_w}x{window_h}: the menu opens above the row {row:?}: {menu:?}");
+        assert!(x >= 0. && x + w <= window_w, "{window_w}x{window_h}: inside the window: {menu:?}");
+        let sign_out = sign_out.expect("Sign out painted");
+        assert!(f32::from(sign_out.top()) >= 0. && f32::from(sign_out.bottom()) <= f32::from(row.top()), "{window_w}x{window_h}: Sign out shows above the row: {sign_out:?}");
+    }
+    std::mem::forget(cx);
+}
+
 #[test]
 #[ignore]
 fn shell_tab_bar_frames() {
