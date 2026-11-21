@@ -1,0 +1,27 @@
+name: drop-master-caches
+description: >-
+  A seed's LAST step, right before its cache saves: deletes the master entries
+  its new one replaces (key prefix), so the family never sits on master twice.
+  Deleting after the save (the old prune jobs) put the replaced entries' few GB
+  on top of the full master set, the total crossed GitHub's 10 GB, and the
+  least recently read master entry (the Gradle seed, read only by hosted
+  fallbacks) was evicted (2026-11-21). The job needs `actions: write`.
+inputs:
+  prefix:
+    description: The family's key prefix on master.
+    required: true
+  restored-exact:
+    description: "'true' when the job restored its exact key (rust-cache's cache-hit): nothing new gets saved, so nothing is dropped."
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    # Only a master run saves, so only a master run drops.
+    - if: github.ref == 'refs/heads/master' && inputs.restored-exact != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PREFIX: ${{ inputs.prefix }}
+      run: |
+        gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key "$PREFIX" --limit 100 --json key --jq '.[].key' \
+          | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old" || echo "::warning::could not delete $old"; done

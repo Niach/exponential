@@ -9352,6 +9352,52 @@
       }
     },
     {
+      "id": "ede-agent-spaces",
+      "group": "ede",
+      "title": "Exponential Desktop · Agent spaces",
+      "blurb": "#EXP-2024: the taskbar's Agent spaces button (only while an agent space exists on this machine) opens its list as a hosted Popover above it (apps/ede/ui/taskbar.json, never the keyboard): one row per space with its picture, its session's title (a child's chat as the second line, Agent space n for a session no signed-in account holds) and Close, which ends the space and never its session; a press pins that session's view (sample spaces and pictures in the golden).",
+      "order": 9,
+      "ede": {
+        "size": "1280x720",
+        "env": {
+          "EDE_SHELL_DEMO_SPACES": "list"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-space-view",
+      "group": "ede",
+      "title": "Exponential Desktop · a pinned space view",
+      "blurb": "#EXP-2024: the pinned live view of an agent's space (apps/ede/ui/space-view.json): an on-demand top layer at the bottom right above the taskbar that never takes the keyboard, sized by the display (640 or a third of its width, the space's aspect), the session's title with the size and the close button over the space as the shell's capture loop pictures it (a sample picture in the golden; captures of the person's screen show it black, so the golden captures unredacted).",
+      "order": 23,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "space-view"
+        ],
+        "env": {
+          "EDE_SHELL_DEMO_SPACES": "view",
+          "EDE_SHELL_SHOT_UNREDACTED": "1"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
       "id": "ede-applet-sound",
       "group": "ede",
       "title": "Exponential Desktop · sound applet",

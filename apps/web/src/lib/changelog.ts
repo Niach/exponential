@@ -36,6 +36,24 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Agent space row**: device settings show whether a device offers an agent space, and why not.`,
   },
   {
+    id: `2026-11-21-desktop-cli-0-14-172`,
+    date: `2026-11-21`,
+    title: `Stop a spoken reply, one call host, steadier computer use`,
+    summary: `Desktop and CLI 0.14.172: a Speaking banner with Stop while a call's reply is spoken, one call host for the desktop app and the CLI, computer use fixes on every system, and the agent space on the Work screen, with eDE 0.2.31.`,
+    body: `- **Stop a spoken reply**: while a call's reply is spoken, its chat shows a Speaking banner with Stop.
+- **Calls**: the desktop app runs calls on the same call host as the CLI, so a call behaves the same on both.
+- **Computer use**: a key and its modifiers arrive in the right order, and the screen lock, the display list and Esc work the same on macOS, Windows and Linux.
+- **Agent spaces on the Work screen**: when a device offers an agent space, the Work screen lists "Auto · Agent space" and "Agent space only".
+- **eDE 0.2.31** comes with this release.`,
+  },
+  {
+    id: `2026-11-21-phones-agent-space`,
+    date: `2026-11-21`,
+    title: `An agent space on the phones' Work screen`,
+    summary: `Android 0.14.153 and iOS 0.14.141: the Work screen lists an agent space when your device offers one.`,
+    body: `- **Agent space on the Work screen**: while your device offers an agent space, the Work screen picker in a device's settings reads Auto · Agent space, followed by Agent space only; a device without one shows the picker as before.`,
+  },
+  {
     id: `2026-11-20-sidebar-tree`,
     date: `2026-11-20`,
     title: `One sidebar for all your teams`,

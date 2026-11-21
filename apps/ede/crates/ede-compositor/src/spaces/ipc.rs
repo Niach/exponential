@@ -42,8 +42,8 @@ impl Ede {
         if let Some(space) = self.spaces.iter().find(|s| &s.owner == session) {
             return Ok(info(space));
         }
-        // The count, and the stronger fence, room under the slice's
-        // `MemoryHigh`: a full desktop gives way (#EXP-1514, D 10).
+        // The count, and the stronger fence, room under 90 % of the slice's
+        // `MemoryMax`: a full desktop gives way (#EXP-1514, D 10).
         self.space_make_room(self.space_max(), session)?;
         let desk = self.create_space(session.clone(), width, height)?;
         Ok(info(self.spaces.get(desk).expect("just made")))

@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/waiting-cards.json" with { type: "json" }
-import { cardState, deepLinkStep, dismissedCard, waitingChips, waitingTarget } from "./waiting-cards"
+import { cardState, deepLinkStep, dismissedCard, sessionAnswerVerdict, waitingChips, waitingTarget } from "./waiting-cards"
 
 describe(`cardState`, () => {
   for (const entry of fixture.stateCases) {
@@ -16,6 +16,14 @@ describe(`dismissedCard`, () => {
   for (const entry of fixture.dismissCases) {
     test(entry.name, () => {
       expect(dismissedCard(entry.card)).toEqual(entry.expected)
+    })
+  }
+})
+
+describe(`sessionAnswerVerdict`, () => {
+  for (const entry of fixture.sessionAnswerCases) {
+    test(entry.name, () => {
+      expect(sessionAnswerVerdict(entry.input)).toBe(entry.expected as never)
     })
   }
 })

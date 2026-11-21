@@ -2038,6 +2038,13 @@
       "when": 1795164702857,
       "tag": "0290_exp2027_sidebar_tree",
       "breakpoints": true
+    },
+    {
+      "idx": 291,
+      "version": "7",
+      "when": 1795251805895,
+      "tag": "0291_exp2027_sidebar_compat",
+      "breakpoints": true
     }
   ]
 }

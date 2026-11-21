@@ -24,7 +24,7 @@ use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
-    ServerConfig, Tool,
+    ProtocolVersion, ResultType, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
@@ -389,15 +389,22 @@ async fn ended(name: &str, request: Request<Incoming>) -> Response<Body> {
     );
     let body = Limited::new(request.into_body(), RAW_BODY_MAX_BYTES).collect().await.ok().map(|collected| collected.to_bytes());
     let message: Option<Value> = body.and_then(|body| serde_json::from_slice(&body).ok());
-    let call_id = message
+    let Some((id, message)) = message
         .filter(|message| message.get("method").and_then(Value::as_str) == Some("tools/call"))
-        .and_then(|message| message.get("id").cloned());
-    let Some(id) = call_id else {
+        .and_then(|message| Some((message.get("id").cloned()?, message)))
+    else {
         let mut response = Response::new(Full::new(Bytes::from(text)).boxed());
         *response.status_mut() = StatusCode::UNAUTHORIZED;
         return response;
     };
-    let answer = json!({ "jsonrpc": "2.0", "id": id, "result": error_result(text) });
+    let mut result = serde_json::to_value(error_result(text)).unwrap_or_default();
+    // rmcp's handler does this for every other answer: the field exists
+    // from 2026-07-28 on, an older peer reads the old shape.
+    let version = message.pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion").and_then(Value::as_str);
+    if version.is_some_and(|version| version >= ProtocolVersion::V_2026_07_28.as_str()) {
+        result["resultType"] = json!(ResultType::COMPLETE);
+    }
+    let answer = json!({ "jsonrpc": "2.0", "id": id, "result": result });
     let mut response = Response::new(Full::new(Bytes::from(answer.to_string())).boxed());
     response.headers_mut().insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static("application/json"));
     response
@@ -505,8 +512,10 @@ impl ServerHandler for Handler {
             .await
             .map_err(|err| ErrorData::internal_error(err.to_string(), None))?
             .map_err(|text| ErrorData::internal_error(text, None))?;
-        let tools: Vec<Tool> = tools.into_iter().filter_map(tool_from_value).collect();
-        Ok(serde_json::from_value(json!({ "tools": tools })).expect("a tools list"))
+        // `resultType: "complete"`, which a peer on MCP 2026-07-28 must read
+        // (Claude Code drops a server whose list lacks it); rmcp's handler
+        // strips it for an older peer.
+        Ok(ListToolsResult::with_all_items(tools.into_iter().filter_map(tool_from_value).collect()))
     }
 
     async fn call_tool(
@@ -531,8 +540,10 @@ impl ServerHandler for Handler {
         if !self.grants.admits(&session_id) {
             return Err(refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")));
         }
-        let result = serde_json::from_value::<CallToolResult>(result)
+        let mut result = serde_json::from_value::<CallToolResult>(result)
             .unwrap_or_else(|err| error_result(format!("The tool answered a malformed result: {err}")));
+        // As `list_tools`: a provider's result says no `resultType`.
+        result.result_type.get_or_insert(ResultType::COMPLETE);
         Ok(CallToolResponse::Complete(result))
     }
 }

@@ -40,6 +40,9 @@ jobs:
   # Cargo.lock's wasm-bindgen.
   enet-wasm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - name: wasm toolchain
@@ -48,9 +51,10 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add llvm-tools
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
-      # Saves on master only (a v* tag's entry no other ref reads);
-      # prune-enet-wasm keeps the newest master entry.
+      # Saves on master only (a v* tag's entry no other ref reads); the
+      # drop-master-caches step keeps it to one master entry.
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           workspaces: apps/desktop
           key: enet-wasm
@@ -74,24 +78,10 @@ jobs:
           path: apps/web/public/chat-store
           if-no-files-found: error
           retention-days: 1
-
-  # rust-cache never deletes the entry a new one replaces (a Cargo change =
-  # a new key): keep the newest master enet-wasm entry, so the replaced ones
-  # don't crowd the 10 GB (two 0.43 GB entries on 2026-11-20). Nothing
-  # waits on this.
-  prune-enet-wasm:
-    needs: enet-wasm
-    if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete the replaced master entries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key v0-rust-enet-wasm- --sort created_at --order desc --limit 100 --json key --jq '.[1:][].key' \
-            | while read -r old; do echo "delete $old"; gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: v0-rust-enet-wasm-
+          restored-exact: ${{ steps.cache.outputs.cache-hit }}
 
   # EXP-1364: no test gate here any more. Every change reaches master through
   # a pull request whose `test / gate` check is REQUIRED (branch protection),

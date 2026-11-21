@@ -279,6 +279,12 @@ pub struct SpaceReadiness {
     pub max: Option<u32>,
 }
 
+/// #EXP-2024: the layer-shell namespace of the shell's pinned view of an
+/// agent space (`space-view.json`): black in every capture of the person's
+/// output, so a space's pixels never reach a screenshot, screen memory or a
+/// screen share through it.
+pub const SPACE_VIEW_NAMESPACE: &str = "exponential-shell:space-view";
+
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInfo {
@@ -1027,6 +1033,13 @@ impl Client {
     /// Connects with a grant minted for `session_id` ([`Client::mint_env`]).
     pub fn connect_as(session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Self, Error> {
         Self::connect_with_token(Self::mint_env(session_id, capabilities, expires_at)?)
+    }
+
+    /// How long each call of this connection waits for its answer from now
+    /// on ([`CALL_TIMEOUT`] by default); a call past it ends the connection.
+    pub fn set_call_timeout(&mut self, timeout: std::time::Duration) {
+        self.call_timeout = timeout;
+        let _ = self.stream.set_write_timeout(Some(timeout));
     }
 
     /// The token this connection said hello with.

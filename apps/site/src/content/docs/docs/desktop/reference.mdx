@@ -72,6 +72,8 @@ One issue refuses the whole document; the last good version stays.
 | `/tray`, `/traymenu` | Tray items; the open item's menu rows. |
 | `/services/<domain>` | A [service](#services-mcp) snapshot. |
 | `/outputs` | Displays: modes, scale, position. |
+| `/spaces` | The machine's agent spaces: `count` and `rows` (`id`, `session`, `title`, `subtitle`, `picture`). |
+| `/spaceView` | The pinned space view: `session`, `title`, `picture`, `large`, `canGrow`, `size`, `pictureSize`. |
 | `/config` | `compositor.toml`. |
 | `/user` | The person. |
 
@@ -79,23 +81,25 @@ One issue refuses the whole document; the last good version stays.
 
 | Function | Arguments |
 |---|---|
-| `ede.launch` | `{command}` |
-| `ede.focus` | `{window}` |
-| `ede.close` | `{window}` |
-| `ede.select` | `{window}` (the switcher) |
-| `ede.lock` | |
-| `ede.logout` | |
-| `ede.power` | `{action: suspend \| reboot \| poweroff}` |
-| `ede.open_document` | `{name}` |
-| `ede.close_document` | `{name}` |
-| `ede.notify_close` | `{id}` |
-| `ede.notify_action` | `{id, key}` |
-| `ede.notify_clear` | |
-| `ede.tray` | `{service}` |
-| `ede.tray_menu` | `{service, id}` |
-| `ede.service` | `{domain, action, args}` |
-| `ede.output` | `{name, mode?, scale?}`, applied live and saved to `[[outputs]]` |
-| `ede.config` | the `compositor.toml` sections to write (`keyboard`, `theme`), then a reload |
+| `ede_launch` | `{command}` |
+| `ede_focus` | `{window}` |
+| `ede_close` | `{window}` |
+| `ede_select` | `{window}` (the switcher) |
+| `ede_lock` | |
+| `ede_logout` | |
+| `ede_power` | `{action: suspend \| reboot \| poweroff}` |
+| `ede_open_document` | `{name}` |
+| `ede_close_document` | `{name}` |
+| `ede_notify_close` | `{id}` |
+| `ede_notify_action` | `{id, key}` |
+| `ede_notify_clear` | |
+| `ede_tray` | `{service}` |
+| `ede_tray_menu` | `{service, id}` |
+| `ede_service` | `{domain, action, args}` |
+| `ede_output` | `{name, mode?, scale?}`, applied live and saved to `[[outputs]]` |
+| `ede_config` | the `compositor.toml` sections to write (`keyboard`, `theme`), then a reload |
+| `ede_space` | `{session \| null, size?: large \| default}`: pins a session's space view, sizes it, or puts it away |
+| `ede_space_close` | `{space}`: ends that agent space (never its session) |
 
 ## Services MCP
 
