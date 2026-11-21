@@ -172,6 +172,11 @@ impl Ede {
             } else {
                 draw
             };
+            // #EXP-2024: the space's own captures are use (its clock goes
+            // fast for its agent); a person-scope one (the shell's live view) is not.
+            if draw.iter().any(|j| j.own) {
+                self.space_used(desk);
+            }
             let cpu = thread_cpu();
             let frame = self.capture_space(desk);
             let (cpu, wall) = (thread_cpu().saturating_sub(cpu), now.elapsed());

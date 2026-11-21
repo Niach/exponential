@@ -103,10 +103,15 @@ where
     // that layer, not only their parent: a toast mapped after the panel
     // must not cover the panel's open menu (#EDE-12). A sealed surface (a
     // polkit, consent or share prompt) is solid black in a capture, with
-    // or without a fullscreen window under it (#EDE-121).
+    // or without a fullscreen window under it (#EDE-121); so is the shell's
+    // pinned view of an agent space (#EXP-2024: a space's pixels never reach
+    // a person-seat screenshot, screen memory or a screen share through it).
     let draw = |renderer: &mut R, elements: &mut Vec<_>, shown: &dyn Fn(&smithay::desktop::LayerSurface) -> bool| {
         use smithay::desktop::PopupManager;
-        let hidden = |l: &smithay::desktop::LayerSurface| redact && crate::sealed::layer_origin(l).sealed;
+        let hidden = |l: &smithay::desktop::LayerSurface| {
+            let origin = crate::sealed::layer_origin(l);
+            redact && (origin.sealed || origin.space_view)
+        };
         for l in layers.layers().rev().filter(|l| shown(l) && !hidden(l)) {
             let Some(geo) = layers.layer_geometry(l) else { continue };
             for (popup, location) in PopupManager::popups_for_surface(l.wl_surface()) {
