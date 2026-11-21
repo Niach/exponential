@@ -99,6 +99,53 @@ fn initialize(url: &str, token: &str) -> Value {
     serde_json::from_str::<Value>(json[..=json.rfind('}').unwrap()].trim()).unwrap()["result"].clone()
 }
 
+/// One raw JSON-RPC request on `version` (MCP 2026-07-28 carries it in the
+/// request's `_meta` and the headers; an older peer in the header only):
+/// the whole answer.
+fn rpc(url: &str, token: &str, version: &str, method: &str, mut params: Value) -> Value {
+    use std::io::{Read, Write};
+    let mut headers = format!("MCP-Protocol-Version: {version}\r\n");
+    if version >= "2026-07-28" {
+        params["_meta"] = json!({ "io.modelcontextprotocol/protocolVersion": version, "io.modelcontextprotocol/clientCapabilities": {} });
+        headers += &format!("Mcp-Method: {method}\r\n");
+        if let Some(name) = params["name"].as_str() {
+            headers += &format!("Mcp-Name: {name}\r\n");
+        }
+    }
+    let (host, path) = url.strip_prefix("http://").unwrap().split_once('/').unwrap();
+    let body = json!({ "jsonrpc": "2.0", "id": 7, "method": method, "params": params }).to_string();
+    let mut stream = std::net::TcpStream::connect(host).unwrap();
+    stream.set_read_timeout(Some(T)).unwrap();
+    write!(stream, "POST /{path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\n{headers}Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).unwrap();
+    let body = answer.split_once("\r\n\r\n").map(|(_, body)| body).unwrap_or_default();
+    let json = &body[body.find('{').unwrap_or_else(|| panic!("no JSON-RPC answer in {answer}"))..];
+    serde_json::from_str::<Value>(json[..=json.rfind('}').unwrap()].trim()).unwrap()
+}
+
+/// MCP 2026-07-28: every result says `resultType` (Claude Code drops a
+/// server whose `tools/list` lacks it, and with it every tool); a peer on
+/// an older revision reads the old shape. So does the answer to a run whose
+/// grant ended.
+#[test]
+fn a_2026_07_28_peer_reads_the_result_type_an_older_one_the_old_shape() {
+    let server = Server::serve(info(), Arc::new(Fake::default())).unwrap();
+    for (version, said) in [("2026-07-28", Some("complete")), ("2025-11-25", None), ("2025-06-18", None)] {
+        let token = server.grant(&id("s1"), "EXP-1");
+        let listed = rpc(server.url(), token.as_str(), version, "tools/list", json!({}));
+        assert_eq!(listed["result"]["tools"][0]["name"], "echo", "{version}: {listed}");
+        assert_eq!(listed["result"]["resultType"].as_str(), said, "{version}: {listed}");
+        let called = rpc(server.url(), token.as_str(), version, "tools/call", json!({ "name": "echo", "arguments": {} }));
+        assert_eq!(called["result"]["structuredContent"], json!({ "args": {} }), "{version}: {called}");
+        assert_eq!(called["result"]["resultType"].as_str(), said, "{version}: {called}");
+        server.revoke(&id("s1"));
+        let ended = rpc(server.url(), token.as_str(), version, "tools/call", json!({ "name": "echo", "arguments": {} }));
+        assert_eq!(ended["result"]["isError"], json!(true), "{version}: {ended}");
+        assert_eq!(ended["result"]["resultType"].as_str(), said, "{version}: {ended}");
+    }
+}
+
 /// #EDE-126: a provider may give ONE run its own `initialize` text (a run
 /// in an agent space is told another story than one on the person's
 /// screen); every other run reads the server's, byte for byte.
