@@ -723,6 +723,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
                 mcp_server_ids: Vec::new(),
                 account: None,
                 computer_use: None,
+                computer_place: Default::default(),
             },
             mcp: coding::AgentMcp::ClaudeFile,
             session_id: session_id.to_string(),
