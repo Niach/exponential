@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu, start-menu.json anchored here), the chat button (chat.json) and the new-issue button right of it (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on the person across the signed-in accounts' teams, /needsYou/count as its badge; it opens needs-you.json), the bell (notification-center.json: the desktop's notifications and the accounts' unread inbox merged) and the clock.",
+  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu, start-menu.json anchored here), the chat button (chat.json) and the new-issue button right of it (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on the person across the signed-in accounts' teams, /needsYou/count as its badge; it opens needs-you.json), Agent spaces (#EXP-2024: only while an agent space exists on this machine, /spaces/count; its hosted Popover lists /spaces/rows: each space's picture, its session's title (a child's chat as the second line, `Agent space n` for a session no signed-in account holds) and Close, which ends the space and never its session (ede_space_close); a press on a row pins that session's view, space-view.json (ede_space); a hosted Popover never takes the keyboard), the bell (notification-center.json: the desktop's notifications and the accounts' unread inbox merged) and the clock.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -20,7 +20,9 @@
       "ede_tray",
       "ede_start_menu",
       "ede_chat",
-      "ede_launch"
+      "ede_launch",
+      "ede_space",
+      "ede_space_close"
     ]
   },
   "root": {
@@ -765,6 +767,155 @@
             }
           },
           {
+            "id": "agent_spaces",
+            "component": "Popover",
+            "props": {
+              "side": "top",
+              "align": "end",
+              "open": {
+                "@path": "/spacesList/open"
+              }
+            },
+            "visible": {
+              "@call": "not",
+              "args": {
+                "value": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "/spaces/count"
+                    },
+                    "b": 0
+                  }
+                }
+              }
+            },
+            "slots": {
+              "trigger": {
+                "id": "agent_spaces_button",
+                "component": "Button",
+                "props": {
+                  "icon": "nav-computer",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "Agent spaces"
+                }
+              }
+            },
+            "children": [
+              {
+                "id": "spaces_box",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm",
+                  "padding": "$spacing.sm",
+                  "width": 380
+                },
+                "children": [
+                  {
+                    "id": "spaces_title",
+                    "component": "Heading",
+                    "props": {
+                      "text": "Agent spaces",
+                      "level": "h4"
+                    }
+                  },
+                  {
+                    "id": "spaces_scroll",
+                    "component": "ScrollArea",
+                    "props": {
+                      "maxHeight": 300
+                    },
+                    "children": [
+                      {
+                        "id": "spaces_list",
+                        "component": "List",
+                        "props": {
+                          "gap": "none",
+                          "divided": true
+                        },
+                        "template": {
+                          "component": "space_row",
+                          "path": "/spaces/rows",
+                          "key": "id"
+                        },
+                        "children": []
+                      },
+                      {
+                        "id": "space_row",
+                        "component": "Row",
+                        "props": {
+                          "title": {
+                            "@path": "title"
+                          },
+                          "subtitle": {
+                            "@path": "subtitle"
+                          },
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "slots": {
+                          "leading": {
+                            "id": "space_picture",
+                            "component": "Image",
+                            "props": {
+                              "src": {
+                                "@path": "picture"
+                              },
+                              "alt": {
+                                "@path": "title"
+                              },
+                              "width": 96,
+                              "height": 60,
+                              "fit": "contain",
+                              "fallback": "nav-computer"
+                            }
+                          },
+                          "trailing": {
+                            "id": "space_close",
+                            "component": "Button",
+                            "props": {
+                              "icon": "ui-close",
+                              "variant": "ghost",
+                              "size": "icon",
+                              "label": "Close"
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "@call": "ede_space_close",
+                                  "args": {
+                                    "space": {
+                                      "@path": "id"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "@call": "ede_space",
+                              "args": {
+                                "session": {
+                                  "@path": "session"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "id": "bell",
             "component": "Button",
             "props": {
@@ -859,6 +1010,13 @@
     },
     "needsYou": {
       "count": 0
+    },
+    "spaces": {
+      "count": 0,
+      "rows": []
+    },
+    "spacesList": {
+      "open": false
     }
   }
 }
