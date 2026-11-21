@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-desktop-cli-0-14-172",
+    date: "2026-11-21",
+    title: "Stop a spoken reply, one call host, steadier computer use",
+    summary: "Desktop and CLI 0.14.172: a Speaking banner with Stop while a call's reply is spoken, one call host for the desktop app and the CLI, computer use fixes on every system, and the agent space on the Work screen, with eDE 0.2.31.",
+    body: r##"- **Stop a spoken reply**: while a call's reply is spoken, its chat shows a Speaking banner with Stop.
+- **Calls**: the desktop app runs calls on the same call host as the CLI, so a call behaves the same on both.
+- **Computer use**: a key and its modifiers arrive in the right order, and the screen lock, the display list and Esc work the same on macOS, Windows and Linux.
+- **Agent spaces on the Work screen**: when a device offers an agent space, the Work screen lists "Auto · Agent space" and "Agent space only".
+- **eDE 0.2.31** comes with this release."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_342: ChangelogEntry = ChangelogEntry {
     id: "2026-11-20-phones-calls-find-search",
     date: "2026-11-20",
     title: "Calls, find in chat and sharing on phones",
