@@ -162,10 +162,12 @@ fn layers(h: &Harness) -> usize {
 /// it refuses it before anything maps (no prompt, the person's window keeps
 /// the keyboard and their next key), and the request fails. A request from
 /// the person's own process still opens the prompt, which takes the
-/// keyboard. #EDE-143: while the space's launches run outside systemd
-/// scopes, and for a process outside the person's session, the prompt shows
-/// without the keyboard until a click; with `EDE_PICTURES=<dir>` it is
-/// pictured in both states.
+/// keyboard. #EDE-143: while an agent space exists, a process outside the
+/// person's session (and, while the space's launches run outside systemd
+/// scopes, every process) gets the prompt without the keyboard until a
+/// click; with no space (before the first, after the last closed) the same
+/// request takes the keyboard as before. With `EDE_PICTURES=<dir>` the
+/// states are pictured.
 #[test]
 #[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed, and dbus-daemon"]
 fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps() {
@@ -208,12 +210,31 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
     wait("the agent never registered with polkitd", || authority.agent.lock().unwrap().is_some());
     let registered = authority.agent.lock().unwrap().clone().unwrap();
 
+    // 0. #EDE-143: no agent space yet. A process outside the person's
+    // session (here: the session seen from another cgroup, as a terminal's
+    // scope is) asks: the prompt takes the keyboard, as before #EDE-143.
+    let person = Kill(Command::new("sleep").arg("120").spawn().unwrap());
+    let elsewhere = || h.with(|ede| ede.spaces.session_cgroup = Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/elsewhere.scope\n".into()));
+    elsewhere();
+    let reply = prompt_with_the_keyboard(&h, &mut app, &polkitd, &registered, "no-space", person.0.id());
+    picture(&h, "no-space-with-the-keyboard");
+    cancel(&h, &mut app, &t, &polkitd, &registered, "no-space", reply);
+
     // An agent space, and a process its shell started there.
     let mut root = h.ipc();
     assert!(root.hello.offers_spaces());
     let grant = root.mint(SessionId::new("run-ede127").unwrap(), vec![Capability::Space], None).unwrap();
     let mut space = h.ipc_with(grant.token).unwrap();
     let info = space.create_space(640, 480).unwrap();
+
+    // 0b. The space is open (nothing launched yet): the same request shows
+    // the prompt WITHOUT the keyboard and names the process; a click into
+    // it takes the keyboard.
+    let reply = prompt_without_the_keyboard(&h, &mut app, &t, &polkitd, &registered, "space-open", person.0.id());
+    picture(&h, "space-open-without-the-keyboard");
+    click_into_the_prompt(&h, &mut app);
+    cancel(&h, &mut app, &t, &polkitd, &registered, "space-open", reply);
+    h.with(|ede| ede.spaces.session_cgroup = None);
     // A child of its shell, and one that cleared its environment and lost
     // its parent (only the compositor still knows it: its launch's group).
     let pids = dir.path().join("pids");
@@ -253,7 +274,6 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
     // (this harness has no user manager), the session's cgroup vouches for
     // no one: the person's own request shows the prompt WITHOUT taking the
     // keyboard; what they type stays in their window.
-    let person = Kill(Command::new("sleep").arg("120").spawn().unwrap());
     let without = prompt_without_the_keyboard(&h, &mut app, &t, &polkitd, &registered, "from-person-unscoped", person.0.id());
     cancel(&h, &mut app, &t, &polkitd, &registered, "from-person-unscoped", without);
 
@@ -262,22 +282,35 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
     // it and gives the keyboard back.
     space.destroy_space(info.id.clone()).unwrap();
     wait("the closed space's launches never ended", || h.with(|ede| ede.spaces.launched()) == 0);
-    let reply = begin(&polkitd, &registered, "from-person", person.0.id(), person.0.id());
-    wait("the person's own request showed no prompt", || layers(&h) > 0);
-    wait("the prompt never took the keyboard", || {
+    let reply = prompt_with_the_keyboard(&h, &mut app, &polkitd, &registered, "from-person", person.0.id());
+    picture(&h, "with-the-keyboard");
+    cancel(&h, &mut app, &t, &polkitd, &registered, "from-person", reply);
+
+    // 4. The space closed again: the request from outside the person's
+    // session takes the keyboard again, as with no space before.
+    elsewhere();
+    let reply = prompt_with_the_keyboard(&h, &mut app, &polkitd, &registered, "space-closed", person.0.id());
+    picture(&h, "space-closed-with-the-keyboard");
+    cancel(&h, &mut app, &t, &polkitd, &registered, "space-closed", reply);
+}
+
+/// A request whose prompt takes the keyboard (the person's, or any while
+/// no agent space exists): it maps, the person's window loses the
+/// keyboard, and nothing answers it without them.
+fn prompt_with_the_keyboard(h: &Harness, app: &mut Session, polkitd: &zbus::blocking::Connection, registered: &(String, String), cookie: &str, subject: u32) -> mpsc::Receiver<Result<(), String>> {
+    let reply = begin(polkitd, registered, cookie, subject, subject);
+    wait(&format!("{cookie}: the request showed no prompt"), || layers(h) > 0);
+    wait(&format!("{cookie}: the prompt never took the keyboard"), || {
         app.roundtrip();
         app.state.keyboard_focus.is_none()
     });
-    picture(&h, "with-the-keyboard");
-    assert!(reply.try_recv().is_err(), "the person's request was answered without them");
-    cancel(&h, &mut app, &t, &polkitd, &registered, "from-person", reply);
+    assert!(reply.try_recv().is_err(), "{cookie}: the request was answered without the person");
+    reply
+}
 
-    // 4. A process outside the person's session (here: the session seen
-    // from another cgroup) asks: the prompt shows without the keyboard and
-    // names the process; a click into it takes the keyboard.
-    h.with(|ede| ede.spaces.session_cgroup = Some("0::/user.slice/user-1000.slice/user@1000.service/app.slice/elsewhere.scope\n".into()));
-    let reply = prompt_without_the_keyboard(&h, &mut app, &t, &polkitd, &registered, "from-elsewhere", person.0.id());
-    picture(&h, "without-the-keyboard");
+/// A click into the middle of the screen (the prompt's card) gives the
+/// prompt the keyboard.
+fn click_into_the_prompt(h: &Harness, app: &mut Session) {
     let (w, hh) = h.with(|ede| ede.desk.space.outputs().next().and_then(|o| o.current_mode()).map(|m| (m.size.w, m.size.h))).unwrap();
     h.with(move |ede| {
         use smithay::backend::input::ButtonState;
@@ -289,7 +322,6 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
         app.roundtrip();
         app.state.keyboard_focus.is_none()
     });
-    cancel(&h, &mut app, &t, &polkitd, &registered, "from-elsewhere", reply);
 }
 
 /// A request whose prompt shows without the keyboard (#EDE-143): it maps,

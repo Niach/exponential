@@ -226,6 +226,32 @@ fn pid_in(file: &Path) -> u32 {
     std::fs::read_to_string(file).unwrap().trim().parse().unwrap()
 }
 
+/// #EDE-143: the answer says when no agent space exists (the polkit agent
+/// then gives every prompt the keyboard, as before #EDE-143): not before
+/// the first space, while one is open or a launch of it is alive, and
+/// again once the space closed and its launches ended. Whatever the
+/// process asked about.
+#[test]
+fn the_answer_says_when_no_agent_space_exists() {
+    let (h, _dir) = start_with_spaces(&[(800, 600)]);
+    let mut root = h.ipc();
+    let person = std::process::id();
+    assert!(root.space_of_process(person).unwrap().no_space, "no space yet");
+    assert!(root.space_of_process(u32::MAX).unwrap().no_space, "about a process that does not exist either");
+    let (mut agent, space) = agent(&h, "run-1");
+    assert!(!root.space_of_process(person).unwrap().no_space, "a space is open");
+    let head = agent.launch(vec!["sleep".into(), "60".into()], Default::default(), None).unwrap();
+    let answer = root.space_of_process(person).unwrap();
+    assert!(!answer.no_space && answer.unscoped_launches, "{answer:?}");
+    assert!(!root.space_of_process(head).unwrap().no_space);
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("no space again once the closed space's launch ended", || {
+        let answer = h.ipc().space_of_process(person).unwrap();
+        answer.no_space && !answer.unscoped_launches
+    });
+    assert_eq!(h.with(|state| state.spaces.launched()), 0);
+}
+
 /// #EDE-127: the compositor answers which space a process belongs to (the
 /// polkit agent asks before it shows the person a prompt): a launch, what
 /// it started (also after leaving its group, or after its parent died),
@@ -245,8 +271,8 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     // is no space's (in a container it may share the cgroup), a process
     // that does not exist is nobody's.
     let person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
-    assert_eq!(answer(&mut root, std::process::id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
-    assert_eq!(answer(&mut root, person.id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false });
+    assert_eq!(answer(&mut root, std::process::id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
+    assert_eq!(answer(&mut root, person.id()), ede_protocol::ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
     assert_eq!(answer(&mut root, 1).space, None);
     assert_eq!(answer(&mut root, u32::MAX), ede_protocol::ProcessAnswer::default(), "no such process");
 

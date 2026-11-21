@@ -203,6 +203,12 @@ impl AgentSpace {
 }
 
 impl Spaces {
+    /// #EDE-143: no agent space exists: none open, no closed one's slice
+    /// still stopping, no launch alive.
+    pub fn none_alive(&self) -> bool {
+        self.list.is_empty() && self.stopping.is_empty() && self.launches.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &AgentSpace> {
         self.list.iter()
     }

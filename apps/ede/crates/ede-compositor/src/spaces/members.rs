@@ -35,15 +35,17 @@ impl Ede {
     /// #EDE-143: what `space_of_process` answers: the space `pid` belongs
     /// to, whether it runs in the compositor's own cgroup (the person's
     /// login session scope, which no process of a space gets back into:
-    /// the session scope is root's), and whether a space has launches alive
+    /// the session scope is root's), whether a space has launches alive
     /// outside systemd scopes (such a process is in the session's cgroup
-    /// too).
+    /// too), and whether no space exists at all (then every prompt is the
+    /// person's, as before #EDE-143).
     pub fn process_answer(&self, pid: u32) -> ProcessAnswer {
         let session = self.spaces.session_cgroup.clone().or_else(|| process::cgroup(std::process::id()));
         ProcessAnswer {
             space: self.space_of_process(pid),
             session: session.is_some_and(|own| process::cgroup(pid).is_some_and(|theirs| theirs == own)),
             unscoped_launches: self.spaces.units.is_none() && !self.spaces.launches.is_empty(),
+            no_space: self.spaces.none_alive(),
         }
     }
 

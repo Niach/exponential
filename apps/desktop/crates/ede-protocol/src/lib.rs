@@ -340,6 +340,12 @@ pub struct ProcessAnswer {
     /// cgroup too, so `session` vouches for no one meanwhile.
     #[serde(default)]
     pub unscoped_launches: bool,
+    /// No agent space of this compositor exists: none open, no closed one's
+    /// slice still stopping, no launch alive. The polkit agent then gives
+    /// every prompt the keyboard, as before #EDE-143. `false` from a
+    /// compositor that does not say.
+    #[serde(default)]
+    pub no_space: bool,
 }
 
 impl ProcessAnswer {
@@ -1524,12 +1530,15 @@ mod tests {
             assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
         }
         // #EDE-143: the answer with the session's flags, and what an older
-        // compositor sends (`null`, a bare tie) read as one.
-        let answer = ProcessAnswer { space: tied.clone(), session: false, unscoped_launches: true };
+        // compositor sends (`null`, a bare tie, no `no_space`) read as one;
+        // one that does not say there is no space is taken to have one.
+        let answer = ProcessAnswer { space: tied.clone(), session: false, unscoped_launches: true, no_space: false };
         let json = serde_json::to_value(&answer).unwrap();
-        assert_eq!(json, serde_json::json!({"space": {"space": "space-2", "by": "environment", "pid": 4241}, "session": false, "unscoped_launches": true}));
+        assert_eq!(json, serde_json::json!({"space": {"space": "space-2", "by": "environment", "pid": 4241}, "session": false, "unscoped_launches": true, "no_space": false}));
         assert_eq!(ProcessAnswer::from_wire(json).unwrap(), answer);
-        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": null, "session": true, "unscoped_launches": false})).unwrap(), ProcessAnswer { space: None, session: true, unscoped_launches: false });
+        let none = ProcessAnswer { space: None, session: false, unscoped_launches: false, no_space: true };
+        assert_eq!(ProcessAnswer::from_wire(serde_json::to_value(&none).unwrap()).unwrap(), none);
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": null, "session": true, "unscoped_launches": false})).unwrap(), ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
         assert_eq!(ProcessAnswer::from_wire(serde_json::Value::Null).unwrap(), ProcessAnswer::default());
         assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241})).unwrap(), ProcessAnswer { space: tied, ..ProcessAnswer::default() });
     }
