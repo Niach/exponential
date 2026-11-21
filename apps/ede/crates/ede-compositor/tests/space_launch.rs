@@ -252,6 +252,50 @@ fn the_answer_says_when_no_agent_space_exists() {
     assert_eq!(h.with(|state| state.spaces.launched()), 0);
 }
 
+/// #EDE-183: the close also ends what the space started outside its
+/// launch's group (headless there is no slice: a session of its own is
+/// the way out), so nothing of it is left to ask the person's polkit
+/// agent once no space is left (#EDE-143): a child that left the group
+/// and cleared its environment (its lineage ties it), and an orphan that
+/// left the group and kept the space's environment (that ties it). The
+/// person's process runs on and stays the person's.
+#[test]
+fn the_close_ends_what_the_space_started_outside_its_launchs_group() {
+    use ede_protocol::Membership;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let mut root = h.ipc();
+    let mut person = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let d = dir.path().join("pids");
+    std::fs::create_dir(&d).unwrap();
+    // A background job of this shell leads no group: `setsid` keeps its
+    // process id and the shell stays its parent. The subshell's job is
+    // orphaned when the subshell ends.
+    let script = r#"
+        setsid env -i sh -c 'echo $$ > "$0/lineage.tmp"; mv "$0/lineage.tmp" "$0/lineage"; exec sleep 60' "$D" &
+        ( setsid sh -c 'echo $$ > "$D/env.tmp"; mv "$D/env.tmp" "$D/env"; exec sleep 60' & )
+        exec sleep 60"#;
+    let head = agent.launch(vec!["sh".into(), "-c".into(), script.into()], [("D".to_string(), d.to_string_lossy().into_owned())].into(), None).unwrap();
+    let (lineage, env) = (pid_in(&d.join("lineage")), pid_in(&d.join("env")));
+    until("the strays never ran sleep", || [lineage, env].into_iter().all(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|comm| comm.trim() == "sleep")));
+    until("the orphan never lost its parent", || parent_outside(env, head));
+    let group = |pid: u32| ede_protocol::process::stat(pid).map(|stat| stat.pgid);
+    assert!(group(lineage) != Some(head) && group(env) != Some(head), "a stray is still in the launch's group: the group kill would reach it");
+    let by = |root: &mut Client, pid: u32| root.space_of_process(pid).unwrap().space.map(|found| (found.space, found.by));
+    // Its parent is the launched shell, or a process of the launch's group.
+    let tie = by(&mut root, lineage);
+    assert!(matches!(&tie, Some((found, Membership::Launch | Membership::Group)) if *found == space.id), "{tie:?}");
+    assert_eq!(by(&mut root, env), Some((space.id.clone(), Membership::Environment)));
+
+    agent.destroy_space(space.id.clone()).unwrap();
+    until("a process the space started outside its launch's group outlived the close", || !alive(&lineage.to_string()) && !alive(&env.to_string()));
+    until("no space once its strays are gone", || h.ipc().space_of_process(person.id()).unwrap().no_space);
+    let answer = root.space_of_process(person.id()).unwrap();
+    assert!(alive(&person.id().to_string()) && answer.space.is_none() && answer.session, "the person's process: {answer:?}");
+    let _ = person.kill();
+    let _ = person.wait();
+}
+
 /// #EDE-127: the compositor answers which space a process belongs to (the
 /// polkit agent asks before it shows the person a prompt): a launch, what
 /// it started (also after leaving its group, or after its parent died),

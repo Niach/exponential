@@ -44,6 +44,19 @@ fn alive(pid: u32) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| !stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'))
 }
 
+/// Until every one of `pids` has ended; the panic names what runs on.
+fn until_gone(what: &str, pids: &[(&str, u32)]) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let running: Vec<String> = pids.iter().filter(|(_, pid)| alive(*pid)).map(|(name, pid)| format!("{name} ({pid})")).collect();
+        if running.is_empty() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: {}", running.join(", "));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn pid_in(file: &Path) -> u32 {
     until(&format!("{} was never written", file.display()), || std::fs::read_to_string(file).is_ok_and(|text| text.trim().parse::<u32>().is_ok()));
     std::fs::read_to_string(file).unwrap().trim().parse().unwrap()
@@ -208,11 +221,34 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     let stubborn = pid_in(&stubborn_file);
     assert!(cgroup(stubborn).unwrap().contains(&format!("/{one}/{stubborn_unit}")));
 
+    // #EDE-183: a launch's child that left the launch's group and moved
+    // itself out of the slice into a scope of the person's (every cgroup
+    // under the user manager is the user's, #EDE-145). Its lineage still
+    // ties it to the space.
+    let person_file = dir.path().join("person.pid");
+    let person_unit = format!("exp-test-person-p{me}.scope");
+    let _person_stopped = Stopped(vec![person_unit.clone()]);
+    let mut person_scope = scope_run(systemd).args([&format!("--unit={person_unit}"), "--", "sh", "-c", &format!("echo $$ > {0}.tmp && mv {0}.tmp {0}; exec sleep 300", person_file.display())]).spawn().unwrap();
+    let person = pid_in(&person_file);
+    let person_cgroup = cgroup(person).unwrap();
+    let procs = format!("/sys/fs/cgroup{}/cgroup.procs", person_cgroup.trim().trim_start_matches("0::"));
+    let moved_file = dir.path().join("moved.pid");
+    let script = format!("setsid sh -c 'echo $$ > {procs} && echo $$ > {0}.tmp && mv {0}.tmp {0}; exec sleep 300' & exec sleep 300", moved_file.display());
+    let mover = agent.launch(vec!["sh".into(), "-c".into(), script], Default::default(), None).unwrap();
+    let moved = pid_in(&moved_file);
+    assert_eq!(cgroup(moved), Some(person_cgroup.clone()), "the child never left the slice");
+    assert_ne!(ede_protocol::process::stat(moved).map(|stat| stat.pgid), Some(mover), "the child is still in the launch's group");
+    assert_eq!(root.space_of_process(moved).unwrap().space.map(|found| found.space), Some(space_id.clone()), "its lineage ties it to the space");
+
     // The space closes: everything in its slice ends, whatever it asked
-    // for, and the slice is gone.
+    // for, and the slice is gone. What moved itself out ends too; the
+    // person's scope runs on.
     agent.destroy_space(space.id.clone()).unwrap();
-    until("a process of the closed space still runs", || !alive(pid) && !alive(parent) && !alive(orphan) && !alive(stubborn));
+    until_gone("a process of the closed space still runs", &[("the first launch", pid), ("the orphan's launch", parent), ("the orphan", orphan), ("the stubborn scope's child", stubborn), ("the mover", mover), ("what moved itself out of the slice", moved)]);
     let _ = stubborn_scope.wait();
+    assert!(alive(person), "the person's scope ended with the space");
+    systemctl(&["stop", &person_unit]);
+    let _ = person_scope.wait();
     until("the closed space's slice is still there", || !space_dir.exists() && !systemctl(&["is-active", "--quiet", &one]));
     until("the closed space was never done with", || h.with(|state| state.spaces.settled()));
 

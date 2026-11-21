@@ -81,6 +81,9 @@ pub struct Spaces {
     frames: frames::Frames,
     /// What was launched into spaces and still runs ([`launch`]).
     launches: Vec<launch::Launch>,
+    /// #EDE-183: processes of closed spaces outside their slices and their
+    /// launches' groups, being ended ([`launch::Stray`]).
+    strays: Vec<launch::Stray>,
     /// The person's user manager: `Some` = a launch runs in a systemd
     /// scope of its space's slice ([`slice`], #EDE-138). `None` (also in
     /// the headless harness) = as before, in the compositor's own cgroup.
@@ -128,7 +131,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
     }
 }
 
@@ -204,9 +207,9 @@ impl AgentSpace {
 
 impl Spaces {
     /// #EDE-143: no agent space exists: none open, no closed one's slice
-    /// still stopping, no launch alive.
+    /// still stopping, no launch and no stray of a closed one alive.
     pub fn none_alive(&self) -> bool {
-        self.list.is_empty() && self.stopping.is_empty() && self.launches.is_empty()
+        self.list.is_empty() && self.stopping.is_empty() && self.launches.is_empty() && self.strays.is_empty()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &AgentSpace> {
