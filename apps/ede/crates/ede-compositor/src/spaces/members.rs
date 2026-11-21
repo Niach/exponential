@@ -61,8 +61,8 @@ impl Ede {
     /// launch's group or one descending from either, or the space's
     /// directory in its environment or an ancestor's, nearest first as
     /// [`Ede::space_of_process`] reads them. Wherever their cgroup is now:
-    /// also what moved itself out of the space's slice. Not what is in a
-    /// slice of this compositor (its stop ends that) or in one of the
+    /// also what moved itself out of the space's slice. Not what itself
+    /// runs in a slice of this compositor (its stop ends that) or in one of the
     /// space's launches' groups (the launch's end reaches that), and not
     /// a client of the space's socket (it connected; the space did not
     /// start it). Read once at the close: one `stat` per process, one
@@ -75,13 +75,7 @@ impl Ede {
         let root = self.spaces.dir.clone();
         let tied = tied_to(&stats, &launches, |pid| root.as_deref().and_then(|root| process::space_in_environment(pid, root)));
         let compositor = self.spaces.units.as_ref().map(|units| units.compositor);
-        stats
-            .iter()
-            .filter(|(pid, stat)| **pid > 1 && **pid != me && launches.get(&stat.pgid) != Some(&space))
-            .filter(|(pid, _)| tied.get(*pid).is_some_and(|found| found.as_ref() == Some(&space)))
-            .filter(|(pid, _)| !process::space_by_cgroup(**pid).is_some_and(|(owner, ..)| Some(owner) == compositor))
-            .map(|(pid, _)| *pid)
-            .collect()
+        strays(&space, &stats, &launches, &tied, me, compositor, process::cgroup)
     }
 
     /// The space `pid` belongs to; `None` = the person's, or nobody's.
@@ -162,6 +156,26 @@ pub(crate) fn tied_to(stats: &HashMap<u32, process::Stat>, launches: &HashMap<u3
     tied
 }
 
+/// #EDE-183: of `stats`, what is tied to `space` (`tied`, [`tied_to`])
+/// and its close does not reach otherwise: not the compositor (`me`), not
+/// a process of one of the space's launches' groups (`launches`: the
+/// launch's end reaches it), not one running in a slice of compositor
+/// `compositor`'s spaces (`None` = no user manager, no slices: the slice's
+/// stop ends it). That is the process's OWN cgroup (`cgroup_of`), never its
+/// lineage's as [`process::space_by_cgroup`] reads it: a process that moved
+/// itself out of the slice still descends from one in it, and the slice's
+/// stop does not reach it.
+pub(crate) fn strays(space: &SpaceId, stats: &HashMap<u32, process::Stat>, launches: &HashMap<u32, SpaceId>, tied: &HashMap<u32, Option<SpaceId>>, me: u32, compositor: Option<u32>, cgroup_of: impl Fn(u32) -> Option<String>) -> Vec<u32> {
+    let in_a_slice = |pid: u32| compositor.is_some_and(|compositor| cgroup_of(pid).and_then(|cgroup| process::space_in_cgroup(&cgroup)).is_some_and(|(owner, _)| owner == compositor));
+    stats
+        .iter()
+        .filter(|(pid, stat)| **pid > 1 && **pid != me && launches.get(&stat.pgid) != Some(space))
+        .filter(|(pid, _)| tied.get(*pid).is_some_and(|found| found.as_ref() == Some(space)))
+        .filter(|(pid, _)| !in_a_slice(**pid))
+        .map(|(pid, _)| *pid)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +217,51 @@ mod tests {
         for pid in [10, 11, 12] {
             assert_eq!(of(pid), None, "process {pid}");
         }
+    }
+
+    /// What the close ends itself: a process tied to the space that is
+    /// neither in a launch's group nor itself in a slice of this
+    /// compositor. A launch's child that moved itself into a scope of the
+    /// person's still descends from the launch in the slice: its own
+    /// cgroup, not its parent's, says the slice's stop misses it (the
+    /// `ede-scope` failure of #3237).
+    #[test]
+    fn a_stray_is_what_its_own_cgroup_keeps_out_of_this_compositors_slices() {
+        let space = |n: u32| SpaceId::new(&format!("space-{n}")).unwrap();
+        let stat = |pid: u32, ppid: u32, pgid: u32| (pid, process::Stat { pid, ppid, pgid });
+        let manager = "0::/user.slice/user-1000.slice/user@1000.service/app.slice";
+        let scope = |compositor: u32, n: u32| format!("{manager}/app-exponential_p{compositor}.slice/app-exponential_p{compositor}-s{n}.slice/exponential-p{compositor}-s{n}-1.scope\n");
+        let stats: HashMap<u32, process::Stat> = [
+            stat(7, 1, 7),       // the compositor
+            stat(100, 7, 100),   // a launch into space 1, in its scope
+            stat(101, 100, 100), // in its group, in the scope
+            stat(102, 100, 102), // left the group and moved into the person's scope
+            stat(103, 100, 103), // left the group, still in the scope
+            stat(104, 1, 104),   // an orphan that names space 1, in the person's scope
+            stat(105, 100, 105), // left the group for another compositor's slice
+            stat(200, 7, 200),   // a launch into space 2
+            stat(201, 200, 201), // left its group and moved into the person's scope
+            stat(10, 1, 10),     // the person's
+        ]
+        .into_iter()
+        .collect();
+        let launches: HashMap<u32, SpaceId> = [(100, space(1)), (200, space(2))].into_iter().collect();
+        let tied = tied_to(&stats, &launches, |pid| (pid == 104).then(|| space(1)));
+        let cgroup_of = |pid: u32| match pid {
+            100 | 101 | 103 => Some(scope(7, 1)),
+            105 => Some(scope(8, 1)),
+            200 => Some(scope(7, 2)),
+            7 | 10 | 102 | 104 | 201 => Some(format!("{manager}/exp-person.scope\n")),
+            _ => None,
+        };
+        let sorted = |mut pids: Vec<u32>| {
+            pids.sort_unstable();
+            pids
+        };
+        assert_eq!(sorted(strays(&space(1), &stats, &launches, &tied, 7, Some(7), cgroup_of)), [102, 104, 105]);
+        assert_eq!(sorted(strays(&space(2), &stats, &launches, &tied, 7, Some(7), cgroup_of)), [201]);
+        // Without a user manager there are no slices: only the groups and
+        // the compositor are left out.
+        assert_eq!(sorted(strays(&space(1), &stats, &launches, &tied, 7, None, cgroup_of)), [102, 103, 104, 105]);
     }
 }

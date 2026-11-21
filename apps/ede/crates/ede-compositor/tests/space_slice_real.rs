@@ -44,6 +44,19 @@ fn alive(pid: u32) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| !stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'))
 }
 
+/// Until every one of `pids` has ended; the panic names what runs on.
+fn until_gone(what: &str, pids: &[(&str, u32)]) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let running: Vec<String> = pids.iter().filter(|(_, pid)| alive(*pid)).map(|(name, pid)| format!("{name} ({pid})")).collect();
+        if running.is_empty() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: {}", running.join(", "));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn pid_in(file: &Path) -> u32 {
     until(&format!("{} was never written", file.display()), || std::fs::read_to_string(file).is_ok_and(|text| text.trim().parse::<u32>().is_ok()));
     std::fs::read_to_string(file).unwrap().trim().parse().unwrap()
@@ -231,7 +244,7 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     // for, and the slice is gone. What moved itself out ends too; the
     // person's scope runs on.
     agent.destroy_space(space.id.clone()).unwrap();
-    until("a process of the closed space still runs", || !alive(pid) && !alive(parent) && !alive(orphan) && !alive(stubborn) && !alive(mover) && !alive(moved));
+    until_gone("a process of the closed space still runs", &[("the first launch", pid), ("the orphan's launch", parent), ("the orphan", orphan), ("the stubborn scope's child", stubborn), ("the mover", mover), ("what moved itself out of the slice", moved)]);
     let _ = stubborn_scope.wait();
     assert!(alive(person), "the person's scope ended with the space");
     systemctl(&["stop", &person_unit]);
