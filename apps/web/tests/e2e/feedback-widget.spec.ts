@@ -13,11 +13,6 @@ const tinyPngBase64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42
 // Sign-up, onboarding and the cold settings compile share each test's budget.
 test.describe.configure({ timeout: 240_000 })
 
-function getTeamSlug(currentUrl: string) {
-  const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
-  return teamSlug
-}
-
 async function createWidget(
   page: Page,
   app: AppFixture,
@@ -63,8 +58,7 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
-  const teamSlug = getTeamSlug(page.url())
+  const teamSlug = await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
 
   const key = await createWidget(page, app, teamSlug, `example.com`)
 
@@ -179,8 +173,7 @@ test(`the embedded widget captures, submits, and files an issue`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
-  const teamSlug = getTeamSlug(page.url())
+  const teamSlug = await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
 
   // localhost must be allowed for the demo page's origin.
   const key = await createWidget(

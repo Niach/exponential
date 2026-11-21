@@ -5,7 +5,7 @@
 //! it forked, whichever session it started.
 //!
 //! ```text
-//! app.slice/app-exponential_p<pid>.slice          all spaces: CPU, memory
+//! app.slice/app-exponential_p<pid>.slice          all spaces: CPU, memory, oomd
 //!   └─ app-exponential_p<pid>-s<n>.slice           one space: memory, tasks
 //!        └─ exponential-p<pid>-s<n>-<k>.scope      launch k
 //! ```
@@ -81,9 +81,18 @@ const ASK_SECONDS: u32 = 5;
 /// How long the end of a compositor waits for the user manager to take
 /// the slice of all its spaces away.
 pub const EXIT_STOP: Duration = Duration::from_secs(3);
+/// From here on a scope has an `OOMPolicy=` ([`Run::oom_continue`]).
+const OOM_POLICY_SINCE: u32 = 253;
 const GIB: u64 = 1 << 30;
 /// Every memory limit is a multiple of this: the largest page there is.
 const MEMORY_STEP: u64 = 64 << 10;
+/// #EDE-192: the memory pressure (`full avg10`, in %, for oomd's usual
+/// time) of the slice of all spaces at which systemd-oomd, where it runs,
+/// ends one scope of the spaces (the one that reclaims most, with all its
+/// programs): below the 50 % at which Ubuntu's and Fedora's watch the
+/// person's whole user manager, so it acts on the spaces before it looks
+/// at that.
+pub const SPACES_PRESSURE: u32 = 30;
 /// What a still space takes: its manager and bus, the helpers a toolkit
 /// starts, one browser page. Measured on mint (#EXP-1514, 3.6): 0.5 GB with
 /// Chromium, 0.9 GB with Firefox. A new space is made only while this fits.
@@ -169,11 +178,62 @@ pub fn parse_app_slice(cgroup: &str) -> Option<PathBuf> {
 }
 
 /// A slice to make, with its limits: the names and values of
-/// `StartTransientUnit`'s properties, every one a `t` (u64).
+/// `StartTransientUnit`'s properties.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Slice {
     pub name: String,
-    pub properties: Vec<(String, u64)>,
+    pub properties: Vec<(String, Value)>,
+}
+
+/// A property's value, by its D-Bus type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Value {
+    /// `t`: bytes, microseconds, a count; `u64::MAX` = no limit.
+    T(u64),
+    /// `u`: a share of `u32::MAX` (systemd's percentages).
+    U(u32),
+    /// `s`
+    S(String),
+}
+
+impl Value {
+    fn bus(&self) -> (&'static str, String) {
+        match self {
+            Self::T(value) => ("t", value.to_string()),
+            Self::U(value) => ("u", value.to_string()),
+            Self::S(value) => ("s", value.clone()),
+        }
+    }
+}
+
+/// The number `name` has in `list` (a `t`).
+pub fn number(list: &[(String, Value)], name: &str) -> Option<u64> {
+    list.iter().find(|(n, _)| n == name).and_then(|(_, value)| match value {
+        Value::T(number) => Some(*number),
+        _ => None,
+    })
+}
+
+/// `percent` % of `of`.
+fn percent(of: u64, percent: u32) -> u64 {
+    (of as u128 * percent as u128 / 100) as u64
+}
+
+/// The kernel keeps a memory limit in whole pages (4, 16 or 64 KiB):
+/// rounded here, what is asked for is what `memory.max` then reads.
+fn pages(bytes: u64) -> u64 {
+    bytes / MEMORY_STEP * MEMORY_STEP
+}
+
+/// What all spaces together may hold (their slice's `MemoryMax`).
+fn all_memory(spaces: &config::Spaces, machine: Machine) -> u64 {
+    pages(percent(machine.memory, spaces.memory_max))
+}
+
+/// Where the room for a new space ends: 90 % of what all spaces may hold
+/// ([`room`]).
+fn room_line(spaces: &config::Spaces, machine: Machine) -> u64 {
+    pages(all_memory(spaces, machine) / 10 * 9)
 }
 
 /// The limits of all spaces together and of one space, from the person's
@@ -183,24 +243,43 @@ pub struct Slice {
 /// scope, a sibling of the whole user manager, so no weight inside the
 /// user manager can keep spaces below half of a busy machine; the weight
 /// only puts them behind the person's user services.
-pub fn limits(spaces: &config::Spaces, machine: Machine) -> (Vec<(String, u64)>, Vec<(String, u64)>) {
-    let percent = |of: u64, percent: u32| (of as u128 * percent as u128 / 100) as u64;
-    // The kernel keeps a memory limit in whole pages (4, 16 or 64 KiB):
-    // rounded here, what is asked for is what `memory.max` then reads.
-    let pages = |bytes: u64| bytes / MEMORY_STEP * MEMORY_STEP;
-    let all_memory = pages(percent(machine.memory, spaces.memory_max));
+///
+/// #EDE-192: a space whose programs take more than its limit loses the
+/// biggest to the kernel, inside its own slice, at once. `MemoryMax` is
+/// that line: neither slice has a `MemoryHigh`, under which the kernel
+/// slowed a space down just short of its `MemoryMax` (2.0 of 2.17 GiB,
+/// measured) and ended nothing. No space swaps: `memory.max` does not
+/// count swap, so a space at its limit would first write out what it may
+/// swap (one space filled the 928 MiB all spaces had in 3 s; a 231 MiB
+/// part took 0.6 s on an idle disk and 15 s on a busy one, the space
+/// stalled meanwhile) and would take that from the person's apps; an idle
+/// space stays in RAM, within its `MemoryMax`. A space that thrashes on
+/// its programs' files short of the kernel's kill is systemd-oomd's,
+/// where it runs: it watches the slice of all spaces before the person's
+/// user manager ([`SPACES_PRESSURE`]).
+pub fn limits(spaces: &config::Spaces, machine: Machine) -> (Vec<(String, Value)>, Vec<(String, Value)>) {
+    let all_memory = all_memory(spaces, machine);
     let space_memory = pages(percent(machine.memory, spaces.space_memory_max).max(2 * GIB).min(all_memory));
+    let property = |name: &str, value: Value| (name.to_string(), value);
+    // systemd's percentages: `u32::MAX` is 100 %, rounded as
+    // `systemd-run -p ManagedOOMMemoryPressureLimit=30%` sends it.
+    let pressure = ((u64::from(SPACES_PRESSURE) * 100 * u64::from(u32::MAX) + 5_000) / 10_000) as u32;
     let all = vec![
         // Microseconds of CPU per second of time: 1_000_000 is one core.
-        ("CPUQuotaPerSecUSec".to_string(), percent(machine.cpus * 1_000_000, spaces.cpu_quota).max(10_000)),
-        ("CPUWeight".to_string(), 10),
-        ("MemoryMax".to_string(), all_memory),
-        ("MemoryHigh".to_string(), pages(all_memory / 10 * 9)),
-        // `memory.max` does not count swap: without this a space at its
-        // limit would fill the swap the person's apps share.
-        ("MemorySwapMax".to_string(), pages(all_memory / 4)),
+        property("CPUQuotaPerSecUSec", Value::T(percent(machine.cpus * 1_000_000, spaces.cpu_quota).max(10_000))),
+        property("CPUWeight", Value::T(10)),
+        property("MemoryMax", Value::T(all_memory)),
+        property("MemoryHigh", Value::T(u64::MAX)),
+        property("MemorySwapMax", Value::T(0)),
+        property("ManagedOOMMemoryPressure", Value::S("kill".into())),
+        property("ManagedOOMMemoryPressureLimit", Value::U(pressure)),
     ];
-    let space = vec![("MemoryMax".to_string(), space_memory), ("MemoryHigh".to_string(), pages(space_memory / 10 * 9)), ("TasksMax".to_string(), u64::from(spaces.tasks_max))];
+    let space = vec![
+        property("MemoryMax", Value::T(space_memory)),
+        property("MemoryHigh", Value::T(u64::MAX)),
+        property("MemorySwapMax", Value::T(0)),
+        property("TasksMax", Value::T(u64::from(spaces.tasks_max))),
+    ];
     (all, space)
 }
 
@@ -211,8 +290,7 @@ pub fn max_spaces(spaces: &config::Spaces, machine: Machine) -> u32 {
     if let Some(max) = spaces.max {
         return max.clamp(1, MAX_SPACES);
     }
-    let all = limits(spaces, machine).0.iter().find(|(name, _)| name == "MemoryMax").map_or(0, |(_, bytes)| *bytes);
-    ((all + GIB / 2) / GIB).clamp(1, u64::from(MAX_SPACES)) as u32
+    ((all_memory(spaces, machine) + GIB / 2) / GIB).clamp(1, u64::from(MAX_SPACES)) as u32
 }
 
 /// `anon` + `shmem` of a cgroup's `memory.stat`: what its processes hold
@@ -222,10 +300,11 @@ pub fn held(memory_stat: &str) -> u64 {
 }
 
 /// Whether a new space fits: what the spaces hold now (`memory.stat` of the
-/// slice of all spaces; none = nothing yet) plus one still space under the
-/// slice's `MemoryHigh`. Above it every process of every space is
-/// throttled for as long as nothing frees memory, and every agent's calls
-/// time out. `Err` is the refusal's sentence.
+/// slice of all spaces; none = nothing yet) plus one still space under 90 %
+/// of the slice's `MemoryMax`: at their `MemoryMax` the kernel reclaims
+/// from every space at every allocation, then ends the biggest program of
+/// any space, and this line keeps a new space from starting there.
+/// `Err` is the refusal's sentence.
 pub fn room(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>) -> Result<(), String> {
     room_freeing(spaces, machine, memory_stat, 0)
 }
@@ -234,7 +313,7 @@ pub fn room(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>
 /// full desktop gives way; their slices stop after the close, so what
 /// they held still shows in `memory.stat`).
 pub fn room_freeing(spaces: &config::Spaces, machine: Machine, memory_stat: Option<&str>, freed: u64) -> Result<(), String> {
-    let high = limits(spaces, machine).0.iter().find(|(name, _)| name == "MemoryHigh").map_or(0, |(_, bytes)| *bytes);
+    let high = room_line(spaces, machine);
     let held = memory_stat.map_or(0, held).saturating_sub(freed);
     if held + STILL_SPACE <= high {
         return Ok(());
@@ -248,16 +327,16 @@ pub fn room_freeing(spaces: &config::Spaces, machine: Machine, memory_stat: Opti
 /// its part while the others are still).
 pub fn described(spaces: &config::Spaces, machine: Machine) -> String {
     let (all, one) = limits(spaces, machine);
-    let value = |list: &[(String, u64)], name: &str| list.iter().find(|(n, _)| n == name).map_or(0, |(_, v)| *v);
+    let value = |list: &[(String, Value)], name: &str| number(list, name).unwrap_or(0);
     let gib = |bytes: u64| format!("{:.1} GiB", bytes as f64 / GIB as f64);
     format!(
-        "{} spaces at most, {} launches each; together {} of memory, one up to {}: they share it, a new space is made only while {} is free under {}",
+        "{} spaces at most, {} launches each; together {} of memory, one up to {}, no swap: they share the memory, a new space is made only while {} is free under {}",
         max_spaces(spaces, machine),
         spaces.launches,
         gib(value(&all, "MemoryMax")),
         gib(value(&one, "MemoryMax")),
         gib(STILL_SPACE),
-        gib(value(&all, "MemoryHigh")),
+        gib(room_line(spaces, machine)),
     )
 }
 
@@ -283,6 +362,13 @@ pub struct Run {
     #[serde(default)]
     pub wait_bus: Option<PathBuf>,
     pub no_expand: bool,
+    /// #EDE-192: `OOMPolicy=continue` (systemd 253 on): when the kernel
+    /// ends a program of the scope, its other programs run on (systemd's
+    /// default would stop them all); the scope's `memory.oom.group` stays
+    /// 0. Before 253 a scope has no such setting and systemd kills all of
+    /// it at an OOM kill.
+    #[serde(default)]
+    pub oom_continue: bool,
     /// The space's directory: the program's `XDG_RUNTIME_DIR`.
     pub space_dir: PathBuf,
     /// The space guard `space-enter` asks before anything runs ([`Units::guard`]).
@@ -368,6 +454,10 @@ impl Units {
         self.version >= NO_EXPAND_SINCE
     }
 
+    fn oom_continue(&self) -> bool {
+        self.version >= OOM_POLICY_SINCE
+    }
+
     /// The user manager still listens. A launch asks before it starts: a
     /// compositor that puts its launches into scopes starts none outside
     /// one, so without the user manager it starts nothing.
@@ -422,6 +512,7 @@ impl Units {
             delegate,
             wait_bus,
             no_expand: self.no_expand(),
+            oom_continue: self.oom_continue(),
             space_dir: space_dir.to_path_buf(),
             guard: self.guard.clone(),
         };
@@ -544,7 +635,8 @@ fn busctl(run: &Run, slice: &Slice, make: bool) -> Command {
     }
     cmd.arg(slice.properties.len().to_string());
     for (name, value) in &slice.properties {
-        cmd.args([name.as_str(), "t", &value.to_string()]);
+        let (signature, value) = value.bus();
+        cmd.args([name.as_str(), signature, &value]);
     }
     if make {
         // No auxiliary units.
@@ -586,6 +678,9 @@ pub fn scope(run: &Run, argv: &[String]) -> Command {
     cmd.arg(format!("--unit={}", run.unit)).args(["-p", &format!("TimeoutStopSec={STOP_SECONDS}")]);
     if run.delegate {
         cmd.args(["-p", "Delegate=yes"]);
+    }
+    if run.oom_continue {
+        cmd.args(["-p", "OOMPolicy=continue"]);
     }
     if run.no_expand {
         cmd.arg("--expand-environment=no");
@@ -841,10 +936,6 @@ mod tests {
         cmd.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect()
     }
 
-    fn pages(bytes: u64) -> u64 {
-        bytes / MEMORY_STEP * MEMORY_STEP
-    }
-
     #[test]
     fn the_machine_and_systemd_as_their_files_tell() {
         assert_eq!(parse_mem_total("MemFree: 1 kB\nMemTotal:       32786188 kB\nSwapTotal: 0 kB\n"), Some(32786188 * 1024));
@@ -876,7 +967,7 @@ mod tests {
     }
 
     /// One space per GiB of what all spaces may use, unless the person
-    /// says; a new one only while a still space fits under `MemoryHigh`.
+    /// says; a new one only while a still space fits under 90 % of `MemoryMax`.
     #[test]
     fn how_many_spaces_and_whether_one_more_fits() {
         let spaces = config::Spaces::default();
@@ -891,29 +982,27 @@ mod tests {
 
         assert_eq!(held("anon 1048576\nfile 99999999\nkernel 5\nshmem 2097152\nshmem_thp 7\n"), 3 << 20);
         assert_eq!(held(""), 0);
-        // 16 GiB: all spaces 8 GiB, MemoryHigh 7.2 GiB; one more fits while
+        // 16 GiB: all spaces 8 GiB, room up to 7.2 GiB; one more fits while
         // they hold at most 6.2 GiB.
         let high = pages(8 * GIB / 10 * 9);
         assert_eq!(room(&spaces, machine(16), None), Ok(()), "nothing made yet");
         assert_eq!(room(&spaces, machine(16), Some(&format!("anon {}\nshmem 0\n", high - STILL_SPACE))), Ok(()));
         let refused = room(&spaces, machine(16), Some(&format!("anon {}\nshmem 4096\n", high - STILL_SPACE)));
         assert_eq!(refused, Err(format!("no memory for another space: the agent spaces hold {} MiB of their {} MiB", (high - STILL_SPACE + 4096) >> 20, high >> 20)));
-        assert_eq!(described(&spaces, machine(16)), "8 spaces at most, 32 launches each; together 8.0 GiB of memory, one up to 4.8 GiB: they share it, a new space is made only while 1.0 GiB is free under 7.2 GiB");
+        assert_eq!(described(&spaces, machine(16)), "8 spaces at most, 32 launches each; together 8.0 GiB of memory, one up to 4.8 GiB, no swap: they share the memory, a new space is made only while 1.0 GiB is free under 7.2 GiB");
     }
 
     /// Half of the cores and half of the memory for all spaces together by
     /// default; one space at least 2 GiB, never more than all of them.
     #[test]
     fn the_limits_are_fractions_of_the_machine() {
-        let value = |list: &[(String, u64)], name: &str| list.iter().find(|(n, _)| n == name).map(|(_, v)| *v);
+        let value = number;
         let (all, one) = limits(&config::Spaces::default(), Machine { cpus: 8, memory: 16 * GIB });
         assert_eq!(value(&all, "CPUQuotaPerSecUSec"), Some(4_000_000), "four of eight cores");
         assert_eq!(value(&all, "CPUWeight"), Some(10));
         assert_eq!(value(&all, "MemoryMax"), Some(8 * GIB));
-        assert_eq!(value(&all, "MemoryHigh"), Some(pages(8 * GIB / 10 * 9)));
-        assert_eq!(value(&all, "MemorySwapMax"), Some(2 * GIB));
         assert_eq!(value(&one, "MemoryMax"), Some(pages(16 * GIB * 30 / 100)));
-        assert!(all.iter().chain(&one).filter(|(name, _)| name.starts_with("Memory")).all(|(_, bytes)| bytes % MEMORY_STEP == 0), "whole pages: {all:?} {one:?}");
+        assert!(all.iter().chain(&one).filter(|(name, _)| name.starts_with("Memory")).all(|(_, value)| matches!(value, Value::T(u64::MAX)) || matches!(value, Value::T(bytes) if bytes % MEMORY_STEP == 0)), "whole pages: {all:?} {one:?}");
         assert_eq!(value(&one, "TasksMax"), Some(4096));
         // A small machine: one space gets its 2 GiB, capped by what all get.
         let (all, one) = limits(&config::Spaces::default(), Machine { cpus: 2, memory: 4 * GIB });
@@ -928,6 +1017,44 @@ mod tests {
         assert_eq!(value(&all, "MemoryMax"), Some(pages(128 * GIB * 20 / 100)));
         assert_eq!(value(&one, "MemoryMax"), Some(pages(128 * GIB * 10 / 100)));
         assert_eq!(value(&one, "TasksMax"), Some(512));
+    }
+
+    /// #EDE-192: a space over its limit is the kernel's to end, inside its
+    /// own slice, at once, whoever watches pressure or not. `MemoryMax` is
+    /// the line on both slices (no `MemoryHigh` slows a space down short of
+    /// it), no space swaps (none writes swap out before the kernel acts,
+    /// none takes the person's), and systemd-oomd watches the slice of all
+    /// spaces below the 50 % at which it watches a person's whole user
+    /// manager.
+    #[test]
+    fn a_space_over_its_limit_is_the_kernels_to_end_at_once() {
+        let machines = [(2, 4), (4, 7), (8, 16), (16, 64), (32, 256), (4, 1)];
+        let own = [
+            config::Spaces::default(),
+            config::Spaces { max: Some(1), ..Default::default() },
+            config::Spaces { max: Some(32), memory_max: 90, space_memory_max: 80, ..Default::default() },
+            config::Spaces { memory_max: 10, space_memory_max: 5, ..Default::default() },
+        ];
+        for (cpus, gib) in machines {
+            let machine = Machine { cpus, memory: gib * GIB / 100 * 97 };
+            for spaces in &own {
+                let (all, one) = limits(spaces, machine);
+                let at = format!("{gib} GiB, {spaces:?}");
+                assert_eq!((number(&all, "MemoryHigh"), number(&one, "MemoryHigh")), (Some(u64::MAX), Some(u64::MAX)), "{at}: no MemoryHigh");
+                assert_eq!((number(&all, "MemorySwapMax"), number(&one, "MemorySwapMax")), (Some(0), Some(0)), "{at}: no swap");
+                assert!(number(&one, "MemoryMax").unwrap() <= number(&all, "MemoryMax").unwrap(), "{at}");
+                assert_eq!(all.iter().find(|(name, _)| name == "ManagedOOMMemoryPressure").map(|(_, v)| v), Some(&Value::S("kill".into())), "{at}");
+                assert!(!one.iter().any(|(name, _)| name.starts_with("ManagedOOM")), "{at}: oomd watches the slice of all spaces and picks among all of their scopes");
+            }
+        }
+        // 30 % in systemd's fixed point, as `systemd-run -p
+        // ManagedOOMMemoryPressureLimit=30%` sends it, under the 50 % of
+        // Ubuntu's and Fedora's `user@.service`.
+        let (all, _) = limits(&config::Spaces::default(), Machine { cpus: 8, memory: 16 * GIB });
+        assert_eq!(all.iter().find(|(name, _)| name == "ManagedOOMMemoryPressureLimit").map(|(_, v)| v), Some(&Value::U(1_288_490_189)));
+        assert!(SPACES_PRESSURE < 50);
+        // The room for a new space is still 90 % of what all spaces may hold.
+        assert_eq!(room_line(&config::Spaces::default(), Machine { cpus: 8, memory: 16 * GIB }), pages(8 * GIB / 10 * 9));
     }
 
     /// A launch is `space-run` with what it needs as one JSON argument,
@@ -951,7 +1078,7 @@ mod tests {
         let scope = scope(&run, &inner);
         assert_eq!(
             args(&scope),
-            ["--user", "--scope", "--collect", "--quiet", "--slice=app-exponential_p41-s3.slice", "--unit=exponential-p41-s3-7.scope", "-p", "TimeoutStopSec=2", "--expand-environment=no", "--setenv=XDG_RUNTIME_DIR=/run/user/1000/exponential-desktop/wayland-1.spaces/space-3", "--", "dbus-run-session", "--", "foot", "-e", "$HOME"]
+            ["--user", "--scope", "--collect", "--quiet", "--slice=app-exponential_p41-s3.slice", "--unit=exponential-p41-s3-7.scope", "-p", "TimeoutStopSec=2", "-p", "OOMPolicy=continue", "--expand-environment=no", "--setenv=XDG_RUNTIME_DIR=/run/user/1000/exponential-desktop/wayland-1.spaces/space-3", "--", "dbus-run-session", "--", "foot", "-e", "$HOME"]
         );
         let envs: Vec<_> = scope.get_envs().collect();
         assert_eq!(envs, [(std::ffi::OsStr::new("XDG_RUNTIME_DIR"), Some(std::ffi::OsStr::new("/run/user/1000")))], "systemd-run finds the PERSON's user manager");
@@ -960,6 +1087,11 @@ mod tests {
         let old = Units { version: 253, ..units() };
         let run: Run = serde_json::from_str(&args(&old.command(&config::Spaces::default(), 1, 1, Path::new("/s"), &inner))[1]).unwrap();
         assert!(!run.no_expand && !args(&super::scope(&run, &inner)).iter().any(|arg| arg.starts_with("--expand-environment")));
+        // #EDE-192: a scope has an `OOMPolicy=` from 253 on; 252 would refuse it.
+        assert!(run.oom_continue && args(&super::scope(&run, &inner)).windows(2).any(|pair| pair == ["-p", "OOMPolicy=continue"]));
+        let oldest = Units { version: 252, ..units() };
+        let run: Run = serde_json::from_str(&args(&oldest.command(&config::Spaces::default(), 1, 1, Path::new("/s"), &inner))[1]).unwrap();
+        assert!(!run.oom_continue && !args(&super::scope(&run, &inner)).iter().any(|arg| arg.starts_with("OOMPolicy")));
     }
 
     /// The space's own user manager: a scope of the space's slice whose
@@ -971,6 +1103,7 @@ mod tests {
         assert_eq!((run.unit.as_str(), run.delegate, run.wait_bus.as_deref()), ("exponential-p41-s3-session2.scope", true, None));
         let scope = args(&scope(&run, &["systemd".to_string()]));
         assert!(scope.windows(2).any(|pair| pair == ["-p", "Delegate=yes"]), "{scope:?}");
+        assert!(scope.windows(2).any(|pair| pair == ["-p", "OOMPolicy=continue"]), "the kernel's one kill leaves the space's manager to it: {scope:?}");
         assert_eq!(args(&cmd)[3..], ["/usr/lib/systemd/systemd", "--user"]);
     }
 
@@ -981,10 +1114,17 @@ mod tests {
         let argv = args(&make);
         assert_eq!(argv[..10], ["--user", "--timeout=5", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", "app-exponential_p41-s3.slice", "fail"]);
         let memory = pages(16 * GIB * 30 / 100);
-        assert_eq!(argv[10..], ["3", "MemoryMax", "t", &memory.to_string(), "MemoryHigh", "t", &pages(memory / 10 * 9).to_string(), "TasksMax", "t", "4096", "0"]);
+        assert_eq!(argv[10..], ["4", "MemoryMax", "t", &memory.to_string(), "MemoryHigh", "t", "18446744073709551615", "MemorySwapMax", "t", "0", "TasksMax", "t", "4096", "0"]);
         let set = args(&busctl(&run, &run.slices[0], false));
-        assert_eq!(set[6..11], ["SetUnitProperties", "sba(sv)", "app-exponential_p41.slice", "true", "5"]);
-        assert_eq!(set.last().map(String::as_str), Some(&*(2 * GIB).to_string()), "no auxiliary units after the properties");
+        assert_eq!(set[6..11], ["SetUnitProperties", "sba(sv)", "app-exponential_p41.slice", "true", "7"]);
+        assert_eq!(
+            set[11..],
+            [
+                "CPUQuotaPerSecUSec", "t", "4000000", "CPUWeight", "t", "10", "MemoryMax", "t", &(8 * GIB).to_string(), "MemoryHigh", "t", "18446744073709551615", "MemorySwapMax", "t", "0",
+                "ManagedOOMMemoryPressure", "s", "kill", "ManagedOOMMemoryPressureLimit", "u", "1288490189"
+            ],
+            "each by its type, no auxiliary units after the properties"
+        );
         let env = |cmd: &Command, name: &str| cmd.get_envs().find(|(n, _)| *n == name).map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()));
         assert_eq!(env(&make, "XDG_RUNTIME_DIR"), Some(Some("/run/user/1000".into())));
         assert_eq!(env(&make, "DBUS_SESSION_BUS_ADDRESS"), Some(Some("unix:path=/run/user/1000/bus".into())));

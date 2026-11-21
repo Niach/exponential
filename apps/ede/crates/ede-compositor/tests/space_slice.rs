@@ -196,22 +196,23 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     // no program that runs before the scope.
     let whose = format!(" XDG_RUNTIME_DIR={} BUS=unix:path=/persons/bus MARK=", runtime.display());
 
-    // The slice of all spaces first, with the limits of an 8-core 16 GiB machine.
+    // The slice of all spaces first, with the limits of an 8-core 16 GiB
+    // machine: no `MemoryHigh` and no swap (#EDE-192), systemd-oomd watches
+    // it at 30 %.
     assert_eq!(
         log[0],
         format!(
-            "busctl [--user] [--timeout=5] [call] [org.freedesktop.systemd1] [/org/freedesktop/systemd1] [org.freedesktop.systemd1.Manager] [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}.slice] [fail] [5] [CPUQuotaPerSecUSec] [t] [4000000] [CPUWeight] [t] [10] [MemoryMax] [t] [{}] [MemoryHigh] [t] [{}] [MemorySwapMax] [t] [{}] [0]{whose}",
+            "busctl [--user] [--timeout=5] [call] [org.freedesktop.systemd1] [/org/freedesktop/systemd1] [org.freedesktop.systemd1.Manager] [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}.slice] [fail] [7] [CPUQuotaPerSecUSec] [t] [4000000] [CPUWeight] [t] [10] [MemoryMax] [t] [{}] [MemoryHigh] [t] [{}] [MemorySwapMax] [t] [0] [ManagedOOMMemoryPressure] [s] [kill] [ManagedOOMMemoryPressureLimit] [u] [1288490189] [0]{whose}",
             8 * GIB,
-            pages(8 * GIB / 10 * 9),
-            2 * GIB
+            u64::MAX
         )
     );
     assert_eq!(
         log[1],
         format!(
-            "busctl [--user] [--timeout=5] [call] [org.freedesktop.systemd1] [/org/freedesktop/systemd1] [org.freedesktop.systemd1.Manager] [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}-s1.slice] [fail] [3] [MemoryMax] [t] [{}] [MemoryHigh] [t] [{}] [TasksMax] [t] [4096] [0]{whose}",
+            "busctl [--user] [--timeout=5] [call] [org.freedesktop.systemd1] [/org/freedesktop/systemd1] [org.freedesktop.systemd1.Manager] [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}-s1.slice] [fail] [4] [MemoryMax] [t] [{}] [MemoryHigh] [t] [{}] [MemorySwapMax] [t] [0] [TasksMax] [t] [4096] [0]{whose}",
             pages(16 * GIB * 30 / 100),
-            pages(pages(16 * GIB * 30 / 100) / 10 * 9)
+            u64::MAX
         )
     );
     // The first program in every scope is `space-enter` with the
@@ -220,7 +221,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     // The space's first launch starts its own user manager, in a scope of
     // its own whose cgroup is the manager's to manage.
     let session = format!(
-        "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-session1.scope] [-p] [TimeoutStopSec=2] [-p] [Delegate=yes] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
+        "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-session1.scope] [-p] [TimeoutStopSec=2] [-p] [Delegate=yes] [-p] [OOMPolicy=continue] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
         space_dir.display()
     );
     assert!(log[2].starts_with(&session) && log[2].contains(&enter) && log[2].contains("] [space-exec] [") && log[2].contains(&format!("] [--] [{}] [--user] XDG_RUNTIME_DIR=", tools.dir.join("systemd").display())), "{}", log[2]);
@@ -240,7 +241,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     // space's bus answers. In it the launch's last stage, found through a
     // descriptor, then the program: no `dbus-run-session` (the space has a bus).
     let scope = format!(
-        "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-1.scope] [-p] [TimeoutStopSec=2] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
+        "systemd-run [--user] [--scope] [--collect] [--quiet] [--slice=app-exponential_p{me}-s1.slice] [--unit=exponential-p{me}-s1-1.scope] [-p] [TimeoutStopSec=2] [-p] [OOMPolicy=continue] [--expand-environment=no] [--setenv=XDG_RUNTIME_DIR={}] [--] [/proc/self/fd/",
         space_dir.display()
     );
     assert!(log[4].starts_with(&scope) && log[4].contains(&enter) && log[4].contains("] [space-exec] [") && log[4].contains("] [--] [sh] [-c] ") && !log[4].contains("dbus-run-session"), "{}", log[4]);
@@ -275,7 +276,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     let log = tools.log();
     assert_eq!(log.len(), 12, "{log:#?}");
     assert!(log[6].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}.slice] ")), "{}", log[6]);
-    assert!(log[7].contains(&format!(" [SetUnitProperties] [sba(sv)] [app-exponential_p{me}.slice] [true] [5] [CPUQuotaPerSecUSec] [t] [4000000] ")) && !log[7].contains("] [0] XDG"), "{}", log[7]);
+    assert!(log[7].contains(&format!(" [SetUnitProperties] [sba(sv)] [app-exponential_p{me}.slice] [true] [7] [CPUQuotaPerSecUSec] [t] [4000000] ")) && !log[7].contains("] [0] XDG"), "{}", log[7]);
     assert!(log[8].contains(&format!(" [StartTransientUnit] [ssa(sv)a(sa(sv))] [app-exponential_p{me}-s2.slice] ")), "{}", log[8]);
     assert!(log[9].contains(&format!(" [--unit=exponential-p{me}-s2-session1.scope] ")) && log[10].starts_with("systemd [--user] "), "{log:#?}");
     assert!(log[11].contains(&format!(" [--slice=app-exponential_p{me}-s2.slice] [--unit=exponential-p{me}-s2-3.scope] ")), "{}", log[11]);
@@ -453,7 +454,7 @@ fn a_space_whose_manager_ends_twice_closes() {
 
 /// #EDE-138: with slices the count of spaces is the person's (or one per
 /// GiB of the spaces' memory: 8 on this 16 GiB stand-in), a new space is
-/// made only while a still one fits under the slice's `MemoryHigh`, and a
+/// made only while a still one fits under 90 % of the slice's `MemoryMax`, and a
 /// space may launch `[spaces] launches` processes. A session's own space
 /// is found again before any of it.
 #[test]
@@ -506,7 +507,7 @@ fn spaces_and_launches_are_counted_and_fenced_by_memory() {
 /// compositor, and what a compositor that is gone left there goes when the
 /// next one opens the place: a `p<pid>` of a process that is no running
 /// compositor, or of an earlier life of this process id.
-/// #EXP-1514 (D 10): out of memory under the slice's `MemoryHigh`, the
+/// #EXP-1514 (D 10): out of memory under 90 % of the slice's `MemoryMax`, the
 /// spaces unused longest give way, as many as it takes and no more, what
 /// each held read from its own slice; when even all of them would not make
 /// room the answer is `limit` and none closes.

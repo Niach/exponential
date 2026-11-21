@@ -408,6 +408,9 @@ pub struct SurfaceView {
     just_dismissed: Option<String>,
     /// VAPP-281: the hosted popup layers the host last heard of.
     hosted_popups: Vec<Layer>,
+    /// #EXP-2045: how much of each hosted layer its host last painted, and
+    /// how many times it did.
+    hosted_shown: HashMap<String, (f32, u64)>,
     unknown_version: Option<u64>,
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
@@ -673,6 +676,7 @@ impl SurfaceView {
             layer_return: HashMap::new(),
             just_dismissed: None,
             hosted_popups: Vec::new(),
+            hosted_shown: HashMap::new(),
             unknown_version: None,
             host_scroll: None,
             drag: None,
@@ -1421,9 +1425,19 @@ impl SurfaceView {
         self.layers_changed(&layers, now, window, cx);
         // VAPP-281: the host hears the hosted popups when they change.
         let hosted: Vec<Layer> = layers.iter().filter(|l| l.hosted).cloned().collect();
-        if hosted != self.hosted_popups {
+        let hosted_moved = hosted != self.hosted_popups;
+        if hosted_moved {
             self.host.on_hosted_popups(&hosted);
             self.hosted_popups = hosted;
+        }
+        self.hosted_shown.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
+        // #EXP-2045: the host's popup windows paint the hosted layers from
+        // these caches, and the change that woke this pass woke them too:
+        // one may have drawn first, from the caches before it (a row's new
+        // picture stayed the old one until the next change). While one is
+        // open, a pass that changed anything draws them again.
+        if !self.hosted_popups.is_empty() && (hosted_moved || !changed.is_empty() || self.frames != previous) {
+            cx.notify();
         }
         self.layers = layers;
         {

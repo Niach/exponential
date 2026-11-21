@@ -152,8 +152,8 @@ impl WlrLayerShellHandler for Ede {
             surface.send_close();
             return;
         };
+        let origin = crate::sealed::origin_of(self, surface.wl_surface(), &namespace);
         let layer = LayerSurface::new(surface, namespace);
-        let origin = crate::sealed::origin_of(self, layer.wl_surface());
         layer.user_data().insert_if_missing(|| origin);
         let mut map = layer_map_for_output(&output);
         if let Err(e) = map.map_layer(&layer) {

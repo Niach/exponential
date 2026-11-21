@@ -1553,7 +1553,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       request: new Request(`http://x.test`),
     } as never)
 
-  it(`#NEW-79: only its member answers a voice conversation's proposal card; never a session`, async () => {
+  it(`#NEW-79: only its member answers a voice conversation's proposal card; never a session (#FEED-287: the conversation withdraws its own)`, async () => {
     const w = await world({ shared: true })
     const [ada] = await db
       .insert(agents)
@@ -1593,6 +1593,21 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     await caller(w.owner).answer({ messageId: proposal.messageId, answer: `Allow` })
     const [answered] = await db.select().from(messages).where(eq(messages.id, proposal.messageId))
     expect(answered!.answeredAt).not.toBeNull()
+    // #FEED-287: the conversation itself withdraws its own card (a dismiss
+    // only, never an answer); another session still may not.
+    const stale = await card()
+    await expect(
+      sendSession({ userId: w.owner, callerSessionId: voice.sessionId, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, answer: `Allow` } } })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, dismissed: true } } })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await sendSession({ userId: w.owner, callerSessionId: voice.sessionId, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, dismissed: true } } })
+    const [withdrawn] = await db.select().from(messages).where(eq(messages.id, stale.messageId))
+    expect(withdrawn!.answeredAt).not.toBeNull()
+    expect((withdrawn!.card as { dismissed?: boolean }).dismissed).toBe(true)
+    const [after] = await db.select({ needsInput: sessions.needsInput }).from(sessions).where(eq(sessions.id, voice.sessionId))
+    expect(after!.needsInput).toBe(false)
     await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
   })
 
