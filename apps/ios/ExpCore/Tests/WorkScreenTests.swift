@@ -36,7 +36,16 @@ final class WorkScreenTests: XCTestCase {
     }
 
     func testOptionCases() throws {
-        let cases = try XCTUnwrap(try fixture()["optionCases"] as? [[String: Any]])
+        try replayOptions("optionCases")
+    }
+
+    /// #EXP-1514: the agent space options (`spaceOffered` per case).
+    func testSpaceOptionCases() throws {
+        try replayOptions("spaceOptionCases")
+    }
+
+    private func replayOptions(_ key: String) throws {
+        let cases = try XCTUnwrap(try fixture()[key] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
         for entry in cases {
             let name = entry["name"] as? String ?? "?"
@@ -53,8 +62,61 @@ final class WorkScreenTests: XCTestCase {
             let expect = try XCTUnwrap(entry["expect"] as? [[String: Any]], name).map { raw in
                 WorkScreen.Option(value: raw["value"] as? String, label: raw["label"] as? String ?? "")
             }
-            XCTAssertEqual(WorkScreen.options(displays: displays, stored: stored), expect, name)
+            let offered = entry["spaceOffered"] as? Bool ?? false
+            XCTAssertEqual(
+                WorkScreen.options(displays: displays, stored: stored, spaceOffered: offered), expect, name
+            )
         }
+    }
+
+    /// #EXP-1514: the `space` words, and `spaceKeyCases` as iOS binds them:
+    /// the picker's tag IS the stored value (no picker keys), so each case's
+    /// value is exactly one option of an offering device's picker, and the
+    /// space's key is its value.
+    func testSpaceWordsAndKeyCases() throws {
+        let fixture = try fixture()
+        XCTAssertEqual(fixture["space"] as? [String: String], [
+            "value": WorkScreen.Space.value,
+            "label": WorkScreen.Space.label,
+            "only": WorkScreen.Space.only,
+        ])
+        let keys = try XCTUnwrap(fixture["pickerKeys"] as? [String: String])
+        XCTAssertEqual(keys["space"], WorkScreen.Space.value)
+        let cases = try XCTUnwrap(fixture["spaceKeyCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        let ids = cases.compactMap { $0["value"] as? String }.filter { $0 != WorkScreen.Space.value }
+        let displays = ids.enumerated().map { index, id in
+            WorkScreen.Display(id: id, number: index + 1, width: 2560, height: 1440, primary: index == 0)
+        }
+        let options = WorkScreen.options(displays: displays, stored: nil, spaceOffered: true)
+        for entry in cases {
+            let value = entry["value"] as? String
+            XCTAssertEqual(options.filter { $0.value == value }.count, 1, "\(entry["key"] ?? "?")")
+        }
+        XCTAssertEqual(options.first { $0.value == WorkScreen.Space.value }?.label, WorkScreen.Space.only)
+    }
+
+    /// #EXP-1514 (device-doctor.json): only an `agent_space` item in state
+    /// `ok` offers a space.
+    func testSpaceOfferedReadsTheAgentSpaceRow() {
+        func doctor(_ space: String?) -> DeviceDoctor {
+            var items = [
+                DeviceDoctor.Item(key: "git", group: "required", state: "ok"),
+                DeviceDoctor.Item(key: "computer_use", group: "computer_use", state: "ok"),
+            ]
+            if let space {
+                items.append(DeviceDoctor.Item(
+                    key: "agent_space", group: "computer_use", parent: "computer_use",
+                    label: "Agent space", state: space
+                ))
+            }
+            return DeviceDoctor(items: items)
+        }
+        XCTAssertTrue(WorkScreen.spaceOffered(doctor("ok")))
+        XCTAssertFalse(WorkScreen.spaceOffered(doctor("missing")))
+        XCTAssertFalse(WorkScreen.spaceOffered(doctor(nil)))
+        XCTAssertFalse(WorkScreen.spaceOffered(DeviceDoctor(items: [])))
+        XCTAssertFalse(WorkScreen.spaceOffered(nil))
     }
 
     func testDoctorDecodesDisplaysLeniently() throws {
