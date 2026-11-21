@@ -145,6 +145,24 @@ pub(crate) fn install(cx: &mut App) {
         }
     })
     .detach();
+    // #EXP-1514 (row 15): this app's own sessions' agent spaces (their run
+    // records name this device, never the daemon's), held at once so
+    // nothing expires while the rows load; off the foreground (the
+    // compositor). The beat below settles them once the rows are in sync.
+    let adoption: Arc<std::sync::Mutex<Option<coding::computer::Adoption>>> = Arc::new(std::sync::Mutex::new(None));
+    {
+        let data_dir = coding_flow::coding_data_dir(cx);
+        let device = queries::own_device_id(cx);
+        let switch_on = coding_flow::CodingHub::global(cx).read(cx).settings.computer_use;
+        let slot = Arc::clone(&adoption);
+        let spawned = std::thread::Builder::new().name("exp-space-adoption".to_string()).spawn(move || {
+            let held = coding::session_teardown::start_spaces(&data_dir, &device, switch_on);
+            *slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(held);
+        });
+        if let Err(err) = spawned {
+            log::warn!("[pickup] the agent spaces' adoption did not start: {err}");
+        }
+    }
     // S-4: the daemon's idle release — a quiescent chat gives its agent
     // process back (the row idles, the worktree stays, the next message
     // resumes it). Off the UI thread; a release re-plans.
@@ -174,6 +192,17 @@ pub(crate) fn install(cx: &mut App) {
             if !released.is_empty() {
                 cx.update(schedule);
             }
+            // #EXP-1514 (row 15): the adoption's second step, once the rows
+            // are the server's (off the foreground: the compositor).
+            let adopted = adoption.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+            if adopted {
+                if let Some((data_dir, rows, _)) = cx.update(sweep_snapshot) {
+                    let device = cx.update(|cx| queries::own_device_id(cx));
+                    if let Some(held) = adoption.lock().unwrap_or_else(|p| p.into_inner()).take() {
+                        std::thread::spawn(move || coding::session_teardown::settle_spaces(held, &data_dir, &rows, &device));
+                    }
+                }
+            }
             // #EXP-1909: the daemon's sweep, here too: a session that ended
             // while no engine of it was live here (it idled first, the app
             // restarted) still holds its scopes, manifest and compose stacks.
@@ -188,9 +217,16 @@ pub(crate) fn install(cx: &mut App) {
             };
             last_sweep = Some(std::time::Instant::now());
             let ask = ask_ended.clone();
+            let (account, device) = cx.update(|cx| (queries::active_account(cx).map(|account| account.id), queries::own_device_id(cx)));
             // Blocking for minutes at worst (docker): a thread of its own.
             let done = Arc::clone(&sweeping);
             let spawned = std::thread::Builder::new().name("exp-ended-sweep".to_string()).spawn(move || {
+                // #EXP-1514 (row 14): the agent spaces this app keeps for
+                // sessions that ended, were deleted or moved away while no
+                // engine of them was live here close within this beat.
+                if let Some(account) = &account {
+                    coding::session_teardown::sweep_spaces(&data_dir, &rows, account, &device);
+                }
                 let still_ended = |session_id: &str| {
                     let (reply, answer) = flume::bounded(1);
                     ask.send((session_id.to_string(), reply)).is_ok()

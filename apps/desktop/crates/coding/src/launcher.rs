@@ -877,6 +877,10 @@ pub struct AcpLaunch {
     /// ([`crate::team_skills`], `<data_dir>/skills/<session>`): claude
     /// `--add-dir`, codex `skills/extraRoots/set`. `None` = no skills.
     pub skills_dir: Option<PathBuf>,
+    /// #EXP-1514: the run drives an agent space of its session's own
+    /// ([`crate::computer_place::Placed::Space`]): every turn it runs keeps
+    /// that space busy (the engine's turn signal, D 10).
+    pub computer_space: bool,
 }
 
 /// EXP-792: the resolved servers' secret values, for the steer redactor.
@@ -1626,13 +1630,16 @@ fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
 /// or the offer changed since its last launch), so a person run never
 /// drives beside it. A failed grant launches without, with a warning in the
 /// log and no section in the prompt; a space grant that fails is never
-/// turned into the person's screen.
+/// turned into the person's screen. `had_space` = the session's run record
+/// says it had a space ([`crate::run_registry::RunRecord::had_space`]): a
+/// first call that finds none says it is new and empty.
 fn attach_computer_use(
     deps: &CodingDeps,
     options: &LaunchOptions,
     team_mcp: &mut ResolvedMcp,
     session_id: &str,
     label: &str,
+    had_space: bool,
 ) -> crate::computer_place::Placed {
     use crate::computer_place::{Inputs, Pick, Place, Placed};
     let inputs = Inputs {
@@ -1659,11 +1666,14 @@ fn attach_computer_use(
             // (asked only then); rows 1 and 4 say nothing.
             Place::None => return Placed::None(undrivable),
             Place::Person => machine.grant(session_id, label).map(|grant| (grant, Placed::Person)),
-            Place::Space => machine.grant_space(session_id, label, false).map(|grant| (grant, Placed::Space)),
+            Place::Space => machine.grant_space(session_id, label, had_space).map(|grant| (grant, Placed::Space)),
         };
         match granted {
             Ok((grant, placed)) => {
                 crate::mcp_servers::attach_computer(team_mcp, &grant);
+                if placed == Placed::Space {
+                    crate::session_teardown::saw_space_row(session_id);
+                }
                 placed
             }
             Err(reason) => {
@@ -2299,7 +2309,10 @@ fn prepare_session(
     // #EXP-1658: the row's skill pick, written outside the worktree.
     let team_skills = resolve_team_skills(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
-    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
+    // #EXP-1514: a record of this row from before (a start that was retried)
+    // keeps saying it had a space.
+    let had_space = crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|record| record.had_space());
+    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label, had_space);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
 
@@ -2390,6 +2403,13 @@ fn prepare_session(
                 extra.extend(crate::run_registry::skill_ids_extra(
                     team_skills.pick.as_deref().unwrap_or_default(),
                 ));
+                // #EXP-1514: the space it had, and the host keeping its space.
+                if had_space {
+                    extra.insert(crate::run_registry::HAD_SPACE_KEY.to_string(), serde_json::Value::Bool(true));
+                }
+                if let (crate::computer_place::Placed::Space, Some(device)) = (&computer_use, &deps.device_id) {
+                    extra.insert(crate::run_registry::SPACE_HOST_KEY.to_string(), serde_json::Value::String(device.clone()));
+                }
                 extra
             },
         },
@@ -2485,6 +2505,7 @@ fn prepare_session(
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
             skills_dir: team_skills.dir.clone(),
+            computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: None,
         bypass_permissions: true,
@@ -3031,10 +3052,13 @@ fn prepare_resume(
         resolve_team_skills(deps, &session_id)
     };
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
+    // #EXP-1514: the record as written now: the previous run's first space
+    // may have landed on it after the resume was planned.
+    let had_space = record.had_space() || crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|now| now.had_space());
     let computer_use = if aside {
         crate::computer_place::Placed::None(None)
     } else {
-        attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label)
+        attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label, had_space)
     };
     let code_mode =
         !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
@@ -3123,6 +3147,17 @@ fn prepare_resume(
     if let Some(pick) = &team_skills.pick {
         resumed_record.set_skill_ids(pick);
     }
+    // #EXP-1514: the host keeping the session's space now: this one for a
+    // space run, none for any other (its kept space closed first). An aside
+    // never touches it.
+    if !aside {
+        let space_host = (computer_use == crate::computer_place::Placed::Space).then_some(deps.device_id.as_deref()).flatten();
+        resumed_record.set_space_host(space_host);
+    }
+    // #EXP-1514: never written back over.
+    if had_space {
+        resumed_record.set_had_space();
+    }
     crate::run_registry::record(&deps.data_dir, resumed_record);
 
     // EXP-746 (D8): how the ACP engine reopens the conversation — the
@@ -3184,6 +3219,7 @@ fn prepare_resume(
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
             skills_dir: team_skills.dir.clone(),
+            computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: resume.message_id.clone(),
         bypass_permissions: true,
@@ -4357,13 +4393,13 @@ mod tests {
         assert_eq!(options.computer_use, Some(true));
         let mut mcp = ResolvedMcp::default();
         use crate::computer_place::Placed;
-        assert_eq!(attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"), Placed::None(None));
+        assert_eq!(attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1", false), Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
 
         deps.settings.computer_use = true;
         let opted_out = session_launch_options(&row("s-2", None), &base_options(), &deps.settings);
         assert_eq!(opted_out.computer_use, Some(false));
-        assert_eq!(attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"), Placed::None(None));
+        assert_eq!(attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2", false), Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
     }
 
@@ -4375,6 +4411,8 @@ mod tests {
         screen: Result<(), String>,
         kept: std::cell::RefCell<Vec<String>>,
         did: std::cell::RefCell<Vec<String>>,
+        /// Each space grant's `had_space`.
+        had: std::cell::RefCell<Vec<bool>>,
     }
 
     impl FakeMachine {
@@ -4384,6 +4422,7 @@ mod tests {
                 screen: screen.map_err(str::to_string),
                 kept: std::cell::RefCell::new(kept.iter().map(|s| s.to_string()).collect()),
                 did: Default::default(),
+                had: Default::default(),
             })
         }
 
@@ -4420,9 +4459,57 @@ mod tests {
             self.grant_for("grant", session_id)
         }
 
-        fn grant_space(&self, session_id: &str, _label: &str, _had_space: bool) -> Result<epilot::Grant, String> {
+        fn grant_space(&self, session_id: &str, _label: &str, had_space: bool) -> Result<epilot::Grant, String> {
+            self.had.borrow_mut().push(had_space);
             self.grant_for("grant_space", session_id)
         }
+    }
+
+    /// #EXP-1514: the run record names the host keeping the session's space
+    /// (this one after a space run's launch, nobody after any other launch)
+    /// and says whether the session had one, which its next space grant
+    /// hears (a first call that then finds none says new and empty).
+    #[test]
+    fn the_run_record_names_the_space_host_and_keeps_had_space() {
+        use crate::computer_place::Offer;
+        let dir = temp_dir("computer-record");
+        let session = "cu-record";
+        let deps_for = |pick: Option<&str>| {
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+            let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+            deps.settings.computer_use = true;
+            deps.settings.computer_use_display_id = pick.map(str::to_string);
+            deps.device_id = Some("dev-here".to_string());
+            deps
+        };
+        let mut req = session_request(row(session, None), &[]);
+        req.session.computer_use = true;
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[]);
+        crate::computer_place::with_machine(machine.clone(), || ready(launch(req, &deps_for(None))));
+        let record = crate::run_registry::get(&dir.0, session).expect("record");
+        assert_eq!((record.space_host(), record.had_space()), (Some("dev-here"), false));
+        assert_eq!(*machine.had.borrow(), [false]);
+        assert_eq!(crate::run_registry::space_sessions(&dir.0, "dev-here"), [session]);
+
+        // Its first space was made (ePilot's observer); the next launch says so.
+        crate::run_registry::note_space_made(&dir.0, session);
+        let resume = |pick: Option<&str>, machine: Rc<FakeMachine>| {
+            let mut req = resume_request(crate::run_registry::get(&dir.0, session).unwrap());
+            req.session.computer_use = true;
+            crate::computer_place::with_machine(machine, || ready(launch(req, &deps_for(pick))));
+            crate::run_registry::get(&dir.0, session).unwrap()
+        };
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[session]);
+        let record = resume(None, machine.clone());
+        assert_eq!(*machine.had.borrow(), [true]);
+        assert_eq!((record.space_host(), record.had_space()), (Some("dev-here"), true));
+
+        // A display is picked: a person run; no host keeps a space for it.
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[session]);
+        let record = resume(Some("output:DP-1"), machine.clone());
+        assert_eq!(machine.did(), [format!("close {session}"), format!("grant {session}")]);
+        assert_eq!((record.space_host(), record.had_space()), (None, true));
+        assert!(crate::run_registry::space_sessions(&dir.0, "dev-here").is_empty());
     }
 
     /// #EXP-1514 (the state table's rows 2 to 5): where a launch's computer
@@ -4526,7 +4613,7 @@ mod tests {
         on.computer_use = true;
         let options = session_launch_options(&on, &base_options(), &deps.settings);
         let mut mcp = ResolvedMcp::default();
-        let placed = crate::computer_place::with_machine(Rc::new(Refusing), || attach_computer_use(&deps, &options, &mut mcp, "s-refused", "EXP-1"));
+        let placed = crate::computer_place::with_machine(Rc::new(Refusing), || attach_computer_use(&deps, &options, &mut mcp, "s-refused", "EXP-1", false));
         assert_eq!(placed, crate::computer_place::Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
     }
@@ -4546,7 +4633,7 @@ mod tests {
         // Saved while the launch prepared (the hosts' `set_work_display`).
         epilot::set_work_display(Some("display-2".to_string()));
         let mut mcp = ResolvedMcp::default();
-        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1");
+        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1", false);
         epilot::revoke("s-pick");
         assert_eq!(epilot::work_display().as_deref(), Some("display-2"));
     }

@@ -512,6 +512,62 @@ impl RunRecord {
     }
 }
 
+/// #EXP-1514: the [`RunRecord::extra`] key saying the session had an agent
+/// space (its first `create_space`, `epilot::set_space_made_observer`): a
+/// later first call that finds none says the space is new and empty.
+pub const HAD_SPACE_KEY: &str = "hadSpace";
+
+/// #EXP-1514: the [`RunRecord::extra`] key naming the host (its device id)
+/// whose launch made the session a space run: that host keeps the space, and
+/// only it adopts the space at its next start ([`space_sessions`]). The
+/// desktop app and the daemon share this file and are two devices.
+pub const SPACE_HOST_KEY: &str = "spaceHost";
+
+impl RunRecord {
+    /// #EXP-1514: [`HAD_SPACE_KEY`].
+    pub fn had_space(&self) -> bool {
+        self.extra.get(HAD_SPACE_KEY).and_then(serde_json::Value::as_bool).unwrap_or(false)
+    }
+
+    pub fn set_had_space(&mut self) {
+        self.extra.insert(HAD_SPACE_KEY.to_string(), serde_json::Value::Bool(true));
+    }
+
+    /// #EXP-1514: [`SPACE_HOST_KEY`]; `None` = no host keeps a space for it.
+    pub fn space_host(&self) -> Option<&str> {
+        self.extra.get(SPACE_HOST_KEY).and_then(serde_json::Value::as_str)
+    }
+
+    /// `None` clears it (the session's launch is not a space run).
+    pub fn set_space_host(&mut self, device_id: Option<&str>) {
+        self.extra.remove(SPACE_HOST_KEY);
+        if let Some(device_id) = device_id {
+            self.extra.insert(SPACE_HOST_KEY.to_string(), serde_json::Value::String(device_id.to_string()));
+        }
+    }
+}
+
+/// #EXP-1514 (row 15): the sessions whose space the host `device_id` keeps,
+/// by the run records (which outlive the host): what it adopts at its start
+/// (`epilot::adopt_spaces`). Never another host's: the desktop app and the
+/// daemon each adopt their own.
+pub fn space_sessions(data_dir: &Path, device_id: &str) -> Vec<String> {
+    let _guard = locked(data_dir);
+    load(data_dir).into_iter().filter(|record| record.space_host() == Some(device_id)).map(|record| record.session_id).collect()
+}
+
+/// #EXP-1514: a session got its first agent space here
+/// (`epilot::set_space_made_observer`): its record says so from now on.
+pub fn note_space_made(data_dir: &Path, session_id: &str) {
+    update(data_dir, session_id, |record| {
+        if record.had_space() {
+            return false;
+        }
+        record.set_had_space();
+        true
+    });
+}
+
 /// EXP-792: everything a fresh record's `extra` carries off the launch
 /// options — the team server pick and the account profile.
 pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
@@ -1038,6 +1094,31 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// #EXP-1514: a session's first space lands on its record once and
+    /// stays (an older host round-trips the keys untouched); the space host
+    /// is set and cleared by the launches.
+    #[test]
+    fn had_space_and_the_space_host_ride_the_record() {
+        let dir = temp_dir("had-space");
+        record(&dir, sample_record("s-1"));
+        assert!(!get(&dir, "s-1").unwrap().had_space());
+        note_space_made(&dir, "s-1");
+        note_space_made(&dir, "s-1");
+        note_space_made(&dir, "no-record");
+        let mut kept = get(&dir, "s-1").unwrap();
+        assert!(kept.had_space());
+        assert_eq!(kept.space_host(), None);
+        kept.set_space_host(Some("dev-1"));
+        record(&dir, kept.clone());
+        assert_eq!(space_sessions(&dir, "dev-1"), ["s-1"]);
+        assert!(space_sessions(&dir, "dev-2").is_empty());
+        kept.set_space_host(None);
+        record(&dir, kept);
+        assert!(space_sessions(&dir, "dev-1").is_empty());
+        assert!(get(&dir, "s-1").unwrap().had_space(), "had stays");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn sample(session_id: &str) -> RunRecord {
