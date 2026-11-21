@@ -2,11 +2,6 @@ import type { Page } from "@playwright/test"
 import { createTeamThroughOnboarding, registerUser } from "./helpers/auth"
 import { expect, test } from "./fixtures"
 
-function getTeamSlug(currentUrl: string) {
-  const [, , teamSlug] = new URL(currentUrl).pathname.split(`/`)
-  return teamSlug
-}
-
 // Settings is split into per-section pages (EXP-146) — the member list and
 // invite UI live on the Members page. The heading is "Settings" while the
 // team is still solo and "Team Settings" once it has members.
@@ -23,12 +18,11 @@ test(`generates an invite and accepts it with a second user`, async ({
   page,
 }) => {
   await registerUser(page, app.owner)
-  await createTeamThroughOnboarding(
+  const teamSlug = await createTeamThroughOnboarding(
     page,
     `${app.namespace} team`,
     app.boardName
   )
-  const teamSlug = getTeamSlug(page.url())
 
   await openTeamSettings(page, teamSlug)
 
@@ -83,7 +77,8 @@ test(`generates an invite and accepts it with a second user`, async ({
     // and lands in the team from there.
     await expect(memberPage.getByText(`Set up your devices`)).toBeVisible()
     await memberPage.getByTestId(`onboarding-advance`).click()
-    await expect(memberPage).toHaveURL(new RegExp(`/t/${teamSlug}/?$`))
+    // #EXP-2027: md+ forwards the team's page to the team-less Home.
+    await expect(memberPage).toHaveURL(new RegExp(`/(home|t/${teamSlug})/?$`))
 
     await openTeamSettings(memberPage, teamSlug)
     await expect(

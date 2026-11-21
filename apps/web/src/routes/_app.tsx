@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { createFileRoute, redirect, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useIsMobile } from "@exp/ui"
-import { fetchSessionOnce } from "@/lib/auth/client"
+import { fetchSessionOnce, invalidateSessionCache } from "@/lib/auth/client"
 import { hasCompletedOnboarding } from "@/lib/auth/app-user"
 import { phonePathFor } from "@/lib/app-paths"
 import { trpc } from "@/lib/trpc-client"
@@ -21,7 +21,17 @@ let defaultTeam = null as { userId: string; slug: string } | null
 export const Route = createFileRoute(`/_app`)({
   ssr: false,
   beforeLoad: async ({ location }) => {
-    const sessionData = await fetchSessionOnce()
+    let sessionData = await fetchSessionOnce()
+    if (!sessionData?.user) {
+      throw redirect({ to: `/auth/login`, search: { redirect: location.href } })
+    }
+    // #EXP-2050: onboarding just completed (the wizard's board step, an
+    // accepted invite) while the cached session still says it hasn't: read
+    // it fresh before sending the person back into the wizard.
+    if (!hasCompletedOnboarding(sessionData.user)) {
+      invalidateSessionCache()
+      sessionData = await fetchSessionOnce()
+    }
     if (!sessionData?.user) {
       throw redirect({ to: `/auth/login`, search: { redirect: location.href } })
     }

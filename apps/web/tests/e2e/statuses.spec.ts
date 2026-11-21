@@ -6,10 +6,6 @@ import { expect, test, type AppFixture } from "./fixtures"
 // per-team statuses (locked builtins, started cap, reassign-on-delete), and
 // the board picker + grouping follow the team's rows.
 
-function getTeamSlug(currentUrl: string) {
-  return new URL(currentUrl).pathname.split(`/`)[2]
-}
-
 async function openStatusesSettings(page: Page, teamSlug: string) {
   await page.goto(`/t/${teamSlug}/settings/statuses`)
   // CardTitle renders as a div, not a heading (shadcn slot convention).
@@ -49,12 +45,11 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
   page: Page
 }) => {
   await registerUser(page, app.owner)
-  await createTeamThroughOnboarding(
+  const teamSlug = await createTeamThroughOnboarding(
     page,
     `${app.namespace} team`,
     app.boardName
   )
-  const teamSlug = getTeamSlug(page.url())
 
   await openStatusesSettings(page, teamSlug)
 
