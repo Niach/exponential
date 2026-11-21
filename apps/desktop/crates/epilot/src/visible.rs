@@ -154,6 +154,23 @@ mod tests {
         WindowInfo { id: 1, title: format!("{app} window"), app: app.into(), pid: Some(7), x, y: 100, width, height: 300, active, fullscreen: false }
     }
 
+    /// #EXP-1514 (`screen-memory.json` `spaceCases`): the Work screen pick
+    /// `space` is no display pick: screen memory captures as in Auto.
+    #[test]
+    fn the_space_pick_is_auto_for_screen_memory() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/screen-memory.json")).unwrap();
+        for case in fixture["spaceCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let ids: Vec<&str> = case["displays"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let displays: Vec<(DisplayInfo, (u32, u32))> = ids.iter().enumerate().map(|(index, id)| display(id, index as i32 * 1000, 1000)).collect();
+            let fullscreen: Vec<usize> = case["fullscreen"].as_array().unwrap().iter().map(|index| index.as_u64().unwrap() as usize).collect();
+            let windows: Vec<WindowInfo> = fullscreen.iter().map(|index| WindowInfo { fullscreen: true, ..window("Game", *index as i32 * 1000, 1000, false) }).collect();
+            let look = look_of(&displays, &windows, case["stored"].as_str(), |_| None);
+            let work: Vec<u32> = case["work"].as_array().unwrap().iter().map(|index| index.as_u64().unwrap() as u32 + 1).collect();
+            assert_eq!(look.view.work, work, "{name}");
+        }
+    }
+
     /// Every window, top first, once per display it overlaps, in that
     /// display's pixels; app ids for all of them.
     #[test]
