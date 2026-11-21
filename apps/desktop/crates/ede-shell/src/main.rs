@@ -55,7 +55,11 @@
 //! command, forwarding the browser's callback to the running shell);
 //! #EDE-57: `ede_share {action: start|run|cancel, name?, account?}` (Share a
 //! Local desktop as a team: `/sharing`); #EDE-58: `ede_chat {action: send,
-//! text}` (the desktop's own agent on a Local desktop: `/chatting`).
+//! text}` (the desktop's own agent on a Local desktop: `/chatting`);
+//! #EXP-2024: `/spaces` (the machine's agent spaces: the taskbar's Agent
+//! spaces button and list) and `/spaceView` (the ONE pinned view),
+//! `ede_space {session | null, size?}` (pins a session's view, sizes it,
+//! or unpins) and `ede_space_close {space}` (ends a space, not its session).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -69,12 +73,15 @@
 //! the start, chat and new-issue buttons; a chat of the rail opens in eDE's
 //! chat (`exponential://session/<id>` only when the team's chat cannot),
 //! `ede_launch {new: issue}` hands off (`exponential://new-issue`);
-//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
+//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you;
+//! `EDE_SHELL_DEMO_SPACES=list|view` three sample agent spaces, their list
+//! open or the first one's view pinned (#EXP-2024).
 
 mod accounts;
 mod chat;
 mod chat_files;
 mod chat_rows;
+mod captures;
 mod chats;
 mod cli_setup;
 mod engine;
@@ -88,6 +95,7 @@ mod settings;
 mod settings_pages;
 mod share;
 mod sealed;
+mod spaces;
 mod start_menu;
 mod system;
 mod team_chat;
@@ -286,14 +294,21 @@ struct Shell {
     menu_apps: Vec<StartMenuApp>,
     /// The compositor's last window list (ede-protocol), to shape `/windows`.
     windows: Vec<ede_protocol::WindowInfo>,
-    /// Live thumbnails by window id, refreshed by the capture thread while
+    /// Live thumbnails by window id, refreshed by the capture loop while
     /// the switcher or the previews are open.
     thumbnails: HashMap<String, String>,
-    /// The windows the capture thread photographs.
-    capture_ids: Arc<Mutex<Vec<String>>>,
-    /// The thumbnail thread runs while this is set.
-    capturing: thumbs::Captures,
-    thumbs_tx: mpsc::Sender<(String, String)>,
+    /// #EXP-2024: THE capture loop's plan and asks (`captures.rs`): the
+    /// windows and agent spaces it photographs, derived from what is open.
+    captures: Arc<captures::Shared>,
+    /// #EXP-2024: the machine's agent spaces, their titles and pictures, the pinned view.
+    spaces: spaces::Spaces,
+    /// The screen is locked (`session.locked` / `session.unlocked`): nothing is captured.
+    locked: bool,
+    /// The first person output's x, y, width, height (a fullscreen window over it covers the view).
+    first_output: Option<(i32, i32, i32, i32)>,
+    /// #EXP-2024: when each layer document last opened (a counter): a later
+    /// top layer lies above an earlier one.
+    layers_opened: HashMap<String, u64>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
     /// #EDE-89: when each popup document last opened (epoch ms, the clock of
@@ -849,6 +864,22 @@ impl HostPlugin for Host {
                             with_ede(&self.shell, |ede| ede.focus(id));
                         }
                     }
+                }
+            }
+            // #EXP-2024: a row of the Agent spaces list pins its session's view
+            // (null unpins; `size` = "large" | "default", the view's size button).
+            "ede_space" => {
+                let session = args.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
+                let large = args.get("size").and_then(Value::as_str).map(|s| s == "large");
+                cx.defer(move |cx| {
+                    shell.borrow_mut().spaces.pin(session.as_deref(), large);
+                    spaces_changed(&shell, cx);
+                });
+            }
+            // #EXP-2024: a row's Close ends that space (never its session), on the capture loop's connection.
+            "ede_space_close" => {
+                if let Some(space) = args.get("space").and_then(Value::as_str) {
+                    self.shell.borrow().captures.ask(captures::Ask::Close(space.to_string()));
                 }
             }
             "ede_previews" => {
@@ -1636,6 +1667,13 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
         size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
     }
+    // #EXP-2024: the pinned view is sized by the display and its space (spaces.json).
+    if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == spaces::VIEW, &mut header) {
+        if let Some((_, view)) = shell.spaces.view(first_display(shell)) {
+            size.width = Some(view.width);
+            size.height = Some(view.height);
+        }
+    }
     header
 }
 
@@ -1722,7 +1760,11 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         let s = shell.borrow();
         (drawn_now(&s, doc), s.feed.clone())
     };
-    shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
+    if shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx) {
+        let mut s = shell.borrow_mut();
+        let next = s.layers_opened.values().max().map_or(1, |n| n + 1);
+        s.layers_opened.insert(doc.name.clone(), next);
+    }
     // #EXP-1780: the chat's rows follow the newest one.
     if doc.name == "chat" {
         let view = shell.borrow().surfaces.region("chat").map(|r| r.view.clone());
@@ -3205,60 +3247,137 @@ fn switcher_width(n: usize, output_width: u32) -> u32 {
     (2 * PADDING + n * TILE + (n - 1) * GAP).min(output_width.saturating_sub(2 * PADDING)).max(TILE + 2 * PADDING)
 }
 
-/// The windows the capture thread photographs: the switcher's while it is
+/// The windows the capture loop photographs: the switcher's while it is
 /// open, the previews' while they show, every window while Expo or Scale
-/// is up; nothing otherwise (the thread stops).
-fn thumbnails_retarget(shell: &SharedShell) {
-    let ids: Vec<String> = {
-        let s = shell.borrow();
-        if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
-            s.model.windows.iter().map(|w| w.id.clone()).collect()
-        } else if s.model.alt_tab.shown {
-            uicore_model::alt_tab_order(&s.model)
-        } else if let Some(app) = s.model.taskbar.previews.as_deref() {
-            s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
-        } else {
-            Vec::new()
-        }
-    };
-    let (captures, targets, tx) = {
-        let s = shell.borrow();
-        (s.capturing.clone(), s.capture_ids.clone(), s.thumbs_tx.clone())
-    };
-    *targets.lock().unwrap_or_else(|p| p.into_inner()) = ids.clone();
-    if ids.is_empty() {
-        captures.stop();
-        return;
+/// is up; nothing otherwise.
+fn thumbnail_windows(s: &Shell) -> Vec<String> {
+    if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
+        s.model.windows.iter().map(|w| w.id.clone()).collect()
+    } else if s.model.alt_tab.shown {
+        uicore_model::alt_tab_order(&s.model)
+    } else if let Some(app) = s.model.taskbar.previews.as_deref() {
+        s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
+    } else {
+        Vec::new()
     }
-    let Some(run) = captures.start() else { return };
-    // Thumbnails at about 5 fps on a thread with its own ede-protocol connection.
-    let _ = std::thread::Builder::new().name("ede-shell-thumbs".into()).spawn(move || {
-        let Ok(mut ede) = ede_protocol::Client::connect_env() else {
-            run.fail();
-            return;
-        };
-        while run.live() {
-            let started = Instant::now();
-            let ids = targets.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            for id in &ids {
-                if !run.live() {
-                    return;
-                }
-                let Ok(window) = ede_protocol::WindowId::new(id) else { continue };
-                // A protected window refuses the capture: no picture, as intended.
-                if let Ok(capture) = ede.capture(ede_protocol::CaptureTarget::Window { window }) {
-                    if let Some(url) = thumbs::data_url(&capture) {
-                        if tx.send((id.clone(), url)).is_err() {
-                            return;
-                        }
-                    }
-                }
+}
+
+/// #EXP-2024: the first display as the live view's box reads it (`/outputs`).
+fn first_display(s: &Shell) -> uicore_model::spaces::Display {
+    let (width, height) = output_size(s);
+    let scale = s.feed.get("/outputs").and_then(Value::as_array).and_then(|o| o.first()).and_then(|o| o["scale"].as_f64()).filter(|v| *v > 0.0).unwrap_or(1.0);
+    uicore_model::spaces::Display { width, height, scale }
+}
+
+/// #EXP-2024: the taskbar's Agent spaces list is open (its hosted Popover).
+fn spaces_list_open(s: &Shell) -> bool {
+    s.surfaces.hosted_layers().iter().any(|(_, owner)| owner == spaces::LIST)
+}
+
+/// #EXP-2024: why a space's picture cannot be seen now: the lock; a
+/// fullscreen window over the first display; the chat or Settings opened
+/// after the view (a later top layer lies above an earlier one).
+fn spaces_pause(s: &Shell) -> spaces::Pause {
+    let opened = |name: &str| s.surfaces.is_open(name).then(|| s.layers_opened.get(name).copied().unwrap_or(0));
+    let view = opened(spaces::VIEW).unwrap_or(u64::MAX);
+    let view_covered = ["chat", "settings"].iter().any(|n| opened(n).is_some_and(|at| at > view));
+    spaces::Pause { locked: s.locked, fullscreen: spaces::fullscreen_over(&s.windows, s.model.workspaces.active, s.first_output), view_covered }
+}
+
+/// What THE capture loop photographs, derived from what is open now (the
+/// switcher, the previews, Expo; the Agent spaces list, the pinned view),
+/// nothing while locked; the loop wakes only when it moved.
+fn thumbnails_retarget(shell: &SharedShell) {
+    let s = shell.borrow();
+    let plan = spaces::plan(thumbnail_windows(&s), &s.spaces, s.surfaces.is_open(spaces::VIEW), spaces_list_open(&s), spaces_pause(&s), first_display(&s));
+    s.captures.set_plan(plan);
+}
+
+/// #EXP-2024: what the capture loop said of the spaces, into the shell.
+fn capture_out(shell: &SharedShell, out: captures::Out, cx: &mut App) {
+    match out {
+        captures::Out::Window { id, url } => thumbnail_arrived(shell, id, url),
+        captures::Out::Spaces(list) => {
+            let new_session = {
+                let mut s = shell.borrow_mut();
+                let known: HashSet<String> = s.spaces.sessions.iter().map(|x| x.id.clone()).collect();
+                let new = list.iter().any(|x| !known.contains(x.session_id.as_str()));
+                s.spaces.listed(list);
+                new
+            };
+            // A space of a session the titles have not read yet: read them.
+            if new_session {
+                exp_tray_refresh(shell, cx);
             }
-            if let Some(rest) = Duration::from_millis(200).checked_sub(started.elapsed()) {
-                std::thread::sleep(rest);
-            }
+            spaces_changed(shell, cx);
         }
-    });
+        captures::Out::Picture { space, view, url } => {
+            shell.borrow_mut().spaces.picture(&space, view, url);
+            spaces_feed(shell);
+        }
+        captures::Out::Failing { space, view } => {
+            shell.borrow_mut().spaces.picture(&space, view, String::new());
+            spaces_feed(shell);
+        }
+        captures::Out::Gone { space } => {
+            shell.borrow_mut().spaces.gone(&space);
+            shell.borrow().captures.ask(captures::Ask::List);
+            spaces_changed(shell, cx);
+        }
+    }
+}
+
+/// `/spaces` and `/spaceView` from what the shell knows now.
+fn spaces_feed(shell: &SharedShell) {
+    let mut s = shell.borrow_mut();
+    let display = first_display(&s);
+    let (list, view) = (s.spaces.feed(), s.spaces.view_feed(display));
+    s.feed.set("/spaces", list);
+    s.feed.set("/spaceView", view);
+}
+
+/// The spaces, the titles or the pin moved: the feeds, the pinned view's
+/// layer (opened, resized, closed), the list closed with the last space,
+/// the capture targets.
+fn spaces_changed(shell: &SharedShell, cx: &mut App) {
+    spaces_feed(shell);
+    let (wanted, open, none) = {
+        let s = shell.borrow();
+        (s.spaces.view_wanted(), s.surfaces.is_open(spaces::VIEW), s.spaces.list.is_empty())
+    };
+    let size = {
+        let s = shell.borrow();
+        s.spaces.view(first_display(&s)).map(|(_, v)| (v.width, v.height))
+    };
+    match (wanted, open) {
+        (true, false) => {
+            open_on_demand(shell, spaces::VIEW, cx);
+            shell.borrow_mut().spaces.shown_size = size;
+        }
+        (false, true) => {
+            close(shell, spaces::VIEW, cx);
+            shell.borrow_mut().spaces.shown_size = None;
+        }
+        // The size button, another space of another size: resized in place.
+        (true, true) if size.is_some() && size != shell.borrow().spaces.shown_size => {
+            let (doc, feed) = {
+                let s = shell.borrow();
+                (document(&s, spaces::VIEW).map(|d| drawn_now(&s, &d)), s.feed.clone())
+            };
+            if let Some(doc) = doc {
+                shell.borrow_mut().surfaces.resize_layer(&doc, &feed, cx);
+            }
+            shell.borrow_mut().spaces.shown_size = size;
+        }
+        _ => {}
+    }
+    // The last space ended: the list closes with its button.
+    if none {
+        let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
+        uicore_gpui::dismiss_hosted(hosted, cx);
+    }
+    thumbnails_retarget(shell);
+    refresh(shell, cx);
 }
 
 /// A thumbnail arrived: the documents that show it.
@@ -3410,24 +3529,29 @@ fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
         tray_apply(shell, inbox::demo_inbox(now_ms()), inbox::demo_needs_you(), cx);
         return;
     }
-    let (sources, read) = {
+    let (sources, read, wanted) = {
         let mut s = shell.borrow_mut();
         if s.tray_reading {
             s.tray_again = true;
             return;
         }
         s.tray_reading = true;
-        (s.workspaces.tray_sources(), s.notifications.read_locally.clone())
+        (s.workspaces.tray_sources(), s.notifications.read_locally.clone(), s.spaces.wanted_sessions().into_iter().collect::<HashSet<String>>())
     };
     let shell = shell.clone();
     cx.spawn(async move |cx| {
-        let (items, needs) = cx.background_executor().spawn(async move { tray_read(&sources, &read, now_ms()) }).await;
+        let (items, needs, space_sessions) = cx.background_executor().spawn(async move { tray_read(&sources, &read, &wanted, now_ms()) }).await;
         let again = {
             let mut s = shell.borrow_mut();
             s.tray_reading = false;
             std::mem::take(&mut s.tray_again)
         };
         cx.update(|cx| {
+            // #EXP-2024: the spaces' titles ride on the same read.
+            if shell.borrow().spaces.sessions != space_sessions {
+                shell.borrow_mut().spaces.sessions = space_sessions;
+                spaces_changed(&shell, cx);
+            }
             tray_apply(&shell, items, needs, cx);
             if again {
                 exp_tray_refresh(&shell, cx);
@@ -3437,10 +3561,17 @@ fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
     .detach();
 }
 
-/// The tray's rows off the accounts' stores: BLOCKING (SQLite), off the main loop.
-fn tray_read(sources: &[(String, String, Arc<sync::store::ShapeStore>)], read_locally: &HashSet<String>, now_ms: i64) -> (Vec<inbox::InboxItem>, Vec<inbox::NeedsYouItem>) {
+/// The tray's rows off the accounts' stores: BLOCKING (SQLite), off the
+/// main loop; #EXP-2024: and the titles of the agent spaces' sessions
+/// (`wanted`), sealed ones opened with the app's keyring.
+fn tray_read(sources: &[(String, String, Arc<sync::store::ShapeStore>)], read_locally: &HashSet<String>, wanted: &HashSet<String>, now_ms: i64) -> (Vec<inbox::InboxItem>, Vec<inbox::NeedsYouItem>, Vec<uicore_model::spaces::SpaceSession>) {
     let rows: Vec<inbox::AccountRows> = sources.iter().map(|(account, user, store)| inbox::AccountRows::read(account, user, store)).collect();
-    (rows.iter().flat_map(|r| inbox::inbox_items(r, read_locally)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now_ms)).collect())
+    let space_sessions = if wanted.is_empty() {
+        Vec::new()
+    } else {
+        rows.iter().flat_map(|r| inbox::space_sessions(r, wanted, Some(&sealed::opener(&r.account_id)))).collect()
+    };
+    (rows.iter().flat_map(|r| inbox::inbox_items(r, read_locally)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now_ms)).collect(), space_sessions)
 }
 
 /// The inbox and Needs you as read, into the bell and the tray.
@@ -3488,7 +3619,9 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 /// The outputs as the Displays page binds them (#EDE-14).
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
-    shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
+    let mut s = shell.borrow_mut();
+    s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+    s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
 /// Reads the tray items again, on the tray thread: [`dbus::Event::TrayItems`]
@@ -3592,6 +3725,8 @@ fn main() {
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
     let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
+    // #EXP-2024: the session's lock (the capture loop stops while it holds).
+    let (locks_tx, locks_rx) = mpsc::channel::<bool>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
         .spawn(move || {
@@ -3613,7 +3748,11 @@ fn main() {
                 if !ede_protocol::is_persons_event(&event) {
                     continue;
                 }
-                if event.kind == ede_protocol::events::HOTKEY {
+                if event.kind == ede_protocol::events::SESSION_LOCKED || event.kind == ede_protocol::events::SESSION_UNLOCKED {
+                    if locks_tx.send(event.kind == ede_protocol::events::SESSION_LOCKED).is_err() {
+                        return;
+                    }
+                } else if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
                         if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                             return;
@@ -3641,8 +3780,17 @@ fn main() {
     installed.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     tracing::info!(apps = installed.len(), engine_apps = engine_apps.len(), demo, "desktop entries");
     let launchable: Arc<Vec<apps::App>> = Arc::new(installed.clone());
-    // Thumbnails from the capture thread while the switcher or the previews are open.
-    let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
+    // #EXP-2024: THE capture loop (the windows' thumbnails, the agent spaces,
+    // their list) on its own thread and connection, for the shell's life.
+    let captures_shared = Arc::new(captures::Shared::default());
+    let (captures_tx, captures_rx) = mpsc::channel::<captures::Out>();
+    {
+        let shared = captures_shared.clone();
+        std::thread::Builder::new()
+            .name("ede-shell-captures".into())
+            .spawn(move || captures::run(ede_protocol::Client::connect_env, &shared, &captures_tx))
+            .expect("the capture thread");
+    }
     // The hosted popups of every surface (VAPP-281).
     let (hosted_tx, hosted_rx) = mpsc::channel::<HostedReport>();
     // The services data source: every domain's snapshot, then its changes.
@@ -3734,6 +3882,11 @@ fn main() {
         feed.set("/user", settings::user_json());
         feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
         feed.set("/needsYou", json!({"count": 0, "rows": []}));
+        feed.set("/spaces", json!({"count": 0, "rows": []}));
+        feed.set("/spaceView", json!({"open": false}));
+        // The goldens open the Agent spaces list through its bound `open`.
+        let demo_spaces = spaces::demo_mode().filter(|_| demo);
+        feed.set("/spacesList", json!({"open": demo_spaces.as_deref() == Some("list")}));
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
@@ -3839,9 +3992,11 @@ fn main() {
             menu_apps,
             windows: Vec::new(),
             thumbnails: HashMap::new(),
-            capture_ids: Arc::new(Mutex::new(Vec::new())),
-            capturing: thumbs::Captures::default(),
-            thumbs_tx,
+            captures: captures_shared,
+            spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
+            locked: false,
+            first_output: None,
+            layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
             switcher_generation: 0,
@@ -3926,6 +4081,8 @@ fn main() {
             // The outputs first: a stretched surface takes the output's size.
             outputs_refresh(&shell);
         }
+        // #EXP-2024: the spaces' feeds at the first display's size.
+        spaces_feed(&shell);
         if demo {
             // The sample windows, before any document opens (the goldens).
             windows_changed(&shell, demo_windows(), vec![ede_protocol::WorkspaceInfo { index: 0, active: true, windows: vec![] }, ede_protocol::WorkspaceInfo { index: 1, active: false, windows: vec![] }], cx);
@@ -3984,9 +4141,13 @@ fn main() {
                 while let Ok((name, at)) = hotkeys_rx.try_recv() {
                     cx.update(|cx| hotkey(&s, &name, at, cx));
                 }
-                while let Ok((id, url)) = thumbs_rx.try_recv() {
-                    thumbnail_arrived(&s, id, url);
+                while let Ok(out) = captures_rx.try_recv() {
+                    cx.update(|cx| capture_out(&s, out, cx));
                     dirty = true;
+                }
+                if let Some(locked) = locks_rx.try_iter().last() {
+                    s.borrow_mut().locked = locked;
+                    tracing::info!(locked, "session lock");
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
@@ -4006,6 +4167,14 @@ fn main() {
                     if output_size(&s.borrow()) != before {
                         cx.update(|cx| relayout(&s, cx));
                     }
+                    // #EXP-2024: the pinned view's box follows the display
+                    // (relayout resized its layer through header_for).
+                    spaces_feed(&s);
+                    let size = {
+                        let sh = s.borrow();
+                        sh.spaces.view(first_display(&sh)).map(|(_, v)| (v.width, v.height)).filter(|_| sh.surfaces.is_open(spaces::VIEW))
+                    };
+                    s.borrow_mut().spaces.shown_size = size;
                     dirty = true;
                 }
                 // The latest report per surface only (#EDE-65): a hover Popover
@@ -4135,6 +4304,9 @@ fn main() {
                     sh.feed.set("/dateText", clock::date_text());
                     dirty = true;
                 }
+                // #EXP-2024: the capture targets follow what is open (a hosted
+                // list, a layer, the lock); the loop wakes only when they moved.
+                thumbnails_retarget(&s);
                 if dirty {
                     cx.update(|cx| refresh(&s, cx));
                 }
