@@ -1,0 +1,598 @@
+{
+  "$comment": "#EXP-2027 THE PER-KIND LAYOUT KEPT IN STEP, server-only (apps/web lib/trpc/sidebar-layout.ts runs it in the save's transaction; the pure reference is `src/sidebar-compat.ts`). The web and desktop sidebar tree reads and writes ONE mixed `team` list per team (sidebar-tree.json); phones and desktops from before it read and write the per-kind sections board, agent and app (sidebar-folders.json). Both stay in the table: `team` is the source of truth, each per-kind section is its PROJECTION, so an older client keeps its folders and order and its edits reach the tree. LINK: a per-kind FOLDER row carries the team folder it mirrors in `target_id` (older clients ignore a folder's target; a `team` folder has none). PROJECT (`project`, projectTeamToKind): after every write, each kind's rows = the team list's placed nodes in order, keeping the kind's items: a team item of the kind = an item row at the top level; a team folder holding any item of the kind = ONE folder row of the kind (the row already linked to it keeps its id, else a new one, `mintProject`) with the team folder's name, holding those items in the folder's order; sort orders 1..n per container. Only the rows that differ are written; a kind row nothing places any more is deleted. Sessions never project; unplaced targets stay unplaced. MERGE (`merge`, mergeKindIntoTeam): a save into a per-kind section (an older client's drag, ungroup or new folder) is written as before, then folded into the team list: the kind's items leave it and come back in the kind's new order, at the top level into the places the kind's items held (the rest after the team's last node), inside a team folder into the places the kind's items held there (the rest at its end). A kind folder maps to the team folder in its target; one with none (an older client made it) becomes a NEW team folder (`mintMerge`) with its name in the next top-level place, and the kind row is linked to it (`links`). Other kinds' items and sessions never move; a team folder that held the kind's items and was left empty is deleted. Then every kind is projected again (a rename reaches the others). RENAME of a linked kind folder renames its team folder, then projects. MIGRATION 0290 copies every per-kind row into the team list (new team folder ids, each per-kind folder linked to its copy) and leaves the per-kind rows as they were: an older client sees no change.",
+  "kinds": {
+    "b-1": "board",
+    "b-2": "board",
+    "b-3": "board",
+    "a-1": "agent",
+    "a-2": "agent",
+    "p-1": "app",
+    "s-1": "session"
+  },
+  "team": [
+    {
+      "id": "t-b2",
+      "kind": "item",
+      "targetId": "b-2",
+      "parentId": null,
+      "name": null,
+      "sortOrder": 1
+    },
+    {
+      "id": "tf-1",
+      "kind": "folder",
+      "targetId": null,
+      "parentId": null,
+      "name": "Mobile",
+      "sortOrder": 2
+    },
+    {
+      "id": "t-b1",
+      "kind": "item",
+      "targetId": "b-1",
+      "parentId": "tf-1",
+      "name": null,
+      "sortOrder": 1
+    },
+    {
+      "id": "t-a1",
+      "kind": "item",
+      "targetId": "a-1",
+      "parentId": "tf-1",
+      "name": null,
+      "sortOrder": 2
+    },
+    {
+      "id": "t-p1",
+      "kind": "item",
+      "targetId": "p-1",
+      "parentId": null,
+      "name": null,
+      "sortOrder": 3
+    },
+    {
+      "id": "t-a2",
+      "kind": "item",
+      "targetId": "a-2",
+      "parentId": null,
+      "name": null,
+      "sortOrder": 4
+    },
+    {
+      "id": "t-s1",
+      "kind": "item",
+      "targetId": "s-1",
+      "parentId": null,
+      "name": null,
+      "sortOrder": 5
+    },
+    {
+      "id": "t-b3",
+      "kind": "item",
+      "targetId": "b-3",
+      "parentId": null,
+      "name": null,
+      "sortOrder": 6
+    }
+  ],
+  "mintProject": "k-{teamFolderId}",
+  "mintMerge": "t-{kindFolderId}",
+  "project": [
+    {
+      "name": "a kind's first projection: its items in team order, a mixed folder as one folder row linked to it",
+      "kind": "board",
+      "existing": [],
+      "expected": {
+        "upserts": [
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "b-2",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": "k-tf-1",
+            "kind": "folder",
+            "targetId": "tf-1",
+            "parentId": null,
+            "name": "Mobile",
+            "sortOrder": 2
+          },
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "b-1",
+            "parentId": "k-tf-1",
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "b-3",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 3
+          }
+        ],
+        "deletes": []
+      }
+    },
+    {
+      "name": "a projection already in step writes nothing",
+      "kind": "board",
+      "existing": [
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Mobile",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "k-tf-1",
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 3
+        }
+      ],
+      "expected": {
+        "upserts": [],
+        "deletes": []
+      }
+    },
+    {
+      "name": "another kind of the same mixed folder gets its own folder row",
+      "kind": "agent",
+      "existing": [],
+      "expected": {
+        "upserts": [
+          {
+            "id": "k-tf-1",
+            "kind": "folder",
+            "targetId": "tf-1",
+            "parentId": null,
+            "name": "Mobile",
+            "sortOrder": 1
+          },
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "a-1",
+            "parentId": "k-tf-1",
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "a-2",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 2
+          }
+        ],
+        "deletes": []
+      }
+    },
+    {
+      "name": "a renamed team folder renames the kind's linked row; a row nothing places is deleted",
+      "kind": "board",
+      "existing": [
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Old",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "k-tf-1",
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 3
+        },
+        {
+          "id": "r-gone",
+          "kind": "item",
+          "targetId": "b-9",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 4
+        },
+        {
+          "id": "k-stale",
+          "kind": "folder",
+          "targetId": "tf-gone",
+          "parentId": null,
+          "name": "Stale",
+          "sortOrder": 5
+        }
+      ],
+      "expected": {
+        "upserts": [
+          {
+            "id": "k-tf-1",
+            "kind": "folder",
+            "targetId": "tf-1",
+            "parentId": null,
+            "name": "Mobile",
+            "sortOrder": 2
+          }
+        ],
+        "deletes": [
+          "r-gone",
+          "k-stale"
+        ]
+      }
+    },
+    {
+      "name": "apps: an app at the top level only",
+      "kind": "app",
+      "existing": [],
+      "expected": {
+        "upserts": [
+          {
+            "id": null,
+            "kind": "item",
+            "targetId": "p-1",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 1
+          }
+        ],
+        "deletes": []
+      }
+    }
+  ],
+  "merge": [
+    {
+      "name": "an older client moves a board to the top: it takes the first board place, the displaced board the next",
+      "kind": "board",
+      "kindRows": [
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 0.5
+        },
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Mobile",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "k-tf-1",
+          "name": null,
+          "sortOrder": 1
+        }
+      ],
+      "expected": {
+        "upserts": [
+          {
+            "id": "t-b3",
+            "kind": "item",
+            "targetId": "b-3",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": "t-b2",
+            "kind": "item",
+            "targetId": "b-2",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 6
+          }
+        ],
+        "deletes": [],
+        "links": []
+      }
+    },
+    {
+      "name": "a board leaves a mixed folder: the folder keeps its agent, the board goes after the team's last node",
+      "kind": "board",
+      "kindRows": [
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Mobile",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 3
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 4
+        }
+      ],
+      "expected": {
+        "upserts": [
+          {
+            "id": "t-a1",
+            "kind": "item",
+            "targetId": "a-1",
+            "parentId": "tf-1",
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": "t-b1",
+            "kind": "item",
+            "targetId": "b-1",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 7
+          }
+        ],
+        "deletes": [],
+        "links": []
+      }
+    },
+    {
+      "name": "a folder an older client made becomes a team folder in the first board place, linked back",
+      "kind": "board",
+      "kindRows": [
+        {
+          "id": "k-new",
+          "kind": "folder",
+          "targetId": null,
+          "parentId": null,
+          "name": "Ops",
+          "sortOrder": 1
+        },
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": "k-new",
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": "k-new",
+          "name": null,
+          "sortOrder": 2
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Mobile",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "k-tf-1",
+          "name": null,
+          "sortOrder": 1
+        }
+      ],
+      "expected": {
+        "upserts": [
+          {
+            "id": "t-k-new",
+            "kind": "folder",
+            "targetId": null,
+            "parentId": null,
+            "name": "Ops",
+            "sortOrder": 1
+          },
+          {
+            "id": "t-b2",
+            "kind": "item",
+            "targetId": "b-2",
+            "parentId": "t-k-new",
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": "t-b3",
+            "kind": "item",
+            "targetId": "b-3",
+            "parentId": "t-k-new",
+            "name": null,
+            "sortOrder": 2
+          }
+        ],
+        "deletes": [],
+        "links": [
+          {
+            "kindFolderId": "k-new",
+            "teamFolderId": "t-k-new"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing moved writes nothing",
+      "kind": "board",
+      "kindRows": [
+        {
+          "id": "r-b2",
+          "kind": "item",
+          "targetId": "b-2",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "k-tf-1",
+          "kind": "folder",
+          "targetId": "tf-1",
+          "parentId": null,
+          "name": "Mobile",
+          "sortOrder": 2
+        },
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "k-tf-1",
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "r-b3",
+          "kind": "item",
+          "targetId": "b-3",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 3
+        }
+      ],
+      "expected": {
+        "upserts": [],
+        "deletes": [],
+        "links": []
+      }
+    },
+    {
+      "name": "a team folder that held only boards and lost them all is deleted",
+      "kind": "board",
+      "team": [
+        {
+          "id": "tf-2",
+          "kind": "folder",
+          "targetId": null,
+          "parentId": null,
+          "name": "Boards only",
+          "sortOrder": 1
+        },
+        {
+          "id": "t-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": "tf-2",
+          "name": null,
+          "sortOrder": 1
+        },
+        {
+          "id": "t-a1",
+          "kind": "item",
+          "targetId": "a-1",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 2
+        }
+      ],
+      "kindRows": [
+        {
+          "id": "r-b1",
+          "kind": "item",
+          "targetId": "b-1",
+          "parentId": null,
+          "name": null,
+          "sortOrder": 1
+        }
+      ],
+      "expected": {
+        "upserts": [
+          {
+            "id": "t-a1",
+            "kind": "item",
+            "targetId": "a-1",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 1
+          },
+          {
+            "id": "t-b1",
+            "kind": "item",
+            "targetId": "b-1",
+            "parentId": null,
+            "name": null,
+            "sortOrder": 2
+          }
+        ],
+        "deletes": [
+          "tf-2"
+        ],
+        "links": []
+      }
+    }
+  ]
+}

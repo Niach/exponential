@@ -10,6 +10,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { sidebarLayout } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/team-membership"
 import { assertSidebarTargetsInTeam } from "@/lib/sidebar-targets"
+import { renameLinkedTeamFolder, syncSidebarSections } from "@/lib/sidebar-compat-sync"
 
 // #EXP-1832 (fixture `sidebar-folders.json`): the member's own sidebar layout.
 // The client runs the pure `sidebarMove` / `sidebarUngroup` over its synced
@@ -124,6 +125,7 @@ export const sidebarLayoutRouter = router({
               )
             )
         }
+        await syncSidebarSections(tx, userId, input.teamId, input.section)
         return { txId }
       })
     }),
@@ -137,7 +139,7 @@ export const sidebarLayoutRouter = router({
       const userId = ctx.session.user.id
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        const removed = await tx
           .delete(sidebarLayout)
           .where(
             and(
@@ -147,6 +149,8 @@ export const sidebarLayoutRouter = router({
               eq(sidebarLayout.targetId, input.targetId)
             )
           )
+          .returning({ teamId: sidebarLayout.teamId })
+        for (const teamId of new Set(removed.map((row) => row.teamId))) await syncSidebarSections(tx, userId, teamId, `team`)
         return { txId }
       })
     }),
@@ -163,8 +167,11 @@ export const sidebarLayoutRouter = router({
           .update(sidebarLayout)
           .set({ name, updatedAt: new Date() })
           .where(and(eq(sidebarLayout.id, input.id), eq(sidebarLayout.userId, userId), eq(sidebarLayout.kind, `folder`)))
-          .returning({ id: sidebarLayout.id })
-        if (updated.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `No such folder` })
+          .returning({ id: sidebarLayout.id, teamId: sidebarLayout.teamId, section: sidebarLayout.section, targetId: sidebarLayout.targetId })
+        const folder = updated[0]
+        if (!folder) throw new TRPCError({ code: `NOT_FOUND`, message: `No such folder` })
+        if (folder.section !== `team`) await renameLinkedTeamFolder(tx, userId, folder.targetId, name)
+        await syncSidebarSections(tx, userId, folder.teamId, `team`)
         return { txId, name }
       })
     }),
