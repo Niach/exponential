@@ -321,6 +321,7 @@ impl Ede {
         let units = match slice::Units::probe() {
             Ok(units) => units,
             Err(reason) => {
+                self.spaces.units_why = Some(reason.clone());
                 if self.spaces.guard.required.is_some() {
                     tracing::warn!("nothing starts in an agent space: the space guard needs a systemd user manager: {reason}");
                 } else {

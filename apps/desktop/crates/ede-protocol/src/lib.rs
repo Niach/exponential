@@ -268,8 +268,9 @@ pub const FEATURE_SPACE_READINESS: &str = "space-readiness";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceReadiness {
     pub ready: bool,
-    /// Why not, when not ready: `no_user_manager`, `session`, `driver`, or
-    /// a block this build does not know (still a no).
+    /// Why not, when not ready: `no_user_manager`, `guard` (the space
+    /// guard or polkit, #EDE-146..148), `session`, `driver`, or a block
+    /// this build does not know (still a no).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block: Option<String>,
     /// How many spaces this desktop holds at most: a refused

@@ -22,6 +22,7 @@ mod members;
 mod windows;
 pub use close::DIR_RETRIES;
 pub mod flatpak;
+pub mod readiness;
 pub mod scope;
 pub mod session;
 pub mod slice;
@@ -88,6 +89,14 @@ pub struct Spaces {
     /// scope of its space's slice ([`slice`], #EDE-138). `None` (also in
     /// the headless harness) = as before, in the compositor's own cgroup.
     pub units: Option<slice::Units>,
+    /// Why the session's start found no user manager (`units` is `None`):
+    /// the cause of readiness's `no_user_manager` ([`readiness`]).
+    pub units_why: Option<String>,
+    /// #EXP-1514 (the latch, [`readiness`]): a space's session failed to
+    /// start, and why; `None` again once a session start succeeds.
+    pub session_failed: Option<String>,
+    /// The readiness answer last logged ([`readiness`]).
+    pub(crate) readiness_said: Option<Result<(), readiness::Block>>,
     /// The launches so far: each scope's name has its number.
     launch_serial: std::cell::Cell<u32>,
     /// The slices of closed spaces that are being stopped ([`close`]).
@@ -131,7 +140,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
     }
 }
 
