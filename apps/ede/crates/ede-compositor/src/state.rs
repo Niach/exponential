@@ -129,6 +129,11 @@ pub struct Ede {
     /// sets it (the headless tests): no protocol request, no config key
     /// and no environment variable ever does. Always `None` in a session.
     pub sealed_stand_in: Option<u32>,
+    /// #EXP-2024: a test's own process standing in for `exponential-shell`:
+    /// a layer it maps meanwhile with the space view's namespace is the
+    /// shell's pinned view ([`crate::sealed::origin_of`]). As
+    /// `sealed_stand_in`, only the headless tests set it; `None` in a session.
+    pub shell_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
     pub frame_serial: u64,
@@ -273,6 +278,7 @@ impl Ede {
             fatal: None,
             debug_captures: false,
             sealed_stand_in: None,
+            shell_stand_in: None,
             frame_serial: 0,
             config_path: None,
         }

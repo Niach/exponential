@@ -279,6 +279,12 @@ pub struct SpaceReadiness {
     pub max: Option<u32>,
 }
 
+/// #EXP-2024: the layer-shell namespace of the shell's pinned view of an
+/// agent space (`space-view.json`): black in every capture of the person's
+/// output, so a space's pixels never reach a screenshot, screen memory or a
+/// screen share through it.
+pub const SPACE_VIEW_NAMESPACE: &str = "exponential-shell:space-view";
+
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInfo {
