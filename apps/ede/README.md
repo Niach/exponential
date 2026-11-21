@@ -658,7 +658,7 @@ first; each op needs the Core capability it names:
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 | `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches, no_space}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes, `no_space` = no agent space exists (none open, none stopping, no launch alive); the polkit agent asks it) | `system` |
 | `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
-| `space_readiness` (#EXP-1514: `{ready, block?, max?}`, whether a person's runs get an agent space now; only a compositor whose hello says `space-readiness` answers it, and none does before the flip, #EXP-2011: a DEBUG build started with `EDE_DEV_SPACE_READINESS=1` says it and answers `ready`, for the headless runs and `serve --space`; a release build ignores it; never a space grant's) | any person-scope grant |
+| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?}`, whether a person's runs get an agent space now; every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -1136,6 +1136,36 @@ answers with a challenge; readiness and the doctor's line need it.
 - **Needs** cgroup v2, Linux 6.7 or newer (the unix connect hook) with BTF,
   lockdown below `confidentiality`, and a kernel that loads both programs
   (`exponential-space-guard probe` prints `ok` or why not).
+
+## Agent spaces: readiness (#EXP-1514, #EXP-2011)
+
+eDE 0.2.29 and before say `spaces` in their hello and nothing else: no
+device offers a person's runs a space there. From the flip on every
+compositor that makes spaces also says `space-readiness`, and
+`space_readiness` is what offers a space to people (ePilot makes one only
+after a `ready` answer, cached for 30 s). It answers from what holds NOW:
+
+1. **`no_user_manager`**: the person's systemd user manager as the
+   session's start found it, and as it is now: `systemd-run`, `busctl`,
+   `systemctl`, `/usr/lib/systemd/systemd` and `dbus-daemon` there, its
+   private socket (`$XDG_RUNTIME_DIR/systemd/private`) there, and the
+   memory and pids controllers given to it (`user@<uid>.service`'s
+   `cgroup.controllers`), or a space's limits would not hold.
+2. **`guard`**: the space guard installed and its probe answered, and
+   polkit refusing a space's process (the package's rule is read).
+3. **`session`**, the latch: once a space's session failed to start (its
+   user manager could not start, or ended), until a session start
+   succeeds (a manager that runs and whose bus is there). What failed is
+   refused: a compositor whose launches run in scopes never starts one in
+   the person's login session, and one that lost its user manager answers
+   `unavailable`.
+
+There is no `driver` block: on every driver a space's apps start, on the
+GPU where the driver is proven and in software elsewhere (below). Each
+answer that differs from the one before is logged with its cause
+(`agent spaces are not offered (guard): …`); the device's doctor shows
+the row Agent space (Ready, or why not) and `exponential doctor` names
+the cause.
 
 ## Agent spaces on the GPU (#EDE-162)
 

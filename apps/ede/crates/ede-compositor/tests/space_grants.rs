@@ -125,8 +125,9 @@ fn a_space_grant_reaches_no_person_op() {
     let before = person(&h);
     for request in requests(&window) {
         let expect = match &request {
-            // #EXP-1514: before the flip read as an older compositor does
-            // (space_readiness.rs); outside the allowlist with the switch.
+            // #EXP-1514: this harness makes no spaces, so it reads the op
+            // as an older compositor does; where spaces are made a space
+            // grant is refused it (space_readiness.rs).
             Request::SpaceReadiness => {
                 assert!(matches!(agent.call(request.clone()), Err(Error::Unsupported(_))), "{request:?}");
                 continue;

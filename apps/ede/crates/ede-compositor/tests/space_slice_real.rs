@@ -136,6 +136,10 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
         })
     };
     let units = units.expect("the session's start found the user manager a moment after the probe did");
+    // #EXP-1514 (the flip): a real user manager passes readiness's checks of
+    // it (its tools, its private socket, memory and pids given to it).
+    assert_eq!(ede_compositor::spaces::readiness::user_manager_now(&units), Ok(()));
+    assert_ne!(h.with(|state| state.space_readiness()), Err("no_user_manager"));
     if std::env::var_os("EDE_EXPECT_USER_MANAGER").is_some() {
         let user = smithay::reexports::rustix::process::getuid().as_raw().to_string();
         let linger = Command::new("loginctl").args(["show-user", &user, "--property=Linger", "--value"]).output().unwrap();

@@ -67,7 +67,11 @@ impl Tools {
         let systemd = format!(
             "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec sleep 300\n"
         );
-        for (name, script) in [("systemd-run", systemd_run), ("busctl", busctl), ("systemctl", systemctl), ("systemd", systemd)] {
+        // #EXP-1514: readiness reads that the user manager was given the
+        // memory and pids controllers (`user@<uid>.service`, the parent of
+        // `cgroup/`, its `app.slice`).
+        std::fs::write(dir.join("cgroup.controllers"), "cpu memory pids\n").unwrap();
+        for (name, script) in [("systemd-run", systemd_run), ("busctl", busctl), ("systemctl", systemctl), ("systemd", systemd), ("dbus-daemon", "#!/bin/sh\nexit 0\n".to_string())] {
             let path = dir.join(name);
             std::fs::write(&path, script).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -92,7 +96,7 @@ impl Tools {
             machine: Machine { cpus: 8, memory: 16 * GIB },
             app_slice: self.dir.join("cgroup"),
             manager: self.dir.join("systemd"),
-            dbus_daemon: "/usr/bin/dbus-daemon".into(),
+            dbus_daemon: self.dir.join("dbus-daemon"),
             guard: None,
         }
     }
@@ -130,6 +134,20 @@ fn spawn_written(path: &Path) -> std::process::Child {
             started => return started.unwrap(),
         }
     }
+}
+
+/// #EXP-1514: the guard and polkit as a session decides them when both
+/// answered (#EDE-146..148), so readiness reads the user manager and the
+/// latch. The guard's "socket" is a file: launches find it there, and with
+/// `Units::guard` unset no scope asks it.
+fn guard_answered(h: &Harness, dir: &Path) {
+    let socket = dir.join("guard-answered");
+    std::fs::write(&socket, "").unwrap();
+    h.with(move |state| {
+        state.spaces.guard.required = Some(socket);
+        *state.spaces.guard.probe.lock().unwrap() = Some(Ok(ede_space_guard::client::Probed::Wayland));
+        *state.spaces.guard.polkit.lock().unwrap() = Some(Ok(()));
+    });
 }
 
 fn until(what: &str, mut ok: impl FnMut() -> bool) {
@@ -357,16 +375,24 @@ fn a_launch_that_gets_no_scope_does_not_run() {
     // The user manager is gone: a compositor whose launches run in scopes
     // starts nothing, and says so. It does not fall back to a launch in
     // the person's login session. With the user manager back it launches.
+    // #EXP-1514: readiness says why at once (the user manager is asked
+    // first; the failed starts above latched `session`).
     let (mut third, _third_space) = self::agent(&h, "run-3");
+    guard_answered(&h, dir.path());
+    let no_manager = || h.with(|state| state.space_readiness()) == Err("no_user_manager");
+    assert!(!no_manager());
     let socket = tools.runtime().join("systemd/private");
     std::fs::remove_file(&socket).unwrap();
+    assert!(no_manager());
     let out = dir.path().join("no-manager.env");
     match third.launch(writes_its_environment(&out), Default::default(), None) {
         Err(ede_protocol::Error::Failed(failure)) => assert_eq!(failure.code, ede_protocol::ErrorCode::Unavailable, "{failure:?}"),
         answer => panic!("a launch without a user manager answered {answer:?}"),
     }
     assert!(!tools.log().iter().any(|line| line.contains(&format!("app-exponential_p{me}-s3"))), "something of the third space was started: {:#?}", tools.log());
+    assert!(!out.exists(), "the program ran unwrapped");
     std::fs::write(&socket, "").unwrap();
+    assert!(!no_manager());
     third.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("the launch with the user manager back never ran", || out.exists());
     drop(h);
@@ -375,22 +401,32 @@ fn a_launch_that_gets_no_scope_does_not_run() {
 /// A space whose user manager ends gets it once more; when that one ends
 /// too, the space closes (its session's next call reads "new and empty"),
 /// instead of keeping a desk on which nothing can start.
+///
+/// #EXP-1514 (the latch): a session that ended makes readiness say
+/// `session` until a session start succeeds (its manager runs, its bus is
+/// there): at once with the restart, and after the close with the next
+/// space's first launch.
 #[test]
 fn a_space_whose_manager_ends_twice_closes() {
     let (h, dir) = start_with_spaces(&[(800, 600)]);
     let tools = Tools::new(dir.path());
     let units = tools.units();
     h.with(move |state| state.spaces.units = Some(units));
+    guard_answered(&h, dir.path());
+    let readiness = || h.with(|state| state.space_readiness());
+    assert_eq!(readiness(), Ok(()));
     let me = std::process::id();
     let (mut agent, space) = agent(&h, "run-1");
     let out = dir.path().join("first.env");
     agent.launch(writes_its_environment(&out), Default::default(), None).unwrap();
     until("the launch never ran", || out.exists());
+    assert_eq!(readiness(), Ok(()), "a session that started");
     let kill = |pid: u32| assert!(std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap().success());
 
     kill(tools.manager("space-1"));
     until("the ended manager was not started once more", || tools.log().iter().any(|line| line.contains(&format!("[--unit=exponential-p{me}-s1-session2.scope]"))));
     let again = tools.manager("space-1");
+    until("the second start never opened the latch", || readiness() == Ok(()));
     assert_eq!(agent.spaces().unwrap(), [space.clone()], "the space lives on with its second manager");
     let second = dir.path().join("second.env");
     agent.launch(writes_its_environment(&second), Default::default(), None).unwrap();
@@ -403,7 +439,15 @@ fn a_space_whose_manager_ends_twice_closes() {
         Err(ede_protocol::Error::Failed(failure)) => assert_eq!(failure.code, ede_protocol::ErrorCode::NotFound, "{failure:?}"),
         answer => panic!("a launch into the closed space answered {answer:?}"),
     }
+    assert_eq!(h.with(|state| state.space_readiness_why()).unwrap_err().cause, "space-1: its user manager ended", "latched");
     assert_ne!(agent.create_space(640, 480).unwrap().id, space.id, "a new space, new and empty");
+    // Latched until a session start succeeds: the new space's first launch.
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(readiness(), Err("session"), "the latch opened by itself");
+    let third = dir.path().join("third.env");
+    agent.launch(writes_its_environment(&third), Default::default(), None).unwrap();
+    until("a launch into the new space never ran", || third.exists());
+    until("a session that started never opened the latch", || readiness() == Ok(()));
     drop(h);
 }
 

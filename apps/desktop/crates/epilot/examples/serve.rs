@@ -8,9 +8,10 @@
 //!
 //! `--space` first (#EXP-1514): the run is a space run (`grant_space`), on
 //! Exponential Desktop only, through the same gate as a host's: nothing is
-//! made unless the desktop says a space is ready. Before the flip
-//! (#EXP-2011) that is a debug compositor started with the dev switch
-//! `EDE_DEV_SPACE_READINESS=1`; any other answers the first call with why.
+//! made unless the desktop says a space is ready (#EXP-2011: its user
+//! manager, the space guard and polkit); one that is not answers the first
+//! call with why. The release suite's live test drives a space through it
+//! (`apps/desktop/crates/epilot/scripts/space-live.sh`).
 //!
 //! The test matrix (EXP-1273) on a machine, in this order:
 //! `screenshot`, `list_windows`, `left_click '{"x":..,"y":..}'` into a
@@ -34,9 +35,10 @@ fn main() {
     let grant = if space {
         args.remove(0);
         // The cache answers at once (an older desktop until its first
-        // refresh heard one that can answer): give the refresh a moment.
+        // refresh heard one that can answer), and a desktop that just
+        // started is still asking its guard and polkit: give both a moment.
         let asked = std::time::Instant::now();
-        while epilot::space_offer() != epilot::SpaceOffer::Offered && asked.elapsed() < std::time::Duration::from_secs(3) {
+        while epilot::space_offer() != epilot::SpaceOffer::Offered && asked.elapsed() < std::time::Duration::from_secs(20) {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         println!("space offer: {:?}", epilot::space_offer());
