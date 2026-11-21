@@ -734,6 +734,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             skills_dir: None,
+            computer_space: false,
         },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),
@@ -813,6 +814,7 @@ fn start_fake_prepared(
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: Some(conversation.clone() as Arc<dyn engine::outbox::ConversationApi>),
+            computer: None,
         },
     )
     .expect("the engine starts");
@@ -1788,6 +1790,7 @@ fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
             child_exit: ChildExitLink::new(),
             sink: None,
             conversation: None,
+            computer: None,
         },
     )
     .expect("the engine starts");
@@ -1910,6 +1913,7 @@ fn a_launch_that_dies_before_its_first_turn_says_it_could_not_start() {
             child_exit: ChildExitLink::new(),
             sink: None,
             conversation: None,
+            computer: None,
         },
     )
     .expect("the engine starts");
@@ -2297,4 +2301,159 @@ fn an_elicitation_card_answered_in_the_conversation_submits_the_form() {
         Some("patch")
     );
     harness.session.kill("killed");
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1514: the run's computer use as the lifecycle tells it
+// ---------------------------------------------------------------------------
+
+/// #EXP-1514: [`engine::lifecycle::RunComputer`] that writes into one log
+/// with the run's server calls, so their order reads off it.
+struct RecordingComputer(Arc<Mutex<Vec<String>>>);
+
+impl engine::lifecycle::RunComputer for RecordingComputer {
+    fn revoke(&self, session_id: &str) {
+        self.0.lock().unwrap().push(format!("revoke {session_id}"));
+    }
+
+    fn close_space(&self, session_id: &str) {
+        self.0.lock().unwrap().push(format!("close_space {session_id}"));
+    }
+
+    fn turn_started(&self, session_id: &str) {
+        self.0.lock().unwrap().push(format!("turn_started {session_id}"));
+    }
+
+    fn turn_ended(&self, session_id: &str) {
+        self.0.lock().unwrap().push(format!("turn_ended {session_id}"));
+    }
+}
+
+/// A run with a [`RecordingComputer`] writing into the log of a
+/// [`recording_trpc`] server, so ePilot's calls and the run's server calls
+/// read in their order; `space` = it drives an agent space.
+fn start_computer_run(name: &str, space: bool) -> (Harness, Arc<Mutex<Vec<String>>>) {
+    let (base, log) = recording_trpc();
+    let worktree = std::env::temp_dir().join(format!("exp1514-engine-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&worktree).expect("the scratch worktree is creatable");
+    let hold = coding::launch_gate::hold(&worktree);
+    let runtime = steer::SteerRuntime::new().expect("a steer runtime");
+    let sink = RecordingSink::new();
+    let state = Arc::new(FakeState::default());
+    let host = Arc::new(TestHost::default());
+    let child_exit = ChildExitLink::new();
+    let adapter = FakeAgent::new(state.clone(), child_exit.clone());
+    let conversation = Arc::new(RecordingConversation::default());
+    let mut launch = prepared(&format!("sess-{name}"), worktree.clone());
+    launch.acp.computer_space = space;
+    let session = engine::start_with(
+        EngineStart {
+            prepared: launch,
+            trpc: Arc::new(api::TrpcClient::new(&base, Arc::new(|| Some("tok".to_string())))),
+            runtime: Arc::clone(&runtime),
+            data_dir: worktree.clone(),
+            account_id: "acct-1".to_string(),
+            own_user_id: Some("user-1".to_string()),
+            personal_key: Some("expu_supersecretkey".to_string()),
+            persistent: false,
+            foreign_host: false,
+            rotation_host: false,
+            publish: false,
+            kill: KillFeed::inert(),
+            local_sink: None,
+        },
+        host.clone(),
+        EngineParts {
+            adapter,
+            child_exit,
+            sink: Some(sink.clone() as Arc<dyn EventSink>),
+            conversation: Some(conversation.clone() as Arc<dyn engine::outbox::ConversationApi>),
+            computer: Some(Arc::new(RecordingComputer(log.clone()))),
+        },
+    )
+    .expect("the engine starts");
+    let harness = Harness { session, sink, conversation, state, host, _hold: hold, _runtime: runtime };
+    (harness, log)
+}
+
+fn computer_calls(log: &Arc<Mutex<Vec<String>>>, what: &str) -> usize {
+    log.lock().unwrap().iter().filter(|line| line.starts_with(what)).count()
+}
+
+/// The row's ended report, as [`recording_trpc`] logs it.
+fn ended_report(line: &str) -> bool {
+    line.contains("sessions.report") && line.contains(r#""status":"ended""#)
+}
+
+/// #EXP-1514 (D 10): the engine's turn signal reaches ePilot once as a turn
+/// starts and once as it ends: every turn of a space run (a report's as
+/// well as the person's), a lost run's open turn at its end, a killed run's
+/// mid-turn. A person run's start stays the person's (the Esc answer).
+#[test]
+fn a_turns_start_and_end_reach_epilot_once_each_also_for_a_lost_run() {
+    let (space, log) = start_computer_run("turns-space", true);
+    space.session.deliver_wake("r-1".to_string(), "hello".to_string());
+    until("the report's turn ends", || computer_calls(&log, "turn_ended") == 1);
+    space.session.deliver("m-1".to_string(), "hello".to_string());
+    until("the person's turn ends", || computer_calls(&log, "turn_ended") == 2);
+    assert_eq!(computer_calls(&log, "turn_started"), 2, "{:?}", log.lock().unwrap());
+    // A lost run: the agent goes away in its turn.
+    space.session.send_prompt("quit".to_string());
+    until("the exit", || space.session.is_done());
+    assert_eq!((computer_calls(&log, "turn_started"), computer_calls(&log, "turn_ended")), (3, 3), "{:?}", log.lock().unwrap());
+    assert_eq!(computer_calls(&log, "close_space"), 0, "a lost run's session lives: its space stays");
+
+    // Killed mid-turn: its turn ends with the run, once.
+    let (hung, log) = start_computer_run("turns-hung", true);
+    hung.session.send_prompt("hang".to_string());
+    until("the turn starts", || computer_calls(&log, "turn_started") == 1);
+    hung.session.kill(engine::SUSPEND_OUTCOME);
+    until("the exit", || hung.session.is_done());
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!((computer_calls(&log, "turn_started"), computer_calls(&log, "turn_ended")), (1, 1), "{:?}", log.lock().unwrap());
+    assert_eq!(computer_calls(&log, "close_space"), 0, "an idle release keeps the space");
+
+    // A person run: a report's turn tells no start, the person's does.
+    let (person, log) = start_computer_run("turns-person", false);
+    person.session.deliver_wake("r-1".to_string(), "hello".to_string());
+    until("the report's turn ends", || computer_calls(&log, "turn_ended") == 1);
+    assert_eq!(computer_calls(&log, "turn_started"), 0);
+    person.session.deliver("m-1".to_string(), "hello".to_string());
+    until("the person's turn ends", || computer_calls(&log, "turn_ended") == 2);
+    assert_eq!(computer_calls(&log, "turn_started"), 1);
+    person.session.kill("killed");
+    until("the exit", || person.session.is_done());
+}
+
+/// #EXP-1514 (row 14): an attached engine's end closes the session's agent
+/// space FIRST, before the row's ended report: a session the server ended
+/// (or a chat deleted: the same kill) and one released to another device.
+/// An idle release (a suspend) keeps it.
+#[test]
+fn an_attached_engines_end_closes_the_space_before_the_row_write() {
+    let (ended, log) = start_computer_run("close-ended", true);
+    ended.session.send_prompt("hello".to_string());
+    until("the turn ends", || ended.session.turn_signal().is_idle());
+    ended.session.kill("killed");
+    until("the ended report", || log.lock().unwrap().iter().any(|line| ended_report(line)));
+    let lines = log.lock().unwrap().clone();
+    let at = |what: &str| lines.iter().position(|line| line.starts_with(what)).unwrap_or_else(|| panic!("no {what}: {lines:?}"));
+    let report = lines.iter().position(|line| ended_report(line)).unwrap();
+    assert!(at("revoke") < at("close_space") && at("close_space") < report, "{lines:?}");
+    assert_eq!(computer_calls(&log, "close_space"), 1);
+
+    let (released, log) = start_computer_run("close-released", true);
+    released.session.send_prompt("hello".to_string());
+    until("the turn ends", || released.session.turn_signal().is_idle());
+    released.session.kill(engine::RELEASED_OUTCOME);
+    until("the exit", || released.session.is_done());
+    assert_eq!(computer_calls(&log, "close_space"), 1, "it left this device");
+
+    let (idle, log) = start_computer_run("close-idle", true);
+    idle.session.send_prompt("hello".to_string());
+    until("the turn ends", || idle.session.turn_signal().is_idle());
+    idle.session.kill(engine::SUSPEND_OUTCOME);
+    until("the exit", || idle.session.is_done());
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!((computer_calls(&log, "revoke"), computer_calls(&log, "close_space")), (1, 0), "{:?}", log.lock().unwrap());
 }

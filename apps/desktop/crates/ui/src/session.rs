@@ -231,6 +231,18 @@ pub fn sign_out_active(cx: &mut App) {
         crate::local_desktops::leave(cx);
         return;
     }
+    // #EXP-1514 (row 14): every agent space this app keeps for the
+    // account's sessions closes (off the foreground: the compositor).
+    {
+        let data_dir = crate::coding_flow::coding_data_dir(cx);
+        let account = account_id.clone();
+        let spawned = std::thread::Builder::new().name("exp-space-sign-out".to_string()).spawn(move || {
+            coding::session_teardown::close_account_spaces(&data_dir, &account);
+        });
+        if let Err(err) = spawned {
+            log::warn!("[session] sign-out: the agent spaces were not closed: {err}");
+        }
+    }
     // EXP-1457: an explicit sign-out revokes this install's eNet endpoint
     // (taken before the control-channel stop, which only stops it).
     let enet = crate::enet_wiring::stop(&account_id, cx);

@@ -81,6 +81,48 @@ pub(crate) struct RunLifecycle {
     /// VAPP-33: who may steer the run over eNet. `None` on a replay.
     audience: Option<coding::SteerAudience>,
     attached: Mutex<Option<Attached>>,
+    /// #EXP-1514: the device's computer use as this run tells it.
+    computer: Arc<dyn RunComputer>,
+    /// #EXP-1514: the run drives an agent space of its session's own
+    /// (`coding::AcpLaunch::computer_space`).
+    space_run: bool,
+    /// #EXP-1514 (D 10): a turn of this run is open as ePilot heard it.
+    turn_open: Mutex<bool>,
+}
+
+/// #EXP-1514: what a run's lifecycle tells the device's computer use
+/// (ePilot, `coding::computer`); a test's recorder in its place
+/// (`EngineParts::computer`).
+pub trait RunComputer: Send + Sync {
+    /// The run's computer-use token dies ([`coding::computer::revoke`]).
+    fn revoke(&self, session_id: &str);
+    /// The session's agent space closes ([`coding::computer::close_space`]).
+    fn close_space(&self, session_id: &str);
+    /// A turn of the run started ([`coding::computer::turn_started`]).
+    fn turn_started(&self, session_id: &str);
+    /// The turn ended ([`coding::computer::turn_ended`]).
+    fn turn_ended(&self, session_id: &str);
+}
+
+/// The device's own computer use.
+pub struct Epilot;
+
+impl RunComputer for Epilot {
+    fn revoke(&self, session_id: &str) {
+        coding::computer::revoke(session_id);
+    }
+
+    fn close_space(&self, session_id: &str) {
+        coding::computer::close_space(session_id);
+    }
+
+    fn turn_started(&self, session_id: &str) {
+        coding::computer::turn_started(session_id);
+    }
+
+    fn turn_ended(&self, session_id: &str) {
+        coding::computer::turn_ended(session_id);
+    }
 }
 
 /// What [`RunLifecycle::start`] needs before the context exists.
@@ -94,6 +136,9 @@ pub(crate) struct LifecycleSpec {
     pub(crate) attachments: Option<steer::AttachmentHook>,
     pub(crate) embeds: steer::ImageEmbeds,
     pub(crate) audience: Option<coding::SteerAudience>,
+    /// `None` = [`Epilot`].
+    pub(crate) computer: Option<Arc<dyn RunComputer>>,
+    pub(crate) space_run: bool,
 }
 
 impl RunLifecycle {
@@ -114,6 +159,27 @@ impl RunLifecycle {
             embeds: spec.embeds,
             audience: spec.audience,
             attached: Mutex::new(None),
+            computer: spec.computer.unwrap_or_else(|| Arc::new(Epilot)),
+            space_run: spec.space_run,
+            turn_open: Mutex::new(false),
+        }
+    }
+
+    /// #EXP-1514 (D 10): the turn signal's edge as ePilot hears it, once
+    /// per turn each way: every turn of a space run starts busy (whoever
+    /// opened it), and every turn's end is told. A person run's start stays
+    /// [`RunBackend::turn_started`]'s (the Esc answer is the person's alone,
+    /// EXP-1896). Under the lock, so a start and an end never cross.
+    fn turn_edge(&self, session_id: &str, running: bool) {
+        let mut open = self.turn_open.lock().unwrap_or_else(|p| p.into_inner());
+        if *open == running {
+            return;
+        }
+        *open = running;
+        if !running {
+            self.computer.turn_ended(session_id);
+        } else if self.space_run {
+            self.computer.turn_started(session_id);
         }
     }
 
@@ -211,8 +277,16 @@ impl RunBackend for RunLifecycle {
         );
     }
 
+    /// EXP-1273: the person's message answers an Esc. A space run has no
+    /// Esc: its every turn is told on the edge ([`Self::turn`]).
     fn turn_started(&self, session_id: &str) {
-        coding::computer::turn_started(session_id);
+        if !self.space_run {
+            self.computer.turn_started(session_id);
+        }
+    }
+
+    fn turn(&self, session_id: &str, running: bool) {
+        self.turn_edge(session_id, running);
     }
 }
 
@@ -323,8 +397,17 @@ impl Attached {
         // are local; behind the outbox flush and the row write (up to 35 s
         // on a bad network) a code-mode script and the input hold outlived
         // the dead agent.
+        // #EXP-1514 (D 10): a turn still open ends with the run, a lost
+        // one's too (the turn signal never closed it).
+        life.turn_edge(&ctx.session_id, false);
         // EXP-1196: the run's computer-use token dies with it.
-        coding::computer::revoke(&ctx.session_id);
+        life.computer.revoke(&ctx.session_id);
+        // #EXP-1514 (row 14): and a session that ENDED, was deleted or
+        // left this device takes its agent space with it, here, before any
+        // report: an idle release, a suspend or a lost run keep it.
+        if closes_space(ctx.replay, ctx.persistent, outcome) {
+            life.computer.close_space(&ctx.session_id);
+        }
         // EXP-1236: so does its code-mode grant (a script still running ends).
         coding::codemode::revoke(&ctx.session_id);
         // NEW-58: and its screen-memory grant (the voice conversation's).
@@ -622,6 +705,17 @@ fn ends_row(persistent: bool, outcome: &str) -> bool {
 /// which reads the row.
 fn tears_down(replay: bool, persistent: bool, outcome: &str) -> bool {
     !replay && ends_row(persistent, outcome) && outcome == coding::pickup::KILL_OUTCOME
+}
+
+/// #EXP-1514 (row 14): does this exit close the session's agent space? An
+/// end the SERVER decided (`killed`: the row read ended or is gone, the
+/// chat deleted) and a release to another device; never an agent root, a
+/// suspend (the idle release, a restart for new options), a lost run, a
+/// failed start or a replay: their session lives, and its next run drives
+/// the same space. An end this device reports itself is the sweep's, which
+/// reads the row (`coding::session_teardown::spaces_to_close`).
+fn closes_space(replay: bool, persistent: bool, outcome: &str) -> bool {
+    !replay && !persistent && (outcome == coding::pickup::KILL_OUTCOME || outcome == RELEASED_OUTCOME)
 }
 
 /// EXP-1292: an agent root (or a suspended session) whose process is gone —
@@ -1582,6 +1676,21 @@ mod tests {
         assert!(!tears_down(false, false, "exit:0"));
         assert!(!tears_down(false, false, "ended"), "the stall watchdog, a failed handshake");
         assert!(tears_down(false, false, "killed"));
+    }
+
+    /// #EXP-1514 (row 14): the session's agent space closes with an end the
+    /// server decided (ended, deleted) and a release to another device; an
+    /// idle release, a lost run, the stall watchdog, an agent root and a
+    /// replay keep it (row 13: its next run drives the same space).
+    #[test]
+    fn only_an_ended_or_moved_session_closes_its_space() {
+        assert!(closes_space(false, false, coding::pickup::KILL_OUTCOME));
+        assert!(closes_space(false, false, RELEASED_OUTCOME));
+        for kept in [SUSPEND_OUTCOME, "ended", "exit:-1", "exit:0"] {
+            assert!(!closes_space(false, false, kept), "{kept}");
+        }
+        assert!(!closes_space(false, true, coding::pickup::KILL_OUTCOME), "an agent root");
+        assert!(!closes_space(true, false, coding::pickup::KILL_OUTCOME), "a replay");
     }
 
     #[test]
