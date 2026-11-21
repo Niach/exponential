@@ -1984,7 +1984,16 @@ impl SurfaceView {
     /// stays.
     pub fn dismiss_hosted_popup(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(root) = self.layers.iter().find(|l| l.hosted && l.owner == owner).map(|l| l.root) {
+            // #EXP-2024: the host dismisses after a press anywhere (another
+            // window, the desktop). Only a press on this layer's own trigger
+            // that is still going on is the toggle its release must not open
+            // again; after a press elsewhere the next press on the trigger
+            // opens it (it was eaten: every second open took two presses).
+            let on_trigger = self.pressed.as_deref().and_then(|id| self.cache.index_of(id)).and_then(|i| self.cache.node(i)).is_some_and(|n| n.trigger_for.as_deref() == Some(owner));
             self.dismiss_layer_at(root, window, cx);
+            if !on_trigger {
+                self.just_dismissed = None;
+            }
         }
     }
 

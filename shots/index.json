@@ -2104,6 +2104,15 @@
         "sha256": "8d8b8bbb0c92d13cd5dac3a7450db002fa71a592f6abe12d6b13b124921bf577"
       }
     },
+    "ede-agent-spaces": {
+      "ede": {
+        "file": "shots/ede-agent-spaces/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 10058,
+        "sha256": "4e4a4763a55f65f18fc58cf0307ec2aa6fdaac96d450af62c3bd5f7d53ff8365"
+      }
+    },
     "ede-applet-battery": {
       "ede": {
         "file": "shots/ede-applet-battery/ede.webp",
@@ -2273,6 +2282,15 @@
         "height": 720,
         "bytes": 13274,
         "sha256": "cf4f5708ed618176219e7146a3b3eac51bf7c7067426c45821f1b15d3f2e94f2"
+      }
+    },
+    "ede-space-view": {
+      "ede": {
+        "file": "shots/ede-space-view/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7232,
+        "sha256": "be52b7e6fbabc5d2692942a3fd5908cbcd65213be9631545ce94501c35bfcc92"
       }
     },
     "ede-switcher": {
