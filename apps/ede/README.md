@@ -804,7 +804,7 @@ What an agent launches into a space runs in a systemd scope of the space's
 own slice, in the person's user manager:
 
 ```
-app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memory, swap
+app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memory, oomd
   └─ app-exponential_p<pid>-s<n>.slice               space n: memory, tasks
        └─ exponential-p<pid>-s<n>-<k>.scope          launch k
 ```
@@ -824,7 +824,33 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   are still, so together they are promised more than the 50 % they have.
   The fence is room: a new space is made only while what the spaces hold
   (anonymous and shared memory of their slice) plus one still space (1 GiB:
-  a browser page measured 0.5 to 0.9 GB) fits under their `MemoryHigh`.
+  a browser page measured 0.5 to 0.9 GB) fits under 90 % of their
+  `MemoryMax`.
+- **Over its limit, a space loses its biggest program** (#EDE-192). A
+  space's `MemoryMax` is where the kernel ends a program, inside the
+  space's own slice, at once, whether or not systemd-oomd runs. No slice
+  has a `MemoryHigh`: under it the kernel throttled a space just short of
+  its `MemoryMax` and ended nothing (only systemd-oomd did, 39 s later, by
+  the pressure of the person's whole user manager). No space swaps: with
+  swap a space at its limit first writes out what it may swap and stalls
+  while the disk is busy (15 s measured), and its swap is the person's;
+  an idle space stays in RAM, within its `MemoryMax`. The kernel ends one
+  program per OOM, the biggest (by its `oom_score_adj` too):
+  `memory.oom.group` stays 0, and from systemd 253 a launch's scope has
+  `OOMPolicy=continue`, so the launch's other programs and the other
+  spaces run on (systemd 252 ends the whole scope: the launch, or the
+  space's own user manager with all it started). An app the space's
+  own user manager starts in a scope of its own (a snap, a flatpak)
+  keeps that manager's default (`OOMPolicy=stop`): when the kernel picks
+  one of its programs, the whole app ends. What a space keeps in tmpfs
+  (`/dev/shm`, a tmpfs `/tmp`) no kill frees. Together the spaces are
+  held the same way at their `MemoryMax`, the biggest program of any
+  space first. A space that thrashes on its programs' files short of a
+  kill is systemd-oomd's, where it runs: it watches the slice of all
+  spaces at 30 % memory pressure for its usual time
+  (`ManagedOOMMemoryPressure=kill`), below the 50 % at which Ubuntu and
+  Fedora watch the person's whole user manager, and ends the scope that
+  reclaims most before it looks at the person's services.
 - **A full desktop gives way** (#EXP-1514, D 10). A space lives as long
   as its session, so when a NEW one does not fit (the count or the room),
   the space unused longest closes for it: one neither driven nor captured
@@ -839,11 +865,8 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   tick. A space whose owner holds no live space grant closes after 30
   ticks; after the wall clock jumped ahead of the ticks (a suspend) no space
   closes for 5 minutes, one space grant's life, so its keeper can renew.
-  At `MemoryHigh` every space is slowed until memory is freed; at
-  `MemoryMax` the kernel ends programs inside the spaces, the biggest
-  first, never the person's. The log and the doctor's line say the
-  numbers. Without a user manager: 4 spaces and 32 launches in all, as
-  before.
+  The log and the doctor's line say the numbers. Without a user manager:
+  4 spaces and 32 launches in all, as before.
 - **Homes on disk.** A launch's `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
   `XDG_DATA_HOME`, `XDG_STATE_HOME` and `GNUPGHOME` are in
   `$XDG_CACHE_HOME/exponential-desktop/spaces/p<compositor pid>/space-<n>/`

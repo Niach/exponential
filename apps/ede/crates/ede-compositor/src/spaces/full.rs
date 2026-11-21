@@ -1,7 +1,7 @@
 //! #EXP-1514 (D 10 = B): a full desktop gives way. A space lives as long as
 //! its session, and a person's chat never ends by itself, so spaces add up.
-//! When a NEW space does not fit (the count, or the memory under the slice's
-//! `MemoryHigh`), the space unused longest that is neither in use nor busy
+//! When a NEW space does not fit (the count, or the memory under 90 % of the
+//! slice's `MemoryMax`), the space unused longest that is neither in use nor busy
 //! closes and the new one is made; for memory as many as it takes, planned
 //! before one closes. In use = driven or captured by its own grant within
 //! [`super::Spaces::in_use_for`] (a space never used counts from its
