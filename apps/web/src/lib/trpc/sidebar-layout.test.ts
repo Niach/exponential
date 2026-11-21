@@ -23,12 +23,14 @@ const h = vi.hoisted(() => ({
   updated: [] as Record<string, unknown>[],
   updateRows: [{ id: `x` }] as { id: string }[],
   assertTargets: vi.fn(async (..._args: unknown[]) => undefined),
+  sync: vi.fn(async (..._args: unknown[]) => undefined),
 }))
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({ resolveTeamAccess: h.resolveTeamAccess }))
 vi.mock(`@/lib/sidebar-targets`, () => ({ assertSidebarTargetsInTeam: h.assertTargets }))
+vi.mock(`@/lib/sidebar-compat-sync`, () => ({ syncSidebarSections: h.sync, renameLinkedTeamFolder: async () => undefined }))
 
 import { sidebarLayoutRouter } from "@/lib/trpc/sidebar-layout"
 
@@ -55,8 +57,9 @@ const fakeTx = {
     },
   }),
   delete: () => ({
-    where: async () => {
+    where: () => {
       h.deleted += 1
+      return Object.assign(Promise.resolve(), { returning: async () => [{ teamId: TEAM }] })
     },
   }),
   update: () => ({
@@ -83,6 +86,7 @@ describe(`sidebarLayout`, () => {
     h.deleted = 0
     h.updated = []
     h.updateRows = [{ id: `x` }]
+    h.sync.mockClear()
     h.assertTargets.mockReset()
     h.assertTargets.mockImplementation(async () => undefined)
   })
@@ -132,6 +136,8 @@ describe(`sidebarLayout`, () => {
       expect.objectContaining({ id: FOLDER, userId: `actor`, teamId: TEAM, section: `board`, kind: `folder`, name: `Ops` }),
     ])
     expect(h.executed).toBe(1)
+    // #EXP-2027 (sidebar-compat.json): every write keeps the other sections in step.
+    expect(h.sync).toHaveBeenCalledWith(expect.anything(), `actor`, TEAM, `board`)
   })
 
   it(`save: an item's parent must be a folder of this section`, async () => {
