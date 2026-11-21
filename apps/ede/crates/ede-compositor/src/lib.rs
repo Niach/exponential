@@ -29,6 +29,8 @@ pub mod ipc;
 pub mod keysym;
 pub mod launch;
 pub mod layout;
+#[cfg(any(feature = "udev", test))]
+mod libinput_log;
 pub mod lock;
 pub mod logind;
 pub mod minimize;
