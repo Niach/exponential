@@ -339,6 +339,7 @@ fn spec() -> engine::adapters::AdapterSpec {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         },
         mcp: coding::AgentMcp::CodexOverrides {
             url: "https://example.test/api/mcp".to_string(),

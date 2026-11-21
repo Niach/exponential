@@ -428,8 +428,10 @@ pub enum SpaceBlock {
 /// #EXP-1514: whether this desktop offers a run an agent space now. Read
 /// from a cache, never waiting on the desktop (the heartbeat and the IDE's
 /// foreground may call it): an answer older than a few seconds is
-/// refreshed on a thread of its own, and there is none at first
-/// ([`SpaceOffer::Unknown`]).
+/// refreshed on a thread of its own. No answer (none yet, or none in time)
+/// is [`SpaceOffer::Unknown`] only once this process has heard this
+/// desktop say it can answer (`space-readiness`); before that it is
+/// [`SpaceBlock::OlderDesktop`], the person's screen as before spaces.
 pub fn space_offer() -> SpaceOffer {
     backend::space_offer()
 }

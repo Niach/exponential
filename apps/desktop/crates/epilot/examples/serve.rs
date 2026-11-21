@@ -33,9 +33,10 @@ fn main() {
     let space = args.first().is_some_and(|first| first == "--space");
     let grant = if space {
         args.remove(0);
-        // The cache answers at once; give its first refresh a moment.
+        // The cache answers at once (an older desktop until its first
+        // refresh heard one that can answer): give the refresh a moment.
         let asked = std::time::Instant::now();
-        while epilot::space_offer() == epilot::SpaceOffer::Unknown && asked.elapsed() < std::time::Duration::from_secs(3) {
+        while epilot::space_offer() != epilot::SpaceOffer::Offered && asked.elapsed() < std::time::Duration::from_secs(3) {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         println!("space offer: {:?}", epilot::space_offer());

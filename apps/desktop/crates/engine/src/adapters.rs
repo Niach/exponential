@@ -101,6 +101,7 @@ mod tests {
             mcp_server_ids: Vec::new(),
             account: Some(" work ".into()),
             computer_use: None,
+            computer_place: Default::default(),
         };
         let run = run_options(&options);
         assert_eq!(

@@ -47,21 +47,51 @@ pub fn team_bytes(system_append: &str) -> Option<usize> {
 }
 
 /// The FIXED text at the head of a composed `system_append`, in bytes: the
-/// playbook, plus the EXP-1196 computer-use and EXP-1236 code-mode sections
-/// when the launch carried them (so those count as playbook, never as the
-/// owners' prompt). The longest candidate that is a prefix wins.
+/// playbook, plus the EXP-1196 computer-use (#EXP-1514: the person's or the
+/// agent space's, or row 5's one line) and EXP-1236 code-mode sections when
+/// the launch carried them (so those count as playbook, never as the owners'
+/// prompt). The longest candidate that is a prefix wins.
 pub fn playbook_bytes(system_append: &str) -> usize {
+    // #EXP-1514: row 5's line is the launcher's text around a reason that
+    // varies: measured out, then counted back.
+    if let Some((start, end)) = unavailable_line(system_append) {
+        let without = format!("{}{}", &system_append[..start], &system_append[end..]);
+        return fixed_bytes(&without) + (end - start);
+    }
+    fixed_bytes(system_append)
+}
+
+/// Where [`crate::skill::computer_use_unavailable`]'s line sits in a
+/// composed append: right after a playbook, from the blank line before it
+/// to its end.
+fn unavailable_line(system_append: &str) -> Option<(usize, usize)> {
+    let lead = format!("\n\n{}", crate::skill::COMPUTER_USE_UNAVAILABLE_LEAD);
+    [false, true].into_iter().find_map(|dispatch| {
+        let head = crate::skill::playbook(dispatch).trim_end();
+        let rest = system_append.strip_prefix(head)?;
+        if !rest.starts_with(&lead) {
+            return None;
+        }
+        let end = rest[2..].find('\n').map_or(rest.len(), |at| at + 2);
+        Some((head.len(), head.len() + end))
+    })
+}
+
+fn fixed_bytes(system_append: &str) -> usize {
+    use crate::skill::ComputerUse;
     let mut candidates: Vec<String> = Vec::new();
     for voice_call in [true, false] {
         for dispatch in [true, false] {
             for code_mode in [true, false] {
                 for model in crate::settings::MODEL_ALIASES {
-                    candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
-                        computer_use: Some(model.to_string()),
-                        code_mode,
-                        dispatch,
-                        voice_call,
-                    }));
+                    for computer_use in [ComputerUse::Screen(model.to_string()), ComputerUse::Space(model.to_string())] {
+                        candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
+                            computer_use: Some(computer_use),
+                            code_mode,
+                            dispatch,
+                            voice_call,
+                        }));
+                    }
                 }
                 candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
                     computer_use: None,
@@ -251,9 +281,15 @@ mod tests {
         let prompt = "## Rules";
         let without = crate::skill::system_append_with(Some(prompt), &Extras::NONE);
         assert_eq!(playbook_bytes(&without), crate::skill::playbook(false).len());
+        use crate::skill::ComputerUse;
         for extras in [
-            Extras { computer_use: Some("haiku".into()), ..Extras::NONE },
-            Extras { computer_use: Some("opus".into()), code_mode: true, dispatch: false, voice_call: false },
+            Extras { computer_use: Some(ComputerUse::Screen("haiku".into())), ..Extras::NONE },
+            Extras { computer_use: Some(ComputerUse::Screen("opus".into())), code_mode: true, dispatch: false, voice_call: false },
+            // #EXP-1514: the space section and row 5's line are fixed text too.
+            Extras { computer_use: Some(ComputerUse::Space("sonnet".into())), ..Extras::NONE },
+            Extras { computer_use: Some(ComputerUse::Space("haiku".into())), dispatch: true, voice_call: true, ..Extras::NONE },
+            Extras { computer_use: Some(ComputerUse::Unavailable("No display session (DISPLAY is not set).".into())), ..Extras::NONE },
+            Extras { computer_use: Some(ComputerUse::Unavailable("eDE's control socket is missing (/run/user/1000/ede.sock).".into())), code_mode: true, dispatch: true, voice_call: true },
             Extras { code_mode: true, ..Extras::NONE },
             Extras { dispatch: true, ..Extras::NONE },
             Extras { code_mode: true, dispatch: true, ..Extras::NONE },

@@ -84,6 +84,7 @@ fn options() -> coding::LaunchOptions {
         mcp_server_ids: Vec::new(),
         account: None,
         computer_use: None,
+        computer_place: Default::default(),
     }
 }
 

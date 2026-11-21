@@ -1613,30 +1613,65 @@ fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
 /// switch that is off, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
-/// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
-/// computer use (a headless session, a desktop without portals) launches without, with a
-/// warning in the log and no section in the prompt. `label` = what the agent
-/// cursor's badge shows while this run drives ([`session_label`]).
+/// `label` = what the agent cursor's badge shows while this run drives
+/// ([`session_label`]).
+///
+/// #EXP-1514: WHERE it happens is [`crate::computer_place::resolve`]'s
+/// answer, asked at every launch (this is called at the first start and at
+/// every resume, relaunch and reconfigure): an agent space of the session's
+/// own (`epilot::grant_space`, no round trip: its first call asks the
+/// desktop, and a desktop that did not answer is never the person's
+/// screen), the person's screen (`epilot::grant`), or nothing. A launch
+/// that is not a space run closes the session's kept space FIRST (the pick
+/// or the offer changed since its last launch), so a person run never
+/// drives beside it. A failed grant launches without, with a warning in the
+/// log and no section in the prompt; a space grant that fails is never
+/// turned into the person's screen.
 fn attach_computer_use(
     deps: &CodingDeps,
     options: &LaunchOptions,
     team_mcp: &mut ResolvedMcp,
     session_id: &str,
     label: &str,
-) -> bool {
-    if !options.computer_use_on(deps.settings.computer_use) {
-        return false;
-    }
-    match epilot::grant(session_id, label) {
-        Ok(grant) => {
-            crate::mcp_servers::attach_computer(team_mcp, &grant);
-            true
+) -> crate::computer_place::Placed {
+    use crate::computer_place::{Inputs, Pick, Place, Placed};
+    let inputs = Inputs {
+        switch: deps.settings.computer_use,
+        computer_use: options.computer_use_on(true),
+        session: options.computer_place,
+        pick: Pick::of(deps.settings.computer_use_display_id.as_deref()),
+    };
+    crate::computer_place::machine(|machine| {
+        let mut undrivable = None;
+        let place = crate::computer_place::resolve(&inputs, || machine.space_offer(), || match machine.screen() {
+            Ok(()) => true,
+            Err(reason) => {
+                undrivable = Some(reason);
+                false
+            }
+        });
+        if place != Place::Space && machine.kept(session_id) {
+            log::info!("coding: session {session_id}'s launch is not a space run: its agent space closes first");
+            machine.close_space(session_id);
         }
-        Err(reason) => {
-            log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
-            false
+        let granted = match place {
+            // Row 5 when the screen was the place and cannot be driven
+            // (asked only then); rows 1 and 4 say nothing.
+            Place::None => return Placed::None(undrivable),
+            Place::Person => machine.grant(session_id, label).map(|grant| (grant, Placed::Person)),
+            Place::Space => machine.grant_space(session_id, label, false).map(|grant| (grant, Placed::Space)),
+        };
+        match granted {
+            Ok((grant, placed)) => {
+                crate::mcp_servers::attach_computer(team_mcp, &grant);
+                placed
+            }
+            Err(reason) => {
+                log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
+                Placed::None(None)
+            }
         }
-    }
+    })
 }
 
 /// NEW-58 (`fixtures/screen-memory.json` TOOL): only the member's PRIVATE
@@ -1701,17 +1736,26 @@ fn attach_code_mode(
 }
 
 /// EXP-1196/EXP-1236: what this launch carries beyond the playbook, for
-/// [`crate::skill::system_append_layers`]: the computer-use section names the device's
+/// [`crate::skill::system_append_layers`]: the computer-use section (#EXP-1514:
+/// the person's or the space's, or row 5's one line) names the device's
 /// subagent model.
 fn run_extras(
     deps: &CodingDeps,
-    computer_use: bool,
+    computer_use: &crate::computer_place::Placed,
     code_mode: bool,
     dispatch: bool,
     voice_call: bool,
 ) -> crate::skill::Extras {
+    use crate::computer_place::Placed;
+    use crate::skill::ComputerUse;
+    let model = || deps.settings.computer_use_model.clone();
     crate::skill::Extras {
-        computer_use: computer_use.then(|| deps.settings.computer_use_model.clone()),
+        computer_use: match computer_use {
+            Placed::Person => Some(ComputerUse::Screen(model())),
+            Placed::Space => Some(ComputerUse::Space(model())),
+            Placed::None(Some(reason)) => Some(ComputerUse::Unavailable(reason.clone())),
+            Placed::None(None) => None,
+        },
         code_mode,
         dispatch,
         voice_call,
@@ -2372,7 +2416,7 @@ fn prepare_session(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, dispatches(row), req.brief.call),
+        &run_extras(deps, &computer_use, code_mode, dispatches(row), req.brief.call),
     );
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
@@ -2614,6 +2658,7 @@ fn prepare_resume(
         // the run used — unless this resume switches (gated below).
         account: resume_account.clone(),
         computer_use: Some(row.computer_use),
+        computer_place: Default::default(),
     };
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
@@ -2986,8 +3031,11 @@ fn prepare_resume(
         resolve_team_skills(deps, &session_id)
     };
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
-    let computer_use =
-        !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
+    let computer_use = if aside {
+        crate::computer_place::Placed::None(None)
+    } else {
+        attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label)
+    };
     let code_mode =
         !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     if !aside {
@@ -3088,7 +3136,7 @@ fn prepare_resume(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, record.kind.is_persistent() || dispatches(row), req.brief.call),
+        &run_extras(deps, &computer_use, code_mode, record.kind.is_persistent() || dispatches(row), req.brief.call),
     );
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the recorded measured number is the only
@@ -3661,6 +3709,7 @@ mod tests {
     };
     use api::token_store::SecretKind;
     use std::fs;
+    use std::rc::Rc;
 
     const SESSION_ID: &str = "5ECB3C42-1f2e-4c7a-9d1b-0a7b6c5d4e3f";
 
@@ -3695,6 +3744,7 @@ mod tests {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         }
     }
 
@@ -4306,13 +4356,178 @@ mod tests {
         let options = session_launch_options(&on, &base_options(), &deps.settings);
         assert_eq!(options.computer_use, Some(true));
         let mut mcp = ResolvedMcp::default();
-        assert!(!attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"));
+        use crate::computer_place::Placed;
+        assert_eq!(attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"), Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
 
         deps.settings.computer_use = true;
         let opted_out = session_launch_options(&row("s-2", None), &base_options(), &deps.settings);
         assert_eq!(opted_out.computer_use, Some(false));
-        assert!(!attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"));
+        assert_eq!(attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"), Placed::None(None));
+        assert_eq!(mcp, ResolvedMcp::default());
+    }
+
+    /// #EXP-1514: the machine a launch asks about computer use, as a test
+    /// sets it: the desktop's offer, whether the person's screen can be
+    /// driven, the spaces this host keeps; what the launch did, in order.
+    struct FakeMachine {
+        offer: crate::computer_place::Offer,
+        screen: Result<(), String>,
+        kept: std::cell::RefCell<Vec<String>>,
+        did: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl FakeMachine {
+        fn new(offer: crate::computer_place::Offer, screen: Result<(), &str>, kept: &[&str]) -> Rc<FakeMachine> {
+            Rc::new(FakeMachine {
+                offer,
+                screen: screen.map_err(str::to_string),
+                kept: std::cell::RefCell::new(kept.iter().map(|s| s.to_string()).collect()),
+                did: Default::default(),
+            })
+        }
+
+        fn did(&self) -> Vec<String> {
+            self.did.borrow().clone()
+        }
+
+        fn grant_for(&self, what: &str, session_id: &str) -> Result<epilot::Grant, String> {
+            self.did.borrow_mut().push(format!("{what} {session_id}"));
+            Ok(epilot::Grant { url: "http://127.0.0.1:9/mcp".to_string(), token: format!("{what}-token") })
+        }
+    }
+
+    impl crate::computer_place::Machine for FakeMachine {
+        fn space_offer(&self) -> crate::computer_place::Offer {
+            self.did.borrow_mut().push("offer".to_string());
+            self.offer
+        }
+
+        fn screen(&self) -> Result<(), String> {
+            self.screen.clone()
+        }
+
+        fn kept(&self, session_id: &str) -> bool {
+            self.kept.borrow().iter().any(|kept| kept == session_id)
+        }
+
+        fn close_space(&self, session_id: &str) {
+            self.kept.borrow_mut().retain(|kept| kept != session_id);
+            self.did.borrow_mut().push(format!("close {session_id}"));
+        }
+
+        fn grant(&self, session_id: &str, _label: &str) -> Result<epilot::Grant, String> {
+            self.grant_for("grant", session_id)
+        }
+
+        fn grant_space(&self, session_id: &str, _label: &str, _had_space: bool) -> Result<epilot::Grant, String> {
+            self.grant_for("grant_space", session_id)
+        }
+    }
+
+    /// #EXP-1514 (the state table's rows 2 to 5): where a launch's computer
+    /// use happens is asked at the first start AND at every resume: a space
+    /// (the space section; a desktop that did not answer too), the person's
+    /// screen (today's section; a session that had a space has it closed
+    /// FIRST), nothing for `Agent space only` without a space (no tools, no
+    /// words), nothing with ONE line saying why when nothing can be driven.
+    #[test]
+    fn the_place_is_asked_at_the_first_start_and_at_every_resume() {
+        use crate::computer_place::Offer;
+        let space_words = "You have an agent space on this device";
+        let person_words = "own screen, pointer and keyboard, in the foreground";
+        struct Row {
+            name: &'static str,
+            pick: Option<&'static str>,
+            offer: Offer,
+            screen: Result<(), &'static str>,
+            kept: bool,
+            did: &'static [&'static str],
+            section: Option<&'static str>,
+            line: Option<&'static str>,
+        }
+        let rows = [
+            Row { name: "2: Auto, a space offered", pick: None, offer: Offer::Offered, screen: Ok(()), kept: false, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "2: Auto, the desktop did not answer", pick: None, offer: Offer::Unknown, screen: Ok(()), kept: true, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "2: Agent space only, offered", pick: Some("space"), offer: Offer::Offered, screen: Err("unasked"), kept: false, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "3: a display is picked, the session had a space", pick: Some("output:DP-1"), offer: Offer::Offered, screen: Ok(()), kept: true, did: &["close", "grant"], section: Some(person_words), line: None },
+            Row { name: "3: Auto, no space offered", pick: None, offer: Offer::No, screen: Ok(()), kept: true, did: &["offer", "close", "grant"], section: Some(person_words), line: None },
+            Row { name: "4: Agent space only, none offered", pick: Some("space"), offer: Offer::No, screen: Ok(()), kept: true, did: &["offer", "close"], section: None, line: None },
+            Row { name: "5: Auto, no space and no screen", pick: None, offer: Offer::No, screen: Err("No display session (DISPLAY is not set)."), kept: false, did: &["offer"], section: None, line: Some("no computer tools: No display session (DISPLAY is not set).") },
+            Row { name: "5: a display is picked, no screen", pick: Some("output:DP-1"), offer: Offer::Offered, screen: Err("No display session (DISPLAY is not set)."), kept: false, did: &[], section: None, line: Some("No display session (DISPLAY is not set). If the task needs the screen, say so.") },
+        ];
+        let dir = temp_dir("computer-place");
+        for (n, case) in rows.iter().enumerate() {
+            for resume in [false, true] {
+                let name = format!("{} ({})", case.name, if resume { "resume" } else { "first start" });
+                let session = format!("cu-{n}-{resume}");
+                let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+                let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+                deps.settings.computer_use = true;
+                deps.settings.computer_use_display_id = case.pick.map(str::to_string);
+                let mut req = if resume {
+                    resume_request(resume_record(&dir.0, &session))
+                } else {
+                    session_request(row(&session, None), &[])
+                };
+                req.session.computer_use = true;
+                let kept: &[&str] = if case.kept { &[session.as_str()] } else { &[] };
+                let machine = FakeMachine::new(case.offer, case.screen, kept);
+                let prepared = crate::computer_place::with_machine(machine.clone(), || ready(launch(req, &deps)));
+                let expected: Vec<String> = case
+                    .did
+                    .iter()
+                    .map(|what| if *what == "offer" { what.to_string() } else { format!("{what} {session}") })
+                    .collect();
+                assert_eq!(machine.did(), expected, "{name}");
+                let computer = prepared.acp.servers.iter().any(|server| server.name == epilot::SERVER_NAME);
+                assert_eq!(computer, case.section.is_some(), "{name}: the computer server");
+                let append = &prepared.acp.system_append;
+                assert_eq!(append.contains(space_words), case.section == Some(space_words), "{name}: {append}");
+                assert_eq!(append.contains(person_words), case.section == Some(person_words), "{name}");
+                assert_eq!(append.contains(crate::skill::COMPUTER_USE_UNAVAILABLE_LEAD), case.line.is_some(), "{name}");
+                if let Some(line) = case.line {
+                    assert!(append.contains(line), "{name}: {append}");
+                    assert_eq!(append.matches(crate::skill::COMPUTER_USE_UNAVAILABLE_LEAD).count(), 1);
+                }
+                // The launch's context layout counts all of it as the launcher's.
+                assert_eq!(prepared.acp.context_layers.team_bytes, None, "{name}");
+            }
+        }
+    }
+
+    /// #EXP-1514 (L1): a space grant that fails launches without computer
+    /// use: never the person's screen instead.
+    #[test]
+    fn a_failed_space_grant_is_never_the_screen() {
+        struct Refusing;
+        impl crate::computer_place::Machine for Refusing {
+            fn space_offer(&self) -> crate::computer_place::Offer {
+                crate::computer_place::Offer::Unknown
+            }
+            fn screen(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn kept(&self, _: &str) -> bool {
+                false
+            }
+            fn close_space(&self, _: &str) {}
+            fn grant(&self, _: &str, _: &str) -> Result<epilot::Grant, String> {
+                panic!("never the person's seat")
+            }
+            fn grant_space(&self, _: &str, _: &str, _: bool) -> Result<epilot::Grant, String> {
+                Err("no free port".to_string())
+            }
+        }
+        let dir = temp_dir("computer-space-refused");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.computer_use = true;
+        let mut on = row("s-refused", None);
+        on.computer_use = true;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        let mut mcp = ResolvedMcp::default();
+        let placed = crate::computer_place::with_machine(Rc::new(Refusing), || attach_computer_use(&deps, &options, &mut mcp, "s-refused", "EXP-1"));
+        assert_eq!(placed, crate::computer_place::Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
     }
 
@@ -5441,6 +5656,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                 mcp_server_ids: Vec::new(),
                 account: None,
                 computer_use: None,
+                computer_place: Default::default(),
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),
