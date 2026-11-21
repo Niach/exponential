@@ -198,6 +198,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
 
     // Input.
     let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
+    crate::libinput_log::route(&libinput);
     libinput.udev_assign_seat(&seat_name).map_err(|()| "libinput could not take the seat")?;
     event_loop.handle().insert_source(LibinputInputBackend::new(libinput.clone()), move |event, _, state| {
         if !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }) {
