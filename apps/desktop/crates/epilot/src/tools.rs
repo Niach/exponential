@@ -1441,7 +1441,6 @@ pub(crate) mod tests {
         assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
     }
 
-    #[test]
     /// #EXP-1514 (`spaceGateCases`, row 11): with the pick Agent space only
     /// every seat call but `wait` is refused `spaceOnly`, first, whatever is
     /// connected; nothing is read, driven or locked.
