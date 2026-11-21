@@ -311,6 +311,18 @@ mod tests {
         }
     }
 
+    /// #EXP-1514 (dark until the flip): what ePilot answers on an eDE that
+    /// has not said `space-readiness` (every one before the flip: its cache
+    /// empty, the compositor silent, or without the feature) is an older
+    /// desktop, and Auto resolves to the person's screen, as before spaces.
+    #[test]
+    fn an_older_desktops_answer_is_the_screen_as_before() {
+        let inputs = Inputs { switch: true, computer_use: true, session: SessionPlace::Auto, pick: Pick::Auto };
+        let older = Offer::of(&epilot::SpaceOffer::No(epilot::SpaceBlock::OlderDesktop));
+        assert_eq!(resolve(&inputs, || older, || true), Place::Person);
+        assert_eq!(resolve(&inputs, || Offer::of(&epilot::SpaceOffer::Unknown), || true), Place::Space);
+    }
+
     #[test]
     fn the_stored_pick_reads_auto_space_or_a_display() {
         assert_eq!(Pick::of(None), Pick::Auto);
