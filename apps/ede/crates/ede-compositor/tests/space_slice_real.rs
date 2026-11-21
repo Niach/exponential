@@ -290,10 +290,35 @@ fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it()
     assert_ne!(ede_protocol::process::stat(moved).map(|stat| stat.pgid), Some(mover), "the child is still in the launch's group");
     assert_eq!(root.space_of_process(moved).unwrap().space.map(|found| found.space), Some(space_id.clone()), "its lineage ties it to the space");
 
+    // #EDE-190: a unit of the space's own user manager whose stop leaves
+    // a marker. Its program ignores SIGTERM, so only the manager's own stop
+    // of its units (its `exit.target`) ends it.
+    let session_scope = space_dir.join(format!("exponential-p{me}-s1-session1.scope"));
+    assert!(session_scope.is_dir(), "the space has no user manager of its own");
+    let (marker, unit_started) = (dir.path().join("stopped.marker"), dir.path().join("unit.started"));
+    let script = format!(
+        "systemd-run --user --quiet --unit=exp-test-stop-marker.service -p KillSignal=SIGKILL -p 'ExecStop=/bin/touch {}' -- sh -c \"trap '' TERM; exec sleep 300\" && echo ok > {1}.tmp && mv {1}.tmp {1}; exec sleep 300",
+        marker.display(),
+        unit_started.display()
+    );
+    agent.launch(vec!["sh".into(), "-c".into(), script], Default::default(), None).unwrap();
+    until("the unit never started in the space's user manager", || unit_started.exists());
+    assert!(!marker.exists());
+
     // The space closes: everything in its slice ends, whatever it asked
     // for, and the slice is gone. What moved itself out ends too; the
     // person's scope runs on.
     agent.destroy_space(space.id.clone()).unwrap();
+    // #EDE-190: the space's user manager stops its units (the marker is
+    // there) and then ends by itself: its session scope is gone sooner
+    // after the marker than the scope's stop times out (`TimeoutStopSec=2`,
+    // then SIGKILL and result 'timeout'). Without its units the manager
+    // never stops the unit, and the SIGKILL ends it.
+    until("the space's session scope outlived the close", || !session_scope.exists());
+    let gone = std::time::SystemTime::now();
+    let stopped = std::fs::metadata(&marker).and_then(|m| m.modified()).expect("the space's user manager never stopped its unit: it was SIGKILLed");
+    let took = gone.duration_since(stopped).unwrap_or_default();
+    assert!(took < Duration::from_secs(2), "the space's session scope ended {took:?} after its unit's stop: its stop timed out");
     until_gone("a process of the closed space still runs", &[("the first launch", pid), ("the hog's shell", shell), ("the orphan's launch", parent), ("the orphan", orphan), ("the stubborn scope's child", stubborn), ("the mover", mover), ("what moved itself out of the slice", moved)]);
     let _ = stubborn_scope.wait();
     assert!(alive(person), "the person's scope ended with the space");

@@ -37,8 +37,10 @@ const UNITS: &str = "units";
 /// An empty directory: no generators (no xdg-autostart, no `environment.d`).
 const NOTHING: &str = "nothing";
 /// What the person's distribution has for a clean end of a user manager
-/// (SIGTERM starts `exit.target`); copied when it is there, else the
-/// manager is stopped by the slice's SIGKILL two seconds later.
+/// (SIGTERM starts `exit.target`, loaded from `units/` only then, so the
+/// close keeps the space's directory until its slice has stopped,
+/// #EDE-190); copied when it is there, else the manager is stopped by the
+/// slice's SIGKILL two seconds later.
 const EXIT_UNITS: [&str; 3] = ["exit.target", "shutdown.target", "systemd-exit.service"];
 const DISTRO_UNITS: [&str; 2] = ["/usr/lib/systemd/user", "/lib/systemd/user"];
 /// Portals the space's own `xdg-desktop-portal` serves, and those it must

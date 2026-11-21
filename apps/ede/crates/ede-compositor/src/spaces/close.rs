@@ -148,6 +148,11 @@ pub(crate) struct Stopping {
     stop: Option<Child>,
     /// The slice's cgroup directory.
     cgroup: PathBuf,
+    /// #EDE-190: the closed space's directory, removed once the slice has
+    /// stopped. Its own user manager loads `exit.target` from `units/` in
+    /// it at the stop's SIGTERM: removed before, the manager cannot exit,
+    /// stops none of its units and is SIGKILLed when the stop times out.
+    dir: Option<PathBuf>,
     /// It was there when the stop was asked for.
     seen: bool,
     since: Instant,
@@ -270,12 +275,16 @@ impl Ede {
         let home = self.spaces.homes.as_ref().map(|homes| homes.join(name.as_str()));
         self.space_launches_closed(id);
         self.space_strays_closed(strays);
-        if sliced {
+        // #EDE-190: with a slice, its directory goes once the slice has
+        // stopped (its user manager's units are in it).
+        let dir = if sliced {
             self.space_flatpaks_closed(id.number());
-            self.space_slice_closed(id.number());
-        }
+            self.space_slice_closed(id.number(), dir)
+        } else {
+            Some(dir)
+        };
         // Its browsers' profiles in snaps' and Flatpaks' data too.
-        for dir in std::iter::once(dir).chain(home).chain(browser_dirs) {
+        for dir in dir.into_iter().chain(home).chain(browser_dirs) {
             if !self.spaces.remove(&dir) {
                 self.spaces.leftovers.push(Leftover { dir, ticks: 0 });
             }
@@ -341,7 +350,7 @@ impl Ede {
                 units.stop_now(&unit, Duration::from_secs(10));
             } else {
                 let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
-                self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
+                self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: None, seen, since: Instant::now(), done: false });
             }
         }
         tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
@@ -355,19 +364,24 @@ impl Ede {
     }
 
     /// Space number `space` closed and had launches in scopes: its slice
-    /// is stopped with all in it. Nothing here waits for the user manager.
-    fn space_slice_closed(&mut self, space: u32) {
-        let Some(units) = &self.spaces.units else { return };
+    /// is stopped with all in it, and its directory `dir` is removed once
+    /// that is done (`Some(dir)` back = no slice: remove it now). Nothing
+    /// here waits for the user manager.
+    fn space_slice_closed(&mut self, space: u32, dir: PathBuf) -> Option<PathBuf> {
+        let Some(units) = &self.spaces.units else { return Some(dir) };
         let unit = ede_protocol::process::space_slice(units.compositor, space);
         let cgroup = units.space_cgroup(space);
         let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
-        self.spaces.stopping.push(Stopping { unit, stop, cgroup, seen, since: Instant::now(), done: false });
+        self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: Some(dir), seen, since: Instant::now(), done: false });
+        None
     }
 
     /// Once a second: what a stopped slice still holds after its grace is
-    /// ended by the kernel, and the slice is stopped once more.
+    /// ended by the kernel, and the slice is stopped once more. The
+    /// directory of a slice that stopped, or whose grace is over, goes.
     pub(crate) fn space_slices_tick(&mut self) {
         let Some(units) = &self.spaces.units else { return };
+        let mut stopped = Vec::new();
         self.spaces.stopping.retain_mut(|stopping| {
             if stopping.stop.as_mut().is_some_and(|stop| !matches!(stop.try_wait(), Ok(None))) {
                 stopping.stop = None;
@@ -379,10 +393,12 @@ impl Ede {
             // need to wait for the grace. (One that was not there yet may
             // still come: a launch on its way into its scope.)
             if stopping.seen && stopping.stop.is_none() && !stopping.cgroup.is_dir() {
+                stopped.extend(stopping.dir.take());
                 return false;
             }
             if stopping.since.elapsed() > STOP_GRACE {
                 stopping.done = true;
+                stopped.extend(stopping.dir.take());
                 if slice::kill_cgroup(&stopping.cgroup) {
                     tracing::info!("{} outlived its stop: the kernel ended what was left in it", stopping.unit);
                     if stopping.stop.is_none() {
@@ -392,6 +408,9 @@ impl Ede {
             }
             true
         });
+        // Removed with the other closed spaces' directories (this tick's
+        // `spaces_tick` comes to them next).
+        self.spaces.leftovers.extend(stopped.into_iter().map(|dir| Leftover { dir, ticks: 0 }));
     }
 
     /// Does `session` hold a `[space]` grant that has not expired?
