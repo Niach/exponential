@@ -120,7 +120,9 @@ fn a_bound_grants_token_is_refused_at_hello() {
     assert_eq!(apps.hello.capabilities, [Capability::Capture, Capability::Ui]);
     let (ours, theirs) = UnixStream::pair().unwrap();
     h.with(move |ede| ede.ipc_insert(theirs));
-    assert!(matches!(Client::from_fd(ours.into()), Err(Error::Failed(f)) if f.code == ErrorCode::Unauthorized), "a socket connection without a token holds nothing");
+    let mut anonymous = Client::from_fd(ours.into()).unwrap();
+    assert!(anonymous.grant().is_none() && anonymous.hello.capabilities.is_empty(), "a socket connection without a token holds nothing (P2: anonymous)");
+    assert_eq!(code(anonymous.windows()), ErrorCode::Forbidden);
 }
 
 /// A child holds no more than what it was opened on and expires no later;

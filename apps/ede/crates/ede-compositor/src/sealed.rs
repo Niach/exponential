@@ -13,8 +13,11 @@
 //!   A lock client that dies, or shows nothing, keeps the session locked
 //!   and is started again; it ends with the lock and with the compositor.
 //! - **Sealed surfaces**: a layer surface from a process whose executable
-//!   is `exponential-sealed` (the polkit prompt, consent) is protected: black in
-//!   captures, never driven by an agent, no input method on it.
+//!   is the installed `exponential-sealed` (the polkit prompt, consent) is
+//!   protected: black in captures, never driven by an agent, no input
+//!   method on it. #EDE-172: the file itself (root-owned, by `(st_dev,
+//!   st_ino)`, in the compositor's user namespace: [`crate::peer`]), never
+//!   its name: a copy or a rename of it draws an ordinary surface.
 
 use std::{
     io::Write,
@@ -25,7 +28,7 @@ use std::{
 use smithay::{
     desktop::{layer_map_for_output, LayerSurface},
     output::Output,
-    reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource},
+    reexports::wayland_server::{protocol::wl_surface::WlSurface, Client, Resource},
     utils::{IsAlive, SERIAL_COUNTER},
 };
 
@@ -45,7 +48,7 @@ pub const NO_SURFACE: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayerOrigin {
     pub pid: u32,
-    /// The process's executable is `exponential-sealed`.
+    /// The process is the installed `exponential-sealed` (#EDE-172).
     pub sealed: bool,
     /// #EXP-2024: the shell's pinned view of an agent space (the namespace
     /// [`ede_protocol::SPACE_VIEW_NAMESPACE`] from `exponential-shell`): black
@@ -102,23 +105,27 @@ pub fn exe_name(link: &std::path::Path) -> Option<String> {
     Some(name.strip_suffix(" (deleted)").unwrap_or(&name).to_string())
 }
 
-/// The executable name of process `pid` ([`exe_name`]).
-fn exe_of(pid: u32) -> Option<String> {
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| exe_name(&p))
+/// #EDE-172: `client` connected the person's socket as the installed
+/// binary `name` ([`crate::peer::Installed::is`]).
+fn is_installed(ede: &Ede, client: &Client, name: &str) -> bool {
+    client.get_data::<crate::state::ClientState>().and_then(|c| c.peer.as_ref()).is_some_and(|peer| ede.installed.is(peer, name))
 }
 
-/// Process `pid` is the shell, `exponential-shell` (or the headless tests'
-/// stand-in for it): its space view (#EXP-2024) and its Agent spaces list
-/// (#EXP-2041) are black in captures of the person's output.
-pub fn is_shell(ede: &Ede, pid: u32) -> bool {
-    pid != 0 && (ede.shell_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-shell"))
+/// `client` is the shell, the installed `exponential-shell` (or the
+/// headless tests' stand-in for it, by pid): its space view (#EXP-2024) and
+/// its Agent spaces list (#EXP-2041) are black in captures of the person's
+/// output.
+pub fn is_shell(ede: &Ede, client: &Client) -> bool {
+    let pid = client.get_credentials(&ede.display_handle).map(|c| c.pid as u32).unwrap_or(0);
+    (pid != 0 && ede.shell_stand_in == Some(pid)) || is_installed(ede, client, crate::peer::SHELL)
 }
 
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
-    let pid = ede.display_handle.get_client(surface.id()).ok().and_then(|c| c.get_credentials(&ede.display_handle).ok()).map(|c| c.pid as u32).unwrap_or(0);
-    let sealed = pid != 0 && (ede.sealed_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-sealed"));
+    let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false } };
+    let pid = client.get_credentials(&ede.display_handle).map(|c| c.pid as u32).unwrap_or(0);
+    let sealed = (pid != 0 && ede.sealed_stand_in == Some(pid)) || is_installed(ede, &client, crate::peer::SEALED);
     // Only the shell's own view hides: another client naming the namespace stays in captures.
-    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, pid);
+    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, &client);
     LayerOrigin { pid, sealed, space_view }
 }
 

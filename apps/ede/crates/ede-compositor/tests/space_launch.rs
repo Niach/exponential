@@ -365,10 +365,11 @@ fn the_compositor_knows_which_processes_are_a_spaces() {
     assert_eq!(ours(pid), ProcessSpace { space: space.id.clone(), by: Membership::Client, pid });
     assert_eq!(of(&mut root, person.id()), None, "the person's process is still the person's");
 
-    // Only `system` asks: a space grant and a `ui` grant are refused.
+    // #EDE-172: any person's grant asks (the polkit agent's will hold no
+    // capability); a space grant is refused.
     assert_eq!(code(agent.space_of_process(head)), ErrorCode::Forbidden);
     let ui = root.mint(SessionId::new("ui-only").unwrap(), vec![Capability::Ui], None).unwrap();
-    assert_eq!(code(h.ipc_with(ui.token).unwrap().space_of_process(head)), ErrorCode::Forbidden);
+    assert!(h.ipc_with(ui.token).unwrap().space_of_process(head).unwrap().space.is_some(), "a ui grant hears the answer");
 
     let _ = foreign.kill();
     let _ = foreign.wait();
