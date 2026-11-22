@@ -94,6 +94,8 @@ export async function insertMessage(
     attachmentIds?: string[] | null
     mentionUserIds?: string[] | null
     refIssueIds?: string[] | null
+    /** Unset = the column default, `now()` (the transaction's start). */
+    createdAt?: SQL
   }
 ): Promise<string> {
   const mirror = await sessionMirror(tx, session)
@@ -115,6 +117,7 @@ export async function insertMessage(
       attachmentIds: message.attachmentIds?.length ? message.attachmentIds : null,
       mentionUserIds: message.mentionUserIds?.length ? message.mentionUserIds : null,
       refIssueIds: message.refIssueIds?.length ? message.refIssueIds : null,
+      ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     })
     .returning({ id: messages.id })
   return row!.id
