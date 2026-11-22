@@ -114,6 +114,9 @@ pub fn brightness_level() -> Option<Level> {
 /// polkit wants a password (another session open) the person's agent asks.
 /// Blocks while the prompt is open: never on the UI thread.
 pub fn power(action: &str) -> Result<(), String> {
+    if !matches!(action, "suspend" | "reboot" | "poweroff" | "hibernate") {
+        return Err(format!("no power action {action}"));
+    }
     ede_services::domains::power::login(&ede_services::domains::system_bus()?, action)
 }
 
@@ -249,6 +252,6 @@ mod tests {
 
     #[test]
     fn only_known_power_actions_run() {
-        assert!(!power("explode"));
+        assert_eq!(power("explode"), Err("no power action explode".into()), "refused before any bus");
     }
 }

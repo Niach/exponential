@@ -202,7 +202,7 @@ mod tests {
             let socket = dir.path().join("bus");
             let config = dir.path().join("bus.conf");
             std::fs::write(&config, format!(r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig><type>session</type><listen>unix:path={}</listen><policy context="default"><allow send_destination="*"/><allow own="*"/></policy></busconfig>"#, socket.display())).unwrap();
+<busconfig><type>session</type><listen>unix:path={}</listen><policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy></busconfig>"#, socket.display())).unwrap();
             let child = Command::new("dbus-daemon").arg("--nofork").arg(format!("--config-file={}", config.display())).stdout(Stdio::null()).spawn().expect("dbus-daemon");
             let deadline = Instant::now() + Duration::from_secs(5);
             while !socket.exists() && Instant::now() < deadline {
