@@ -897,6 +897,7 @@ dependencies = [
  "ede-observability",
  "ede-protocol",
  "ede-space-guard",
+ "libc",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -975,6 +976,7 @@ name = "ede-protocol"
 version = "0.14.172"
 dependencies = [
  "ecore",
+ "rustix 1.1.6",
  "serde",
  "serde_json",
 ]

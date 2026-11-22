@@ -28,7 +28,7 @@ fn raw(h: &Harness) -> UnixStream {
         state.ipc.root_grant().token
     });
     ours.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    send(&mut ours, 1, Request::Hello { version: PROTOCOL_VERSION, token });
+    send(&mut ours, 1, Request::Hello { version: PROTOCOL_VERSION, token: Some(token) });
     ours
 }
 

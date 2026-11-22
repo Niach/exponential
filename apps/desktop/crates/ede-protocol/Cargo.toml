@@ -13,3 +13,8 @@ publish = false
 ecore = { path = "../ecore" }
 serde.workspace = true
 serde_json = "1"
+
+# #EDE-172: descriptors over the control socket (`SCM_RIGHTS`) and the
+# inherited control connection.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["net", "fs"] }

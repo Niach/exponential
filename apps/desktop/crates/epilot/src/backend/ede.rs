@@ -1716,10 +1716,10 @@ mod tests {
                             continue;
                         }
                         let result = match call.request {
-                            Request::Hello { token, .. } if forgotten.lock().unwrap().contains(&token.as_str().to_string()) => {
+                            Request::Hello { token: Some(token), .. } if forgotten.lock().unwrap().contains(&token.as_str().to_string()) => {
                                 Err(Failure::new(ErrorCode::Unauthorized, "this grant means nothing to me"))
                             }
-                            Request::Hello { ref token, .. } if gone(token.as_str()) => {
+                            Request::Hello { token: Some(ref token), .. } if gone(token.as_str()) => {
                                 log.lock().unwrap().push(format!("refused {op}"));
                                 Err(Failure::new(ErrorCode::Unauthorized, "unknown or expired token"))
                             }
@@ -1728,7 +1728,7 @@ mod tests {
                                 log.lock().unwrap().push(format!("refused {op}"));
                                 Err(Failure::new(ErrorCode::Unauthorized, "the grant expired"))
                             }
-                            Request::Hello { token, .. } => {
+                            Request::Hello { token: Some(token), .. } => {
                                 mine = Some(token.as_str().to_string());
                                 is_root = token.as_str() == root;
                                 if is_root {

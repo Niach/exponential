@@ -2953,6 +2953,7 @@ name = "ede-protocol"
 version = "0.14.172"
 dependencies = [
  "ecore",
+ "rustix",
  "serde",
  "serde_json",
 ]
