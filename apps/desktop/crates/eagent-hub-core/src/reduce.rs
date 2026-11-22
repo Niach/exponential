@@ -1335,6 +1335,12 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
         },
         other => other.value().cloned(),
     };
+    // #FEED-267: the run itself spoke (a report naming neither busy nor status) and cleared a mid-turn
+    // `device_offline`: it is running + busy again, as the heartbeat listing it would make it.
+    let revived = row.blocked.as_ref().is_some_and(|b| b.kind == BlockedKind::DeviceOffline && b.resume.value() == Some(&true))
+        && next_blocked.is_none()
+        && data.busy.is_none()
+        && status.is_none();
     let turn_ended = (data.busy == Some(false) && row.busy) || status == Some(Status::Idle);
     let was_blocked = row.blocked.is_some();
     let needs_input = if next_blocked.is_some() {
@@ -1356,6 +1362,10 @@ fn report(ctx: &mut Ctx, data: ReportData) -> Step<StepResult> {
             row.busy = busy;
         } else if status == Some(Status::Idle) {
             row.busy = false;
+        }
+        if revived {
+            row.status = Status::Running;
+            row.busy = true;
         }
         if data.busy == Some(false) || (data.busy.is_none() && status == Some(Status::Idle)) {
             row.background = false;
@@ -1555,6 +1565,14 @@ fn liveness(row: &HubSession) -> i64 {
     row.updated_at.max(row.last_activity_at.unwrap_or(row.updated_at))
 }
 
+/// #FEED-235: a claimed first Request no turn closed for: an input row, nothing of the session's own and
+/// (#FEED-267) no closed turn either: a turn that ends quiet writes no agent row, its close stamps `last_turn_at`.
+fn unanswered(row: &HubSession, id: &str, mine: &[&HubMessage]) -> bool {
+    row.last_turn_at.is_none()
+        && mine.iter().any(|m| m.card.is_none() && is_pending_input(m))
+        && !mine.iter().any(|m| m.author_kind == AuthorKind::Agent && m.author_session_id.as_deref().is_none_or(|a| a == id))
+}
+
 fn tick(ctx: &mut Ctx) -> Step<StepResult> {
     let w = &rules().watchdog;
     let now = ctx.now;
@@ -1598,9 +1616,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         let Some(started_at) = row.started_at else { continue };
         let mine: Vec<&HubMessage> = ctx.state.messages.iter().filter(|m| m.session_id == id).collect();
         let pending = mine.iter().any(|m| m.pending && m.at < cutoff && is_pending_input(m));
-        let unstarted = started_at < cutoff
-            && mine.iter().any(|m| m.card.is_none() && is_pending_input(m))
-            && !mine.iter().any(|m| m.author_kind == AuthorKind::Agent && m.author_session_id.as_ref().is_none_or(|a| *a == id));
+        let unstarted = started_at < cutoff && unanswered(row, &id, &mine);
         if !pending && !unstarted {
             continue;
         }
@@ -1621,9 +1637,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         }
         let mine: Vec<&HubMessage> = ctx.state.messages.iter().filter(|m| m.session_id == id).collect();
         let pending = mine.iter().any(|m| m.pending && is_pending_input(m));
-        let unstarted = mine.iter().any(|m| m.card.is_none() && is_pending_input(m))
-            && !mine.iter().any(|m| m.author_kind == AuthorKind::Agent && m.author_session_id.as_ref().is_none_or(|a| *a == id));
-        if !pending && !unstarted {
+        if !pending && !unanswered(row, &id, &mine) {
             clear_blocked(ctx, &id, Some(BlockedKind::Unclaimed));
         }
     }

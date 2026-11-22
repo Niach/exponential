@@ -912,6 +912,11 @@ function report(ctx: Ctx, data: ReportData): StepResult {
             (row.blocked.kind === `unclaimed` && data.busy === true))
         ? null
         : row.blocked
+  // #FEED-267: the run itself spoke (a report naming neither busy nor status) and cleared a mid-turn
+  // `device_offline`: it is running + busy again, as the heartbeat listing it would make it.
+  const revived =
+    row.blocked?.kind === `device_offline` && row.blocked.resume === true && nextBlocked === null &&
+    data.busy === undefined && status === undefined
   const turnEnded = (data.busy === false && row.busy) || status === `idle`
   const wasBlocked = row.blocked
   const needsInput =
@@ -919,6 +924,7 @@ function report(ctx: Ctx, data: ReportData): StepResult {
   if (status) row.status = status
   if (data.busy !== undefined) row.busy = data.busy
   else if (status === `idle`) row.busy = false
+  if (revived) Object.assign(row, { status: `running`, busy: true })
   if (data.busy === false || (data.busy === undefined && status === `idle`)) row.background = false
   else if (data.background !== undefined) row.background = data.background
   if (needsInput !== undefined) row.needsInput = needsInput
@@ -1046,6 +1052,13 @@ const spokeLately = (ctx: Ctx, row: HubSession) =>
   row.lastActivityAt <= ctx.now
 const liveness = (row: HubSession) => Math.max(row.updatedAt, row.lastActivityAt ?? row.updatedAt)
 
+/** #FEED-235: a claimed first Request no turn closed for: an input row, nothing of the session's own and
+ *  (#FEED-267) no closed turn either: a turn that ends quiet writes no agent row, its close stamps lastTurnAt. */
+const unanswered = (row: HubSession, mine: readonly HubMessage[]) =>
+  row.lastTurnAt === null &&
+  mine.some((m) => m.card === null && isPendingInput(m)) &&
+  !mine.some((m) => m.authorKind === `agent` && (m.authorSessionId === null || m.authorSessionId === row.id))
+
 function tick(ctx: Ctx): StepResult {
   const w = rules.watchdog
   const now = ctx.now
@@ -1076,10 +1089,7 @@ function tick(ctx: Ctx): StepResult {
     const cutoff = now - w.undeliveredMinutes * MIN
     const mine = ctx.state.messages.filter((m) => m.sessionId === row.id)
     const pending = mine.some((m) => m.pending && m.at < cutoff && isPendingInput(m))
-    const unstarted =
-      row.startedAt < cutoff &&
-      mine.some((m) => m.card === null && isPendingInput(m)) &&
-      !mine.some((m) => m.authorKind === `agent` && (m.authorSessionId === null || m.authorSessionId === row.id))
+    const unstarted = row.startedAt < cutoff && unanswered(row, mine)
     if (!pending && !unstarted) continue
     Object.assign(row, { blocked: flag(`unclaimed`, now), needsInput: true, updatedAt: now })
     busLine(ctx, row, `session_unclaimed`, undeliveredText(), { waking: true })
@@ -1091,10 +1101,7 @@ function tick(ctx: Ctx): StepResult {
     if (!isWorking(row) || row.blocked?.kind !== `unclaimed` || row.startedAt === null) continue
     const mine = ctx.state.messages.filter((m) => m.sessionId === row.id)
     const pending = mine.some((m) => m.pending && isPendingInput(m))
-    const unstarted =
-      mine.some((m) => m.card === null && isPendingInput(m)) &&
-      !mine.some((m) => m.authorKind === `agent` && (m.authorSessionId === null || m.authorSessionId === row.id))
-    if (!pending && !unstarted) clearBlocked(ctx, row, `unclaimed`)
+    if (!pending && !unanswered(row, mine)) clearBlocked(ctx, row, `unclaimed`)
   }
   // Stuck: busy with no sign of life, unless its online host lists it live.
   for (const row of watched) {
