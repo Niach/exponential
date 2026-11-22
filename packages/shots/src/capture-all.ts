@@ -39,6 +39,7 @@ import {
   PLATFORMS,
   captureFor,
   viewById,
+  webWaitsForFeed,
   viewsFor,
   type EdeCapture,
   type NativeCapture,
@@ -492,8 +493,17 @@ function needsRelay(options: Options, scope: Scope): boolean {
   }
   return (
     laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id)) ||
-    (options.platforms.includes(`desktop`) && laneViews(scope, `desktop`).some((id) => desktopNeedsRelay(id)))
+    (options.platforms.includes(`desktop`) && laneViews(scope, `desktop`).some((id) => desktopNeedsRelay(id))) ||
+    // #EXP-1891: a web view on a chat's Chat tab waits for the stub's feed.
+    ([`web`, `web-mobile`] as Platform[]).some(
+      (platform) => options.platforms.includes(platform) && laneViews(scope, platform).some((id) => webNeedsRelay(id))
+    )
   )
+}
+
+function webNeedsRelay(id: string): boolean {
+  const view = viewById(id)
+  return view !== undefined && webWaitsForFeed(view)
 }
 
 /**

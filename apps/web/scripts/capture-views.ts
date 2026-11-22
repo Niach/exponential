@@ -37,11 +37,12 @@ import { mkdirSync, statSync, writeFileSync } from "node:fs"
 import {
   captureFor,
   viewsFor,
+  webWaitsForFeed,
   type Platform,
   type WebCapture,
   type WebIdentity,
 } from "@exp/view-catalog"
-import { APP_LANDING, launchContext, login, parkPointer, settle, shot, waitForAnchor } from "./lib/capture-web"
+import { APP_LANDING, launchContext, login, parkPointer, settle, shot, waitForAnchor, waitForFeedRows } from "./lib/capture-web"
 import { captureBase } from "./lib/h2-front"
 import { KEEPS_POINTER, RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
@@ -323,7 +324,8 @@ async function captureView(
   capture: WebCapture,
   ctx: RecipeCtx,
   outPath: string,
-  db: DbPlaceholders
+  db: DbPlaceholders,
+  waitFeed = false
 ): Promise<void> {
   // EXP-1284: every view starts with an empty work-tab strip — the tabs the
   // previous views opened (issues, sessions, chats) live in this window's
@@ -341,6 +343,8 @@ async function captureView(
   if (capture.recipe && !recipe) {
     throw new Error(`unknown recipe "${capture.recipe}" — not in lib/view-recipes.ts`)
   }
+  // #EXP-1891: a Chat tab's view waits for the stub's feed first.
+  if (waitFeed) await waitForFeedRows(page)
   if (recipe) await recipe(page, ctx)
 
   await waitForAnchor(page, capture.anchor)
@@ -515,7 +519,7 @@ async function main() {
             }
 
             await withDeadline(
-              captureView(page, capture, ctx, outPath, db),
+              captureView(page, capture, ctx, outPath, db, webWaitsForFeed(view)),
               VIEW_DEADLINE_MS,
               view.id
             )
