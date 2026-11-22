@@ -8,15 +8,18 @@
 //! A keysym no configured layout makes (`é` or `😀` on a US layout) is
 //! typed through a throwaway keymap that binds it to a spare keycode, sent
 //! to the focused client alone and replaced by the seat's again right
-//! after the tap (what `wtype` does, smithay's `inject_text_keysyms`): the
-//! seat's own keymap and xkb state are never touched, so the person's
-//! keys mean what they meant (#EDE-85). Its press types it; its release
+//! after the tap (what `wtype` does): the seat's own keymap and xkb state
+//! are never touched, so the person's keys mean what they meant, and its
+//! other clients hear neither keymap (smithay's `inject_text_keysyms`
+//! sends both to every keyboard on the seat) (#EDE-85). Its press types it; its release
 //! does nothing. A keysym xkb has no name for = `Ok(false)`, which the
 //! socket answers as `not_found`.
 
 use smithay::{
-    backend::input::{InputTime, KeyState},
-    input::keyboard::{xkb, Keycode, Keysym, Layout},
+    backend::input::KeyState,
+    input::keyboard::{xkb, KeymapFile, Keycode, Keysym, Layout},
+    reexports::wayland_server::{protocol::wl_keyboard, Resource},
+    utils::SERIAL_COUNTER,
 };
 
 use crate::{desk::DeskId, protected::Refused, state::Ede};
@@ -175,7 +178,32 @@ impl Ede {
             return Err(Refused::Protected);
         }
         let Some(keyboard) = self.try_desk(desk).and_then(|d| d.seat.get_keyboard()) else { return Ok(false) };
-        keyboard.inject_text_keysyms(self, &[Keysym::new(keysym)], InputTime::from_millis(time));
+        let Some(client) = keyboard.current_focus().and_then(|surface| surface.client()) else { return Ok(true) };
+        // The keysym on keycode 9 (evdev 1), nothing else.
+        let text = format!(
+            "xkb_keymap {{\n\
+             xkb_keycodes \"ede\" {{ minimum = 8; maximum = 255; <K9> = 9; }};\n\
+             xkb_types \"ede\" {{ include \"complete\" }};\n\
+             xkb_compatibility \"ede\" {{ include \"complete\" }};\n\
+             xkb_symbols \"ede\" {{ key <K9> {{ [ {name} ] }}; }};\n\
+             }};\n"
+        );
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = xkb::Keymap::new_from_string(&context, text, xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS) else { return Ok(false) };
+        let (throwaway, seat_keymap, mods) = (KeymapFile::new(&keymap), keyboard.keymap_file(), keyboard.modifier_state().serialized);
+        let send = |kbd: &wl_keyboard::WlKeyboard, file: &KeymapFile| {
+            if let Err(error) = file.with_fd(kbd.version() >= 7, |fd, size| kbd.keymap(wl_keyboard::KeymapFormat::XkbV1, fd, size as u32)) {
+                tracing::warn!(?error, "a keymap did not reach the focused client");
+            }
+        };
+        for kbd in keyboard.client_keyboards(&client) {
+            send(&kbd, &throwaway);
+            kbd.modifiers(SERIAL_COUNTER.next_serial().into(), 0, 0, 0, 0);
+            kbd.key(SERIAL_COUNTER.next_serial().into(), time, 1, wl_keyboard::KeyState::Pressed);
+            kbd.key(SERIAL_COUNTER.next_serial().into(), time, 1, wl_keyboard::KeyState::Released);
+            send(&kbd, &seat_keymap);
+            kbd.modifiers(SERIAL_COUNTER.next_serial().into(), mods.depressed, mods.latched, mods.locked, mods.layout_effective);
+        }
         if desk != DeskId::PERSON {
             self.space_active(desk);
         }
