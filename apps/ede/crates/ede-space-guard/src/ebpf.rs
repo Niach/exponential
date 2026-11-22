@@ -6,6 +6,8 @@ use std::collections::HashMap;
 
 /// `BPF_FUNC_probe_read_kernel`.
 pub const PROBE_READ_KERNEL: i32 = 113;
+/// A call's `src` for a kernel function (kfunc) by its BTF id in `imm`.
+pub const PSEUDO_KFUNC_CALL: u8 = 2;
 
 /// One instruction slot: `code`, `dst | src << 4`, `off`, `imm`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +83,7 @@ impl Size {
     }
 }
 
+const ALU: u8 = 0x04;
 const ALU64: u8 = 0x07;
 const JMP: u8 = 0x05;
 const LDX: u8 = 0x01;
@@ -136,6 +139,11 @@ impl Asm {
         self.push(ALU64 | 0x50 | X, dst, src, 0, 0)
     }
 
+    /// `dst = (u32) src` (the upper half zeroed).
+    pub fn mov32_reg(&mut self, dst: Reg, src: Reg) -> &mut Self {
+        self.push(ALU | 0xb0 | X, dst, src, 0, 0)
+    }
+
     pub fn rsh(&mut self, dst: Reg, imm: i32) -> &mut Self {
         self.push(ALU64 | 0x70 | K, dst, 0, 0, imm)
     }
@@ -182,6 +190,11 @@ impl Asm {
         self.push(JMP | 0x80, 0, 0, 0, helper)
     }
 
+    /// Calls the kernel function of BTF id `btf_id` (vmlinux's).
+    pub fn call_kfunc(&mut self, btf_id: u32) -> &mut Self {
+        self.push(JMP | 0x80, 0, PSEUDO_KFUNC_CALL, 0, btf_id as i32)
+    }
+
     pub fn exit(&mut self) -> &mut Self {
         self.push(JMP | 0x90, 0, 0, 0, 0)
     }
@@ -215,7 +228,12 @@ struct Region {
 /// Every jump goes forward, so a program ends in at most its length.
 pub struct Vm {
     regions: Vec<Region>,
+    /// What a kfunc call returns: (its BTF id, r1..r5) → r0.
+    kfunc: Option<Box<Kfunc>>,
 }
+
+/// A test's model of the kernel functions a program calls.
+pub type Kfunc = dyn FnMut(u32, [u64; 5]) -> Result<u64, String>;
 
 /// Where the interpreter maps the stack (512 bytes below it), the context
 /// and the kernel memory a test hands it.
@@ -228,7 +246,13 @@ impl Vm {
     pub fn new(ctx: Vec<u8>, kernel: Vec<(u64, Vec<u8>)>) -> Self {
         let mut regions = vec![Region { base: STACK_TOP - 512, bytes: vec![0xa5; 512], writable: true }, Region { base: CTX, bytes: ctx, writable: false }];
         regions.extend(kernel.into_iter().map(|(base, bytes)| Region { base, bytes, writable: false }));
-        Self { regions }
+        Self { regions, kfunc: None }
+    }
+
+    /// The kernel functions' model (a program that calls one needs it).
+    pub fn with_kfuncs(mut self, kfunc: impl FnMut(u32, [u64; 5]) -> Result<u64, String> + 'static) -> Self {
+        self.kfunc = Some(Box::new(kfunc));
+        self
     }
 
     fn region(&mut self, addr: u64, len: usize) -> Option<(&mut Region, usize)> {
@@ -268,6 +292,12 @@ impl Vm {
             let imm = i.imm as i64 as u64;
             let operand = if i.code & X != 0 { r[src] } else { imm };
             match i.code & 0x07 {
+                ALU if i.code == ALU | 0xb0 | X => {
+                    if dst == 10 {
+                        return Err("r10 is read only".into());
+                    }
+                    r[dst] = r[src] & 0xffff_ffff;
+                }
                 ALU64 => {
                     if dst == 10 {
                         return Err("r10 is read only".into());
@@ -288,7 +318,12 @@ impl Vm {
                     let taken = match op {
                         0x00 => true,
                         0x80 => {
-                            r[0] = self.helper(i.imm, &r)?;
+                            r[0] = if i.src == PSEUDO_KFUNC_CALL {
+                                let kfunc = self.kfunc.as_mut().ok_or_else(|| format!("kfunc {} without a model", i.imm))?;
+                                kfunc(i.imm as u32, [r[1], r[2], r[3], r[4], r[5]])?
+                            } else {
+                                self.helper(i.imm, &r)?
+                            };
                             // r1..r5 are clobbered by a call.
                             for reg in &mut r[1..=5] {
                                 *reg = 0xdead_beef;
@@ -399,6 +434,16 @@ mod tests {
         let mut asm = Asm::new();
         asm.store_imm(Size::W, R1, 0, 1).ret(0);
         assert!(Vm::new(vec![0; 8], vec![]).run(&asm.build()).unwrap_err().contains("read-only"));
+    }
+
+    #[test]
+    fn a_kfunc_call_and_a_32_bit_move() {
+        let mut asm = Asm::new();
+        asm.mov64(R6, 0x1_0000_0007).mov32_reg(R1, R6).call_kfunc(42).exit();
+        let program = asm.build();
+        assert_eq!(Insn::parse(&program)[3], Insn { code: 0x85, dst: 0, src: PSEUDO_KFUNC_CALL, off: 0, imm: 42 });
+        assert_eq!(Vm::new(vec![], vec![]).with_kfuncs(|id, args| Ok(id as u64 * 100 + args[0])).run(&program), Ok(4207));
+        assert!(Vm::new(vec![], vec![]).run(&program).unwrap_err().contains("without a model"));
     }
 
     #[test]

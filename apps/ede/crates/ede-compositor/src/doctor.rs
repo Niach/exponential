@@ -124,6 +124,12 @@ pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinpu
 /// a snap's link to it spells it): the person's Wayland socket. The
 /// session's state file says whether the guard that answered is one.
 pub const GUARD_CLOSES_WAYLAND: &str = "your Wayland socket (also through a snap's link to it)";
+/// #EDE-157: what a guard of this build also refuses where the kernel runs
+/// BPF LSM programs: a space's signals to the person's processes.
+pub const GUARD_CLOSES_SIGNALS: &str = "signals to your apps (a program there ends only the space's own)";
+/// #EDE-157: the same where the guard cannot refuse them (no BPF LSM, or a
+/// guard from before): `pkill firefox` in a space ends the person's.
+pub const GUARD_LEAVES_SIGNALS: &str = "signals to your apps: programs in a space can end your apps";
 /// What stays open to a space in this build. #EDE-138: the guard leaves
 /// your Xwayland's socket open, but the server admits only the cookie that
 /// your session's programs are given, which a space's are not.
@@ -154,7 +160,23 @@ pub fn check_space_guard(state: Option<&str>) -> Check {
         "ok" if polkit == "ok" => {
             // No such line: a compositor from before, whose guard is not
             // known to refuse it.
-            let (closed, open) = if field("wayland ") == "closed" { (format!("{GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}"), GUARD_LEAVES.to_string()) } else { (GUARD_CLOSES.to_string(), format!("{GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}")) };
+            let (mut closed, mut open) = (vec![GUARD_CLOSES.to_string()], vec![]);
+            if field("wayland ") == "closed" {
+                closed.push(GUARD_CLOSES_WAYLAND.into());
+            } else {
+                open.push(GUARD_LEAVES_WAYLAND.to_string());
+            }
+            // #EDE-157: no such line = a compositor from before, whose guard
+            // refuses no signals.
+            match field("signals ").as_str() {
+                "closed" => closed.push(GUARD_CLOSES_SIGNALS.into()),
+                signals => open.push(match signals.strip_prefix("open ") {
+                    Some(why) => format!("{GUARD_LEAVES_SIGNALS} ({why})"),
+                    None => GUARD_LEAVES_SIGNALS.to_string(),
+                }),
+            }
+            open.push(GUARD_LEAVES.to_string());
+            let (closed, open) = (closed.join("; "), open.join(", "));
             Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {closed}; open: {open}") }
         }
         "ok" if polkit == "pending" => Check { name, level: Level::Warn, detail: "this session is still asking polkit".into() },
@@ -1142,26 +1164,33 @@ mod tests {
         use crate::spaces::guard::state_text;
         use ede_space_guard::client::Probed;
         let (ok_, yes) = (Ok(Probed::Wayland), Ok(()));
-        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&yes))));
+        let closed = Some(&Ok(()));
+        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&yes), closed)));
         assert_eq!(ok.level, Level::Ok);
-        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}; open: {GUARD_LEAVES}"));
-        assert!(ok.detail.ends_with("; your Wayland socket (also through a snap's link to it); open: your Xwayland's socket (the server asks for your session's X cookie, which a space has not)"), "{}", ok.detail);
+        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}; {GUARD_CLOSES_SIGNALS}; open: {GUARD_LEAVES}"));
+        assert!(ok.detail.ends_with("; your Wayland socket (also through a snap's link to it); signals to your apps (a program there ends only the space's own); open: your Xwayland's socket (the server asks for your session's X cookie, which a space has not)"), "{}", ok.detail);
+        // #EDE-157: no BPF LSM on this kernel: the row says so, with why.
+        let no_lsm = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&yes), Some(&Err("this kernel runs no BPF LSM programs".into())))));
+        assert_eq!(no_lsm.level, Level::Ok);
+        assert_eq!(no_lsm.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}; open: {GUARD_LEAVES_SIGNALS} (this kernel runs no BPF LSM programs), {GUARD_LEAVES}"));
+        assert!(no_lsm.detail.contains("programs in a space can end your apps"), "{}", no_lsm.detail);
         // A guard from before, and the state file of a compositor from before.
-        let older = check_space_guard(Some(&state_text(true, Some(&Ok(Probed::Older)), true, Some(&yes))));
+        let older = check_space_guard(Some(&state_text(true, Some(&Ok(Probed::Older)), true, Some(&yes), Some(&Err("the running space guard is an older one".into())))));
+        assert_eq!(older.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES_SIGNALS} (the running space guard is an older one), {GUARD_LEAVES}"));
         let before = check_space_guard(Some("guard required\nprobe ok\nuser-manager yes\npolkit ok\n"));
         for check in [older, before] {
             assert_eq!(check.level, Level::Ok);
-            assert_eq!(check.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}"));
+            assert!(check.detail.starts_with(&format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES_SIGNALS}")), "{}", check.detail);
             assert!(check.detail.contains("; open: your Wayland socket (a program there that names it opens its windows on your desk"), "{}", check.detail);
         }
         for (state, says) in [
             (None, "no Exponential Desktop session runs here: the guard is the session's to ask".to_string()),
-            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into()),
-            (Some(state_text(true, Some(&ok_), false, None)), "no systemd user manager: nothing starts in an agent space".into()),
-            (Some(state_text(true, None, true, None)), "this session is still asking it".into()),
-            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
-            (Some(state_text(true, Some(&ok_), true, None)), "this session is still asking polkit".into()),
-            (Some(state_text(true, Some(&ok_), true, Some(&Err("polkit authorizes a space's programs".into())))), "polkit authorizes a space's programs: programs in an agent space may get polkit's yes without a prompt".into()),
+            (Some(state_text(false, None, true, None, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into()),
+            (Some(state_text(true, Some(&ok_), false, None, None)), "no systemd user manager: nothing starts in an agent space".into()),
+            (Some(state_text(true, None, true, None, None)), "this session is still asking it".into()),
+            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
+            (Some(state_text(true, Some(&ok_), true, None, None)), "this session is still asking polkit".into()),
+            (Some(state_text(true, Some(&ok_), true, Some(&Err("polkit authorizes a space's programs".into())), closed)), "polkit authorizes a space's programs: programs in an agent space may get polkit's yes without a prompt".into()),
         ] {
             let check = check_space_guard(state.as_deref());
             assert_eq!((check.level, check.detail), (Level::Warn, says));

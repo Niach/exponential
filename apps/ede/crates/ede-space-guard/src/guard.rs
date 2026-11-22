@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{btf, cgroup, connect, devices, protocol::Request, sys};
+use crate::{btf, cgroup, connect, devices, protocol::Request, signals, sys};
 
 /// How many LIVE space slices of one user carry the guard's programs (an
 /// attach is one list entry in the kernel; this bounds a user who makes
@@ -25,10 +25,16 @@ struct Guarded {
 }
 
 pub struct Guard {
-    /// `/sys/fs/cgroup`, `/proc` and the kernel's BTF (other roots in tests).
+    /// `/sys/fs/cgroup`, `/proc`, the kernel's BTF and its list of LSMs
+    /// (other roots in tests).
     pub cgroup_root: PathBuf,
     pub proc_root: PathBuf,
     pub btf: PathBuf,
+    pub lsm: PathBuf,
+    /// #EDE-157: the signal program's ids on this kernel, or why this
+    /// kernel cannot run it (then a space's signals stay open), read and
+    /// tried once per run.
+    signals: Option<Result<signals::Ids, String>>,
     devices: Option<OwnedFd>,
     /// This kernel's layout of a connect's address, read once.
     layout: Option<Result<connect::Layout, String>>,
@@ -42,7 +48,7 @@ pub struct Guard {
 
 impl Default for Guard {
     fn default() -> Self {
-        Self { cgroup_root: "/sys/fs/cgroup".into(), proc_root: "/proc".into(), btf: "/sys/kernel/btf/vmlinux".into(), devices: None, layout: None, connects: HashMap::new(), attached: HashMap::new(), probed: None }
+        Self { cgroup_root: "/sys/fs/cgroup".into(), proc_root: "/proc".into(), btf: "/sys/kernel/btf/vmlinux".into(), lsm: "/sys/kernel/security/lsm".into(), signals: None, devices: None, layout: None, connects: HashMap::new(), attached: HashMap::new(), probed: None }
     }
 }
 
@@ -69,6 +75,31 @@ impl Guard {
             self.layout = Some(read.map(|offsets| connect::Layout { uaddr: offsets[0], uaddrlen: offsets[1] }));
         }
         self.layout.clone().unwrap()
+    }
+
+    /// #EDE-157: the signal program loads here and the kernel runs it: `bpf`
+    /// among its LSMs, the hook and the kernel functions in its BTF, and a
+    /// program for a slice accepted by the verifier (tried once, for the
+    /// root cgroup). `Err` = a space's signals stay open, and why.
+    fn signals(&mut self) -> Result<signals::Ids, String> {
+        if self.signals.is_none() {
+            let tried = (|| {
+                let lsm = std::fs::read_to_string(&self.lsm).map_err(|e| format!("{}: {e}", self.lsm.display()))?;
+                if !signals::bpf_lsm_active(&lsm) {
+                    return Err(format!("this kernel runs no BPF LSM programs (no bpf in {}: {})", self.lsm.display(), lsm.trim()));
+                }
+                let btf = std::fs::read(&self.btf).map_err(|e| format!("{}: {e}", self.btf.display()))?;
+                let ids = signals::Ids::from_btf(&btf).map_err(|e| format!("this kernel has no signal hook: {e}"))?;
+                self.load_signals(&ids, 1)?;
+                Ok(ids)
+            })();
+            self.signals = Some(tried);
+        }
+        self.signals.clone().unwrap()
+    }
+
+    fn load_signals(&self, ids: &signals::Ids, slice: u64) -> Result<OwnedFd, String> {
+        sys::prog_load_at(sys::BPF_PROG_TYPE_LSM, sys::BPF_LSM_CGROUP, ids.hook, signals::NAME, &signals::program(ids, slice)).map_err(|e| format!("this kernel refuses the signal program: {e}"))
     }
 
     /// Loads the connect program of `policy` for connect() and for sendto().
@@ -104,6 +135,10 @@ impl Guard {
                 }
                 self.probed.clone().unwrap()
             }
+            // #EDE-157: `ok` = a space's signals to the person's processes
+            // are refused here; `no` says why they stay open (spaces are
+            // offered all the same).
+            Request::ProbeSignals => self.signals().map(drop),
             Request::Enter { spaces } => {
                 crate::protocol::spaces_dir_of(spaces, uid)?;
                 let text = std::fs::read_to_string(self.proc_root.join(pid.to_string()).join("cgroup")).map_err(|e| format!("process {pid}: {e}"))?;
@@ -113,7 +148,13 @@ impl Guard {
                 // nobody but this service can attach to a user's cgroup.
                 let have = |kind| sys::prog_count(dir.as_fd(), kind).map_err(|e| format!("{}: {e}", slice.name()));
                 let there = [have(sys::BPF_CGROUP_DEVICE)? > 0, have(sys::BPF_CGROUP_UNIX_CONNECT)? > 0, have(sys::BPF_CGROUP_UNIX_SENDMSG)? > 0];
-                if there.iter().all(|t| *t) {
+                // The signal program where this kernel runs it.
+                let signals = self.signals().ok();
+                let signals_there = match signals {
+                    Some(_) => have(sys::BPF_LSM_CGROUP)? > 0,
+                    None => true,
+                };
+                if there.iter().all(|t| *t) && signals_there {
                     return Ok(());
                 }
                 if self.live(uid) >= MAX_SLICES_PER_USER {
@@ -140,10 +181,38 @@ impl Guard {
                         sys::prog_attach(dir.as_fd(), program.as_fd(), attach).map_err(|e| format!("{}: {e}", slice.name()))?;
                     }
                 }
-                eprintln!("guarded {} of user {uid} (asked by process {pid})", slice.name());
+                // The slice's own program (its cgroup id baked in); the
+                // kernel keeps it while it is attached.
+                if let (Some(ids), false) = (signals, signals_there) {
+                    let id = sys::cgroup_id(dir.as_fd()).map_err(|e| format!("{}: {e}", slice.name()))?;
+                    let program = self.load_signals(&ids, id)?;
+                    sys::prog_attach(dir.as_fd(), program.as_fd(), sys::BPF_LSM_CGROUP).map_err(|e| format!("{}: the signal program: {e}", slice.name()))?;
+                }
+                eprintln!("guarded {} of user {uid} (asked by process {pid}; signals {})", slice.name(), if signals.is_some() { "closed" } else { "open" });
                 self.attached.entry(uid).or_default().push(Guarded { dir, spaces: spaces.clone() });
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EDE-157: a kernel without `bpf` among its LSMs leaves a space's
+    /// signals open, and the guard says why (never by loading anything).
+    #[test]
+    fn without_the_bpf_lsm_signals_stay_open_and_the_guard_says_why() {
+        let dir = std::env::temp_dir().join(format!("ede-guard-lsm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lsm = dir.join("lsm");
+        std::fs::write(&lsm, "lockdown,capability,landlock,yama,apparmor,ima,evm\n").unwrap();
+        let mut guard = Guard { lsm: lsm.clone(), ..Guard::default() };
+        let answer = guard.handle(&Request::ProbeSignals, std::process::id(), 1000);
+        assert_eq!(answer, Err(format!("this kernel runs no BPF LSM programs (no bpf in {}: lockdown,capability,landlock,yama,apparmor,ima,evm)", lsm.display())));
+        let mut guard = Guard { lsm: dir.join("missing"), ..Guard::default() };
+        assert!(guard.handle(&Request::ProbeSignals, std::process::id(), 1000).unwrap_err().contains("missing"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

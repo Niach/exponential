@@ -13,6 +13,9 @@ pub const BPF_PROG_DETACH: i32 = 9;
 pub const BPF_PROG_QUERY: i32 = 16;
 pub const BPF_PROG_TYPE_CGROUP_DEVICE: u32 = 15;
 pub const BPF_PROG_TYPE_CGROUP_SOCK_ADDR: u32 = 18;
+/// #EDE-157: an LSM program; attached per cgroup (`BPF_LSM_CGROUP`).
+pub const BPF_PROG_TYPE_LSM: u32 = 29;
+pub const BPF_LSM_CGROUP: u32 = 43;
 pub const BPF_CGROUP_DEVICE: u32 = 6;
 pub const BPF_CGROUP_UNIX_CONNECT: u32 = 49;
 pub const BPF_CGROUP_UNIX_SENDMSG: u32 = 50;
@@ -53,6 +56,12 @@ fn put64(attr: &mut [u8], at: usize, value: u64) {
 
 /// Loads a program; the verifier's log is in the error when it refuses.
 pub fn prog_load(prog_type: u32, expected_attach_type: u32, name: &str, insns: &[u8]) -> io::Result<OwnedFd> {
+    prog_load_at(prog_type, expected_attach_type, 0, name, insns)
+}
+
+/// [`prog_load`] of a program that attaches to the kernel's function of
+/// BTF id `attach_btf_id` (an LSM hook's, vmlinux's).
+pub fn prog_load_at(prog_type: u32, expected_attach_type: u32, attach_btf_id: u32, name: &str, insns: &[u8]) -> io::Result<OwnedFd> {
     let license = CString::new("GPL").unwrap();
     let mut log = vec![0u8; 1 << 16];
     let mut attr = attr();
@@ -66,6 +75,7 @@ pub fn prog_load(prog_type: u32, expected_attach_type: u32, name: &str, insns: &
     }
     attr[48..64].copy_from_slice(&name_bytes);
     put32(&mut attr, 68, expected_attach_type);
+    put32(&mut attr, 108, attach_btf_id);
     match bpf(BPF_PROG_LOAD, &mut attr) {
         // SAFETY: the kernel returned a new descriptor that nothing else owns.
         Ok(fd) => Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) }),
@@ -154,6 +164,19 @@ pub fn open_cgroup(root: &std::path::Path, components: &[String], uid: u32) -> i
         return Err(io::Error::other(format!("the cgroup belongs to uid {}, not {uid}", st.st_uid)));
     }
     Ok(dir)
+}
+
+/// The cgroup id of directory `dir` (cgroup2's inode number is its id,
+/// what `bpf_cgroup_from_id` takes).
+pub fn cgroup_id(dir: BorrowedFd) -> io::Result<u64> {
+    // SAFETY: a plain out-struct for fstat on our descriptor.
+    unsafe {
+        let mut st: libc::stat = std::mem::zeroed();
+        if libc::fstat(dir.as_raw_fd(), &mut st) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(st.st_ino)
+    }
 }
 
 /// Is the cgroup of directory `dir` gone (removed since it was opened)?

@@ -773,7 +773,7 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     assert_eq!(h.with(|state| state.space_readiness()), Err("guard"));
     // The doctor reads what the session decided.
     let state = std::fs::read_to_string(ede_compositor::spaces::guard::state_file(&spaces_dir)).unwrap();
-    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\nwayland open\n");
+    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\nwayland open\nsignals pending\n");
 
     // The guard's socket is gone (stopped, removed): `unavailable` at once.
     std::fs::remove_file(&socket).unwrap();
