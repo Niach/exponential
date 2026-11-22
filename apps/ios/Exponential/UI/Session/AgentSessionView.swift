@@ -1301,7 +1301,6 @@ struct AgentSessionView: View {
                 }
                 // #FEED-237: a press puts the bubble at the bottom: follow it.
                 .onChange(of: model.ownPending.count) { old, new in
-                    NSLog("DBAE ownPending %d -> %d", old, new)
                     guard new > old else { return }
                     atBottom = true
                     // #EXP-1976: from a reader scrolled up over tall lazy
@@ -1314,7 +1313,6 @@ struct AgentSessionView: View {
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         sendSettling = false
-                        NSLog("DBAE settle atBottom=%d bottomShown=%d", atBottom ? 1 : 0, bottomShown ? 1 : 0)
                         // Still nothing realised at the end: move the offset
                         // for real (the newest row), then pin again.
                         guard atBottom, !bottomShown, let last = model.transcript.last?.id else { return }
@@ -5345,15 +5343,11 @@ struct FollowPinTracker: ViewModifier {
             burstOpenedAt = now
             growthRepins = 0
         }
-        guard growthRepins < Self.maxGrowthRepins else {
-            NSLog("DBAE budget out stranded=%d", stranded ? 1 : 0)
-            return
-        }
+        guard growthRepins < Self.maxGrowthRepins else { return }
         repinQueued = true
         growthRepins += 1
         Task { @MainActor in
             repinQueued = false
-            NSLog("DBAE repin stranded=%d atBottom=%d user=%d hold=%d", stranded ? 1 : 0, atBottom ? 1 : 0, userScrolling ? 1 : 0, hold ? 1 : 0)
             guard stranded || atBottom, !userScrolling, !hold else { return }
             repin()
         }
@@ -5428,7 +5422,6 @@ struct FollowPinTracker: ViewModifier {
                         below: geometry.contentSize.height - geometry.visibleRect.maxY
                     )
                 } action: { old, new in
-                    NSLog("DBAE growth h=%.0f below=%.0f atBottom=%d user=%d", new.height, new.below, atBottom ? 1 : 0, userScrolling ? 1 : 0)
                     // NOTHING re-arms the budget here: `below <= 0` is what a
                     // repin PRODUCES, so re-arming on it handed the storm its
                     // own escape hatch (EXP-943). The rate window in
