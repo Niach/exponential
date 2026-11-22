@@ -1,4 +1,5 @@
 import { useNotificationToasts } from "@/hooks/use-notification-toasts"
+import { isGlobalSearchKey } from "./global-search-shortcut"
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { rememberLastVisited } from "@/lib/last-visited"
@@ -107,13 +108,11 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   // unless this page already shows it (notification-delivery.json).
   useNotificationToasts(user?.id)
 
-  // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
-  // search, unconditionally (EXP-870: the app's one navigation chord).
+  // The global search shortcut (EXP-870): #EXP-2025 Cmd/Ctrl+K everywhere,
+  // Cmd/Ctrl+F unless an open chat took it first (#EDE-129 find in chat).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // #EDE-129: an open chat took it first (find in chat).
-      if (event.defaultPrevented) return
-      if (event.key === `f` && (event.metaKey || event.ctrlKey)) {
+      if (isGlobalSearchKey(event)) {
         event.preventDefault()
         setSearchOpen(true)
       }
