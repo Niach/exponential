@@ -56,5 +56,6 @@ A space guards against accidents, not against a program that works at it. Its pr
 - **One user, no wall.** A program in a space can still move itself into another of your cgroups, use a file descriptor passed in from outside, or read and write your files.
 - **A space's X11 apps** are drawn by an Xwayland of the space's that runs outside the space's limits.
 - **GPU time and disk** are shared with your apps; a busy space can slow them.
+- **Signals**: where the kernel runs no BPF LSM programs (Ubuntu 24.04, for example), a program in a space can end your apps (`pkill firefox`). `exponential doctor` says so. Elsewhere the space guard refuses a space's signals to your apps.
 - **Sound**: a snap in a space can play sound on your speakers.
 - **An edited taskbar**: if you or an agent changed `~/.config/exponential-desktop/ui/taskbar.json`, your copy stays and the **Agent spaces** button is not in it. Take the button from the factory copy, `/usr/share/exponential-desktop/ui/taskbar.json`.

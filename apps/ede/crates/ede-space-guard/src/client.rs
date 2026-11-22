@@ -49,6 +49,16 @@ pub fn probe(socket: &Path) -> Result<Probed, String> {
     probed.map_err(|reason| format!("the space guard: {reason}"))
 }
 
+/// #EDE-157: does the guard at `socket` refuse a space's signals to the
+/// person's processes? `Err` says why they stay open: this kernel, or a
+/// guard from before that knows nothing of them.
+pub fn probe_signals(socket: &Path) -> Result<(), String> {
+    match ask_by(socket, &Request::ProbeSignals, Instant::now() + TIMEOUT) {
+        Err(reason) if reason == NOT_A_REQUEST => Err("the running space guard is an older one".into()),
+        other => other,
+    }
+}
+
 fn ask_by(socket: &Path, request: &Request, deadline: Instant) -> Result<(), String> {
     let mut pause = Duration::from_millis(50);
     loop {
@@ -217,7 +227,12 @@ mod tests {
         assert_eq!(asked.try_iter().count(), 1);
         let (older_refusing, _asked) = fake_guard("older-refusing", |line| reply(&Err(if line == "probe\n" { "this kernel has no unix connect hook" } else { NOT_A_REQUEST }.into())));
         assert_eq!(probe(&older_refusing), Err("the space guard: this kernel has no unix connect hook".into()));
-        for socket in [current, older, refusing, older_refusing] {
+        // #EDE-157: signals, of this build's guard and of one from before.
+        assert_eq!(probe_signals(&current), Ok(()));
+        assert_eq!(probe_signals(&older), Err("the running space guard is an older one".into()));
+        let (no_lsm, _asked) = fake_guard("no-lsm", |line| reply(&if line == "probe signals\n" { Err("this kernel runs no BPF LSM programs".into()) } else { Ok(()) }));
+        assert_eq!(probe_signals(&no_lsm), Err("this kernel runs no BPF LSM programs".into()));
+        for socket in [current, older, refusing, older_refusing, no_lsm] {
             let _ = std::fs::remove_file(socket);
         }
     }

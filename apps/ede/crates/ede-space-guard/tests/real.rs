@@ -9,7 +9,10 @@
 //! it), while the space's own tmux server and Wayland socket are reached; outside it everything is as
 //! before, and the user cannot take the programs off. polkit, with the
 //! package's rule installed, challenges the probe action for a process of
-//! the slice of all spaces and allows it outside.
+//! the slice of all spaces and allows it outside. #EDE-157: where the
+//! kernel runs BPF LSM programs, a process of the slice cannot signal a
+//! process outside it (`kill -0` still answers), and signals one inside;
+//! elsewhere the guard says signals stay open.
 //!
 //! Runs only with `EDE_SPACE_GUARD_REAL=1` (it uses passwordless sudo to
 //! start the guard and to make device nodes); otherwise it says so and
@@ -100,7 +103,30 @@ fn the_helper() {
         for line in connects(&paths) {
             println!("CONNECT {line}");
         }
+        if let Some(outside) = std::env::var("EDE_GUARD_HELPER_KILL").ok().and_then(|pid| pid.parse::<i32>().ok()) {
+            for line in kills(outside) {
+                println!("KILL {line}");
+            }
+        }
     }
+}
+
+/// #EDE-157: what signalling gives, as `what errno` lines: a process
+/// outside (`outside0` = signal 0, `outside` = SIGTERM), and a sleeper of
+/// the helper's own (`inside <errno> <signal it ended by>`).
+fn kills(outside: i32) -> Vec<String> {
+    let errno = |r: i32| if r == 0 { 0 } else { std::io::Error::last_os_error().raw_os_error().unwrap_or(-1) };
+    // SAFETY: kill(2) of given pids.
+    let mut lines = vec![format!("outside0 {}", errno(unsafe { libc::kill(outside, 0) })), format!("outside {}", errno(unsafe { libc::kill(outside, libc::SIGTERM) }))];
+    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+    // SAFETY: as above, our own child.
+    let sent = errno(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) });
+    if sent != 0 {
+        let _ = child.kill();
+    }
+    let status = child.wait().unwrap();
+    lines.push(format!("inside {sent} {}", std::os::unix::process::ExitStatusExt::signal(&status).unwrap_or(0)));
+    lines
 }
 
 struct Run {
@@ -242,13 +268,26 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     let not_in_a_space = ede_space_guard::client::ask(&socket, &Request::Enter { spaces: spaces.clone() });
     assert!(not_in_a_space.as_ref().is_err_and(|r| r.contains("is not in an agent space")), "{not_in_a_space:?}");
 
+    // #EDE-157: whether this kernel runs the signal program (`bpf` among
+    // its LSMs), and a sleeper of the person's (this test's) outside.
+    let bpf_lsm = std::fs::read_to_string("/sys/kernel/security/lsm").is_ok_and(|lsm| ede_space_guard::signals::bpf_lsm_active(&lsm));
+    let signals = ede_space_guard::client::probe_signals(&socket);
+    eprintln!("this kernel's BPF LSM: {}; the guard: signals {signals:?}", if bpf_lsm { "on" } else { "off" });
+    if bpf_lsm {
+        assert_eq!(signals, Ok(()), "the BPF LSM is on, but the guard leaves signals open");
+    } else {
+        assert!(signals.as_ref().is_err_and(|why| why.contains("no BPF LSM")), "{signals:?}");
+    }
+    let mut sleeper = Command::new("sleep").arg("120").spawn().unwrap();
+
     // A launch into space 1: the guard is asked from inside the scope,
     // then the helper opens the nodes.
-    let inside = |unit: &str| {
+    let inside = |unit: &str, kill: Option<u32>| {
         let out = Command::new("systemd-run")
             .args(["--user", "--scope", "--quiet", "--collect", &format!("--slice=app-exponential_p{me}-s1.slice"), &format!("--unit={unit}")])
             .arg(format!("--setenv=EDE_GUARD_HELPER_DIR={}", dir.display()))
             .arg(format!("--setenv=EDE_GUARD_HELPER_CONNECT={}", refused.iter().chain(&reached).cloned().collect::<Vec<_>>().join("|")))
+            .arg(format!("--setenv=EDE_GUARD_HELPER_KILL={}", kill.map(|pid| pid.to_string()).unwrap_or_default()))
             .args(["--", GUARD, "enter", "--socket"])
             .arg(&socket)
             .args([&spaces, "--"])
@@ -260,9 +299,21 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
         // The test harness prints `test the_helper ... ` before the first line.
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         let take = |prefix: &str| stdout.lines().filter_map(|line| line.find(prefix).map(|at| line[at + prefix.len()..].to_string())).collect::<Vec<_>>();
-        (take("OPEN "), take("CONNECT "))
+        (take("OPEN "), take("CONNECT "), take("KILL "))
     };
-    let (lines, connected) = inside(&format!("exponential-p{me}-s1-1.scope"));
+    let (lines, connected, killed) = inside(&format!("exponential-p{me}-s1-1.scope"), Some(sleeper.id()));
+    // #EDE-157: inside, a signal of the space's own is delivered; outside,
+    // `kill -0` answers, and a signal is refused where the BPF LSM runs.
+    assert!(killed.contains(&"inside 0 15".to_string()), "{killed:?}");
+    assert!(killed.contains(&"outside0 0".to_string()), "{killed:?}");
+    if bpf_lsm {
+        assert!(killed.contains(&format!("outside {}", libc::EPERM)), "a space signalled the person's process: {killed:?}");
+        assert!(sleeper.try_wait().unwrap().is_none(), "the person's sleeper ended");
+    } else {
+        assert!(killed.contains(&"outside 0".to_string()), "{killed:?}");
+    }
+    let _ = sleeper.kill();
+    let _ = sleeper.wait();
     for (name, mode) in [("snd", "r"), ("snd", "rw"), ("video", "r"), ("video", "rw"), ("uinput", "rw"), ("rfkill", "rw")] {
         assert_eq!(errno(&lines, name, mode), libc::EPERM, "{name} {mode} is open in a space: {lines:?}");
     }
@@ -313,7 +364,10 @@ fn a_guarded_space_slice_opens_no_microphone_camera_or_uinput_and_the_user_canno
     let slice = sys::open_cgroup(Path::new("/sys/fs/cgroup"), &components, uid).unwrap();
     assert!(sys::prog_detach_any(slice.as_fd(), sys::BPF_CGROUP_DEVICE).is_err(), "the user detached the guard's program");
     assert!(sys::prog_detach_any(slice.as_fd(), sys::BPF_CGROUP_UNIX_CONNECT).is_err(), "the user detached the guard's connect program");
-    let (again, connected_again) = inside(&format!("exponential-p{me}-s1-2.scope"));
+    if bpf_lsm {
+        assert!(sys::prog_detach_any(slice.as_fd(), sys::BPF_LSM_CGROUP).is_err(), "the user detached the guard's signal program");
+    }
+    let (again, connected_again, _) = inside(&format!("exponential-p{me}-s1-2.scope"), None);
     assert_eq!(errno(&again, "snd", "rw"), libc::EPERM, "{again:?}");
     assert_eq!(errno(&connected_again, "/run/dbus/system_bus_socket", "bare"), libc::EPERM, "{connected_again:?}");
 

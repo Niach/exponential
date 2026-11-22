@@ -681,7 +681,7 @@ first; each op needs the Core capability it names:
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 | `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches, no_space}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes, `no_space` = no agent space exists (none open, none stopping, no launch alive); the polkit agent asks it) | `system` |
 | `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
-| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?}`, whether a person's runs get an agent space now; every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
+| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?, signals?}`, whether a person's runs get an agent space now (`signals: "open"`, #EDE-157: a space's programs can signal the person's here; never a block); every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -1074,7 +1074,7 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   process that cleared its environment, left its launch's lineage and
   group, and left the slice is tied to nothing (#EDE-145).
 
-## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
+## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148, #EDE-157)
 
 A space's programs are the person's user, so by user they may open the
 person's microphone and camera (the `uaccess` ACLs logind gives the person,
@@ -1130,6 +1130,27 @@ so does the person's Xwayland's abstract socket: until Xwayland gets an
 X authority (F3), `DISPLAY=:0 xdotool type …` from a space reaches the
 person's X11 apps.
 
+Third, a signal program (#EDE-157, `crates/ede-space-guard/src/signals.rs`):
+the kernel lets a user signal all of its own processes, so from a space
+`pkill firefox` would end the person's Firefox, `killall Xwayland` their
+X11 apps and `pkill -f exponential` their session. Where the kernel runs
+BPF LSM programs (`bpf` in `/sys/kernel/security/lsm`; Linux 6.5 or newer),
+the guard attaches an LSM program to the slice (`BPF_LSM_CGROUP` on
+`bpf_lsm_task_kill`, the hook's and the kfuncs' BTF ids read from
+`/sys/kernel/btf/vmlinux`). It runs for every signal a process of the slice
+sends (kill, tkill, tgkill, pidfd_send_signal, rt_sigqueueinfo) and lets
+through signal 0 (`kill -0`, is it there?) and any signal to a process
+inside the same slice (`bpf_cgroup_from_id` of the slice's id, baked into
+the program, `bpf_task_under_cgroup`); every other one is refused with
+`EPERM`. Inside the space nothing changes (its user manager, bus and
+launches signal each other as before); the person still signals a space's
+processes. Not covered: `fcntl(F_SETOWN)` + SIGIO, a process that left its
+cgroup. Where the BPF LSM is off (Ubuntu 24.04's default list), spaces are
+still offered: the probe's `probe signals` answers why not, readiness
+carries `signals: open`, and the doctor's line says that programs in a
+space can end your apps (`exponential-space-guard probe` prints
+`signals closed` or `signals open: <why>`).
+
 The package also ships `/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules`:
 polkit answers NO for every action whose subject is in a space's slice
 (polkit takes a space's processes for the person's active session, so
@@ -1167,7 +1188,8 @@ answers with a challenge; readiness and the doctor's line need it.
   space (its state file says `wayland open`).
 - **Its three capabilities, no root.** A user of its own (`DynamicUser`),
   `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
-  `CAP_PERFMON` (the connect program reads the address it is asked about),
+  `CAP_PERFMON` (the connect program reads the address it is asked about,
+  and the signal program is an LSM program),
   nothing else; no network, no home directories, the system read-only, a
   narrow syscall set. What a compromised guard could do with them: attach
   cgroup programs to any cgroup (also refusing devices or sockets to other
@@ -1199,7 +1221,9 @@ answers with a challenge; readiness and the doctor's line need it.
   root in a space (sudo with the person's password) detaching the program.
 - **Needs** cgroup v2, Linux 6.7 or newer (the unix connect hook) with BTF,
   lockdown below `confidentiality`, and a kernel that loads both programs
-  (`exponential-space-guard probe` prints `ok` or why not).
+  (`exponential-space-guard probe` prints `ok` or why not); the signal
+  program also `bpf` among the kernel's LSMs (`lsm=` on the kernel's
+  command line where it is not).
 
 ## Agent spaces: readiness (#EXP-1514, #EXP-2011)
 

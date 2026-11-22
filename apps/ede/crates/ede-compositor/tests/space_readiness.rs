@@ -152,6 +152,16 @@ fn ready_from_the_real_checks_and_each_block() {
     assert_eq!(block(&mut root).as_deref(), Some("guard"), "polkit authorizes a space's process");
     *polkit.lock().unwrap() = Some(Ok(()));
 
+    // #EDE-157: signals open (no BPF LSM here) ride along, never a block;
+    // refused or not known yet, the answer says nothing of them.
+    let signals = h.with(|state| state.spaces.guard.signals.clone());
+    assert_eq!(root.space_readiness().unwrap().signals, None, "not known yet");
+    *signals.lock().unwrap() = Some(Err("this kernel runs no BPF LSM programs".into()));
+    let answer = root.space_readiness().unwrap();
+    assert!(answer.ready && answer.signals.as_deref() == Some("open"), "{answer:?}");
+    *signals.lock().unwrap() = Some(Ok(()));
+    assert_eq!(root.space_readiness().unwrap().signals, None, "refused");
+
     // The latch: a space's session failed, until one starts.
     h.with(|state| state.spaces.session_failed = Some("space-1: its user manager ended".into()));
     assert_eq!(block(&mut root).as_deref(), Some("session"));

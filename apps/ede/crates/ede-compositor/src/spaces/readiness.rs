@@ -20,6 +20,11 @@
 //!    ([`super::slice`]), and one that loses its user manager answers
 //!    `unavailable`.
 //!
+//! **`signals: open`** (#EDE-157) rides along, never a block: the guard
+//! answered that a space's signals to the person's processes stay open
+//! here (the kernel runs no BPF LSM programs, or the guard is an older
+//! one).
+//!
 //! There is no `driver` block: on every graphics driver a space's apps
 //! start, on the GPU where the driver is proven and in software elsewhere
 //! (#EDE-162; an app whose GPU path fails latches its space back to
@@ -126,7 +131,10 @@ impl crate::state::Ede {
             }
             self.spaces.readiness_said = Some(now.clone());
         }
-        ede_protocol::SpaceReadiness { ready: now.is_ok(), block: now.err().map(|block| block.word.to_string()), max: Some(self.space_max() as u32) }
+        // #EDE-157: spaces are offered where the guard cannot refuse their
+        // signals; the answer says so.
+        let signals = self.space_signals_open().then(|| "open".to_string());
+        ede_protocol::SpaceReadiness { ready: now.is_ok(), block: now.err().map(|block| block.word.to_string()), max: Some(self.space_max() as u32), signals }
     }
 }
 

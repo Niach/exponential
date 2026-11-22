@@ -5,7 +5,7 @@
 //! ```text
 //! exponential-space-guard                                   the service (socket activation)
 //! exponential-space-guard --socket PATH                     the service on a socket of its own (tests)
-//! exponential-space-guard probe [--socket PATH]             can it do its work here? (prints ok or why)
+//! exponential-space-guard probe [--socket PATH]             can it do its work here? (prints ok or why; then whether a space's signals are closed)
 //! exponential-space-guard enter [--socket PATH] SPACES -- ARGV…   guard this process's space slice, then become ARGV
 //! ```
 
@@ -71,6 +71,10 @@ fn main() {
             match client::ask(&socket, &Request::Probe) {
                 Ok(()) => println!("ok"),
                 Err(reason) => fail(&reason),
+            }
+            match client::probe_signals(&socket) {
+                Ok(()) => println!("signals closed"),
+                Err(reason) => println!("signals open: {reason}"),
             }
         }
         Some("enter") => {
