@@ -462,11 +462,14 @@ impl LocalSessions {
                                 // desktop).
                                 let live = live.with_registry(&data_dir, &session_id);
                                 match &trpc {
-                                    Some(trpc) => coding::finish_session_worktree(
+                                    // #EXP-2038: a held launch gate is
+                                    // tried again within minutes.
+                                    Some(trpc) => coding::finish_session_worktree_retrying(
                                         trpc,
                                         &session_id,
                                         &cleanup,
                                         &live,
+                                        &data_dir,
                                     ),
                                     // Signed out meanwhile: no line to post.
                                     None => coding::finish_worktree(

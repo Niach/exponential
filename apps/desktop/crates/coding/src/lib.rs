@@ -168,7 +168,7 @@ pub use launcher::{
     WorktreeProvider, SESSION_BRANCH_PREFIX,
 };
 pub use run_cleanup::{
-    finish_session_worktree, finish_worktree, leftover_note, post_leftover_note, remove_if_clean,
+    finish_session_worktree, finish_session_worktree_retrying, finish_worktree, leftover_note, post_leftover_note, remove_if_clean,
     session_id8,
     CleanupOutcome, FinishOutcome, LiveHolders, RunCleanup, SkipReason as CleanupSkipReason,
     LEFTOVER_BRANCH_PREFIX,
