@@ -571,6 +571,8 @@ impl Ede {
         self.space_sessions_tick();
         self.space_flatpaks_tick();
         self.space_launches_tick();
+        #[cfg(feature = "xwayland")]
+        self.space_x11_scopes_tick();
         let mut closing = std::mem::take(&mut self.spaces.closing);
         closing.retain_mut(|c| {
             if self.seat_state.remove_seat(&c.seat) {

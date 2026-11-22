@@ -298,6 +298,70 @@ fn a_spaces_xwayland_that_dies_comes_back_and_goes_with_its_space() {
     common::space::spaces_settled(&h);
 }
 
+/// #EDE-149: a space's X server stops answering (stopped: as slow as a
+/// server gets; a flood or a grab only slows it down) while its window
+/// manager asks it something on the compositor's thread, as it does about
+/// every new window. Past `ROUND_TRIP_LIMIT` its connection is cut and
+/// the server is ended: the compositor waited that long once, the
+/// person's Xwayland and the space live on, and the space's next launch
+/// gets a new server.
+#[test]
+fn a_space_server_that_stops_answering_costs_the_space_not_the_compositor() {
+    use ede_compositor::spaces::x11::ROUND_TRIP_LIMIT;
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let Some(person) = xwayland(&h) else { return };
+    let (mut agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
+    let desk = space_desk(&space);
+    let pid = xwayland_pid(display).expect("the space's Xwayland process");
+    assert_eq!(h.with(move |state| state.space_xwm_round_trip(desk)), Some(true), "a healthy server answers");
+
+    // SAFETY: a signal to our own child.
+    assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGSTOP) }, 0);
+    let asked = Instant::now();
+    let answered = h.with(move |state| state.space_xwm_round_trip(desk));
+    let waited = asked.elapsed();
+    assert_eq!(answered, Some(false), "a stopped server cannot answer");
+    assert!(waited + Duration::from_millis(50) >= ROUND_TRIP_LIMIT && waited < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {waited:?} for the space's server");
+    // Then the compositor answers at once again, and the server goes.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while h.with(move |state| state.spaces.get(desk).is_some_and(|s| s.x11().is_some())) {
+        assert!(Instant::now() < deadline, "the space's server that stopped answering was never let go of");
+        let asked = Instant::now();
+        h.with(|_| ());
+        assert!(asked.elapsed() < Duration::from_millis(500), "the compositor waited {:?} again", asked.elapsed());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let gone = |pid: u32| std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !gone(pid) {
+        assert!(Instant::now() < deadline, "the server that stopped answering still runs");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(agent.spaces().unwrap(), [space.clone()], "the space lives on");
+    assert!(h.with(|state| state.xdisplay.is_some() && state.xwm.is_some()), "the person's Xwayland lives on");
+    // The person's server still answers, and its window manager with it.
+    let before = h.with(|state| state.desk.space.elements().filter(|w| w.x11_surface().is_some()).count());
+    x11_window(&person, RED);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while h.with(|state| state.desk.space.elements().filter(|w| w.x11_surface().is_some()).count()) == before {
+        assert!(Instant::now() < deadline, "the person's X11 window never mapped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // The next launch: another server.
+    let out = dir.path().join("again.display");
+    agent.launch(vec!["sh".into(), "-c".into(), format!("echo \"$DISPLAY\" > {0}.tmp && mv {0}.tmp {0}; exec sleep 60", out.display())], Default::default(), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !h.with(move |state| state.space_xwm_ready(desk)) || !out.exists() {
+        assert!(Instant::now() < deadline, "no Xwayland after the next launch");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let again: u32 = std::fs::read_to_string(&out).unwrap().trim().trim_start_matches(':').parse().unwrap();
+    assert!(xwayland_pid(again).is_some_and(|new| new != pid), "the space's new Xwayland");
+    agent.destroy_space(space.id.clone()).unwrap();
+    common::space::spaces_settled(&h);
+}
+
 /// #EDE-138: an X11 window launched into a space fills it, takes the
 /// space's keyboard and gets the agent's keys, while the person types into
 /// their own window and gets exactly theirs. The person's focus, pointer,

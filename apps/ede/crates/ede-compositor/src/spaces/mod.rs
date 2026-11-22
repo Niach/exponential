@@ -117,6 +117,10 @@ pub struct Spaces {
     /// The window managers of closed spaces, until their connection is gone.
     #[cfg(feature = "xwayland")]
     closing_xwms: Vec<smithay::xwayland::X11Wm>,
+    /// #EDE-149: the `busctl` calls moving spaces' Xwaylands into their
+    /// scopes, until they are reaped (with what each is, for the log).
+    #[cfg(feature = "xwayland")]
+    x11_scopes: Vec<(std::process::Child, String)>,
     /// How many 1 s ticks in a row a space outlives its owner's last
     /// space grant ([`close`]).
     pub expiry_grace: u32,
@@ -140,7 +144,7 @@ pub struct Spaces {
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), #[cfg(feature = "xwayland")] x11_scopes: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
     }
 }
 
