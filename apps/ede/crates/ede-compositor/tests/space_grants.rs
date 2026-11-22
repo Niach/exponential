@@ -80,9 +80,10 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::SpaceOfProcess { pid: std::process::id() },
         Request::SpaceReadiness,
         Request::SpaceBusy,
+        Request::OpenChannel { session_id: None, capabilities: vec![Capability::Space], expires_at: None },
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 38, "one request per op at least");
+    assert_eq!(ops.len(), 39, "one request per op at least");
     all
 }
 
@@ -94,6 +95,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::BindShortcuts { .. } => {}
         Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {}
         Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}
+        Request::OpenChannel { .. } => {}
     }
     std::mem::discriminant(request)
 }
@@ -187,12 +189,12 @@ fn a_second_hello_cannot_change_the_scope() {
     let h = harness();
     let root_token = h.with(|ede| ede.ipc.root_grant().token);
     let (space_token, mut agent) = space_grant(&h, "run-1");
-    assert_eq!(code(agent.call(Request::Hello { version: PROTOCOL_VERSION, token: root_token.clone() })), ErrorCode::Forbidden);
+    assert_eq!(code(agent.call(Request::Hello { version: PROTOCOL_VERSION, token: Some(root_token.clone()) })), ErrorCode::Forbidden);
     assert_eq!(code(agent.windows()), ErrorCode::NotFound, "still a space connection");
     let mut root = h.ipc();
-    assert_eq!(code(root.call(Request::Hello { version: PROTOCOL_VERSION, token: space_token })), ErrorCode::Forbidden);
+    assert_eq!(code(root.call(Request::Hello { version: PROTOCOL_VERSION, token: Some(space_token) })), ErrorCode::Forbidden);
     assert!(root.windows().is_ok(), "still the root's connection");
-    assert!(root.call(Request::Hello { version: PROTOCOL_VERSION, token: root_token }).is_ok(), "the same scope again is today's hello");
+    assert!(root.call(Request::Hello { version: PROTOCOL_VERSION, token: Some(root_token) }).is_ok(), "the same scope again is today's hello");
 }
 
 /// A pin, green before and after: a foreground run revokes its grant before

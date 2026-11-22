@@ -237,6 +237,14 @@ impl Harness {
         ede_protocol::Client::over(ours, token).expect("ede-protocol hello")
     }
 
+    /// #EDE-172: a connection holding the root grant from the start (what
+    /// `--control-fd` hands over): its hello names no token.
+    pub fn root_channel(&self) -> ede_protocol::Client {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        assert!(self.with(move |state| state.ipc_insert_root_channel(theirs)), "the root channel");
+        ede_protocol::Client::from_fd(ours.into()).expect("ede-protocol hello")
+    }
+
     /// An `ede-protocol` connection with `token`.
     pub fn ipc_with(&self, token: ede_protocol::Token) -> Result<ede_protocol::Client, ede_protocol::Error> {
         let (ours, theirs) = UnixStream::pair().expect("socketpair");

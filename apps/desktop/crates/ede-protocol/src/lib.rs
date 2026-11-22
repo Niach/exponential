@@ -18,6 +18,19 @@
 //! holding only what the caller names and drops the root connection
 //! (#EDE-22: grants by default). A process handed a grant in `EDE_TOKEN`
 //! (the sealed lock, a sandboxed agent) keeps that one.
+//!
+//! #EDE-172, channels: a grant can live on connections instead of in a
+//! string. A connection the compositor made (inherited at spawn,
+//! [`Client::inherited`], or a test's `--control-fd`) already holds its
+//! grant and says hello without a token. [`Request::OpenChannel`] answers
+//! with one more such connection, a descriptor next to its reply frame
+//! ([`Client::open_channel`]): on the caller's own grant, or on a child of
+//! it no wider and no longer-lived. A child is bound: its token is never
+//! taken at hello (the wire [`Grant`] keeps the field; for a bound grant it
+//! is the grant's id, which [`Request::RevokeGrant`] takes), and revoking
+//! it, or the end of its parent, ends its connections. Until eDE's flip
+//! the token file stays and every reader falls back to it; an older
+//! compositor answers `open_channel` with [`Error::Unsupported`].
 
 use std::{
     io::{Read, Write},
@@ -25,7 +38,10 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::{collections::VecDeque, os::unix::net::UnixStream};
+use std::{
+    collections::VecDeque,
+    os::{fd::OwnedFd, unix::net::UnixStream},
+};
 
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -78,6 +94,11 @@ pub fn token_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
     runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.token"))
 }
 
+/// #EDE-172: the descriptor number of the control connection a process was
+/// started with ([`Client::inherited`]); the compositor sets it for what it
+/// spawns.
+pub const CONTROL_FD_ENV: &str = "EDE_CONTROL_FD";
+
 /// Where the compositor serving `wayland_display` keeps its agent spaces'
 /// directories, each `space-n` (#EDE-125): a launch into a space has its
 /// directory as `XDG_RUNTIME_DIR` ([`process::space_in`]).
@@ -96,8 +117,16 @@ pub struct Call {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
-    /// First call on every connection.
-    Hello { version: u32, token: Token },
+    /// First call on every connection. `token` = the grant to act under;
+    /// none on a connection that already holds its grant (#EDE-172: one the
+    /// compositor made, [`Request::OpenChannel`]'s), whose reply also names
+    /// that grant (`grant`, its token or a bound grant's id). A bound
+    /// grant's token is refused here.
+    Hello {
+        version: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token: Option<Token>,
+    },
     ListWindows,
     ListOutputs,
     /// Raises and activates a window; a parked one brings its workspace
@@ -172,7 +201,30 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
     },
-    RevokeGrant { token: Token },
+    /// Ends a grant: by its token, or a bound one (#EDE-172) by its id, the
+    /// `token` of the reply that opened it (also read as `grant`). A bound
+    /// grant's connections end with it, and so do its children's. `system`
+    /// ends any grant but the root; any grant ends itself and what was
+    /// opened on it.
+    RevokeGrant {
+        #[serde(alias = "grant")]
+        token: Token,
+    },
+    /// #EDE-172: one more connection holding a grant, as a descriptor
+    /// (`SCM_RIGHTS`) that comes with the reply frame; the reply is that
+    /// connection's [`Grant`] (for a child: bound, its `token` its id).
+    /// `session_id` none = the caller's own grant as it is (`capabilities`
+    /// exactly what it holds, no `expires_at`); named = a child of it,
+    /// holding no more than it and expiring no later. Any valid grant asks;
+    /// never a space grant, and no child holds `space` (a space grant is
+    /// minted: [`Request::MintGrant`]).
+    OpenChannel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<SessionId>,
+        capabilities: Vec<Capability>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at: Option<i64>,
+    },
     /// Global shortcuts for `owner` (the portal's session), replacing what
     /// it held (#EDE-15). Triggers follow the XDG shortcuts spec
     /// (`CTRL+SHIFT+a`, `LOGO+F5`); one that does not parse, takes a plain
@@ -543,6 +595,8 @@ impl Request {
     pub fn capability(&self) -> Option<Capability> {
         match self {
             Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
+            // #EDE-172: what the channel holds is checked against the grant.
+            Request::OpenChannel { .. } => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
@@ -550,7 +604,9 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
                 Some(Capability::InputPerson)
             }
-            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::LaunchToken => Some(Capability::System),
+            // #EDE-172: `system` ends any grant, a holder its own lineage (checked in the arm).
+            Request::RevokeGrant { .. } => None,
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
             Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
         }
@@ -571,7 +627,7 @@ impl Request {
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
-            Request::SpaceOfProcess { .. } | Request::SpaceReadiness => false,
+            Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } => false,
         }
     }
 }
@@ -957,6 +1013,11 @@ pub struct Client {
     stream: UnixStream,
     next_id: u64,
     events: VecDeque<Envelope>,
+    /// The descriptors that came with the frames read so far (#EDE-172:
+    /// an `open_channel` reply's), oldest first.
+    fds: VecDeque<OwnedFd>,
+    /// What the hello said, or for a connection that held its grant
+    /// already, the `grant` its hello's reply named.
     token: Token,
     pub hello: Hello,
     call_timeout: std::time::Duration,
@@ -996,11 +1057,68 @@ impl Client {
     }
 
     fn over_until(stream: UnixStream, token: Token, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
+        Self::handshake(stream, Some(token), call_timeout, deadline)
+    }
+
+    /// The hello: with `token`, or none on a connection that holds its
+    /// grant already, whose reply names it (`grant`).
+    fn handshake(stream: UnixStream, token: Option<Token>, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
-        let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
+        let pending = Token::new("0".repeat(64)).expect("64 hex");
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), fds: VecDeque::new(), token: token.clone().unwrap_or(pending), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
+        let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token: token.clone() })?;
+        if token.is_none() {
+            let grant = hello.get("grant").and_then(serde_json::Value::as_str).ok_or_else(|| Error::Protocol("a tokenless hello's reply names no grant".into()))?;
+            client.token = Token::new(grant).map_err(|e| Error::Protocol(format!("{e:?}")))?;
+        }
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
+    }
+
+    /// #EDE-172: hello over a connection that already holds its grant (one
+    /// the compositor made: [`Client::open_channel`]'s descriptor, an
+    /// inherited one). No token goes over it.
+    pub fn from_fd(fd: OwnedFd) -> Result<Self, Error> {
+        Self::handshake(UnixStream::from(fd), None, CALL_TIMEOUT, None)
+    }
+
+    /// #EDE-172: the control connection this process was started with: the
+    /// descriptor [`CONTROL_FD_ENV`] names (the compositor's spawn hands it
+    /// over at fd 3), or `None` without one. It is taken once: the variable
+    /// is removed (call this before other threads read the environment) and
+    /// the descriptor is closed on exec, so what this process starts
+    /// inherits neither. A descriptor that is not a socket is refused.
+    pub fn inherited() -> Option<Result<Self, Error>> {
+        use std::os::fd::FromRawFd;
+        static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let named = std::env::var(CONTROL_FD_ENV).ok()?;
+        std::env::remove_var(CONTROL_FD_ENV);
+        if TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Some(Err(Error::Protocol("the inherited control connection was taken already".into())));
+        }
+        let Some(raw) = named.trim().parse::<i32>().ok().filter(|fd| *fd > 2) else {
+            return Some(Err(Error::Protocol(format!("{CONTROL_FD_ENV}={named:?} names no descriptor"))));
+        };
+        // Safety: the descriptor is this process's by inheritance, named
+        // for it by its parent, and taken once (above); nothing else here
+        // owns it. A number that is not open fails `fstat` below and is
+        // forgotten again without being closed.
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        match rustix::fs::fstat(&fd) {
+            Ok(stat) if rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Socket => {}
+            Ok(_) => {
+                std::mem::forget(fd);
+                return Some(Err(Error::Protocol(format!("descriptor {raw} is not a socket"))));
+            }
+            Err(e) => {
+                std::mem::forget(fd);
+                return Some(Err(Error::Io(e.into())));
+            }
+        }
+        if let Err(e) = rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC) {
+            return Some(Err(Error::Io(e.into())));
+        }
+        Some(Self::from_fd(fd))
     }
 
     /// The compositor of `$WAYLAND_DISPLAY` with `token` (a minted grant).
@@ -1050,9 +1168,34 @@ impl Client {
         let _ = self.stream.set_write_timeout(Some(timeout));
     }
 
-    /// The token this connection said hello with.
+    /// The token this connection said hello with; on one that held its
+    /// grant already (#EDE-172), the grant its hello's reply named: a
+    /// bound grant's id, refused at hello and taken by
+    /// [`Client::revoke_grant`].
     pub fn token(&self) -> &Token {
         &self.token
+    }
+
+    /// #EDE-172 ([`Request::OpenChannel`]): one more connection, holding
+    /// this connection's own grant (`session_id` none, `capabilities`
+    /// what it holds) or a child of it for `session_id`, no wider and no
+    /// longer-lived; and that connection's grant (a child's `token` is its
+    /// id). An older compositor answers [`Error::Unsupported`].
+    pub fn open_channel(&mut self, session_id: Option<SessionId>, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<(Client, Grant), Error> {
+        // A descriptor left over from a call that failed after it arrived is no one's.
+        self.fds.clear();
+        let mut grant = self.call(Request::OpenChannel { session_id, capabilities, expires_at })?;
+        let fd = self.fds.pop_front().ok_or_else(|| Error::Protocol("open_channel answered without a descriptor".into()))?;
+        if let Some(serde_json::Value::Array(capabilities)) = grant.get_mut("capabilities") {
+            capabilities.retain(|capability| capability.as_str().and_then(Capability::parse).is_some());
+        }
+        let grant: Grant = serde_json::from_value(grant).map_err(|e| Error::Protocol(e.to_string()))?;
+        Ok((Client::from_fd(fd)?, grant))
+    }
+
+    /// [`Request::RevokeGrant`]: `grant` = a token, or a bound grant's id.
+    pub fn revoke_grant(&mut self, grant: &Token) -> Result<(), Error> {
+        self.call(Request::RevokeGrant { token: grant.clone() }).map(|_| ())
     }
 
     pub fn call(&mut self, request: Request) -> Result<serde_json::Value, Error> {
@@ -1110,7 +1253,7 @@ impl Client {
     }
 
     fn read_message(&mut self) -> Result<Message, Error> {
-        let frame = read_frame(&mut self.stream)?;
+        let frame = read_frame(&mut Receiving { stream: &self.stream, fds: &mut self.fds })?;
         serde_json::from_slice(&frame).map_err(|e| Error::Protocol(e.to_string()))
     }
 
@@ -1132,7 +1275,7 @@ impl Client {
         if info.unchanged {
             return Ok(None);
         }
-        let pixels = self.within(|client, _| Ok(read_frame(&mut client.stream)?))?;
+        let pixels = self.within(|client, _| Ok(read_frame(&mut Receiving { stream: &client.stream, fds: &mut client.fds })?))?;
         if pixels.len() != (info.stride * info.height) as usize {
             return Err(Error::Protocol("capture size mismatch".into()));
         }
@@ -1305,6 +1448,39 @@ impl Client {
 
     pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
         self.stream.set_read_timeout(timeout)
+    }
+}
+
+/// #EDE-172: the client's reads, which keep the descriptors that come with
+/// the bytes (`SCM_RIGHTS`; a plain read drops them, closed). Only an
+/// `open_channel` reply carries one.
+#[cfg(unix)]
+struct Receiving<'a> {
+    stream: &'a UnixStream,
+    fds: &'a mut VecDeque<OwnedFd>,
+}
+
+#[cfg(unix)]
+impl Read for Receiving<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(4))];
+        let mut control = RecvAncillaryBuffer::new(&mut space);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let flags = RecvFlags::CMSG_CLOEXEC;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let flags = RecvFlags::empty();
+        let received = rustix::net::recvmsg(self.stream, &mut [std::io::IoSliceMut::new(buf)], &mut control, flags)?;
+        for message in control.drain() {
+            if let RecvAncillaryMessage::ScmRights(fds) = message {
+                for fd in fds {
+                    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                    let _ = rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC);
+                    self.fds.push_back(fd);
+                }
+            }
+        }
+        Ok(received.bytes)
     }
 }
 
@@ -1726,7 +1902,8 @@ mod tests {
         let space = || SpaceId::new("space-1").unwrap();
         let key = InputEvent::Key { key: 30, pressed: true };
         let table = [
-            (Request::Hello { version: 1, token: Token::new("0".repeat(64)).unwrap() }, true),
+            (Request::Hello { version: 1, token: Some(Token::new("0".repeat(64)).unwrap()) }, true),
+            (Request::Hello { version: 1, token: None }, true),
             (Request::ListWindows, true),
             (Request::ListOutputs, true),
             (Request::FocusWindow { window: w() }, true),
@@ -1768,13 +1945,14 @@ mod tests {
             (Request::SpaceOfProcess { pid: 42 }, false),
             (Request::SpaceReadiness, false),
             (Request::SpaceBusy, true),
+            (Request::OpenChannel { session_id: None, capabilities: vec![Capability::Space], expires_at: None }, false),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 39, "one row per variant at least");
+        assert_eq!(seen.len(), 40, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -1830,6 +2008,7 @@ mod tests {
             Request::SpaceOfProcess { .. } => "space_of_process",
             Request::SpaceReadiness => "space_readiness",
             Request::SpaceBusy => "space_busy",
+            Request::OpenChannel { .. } => "open_channel",
         }
     }
 
@@ -1925,6 +2104,126 @@ mod tests {
             client.clipboard_set(vec![ClipboardItem { mime: "a".into(), data: vec![0; 4 << 20] }], false).is_err()
         });
         assert!(failed);
+    }
+
+    /// #EDE-172: the channel ops on the wire. A hello without a token
+    /// leaves the field out; `revoke_grant` takes a bound grant's id as
+    /// `grant` too.
+    #[test]
+    fn channel_ops_are_flat_json_and_round_trip() {
+        let token = || Token::new("ab".repeat(32)).unwrap();
+        for (request, json) in [
+            (Request::Hello { version: 1, token: None }, serde_json::json!({"id": 1, "op": "hello", "version": 1})),
+            (Request::Hello { version: 1, token: Some(token()) }, serde_json::json!({"id": 1, "op": "hello", "version": 1, "token": "ab".repeat(32)})),
+            (Request::OpenChannel { session_id: None, capabilities: vec![Capability::Ui], expires_at: None }, serde_json::json!({"id": 1, "op": "open_channel", "capabilities": ["ui"]})),
+            (
+                Request::OpenChannel { session_id: Some(SessionId::new("run-1").unwrap()), capabilities: vec![Capability::Capture, Capability::InputPerson], expires_at: Some(9) },
+                serde_json::json!({"id": 1, "op": "open_channel", "session_id": "run-1", "capabilities": ["capture", "input:person"], "expires_at": 9}),
+            ),
+            (Request::RevokeGrant { token: token() }, serde_json::json!({"id": 1, "op": "revoke_grant", "token": "ab".repeat(32)})),
+        ] {
+            let call = Call { id: 1, request };
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let by_id: Call = serde_json::from_value(serde_json::json!({"id": 2, "op": "revoke_grant", "grant": "ab".repeat(32)})).unwrap();
+        assert_eq!(by_id.request, Request::RevokeGrant { token: token() });
+        assert_eq!(Request::OpenChannel { session_id: None, capabilities: vec![], expires_at: None }.capability(), None, "any grant; the arm checks what it holds");
+        assert_eq!(Request::RevokeGrant { token: token() }.capability(), None, "system, or the grant's own lineage: the arm checks");
+    }
+
+    /// One frame written with `fd` riding on its first byte, as the
+    /// compositor sends an `open_channel` reply.
+    #[cfg(unix)]
+    fn send_with_fd(stream: &UnixStream, message: &serde_json::Value, fd: Option<&OwnedFd>) {
+        use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
+        use std::os::fd::AsFd;
+        let json = serde_json::to_vec(message).unwrap();
+        let mut frame = (json.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&json);
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        let fds = fd.map(|fd| [fd.as_fd()]);
+        if let Some(fds) = &fds {
+            assert!(control.push(SendAncillaryMessage::ScmRights(fds)));
+        }
+        let sent = rustix::net::sendmsg(stream, &[std::io::IoSlice::new(&frame)], &mut control, SendFlags::empty()).unwrap();
+        assert_eq!(sent, frame.len());
+    }
+
+    /// A compositor's side of a connection that already holds its grant:
+    /// it answers the tokenless hello, naming the grant, then `answer` per call.
+    #[cfg(unix)]
+    fn bound_peer(theirs: UnixStream, grant: &str, answer: impl Fn(&UnixStream, &serde_json::Value) + Send + 'static) -> std::thread::JoinHandle<()> {
+        let grant = grant.to_string();
+        std::thread::spawn(move || {
+            let mut theirs = theirs;
+            let Ok(frame) = read_frame(&mut theirs) else { return };
+            let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+            assert_eq!(call["op"], "hello");
+            assert!(call.get("token").is_none(), "no token over a bound connection: {call}");
+            let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["ui"], "session_id": "apps", "grant": grant});
+            send_with_fd(&theirs, &serde_json::json!({"type": "reply", "id": call["id"], "result": hello}), None);
+            while let Ok(frame) = read_frame(&mut theirs) {
+                answer(&theirs, &serde_json::from_slice(&frame).unwrap());
+            }
+        })
+    }
+
+    /// #EDE-172: an `open_channel` reply brings its descriptor along, also
+    /// when an event was read in the same go before it; the client says a
+    /// tokenless hello over it and holds the grant the reply names. A
+    /// reply without a descriptor is a protocol error, never a connection.
+    #[cfg(unix)]
+    #[test]
+    fn a_descriptor_comes_with_its_reply_frame() {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let child_id = "c".repeat(64);
+        let peer = bound_peer(theirs, &"e".repeat(64), {
+            let child_id = child_id.clone();
+            move |theirs, call| {
+                let id = call["id"].clone();
+                match call["op"].as_str() {
+                    Some("open_channel") if call["session_id"] == "apps" => {
+                        let (channel, other_end) = UnixStream::pair().unwrap();
+                        let _ = bound_peer(channel, &child_id, |_, _| {});
+                        send_with_fd(theirs, &serde_json::json!({"type": "event", "event": Envelope::new("ev-1", events::HOTKEY, 1, EVENT_SOURCE, None, serde_json::json!({"name": "menu.toggle"}))}), None);
+                        let grant = serde_json::json!({"token": child_id, "sessionId": "apps", "capabilities": ["ui", "lend:window"]});
+                        send_with_fd(theirs, &serde_json::json!({"type": "reply", "id": id, "result": grant}), Some(&OwnedFd::from(other_end)));
+                    }
+                    _ => send_with_fd(theirs, &serde_json::json!({"type": "reply", "id": id, "result": {"token": "d".repeat(64), "sessionId": "x", "capabilities": []}}), None),
+                }
+            }
+        });
+        let mut client = Client::from_fd(OwnedFd::from(ours)).unwrap();
+        assert_eq!(client.token().as_str(), "e".repeat(64), "the grant the reply named");
+        assert_eq!(client.hello.session_id.as_str(), "apps");
+        let (child, grant) = client.open_channel(Some(SessionId::new("apps").unwrap()), vec![Capability::Ui], None).unwrap();
+        assert_eq!((grant.token.as_str(), grant.capabilities.as_slice()), (child_id.as_str(), &[Capability::Ui][..]), "a capability this build does not know is dropped, as mint's");
+        assert_eq!(child.token().as_str(), child_id, "the new connection said hello over the descriptor");
+        assert_eq!(client.next_event().unwrap().kind, events::HOTKEY, "the event before the reply is kept");
+        let missing = client.open_channel(Some(SessionId::new("other").unwrap()), vec![Capability::Ui], None).err().unwrap();
+        assert!(matches!(missing, Error::Protocol(_)), "{missing:?}");
+        drop(client);
+        drop(child);
+        peer.join().unwrap();
+    }
+
+    /// #EDE-172: only a socket is taken as the inherited control connection.
+    #[cfg(unix)]
+    #[test]
+    fn an_inherited_descriptor_must_be_a_socket() {
+        use std::os::fd::IntoRawFd;
+        let file = std::fs::File::open("/dev/null").unwrap();
+        let raw = file.into_raw_fd();
+        std::env::set_var(CONTROL_FD_ENV, raw.to_string());
+        let refused = Client::inherited().expect("named").err().unwrap();
+        assert!(matches!(refused, Error::Protocol(_)), "{refused:?}");
+        assert!(std::env::var_os(CONTROL_FD_ENV).is_none(), "the variable goes with the first look");
+        // Not closed by the refusal: still this test's to close.
+        // Safety: `raw` came from `into_raw_fd` above and is closed once here.
+        drop(unsafe { <OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) });
+        assert!(Client::inherited().is_none(), "nothing named any more");
     }
 
     #[test]
