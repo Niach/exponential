@@ -79,10 +79,12 @@ jobs:
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest -x :app:testDebugUnitTest --no-daemon
       # exponential-ui.yml `compose` (the eUI Compose painter tests): the same
-      # dependencies, plus its own test compile in the build cache.
+      # dependencies, plus its own test compile in the build cache, plus
+      # Robolectric's android-all jar (#EXP-2054: the tests run Robolectric
+      # offline from it, `robolectricJars`).
       - name: The Compose painter's unit-test compile
         working-directory: packages/exponential-ui-compose
-        run: ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest -x :ui-compose:testDebugUnitTest -x :ui-compose-primitives:testDebugUnitTest --no-daemon
+        run: ./gradlew :ui-compose:robolectricJars :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest -x :ui-compose:testDebugUnitTest -x :ui-compose-primitives:testDebugUnitTest --no-daemon
       # Gradle's lock and GC bookkeeping files would only make a restored home
       # look in use or due for a cleanup.
       - name: Drop the lock files
