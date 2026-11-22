@@ -280,8 +280,10 @@ type HostedContainer = HTMLElement | null | `pending`
 
 /** VAPP-281: with `host.popupHost`, ask it for a container when the popup
  *  opens (its anchor's box in surface coordinates, side, align); tell it
- *  when it closes. */
-function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], open: Accessor<boolean>, anchorOf: () => Element | null | undefined, side: Accessor<Side>, align: Accessor<`start` | `center` | `end`>): Accessor<HostedContainer> {
+ *  when it closes. #EXP-2047: `.follow()` = the reposition while the host
+ *  holds it (its anchor moved: `mount` again with the same owner and the
+ *  anchor's new box), else undefined. */
+function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], open: Accessor<boolean>, anchorOf: () => Element | null | undefined, side: Accessor<Side>, align: Accessor<`start` | `center` | `end`>): Accessor<HostedContainer> & { follow: Accessor<(() => void) | undefined> } {
   const ctx = useSurfaceContext()
   const [asked, setAsked] = createSignal<{ el: HTMLElement | null } | null>(null)
   createEffect(() => {
@@ -297,11 +299,24 @@ function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], o
       setAsked(null)
     })
   })
-  return () => {
+  const container = (): HostedContainer => {
     if (!ctx.host.popupHost || !open()) return null
     const a = asked()
     return a ? a.el : `pending`
   }
+  const reposition = () => {
+    const host = ctx.host.popupHost
+    if (!host) return
+    const el = untrack(anchorOf)
+    const mounted = mountHostedPopup(host, untrack(() => hostedPopupOf(owner(), kind, el, side(), align(), ctx.direction)), el)
+    if (untrack(asked)?.el !== mounted) setAsked({ el: mounted })
+  }
+  return Object.assign(container, {
+    follow: () => {
+      const c = container()
+      return c && c !== `pending` ? reposition : undefined
+    },
+  })
 }
 
 /** The overlay layer, or the host's container (VAPP-281). */
@@ -317,14 +332,17 @@ const HOVER_OPEN_MS = 200
 const HOVER_CLOSE_MS = 150
 
 /** #EXP-1739 (overlayAnchor): while `open`, the overlay closes once its
- *  anchor (`get`, read every frame) scrolls, moves or goes. */
-function closeOnAnchorLost(open: Accessor<boolean>, get: () => Element | null | undefined, close: () => void): void {
+ *  anchor (`get`, read every frame) scrolls, moves or goes. #EXP-2047: a
+ *  hosted popup passes `moved` (`createHostedPopup`'s follow): a move
+ *  follows. */
+function closeOnAnchorLost(open: Accessor<boolean>, get: () => Element | null | undefined, close: () => void, moved?: Accessor<(() => void) | undefined>): void {
   createEffect(() => {
     if (!open()) return
     // Watched from the element it resolved to; a newly resolved one restarts it.
     const el = get()
     if (!el) return
-    onCleanup(watchAnchor(() => el, close))
+    const follow = moved?.()
+    onCleanup(watchAnchor(() => el, close, follow))
   })
 }
 
@@ -365,7 +383,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
   // it never takes the focus from the field, closing it returns it nowhere.
   const typeahead = () => anchored() && isFieldAnchorElement(linked())
   const hosted = createHostedPopup(() => props.node.id, `Popover`, open, anchor, side, align)
-  closeOnAnchorLost(open, () => anchor() ?? wrapper(), () => setOpen(false))
+  closeOnAnchorLost(open, () => anchor() ?? wrapper(), () => setOpen(false), hosted.follow)
   const state = () => (open() ? `open` : `closed`)
   const presence = createPresence(open)
 
@@ -1214,8 +1232,8 @@ export function PressMenu(props: {
   const contentId = props.contentId ?? createUniqueId()
   const [own, setTrigger] = createSignal<HTMLElement>()
   const trigger = () => props.anchor?.() ?? own()
-  closeOnAnchorLost(open, trigger, () => setOpen(false))
   const hosted = createHostedPopup(() => props.hostAs ?? ``, `Menu`, () => !!props.hostAs && open(), trigger, () => props.side ?? `bottom`, () => props.align ?? `start`)
+  closeOnAnchorLost(open, trigger, () => setOpen(false), hosted.follow)
   useKeyboardTracking()
   const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
   const preview = createMenuPreview(open)
