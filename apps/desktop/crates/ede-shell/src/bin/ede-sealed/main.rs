@@ -13,7 +13,8 @@
 //!   process.
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
-//!   the prompt, polkit's helper checks the password; it stays up between prompts.
+//!   the prompt, polkit's helper checks the password; it stays up between prompts,
+//!   its renderer up from its start (#EDE-184).
 //!   A request from an agent space is refused and opens nothing (#EDE-127);
 //!   one from outside the person's login session opens the prompt without
 //!   the keyboard (on demand: the person clicks into it) and names the
@@ -107,13 +108,13 @@ fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, 
         .and_then(|mut c| c.outputs().ok())
         .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
-    open_on(doc, data, acts, None, (w, h), keyboard, cx)
+    open_on(doc, data, acts, None, (w, h), Layer::Overlay, if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand }, cx)
 }
 
 /// [`open`] on `display` (`None` = the compositor's choice), whose logical
 /// size is `w`×`h`: the root fills it in px (a layer window takes its
-/// content's size otherwise) and the surface asks for it.
-fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), keyboard: bool, cx: &mut App) -> Option<Open> {
+/// content's size otherwise) and the surface asks for it, on `layer`.
+fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), layer: Layer, keyboard: KeyboardInteractivity, cx: &mut App) -> Option<Open> {
     let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
     if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
         style.insert("width".into(), json!(w));
@@ -130,12 +131,12 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
     let host: Rc<dyn HostPlugin> = Rc::new(Host { acts });
     let kind = WindowKind::LayerShell(LayerShellOptions {
         namespace: "exponential-sealed".into(),
-        layer: Layer::Overlay,
+        layer,
         anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
         exclusive_zone: Some(px(-1.0)),
         exclusive_edge: None,
         margin: None,
-        keyboard_interactivity: if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand },
+        keyboard_interactivity: keyboard,
     });
     let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
     let out = view_out.clone();
@@ -216,6 +217,27 @@ fn focus(open: &Open, id: &str, cx: &mut App) {
 
 fn close(open: Open, cx: &mut App) {
     let _ = open.handle.update(cx, |_, window, _| window.remove_window());
+}
+
+/// #EDE-184: what a process's first window pays for (wgpu's instance,
+/// adapter and device, which gpui keeps for the process, the shaders and
+/// the prompt's fonts) the polkit agent pays at its start: a prompt laid
+/// out and painted once, on the background layer without the keyboard,
+/// and closed before the compositor ever configures it, so it never shows
+/// and never takes input. Without it the first prompt after login came up
+/// seconds late on llvmpipe, and what the person typed meanwhile went to
+/// the window under it.
+fn warm(cx: &mut App) {
+    let started = std::time::Instant::now();
+    let data = json!({"message": "Authentication is needed to run `/usr/bin/true' as the super user", "identity": "org.freedesktop.policykit.exec · as root", "asker": "Asked by /usr/bin/bash (process 1)"});
+    let (acts, _) = mpsc::channel();
+    match open_on(POLKIT, data, acts, None, (1280.0, 720.0), Layer::Background, KeyboardInteractivity::None, cx) {
+        Some(open) => {
+            close(open, cx);
+            tracing::info!(ms = started.elapsed().as_millis() as u64, "the renderer is up");
+        }
+        None => tracing::warn!("the renderer is not up ahead of the first prompt"),
+    }
 }
 
 /// `HH:MM` local time.
@@ -319,7 +341,7 @@ fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixel
         if shown.iter().any(|s| s.display == display) {
             continue;
         }
-        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), true, cx) {
+        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), Layer::Overlay, KeyboardInteractivity::Exclusive, cx) {
             Some(open) => shown.push(Shown { display, size, open }),
             None => std::process::exit(1),
         }
@@ -428,6 +450,7 @@ fn polkit_agent() {
         // #EDE-87: gpui quits when its last window closes; the agent's
         // last window is the prompt, and the agent outlives every prompt.
         cx.set_quit_mode(gpui::QuitMode::Explicit);
+        warm(cx);
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         // The open prompt and its answer channel.
         let mut current: Option<(String, Open, mpsc::Sender<polkit::Answer>)> = None;
