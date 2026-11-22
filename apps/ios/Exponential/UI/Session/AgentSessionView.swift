@@ -861,6 +861,11 @@ struct AgentSessionView: View {
                 EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
             }
             .accessibilityIdentifier("transcript-device-away")
+        case .waiting:
+            // #EXP-2000: nothing to say before a device picked the row up.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("transcript-waiting")
         case .idle:
             // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
             // a row that is not busy (idle, or on an open question) is never
