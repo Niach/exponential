@@ -1715,7 +1715,44 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
             size.height = Some(view.height);
         }
     }
+    taskbar_popup_room(&mut header, out.1);
     header
+}
+
+/// #EDE-168: a taskbar popup never reaches past the output's work area: it
+/// stands on its button, at most the height above the taskbar less the
+/// panel's margin (854×534 logical, 1280×800 at 1.5: the sound applet's
+/// 600 became 476). Its root follows ([`size_root`]) and its content
+/// scrolls; a root that hugs its content takes the window down to it
+/// ([`fit_popups`]).
+fn taskbar_popup_room(header: &mut SurfaceHeader, out_h: u32) {
+    use ede_ui::surface::Placement;
+    let SurfaceHeader::Popup { popup, .. } = header else { return };
+    if popup.parent != "taskbar" || !matches!(popup.placement, Placement::TopStart | Placement::TopEnd) {
+        return;
+    }
+    let layout = shell_layout();
+    let room = out_h.saturating_sub(layout.taskbar_height + layout.panel_margin).max(1);
+    popup.size.height = popup.size.height.min(room);
+}
+
+/// #EDE-168: the open taskbar popups' windows at their roots' laid-out
+/// heights (every tick: a popup's rows arrive after it opened).
+fn fit_popups(shell: &SharedShell, cx: &mut App) {
+    let names: Vec<String> = {
+        let s = shell.borrow();
+        let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
+        ui.documents()
+            .filter(|d| matches!(&d.surface, SurfaceHeader::Popup { popup, .. } if popup.parent == "taskbar"))
+            .map(|d| d.name.clone())
+            .filter(|n| s.surfaces.is_open(n))
+            .collect()
+    };
+    for name in names {
+        if shell.borrow_mut().surfaces.fit_popup(&name, cx) {
+            tracing::info!(document = %name, "popup fitted");
+        }
+    }
 }
 
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
@@ -1748,8 +1785,18 @@ fn layer_header(doc: &Document, (out_w, out_h): (u32, u32)) -> SurfaceHeader {
 }
 
 /// A layer document's root takes the surface's size in px (`100%` of a
-/// layer window is whatever it was opened at).
+/// layer window is whatever it was opened at); a popup's root is at most
+/// its window's height (#EDE-168: [`taskbar_popup_room`]).
 fn size_root(doc: &mut Document, header: &SurfaceHeader) {
+    if let (SurfaceHeader::Popup { popup, .. }, ede_ui::Body::Nested(root)) = (header, &mut doc.body) {
+        let room = popup.size.height;
+        let style = root.style.get_or_insert_with(Default::default);
+        if style.get("height").and_then(Value::as_f64).is_some_and(|h| h > room as f64) {
+            style.insert("height".into(), json!(room));
+        }
+        style.insert("maxHeight".into(), json!(room));
+        return;
+    }
     let SurfaceHeader::Layer { size, .. } = header else { return };
     if let ede_ui::Body::Nested(root) = &mut doc.body {
         let style = root.style.get_or_insert_with(Default::default);
@@ -1825,6 +1872,8 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
         return;
     }
     let Some(doc) = document(&shell.borrow(), name) else { return };
+    // #EDE-168: at the room the output has for it.
+    let doc = drawn_now(&shell.borrow(), &doc);
     let feed = shell.borrow().feed.clone();
     shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
@@ -4458,6 +4507,7 @@ fn main() {
                 if dirty {
                     cx.update(|cx| refresh(&s, cx));
                 }
+                cx.update(|cx| fit_popups(&s, cx));
                 cx.background_executor().timer(Duration::from_millis(100)).await;
             }
         })
@@ -4968,6 +5018,40 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out)), (Some(out.0), Some(out.1), -1), "{out:?}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
+    }
+
+    /// #EDE-168: on a 1280×800 output at scale 1.5 (854×534 logical, the
+    /// VM's boot size) the sound applet's 600 px reached past the top of the
+    /// screen. Every taskbar popup stands on its button within the room
+    /// above the taskbar (less the panel's margin), its root no taller; one
+    /// that fits keeps its size, and the start menu (620) is held too.
+    #[test]
+    fn a_taskbar_popup_never_leaves_the_work_area() {
+        let room = 534 - 48 - shell_layout().panel_margin;
+        let popup_height = |name: &str, out_h: u32| {
+            let doc = factory(name);
+            let mut header = doc.surface.clone();
+            taskbar_popup_room(&mut header, out_h);
+            let drawn = as_drawn(&doc, header.clone(), None);
+            let SurfaceHeader::Popup { popup, .. } = header else { panic!("{name}: a popup header") };
+            let ede_ui::Body::Nested(root) = &drawn.body else { panic!("{name}: a nested body") };
+            let style = root.style.clone().unwrap_or_default();
+            assert_eq!(style.get("maxHeight").and_then(Value::as_u64), Some(popup.size.height as u64), "{name}: the root is never taller than its window");
+            if let Some(h) = style.get("height").and_then(Value::as_u64) {
+                assert!(h <= popup.size.height as u64, "{name}: root {h} in a {} window", popup.size.height);
+            }
+            popup.size.height
+        };
+        assert_eq!(popup_height("applet-sound", 534), room);
+        assert_eq!(popup_height("start-menu", 534), room);
+        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
+        for d in uicore_docs::DOCS.iter() {
+            let doc = factory(d.name);
+            if matches!(&doc.surface, SurfaceHeader::Popup { popup, .. } if popup.parent == "taskbar") {
+                assert!(popup_height(d.name, 534) <= room, "{}", d.name);
+            }
+        }
     }
 
     /// #EXP-2024 (section 8, 6d): the pinned view of an agent space is an

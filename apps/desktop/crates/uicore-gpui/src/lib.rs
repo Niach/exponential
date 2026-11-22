@@ -69,6 +69,13 @@ pub fn clips_input(doc: &Document) -> bool {
     !root.style.as_ref().is_some_and(|s| ["backgroundColor", "background", "backgroundImage", "borderWidth"].iter().any(|k| s.contains_key(*k)))
 }
 
+/// #EDE-168: the laid-out height of a surface's root (surface px), `None`
+/// before its first pass.
+pub fn root_height(view: &SurfaceView) -> Option<f32> {
+    let i = view.placed_nodes().iter().position(|n| n.parent.is_none() && !n.hidden)?;
+    view.frame(i as u32).map(|f| f.h).filter(|h| *h > 0.0)
+}
+
 /// The window rects of the root's children, as last laid out.
 pub fn children_region(view: &SurfaceView) -> Vec<Bounds<Pixels>> {
     let nodes = view.placed_nodes();
@@ -605,6 +612,35 @@ impl Surfaces {
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),
             }
         }
+    }
+
+    /// #EDE-168: an open popup document's window at its root's laid-out
+    /// height, so a root that hugs its content stands on its anchor with no
+    /// empty height (an `xdg_popup` reposition keeps the anchor). `true`
+    /// when it was resized.
+    pub fn fit_popup(&mut self, name: &str, cx: &mut App) -> bool {
+        let Some(region) = self.open.get(name).cloned() else { return false };
+        let Some(h) = root_height(region.view.read(cx)) else { return false };
+        let target = px(h.ceil());
+        region
+            .handle
+            .update(cx, |_, window, _| {
+                let now = window.bounds().size;
+                if (f32::from(now.height) - f32::from(target)).abs() < 0.5 {
+                    return false;
+                }
+                let wanted = size(now.width, target);
+                window.resize(wanted);
+                // A popup the compositor has not configured yet cannot
+                // reposition: the size goes again once it has drawn.
+                window.on_next_frame(move |window, _| {
+                    if window.bounds().size != wanted {
+                        window.resize(wanted);
+                    }
+                });
+                true
+            })
+            .unwrap_or(false)
     }
 
     /// The popup window that shows `document`'s hosted layer `owner`.

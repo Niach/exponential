@@ -345,8 +345,28 @@ impl CosmicTextSystemState {
     fn add_fonts(&mut self, fonts: Vec<Cow<'static, [u8]>>) -> Result<()> {
         self.font_ids_by_family_cache.clear();
         let db = self.font_system.db_mut();
+        let mut added = Vec::new();
         for bytes in fonts {
-            db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes)));
+            added.extend(db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes))));
+        }
+        // Exponential patch (#EDE-155): the app's own faces are THE faces of
+        // their families. A system family of the same name (Debian's
+        // fonts-inter beside an embedded Inter) leaves the database, so
+        // neither gpui's match nor cosmic-text's shaping can pick its files.
+        let families: Vec<String> = added
+            .iter()
+            .filter_map(|id| db.face(*id))
+            .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
+            .unique()
+            .collect();
+        let shadowed: Vec<cosmic_text::fontdb::ID> = db
+            .faces()
+            .filter(|face| !matches!(face.source, cosmic_text::fontdb::Source::Binary(_)))
+            .filter(|face| face.families.iter().any(|(name, _)| families.contains(name)))
+            .map(|face| face.id)
+            .collect();
+        for id in shadowed {
+            db.remove_face(id);
         }
         // Exponential patch (#EDE-65): an added font may be the emoji face.
         if matches!(self.emoji_face, Some(None)) {
