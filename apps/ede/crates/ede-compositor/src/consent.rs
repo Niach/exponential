@@ -91,7 +91,34 @@ pub struct Asking {
     pub body: String,
     /// What an Allow gives.
     pub grants: Principal,
+    /// The asking executable's `(st_dev, st_ino)`: a "Don't allow" backs it
+    /// off ([`BACKOFF`]), also for `exponential-ctl`.
+    pub file: Option<(u64, u64)>,
 }
+
+/// A path for the sealed prompt, as it is but for what could write its own
+/// lines into it: control characters and bidi overrides come out escaped
+/// (`\n`, `\u{202e}`).
+pub fn shown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() || matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// What an executable is for the hash cache: `(st_dev, st_ino, size,
+/// mtime, ctime sec, ctime nsec)`. The owner can set mtime; only the kernel
+/// sets ctime, so a rewrite in place is hashed again.
+pub type FileKey = (u64, u64, u64, i64, i64, i64);
 
 /// What an answer is remembered by.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -200,11 +227,12 @@ pub fn hash_exe(pid: u32, dev: u64, ino: u64) -> Result<[u8; 32], String> {
     Ok(hasher.finalize().into())
 }
 
-/// What a file is for the hash cache.
-pub fn file_key(peer: &Peer) -> Option<(u64, u64, u64, i64)> {
+/// What `peer`'s executable is for the hash cache ([`FileKey`]), if it is
+/// still the file it connected with.
+pub fn file_key(peer: &Peer) -> Option<FileKey> {
     let meta = std::fs::metadata(format!("/proc/{}/exe", peer.pid)).ok()?;
     let exe = peer.exe.as_ref()?;
-    ((meta.dev(), meta.ino()) == (exe.dev, exe.ino)).then(|| (meta.dev(), meta.ino(), meta.size(), meta.mtime()))
+    ((meta.dev(), meta.ino()) == (exe.dev, exe.ino)).then(|| (meta.dev(), meta.ino(), meta.size(), meta.mtime(), meta.ctime(), meta.ctime_nsec()))
 }
 
 /// A `hello` waiting for the person (or for its executable's hash).
@@ -235,10 +263,16 @@ pub struct Gate {
     allowed: HashSet<Key>,
     /// Processes the person refused: refused for their life.
     refused: HashSet<(u32, u64)>,
-    /// A binary refused lately is not asked again before this.
+    /// A binary refused lately is not asked again before this: by its
+    /// content (the app's, the CLI's) and by its file (`exponential-ctl`).
     backoff: HashMap<[u8; 32], Instant>,
-    /// Executables hashed already, by `(dev, ino, size, mtime)`.
-    hashes: HashMap<(u64, u64, u64, i64), [u8; 32]>,
+    file_backoff: HashMap<(u64, u64), Instant>,
+    /// Executables hashed already ([`FileKey`]).
+    hashes: HashMap<FileKey, [u8; 32]>,
+    /// The hashes being read, one per file, and the hellos waiting for each.
+    pub hashing: HashMap<FileKey, Vec<(u64, u64)>>,
+    /// How many hashes were started, per file (tests: one per file).
+    pub hashes_started: HashMap<FileKey, u32>,
     /// The hellos waiting for an answer; the first one's question is open.
     pub waiting: VecDeque<Waiter>,
     /// The open question's key and, when the compositor spawned the
@@ -276,7 +310,7 @@ impl Gate {
         file_key(peer).and_then(|key| self.hashes.get(&key).copied())
     }
 
-    pub fn remember_hash(&mut self, key: (u64, u64, u64, i64), hash: [u8; 32]) {
+    pub fn remember_hash(&mut self, key: FileKey, hash: [u8; 32]) {
         self.hashes.insert(key, hash);
     }
 
@@ -295,17 +329,23 @@ impl Gate {
             return Verdict::Refuse("the person did not allow this process".into());
         }
         let path = peer.exe_path().unwrap_or_default();
-        let parent = peer.parent.as_ref().and_then(|(_, p)| p.clone()).map(|p| p.display().to_string()).unwrap_or_else(|| "an unknown program".into());
+        let parent = peer.parent.as_ref().and_then(|(_, p)| p.clone()).map(|p| shown(&p.display().to_string())).unwrap_or_else(|| "an unknown program".into());
+        let file = peer.exe.as_ref().map(|e| (e.dev, e.ino));
+        let backed_off = |until: Option<&Instant>| until.is_some_and(|until| Instant::now() < *until);
         if installed.is(peer, crate::peer::CTL) {
             let key = Key::Process(peer.pid, peer.start);
             if self.allowed.contains(&key) {
                 return Verdict::Grant(Principal::Root);
+            }
+            if backed_off(file.and_then(|f| self.file_backoff.get(&f))) {
+                return Verdict::Refuse("the person did not allow exponential-ctl a moment ago".into());
             }
             return Verdict::Ask(Asking {
                 key,
                 title: "Allow exponential-ctl to control your desktop?".into(),
                 body: format!("exponential-ctl (process {}, started by {parent}) wants to see your screen and control your windows and your input.", peer.pid),
                 grants: Principal::Root,
+                file,
             });
         }
         let named = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| ASKING_NAMES.contains(&n));
@@ -317,14 +357,15 @@ impl Gate {
         if self.allowed.contains(&key) {
             return Verdict::Grant(Principal::ComputerUse);
         }
-        if self.backoff.get(hash).is_some_and(|until| Instant::now() < *until) {
+        if backed_off(self.backoff.get(hash)) {
             return Verdict::Refuse("the person did not allow this program a moment ago".into());
         }
         Verdict::Ask(Asking {
             key,
             title: "Allow Exponential to use your screen?".into(),
-            body: format!("{} (process {}, started by {parent}) wants to see your screen and control it when an agent works on your screen.", path.display(), peer.pid),
+            body: format!("{} (process {}, started by {parent}) wants to see your screen and control it when an agent works on your screen.", shown(&path.display().to_string()), peer.pid),
             grants: Principal::ComputerUse,
+            file,
         })
     }
 
@@ -337,9 +378,10 @@ impl Gate {
         (named && peer.same_userns) || policy.wants_hash(peer)
     }
 
-    /// The person answered `key`: remembered (yes) or the asker refused
-    /// and the binary backed off (no).
-    pub fn answered(&mut self, key: &Key, allowed: bool, askers: &[(u32, u64)]) {
+    /// The person answered `key`: remembered (yes), or the askers refused
+    /// and the binary backed off (no): by its content, and by the askers'
+    /// `files` (so `exponential-ctl` in a loop is not asked again at once).
+    pub fn answered(&mut self, key: &Key, allowed: bool, askers: &[(u32, u64)], files: &[(u64, u64)]) {
         if allowed {
             self.allowed.insert(key.clone());
             return;
@@ -347,6 +389,9 @@ impl Gate {
         self.refused.extend(askers.iter().copied());
         if let Key::Binary(hash) = key {
             self.backoff.insert(*hash, Instant::now() + BACKOFF);
+        }
+        for file in files {
+            self.file_backoff.insert(*file, Instant::now() + BACKOFF);
         }
     }
 }
@@ -365,6 +410,16 @@ mod tests {
         assert!(Policy::parse("[[allow]]\npath = \"/x\"\nprincipal = \"root\"\nsha256 = \"12\"\n").is_err());
         assert!(Policy::parse("[[allow]]\npath = \"/x\"\nprincipal = \"root\"\nmode = 1\n").is_err(), "no unknown keys");
         assert_eq!(Policy::parse("").unwrap(), Policy::default());
+    }
+
+    #[test]
+    fn a_path_cannot_write_its_own_lines_into_the_prompt() {
+        let path = "/home/u/x\nAllow is safe\u{202e}lmth.\u{2066}/exponential";
+        let out = shown(path);
+        assert!(!out.contains('\n') && !out.contains('\u{202e}') && !out.contains('\u{2066}'), "{out}");
+        assert_eq!(out, "/home/u/x\\nAllow is safe\\u{202e}lmth.\\u{2066}/exponential");
+        assert_eq!(shown("/tmp/.mount_Expo/usr/bin/exp-desktop"), "/tmp/.mount_Expo/usr/bin/exp-desktop", "an ordinary path as it is");
+        assert_eq!(shown("a\u{7}b\u{200f}"), "a\\u{7}b\\u{200f}");
     }
 
     #[test]

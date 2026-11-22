@@ -198,6 +198,88 @@ fn the_app_is_asked_once_per_login_and_binary() {
     assert!(run(&h, &asks, &appimage, "", &[], None).lines.iter().any(|l| l.starts_with("hello ok")), "same bytes as the allowed one");
 }
 
+/// The answer is remembered by the file's content: a rewrite in place with
+/// its mtime put back (what the file's owner can do) is hashed again, and a
+/// changed binary is asked about, never let in on the old hash.
+#[test]
+fn a_rewrite_in_place_is_hashed_again() {
+    use std::io::{Seek, SeekFrom};
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let app = copy_as(&dir.path().join("a"), "exponential", b"aaaa");
+    assert!(run(&h, &asks, &app, "", &[], Some((true, Duration::ZERO))).lines.iter().any(|l| l.starts_with("hello ok")));
+    let mtime = std::fs::metadata(&app).unwrap().modified().unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    let mut file = std::fs::OpenOptions::new().write(true).open(&app).unwrap();
+    file.seek(SeekFrom::End(-4)).unwrap();
+    file.write_all(b"bbbb").unwrap();
+    file.set_modified(mtime).unwrap();
+    drop(file);
+    assert_eq!(std::fs::metadata(&app).unwrap().modified().unwrap(), mtime, "the mtime is put back");
+    let again = run(&h, &asks, &app, "", &[], Some((false, Duration::ZERO)));
+    assert_eq!(said(&again, "hello"), "Unauthorized", "the rewritten file was asked about (and refused), not let in on the old hash");
+}
+
+/// Several hellos of one new binary at once: its file is hashed once, they
+/// all wait for it and for the one question.
+#[test]
+fn one_hash_per_file_however_many_hellos() {
+    use std::io::Read;
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let app = copy_as(&dir.path().join("a"), "exp-desktop", b"many");
+    let sock = dir.path().join("ede.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let root = h.with(|ede| ede.ipc.root_grant().token);
+    let mut children: Vec<_> = (0..3)
+        .map(|_| {
+            Command::new(&app).args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]).env(ROLE, "").env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap()
+        })
+        .collect();
+    let (mut accepted, mut answered) = (0, false);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while children.iter_mut().any(|c| c.try_wait().unwrap().is_none()) {
+        assert!(Instant::now() < deadline, "the hellos never ended");
+        if let Ok((stream, _)) = listener.accept() {
+            accepted += 1;
+            h.with(move |ede| ede.ipc_insert(stream));
+        }
+        // Answer once all three wait (the question comes after the hash).
+        if !answered && accepted == 3 {
+            if let Ok(ask) = asks.recv_timeout(Duration::from_millis(50)) {
+                ask.answer.send(true).unwrap();
+                answered = true;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(asks.try_recv().is_err(), "one question for the three");
+    for mut child in children {
+        let mut out = String::new();
+        child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+        assert!(out.contains("@@ hello ok"), "{out}");
+    }
+    let started = h.with(|ede| ede.ipc.consent.hashes_started.values().copied().collect::<Vec<_>>());
+    assert_eq!(started, [1], "one hash of the one file");
+}
+
+/// A path that would write its own lines into the prompt comes out
+/// escaped: newlines and bidi overrides never reach the sealed document.
+#[test]
+fn a_path_writes_no_lines_of_its_own_into_the_prompt() {
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let app = copy_as(&dir.path().join("x\nAllow: this is Exponential\u{202e}gnp.\u{2066}"), "exponential", b"weird");
+    let asked = run(&h, &asks, &app, "", &[], Some((false, Duration::ZERO)));
+    let body = &asked.asked.as_ref().unwrap().asking.body;
+    assert!(!body.contains('\n') && !body.contains('\u{202e}') && !body.contains('\u{2066}'), "{body:?}");
+    assert!(body.contains("x\\nAllow: this is Exponential\\u{202e}gnp.\\u{2066}/exponential"), "{body:?}");
+}
+
 /// Don't allow: refused, the process for good, the binary for the back-off
 /// (another process of it is refused without a question meanwhile).
 #[test]
@@ -216,7 +298,7 @@ fn a_refused_binary_is_refused_and_not_asked_again_at_once() {
 /// Anything not named like the app or the CLI is refused without a
 /// question; a test's shell stand-in (eDE's own) passes without one.
 #[test]
-fn others_are_refused_without_a_question_and_eDEs_own_pass() {
+fn others_are_refused_without_a_question_and_edes_own_pass() {
     let h = harness();
     let dir = tempfile::tempdir().unwrap();
     let asks = gated(&h, dir.path().join("no-policy.toml"));
@@ -297,8 +379,35 @@ fn installed_binaries_ctl_and_the_policy() {
     let Verdict::Ask(ask) = gate.verdict(Some(&peer), &as_ctl, &[], &none, None) else { panic!("ctl is asked") };
     assert_eq!((ask.key.clone(), ask.grants), (Key::Process(peer.pid, peer.start), Principal::Root));
     let mut gate = gate;
-    gate.answered(&ask.key, true, &[(peer.pid, peer.start)]);
+    gate.answered(&ask.key, true, &[(peer.pid, peer.start)], &[]);
     assert_eq!(gate.verdict(Some(&peer), &as_ctl, &[], &none, None), Verdict::Grant(Principal::Root), "that process, from now on");
+    // A "Don't allow" to ctl backs its file off: another ctl process (the
+    // same file) is refused without a question for the back-off.
+    let other = Command::new(&sleep).arg("30").spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let second = loop {
+        if let Some(p) = Peer::of_pid(other.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
+            break p;
+        }
+        assert!(Instant::now() < deadline, "sleep never ran");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let Verdict::Ask(asked) = gate.verdict(Some(&second), &as_ctl, &[], &none, None) else { panic!("another ctl process is asked") };
+    gate.answered(&asked.key, false, &[(second.pid, second.start)], &[asked.file.unwrap()]);
+    let third = Command::new(&sleep).arg("30").spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let third_peer = loop {
+        if let Some(p) = Peer::of_pid(third.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
+            break p;
+        }
+        assert!(Instant::now() < deadline, "sleep never ran");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(matches!(gate.verdict(Some(&third_peer), &as_ctl, &[], &none, None), Verdict::Refuse(_)), "ctl in a loop is not asked again at once");
+    for mut child in [other, third] {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     let policy = Policy::parse(&format!("[[allow]]\npath = \"{}\"\nprincipal = \"computer-use\"\n", sleep.display())).unwrap();
     assert_eq!(gate.verdict(Some(&peer), &Installed::default(), &[], &policy, None), Verdict::Grant(Principal::ComputerUse));
     let wrong_hash = Policy::parse(&format!("[[allow]]\npath = \"{}\"\nsha256 = \"{}\"\nprincipal = \"root\"\n", sleep.display(), "0".repeat(64))).unwrap();
