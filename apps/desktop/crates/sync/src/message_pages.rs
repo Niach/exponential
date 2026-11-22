@@ -53,11 +53,39 @@ pub fn result_cards(sqlite: &ShapeStore, root_id: &str) -> Result<Vec<MessageRow
     Ok(decode_messages(maps))
 }
 
-/// #EDE-105: the messages created at or after `created_at` (ISO; `""` =
-/// all), decoded and opened, for the chat store's catch-up.
-pub fn messages_since(sqlite: &ShapeStore, created_at: &str) -> Result<Vec<MessageRow>, StoreError> {
-    let spec = crate::shapes::shape_by_name("messages").expect("the messages shape");
-    Ok(decode_messages(sqlite.read_where_ge(spec, "created_at", created_at)?))
+/// One page of [`messages_by_arrival`]: each row (decoded and opened) with
+/// its arrival position, and the position of the last row read (`None` =
+/// nothing read).
+pub struct ArrivalPage {
+    pub rows: Vec<(i64, MessageRow)>,
+    pub last: Option<i64>,
+    /// How many rows the page read (a full page = there may be more).
+    pub read: usize,
+}
+
+/// #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL): up to `limit` messages
+/// from the arrival position `from` on (inclusive), decoded and opened, for
+/// the chat store's catch-up. Never a `created_at` watermark: a row that
+/// reaches this device later with an older `created_at` is in a later page.
+pub fn messages_by_arrival(sqlite: &ShapeStore, from: i64, limit: usize) -> Result<ArrivalPage, StoreError> {
+    let page = sqlite.read_messages_by_arrival(from, limit)?;
+    let read = page.len();
+    let last = page.last().map(|(at, _)| *at);
+    let opener = crate::sealed::Opener::global();
+    let rows = page
+        .into_iter()
+        .filter_map(|(at, map)| match serde_json::from_value::<MessageRow>(serde_json::Value::Object(map)) {
+            Ok(mut row) => {
+                opener.open_message(&mut row);
+                Some((at, row))
+            }
+            Err(err) => {
+                log::warn!("[sync messages] dropping unhydratable row: {err}");
+                None
+            }
+        })
+        .collect();
+    Ok(ArrivalPage { rows, last, read })
 }
 
 /// #EDE-105: the messages `ids` names, decoded and opened (a row stored
@@ -199,6 +227,28 @@ mod tests {
         assert!(store.read_where_in(spec, "session_id); DROP TABLE messages; --", &["r1"]).is_err(), "allowlisted columns only");
         let plan = store.explain(r#"SELECT * FROM "messages" WHERE "session_id" IN ('c1', 'r2')"#).unwrap();
         assert!(plan.contains("messages_session"), "{plan}");
+    }
+
+    /// #EXP-2018: the chat store reads by arrival: a row synced LATER with
+    /// an OLDER `created_at` comes after the mark; an update keeps its place.
+    #[test]
+    fn messages_by_arrival_read_a_late_older_row_after_the_mark() {
+        let temp = TempStore::new();
+        let store = &temp.1;
+        insert(store, (10..13).map(|n| json!({"id": format!("m{n:03}"), "session_id": "r1", "root_id": "r1", "body": "x", "created_at": at(n)})).collect());
+        let first = messages_by_arrival(store, 0, 1000).unwrap();
+        assert_eq!(first.rows.iter().map(|(_, row)| row.id.as_str()).collect::<Vec<_>>(), ["m010", "m011", "m012"]);
+        let mark = first.last.unwrap();
+        assert_eq!(store.messages_arrival_max().unwrap(), mark);
+        // A late row from long ago, and an update of an old one.
+        insert(store, vec![json!({"id": "m001", "session_id": "r2", "root_id": "r2", "body": "late", "created_at": at(1)})]);
+        insert(store, vec![json!({"id": "m010", "session_id": "r1", "root_id": "r1", "body": "edited", "created_at": at(10)})]);
+        let next = messages_by_arrival(store, mark, 1000).unwrap();
+        assert_eq!(next.rows.iter().map(|(_, row)| row.id.as_str()).collect::<Vec<_>>(), ["m012", "m001"], "inclusive mark, then the late row");
+        assert!(next.last.unwrap() > mark);
+        let paged = messages_by_arrival(store, 0, 2).unwrap();
+        assert_eq!((paged.read, paged.rows.len()), (2, 2));
+        assert_eq!(messages_by_arrival(store, next.last.unwrap() + 1, 10).unwrap().last, None);
     }
 
     /// EXP-1930: a voice call's reply watch reads the session's rows since

@@ -7,6 +7,7 @@ import at.exponential.chatstore.ffi.ChatStore
 import at.exponential.chatstore.ffi.PageAccess
 import at.exponential.chatstore.ffi.phoneRetentionDays
 import com.exponential.app.data.api.TeamInstall
+import com.exponential.app.data.db.ArrivedMessage
 import com.exponential.app.data.db.CatchUpRow
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -75,17 +77,42 @@ class ChatStoreManagerTest {
 
     // ── fakes ─────────────────────────────────────────────────────────────
 
+    /** The Room `messages` table as SQLite keeps it: `INSERT OR REPLACE`
+     *  deletes a conflicting row and inserts it at the next `rowid`
+     *  (max + 1, so an emptied table counts from 1 again). */
+    private class MessageTable {
+        val rows = mutableListOf<ArrivedMessage>()
+
+        operator fun plusAssign(row: MessageEntity) {
+            synchronized(rows) {
+                rows.removeAll { it.row.id == row.id }
+                rows += ArrivedMessage((rows.maxOfOrNull { it.arrival } ?: 0L) + 1, row)
+            }
+        }
+
+        fun clear() = synchronized(rows) { rows.clear() }
+
+        fun snapshot(): List<ArrivedMessage> = synchronized(rows) { rows.toList() }
+    }
+
     private class Rows : ChatStoreRows {
         val sessions = mutableMapOf<String, SessionEntity>()
-        val messages = mutableListOf<MessageEntity>()
+        val messages = MessageTable()
+        /** Every page the store asked for: (from, limit). */
+        val pages = mutableListOf<Pair<Long, Int>>()
         val messagesStampFlow = MutableStateFlow("0")
 
         override suspend fun session(accountId: String, sessionId: String) = sessions[sessionId]
         override suspend fun catchUpRows(accountId: String) = sessions.values.filter { it.deviceId.isNotEmpty() }
             .map { CatchUpRow(it.id, it.rootId, it.deviceId, it.updatedAt, it.busy) }
-        override suspend fun messagesSince(accountId: String, mark: String, limit: Int, offset: Int) =
-            messages.filter { it.createdAt >= mark }.sortedBy { it.createdAt }.drop(offset).take(limit)
-        override suspend fun messagesByIds(accountId: String, ids: List<String>) = messages.filter { it.id in ids }
+        override suspend fun messagesFrom(accountId: String, from: Long, limit: Int): List<ArrivedMessage> {
+            synchronized(pages) { pages += from to limit }
+            return messages.snapshot().filter { it.arrival >= from && !it.row.sessionId.isNullOrEmpty() }
+                .sortedBy { it.arrival }.take(limit)
+        }
+        override suspend fun highestArrival(accountId: String) = messages.snapshot().maxOfOrNull { it.arrival }
+        override suspend fun messagesByIds(accountId: String, ids: List<String>) =
+            messages.snapshot().map { it.row }.filter { it.id in ids }
         override fun messagesStamp(accountId: String): Flow<String?> = messagesStampFlow
         override fun sessionsStamp(accountId: String): Flow<String?> = MutableStateFlow("0")
     }
@@ -341,6 +368,60 @@ class ChatStoreManagerTest {
         lockedIds.clear()
         keys.value += 1
         waitUntil("the sealed message opened") { stores.openStoreForTests?.lockedMessageIds()?.isEmpty() == true }
+    }
+
+    private fun hits(stores: ChatStoreManager, root: String, query: String): Int =
+        Json.parseToJsonElement(stores.openStoreForTests!!.searchChat(root, query, 10u)).jsonObject.getValue("hits").jsonArray.size
+
+    @Test
+    fun messagesAreTakenByArrivalNeverByCreatedAt() = runBlocking {
+        // #EXP-2032 / #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL).
+        session("s1")
+        rows.messages += MessageEntity(id = "m1", sessionId = "s1", rootId = "s1", authorKind = "user", body = "newest first", createdAt = "2026-11-17T10:00:00.000Z")
+        val stores = manager()
+        stores.start()
+        waitUntil("the first message stored") { stores.openStoreForTests?.let { hits(stores, "s1", "newest") } == 1 }
+        waitUntil("the mark at its position") { stores.openStoreForTests!!.meta(ChatStoreManager.MESSAGES_MARK) == "1" }
+        // #EXP-2021: the open chat hears the store take its rows in.
+        val tick = async { withTimeoutOrNull(10_000) { stores.taken("s1").first() } }
+        delay(50)
+        // A row that arrives LATER with an OLDER createdAt (a chat shared
+        // later, an older shape page, a backfill) is taken like any new row.
+        rows.messages += MessageEntity(id = "m0", sessionId = "s1", rootId = "s1", authorKind = "agent", body = "backfilled wombat", createdAt = "2026-11-14T08:00:00.000Z")
+        rows.messagesStampFlow.value = "1"
+        waitUntil("the late, older message stored") { hits(stores, "s1", "wombat") == 1 }
+        assertNotNull("the store's take ticks the chat", tick.await())
+        waitUntil("the mark moved to its position") { stores.openStoreForTests!!.meta(ChatStoreManager.MESSAGES_MARK) == "2" }
+        // A replace moves a row to the end: its new body is taken again.
+        rows.messages += MessageEntity(id = "m1", sessionId = "s1", rootId = "s1", authorKind = "user", body = "edited quokka", createdAt = "2026-11-17T10:00:00.000Z")
+        rows.messagesStampFlow.value = "2"
+        waitUntil("the replaced row taken") { hits(stores, "s1", "quokka") == 1 }
+        // A refetch empties and refills the table: positions start at 1
+        // again, under the stored mark, so the store starts over.
+        rows.messages.clear()
+        rows.messages += MessageEntity(id = "r1", sessionId = "s1", rootId = "s1", authorKind = "agent", body = "refilled platypus", createdAt = "2026-11-10T08:00:00.000Z")
+        rows.messagesStampFlow.value = "3"
+        waitUntil("the refilled row taken") { hits(stores, "s1", "platypus") == 1 }
+        waitUntil("the mark started over") { stores.openStoreForTests!!.meta(ChatStoreManager.MESSAGES_MARK) == "1" }
+    }
+
+    @Test
+    fun aLongBacklogPagesByPositionWithoutOffsets() = runBlocking {
+        session("s1")
+        // 1,200 rows, newest createdAt FIRST (arrival order != time order).
+        repeat(1_200) { i ->
+            rows.messages += MessageEntity(
+                id = "m$i", sessionId = "s1", rootId = "s1", authorKind = "agent",
+                body = if (i == 0 || i == 1_199) "wombatword $i" else "filler $i",
+                createdAt = "2026-11-17T10:%02d:%02d.000Z".format(59 - (i / 60) % 60, 59 - i % 60),
+            )
+        }
+        val stores = manager()
+        stores.start()
+        waitUntil("every row stored") { stores.openStoreForTests?.meta(ChatStoreManager.MESSAGES_MARK) == "1200" }
+        assertEquals(2, hits(stores, "s1", "wombatword"))
+        // Pages follow the positions (each after the last one taken).
+        assertEquals(listOf(0L, 501L, 1001L), synchronized(rows.pages) { rows.pages.take(3).map { it.first } })
     }
 
     @Test
