@@ -19,7 +19,7 @@ export const Route = createFileRoute(`/api/mcp_/apps`)({
       GET: async ({ request }) => {
         const gated = await authenticateMcpRequest(request)
         if (`response` in gated) return gated.response
-        return appsListChangedStream(gated.caller, request)
+        return appsListChangedStream(gated.caller, gated.request)
       },
       DELETE: methodNotAllowed,
     },

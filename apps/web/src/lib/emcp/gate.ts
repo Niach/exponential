@@ -18,7 +18,8 @@ import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/emcp/helpers"
 import { auditRows, recordMcpCalls, toolCallsOf, type AuditOptions } from "@/lib/emcp/audit"
 import { resolveMcpToolGates, type McpToolGates } from "@/lib/emcp/gates"
-import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
+import { MCP_SESSION_HEADER, parseMcpSessionHeader } from "@/lib/emcp/session-header"
+import { actingSession } from "@exp/emcp/access"
 import { createExponentialMcpServer, type McpUser } from "@/lib/emcp/server"
 import {
   FULL_ACCESS,
@@ -26,7 +27,7 @@ import {
   resolveMcpTokenAccess,
   type McpAccess,
 } from "@/lib/emcp/scope"
-import { actingSessionForRequest, confineMcpAccessToActingSession } from "@/lib/sessions/acting"
+import { actingSessionForRequest, confineMcpAccessToActingSession, shareActingSessions } from "@/lib/sessions/acting"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { runAsSession } from "@/lib/apps/automation-scope"
@@ -75,11 +76,13 @@ export const exponentialToolProvider: ToolProvider = async (caller, request) =>
 // consent grant it resolves through.
 async function resolveCredential(
   request: Request
-): Promise<{ userId: string; clientId: string | null; access: McpAccess } | null> {
-  const { session, keyScope, keyKind } = await resolveMcpCredential(request)
+): Promise<{ userId: string; clientId: string | null; access: McpAccess; keySessionId?: string | null } | null> {
+  const { session, keyScope, keyKind, keySessionId } = await resolveMcpCredential(request)
   if (session?.user) {
     const userId = session.user.id
-    if (!keyScope) return { userId, clientId: null, access: FULL_ACCESS }
+    // #EXP-2028: a session-bound launcher key carries the member's access,
+    // always clamped below to its session's tree.
+    if (!keyScope) return { userId, clientId: null, access: FULL_ACCESS, keySessionId: keySessionId ?? null }
     // #EXP-1720: the Assistant's key reaches the member's teams of the moment
     // (the acting session's clamp narrows it to the turn's pick).
     const grant = keyScope.assistant
@@ -133,18 +136,59 @@ function unauthorized(request: Request): Response {
   )
 }
 
-/** The caller, or the Response that refuses the request. */
+/** #EXP-2028: the refusal of a session-bound key's request that names
+ *  another session, or whose session no longer resolves as the caller's. */
+export const BOUND_KEY_MISMATCH_MESSAGE = `This key speaks for one session only: the request named another one.`
+export const BOUND_KEY_UNKNOWN_MESSAGE = `This key's session no longer exists or is no longer yours.`
+
+/** The same request, carrying `X-Exp-Session-Id: sessionId` (what every
+ *  tool and tRPC procedure behind the gate reads). */
+async function withSessionHeader(request: Request, sessionId: string): Promise<Request> {
+  const headers = new Headers(request.headers)
+  headers.set(MCP_SESSION_HEADER, sessionId)
+  const hasBody = request.method !== `GET` && request.method !== `HEAD`
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: hasBody ? await request.clone().arrayBuffer() : undefined,
+    signal: request.signal,
+  })
+}
+
+/** The caller, or the Response that refuses the request. `request` = the
+ *  one to serve (#EXP-2028: a session-bound key's carries its session's
+ *  header). */
 export async function authenticateMcpRequest(
-  request: Request
-): Promise<{ caller: EmcpCaller } | { response: Response }> {
-  const resolved = await resolveCredential(request)
-  if (!resolved) return { response: unauthorized(request) }
+  incoming: Request
+): Promise<{ caller: EmcpCaller; request: Request } | { response: Response }> {
+  const resolved = await resolveCredential(incoming)
+  if (!resolved) return { response: unauthorized(incoming) }
 
   const [user] = await db.select().from(users).where(eq(users.id, resolved.userId)).limit(1)
   if (!user) return { response: jsonResponse(401, { error: `User not found for token` }) }
 
   // EXP-637: parsed once per request; ownership is enforced per tool.
-  const sessionId = parseMcpSessionHeader(request)
+  const headerSessionId = parseMcpSessionHeader(incoming)
+  // #EXP-2028 (access.json `actingSession`): a key bound to a session
+  // speaks for it with or without the header, so the agent of a plain chat
+  // on the direct wiring cannot leave the header off and escape its tree's
+  // clamp; a header naming another session, or a bound session that no
+  // longer resolves as the caller's, is refused.
+  const keySessionId = resolved.keySessionId ?? null
+  let request = incoming
+  if (keySessionId) {
+    const bound = await actingSessionForRequest(incoming, user.id, keySessionId)
+    const verdict = actingSession({ keySessionId, headerSessionId, resolves: bound !== null })
+    if (`refused` in verdict) {
+      const message = verdict.refused === `mismatch` ? BOUND_KEY_MISMATCH_MESSAGE : BOUND_KEY_UNKNOWN_MESSAGE
+      return { response: jsonResponse(403, { error: message }) }
+    }
+    if (headerSessionId === null) {
+      request = await withSessionHeader(incoming, keySessionId)
+      shareActingSessions(incoming, request)
+    }
+  }
+  const sessionId = keySessionId ?? headerSessionId
   // #EXP-1383 (defense in depth behind the team agent's scoped key): a
   // request speaking for an AGENT-tree session of the caller's (its root has
   // `agent_id`) is confined to that session's team, whatever credential
@@ -160,7 +204,7 @@ export async function authenticateMcpRequest(
   }
   // EXP-660: which conditional tool families this caller gets to see.
   const gates = await resolveMcpToolGates(user.id, access, sessionId)
-  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates } }
+  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates }, request }
 }
 
 /** The team an audit row names: the one team a confined access reaches,
@@ -179,13 +223,13 @@ async function actingAuditTeam(request: Request, caller: EmcpCaller): Promise<st
 
 /** Gate a POST, serve it through `provider`, audit its tool calls. */
 export async function serveMcp(
-  request: Request,
+  incoming: Request,
   provider: ToolProvider,
   options: ServeOptions = {}
 ): Promise<Response> {
-  const gated = await authenticateMcpRequest(request)
+  const gated = await authenticateMcpRequest(incoming)
   if (`response` in gated) return gated.response
-  const { caller } = gated
+  const { caller, request } = gated
 
   const body: unknown = await request
     .clone()

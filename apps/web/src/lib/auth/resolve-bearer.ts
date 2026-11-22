@@ -25,6 +25,9 @@ export interface ResolvedCredential {
   /** #EXP-1383: the kind of the `expu_` key behind the request (null = a
    *  cookie/bearer session): a team agent's scoped key reads `agent`. */
   keyKind?: ApiKeyKind | null
+  /** #EXP-2028: the session a launcher key is bound to (null = unbound):
+   *  an MCP-only credential that always speaks for that session. */
+  keySessionId?: string | null
 }
 
 // REV2-7: short-TTL cache for TOKEN-credentialed sessions only. The cookie
@@ -75,7 +78,8 @@ export function invalidateSessionCache(): void {
 // /api/mcp resolves it (resolveMcpCredential) and confines it to its scope.
 export async function resolveSession(request: Request): Promise<Session> {
   const resolved = await resolveCredentialCore(request)
-  if (resolved.keyScope) return null
+  // #EXP-2028: a session-bound launcher key is MCP-only too.
+  if (resolved.keyScope || resolved.keySessionId) return null
   touchClientPlatform(request, resolved.session)
   return resolved.session
 }
@@ -138,6 +142,7 @@ async function resolveCredentialCore(
       session,
       keyScope: metadata?.scope ?? null,
       keyKind: metadata?.kind ?? null,
+      keySessionId: metadata?.sessionId ?? null,
     }
   })
 }

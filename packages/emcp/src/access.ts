@@ -140,3 +140,29 @@ export function treeScope(input: TreeScopeInput): string[] {
   const picked = input.root === `chat` ? (input.pickedTeamIds ?? []) : input.pickedTeamIds
   return assistantScope({ personalTeamId: input.ownTeamId, memberTeamIds: input.memberTeamIds, pickedTeamIds: picked })
 }
+
+export interface ActingSessionInput {
+  /** The session the request's key is bound to (`users.mintPersonalApiKey`
+   *  `sessionId`); null = an unbound credential. */
+  keySessionId: string | null
+  /** The request's `X-Exp-Session-Id`, parsed; null = absent. */
+  headerSessionId: string | null
+  /** Whether the session the request would speak for (the bound one, else
+   *  the header's) resolves as the caller's own. */
+  resolves: boolean
+}
+
+export type ActingSessionVerdict = { speaksFor: string | null } | { refused: `mismatch` | `unknown` }
+
+/** #EXP-2028 (access.json `actingSession`): the session a request speaks
+ *  for. A bound key speaks for its session with or without the header (one
+ *  naming another session is refused, a bound session that no longer
+ *  resolves too); an unbound credential speaks for the header's session when
+ *  it resolves, else for none. */
+export function actingSession(input: ActingSessionInput): ActingSessionVerdict {
+  if (input.keySessionId !== null) {
+    if (input.headerSessionId !== null && input.headerSessionId !== input.keySessionId) return { refused: `mismatch` }
+    return input.resolves ? { speaksFor: input.keySessionId } : { refused: `unknown` }
+  }
+  return { speaksFor: input.headerSessionId !== null && input.resolves ? input.headerSessionId : null }
+}

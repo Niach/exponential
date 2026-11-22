@@ -84,6 +84,17 @@ export function actingSessionForRequest(
   return pending
 }
 
+/** #EXP-2028: `to` (the gate's copy of `from` with the bound session's
+ *  header) reads the answers `from` already resolved. */
+export function shareActingSessions(from: Request, to: Request): void {
+  let perRequest = cache.get(from)
+  if (!perRequest) {
+    perRequest = new Map()
+    cache.set(from, perRequest)
+  }
+  cache.set(to, perRequest)
+}
+
 /** /api/mcp (defense in depth behind the team agent's scoped key): a
  *  request speaking for a session of the caller's is confined to its tree's
  *  teams (#EXP-1720: a team agent's = its team; the Assistant's = its

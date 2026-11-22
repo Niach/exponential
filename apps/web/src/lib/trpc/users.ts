@@ -23,6 +23,8 @@ import {
   AGENT_KEY_MANAGES_KEYS_MESSAGE,
   AGENT_KEY_SCOPE_MESSAGE,
   AGENT_KEY_TEAM_MESSAGE,
+  SESSION_KEY_INPUT_MESSAGE,
+  SESSION_KEY_NOT_YOURS_MESSAGE,
   API_KEY_KINDS,
   assertNotAgentApiKeySession,
   assertNotApiKeySession,
@@ -30,6 +32,8 @@ import {
   type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
 import { assertTeamMember, getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
+import { isSessionBoundKey, sweepSessionBoundKeys } from "@/lib/auth/session-bound-keys"
+import { loadActingSession } from "@/lib/sessions/acting"
 import { boardVisible } from "@/lib/board-visibility"
 import {
   clampScopeSelection,
@@ -139,8 +143,16 @@ export const usersRouter = router({
   // so it works on /api/mcp only, confined to that one team (the launcher
   // writes it into an agent-tree session's MCP config; it reaches no tRPC,
   // no shapes, no attachments route). The caller must be a member of the
-  // team. Without `teamId` the agent key stays the full key a normal coding
-  // chat runs on.
+  // team. Without `teamId` the agent key stays the full key the agent shell
+  // runs on.
+  //
+  // #EXP-2028: `purpose: 'agent'` + `sessionId` mints the key of ONE
+  // session (a plain chat's, on any wiring): stored as the key's
+  // `sessionId`, MCP-only, never listed, and every /api/mcp request on it
+  // speaks for that session, header or not (lib/emcp/gate.ts), so the tree
+  // clamp always applies. The caller must be the session's principal (its
+  // starter or its device's host). It replaces the session's earlier key
+  // and sweeps the member's keys of ended or vanished sessions.
   mintPersonalApiKey: authedProcedure
     .input(
       z
@@ -149,6 +161,7 @@ export const usersRouter = router({
           purpose: z.enum(API_KEY_KINDS).optional(),
           scope: scopeSelectionInput.optional(),
           teamId: z.string().uuid().optional(),
+          sessionId: z.string().uuid().optional(),
         })
         .optional()
     )
@@ -160,7 +173,15 @@ export const usersRouter = router({
       )
       const kind = input?.purpose ?? `personal`
       let scope: ApiKeyScope | null = null
-      if (input?.teamId) {
+      const sessionId = input?.sessionId?.toLowerCase() ?? null
+      if (sessionId) {
+        if (kind !== `agent` || input?.scope || input?.teamId) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: SESSION_KEY_INPUT_MESSAGE })
+        }
+        if (!(await loadActingSession(ctx.session.user.id, sessionId))) {
+          throw new TRPCError({ code: `FORBIDDEN`, message: SESSION_KEY_NOT_YOURS_MESSAGE })
+        }
+      } else if (input?.teamId) {
         if (kind !== `agent` || input.scope) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
@@ -203,9 +224,13 @@ export const usersRouter = router({
           userId: ctx.session.user.id,
           expiresIn: null,
           rateLimitEnabled: false,
-          metadata: scope ? { kind, scope } : { kind },
+          metadata: sessionId ? { kind, sessionId } : scope ? { kind, scope } : { kind },
         },
       })
+      if (sessionId) {
+        await sweepSessionBoundKeys(ctx.db, ctx.session.user.id, sessionId, created.id)
+        invalidateSessionCache()
+      }
       // `key` is the RAW credential — returned exactly once (only a hash is
       // stored). The rest is display metadata so the client can render the new
       // row without a follow-up list call.
@@ -218,6 +243,9 @@ export const usersRouter = router({
         prefix: created.prefix ?? null,
         createdAt: created.createdAt,
         scope: resolvedScope ?? null,
+        // #EXP-2028: echoed so a launcher knows the server bound the key
+        // (an older server mints an unbound one).
+        sessionId,
       }
     }),
 
@@ -227,7 +255,7 @@ export const usersRouter = router({
       ctx.session,
       AGENT_KEY_MANAGES_KEYS_MESSAGE
     )
-    const rows = await ctx.db
+    const allRows = await ctx.db
       .select({
         id: apikeys.id,
         name: apikeys.name,
@@ -240,6 +268,9 @@ export const usersRouter = router({
       .from(apikeys)
       .where(eq(apikeys.referenceId, ctx.session.user.id))
       .orderBy(desc(apikeys.createdAt))
+    // #EXP-2028: a session's key is the launcher's, swept with its session;
+    // it never shows in the person's key list.
+    const rows = allRows.filter((row) => !isSessionBoundKey(row.metadata))
     // FEED-76: the stored scope, resolved to names for the row caption; the
     // raw metadata never leaves the server.
     const scopes = await resolveApiKeyScopes(

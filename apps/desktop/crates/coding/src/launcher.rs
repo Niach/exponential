@@ -1190,7 +1190,10 @@ fn mcp_url(base_url: &str) -> String {
 /// [`crate::mcp_gateway::SealingTransform`] (content sealed on the way up,
 /// opened on the way back). No service, or no loopback port = the direct
 /// wiring, unchanged. `codemode::revoke` (the engine's run end) drops the
-/// grant with the run's code-mode token.
+/// grant with the run's code-mode token. #EXP-2028: on the direct wiring the
+/// agent holds the key itself, so a plain chat's key is bound to its session
+/// ([`SessionKeyScope::Session`]): the server clamps every request on it to
+/// the session's tree, with or without `X-Exp-Session-Id`.
 #[cfg(not(test))]
 fn gateway_allowed_here() -> bool {
     true
@@ -1886,19 +1889,42 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
 /// #EXP-1383 — which MCP credential a session's agent is handed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionKeyScope {
-    /// The device's hidden agent key (`users::ensure_personal_key`): every
-    /// chat's sessions.
+    /// The device's hidden agent key (`users::ensure_personal_key`): the
+    /// agent shell's, and a chat's on a server older than #EXP-2028.
     Device,
+    /// #EXP-2028: a key bound to this ONE session (`users::session_key`,
+    /// MCP only): every session of a plain chat's tree, on every wiring.
+    /// The server treats each request on it as speaking for the session,
+    /// header or not, so the agent cannot leave its tree's teams even on
+    /// the direct wiring ([`mcp_route`]).
+    Session(String),
     /// The agent key confined to this team (`users::ensure_agent_team_key`,
     /// MCP only): every session of an agent's conversation tree.
     AgentTeam(String),
 }
 
+// The launcher tests' canned servers answer the device key's store hit: a
+// test mints session keys only when it opts in on its own thread.
+#[cfg(not(test))]
+fn session_keys_here() -> bool {
+    true
+}
+
+#[cfg(test)]
+thread_local! {
+    static SESSION_KEYS_IN_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn session_keys_here() -> bool {
+    SESSION_KEYS_IN_TEST.with(std::cell::Cell::get)
+}
+
 /// #EXP-1383 — the key scope of a session: an agent's conversation tree
 /// (the row IS the agent's root, the brief says the tree's root is an
 /// agent, or the run record was an agent's) gets its team's agent key;
-/// everything else the device key. `Err` = an agent tree with no team to
-/// scope to (never the full key instead).
+/// everything else (#EXP-2028) a key bound to the session itself. `Err` =
+/// an agent tree with no team to scope to (never the full key instead).
 pub fn session_key_scope(
     row: &SessionRow,
     brief: &SessionBrief,
@@ -1908,7 +1934,11 @@ pub fn session_key_scope(
         || brief.in_agent_tree()
         || record.is_some_and(|record| record.kind == RunKind::Agent);
     if !agent_tree {
-        return Ok(SessionKeyScope::Device);
+        return Ok(if session_keys_here() {
+            SessionKeyScope::Session(row.id.clone())
+        } else {
+            SessionKeyScope::Device
+        });
     }
     let team = row
         .team_id
@@ -1948,6 +1978,9 @@ fn spawn_session_key(
     let scope = scope.clone();
     std::thread::spawn(move || match scope {
         SessionKeyScope::Device => users::ensure_personal_key(&trpc, &store, &account_id),
+        SessionKeyScope::Session(session_id) => {
+            users::session_key(&trpc, &store, &account_id, &session_id)
+        }
         SessionKeyScope::AgentTeam(team_id) => {
             users::ensure_agent_team_key(&trpc, &store, &account_id, &team_id)
         }
@@ -1967,7 +2000,7 @@ fn join_session_key(
         .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))?;
     match (result, scope) {
         (Ok(key), _) => Ok(Ok(key)),
-        (Err(err), SessionKeyScope::Device) => Err(err.into()),
+        (Err(err), SessionKeyScope::Device | SessionKeyScope::Session(_)) => Err(err.into()),
         (Err(err), SessionKeyScope::AgentTeam(_)) if transient_api_error(&err) => Err(err.into()),
         (Err(err), SessionKeyScope::AgentTeam(_)) => Ok(Err(DisabledReason::AgentKeyUnavailable {
             message: agent_key_refusal(&err.user_message()),
@@ -1986,7 +2019,8 @@ fn transient_api_error(err: &ApiError) -> bool {
 }
 
 /// The launch's redactor secrets: the team servers' values plus a team
-/// agent key (the device key is the host's own, masked already), plus
+/// agent key or (#EXP-2028) a session's key (the device key is the host's
+/// own, masked already), plus
 /// (EXP-1533) the profile's long-lived claude token the run is handed.
 fn launch_secrets(
     team_mcp: &ResolvedMcp,
@@ -1995,7 +2029,7 @@ fn launch_secrets(
     long_lived: Option<(String, String)>,
 ) -> McpSecrets {
     let mut values = team_mcp.secret_values();
-    if matches!(scope, SessionKeyScope::AgentTeam(_)) {
+    if matches!(scope, SessionKeyScope::AgentTeam(_) | SessionKeyScope::Session(_)) {
         values.push(key.to_string());
     }
     values.extend(long_lived.map(|(_, token)| token));
@@ -5150,23 +5184,26 @@ mod tests {
 
     /// #EXP-1383: who gets which key — an agent's root, a session the brief
     /// places in an agent's tree, a recorded agent run: the team's; a chat
-    /// (root or child): the device's; an agent tree with no team: refused.
+    /// (root or child): #EXP-2028 its own session's; an agent tree with no
+    /// team: refused.
     #[test]
     fn the_key_scope_follows_the_agent_tree() {
+        SESSION_KEYS_IN_TEST.with(|on| on.set(true));
         let brief = SessionBrief::default();
         let team = || SessionKeyScope::AgentTeam("ws-1".to_string());
-        assert_eq!(session_key_scope(&row("t-1", None), &brief, None).ok(), Some(SessionKeyScope::Device));
+        let session = |id: &str| SessionKeyScope::Session(id.to_string());
+        assert_eq!(session_key_scope(&row("t-1", None), &brief, None).ok(), Some(session("t-1")));
         assert_eq!(session_key_scope(&agent_row("a-1"), &brief, None).ok(), Some(team()));
         let mut child = row("c-1", None);
         child.parent_id = Some("a-1".to_string());
-        assert_eq!(session_key_scope(&child, &brief, None).ok(), Some(SessionKeyScope::Device));
+        assert_eq!(session_key_scope(&child, &brief, None).ok(), Some(session("c-1")));
         let in_tree = SessionBrief { root_agent_id: Some("ag-1".to_string()), ..SessionBrief::default() };
         assert_eq!(session_key_scope(&child, &in_tree, None).ok(), Some(team()));
         let instructed = SessionBrief { agent_instructions: Some("Triage.".to_string()), ..SessionBrief::default() };
         assert_eq!(session_key_scope(&child, &instructed, None).ok(), Some(team()));
         let dir = temp_dir("scope-record");
         let mut record = resume_record(&dir.0, "a-2");
-        assert_eq!(session_key_scope(&row("a-2", None), &brief, Some(&record)).ok(), Some(SessionKeyScope::Device));
+        assert_eq!(session_key_scope(&row("a-2", None), &brief, Some(&record)).ok(), Some(session("a-2")));
         record.kind = RunKind::Agent;
         record.team_id = "ws-9".to_string();
         let mut teamless = row("a-2", None);
@@ -5218,8 +5255,40 @@ mod tests {
         assert!(again.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_ws1".to_string())));
     }
 
-    /// #EXP-1383: a chat keeps the device key, and its redactor list
-    /// carries no extra key.
+    /// #EXP-2028: `users.mintPersonalApiKey` answering a key bound to the
+    /// session `t-1`.
+    const SESSION_MINT_OK: &str = r#"{"result":{"data":{"key":"expu_session_t1","id":"key-s","name":"Device: box (session)","start":"expu_se","prefix":"expu_","createdAt":"2026-11-22T10:00:00.000Z","scope":null,"sessionId":"t-1"}}}"#;
+
+    /// #EXP-2028: a plain chat's launch mints a key bound to its session
+    /// (`purpose: agent`, `sessionId`), hands it, never the device key, to
+    /// the agent's MCP wiring (the direct one here: no seal service) and
+    /// the redactor, and stores nothing.
+    #[test]
+    fn a_chat_launches_on_a_key_bound_to_its_session() {
+        SESSION_KEYS_IN_TEST.with(|on| on.set(true));
+        let dir = temp_dir("chat-session-key");
+        let (base, captured) = canned_server_recording(vec![
+            (200, SESSION_MINT_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+        ]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let prepared = ready(launch(session_request(row("t-1", None), &[]), &deps));
+        let env = &prepared.spawn.env;
+        assert!(env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_session_t1".to_string())), "{env:?}");
+        assert!(!env.iter().any(|(_, value)| value == "expu_seeded"), "never the device key");
+        assert!(prepared.acp.mcp_secrets.clone().into_vec().contains(&"expu_session_t1".to_string()));
+        let requests = captured.lock().unwrap().clone();
+        assert!(requests[0].starts_with("POST /api/trpc/users.mintPersonalApiKey"), "{}", requests[0]);
+        assert!(
+            requests[0].contains(r#""purpose":"agent""#) && requests[0].contains(r#""sessionId":"t-1""#),
+            "{}",
+            requests[0]
+        );
+        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey).as_deref(), Some("expu_seeded"));
+    }
+
+    /// #EXP-1383: the device key (a chat's on a server older than
+    /// #EXP-2028) adds no extra key to the redactor list.
     #[test]
     fn a_chat_keeps_the_device_key() {
         let dir = temp_dir("chat-device-key");
