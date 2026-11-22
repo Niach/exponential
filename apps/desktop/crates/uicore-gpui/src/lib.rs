@@ -331,6 +331,12 @@ pub fn hosted_frames(layer: &Layer) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> 
     Some((to_bounds(root.x, root.y, root.w, root.h), to_bounds(anchor.x, anchor.y, anchor.w, anchor.h)))
 }
 
+/// Two frames within half a pixel of each other (the core's own tolerance).
+fn same_bounds(a: &Bounds<Pixels>, b: &Bounds<Pixels>) -> bool {
+    let near = |x: Pixels, y: Pixels| (f32::from(x) - f32::from(y)).abs() < 0.5;
+    near(a.origin.x, b.origin.x) && near(a.origin.y, b.origin.y) && near(a.size.width, b.size.width) && near(a.size.height, b.size.height)
+}
+
 fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixels> {
     Bounds { origin: point(anchor_rect.origin.x, anchor_rect.origin.y + anchor_rect.size.height + px(POPUP_GAP)), size: size(px(size_px.0), px(size_px.1)) }
 }
@@ -410,11 +416,14 @@ pub struct Surfaces {
     hosted: HashMap<(String, String), WindowHandle<SurfaceRoot>>,
     /// The size each hosted popup window was last given.
     hosted_sizes: HashMap<(String, String), gpui::Size<Pixels>>,
+    /// #EXP-2047: the anchor frame each hosted popup window was placed
+    /// against (surface coordinates).
+    hosted_anchors: HashMap<(String, String), Bounds<Pixels>>,
 }
 
 impl Surfaces {
     pub fn new(host: Box<dyn ShellHost>, theme: std::sync::Arc<ResolvedTheme>, plugin_for: PluginFor, on_frame: OnFrame, app_id: &str) -> Self {
-        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new() }
+        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new(), hosted_anchors: HashMap::new() }
     }
 
     pub fn is_open(&self, name: &str) -> bool {
@@ -533,6 +542,7 @@ impl Surfaces {
         let hosted: Vec<(String, String)> = self.hosted.keys().filter(|(doc, _)| doc == name).cloned().collect();
         for key in hosted {
             self.hosted_sizes.remove(&key);
+            self.hosted_anchors.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
@@ -563,6 +573,7 @@ impl Surfaces {
         let gone: Vec<(String, String)> = self.hosted.keys().filter(|(doc, owner)| doc == document && !wanted.iter().any(|l| &l.owner == owner)).cloned().collect();
         for key in gone {
             self.hosted_sizes.remove(&key);
+            self.hosted_anchors.remove(&key);
             if let Some(h) = self.hosted.remove(&key) {
                 let _ = h.update(cx, |_, window, _| window.remove_window());
             }
@@ -570,6 +581,21 @@ impl Surfaces {
         for layer in wanted {
             let key = (document.to_string(), layer.owner.clone());
             let Some(placed) = self.host.hosted(&parent, layer, cx) else { continue };
+            let anchor = hosted_frames(layer).map(|(_, a)| a);
+            // #EXP-2047: its anchor moved (a tray icon appeared left of it, a
+            // badge widened its button): the core keeps a hosted layer open
+            // and places it against the new frame, and so does the window
+            // system: the popup window opens again there (an xdg_popup's
+            // positioner is fixed once it maps).
+            let moved = self.hosted_anchors.get(&key).zip(anchor).is_some_and(|(was, now)| !same_bounds(was, &now));
+            if moved {
+                self.hosted_sizes.remove(&key);
+                self.hosted_anchors.remove(&key);
+                if let Some(h) = self.hosted.remove(&key) {
+                    tracing::info!(document, owner = %layer.owner, "hosted popup follows its anchor");
+                    let _ = h.update(cx, |_, window, _| window.remove_window());
+                }
+            }
             if let Some(handle) = self.hosted.get(&key) {
                 // #EDE-65: the layer laid out again (its data arrived after
                 // it opened, the taskbar previews' thumbnails): the window
@@ -600,6 +626,9 @@ impl Surfaces {
                 Ok(handle) => {
                     tracing::info!(document, owner = %layer.owner, "hosted popup opened");
                     self.hosted_sizes.insert(key.clone(), placed.bounds.size);
+                    if let Some(anchor) = anchor {
+                        self.hosted_anchors.insert(key.clone(), anchor);
+                    }
                     self.hosted.insert(key, handle);
                 }
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),

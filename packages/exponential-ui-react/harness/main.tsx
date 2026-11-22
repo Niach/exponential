@@ -657,23 +657,34 @@ function BenchSuiteSurface({ scenario, initialData }: { scenario: BenchScenario;
  *  calendar are HOSTED outside it: `host.popupHost` gives each a fixed box
  *  above the surface, placed at the anchor (side top; start / end edges). */
 function Hosted() {
+  // #EXP-2047 `?tick=1`: the clock goes 9:59 → 10:00 a moment after the
+  // popups open (its button widens, its left edge moves): the calendar
+  // hosted against it follows instead of closing.
+  const [clock, setClock] = useState(params.get(`tick`) === `1` ? `9:59` : `12:00`)
+  useEffect(() => {
+    if (params.get(`tick`) !== `1`) return
+    const t = setTimeout(() => setClock(`10:00`), 800)
+    return () => clearTimeout(t)
+  }, [])
   const tree = {
     id: `panel`,
     component: `Box`,
     style: { display: `flex`, flexDirection: `row`, justifyContent: `space-between`, alignItems: `center`, width: 800, height: 44, paddingHorizontal: 4, backgroundColor: `$color.card` },
     children: [
       { id: `start`, component: `Button`, props: { label: `Start`, variant: `ghost` } },
-      { id: `clock`, component: `Button`, props: { label: `12:00`, variant: `ghost` } },
+      { id: `clock`, component: `Button`, props: { label: clock, variant: `ghost` } },
       { id: `startMenu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [`Files`, `Terminal`, `Settings`].map((t) => ({ id: t, component: `Text`, props: { text: t } })) },
       { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, { id: `today`, component: `Text`, props: { text: `Friday, 6` } }] },
     ],
   } as unknown as NestedNode
   const { root } = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
-  const host: HostPlugin = {
+  const host = useMemo<HostPlugin>(() => ({
     popupHost: {
+      // `mount` again with the same owner = its anchor moved: the same box, placed again.
       mount: (p) => {
         const s = document.querySelector(`[data-xui-surface="hosted"]`)!.getBoundingClientRect()
-        const el = document.createElement(`div`)
+        const el = document.querySelector<HTMLElement>(`[data-xui-hosted="${p.owner}"]`) ?? document.createElement(`div`)
+        el.removeAttribute(`style`)
         el.style.position = `fixed`
         if (p.side === `top`) el.style.bottom = `${innerHeight - (s.top + p.anchor.y - 4)}px`
         else el.style.top = `${s.top + p.anchor.y + p.anchor.height + 4}px`
@@ -684,7 +695,7 @@ function Hosted() {
       },
       unmount: (p) => document.querySelector(`[data-xui-hosted="${p.owner}"]`)?.remove(),
     },
-  }
+  }), [])
   return (
     <div style={{ position: `absolute`, left: 40, bottom: 40, outline: `1px dashed #f59e0b`, outlineOffset: 2 }}>
       <ExponentialSurface id="hosted" root={root} host={host} theme={themeId} mode={mode} width={800} />
