@@ -4,6 +4,8 @@
 # prompts; whatever ends it, systemd starts it again (#EDE-87).
 # #EDE-172 (P4): with `[session] helpers = "compositor"` the compositor runs
 # the agent itself; this unit stays off then.
+# That is a real session's default since eDE's flip (P14); `helpers =
+# "units"` in compositor.toml starts this unit again.
 [Unit]
 Description=Exponential Desktop polkit authentication agent (exponential-sealed)
 PartOf=graphical-session.target exponential-session.target

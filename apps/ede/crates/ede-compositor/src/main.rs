@@ -182,10 +182,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if no_xwayland {
         config.xwayland = false;
     }
+    // #EDE-172 (P14, eDE's flip): a real session starts its helpers itself
+    // and gates the root token, unless its file says otherwise.
+    if udev && headless.is_none() {
+        config = config.for_a_real_session();
+        if config.session.helpers() != ede_compositor::config::Helpers::Compositor {
+            tracing::warn!("[session] helpers = \"units\": the session's units start the shell, the polkit agent, the portal and the services daemon (#EDE-172)");
+        }
+        if !config.control.consent() {
+            tracing::warn!("[control] consent = false: the root token works from any process of the person's (#EDE-172)");
+        }
+    }
     // #EDE-172 (P4): a compositor that starts the session's helpers holds
     // every grant they hold: no other process of the person reads its
     // memory or its descriptors, nor attaches to it.
-    if config.session.helpers == ede_compositor::config::Helpers::Compositor {
+    if config.session.helpers() == ede_compositor::config::Helpers::Compositor {
         if let Err(e) = ede_protocol::process::refuse_ptrace() {
             tracing::warn!("PR_SET_DUMPABLE: {e}");
         }

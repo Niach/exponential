@@ -9,7 +9,8 @@
 //!   moved; each domain polled on its own thread at its own
 //!   [`Service::interval`], only while someone subscribes), over the
 //!   connections the compositor hands its intake (#EDE-172 P13, each with
-//!   the capabilities of the principal that asked) or, until eDE's flip,
+//!   the capabilities of the principal that asked) or, with `[session]
+//!   helpers = "units"` (as before eDE's flip, P14),
 //!   `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`;
 //! - the **MCP face** ([`mcp`]): eMCP's loopback server with one tool per
 //!   action plus `<domain>_get`, grants per agent session with the

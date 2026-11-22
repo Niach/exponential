@@ -45,30 +45,48 @@ pub struct Config {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Session {
-    /// Who starts the shell, the polkit agent and the portal:
-    /// `"units"` (the default: their systemd user units, as before) or
-    /// `"compositor"` (P4, dark until eDE's flip): the compositor itself,
-    /// each in a scope of its own, with its channel at fd 3 and its Wayland
-    /// connection from the compositor (`WAYLAND_SOCKET`), a pinned
-    /// environment, and started again when it ends ([`crate::helpers`]).
-    pub helpers: Helpers,
+    /// Who starts the shell, the polkit agent, the portal and the services
+    /// daemon: `"compositor"` (P4): the compositor itself, each in a scope
+    /// of its own, with its channel at fd 3 and its Wayland connection from
+    /// the compositor (`WAYLAND_SOCKET`), a pinned environment, and started
+    /// again when it ends ([`crate::helpers`]); or `"units"`: their systemd
+    /// user units, as before eDE's flip. Unset = the compositor in a real
+    /// session (P14, [`Config::for_a_real_session`]), nobody in a test's or
+    /// a nested compositor ([`Session::helpers`]).
+    pub helpers: Option<Helpers>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+impl Session {
+    /// Who starts the helpers: unset = nobody (a test's or a nested
+    /// compositor; a real session's is set by [`Config::for_a_real_session`]).
+    pub fn helpers(&self) -> Helpers {
+        self.helpers.unwrap_or(Helpers::Units)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Helpers {
-    #[default]
     Units,
     Compositor,
 }
 
-/// `[control]` (#EDE-172): `consent = true` turns the root token's gate on
-/// ([`crate::consent`]): only eDE's own binaries, the policy file's and
-/// what the person allowed may use it. Off until eDE's flip (P14).
+/// `[control]` (#EDE-172): `consent`, the root token's gate
+/// ([`crate::consent`]): only eDE's own programs, the policy file's and
+/// what the person allowed may use the token. Unset = on in a real session
+/// (eDE's flip, P14: [`Config::for_a_real_session`]), off in a test's or a
+/// nested compositor unless the test asks (`--consent-answer`).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Control {
-    pub consent: bool,
+    pub consent: Option<bool>,
+}
+
+impl Control {
+    /// The gate is on ([`Control::consent`]; unset = off, as in a test's compositor).
+    pub fn consent(&self) -> bool {
+        self.consent.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -304,6 +322,17 @@ impl Keyboard {
 }
 
 impl Config {
+    /// #EDE-172 (P14, eDE's flip): what a real session (the udev backend on
+    /// a real screen, safe mode too) takes for what its file leaves unset:
+    /// the compositor starts the session's helpers, and the root token's
+    /// gate is on. A file that says `helpers = "units"` or `consent =
+    /// false` is followed (the compositor warns).
+    pub fn for_a_real_session(mut self) -> Self {
+        self.session.helpers.get_or_insert(Helpers::Compositor);
+        self.control.consent.get_or_insert(true);
+        self
+    }
+
     /// The system's keyboard ([`SYSTEM_KEYBOARD`]) for an empty `[keyboard]
     /// layout`: every path that loads a config goes through here (start,
     /// safe mode, reload).
@@ -456,13 +485,19 @@ mod tests {
         assert!(Config::parse("[[outputs]]\nname = \"DP-1\"\nscale = 9\n").is_err());
     }
 
-    /// #EDE-172 (P4): the units start the session's programs unless the
-    /// person (or a VM's proof) says the compositor does.
+    /// #EDE-172 (P14, eDE's flip): in a real session the compositor starts
+    /// the session's programs and the root token's gate is on, unless the
+    /// file says otherwise; a test's or a nested compositor starts nothing
+    /// and gates nothing unless asked to.
     #[test]
-    fn the_units_start_the_helpers_unless_the_compositor_is_asked_to() {
-        assert_eq!(Config::default().session.helpers, Helpers::Units);
-        assert_eq!(Config::parse("[session]\nhelpers = \"compositor\"\n").unwrap().session.helpers, Helpers::Compositor);
-        assert_eq!(Config::parse("[session]\nhelpers = \"units\"\n").unwrap().session.helpers, Helpers::Units);
+    fn a_real_session_starts_its_helpers_and_gates_the_token() {
+        let real = Config::default().for_a_real_session();
+        assert_eq!((real.session.helpers(), real.control.consent()), (Helpers::Compositor, true));
+        assert_eq!((Config::default().session.helpers(), Config::default().control.consent()), (Helpers::Units, false), "a test's or a nested compositor");
+        let units = Config::parse("[session]\nhelpers = \"units\"\n[control]\nconsent = false\n").unwrap().for_a_real_session();
+        assert_eq!((units.session.helpers(), units.control.consent()), (Helpers::Units, false), "the file's word stands");
+        let asked = Config::parse("[session]\nhelpers = \"compositor\"\n[control]\nconsent = true\n").unwrap();
+        assert_eq!((asked.session.helpers(), asked.control.consent()), (Helpers::Compositor, true));
         assert!(Config::parse("[session]\nhelpers = \"systemd\"\n").is_err());
     }
 

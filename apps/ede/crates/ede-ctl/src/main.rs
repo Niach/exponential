@@ -1,6 +1,7 @@
 //! `exponential-ctl`: drive a running `exponential-compositor` over ede-protocol (#EDE-7).
-//! It connects like the shell does: `$WAYLAND_DISPLAY` names the socket and
-//! the root token file (or `$EDE_TOKEN`) grants every capability.
+//! `$WAYLAND_DISPLAY` names the socket and the root token file (or
+//! `$EDE_TOKEN`) grants every capability, once the person allowed this
+//! process (below).
 //!
 //! ```text
 //! exponential-ctl windows                          the open windows as JSON lines
@@ -19,7 +20,8 @@
 //!                                                       connection (#EDE-172 P7): one question to the person for all
 //! ```
 //!
-//! #EDE-172: with Exponential Desktop's gate on (`[control] consent`), the
+//! #EDE-172: in a real Exponential Desktop session (the gate, `[control]
+//! consent`, on unless the file says `false`), the
 //! person is asked once per `exponential-ctl` process whether it may control
 //! the desktop: a script that runs many commands runs them through one
 //! `exponential-ctl session` and is asked once. A VM or a CI machine names

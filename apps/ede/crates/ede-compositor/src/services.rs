@@ -1,6 +1,7 @@
 //! #EDE-172 (P13): the services daemon (`exponential-services serve`) as a
 //! helper of the compositor ([`crate::helpers`], `[session] helpers =
-//! "compositor"`; dark until eDE's flip). It binds no `services.sock`:
+//! "compositor"`, a real session's default since eDE's flip, P14). It
+//! binds no `services.sock`:
 //! its fd 3 is its intake ([`ede_protocol::intake`]), and a connection to
 //! it is something a principal asks the compositor for on its own channel
 //! ([`ede_protocol::Request::OpenServices`]). The compositor makes the
@@ -9,8 +10,8 @@
 //! other. The shell's root channel asks with every capability (its buttons
 //! and pages); no other principal asks today.
 //!
-//! Without the switch the daemon's unit serves `services.sock` as before:
-//! every capability to any process of the person (until the flip, P14).
+//! With `helpers = "units"` the daemon's unit serves `services.sock` as
+//! before eDE's flip: every capability to any process of the person.
 
 use std::os::{fd::OwnedFd, unix::net::UnixStream};
 
