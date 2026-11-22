@@ -152,6 +152,10 @@ struct AgentSessionView: View {
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
     @State private var atBottom = true
+    /// #EXP-1976: a send from a reader scrolled up is settling at the bottom.
+    @State private var sendSettling = false
+    /// #EXP-1976: the transcript's bottom anchor is realised.
+    @State private var bottomShown = false
     /// steer-enet.json REPLAY TAIL: the row that headed the transcript when
     /// the reader's scroll near its top paged older rows in; the scroll
     /// lands back on it once they are above it (nil = no page pending).
@@ -1157,6 +1161,8 @@ struct AgentSessionView: View {
                         Color.clear
                             .frame(height: 1)
                             .id(AgentSessionLayout.bottomAnchor)
+                            .onAppear { bottomShown = true }
+                            .onDisappear { bottomShown = false }
                     }
                     .padding(.vertical, 8)
                     // EXP-787: a transcript is a reading measure. The 16pt
@@ -1186,7 +1192,7 @@ struct AgentSessionView: View {
                 // initial offset only, never re-anchored on size changes,
                 // EXP-70), so the opening pass sizes the newest rows, not the
                 // oldest before the scroll-to-bottom.
-                .modifier(InitialBottomOffset())
+                .modifier(InitialBottomOffset(keepBottom: sendSettling))
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
@@ -1295,17 +1301,25 @@ struct AgentSessionView: View {
                 }
                 // #FEED-237: a press puts the bubble at the bottom: follow it.
                 .onChange(of: model.ownPending.count) { old, new in
+                    NSLog("DBAE ownPending %d -> %d", old, new)
                     guard new > old else { return }
                     atBottom = true
+                    // #EXP-1976: from a reader scrolled up over tall lazy
+                    // rows the jump lands on their ESTIMATED heights; the
+                    // real ones collapse the content under it, and a pin by
+                    // scrollTo left the lazy stack with no row realised (an
+                    // empty transcript until the next drag). While the jump
+                    // settles, the scroll view itself keeps its bottom edge.
+                    sendSettling = true
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
-                    // #EXP-1976: from a reader scrolled up, the jump lands on
-                    // ESTIMATED heights of tall lazy rows (and the window
-                    // slides back to the newest rows), leaving the offset past
-                    // the content: an empty transcript until the next drag.
-                    // Pin again once those rows have laid out.
-                    for delay in [0.05, DesignTokens.Motion.Duration.standard + 0.2] {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                            guard atBottom else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        sendSettling = false
+                        NSLog("DBAE settle atBottom=%d bottomShown=%d", atBottom ? 1 : 0, bottomShown ? 1 : 0)
+                        // Still nothing realised at the end: move the offset
+                        // for real (the newest row), then pin again.
+                        guard atBottom, !bottomShown, let last = model.transcript.last?.id else { return }
+                        proxy.scrollTo(last, anchor: .center)
+                        DispatchQueue.main.async {
                             proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                         }
                     }
@@ -5331,11 +5345,15 @@ struct FollowPinTracker: ViewModifier {
             burstOpenedAt = now
             growthRepins = 0
         }
-        guard growthRepins < Self.maxGrowthRepins else { return }
+        guard growthRepins < Self.maxGrowthRepins else {
+            NSLog("DBAE budget out stranded=%d", stranded ? 1 : 0)
+            return
+        }
         repinQueued = true
         growthRepins += 1
         Task { @MainActor in
             repinQueued = false
+            NSLog("DBAE repin stranded=%d atBottom=%d user=%d hold=%d", stranded ? 1 : 0, atBottom ? 1 : 0, userScrolling ? 1 : 0, hold ? 1 : 0)
             guard stranded || atBottom, !userScrolling, !hold else { return }
             repin()
         }
@@ -5410,6 +5428,7 @@ struct FollowPinTracker: ViewModifier {
                         below: geometry.contentSize.height - geometry.visibleRect.maxY
                     )
                 } action: { old, new in
+                    NSLog("DBAE growth h=%.0f below=%.0f atBottom=%d user=%d", new.height, new.below, atBottom ? 1 : 0, userScrolling ? 1 : 0)
                     // NOTHING re-arms the budget here: `below <= 0` is what a
                     // repin PRODUCES, so re-arming on it handed the storm its
                     // own escape hatch (EXP-943). The rate window in
@@ -5563,9 +5582,14 @@ struct BodySlice<Content: View>: View {
 
 /// iOS 18+: `defaultScrollAnchor(.bottom, for: .initialOffset)`.
 private struct InitialBottomOffset: ViewModifier {
+    /// #EXP-1976: size changes keep the bottom edge too (a send settling).
+    var keepBottom = false
+
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+            content
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(keepBottom ? .bottom : nil, for: .sizeChanges)
         } else {
             content
         }
