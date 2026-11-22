@@ -32,6 +32,9 @@ import kotlinx.serialization.json.JsonObject
 /** A send ready to go: [input] (sealed when it could be), [onSent] keeps a new root's key. */
 class PreparedSend(val input: SessionsSendInput, val onSent: (SessionsSendResult) -> Unit = {})
 
+/** #EXP-1958: a replies / suggestions card as a tap reads it ([SealedWriter.cardTap]). */
+class CardTap(val sealed: Boolean, val opened: JsonObject?, val sessionId: String?)
+
 /** Who a send's tree key is wrapped for: its team and target device. */
 internal data class Readers(val teamId: String?, val deviceId: String?)
 
@@ -160,7 +163,7 @@ class SealedWriter @Inject constructor(
                 val wraps = readerWraps(accountId, installId, readers, key.secret) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
                 PreparedSend(
-                    withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
+                    sealedName(withMentions, key.publicKey, FIRST_EPOCH).copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
                 ) { result -> keep(accountId, result.sessionId, key.secret) }
             }
         }
@@ -259,7 +262,37 @@ class SealedWriter @Inject constructor(
         Keyless.Arrived(awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, rootId) })
 
     private fun sealedTo(input: SessionsSendInput, key: PublicTreeKey, body: String) =
-        PreparedSend(input.copy(text = crypto.sealBody(key.publicKey, key.epoch, body)))
+        PreparedSend(sealedName(input, key.publicKey, key.epoch).copy(text = crypto.sealBody(key.publicKey, key.epoch, body)))
+
+    /** EXP-1458: a new session's `name` leaves as `sealedName` (the plaintext title stays neutral). */
+    private fun sealedName(input: SessionsSendInput, publicKey: String, epoch: Int): SessionsSendInput {
+        val name = input.name?.takeIf { it.isNotBlank() } ?: return input.copy(name = null)
+        return input.copy(name = null, sealedName = crypto.sealBody(publicKey, epoch, name))
+    }
+
+    /**
+     * #EXP-1958 (`cardStamps`): the stored replies / suggestions card [messageId]
+     * names, as a tap reads it: [CardTap.sealed] = the stored card has a
+     * `sealed` field, [CardTap.opened] = it opened here (stamps laid over its
+     * items by `openCard`), null when it stays sealed. Null = no such row here.
+     */
+    suspend fun cardTap(accountId: String, messageId: String): CardTap? = withContext(Dispatchers.IO) {
+        val row = dbs.database(accountId).messageDao().getById(messageId) ?: return@withContext null
+        val raw = row.card?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() } ?: return@withContext null
+        if (!SealedContent.isSealedCard(raw)) return@withContext CardTap(sealed = false, opened = raw, sessionId = row.sessionId)
+        val opened = SealedContent.openCard(row.rootId, raw).takeIf { !SealedContent.isSealedCard(it) }
+        CardTap(sealed = true, opened = opened, sessionId = row.sessionId)
+    }
+
+    /** A sealed Start's `issueIds` ([CardItemWire.startIssueIds]): `#IDENT`s this install's issues resolve. */
+    suspend fun startIssueIds(accountId: String, ids: List<String>): List<String> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext ids
+        val db = dbs.database(accountId)
+        val idents = ids.map { it.removePrefix("#").uppercase() }
+        val known = runCatching { db.issueDao().byIdentifiers(idents) }.getOrDefault(emptyList())
+            .associate { it.identifier.uppercase() to it.id }
+        CardItemWire.startIssueIds(ids) { wanted -> wanted.mapNotNull { w -> known[w.uppercase()]?.let { w to it } }.toMap() }
+    }
 
     /** A keyless root's key once one exists: Room's synced row first, else the server's word. */
     private suspend fun currentKey(db: ExponentialDatabase, accountId: String, rootId: String): PublicTreeKey? {
@@ -318,7 +351,7 @@ class SealedWriter @Inject constructor(
             val epoch = key.second ?: throw TrpcException(LOCKED_SEND)
             val body = SealedWrite.withAttachmentEmbeds(text, input.attachmentIds.orEmpty())
             PreparedSend(
-                input.copy(
+                sealedName(input, publicKey, epoch).copy(
                     text = crypto.sealBody(publicKey, epoch, body),
                     mentionUserIds = mentions.takeIf { it.isNotEmpty() },
                     refIssueIds = refs.takeIf { it.isNotEmpty() },

@@ -414,16 +414,135 @@ pub fn open_card(card: &Value, keys: &dyn Fn(u32) -> Option<[u8; 32]>) -> Opened
             if inner.get("kind") != clear.get("kind") {
                 return refused(epoch, clear);
             }
-            // The clear `pictures` is a projection: the sealed ones stay
-            // whole, and only take the ids of pictures uploaded after sealing.
-            let projected = clear.remove("pictures");
-            for (k, v) in clear {
-                inner.insert(k, v);
-            }
-            resolve_clear_pictures(&mut inner, projected.as_ref());
+            overlay_clear(&mut inner, clear);
             OpenedCard { status: OpenStatus::Opened, epoch, card: Value::Object(inner) }
         }
         (status, epoch, _) => OpenedCard { status, epoch, card: Value::Object(clear) },
+    }
+}
+
+/// The opened card: the sealed card with its clear fields laid over it.
+/// The clear `pictures` is a projection (the sealed ones stay whole, and
+/// only take the ids of pictures uploaded after sealing); the clear
+/// `stamps` land on their items (`apply_card_stamps`).
+pub fn overlay_clear(inner: &mut Map<String, Value>, mut clear: Map<String, Value>) {
+    let projected = clear.remove("pictures");
+    let stamps = clear.remove("stamps");
+    for (k, v) in clear {
+        inner.insert(k, v);
+    }
+    resolve_clear_pictures(inner, projected.as_ref());
+    apply_card_stamps(inner, stamps.as_ref());
+}
+
+// ── stamps on a sealed replies / suggestions card (`cardStamps`, #EXP-1958) ──
+
+/// What a clear stamp may set on an item: flags (true) and ids (strings).
+pub const CARD_STAMP_FIELDS: [&str; 5] = ["sent", "here", "dismissed", "sessionId", "issueId"];
+
+/// The allowed fields of one clear stamp, each of its type (others dropped).
+pub fn card_stamp(raw: &Value) -> Map<String, Value> {
+    let mut out = Map::new();
+    let Some(obj) = raw.as_object() else { return out };
+    for field in CARD_STAMP_FIELDS {
+        let ok = match obj.get(field) {
+            Some(Value::String(_)) => field == "sessionId" || field == "issueId",
+            Some(Value::Bool(true)) => field != "sessionId" && field != "issueId",
+            _ => false,
+        };
+        if ok {
+            out.insert(field.into(), obj[field].clone());
+        }
+    }
+    out
+}
+
+/// The server's clear `stamps` laid over the opened card's items (an id no
+/// item carries is ignored); `stamps` itself never reaches the reader.
+pub fn apply_card_stamps(card: &mut Map<String, Value>, stamps: Option<&Value>) {
+    let Some(stamps) = stamps.and_then(Value::as_object) else { return };
+    let Some(items) = card.get_mut("items").and_then(Value::as_array_mut) else { return };
+    for item in items.iter_mut() {
+        let Some(obj) = item.as_object_mut() else { continue };
+        let Some(stamp) = obj.get("id").and_then(Value::as_str).and_then(|id| stamps.get(id)) else { continue };
+        for (k, v) in card_stamp(stamp) {
+            obj.insert(k, v);
+        }
+    }
+}
+
+/// A tap on a replies / suggestions card (`cardStamps.tapCases`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardItemAction {
+    Reply,
+    Here,
+    Start,
+    StartAll,
+    Dismiss,
+    DismissReplies,
+    File,
+}
+
+impl CardItemAction {
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "reply" => Self::Reply,
+            "here" => Self::Here,
+            "start" => Self::Start,
+            "startAll" => Self::StartAll,
+            "dismiss" => Self::Dismiss,
+            "dismissReplies" => Self::DismissReplies,
+            "file" => Self::File,
+            _ => return None,
+        })
+    }
+    fn server_call(self) -> &'static str {
+        match self {
+            Self::Reply => "sessions.sendReply",
+            Self::Here | Self::Start => "sessions.startSuggestion",
+            Self::StartAll => "sessions.startAllSuggestions",
+            Self::Dismiss => "sessions.dismissSuggestion",
+            Self::DismissReplies => "sessions.dismissReplies",
+            Self::File => "sessions.fileSuggestion",
+        }
+    }
+}
+
+/// Which wire the tap takes: `server` (an unsealed card's server action),
+/// `sealed` (`sessions.send` with `cardItem`), `stamp` (the server action
+/// with the opened ids / text), `refused` (sealed, not opened: nothing leaves).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardItemWire {
+    Server,
+    Sealed,
+    Stamp,
+    Refused,
+}
+
+impl CardItemWire {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Server => "server",
+            Self::Sealed => "sealed",
+            Self::Stamp => "stamp",
+            Self::Refused => "refused",
+        }
+    }
+}
+
+/// Decided by the STORED card (sealed or not) and whether this install
+/// opened it, never by the tree's key alone. → the wire and its call.
+pub fn card_item_wire(sealed: bool, opened: bool, action: CardItemAction) -> (CardItemWire, Option<&'static str>) {
+    use CardItemAction::*;
+    if !sealed {
+        return (CardItemWire::Server, Some(action.server_call()));
+    }
+    if !opened {
+        return (CardItemWire::Refused, None);
+    }
+    match action {
+        Reply | Here | Start | StartAll => (CardItemWire::Sealed, Some("sessions.send")),
+        Dismiss | DismissReplies | File => (CardItemWire::Stamp, Some(action.server_call())),
     }
 }
 
@@ -542,5 +661,36 @@ mod tests {
         let opened = open_card(&sealed, &|e| (e == 4).then_some(tree.secret));
         assert_eq!(opened.card, card);
         assert!(split_card(&serde_json::json!({"summary": "no kind"})).is_err());
+    }
+
+    #[test]
+    fn replays_card_stamps() {
+        let fx = fixture();
+        let st = &fx["cardStamps"];
+        let fields: Vec<&str> = st["fields"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
+        assert_eq!(fields, CARD_STAMP_FIELDS);
+        let keys = keys(&fx);
+        let splits = fx["card"]["splits"].as_array().unwrap();
+        for case in st["openCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let split = splits.iter().find(|s| s["name"] == case["stored"]).unwrap();
+            let mut stored = split["envelope"].clone();
+            stored["stamps"] = case["stamps"].clone();
+            let got = if case["keys"] == "tree" { open_card(&stored, &keys) } else { open_card(&stored, &|_| None) };
+            assert_eq!(got.status.as_str(), case["status"].as_str().unwrap(), "{name}");
+            if case.get("items").is_some() {
+                assert_eq!(got.card["items"], case["items"], "{name}");
+                assert!(got.card.get("stamps").is_none(), "{name}");
+            } else {
+                assert_eq!(got.card, case["card"], "{name}");
+            }
+        }
+        for case in st["tapCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let action = CardItemAction::parse(case["action"].as_str().unwrap()).unwrap();
+            let (wire, call) = card_item_wire(case["stored"] == "sealed", case["opened"] == true, action);
+            assert_eq!(wire.as_str(), case["wire"].as_str().unwrap(), "{name}");
+            assert_eq!(call, case["call"].as_str(), "{name}");
+        }
     }
 }

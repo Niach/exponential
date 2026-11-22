@@ -53,25 +53,49 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
     public let input: SessionsSendInput
     public let seal: NewChatSeal?
     public let mentionUserIds: [String]?
+    /// EXP-1458: a new child's `name` as a body envelope (the input carries
+    /// no clear `name` then).
+    public let sealedName: String?
     /// F21: the sender's idempotency key: a retry naming it posts nothing
     /// new (a new root's start carries none server-side).
     public var clientMessageId: String?
+    /// #EXP-1958: the sealed card item this send acts on (tRPC only); the
+    /// writer passes it through untouched.
+    public var cardItem: CardItemRef?
 
-    public init(input: SessionsSendInput, seal: NewChatSeal? = nil, mentionUserIds: [String]? = nil, clientMessageId: String? = nil) {
+    public init(
+        input: SessionsSendInput,
+        seal: NewChatSeal? = nil,
+        mentionUserIds: [String]? = nil,
+        sealedName: String? = nil,
+        clientMessageId: String? = nil,
+        cardItem: CardItemRef? = nil
+    ) {
         self.input = input
         self.seal = seal
         self.mentionUserIds = mentionUserIds
+        self.sealedName = sealedName
         self.clientMessageId = clientMessageId
+        self.cardItem = cardItem
     }
 
-    private enum Keys: String, CodingKey { case seal, mentionUserIds, clientMessageId }
+    /// #EXP-1958 (`cardStamps`, NEVER IN CLEAR): the writer sealed this
+    /// send: its text is an envelope and no clear `name` rides along.
+    public var leavesSealed: Bool {
+        guard let text = input.text, SealedEnvelope.isSealedBody(text) else { return false }
+        return input.name == nil
+    }
+
+    private enum Keys: String, CodingKey { case seal, mentionUserIds, sealedName, clientMessageId, cardItem }
 
     public func encode(to encoder: Encoder) throws {
         try input.encode(to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         try c.encodeIfPresent(seal, forKey: .seal)
         try c.encodeIfPresent(mentionUserIds, forKey: .mentionUserIds)
+        try c.encodeIfPresent(sealedName, forKey: .sealedName)
         try c.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
+        try c.encodeIfPresent(cardItem, forKey: .cardItem)
     }
 }
 
@@ -82,7 +106,7 @@ extension SessionsSendInput {
         case let .newChat(_, _, _, text, _, _, _, _): text
         case let .agent(_, text, _, _, _, _): text
         case let .app(_, _, text, _, _, _, _): text
-        case let .child(_, _, _, text): text
+        case let .child(_, _, _, text, _, _): text
         case let .message(_, text, _, _): text
         case .switchAccount, .moveDevice: nil
         }
@@ -99,6 +123,18 @@ extension SessionsSendInput {
         }
     }
 
+    /// A new child's display name (the one form that names one here).
+    public var name: String? {
+        if case let .child(_, _, _, _, name, _) = self { return name }
+        return nil
+    }
+
+    /// The same form without its clear `name` (it leaves as `sealedName`).
+    func withoutName() -> SessionsSendInput {
+        guard case let .child(parentId, deviceId, options, text, _, issueIds) = self else { return self }
+        return .child(parentId: parentId, deviceId: deviceId, options: options, text: text, issueIds: issueIds)
+    }
+
     /// The same form with `text` replaced.
     public func with(text: String?) -> SessionsSendInput {
         switch self {
@@ -108,8 +144,8 @@ extension SessionsSendInput {
             .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope, mcpServerIds: mcpServerIds)
         case let .app(appId, deviceId, _, attachmentIds, cli, account, model):
             .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds, cli: cli, account: account, model: model)
-        case let .child(parentId, deviceId, options, _):
-            .child(parentId: parentId, deviceId: deviceId, options: options, text: text)
+        case let .child(parentId, deviceId, options, _, name, issueIds):
+            .child(parentId: parentId, deviceId: deviceId, options: options, text: text, name: name, issueIds: issueIds)
         case let .message(sessionId, _, attachmentIds, scope):
             .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds, scope: scope)
         case .switchAccount, .moveDevice:
@@ -196,12 +232,12 @@ public struct SendSealing: Sendable {
         case let .app(appId, device, _, _, _, _, _):
             conversation = (nil, appId)
             steerDevice = device
-        case let .message(id, _, _, _), let .child(id, _, _, _):
+        case let .message(id, _, _, _), let .child(id, _, _, _, _, _):
             sessionId = id
         }
         // A clear tree takes plaintext and is never keyed.
         if root?.clearTree == true { return plain }
-        let hasText = !(input.text ?? "").isEmpty
+        let hasText = !(input.text ?? "").isEmpty || !(input.name ?? "").isEmpty
         let refuse = { () throws -> PreparedSend in
             guard hasText else { return plain }
             logger.error("No key to seal this send to: refused, nothing sent")
@@ -211,7 +247,7 @@ public struct SendSealing: Sendable {
             return try refuse()
         }
         let sealed = { (key: TreeSealKey) throws in
-            PreparedSend(input: SealedSendInput(input: try self.seal(input, to: key), mentionUserIds: mentions), newKey: nil)
+            PreparedSend(input: try self.seal(input, to: key, mentions: mentions), newKey: nil)
         }
         let target: ServerSendTarget? = if let conversation, root == nil || fresh {
             await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
@@ -267,8 +303,8 @@ public struct SendSealing: Sendable {
                 deviceIds: deviceIds(steerDevice),
                 shared: false
             )
-            let sealed = try self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1))
-            return PreparedSend(input: SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions), newKey: key)
+            let sealed = try self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal)
+            return PreparedSend(input: sealed, newKey: key)
         } catch let refusal as SealRefusal {
             throw refusal
         } catch {
@@ -357,12 +393,26 @@ public struct SendSealing: Sendable {
         await holder.adopt(rootId: result.sessionId, key: key)
     }
 
-    /// The text sealed to `key`; a seal that fails throws, never plaintext.
-    private func seal(_ input: SessionsSendInput, to key: TreeSealKey) throws -> SessionsSendInput {
-        guard let text = input.text, !text.isEmpty else { return input }
+    /// The text (and a new child's `name`, as `sealedName`) sealed to
+    /// `key`; a seal that fails throws, never plaintext.
+    private func seal(
+        _ input: SessionsSendInput,
+        to key: TreeSealKey,
+        mentions: [String]?,
+        seal: NewChatSeal? = nil
+    ) throws -> SealedSendInput {
         do {
-            let body = SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
-            return input.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: body))
+            var sealed = input
+            if let text = input.text, !text.isEmpty {
+                let body = SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
+                sealed = sealed.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: body))
+            }
+            var sealedName: String?
+            if let name = input.name, !name.isEmpty {
+                sealedName = try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: name)
+                sealed = sealed.withoutName()
+            }
+            return SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions, sealedName: sealedName)
         } catch {
             logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
             throw SealRefusal()

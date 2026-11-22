@@ -2072,6 +2072,26 @@ fn suggestion_write(
     .detach();
 }
 
+/// #EXP-1958: one suggestion tap: an unsealed card's server action
+/// (`server`), a sealed card's sealed send / stamp (`card_taps`), or the
+/// refusal toast of a sealed card this install cannot open.
+fn suggestion_tap(
+    key: String,
+    verb: &'static str,
+    thing: &'static str,
+    tap: crate::card_taps::Tap,
+    cx: &mut App,
+    server: impl FnOnce(&api::TrpcClient) -> Result<serde::de::IgnoredAny, api::ApiError> + Send + 'static,
+) {
+    match tap {
+        crate::card_taps::Tap::Server => suggestion_write(key, verb, thing, cx, server),
+        crate::card_taps::Tap::Call(call) => suggestion_write(key, verb, thing, cx, call),
+        crate::card_taps::Tap::Refused => {
+            crate::action_error::failed_action(verb, thing, Some(crate::card_taps::REFUSED.into()), cx)
+        }
+    }
+}
+
 /// Start one item: a child (`device_id` / `model` from the Options menu)
 /// or, with `here`, a message to the posting session (Do it here).
 pub(crate) fn start_suggestion(
@@ -2082,6 +2102,10 @@ pub(crate) fn start_suggestion(
     model: Option<String>,
     cx: &mut App,
 ) {
+    use enet_core::sealed::CardItemAction;
+    let action = if here { CardItemAction::Here } else { CardItemAction::Start };
+    let picks = crate::card_taps::Picks { device_id: device_id.clone(), model: model.clone() };
+    let tap = crate::card_taps::tap(message_id, Some(item_id), action, picks, cx);
     let where_ = if here {
         api::sessions::SuggestionWhere::Here
     } else {
@@ -2092,26 +2116,29 @@ pub(crate) fn start_suggestion(
         model,
         ..api::sessions::StartSuggestionInput::new(message_id, item_id, where_)
     };
-    suggestion_write(suggestion_key(message_id, Some(item_id)), "start", "the task", cx, move |trpc| {
+    suggestion_tap(suggestion_key(message_id, Some(item_id)), "start", "the task", tap, cx, move |trpc| {
         api::sessions::start_suggestion(trpc, &input)
     });
 }
 
 fn start_all_suggestions(message_id: String, cx: &mut App) {
-    suggestion_write(suggestion_key(&message_id, None), "start", "the tasks", cx, move |trpc| {
+    let tap = crate::card_taps::tap(&message_id, None, enet_core::sealed::CardItemAction::StartAll, Default::default(), cx);
+    suggestion_tap(suggestion_key(&message_id, None), "start", "the tasks", tap, cx, move |trpc| {
         api::sessions::start_all_suggestions(trpc, &message_id)
     });
 }
 
 fn dismiss_suggestion(message_id: String, item_id: String, cx: &mut App) {
-    suggestion_write(suggestion_key(&message_id, Some(&item_id)), "dismiss", "the task", cx, move |trpc| {
+    let tap = crate::card_taps::tap(&message_id, Some(&item_id), enet_core::sealed::CardItemAction::Dismiss, Default::default(), cx);
+    suggestion_tap(suggestion_key(&message_id, Some(&item_id)), "dismiss", "the task", tap, cx, move |trpc| {
         api::sessions::dismiss_suggestion(trpc, &message_id, &item_id)
     });
 }
 
 fn file_suggestion(message_id: String, item_id: String, cx: &mut App) {
-    suggestion_write(suggestion_key(&message_id, Some(&item_id)), "file", "the issue", cx, move |trpc| {
-        api::sessions::file_suggestion(trpc, &message_id, &item_id)
+    let tap = crate::card_taps::tap(&message_id, Some(&item_id), enet_core::sealed::CardItemAction::File, Default::default(), cx);
+    suggestion_tap(suggestion_key(&message_id, Some(&item_id)), "file", "the issue", tap, cx, move |trpc| {
+        api::sessions::file_suggestion(trpc, &message_id, &item_id, None)
     });
 }
 

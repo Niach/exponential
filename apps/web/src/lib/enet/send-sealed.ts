@@ -15,7 +15,8 @@ import {
 import type { CardAnswerInput } from "@/lib/sessions/card-answer"
 import { trpc } from "@/lib/trpc-client"
 import { awaitKeyHolder, currentKeyHolder } from "./current-key-holder"
-import { sealAnswerInput, sendSealed, type SealDeps, type SealSessionRow } from "./seal-send"
+import { SEALED_BODY_PREFIX } from "@exp/domain-contract/sealed-content"
+import { NoKeyError, sealAnswerInput, sendSealed, type SealDeps, type SealSessionRow } from "./seal-send"
 import { openCardCached } from "./sealed-open"
 
 type TrpcOptions = Parameters<typeof trpc.sessions.send.mutate>[1]
@@ -56,17 +57,26 @@ function sealDeps(): SealDeps {
 }
 
 /** `sessions.send`, sealed when this browser holds keys; a tree that moved
- *  on behind this tab is re-resolved and re-sealed once (#FEED-248). */
-export async function sendSessionMessage(input: SessionsSendInput, options?: TrpcOptions) {
+ *  on behind this tab is re-resolved and re-sealed once (#FEED-248).
+ *  `extra` = tRPC-only fields passed beside the sealed input untouched
+ *  (#EXP-1958: `cardItem`, a tap on a sealed card). */
+export async function sendSessionMessage(
+  input: SessionsSendInput,
+  options?: TrpcOptions,
+  extra?: { cardItem?: { messageId: string; itemId: string } }
+) {
   const deps = sealDeps()
   let attempts = 0
-  return sendSealed(input, deps, (sealed) =>
+  return sendSealed(input, deps, (sealed) => {
+    // `cardStamps`: a tap hands OPENED text to the writer; what it could
+    // not seal (a `clearTree` target) never leaves in clear.
+    if (extra?.cardItem && (!sealed.text?.startsWith(SEALED_BODY_PREFIX) || sealed.name)) throw new NoKeyError()
     // A stale tree on the first try is retried, not toasted.
-    trpc.sessions.send.mutate(
-      sealed as SessionsSendInput,
+    return trpc.sessions.send.mutate(
+      { ...(sealed as SessionsSendInput), ...extra },
       attempts++ === 0 ? { ...options, context: { ...options?.context, resealOnStaleTree: true } } : options
     )
-  )
+  })
 }
 
 /** `sessions.answer`; a sealed card's answer is re-sealed inside it. */

@@ -281,6 +281,24 @@ public enum SessionQueries {
             .fetchAll(db)
     }
 
+    /// #EXP-1958: the issues of `sessionId`'s team behind `identifiers`
+    /// (any case), as UPPERCASED identifier -> id (unknown ones absent).
+    public static func issueIds(db: Database, identifiers: [String], sessionId: String) throws -> [String: String] {
+        let wanted = Array(Set(identifiers.map { $0.uppercased() }))
+        guard !wanted.isEmpty else { return [:] }
+        let marks = Array(repeating: "?", count: wanted.count).joined(separator: ", ")
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT upper("issues"."identifier") AS "identifier", "issues"."id" AS "id"
+            FROM "issues"
+            JOIN "boards" ON "boards"."id" = "issues"."board_id"
+            JOIN "sessions" ON "sessions"."team_id" = "boards"."team_id"
+            WHERE "sessions"."id" = ? AND upper("issues"."identifier") IN (\(marks))
+            """, arguments: StatementArguments([sessionId] + wanted))
+        var out: [String: String] = [:]
+        for row in rows { out[row["identifier"]] = row["id"] }
+        return out
+    }
+
     /// The issue ids a pull request closes.
     public static func issueIds(db: Database, pullRequestId: String) throws -> [String] {
         try PullRequestIssueEntity

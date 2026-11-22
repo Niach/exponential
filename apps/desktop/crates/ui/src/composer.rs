@@ -901,17 +901,32 @@ pub(crate) fn send_quick_reply(message_id: &str, item_id: &str, cx: &mut App) {
     if reply_pending(&format!("{message}:*"), cx) {
         return;
     }
-    reply_write(format!("{message}:{item_id}"), "send", "the reply", cx, move |trpc| {
-        api::sessions::send_reply(trpc, &message, &item_id)
-    });
+    // #EXP-1958: a sealed card's reply leaves sealed (`card_taps`).
+    let key = format!("{message}:{item_id}");
+    match crate::card_taps::tap(&message, Some(&item_id), enet_core::sealed::CardItemAction::Reply, Default::default(), cx) {
+        crate::card_taps::Tap::Server => reply_write(key, "send", "the reply", cx, move |trpc| {
+            api::sessions::send_reply(trpc, &message, &item_id)
+        }),
+        crate::card_taps::Tap::Call(call) => reply_write(key, "send", "the reply", cx, call),
+        crate::card_taps::Tap::Refused => {
+            crate::action_error::failed_action("send", "the reply", Some(crate::card_taps::REFUSED.into()), cx)
+        }
+    }
 }
 
 /// The quick replies of message `message_id` are dismissed.
 pub(crate) fn dismiss_quick_replies(message_id: &str, cx: &mut App) {
     let message = message_id.to_string();
-    reply_write(format!("{message}:*"), "dismiss", "the replies", cx, move |trpc| {
-        api::sessions::dismiss_replies(trpc, &message)
-    });
+    let key = format!("{message}:*");
+    match crate::card_taps::tap(&message, None, enet_core::sealed::CardItemAction::DismissReplies, Default::default(), cx) {
+        crate::card_taps::Tap::Server => reply_write(key, "dismiss", "the replies", cx, move |trpc| {
+            api::sessions::dismiss_replies(trpc, &message, None)
+        }),
+        crate::card_taps::Tap::Call(call) => reply_write(key, "dismiss", "the replies", cx, call),
+        crate::card_taps::Tap::Refused => {
+            crate::action_error::failed_action("dismiss", "the replies", Some(crate::card_taps::REFUSED.into()), cx)
+        }
+    }
 }
 
 pub(crate) fn composer_replies_row(
