@@ -7,6 +7,11 @@ use std::process::Command;
 fn main() {
     crash_monitor::run_monitor_if_requested();
     if let Ok(dir) = std::env::var("CRASH_TEST_DIR") {
+        // #EDE-172 (P4): as eDE's helpers are once their first roundtrips are done.
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("CRASH_TEST_NOT_DUMPABLE").is_some() && unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            std::process::exit(4);
+        }
         crash_monitor::install(crash_monitor::Setup {
             dir: dir.into(),
             release: "crash-test@1.2.3".into(),
@@ -23,13 +28,18 @@ fn main() {
     if !cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) {
         return;
     }
-    for (kind, expected) in [("segv", &["SIGSEGV", "EXC_BAD_ACCESS", "EXCEPTION_ACCESS_VIOLATION_WRITE"][..]), ("abort", &["SIGABRT", "EXC_CRASH", "EXCEPTION_STACK_BUFFER_OVERRUN"][..])] {
+    // #EDE-172 (P4): a process that refuses ptrace (PR_SET_DUMPABLE 0)
+    // still leaves its walked report (Linux).
+    let not_dumpable: &[(&str, &[&str])] = if cfg!(target_os = "linux") { &[("not-dumpable", &["SIGSEGV"])] } else { &[] };
+    let cases: Vec<(&str, &[&str])> = [("segv", &["SIGSEGV", "EXC_BAD_ACCESS", "EXCEPTION_ACCESS_VIOLATION_WRITE"][..]), ("abort", &["SIGABRT", "EXC_CRASH", "EXCEPTION_STACK_BUFFER_OVERRUN"][..])].into_iter().chain(not_dumpable.iter().copied()).collect();
+    for (kind, expected) in cases {
         let dir = tempdir(kind);
-        let status = Command::new(std::env::current_exe().unwrap())
-            .env("CRASH_TEST_DIR", &dir)
-            .env("EXP_FORCE_CRASH", kind)
-            .status()
-            .unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child.env("CRASH_TEST_DIR", &dir).env("EXP_FORCE_CRASH", if kind == "not-dumpable" { "segv" } else { kind });
+        if kind == "not-dumpable" {
+            child.env("CRASH_TEST_NOT_DUMPABLE", "1");
+        }
+        let status = child.status().unwrap();
         assert!(!status.success(), "{kind}: the child must die");
         // The monitor finishes the report before acking the crash, so it
         // is there once the child is gone.

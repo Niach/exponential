@@ -2192,6 +2192,7 @@ version = "0.14.172"
 dependencies = [
  "crash-handler",
  "futures-executor",
+ "libc",
  "log",
  "minidump",
  "minidump-processor",
