@@ -4,6 +4,11 @@
 //! * [`RotatingFile`]: a hand-rolled, size-capped appender
 //!   (`{data_dir}/logs/<name>`, rotated at [`MAX_LOG_BYTES`] into `.1..=.3`).
 //!   A failed open never panics: the logger simply has no file.
+//!   #EXP-1892: the logger never writes it on the caller's thread: lines
+//!   queue to one writer thread ([`FileSink`]), and a full queue drops lines
+//!   instead of waiting, so a stalled disk can no longer freeze the app's
+//!   main thread (and with it the heartbeat). A full disk is reported to
+//!   `eagent::disk_health` (the doctor's Disk writes row).
 //! * [`ExpLogger`]: the `log::Log` both binaries install. File sink, plus an
 //!   optional stderr sink (the CLI keeps its `[level] msg` terminal output).
 //!   Workspace crates log at the `EXP_LOG` level; third-party crates are
@@ -18,7 +23,10 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Rotate once the live file would pass 5 MB.
 pub const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -93,6 +101,12 @@ impl RotatingFile {
     /// Append one line (a trailing newline is added when missing), rotating
     /// first when it would push the file past the cap.
     pub fn write_line(&self, line: &str) {
+        let _ = self.try_write_line(line);
+    }
+
+    /// [`Self::write_line`] with the write's outcome (no open file = an
+    /// error that is not a full disk).
+    pub fn try_write_line(&self, line: &str) -> std::io::Result<()> {
         let mut state = self.lock();
         let needed = line.len() as u64 + u64::from(!line.ends_with('\n'));
         if state
@@ -103,15 +117,16 @@ impl RotatingFile {
             *state = self.rotate();
         }
         let Some(open) = state.as_mut() else {
-            return;
+            return Err(std::io::Error::other("no log file open"));
         };
-        let mut ok = open.file.write_all(line.as_bytes()).is_ok();
-        if ok && !line.ends_with('\n') {
-            ok = open.file.write_all(b"\n").is_ok();
+        let mut written = open.file.write_all(line.as_bytes());
+        if written.is_ok() && !line.ends_with('\n') {
+            written = open.file.write_all(b"\n");
         }
-        if ok {
+        if written.is_ok() {
             open.len += needed;
         }
+        written
     }
 
     /// Shift `.1..keep` up one (dropping the oldest), move the live file to
@@ -154,6 +169,112 @@ fn open_append(path: &Path) -> Option<OpenFile> {
 fn truncate(path: &Path) -> Option<OpenFile> {
     let file = File::create(path).ok()?;
     Some(OpenFile { file, len: 0 })
+}
+
+// ---------------------------------------------------------------------------
+// The writer thread (#EXP-1892)
+// ---------------------------------------------------------------------------
+
+/// Lines queued before the writer drops new ones (a stalled disk).
+const QUEUE_LINES: usize = 4096;
+/// How long [`FileSink::flush`] waits for the queue to drain.
+const FLUSH_WAIT: Duration = Duration::from_secs(2);
+
+/// Lines handed to the writer and not yet written.
+#[derive(Default)]
+struct Pending {
+    count: Mutex<u64>,
+    drained: Condvar,
+}
+
+impl Pending {
+    fn add(&self, delta: i64) {
+        let mut count = self.count.lock().unwrap_or_else(|poison| poison.into_inner());
+        *count = count.saturating_add_signed(delta);
+        if *count == 0 {
+            self.drained.notify_all();
+        }
+    }
+}
+
+/// A [`RotatingFile`] written by its own thread: [`Self::write_line`]
+/// only queues, never waits on the disk. A write that never returns (a
+/// near-full APFS volume, a dead network mount) stalls that thread alone;
+/// the lines logged meanwhile are dropped and counted, and the next line
+/// that gets through says how many.
+pub struct FileSink {
+    path: PathBuf,
+    open: bool,
+    queue: SyncSender<String>,
+    pending: Arc<Pending>,
+    dropped: AtomicU64,
+}
+
+impl FileSink {
+    pub fn new(file: RotatingFile) -> Self {
+        Self::with_capacity(file, QUEUE_LINES)
+    }
+
+    fn with_capacity(file: RotatingFile, lines: usize) -> Self {
+        let path = file.path().to_path_buf();
+        let open = file.is_open();
+        let (queue, lines) = std::sync::mpsc::sync_channel::<String>(lines);
+        let pending = Arc::new(Pending::default());
+        let drained = pending.clone();
+        let spawned = std::thread::Builder::new().name("exp-log-writer".into()).spawn(move || {
+            for line in lines {
+                let written = file.try_write_line(&line);
+                eagent::disk_health::note("log", &written);
+                drained.add(-1);
+            }
+        });
+        if spawned.is_err() {
+            // No thread = no file: every line is dropped, never blocks.
+            eprintln!("[exponential] could not start the log writer thread: no log file");
+        }
+        Self { path, open: open && spawned.is_ok(), queue, pending, dropped: AtomicU64::new(0) }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Queue `line`; a full queue drops it.
+    pub fn write_line(&self, line: String) {
+        let dropped = self.dropped.swap(0, Ordering::Relaxed);
+        if dropped > 0 && !self.offer(format!("{} WARN  coding::logging: {dropped} log lines dropped (the log file stalled)", chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ"))) {
+            self.dropped.fetch_add(dropped, Ordering::Relaxed);
+        }
+        if !self.offer(line) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn offer(&self, line: String) -> bool {
+        self.pending.add(1);
+        match self.queue.try_send(line) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                self.pending.add(-1);
+                false
+            }
+        }
+    }
+
+    /// Wait (at most `wait`) until every queued line is written; whether it was.
+    pub fn flush(&self, wait: Duration) -> bool {
+        let count = self.pending.count.lock().unwrap_or_else(|poison| poison.into_inner());
+        let (count, _) = self
+            .pending
+            .drained
+            .wait_timeout_while(count, wait, |count| *count > 0)
+            .unwrap_or_else(|poison| poison.into_inner());
+        *count == 0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +350,7 @@ pub fn format_line(level: log::Level, target: &str, message: &std::fmt::Argument
 /// The installed logger: a file sink plus an optional stderr sink.
 pub struct ExpLogger {
     level: log::LevelFilter,
-    file: Option<RotatingFile>,
+    file: Option<FileSink>,
     /// Stderr sink: the formatter and the minimum level it prints.
     stderr: Option<(fn(&log::Record), log::LevelFilter)>,
     /// #LOGS-2: every written record also goes here (diagnostics).
@@ -248,11 +369,11 @@ impl ExpLogger {
 
     /// Add the rotating `{data_dir}/logs/<file_name>` sink.
     pub fn with_file(mut self, data_dir: &Path, file_name: &str) -> Self {
-        self.file = Some(RotatingFile::open(
+        self.file = Some(FileSink::new(RotatingFile::open(
             logs_dir(data_dir).join(file_name),
             MAX_LOG_BYTES,
             KEEP_ROTATED,
-        ));
+        )));
         self
     }
 
@@ -276,14 +397,14 @@ impl ExpLogger {
 
     /// The file this logger writes, when one is open.
     pub fn file_path(&self) -> Option<&Path> {
-        self.file.as_ref().filter(|file| file.is_open()).map(RotatingFile::path)
+        self.file.as_ref().filter(|file| file.is_open()).map(FileSink::path)
     }
 
     /// Write one line to the FILE only (a startup banner that must not reach
     /// an interactive terminal).
     pub fn file_only(&self, level: log::Level, target: &str, message: std::fmt::Arguments<'_>) {
         if let Some(file) = &self.file {
-            file.write_line(&format_line(level, target, &message));
+            file.write_line(format_line(level, target, &message));
         }
     }
 }
@@ -319,7 +440,7 @@ impl log::Log for ExpLogger {
             record
         };
         if let Some(file) = &self.file {
-            file.write_line(&format_line(record.level(), record.target(), record.args()));
+            file.write_line(format_line(record.level(), record.target(), record.args()));
         }
         if let Some((print, min)) = self.stderr {
             if record.level() <= min {
@@ -331,7 +452,12 @@ impl log::Log for ExpLogger {
         }
     }
 
-    fn flush(&self) {}
+    /// #EXP-1892: wait (bounded) for the writer to land the queued lines.
+    fn flush(&self) {
+        if let Some(file) = &self.file {
+            file.flush(FLUSH_WAIT);
+        }
+    }
 }
 
 /// Install `logger` as THE process logger (leaked: it lives for the process).
@@ -373,6 +499,8 @@ pub fn install_panic_hook() {
             panic_message(info.payload()),
             std::backtrace::Backtrace::force_capture()
         );
+        // The writer is another thread: land the trace before an abort.
+        log::logger().flush();
         previous(info);
     }));
 }
@@ -552,6 +680,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #EXP-1892: the MacBook hang. A log write that never returns (here: a
+    /// fifo nobody reads, the stand-in for a stalled near-full volume) used
+    /// to hold every logging thread, the main one first; now only the
+    /// writer waits, the callers return at once, and the lines past the
+    /// queue are counted.
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_log_file_never_blocks_the_caller() {
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let dir = temp_dir("stalled");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("exponential.log");
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        // A reader that never reads: the pipe fills, then every write blocks.
+        let _reader = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&path).unwrap();
+        let sink = FileSink::with_capacity(RotatingFile::open(path.clone(), MAX_LOG_BYTES, 0), 8);
+        assert!(sink.is_open());
+        let started = std::time::Instant::now();
+        let line = "x".repeat(1024);
+        for _ in 0..2_000 {
+            sink.write_line(line.clone());
+        }
+        assert!(started.elapsed() < Duration::from_secs(5), "the caller waited {:?}", started.elapsed());
+        assert!(!sink.flush(Duration::from_millis(50)), "the writer is stuck in write(2)");
+        assert!(sink.dropped.load(Ordering::Relaxed) > 0, "the lines past the queue are dropped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn queued_lines_land_in_order_and_flush_waits_for_them() {
+        let dir = temp_dir("queued");
+        let path = dir.join("exponential.log");
+        let sink = FileSink::new(RotatingFile::open(path.clone(), MAX_LOG_BYTES, KEEP_ROTATED));
+        for index in 0..100 {
+            sink.write_line(format!("line-{index:03}"));
+        }
+        assert!(sink.flush(FLUSH_WAIT));
+        let written = std::fs::read_to_string(&path).unwrap();
+        let expected: String = (0..100).map(|index| format!("line-{index:03}\n")).collect();
+        assert_eq!(written, expected);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn line_format_names_level_and_target() {
         let line = format_line(log::Level::Warn, "ui::device_sync", &format_args!("hello"));
@@ -593,6 +766,7 @@ mod tests {
         );
         let site = "gpui-pre-linux-0.3.11/src/linux/x11/client.rs:1018";
         assert_eq!(TAPPED.lock().unwrap().as_deref(), Some(site));
+        logger.flush();
         let written = std::fs::read_to_string(logger.file_path().unwrap()).unwrap();
         assert!(written.contains(&format!("ERROR {site}: relative URL without a base")), "{written}");
         let _ = std::fs::remove_dir_all(&dir);
