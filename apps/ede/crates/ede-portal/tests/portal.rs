@@ -116,6 +116,13 @@ struct World {
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn world(portal_toml: &str) -> World {
+    world_with(portal_toml, false)
+}
+
+/// [`world`]; `on_channel` = the portal holds its grant on a channel, as
+/// the compositor that starts it hands it over (#EDE-172 P7), and reads no
+/// token file.
+fn world_with(portal_toml: &str, on_channel: bool) -> World {
     let guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter(std::env::var("RUST_LOG").unwrap_or("warn".into())).try_init();
     pipewire();
@@ -138,7 +145,13 @@ fn world(portal_toml: &str) -> World {
         format!("[screencast]\nchooser = []\n{portal_toml}")
     };
     std::fs::write(&config, format!("[screenshot]\ndir = \"{}\"\n{portal_toml}", dir.path().join("shots").display())).unwrap();
-    let connect: ede_portal::Connect = Arc::new(move || ede_protocol::Client::connect(&socket, token.clone()));
+    let connect: ede_portal::Connect = if on_channel {
+        let session = ede_protocol::SessionId::new("ede-portal").unwrap();
+        let (channel, _) = h.root_channel().open_channel(Some(session), vec![ede_protocol::Capability::Capture, ede_protocol::Capability::InputPerson, ede_protocol::Capability::Ui], None).unwrap();
+        ede_portal::on_channel(channel)
+    } else {
+        Arc::new(move || ede_protocol::Client::connect(&socket, token.clone()))
+    };
     let ctx = Ctx::new(connect, Some(config));
     let (portal, bus) = zbus::block_on(async {
         let portal = ede_portal::serve(zbus::connection::Builder::address(address.as_str()).unwrap(), ctx).await.unwrap();
@@ -207,6 +220,22 @@ fn a_screenshot_is_a_png_of_the_screen() {
     let (x, y) = (windows[0].x + 10, windows[0].y + 10);
     let i = ((y * 800 + x) * 4) as usize;
     assert_eq!(&buf[i..i + 4], &[0, 0, 255, 255], "the window is blue in the screenshot");
+}
+
+/// #EDE-172 (P7): a portal on its channel works as before, and no
+/// connection of its comes in by the socket (each is a channel opened on
+/// its own, holding the portal's grant).
+#[test]
+fn a_portal_on_its_channel_takes_a_screenshot_over_channels_only() {
+    let w = world_with("", true);
+    let _app = w.window("notes", 300, 200);
+    std::thread::sleep(Duration::from_millis(100));
+    let (response, results): (u32, Vardict) =
+        w.call("org.freedesktop.impl.portal.Screenshot", "Screenshot", &(path("/r/1"), "org.example", "", none())).unwrap();
+    assert_eq!(response, 0);
+    let file = <&str>::try_from(&results["uri"]).unwrap().strip_prefix("file://").unwrap().to_string();
+    assert!(std::path::Path::new(&file).exists());
+    assert!(w.h.with(|ede| ede.ipc_peers()).is_empty(), "a portal connection came in by the socket");
 }
 
 fn ede_protocol_client(w: &World) -> ede_protocol::Client {

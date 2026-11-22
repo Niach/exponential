@@ -19,8 +19,11 @@
 //!   one from outside the person's login session opens the prompt without
 //!   the keyboard (on demand: the person clicks into it) and names the
 //!   asking process (#EDE-143).
-//! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
+//! - `exponential-sealed consent --title T --body B [--allow A] [--deny D] [--size WxH]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
+//!   `--size` (#EDE-172 P7): the logical size of the output it covers, from
+//!   its caller; with it, consent (and the share chooser, whose ask says
+//!   its `size`) asks the compositor nothing.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
 //!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
 //!   `remote_control`, `outputs`, `windows`, `selected` = the rows a
@@ -33,6 +36,7 @@
 
 #[path = "../../assets.rs"]
 mod assets;
+mod control;
 mod pam;
 mod polkit;
 
@@ -95,19 +99,19 @@ struct Open {
 }
 
 /// A sealed document as a full-screen overlay with the keyboard, on the
-/// first output.
-fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option<Open> {
-    open_taking(doc, data, acts, true, cx)
+/// first output, whose logical size is `size` when the caller said it.
+fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, size: Option<(f32, f32)>, cx: &mut App) -> Option<Open> {
+    open_taking(doc, data, acts, true, size, cx)
 }
 
 /// [`open`]; `keyboard` = the prompt takes the keyboard as it shows
 /// (Exclusive), else on the person's click (OnDemand: #EDE-143, a polkit
-/// request from outside their session).
-fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, cx: &mut App) -> Option<Open> {
-    let (w, h) = ede_protocol::Client::connect_env()
-        .ok()
-        .and_then(|mut c| c.outputs().ok())
-        .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
+/// request from outside their session). #EDE-172 (P7): a prompt whose
+/// caller said its size (consent, the share chooser) asks the compositor
+/// nothing; one that did not (the polkit agent) asks on its channel.
+fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, size: Option<(f32, f32)>, cx: &mut App) -> Option<Open> {
+    let (w, h) = size
+        .or_else(|| control::with(|c| c.outputs(), ede_protocol::Client::connect_env).ok().and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32))))
         .unwrap_or((1280.0, 720.0));
     open_on(doc, data, acts, None, (w, h), Layer::Overlay, if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand }, cx)
 }
@@ -264,7 +268,7 @@ fn user_name() -> String {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: exponential-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
+    eprintln!("usage: exponential-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] [--size WxH] | share (the ask as JSON on stdin)");
     std::process::exit(2)
 }
 
@@ -279,6 +283,8 @@ fn exit(code: i32) -> ! {
 
 fn run_app(f: impl FnOnce(&mut App) + 'static) {
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
+        // #EDE-172 (P4): gpui's Wayland connection did its first roundtrip.
+        control::refuse_ptrace();
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         f(cx);
@@ -306,7 +312,7 @@ struct Shown {
 /// compositor reports for the output of that name (gpui's own bounds
 /// round a fractional scale up).
 fn lock_outputs(cx: &App) -> Vec<(DisplayId, (i32, i32))> {
-    let outputs = ede_protocol::persons(ede_protocol::Client::connect_env().ok().and_then(|mut c| c.outputs().ok()).unwrap_or_default());
+    let outputs = ede_protocol::persons(control::with(|c| c.outputs(), ede_protocol::Client::connect_env).unwrap_or_default());
     cx.displays()
         .into_iter()
         .map(|d| {
@@ -384,7 +390,8 @@ fn lock() {
                 }
                 while let Ok(result) = auth_rx.try_recv() {
                     match result {
-                        Ok(()) => match grant.clone().map_or_else(ede_protocol::Client::connect_env, ede_protocol::Client::connect_with_token).and_then(|mut c| c.unlock()) {
+                        // #EDE-172 (P4): on the channel when there is one: only it unlocks.
+                        Ok(()) => match control::with(|c| c.unlock(), || grant.clone().map_or_else(ede_protocol::Client::connect_env, ede_protocol::Client::connect_with_token)) {
                             Ok(()) => {
                                 tracing::info!("unlocked");
                                 cx.update(|cx| cx.quit());
@@ -471,7 +478,7 @@ fn polkit_agent() {
                             let keyboard = request.asker.is_none();
                             let data = json!({"message": request.message, "identity": identity, "asker": asker, "password": "", "busy": false, "error": ""});
                             let tx = acts_tx.clone();
-                            if let Some(open) = cx.update(|cx| open_taking(POLKIT, data, tx, keyboard, cx)) {
+                            if let Some(open) = cx.update(|cx| open_taking(POLKIT, data, tx, keyboard, None, cx)) {
                                 current = Some((request.cookie, open, answer));
                             }
                             password.clear();
@@ -525,12 +532,29 @@ fn polkit_agent() {
     });
 }
 
-/// A question; the answer on stdout and in the exit code.
+/// `WxH` (logical px, both above 0).
+fn parse_size(text: &str) -> Option<(f32, f32)> {
+    let (w, h) = text.split_once('x')?;
+    let (w, h): (f32, f32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    (w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()).then_some((w, h))
+}
+
+/// #EDE-172 (P7): the share chooser's size, from its ask: `size`, else
+/// the first output it offers.
+fn ask_size(ask: &Value) -> Option<(f32, f32)> {
+    let pair = |w: &Value, h: &Value| Some((w.as_f64()? as f32, h.as_f64()? as f32)).filter(|(w, h)| *w > 0.0 && *h > 0.0);
+    pair(&ask["size"][0], &ask["size"][1]).or_else(|| pair(&ask["outputs"][0]["width"], &ask["outputs"][0]["height"]))
+}
+
+/// A question; the answer on stdout and in the exit code. `--size WxH`
+/// (#EDE-172 P7): the logical size of the output it covers, from its
+/// caller, so it asks the compositor nothing.
 fn consent(args: &[String]) {
     let mut title = String::new();
     let mut body = String::new();
     let mut allow = "Allow".to_string();
     let mut deny = "Deny".to_string();
+    let mut size = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -538,6 +562,7 @@ fn consent(args: &[String]) {
             "--body" => body = it.next().cloned().unwrap_or_default(),
             "--allow" => allow = it.next().cloned().unwrap_or_default(),
             "--deny" => deny = it.next().cloned().unwrap_or_default(),
+            "--size" => size = Some(it.next().and_then(|s| parse_size(s)).unwrap_or_else(|| usage())),
             _ => usage(),
         }
     }
@@ -546,7 +571,7 @@ fn consent(args: &[String]) {
     }
     run_app(move |cx| {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
-        let open = open(CONSENT, json!({"title": title, "body": body, "allow": allow, "deny": deny}), acts_tx, cx);
+        let open = open(CONSENT, json!({"title": title, "body": body, "allow": allow, "deny": deny}), acts_tx, size, cx);
         if open.is_none() {
             exit(1);
         }
@@ -591,21 +616,20 @@ fn share() {
     };
     let title = format!("{app} wants to {what}");
     let body = if remote { "It also asks to control this desktop. Nothing is shared until you choose.".to_string() } else { "Nothing is shared until you choose.".to_string() };
+    let size = ask_size(&ask);
     run_app(move |cx| {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         let data = json!({"title": title, "body": body, "outputs": outputs.clone(), "windows": windows.clone(), "remoteControl": remote, "allow": false});
-        let open = Rc::new(open(SHARE, data, acts_tx, cx));
+        let open = Rc::new(open(SHARE, data, acts_tx, size, cx));
         if open.is_none() {
             exit(1);
         }
         let mut picks = preselected;
-        let mut allow = false;
         let (mut outputs, mut windows) = (outputs, windows);
         cx.spawn(async move |cx| {
             loop {
                 while let Ok(act) = acts_rx.try_recv() {
                     match act {
-                        Act::Input { path, value } if path == "/allow" => allow = value.as_bool().unwrap_or(false),
                         Act::Call { name, args } => match name.as_str() {
                             "sealed_pick" => {
                                 let id = args["id"].as_str().unwrap_or("").to_string();
@@ -632,17 +656,13 @@ fn share() {
                                 }
                             }
                             "sealed_answer" => {
-                                let answer = args["answer"].as_str().unwrap_or("cancel");
-                                if answer == "share" {
-                                    for p in &picks {
-                                        println!("{p}");
-                                    }
-                                    if allow {
-                                        println!("allow");
-                                    }
+                                let lines = share_answer(&args, &picks);
+                                for line in &lines {
+                                    println!("{line}");
                                 }
+                                let shared = args["answer"].as_str() == Some("share");
                                 cx.update(|cx| cx.quit());
-                                std::process::exit(if answer == "share" { 0 } else { 1 });
+                                std::process::exit(if shared { 0 } else { 1 });
                             }
                             _ => {}
                         },
@@ -654,6 +674,21 @@ fn share() {
         })
         .detach();
     });
+}
+
+/// The chooser's answer to the portal for `sealed_answer` `args`: on
+/// Share, the picks, then `allow` when the remote-control switch is on.
+/// #EDE-203: the switch's state comes with Share's args (`/allow`): a
+/// `Switch` sends its host no input event, so it is never read from one.
+fn share_answer(args: &Value, picks: &[String]) -> Vec<String> {
+    if args["answer"].as_str() != Some("share") {
+        return Vec::new();
+    }
+    let mut lines = picks.to_vec();
+    if args["allow"].as_bool() == Some(true) {
+        lines.push("allow".into());
+    }
+    lines
 }
 
 /// #EDE-172 (D6 a): the ask's `selected` (a restored share's last picks)
@@ -680,6 +715,9 @@ fn main() {
         "share" => "sealed-share",
         _ => usage(),
     };
+    // #EDE-172 (P4): the channel the compositor started the lock or the
+    // polkit agent with, before the crash monitor or any thread starts.
+    control::take();
     // #ERR-29: the compositor's diagnostics (panics, errors, native
     // crashes), tagged per mode; stdout is consent's and share's answer. A
     // report says where a line was logged, never what it said.
@@ -727,6 +765,57 @@ mod tests {
         assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![true]));
         assert!(preselect(&json!({}), true, &mut outputs, &mut windows).is_empty());
         assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![false]));
+    }
+
+    /// #EDE-203: the chooser as eUI runs it: the remote-control switch on,
+    /// then Share, answers the portal `allow`; with it off, no `allow`.
+    /// Cancel answers nothing.
+    #[test]
+    fn share_with_the_switch_on_answers_allow() {
+        use eui_core::{
+            measure::FixedMeasure,
+            surface::{OutEvent, Surface, SurfaceOptions},
+        };
+        let press = |toggle: bool, button: &str| {
+            let parsed: Value = serde_json::from_str(SHARE).expect("the chooser");
+            let tree: NestedNode = serde_json::from_value(parsed["root"].clone()).expect("its tree");
+            let mut s = Surface::new("share", SurfaceOptions::default());
+            assert!(s.set_nested(tree).issues.is_empty());
+            for (path, value) in [("/title", json!("probe wants to control the keyboard and pointer")), ("/body", json!("")), ("/outputs", json!([])), ("/windows", json!([])), ("/remoteControl", json!(true)), ("/allow", json!(false))] {
+                s.set_data(path, Some(value)).unwrap();
+            }
+            s.set_viewport(854.0, 534.0, None);
+            let mut measure = FixedMeasure { sizes: Default::default(), wrap: true };
+            s.layout(&mut measure);
+            if toggle {
+                let switch = s.index_of("control").expect("the remote-control switch shows");
+                s.event(switch, "press", None);
+                s.layout(&mut measure);
+            }
+            let out = s.event(s.index_of(button).expect("the button"), "press", None);
+            let args = out.into_iter().find_map(|e| match e {
+                OutEvent::FunctionCall { name, args, .. } if name == "sealed_answer" => Some(args),
+                _ => None,
+            });
+            share_answer(&args.expect("the button answers"), &["output:Virtual-1".to_string()])
+        };
+        assert_eq!(press(true, "ok"), ["output:Virtual-1", "allow"]);
+        assert_eq!(press(false, "ok"), ["output:Virtual-1"], "no allow with the switch off");
+        assert!(press(true, "cancel").is_empty(), "Cancel answers nothing");
+    }
+
+    /// #EDE-172 (P7): consent's `--size` and the chooser's ask say the size
+    /// the prompt covers.
+    #[test]
+    fn the_caller_says_the_size() {
+        assert_eq!(parse_size("1280x800"), Some((1280.0, 800.0)));
+        assert_eq!(parse_size("853.5x533"), Some((853.5, 533.0)), "a fractional scale's logical size");
+        for bad in ["", "x", "0x800", "1280", "-1x2", "axb"] {
+            assert_eq!(parse_size(bad), None, "{bad}");
+        }
+        assert_eq!(ask_size(&json!({"size": [853, 533], "outputs": [{"width": 1, "height": 1}]})), Some((853.0, 533.0)));
+        assert_eq!(ask_size(&json!({"outputs": [{"name": "A", "width": 1920, "height": 1080}]})), Some((1920.0, 1080.0)), "an older portal's ask");
+        assert_eq!(ask_size(&json!({"outputs": []})), None);
     }
 
     /// The unlock grant is read from the descriptor the compositor passed.

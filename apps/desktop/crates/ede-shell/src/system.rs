@@ -123,6 +123,8 @@ pub fn power(action: &str) -> Result<(), String> {
 fn launch_command(command: &str, token: Option<&str>) -> Command {
     let mut sh = Command::new("sh");
     sh.arg("-c").arg(command).env_remove("XDG_ACTIVATION_TOKEN").env_remove("DESKTOP_STARTUP_ID");
+    // #EDE-172 (P4): the person's environment, not the shell's pinned one.
+    ede_protocol::process::as_the_person(&mut sh);
     if let Some(token) = token {
         sh.env("XDG_ACTIVATION_TOKEN", token).env("DESKTOP_STARTUP_ID", token);
     }

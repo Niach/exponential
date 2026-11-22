@@ -149,6 +149,9 @@ pub struct Ede {
     pub frame_serial: u64,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
+    /// #EDE-172 (P4): the session's programs the compositor starts itself
+    /// (`[session] helpers = "compositor"`, [`crate::helpers`]).
+    pub helpers: crate::helpers::Helpers,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -220,6 +223,7 @@ impl Ede {
         crate::popup_namespace::create_global(&dh);
         let idle_notifier = smithay::wayland::idle_notify::IdleNotifierState::new(&dh, loop_handle.clone());
         crate::idle::start_timer(&loop_handle);
+        let helpers = crate::helpers::Helpers::new(config.session.helpers == crate::config::Helpers::Compositor);
 
         Self {
             start_time: Instant::now(),
@@ -295,6 +299,7 @@ impl Ede {
             installed: crate::peer::Installed::system(),
             frame_serial: 0,
             config_path: None,
+            helpers,
         }
     }
 
@@ -349,6 +354,9 @@ impl Ede {
     }
 
     pub fn run_autostart(&mut self) {
+        // #EDE-172 (P4): the session's helpers first (the autostart's
+        // `exponential-session --ready` then finds their units conditioned off).
+        self.start_helpers();
         for argv in std::mem::take(&mut self.autostart) {
             self.spawn(&argv);
         }
@@ -385,6 +393,10 @@ impl Ede {
         cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").env_remove("XAUTHORITY");
         if let Some(socket) = &self.socket_name {
             cmd.env("WAYLAND_DISPLAY", socket);
+        }
+        // #EDE-172 (P4): the helpers' units stay off, a helper run by hand knows it is none.
+        if self.helpers.on {
+            cmd.env(ede_protocol::process::HELPERS_ENV, "1");
         }
         #[cfg(feature = "xwayland")]
         if let Some(n) = self.xdisplay {
@@ -952,6 +964,23 @@ pub struct ClientState {
     /// input-method managers. Set only there, and on a headless test's
     /// own pair ([`crate::backend::headless::Harness::connect_input_method`]).
     pub input_method: bool,
+    /// #EDE-172 (P4): the compositor made this client for one of its
+    /// helpers ([`crate::helpers`]): what it is, by construction.
+    pub helper: Option<crate::helpers::Kind>,
+    /// That helper's process, once it was started (0 = not known: the
+    /// shell its supervisor starts). A socket pair's credentials name the
+    /// compositor itself.
+    pub helper_pid: std::sync::atomic::AtomicU32,
+}
+
+/// #EDE-172 (P4): the process behind `client`: the helper's the compositor
+/// recorded for a client it made ([`ClientState::helper_pid`]), else its
+/// socket's credentials; 0 = not known.
+pub fn client_pid(dh: &DisplayHandle, client: &smithay::reexports::wayland_server::Client) -> u32 {
+    match client.get_data::<ClientState>() {
+        Some(state) if state.helper.is_some() => state.helper_pid.load(std::sync::atomic::Ordering::Relaxed),
+        _ => client.get_credentials(dh).map(|c| c.pid as u32).unwrap_or(0),
+    }
 }
 
 impl ClientData for ClientState {

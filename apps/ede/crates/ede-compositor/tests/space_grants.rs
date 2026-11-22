@@ -81,9 +81,10 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::SpaceReadiness,
         Request::SpaceBusy,
         Request::OpenChannel { session_id: None, capabilities: vec![Capability::Space], expires_at: None },
+        Request::OpenWayland,
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 39, "one request per op at least");
+    assert_eq!(ops.len(), 40, "one request per op at least");
     all
 }
 
@@ -95,7 +96,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::BindShortcuts { .. } => {}
         Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {}
         Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}
-        Request::OpenChannel { .. } => {}
+        Request::OpenChannel { .. } | Request::OpenWayland => {}
     }
     std::mem::discriminant(request)
 }

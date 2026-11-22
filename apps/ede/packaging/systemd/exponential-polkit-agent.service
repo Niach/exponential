@@ -2,11 +2,14 @@
 # agent (#EDE-17, `exponential-sealed polkit`), registered with polkitd for the
 # session; the password goes through polkit's helper. It stays up between
 # prompts; whatever ends it, systemd starts it again (#EDE-87).
+# #EDE-172 (P4): with `[session] helpers = "compositor"` the compositor runs
+# the agent itself; this unit stays off then.
 [Unit]
 Description=Exponential Desktop polkit authentication agent (exponential-sealed)
 PartOf=graphical-session.target exponential-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
+ConditionEnvironment=!EDE_HELPERS_SPAWNED
 
 [Service]
 ExecStart=/usr/bin/exponential-sealed polkit

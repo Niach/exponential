@@ -155,6 +155,130 @@ pub fn space_by_environment(pid: u32, spaces: &Path) -> Option<(SpaceId, u32)> {
     lineage(pid).into_iter().find_map(|stat| space_in_environment(stat.pid, spaces).map(|space| (space, stat.pid)))
 }
 
+/// #EDE-172 (P4): set in every process the compositor starts while it
+/// starts its helpers itself (`[session] helpers = "compositor"`), and
+/// exported to the user manager by `exponential-session --ready`: the
+/// helpers' systemd units are conditioned off by it, and a helper started
+/// without its channel (a copy run by hand) knows it is not the one.
+pub const HELPERS_ENV: &str = "EDE_HELPERS_SPAWNED";
+
+/// The descriptor a helper finds its control channel at
+/// ([`crate::CONTROL_FD_ENV`]) and the one its Wayland connection is at
+/// (`WAYLAND_SOCKET`), as [`hand_over`] puts them.
+pub const CONTROL_FD: i32 = 3;
+pub const WAYLAND_FD: i32 = 4;
+
+/// The variable that names an inherited Wayland connection (libwayland's).
+pub const WAYLAND_SOCKET_ENV: &str = "WAYLAND_SOCKET";
+
+/// #EDE-172 (P4): what a helper's pinned environment left out of the
+/// compositor's (a JSON object of names and values), so that what the
+/// helper starts AS THE PERSON (the shell's launches) gets the person's
+/// environment back ([`as_the_person`]); the helper itself never loads it.
+pub const PERSON_ENV: &str = "EDE_PERSON_ENV";
+
+/// The variables the compositor pins in a helper's environment; a launch as
+/// the person goes without them unless the person had them ([`PERSON_ENV`]).
+pub const PINNED_NAMES: [&str; 3] = ["VK_LOADER_LAYERS_DISABLE", "VK_LOADER_LAYERS_ALLOW", "VK_IMPLICIT_LAYER_PATH"];
+
+/// #EDE-172 (P4): `command` (an app the person launches from a helper)
+/// starts in the person's environment, not the helper's pinned one: the
+/// pins go and what [`PERSON_ENV`] saved comes back. A process with no
+/// pinned environment leaves `command` as it is.
+pub fn as_the_person(command: &mut std::process::Command) {
+    as_the_person_with(command, std::env::var(PERSON_ENV).ok());
+}
+
+/// [`as_the_person`] with `saved`, this process's [`PERSON_ENV`].
+pub fn as_the_person_with(command: &mut std::process::Command, saved: Option<String>) {
+    command.env_remove(PERSON_ENV);
+    let Some(saved) = saved else { return };
+    for name in PINNED_NAMES {
+        command.env_remove(name);
+    }
+    if let Ok(saved) = serde_json::from_str::<std::collections::BTreeMap<String, String>>(&saved) {
+        command.envs(saved);
+    }
+}
+
+/// This session's compositor starts its helpers itself ([`HELPERS_ENV`]).
+pub fn helpers_spawned() -> bool {
+    std::env::var_os(HELPERS_ENV).is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// #EDE-172 (P4): `command` starts with `control` at descriptor
+/// [`CONTROL_FD`] ([`crate::CONTROL_FD_ENV`] names it) and `wayland` at
+/// [`WAYLAND_FD`] (`WAYLAND_SOCKET`); without one, its variable is not
+/// passed on either. No other descriptor of this process goes along (they
+/// are closed on exec, as Rust opens them). Both are this process's own
+/// until `command` spawns (or is dropped): then they close here.
+#[cfg(unix)]
+pub fn hand_over(command: &mut std::process::Command, control: Option<std::os::fd::OwnedFd>, wayland: Option<std::os::fd::OwnedFd>) -> std::io::Result<()> {
+    use std::os::{fd::AsRawFd, unix::process::CommandExt};
+    // Above every number the child gets, so one dup2 never closes the other's source.
+    let high = |fd: Option<std::os::fd::OwnedFd>| fd.map(|fd| rustix::io::fcntl_dupfd_cloexec(&fd, 10)).transpose();
+    let (control, wayland) = (high(control)?, high(wayland)?);
+    match &control {
+        Some(_) => command.env(crate::CONTROL_FD_ENV, CONTROL_FD.to_string()),
+        None => command.env_remove(crate::CONTROL_FD_ENV),
+    };
+    match &wayland {
+        Some(_) => command.env(WAYLAND_SOCKET_ENV, WAYLAND_FD.to_string()),
+        None => command.env_remove(WAYLAND_SOCKET_ENV),
+    };
+    let pairs: Vec<(std::os::fd::OwnedFd, i32)> = control.map(|fd| (fd, CONTROL_FD)).into_iter().chain(wayland.map(|fd| (fd, WAYLAND_FD))).collect();
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    // Safety: dup2 only, between fork and exec; the sources are open
+    // descriptors this closure owns, each above the targets. dup2 leaves
+    // the copy open across exec.
+    unsafe {
+        command.pre_exec(move || {
+            for (fd, at) in &pairs {
+                if libc::dup2(fd.as_raw_fd(), *at) != *at {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    Ok(())
+}
+
+/// #EDE-172 (P4): the first thing a helper's `main` does after the crash
+/// monitor's dispatch: the descriptors its parent named for it (the control
+/// channel, `WAYLAND_SOCKET`) are closed on exec from here on, so nothing
+/// it starts before it takes them (its crash monitor) holds them open. A
+/// number that is not open, or is not a socket, is left alone.
+#[cfg(unix)]
+pub fn keep_inherited_to_this_process() {
+    for name in [crate::CONTROL_FD_ENV, WAYLAND_SOCKET_ENV] {
+        let Some(raw) = std::env::var(name).ok().and_then(|v| v.trim().parse::<i32>().ok()).filter(|fd| *fd > 2) else { continue };
+        // Safety: fstat and fcntl on a number only; one that is not open fails.
+        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) };
+        if rustix::fs::fstat(fd).is_ok_and(|stat| rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Socket) {
+            let _ = rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::CLOEXEC);
+        }
+    }
+}
+
+/// #EDE-172 (P4): no other process of the person reads this one's memory,
+/// descriptors or `/proc` files from now on, nor attaches a debugger
+/// (`PR_SET_DUMPABLE 0`; only `CAP_SYS_PTRACE` still can). A helper calls
+/// it after the first roundtrip on its Wayland and control connections:
+/// the compositor reads a client's executable when it takes it in, and a
+/// process that refuses ptrace has none to read. `execve` resets it, so
+/// what the helper starts is as it was.
+pub fn refuse_ptrace() -> std::io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // Safety: a plain prctl on this process.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +346,45 @@ mod tests {
         assert_eq!(space_by_cgroup_with(child.id(), in_space).map(|(compositor, space, pid)| (compositor, space.as_str().to_string(), pid)), Some((9, "space-2".into(), own)));
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// #EDE-172 (P4): a child started with [`hand_over`] finds its two
+    /// descriptors at 3 and 4, named by their variables; without them,
+    /// their variables do not go along.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_child_finds_what_it_is_handed_at_3_and_4() {
+        use std::os::unix::net::UnixStream;
+        let (control, _control_peer) = UnixStream::pair().unwrap();
+        let (wayland, _wayland_peer) = UnixStream::pair().unwrap();
+        let script = r#"for fd in 3 4; do [ -S /proc/self/fd/$fd ] && printf '%s ' "$fd:socket"; done; printf '|%s|%s' "$EDE_CONTROL_FD" "$WAYLAND_SOCKET""#;
+        let mut handed = Command::new("sh");
+        handed.args(["-c", script]).env(crate::CONTROL_FD_ENV, "9").env(WAYLAND_SOCKET_ENV, "9");
+        hand_over(&mut handed, Some(control.into()), Some(wayland.into())).unwrap();
+        let out = String::from_utf8(handed.output().unwrap().stdout).unwrap();
+        assert_eq!(out, "3:socket 4:socket |3|4", "{out}");
+        let mut bare = Command::new("sh");
+        bare.args(["-c", script]).env(crate::CONTROL_FD_ENV, "9").env(WAYLAND_SOCKET_ENV, "9");
+        hand_over(&mut bare, None, None).unwrap();
+        assert_eq!(String::from_utf8(bare.output().unwrap().stdout).unwrap(), "||", "no descriptor and no variable");
+    }
+
+    /// #EDE-172 (P4): an app launched from a pinned helper gets the
+    /// person's environment back; elsewhere a command stays as it is.
+    #[test]
+    fn a_launch_as_the_person_gets_the_persons_environment_back() {
+        let saved = serde_json::json!({"LD_PRELOAD": "/opt/mangohud.so", "VK_ICD_FILENAMES": "/opt/icd.json"}).to_string();
+        let child_env = |command: &std::process::Command| command.get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))).collect::<std::collections::BTreeMap<_, _>>();
+        let mut launch = std::process::Command::new("true");
+        as_the_person_with(&mut launch, Some(saved));
+        let env = child_env(&launch);
+        assert_eq!(env.get("LD_PRELOAD"), Some(&Some("/opt/mangohud.so".to_string())));
+        assert_eq!(env.get("VK_ICD_FILENAMES"), Some(&Some("/opt/icd.json".to_string())));
+        assert_eq!(env.get("VK_LOADER_LAYERS_DISABLE"), Some(&None), "the pin goes");
+        assert_eq!(env.get(PERSON_ENV), Some(&None), "and so does what it was saved in");
+        let mut plain = std::process::Command::new("true");
+        as_the_person_with(&mut plain, None);
+        assert_eq!(child_env(&plain).into_iter().filter(|(_, v)| v.is_some()).count(), 0, "nothing set without a pinned environment");
     }
 
     #[test]

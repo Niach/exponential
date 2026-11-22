@@ -9,7 +9,7 @@ libraries, never the other way round.
 | `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
-| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`. |
+| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`; `session` runs those from stdin, one per line, on one connection (#EDE-172 P7: with the gate on, the person is asked once per ctl process; a VM or CI machine names `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml`). |
 | `exponential-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/exponential-desktop/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## The shell (`apps/desktop/crates/ede-shell`)
@@ -1339,7 +1339,32 @@ icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size 
 
 [diagnostics]        # Settings › About › Send diagnostics (#LOGS-2)
 send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
+
+[session]            # read at the compositor's start (#EDE-172)
+helpers = "units"    # "compositor": the compositor starts the shell (under exponential-ui supervise), the polkit agent and the portal itself
 ```
+
+`helpers = "compositor"` (#EDE-172 P4, off until eDE's flip): each helper runs
+in a scope of its own (`systemd-run --user --scope --slice=session.slice`,
+`exponential-shell-p<compositor pid>-<n>.scope` and so on, logs under the
+same names: `journalctl --user -t exponential-shell`), with its channel at
+fd 3 (`EDE_CONTROL_FD`) and a Wayland connection the compositor made
+(`WAYLAND_SOCKET`; the supervisor asks for one per shell it starts), in an
+environment without `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`,
+`GCONV_PATH`, the GL/GBM driver paths, PipeWire's module paths or any
+`VK_*` override (Vulkan's implicit layers are off but Mesa's
+device_select), and is started again when it ends. Their units stay
+installed and off (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`, which every
+process the compositor starts gets and `exponential-session --ready`
+exports); a copy started by hand finds no channel and ends. The compositor,
+the supervisor, the shell, the lock, the polkit agent and the portal refuse
+ptrace (`PR_SET_DUMPABLE 0`) once their first roundtrips are done. The
+portal (#EDE-172 P7) holds its grant (`capture`, `input:person`, `ui`) on
+its channel; one that D-Bus activation starts in such a session finds no
+channel and ends, the compositor's copy owns the bus name. The consent
+prompt and the share chooser take the size they cover from their caller
+(`exponential-sealed consent --size WxH`, the ask's `size`) and ask the
+compositor nothing.
 
 ## Diagnostics (#LOGS-2)
 

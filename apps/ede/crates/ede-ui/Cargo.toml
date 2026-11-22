@@ -28,11 +28,18 @@ default = ["diagnostics"]
 diagnostics = ["dep:ede-observability", "dep:tracing"]
 
 # The supervisor dies with the compositor that started it (PR_SET_PDEATHSIG).
+# #EDE-172 (P4): the channel the compositor starts it with, and a channel
+# and a Wayland connection per shell it starts (ede-protocol).
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# #EDE-172 (P4): the supervisor on its channel against a headless compositor.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+ede-compositor = { path = "../ede-compositor" }
 
 # The installed name (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

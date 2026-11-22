@@ -87,7 +87,7 @@ pub fn window_ids(ede: &Ede, window: &Window) -> Vec<String> {
             s.data_map.get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>().and_then(|d| d.lock().unwrap().app_id.clone())
         });
         ids.extend(app_id);
-        pid = ede.display_handle.get_client(toplevel.wl_surface().id()).ok().and_then(|c| c.get_credentials(&ede.display_handle).ok()).map(|c| c.pid as u32);
+        pid = ede.display_handle.get_client(toplevel.wl_surface().id()).ok().map(|c| crate::state::client_pid(&ede.display_handle, &c)).filter(|pid| *pid != 0);
     }
     #[cfg(feature = "xwayland")]
     if let Some(x11) = window.x11_surface() {

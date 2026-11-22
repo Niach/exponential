@@ -691,10 +691,11 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.14.172"
+version = "0.14.173"
 dependencies = [
  "crash-handler",
  "futures-executor",
+ "libc",
  "log",
  "minidump",
  "minidump-processor",
@@ -891,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "ede-compositor"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "bitflags 2.13.2",
  "ede-observability",
@@ -920,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ctl"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "ede-compositor",
  "ede-protocol",
@@ -931,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "crash-monitor",
  "log",
@@ -948,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "ede-portal"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "blocking",
  "ede-compositor",
@@ -974,9 +975,10 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.172"
+version = "0.14.173"
 dependencies = [
  "ecore",
+ "libc",
  "rustix 1.1.6",
  "serde",
  "serde_json",
@@ -984,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -1000,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "ede-session"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "ede-observability",
  "ede-theme",
@@ -1013,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "ede-space-guard"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "ede-protocol",
  "libc",
@@ -1021,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -1030,9 +1032,11 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
+ "ede-compositor",
  "ede-observability",
+ "ede-protocol",
  "eui-core",
  "libc",
  "notify",

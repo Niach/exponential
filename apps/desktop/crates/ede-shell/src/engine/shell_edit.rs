@@ -35,9 +35,17 @@ fn sibling(name: &str) -> PathBuf {
     std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(name))).filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from(name))
 }
 
-/// `exponential-sealed consent`: `allow` exits 0.
+/// `exponential-sealed consent`: `allow` exits 0. #EDE-172 (P7): with the
+/// size of the person's first output, which the shell asks on its own
+/// connection, so the prompt asks the compositor nothing.
 fn ask_sealed(title: &str, body: &str) -> bool {
-    match Command::new(sibling("exponential-sealed")).args(["consent", "--title", title, "--body", body, "--allow", "Allow", "--deny", "Don't allow"]).stdout(Stdio::null()).status() {
+    let mut command = Command::new(sibling("exponential-sealed"));
+    command.args(["consent", "--title", title, "--body", body, "--allow", "Allow", "--deny", "Don't allow"]);
+    let first = crate::control::connect().and_then(|mut ede| ede.outputs()).ok().and_then(|outputs| outputs.into_iter().find(|o| o.is_persons()));
+    if let Some(o) = first {
+        command.args(["--size", &format!("{}x{}", o.width, o.height)]);
+    }
+    match command.stdout(Stdio::null()).status() {
         Ok(status) => status.success(),
         Err(e) => {
             tracing::warn!("exponential-sealed consent: {e}");

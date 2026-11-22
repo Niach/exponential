@@ -88,6 +88,7 @@ mod engine;
 mod issues;
 mod assets;
 mod connect;
+mod control;
 mod dbus;
 mod inbox;
 mod local_runs;
@@ -3831,6 +3832,12 @@ fn main() {
     ede_observability::run_crash_monitor_if_requested();
     // `connect`, `--help` and bad arguments end here, before diagnostics.
     let options = parse_args();
+    // #EDE-172 (P4): the channel the compositor's session started this
+    // shell with, before any thread or the crash monitor starts.
+    if let Err(e) = control::take() {
+        eprintln!("exponential-shell: {e}");
+        std::process::exit(2);
+    }
     // #ERR-29: the compositor's diagnostics (panics, errors, native
     // crashes), tagged `shell`; stdout is the supervisor's frame lines. The
     // person's chats, notifications and accounts pass through here: a
@@ -3861,11 +3868,11 @@ fn main() {
     std::thread::Builder::new()
         .name("ede-shell-events".into())
         .spawn(move || {
-            let Ok(mut events) = ede_protocol::Client::connect_env() else {
+            let Ok(mut events) = control::connect() else {
                 tracing::info!("no ede-protocol socket: the taskbar stays empty");
                 return;
             };
-            let Ok(mut calls) = ede_protocol::Client::connect_env() else { return };
+            let Ok(mut calls) = control::connect() else { return };
             if !demo {
                 if let Some(list) = lists(&mut calls) {
                     let _ = windows_tx.send(list);
@@ -3919,7 +3926,7 @@ fn main() {
         let shared = captures_shared.clone();
         std::thread::Builder::new()
             .name("ede-shell-captures".into())
-            .spawn(move || captures::run(ede_protocol::Client::connect_env, &shared, &captures_tx))
+            .spawn(move || captures::run(control::connect, &shared, &captures_tx))
             .expect("the capture thread");
     }
     // The hosted popups of every surface (VAPP-281).
@@ -3989,6 +3996,8 @@ fn main() {
     let share = share::Share::new(share_tx);
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
+        // #EDE-172 (P4): gpui's Wayland connection did its first roundtrip.
+        control::refuse_ptrace();
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
@@ -4118,7 +4127,7 @@ fn main() {
             feed,
             model,
             chats: if demo { chats::demo_chats() } else { Vec::new() },
-            ede: ede_protocol::Client::connect_env().ok(),
+            ede: control::connect().ok(),
             apps: installed,
             menu_apps,
             windows: Vec::new(),
