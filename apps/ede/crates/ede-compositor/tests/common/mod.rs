@@ -215,10 +215,15 @@ impl Session {
 
     /// Acks the last configure and commits a `w`×`h` buffer of `argb`.
     pub fn draw(&mut self, t: &Toplevel, w: i32, h: i32, argb: u32) {
+        self.draw_with(t, w, h, |_, _| argb);
+    }
+
+    /// [`Session::draw`] with the pixel at (x, y) from `argb`.
+    pub fn draw_with(&mut self, t: &Toplevel, w: i32, h: i32, argb: impl Fn(i32, i32) -> u32) {
         if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
             t.xdg_surface.ack_configure(serial);
         }
-        let buffer = self.buffer(w, h, argb);
+        let buffer = self.buffer_with(w, h, argb);
         t.surface.attach(Some(&buffer), 0, 0);
         t.surface.damage_buffer(0, 0, w, h);
         t.surface.commit();
