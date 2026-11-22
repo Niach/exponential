@@ -910,6 +910,7 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
+ "wayland-scanner",
  "x11rb 0.13.2",
  "xcursor",
  "zbus",

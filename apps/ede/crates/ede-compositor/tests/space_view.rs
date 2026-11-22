@@ -6,6 +6,10 @@
 //! never reach a person-seat screenshot, screen memory or a screen share
 //! through it. And a top layer that asks for no keyboard (the view) never
 //! moves the person's keyboard when it maps, is clicked, resized or goes.
+//! #EXP-2041: the taskbar's Agent spaces list (a hosted Popover, an
+//! `xdg_popup` of the taskbar layer, that the shell names
+//! `exponential-shell:taskbar:agent_spaces`) is black in the same captures;
+//! the taskbar's other popups are not.
 
 mod common;
 
@@ -16,7 +20,7 @@ use std::{
 
 use common::{space::start_with_spaces, Session};
 use ede_compositor::{backend::headless::Harness, spaces::frames::{FAST, SLOW}, Config};
-use ede_protocol::{Capability, CaptureTarget, SessionId, SPACE_VIEW_NAMESPACE};
+use ede_protocol::{Capability, CaptureTarget, SessionId, SPACE_LIST_NAMESPACE, SPACE_VIEW_NAMESPACE};
 use smithay::backend::input::{ButtonState, KeyState};
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity};
 
@@ -24,6 +28,9 @@ const RED: u32 = 0xffff_0000;
 const GREEN: u32 = 0xff00_ff00;
 const BLUE: u32 = 0xff00_00ff;
 const BLACK: u32 = 0xff00_0000;
+const YELLOW: u32 = 0xffff_ff00;
+const MAGENTA: u32 = 0xffff_00ff;
+const CYAN: u32 = 0xff00_ffff;
 // evdev code; xkb = evdev + 8
 const KEY_A: u32 = 30;
 const KEY_B: u32 = 48;
@@ -125,6 +132,54 @@ fn the_space_view_is_black_in_a_capture_of_the_persons_output() {
     other.draw_layer(&impostor, BLUE);
     wait_for(&mut other, |_| h.capture(0).at(100, 50) == BLUE);
     assert_eq!(h.capture_shared(0).at(100, 50), BLUE, "only the shell's own view is black");
+}
+
+/// #EXP-2041: with the Agent spaces list open, a capture of the person's
+/// output is black where the list is, while the screen shows it. The
+/// taskbar, the window previews, the tray menu and Needs you (the shell's
+/// other popups, each with a name of its own) stay in the capture, and so
+/// does another client's popup named as the list is.
+#[test]
+fn the_agent_spaces_list_is_black_in_a_capture_of_the_persons_output() {
+    let h = harness();
+    let mut shell = Session::connect(h.connect());
+    // The 48 px taskbar along the bottom of the 1280×800 output: y 752..800.
+    let taskbar = shell.layer("exponential-shell:taskbar", Anchor::Bottom | Anchor::Left | Anchor::Right, (1280, 48), 48);
+    shell.draw_layer(&taskbar, RED);
+    wait_for(&mut shell, |_| h.capture(0).at(640, 776) == RED);
+
+    // The shell's popups above it, named as gpui names them: (layer x, y) -> output (x, y + 752).
+    let pid = std::process::id();
+    h.with(move |ede| ede.shell_stand_in = Some(pid));
+    let _list = shell.named_layer_popup(&taskbar, (880, -320), (380, 300), false, GREEN, Some(SPACE_LIST_NAMESPACE));
+    let _previews = shell.named_layer_popup(&taskbar, (40, -170), (200, 150), false, MAGENTA, Some("exponential-shell:taskbar:previews"));
+    let _needs_you = shell.named_layer_popup(&taskbar, (300, -170), (200, 150), false, YELLOW, Some("exponential-shell:needs-you"));
+    let _tray = shell.named_layer_popup(&taskbar, (560, -170), (200, 150), false, BLUE, Some("exponential-shell:tray-menu"));
+    h.with(|ede| ede.shell_stand_in = None);
+
+    // The screen: the list (x 880..1260, y 432..732) and every other popup.
+    wait_for(&mut shell, |_| h.capture(0).at(1070, 582) == GREEN);
+    let screen = h.capture(0);
+    assert_eq!((screen.at(881, 433), screen.at(1259, 731)), (GREEN, GREEN), "the person's screen shows the list");
+    assert_eq!((screen.at(140, 657), screen.at(400, 657), screen.at(660, 657), screen.at(640, 776)), (MAGENTA, YELLOW, BLUE, RED));
+
+    // A capture of the person's output: the list's place black, the rest as on screen.
+    let shared = h.capture_shared(0);
+    assert_eq!((shared.at(881, 433), shared.at(1070, 582), shared.at(1259, 731)), (BLACK, BLACK, BLACK), "the list's thumbnails leaked into a capture");
+    assert_ne!(shared.at(1070, 740), BLACK, "only the list goes black, not what is around it");
+    assert_eq!(shared.at(140, 657), MAGENTA, "the window previews stay");
+    assert_eq!(shared.at(400, 657), YELLOW, "Needs you stays");
+    assert_eq!(shared.at(660, 657), BLUE, "the tray menu stays");
+    assert_eq!(shared.at(640, 776), RED, "the taskbar stays");
+
+    // Not the shell: the same name does not hide another client's popup.
+    let mut other = Session::connect(h.connect());
+    let bar = other.layer("exponential-shell:taskbar", Anchor::Top | Anchor::Left | Anchor::Right, (1280, 48), 0);
+    other.draw_layer(&bar, RED);
+    let _impostor = other.named_layer_popup(&bar, (100, 60), (200, 100), false, CYAN, Some(SPACE_LIST_NAMESPACE));
+    wait_for(&mut other, |_| h.capture(0).at(200, 110) == CYAN);
+    assert_eq!(h.capture_shared(0).at(200, 110), CYAN, "only the shell's own list is black");
+    assert_eq!(h.capture_shared(0).at(1070, 582), BLACK, "the shell's list still is");
 }
 
 /// Section 8, 6c: a keyboard-none top layer that maps, is clicked, resized

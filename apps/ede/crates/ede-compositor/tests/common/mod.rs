@@ -23,6 +23,24 @@ use wayland_protocols::{
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
+/// #EXP-2041: `exponential_popup_namespace_v1`, the client side (gpui's in
+/// the shell), from ede-protocol's XML.
+#[allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables, non_upper_case_globals, non_snake_case, unused_imports, missing_docs, clippy::all)]
+pub mod popup_namespace {
+    use wayland_client;
+    use wayland_client::protocol::*;
+
+    pub mod __interfaces {
+        use wayland_client::backend as wayland_backend;
+        use wayland_client::protocol::__interfaces::*;
+        wayland_scanner::generate_interfaces!("../../../desktop/crates/ede-protocol/protocols/exponential-popup-namespace-v1.xml");
+    }
+    use self::__interfaces::*;
+
+    wayland_scanner::generate_client_code!("../../../desktop/crates/ede-protocol/protocols/exponential-popup-namespace-v1.xml");
+}
+use popup_namespace::exponential_popup_namespace_v1::ExponentialPopupNamespaceV1;
+
 #[derive(Default)]
 pub struct Client {
     pub compositor: Option<wl_compositor::WlCompositor>,
@@ -30,6 +48,8 @@ pub struct Client {
     pub shm: Option<wl_shm::WlShm>,
     pub wm_base: Option<xdg_wm_base::XdgWmBase>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
+    /// #EXP-2041: the popup namespace global (the person's clients only).
+    pub popup_namespace: Option<ExponentialPopupNamespaceV1>,
     pub outputs: Vec<wl_output::WlOutput>,
     /// The name and the current mode each bound wl_output announced.
     pub output_names: Vec<String>,
@@ -269,7 +289,15 @@ impl Session {
     /// A drawn `w`×`h` `xdg_popup` under the layer surface `l` (the shell's
     /// start menu under its taskbar); `grab` = it asks for the grab, that
     /// is for the keyboard (#EDE-86).
-    pub fn layer_popup(&mut self, l: &Layer, (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+    pub fn layer_popup(&mut self, l: &Layer, size: (i32, i32), grab: bool, argb: u32) -> Popup {
+        self.named_layer_popup(l, (0, 0), size, grab, argb, None)
+    }
+
+    /// [`Self::layer_popup`] anchored at `at` of the layer (its top-left
+    /// corner there: anchor and gravity bottom right of a 1×1 rect), named
+    /// `namespace` before its first commit through
+    /// `exponential_popup_namespace_v1`, as gpui names the shell's (#EXP-2041).
+    pub fn named_layer_popup(&mut self, l: &Layer, at: (i32, i32), (w, h): (i32, i32), grab: bool, argb: u32, namespace: Option<&str>) -> Popup {
         let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
         let index = self.state.toplevels.len();
         self.state.toplevels.push(ToplevelState::default());
@@ -277,10 +305,17 @@ impl Session {
         let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
         let positioner = wm_base.create_positioner(&self.qh, ());
         positioner.set_size(w, h);
-        positioner.set_anchor_rect(0, 0, 1, 1);
+        positioner.set_anchor_rect(at.0, at.1, 1, 1);
+        if at != (0, 0) {
+            positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+            positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+        }
         let popup = xdg_surface.get_popup(None, &positioner, &self.qh, ());
         l.layer.get_popup(&popup);
         positioner.destroy();
+        if let Some(namespace) = namespace {
+            self.state.popup_namespace.as_ref().expect("the popup namespace global advertised").set_namespace(&surface, namespace.into());
+        }
         if grab {
             // No press to name: a hotkey opened it.
             popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
@@ -468,6 +503,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
                 "zwlr_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, version.min(4), qh, ())),
+                "exponential_popup_namespace_v1" => state.popup_namespace = Some(registry.bind(name, 1, qh, ())),
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
                 "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
@@ -757,6 +793,7 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
+delegate_noop!(Client: ignore ExponentialPopupNamespaceV1);
 delegate_noop!(Client: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);

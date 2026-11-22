@@ -35,6 +35,7 @@ pub mod lock;
 pub mod logind;
 pub mod minimize;
 pub mod outputs;
+pub mod popup_namespace;
 pub mod protected;
 pub mod recovery;
 pub mod sealed;

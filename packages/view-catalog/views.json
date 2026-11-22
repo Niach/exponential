@@ -9355,12 +9355,13 @@
       "id": "ede-agent-spaces",
       "group": "ede",
       "title": "Exponential Desktop · Agent spaces",
-      "blurb": "#EXP-2024: the taskbar's Agent spaces button (only while an agent space exists on this machine) opens its list as a hosted Popover above it (apps/ede/ui/taskbar.json, never the keyboard): one row per space with its picture, its session's title (a child's chat as the second line, Agent space n for a session no signed-in account holds) and Close, which ends the space and never its session; a press pins that session's view (sample spaces and pictures in the golden).",
+      "blurb": "#EXP-2024: the taskbar's Agent spaces button (only while an agent space exists on this machine) opens its list as a hosted Popover above it (apps/ede/ui/taskbar.json, never the keyboard): one row per space with its picture, its session's title (a child's chat as the second line, Agent space n for a session no signed-in account holds) and Close, which ends the space and never its session; a press pins that session's view (sample spaces and pictures in the golden; #EXP-2041: captures of the person's screen show the open list black, so the golden captures unredacted).",
       "order": 9,
       "ede": {
         "size": "1280x720",
         "env": {
-          "EDE_SHELL_DEMO_SPACES": "list"
+          "EDE_SHELL_DEMO_SPACES": "list",
+          "EDE_SHELL_SHOT_UNREDACTED": "1"
         },
         "settleMs": 2500
       },
