@@ -95,6 +95,8 @@ pub(crate) struct ChatFind {
     target: Option<GlobalChatTarget>,
     debounce: Option<gpui::Task<()>>,
     _subscription: gpui::Subscription,
+    /// #EXP-2021: the chat store took in rows (asks it again).
+    _store_changed: gpui::Subscription,
 }
 
 /// A loaded row's find facts: its stop row, its list row (`None` = a
@@ -185,6 +187,7 @@ impl SteerSessionView {
             }
         });
         input.read(cx).focus_handle(cx).focus(window, cx);
+        let store_changed = cx.observe_global::<crate::chat_store::ChatStoreChanged>(|this: &mut Self, cx| this.find_store_changed(cx));
         self.find = Some(ChatFind {
             input,
             query: String::new(),
@@ -198,6 +201,7 @@ impl SteerSessionView {
             target: None,
             debounce: None,
             _subscription: subscription,
+            _store_changed: store_changed,
         });
         cx.notify();
     }
@@ -258,46 +262,80 @@ impl SteerSessionView {
     }
 
     fn set_find_query(&mut self, query: String, cx: &mut gpui::Context<Self>) {
-        let root = crate::session_data::session(&self.session_id, cx).map(|row| row.root_id_or_self().to_string());
-        let session_id = self.session_id.clone();
         let Some(open) = self.find.as_mut() else { return };
         if open.query == query {
             return;
         }
-        open.query = query.clone();
+        open.query = query;
         open.current = None;
         open.target = None;
         open.older.clear();
         open.store = FindSearchPhase::None;
-        if !query.is_empty() {
-            // The chat store's hits of THIS session below the loaded rows.
-            if let (Some(store), Some(root)) = (crate::chat_store::store(cx), root) {
-                open.store = FindSearchPhase::Searching;
-                let task = cx.background_executor().spawn(async move { store.search_chat(&root, &query, find::hits_max()).ok() });
-                cx.spawn(async move |this, cx| {
-                    let result = task.await;
-                    let _ = this.update(cx, |this, cx| {
-                        let Some(open) = this.find.as_mut() else { return };
-                        open.store = FindSearchPhase::Done;
-                        open.older = result
-                            .map(|result| result.hits)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter(|hit| hit.session_id == session_id)
-                            .map(|hit| FindStoreHit {
-                                session_id: hit.session_id,
-                                seq: hit.seq.map(|seq| seq as i64),
-                                message_id: hit.message_id,
-                                kind: hit.kind.as_str().to_string(),
-                            })
-                            .collect();
-                        cx.notify();
-                    });
-                })
-                .detach();
-            }
-        }
+        self.ask_find_store(true, cx);
         cx.notify();
+    }
+
+    /// #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): the chat store
+    /// took in rows of this chat while the bar holds a query: ask it again
+    /// (the field, the current stop and the counter stay; no debounce).
+    fn find_store_changed(&mut self, cx: &mut gpui::Context<Self>) {
+        let root = crate::session_data::session(&self.session_id, cx).map(|row| row.root_id_or_self().to_string());
+        let touched = cx
+            .try_global::<crate::chat_store::ChatStoreChanged>()
+            .is_some_and(|changed| changed.touches(root.as_deref(), &self.session_id));
+        if touched && self.find.as_ref().is_some_and(|open| !open.query.is_empty()) {
+            self.ask_find_store(false, cx);
+        }
+    }
+
+    /// The chat store's hits of THIS session for the bar's query (below the
+    /// loaded rows); `fresh` = a new query (the status line says searching
+    /// until it answers), else a re-ask that keeps what is shown meanwhile.
+    fn ask_find_store(&mut self, fresh: bool, cx: &mut gpui::Context<Self>) {
+        let root = crate::session_data::session(&self.session_id, cx).map(|row| row.root_id_or_self().to_string());
+        let session_id = self.session_id.clone();
+        let Some(open) = self.find.as_mut() else { return };
+        let query = open.query.clone();
+        if query.is_empty() {
+            return;
+        }
+        let (Some(store), Some(root)) = (crate::chat_store::store(cx), root) else { return };
+        if fresh {
+            open.store = FindSearchPhase::Searching;
+        }
+        let asked = query.clone();
+        let task = cx.background_executor().spawn(async move { store.search_chat(&root, &asked, find::hits_max()).ok() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(open) = this.find.as_mut() else { return };
+                // A newer query dropped this answer.
+                if open.query != query {
+                    return;
+                }
+                open.store = FindSearchPhase::Done;
+                let Some(result) = result else {
+                    if fresh {
+                        open.older.clear();
+                    }
+                    cx.notify();
+                    return;
+                };
+                open.older = result
+                    .hits
+                    .into_iter()
+                    .filter(|hit| hit.session_id == session_id)
+                    .map(|hit| FindStoreHit {
+                        session_id: hit.session_id,
+                        seq: hit.seq.map(|seq| seq as i64),
+                        message_id: hit.message_id,
+                        kind: hit.kind.as_str().to_string(),
+                    })
+                    .collect();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The loaded rows' find facts for `query`, top to bottom.

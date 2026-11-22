@@ -10,6 +10,7 @@ import at.exponential.chatstore.ffi.deleteAccountStore
 import at.exponential.chatstore.ffi.isCatchUpPage
 import com.exponential.app.data.api.TeamInstall
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.ArrivedMessage
 import com.exponential.app.data.db.CatchUpRow
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.MessageEntity
@@ -44,6 +45,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -51,6 +53,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -73,7 +76,11 @@ private const val TAG = "ChatStore"
 interface ChatStoreRows {
     suspend fun session(accountId: String, sessionId: String): SessionEntity?
     suspend fun catchUpRows(accountId: String): List<CatchUpRow>
-    suspend fun messagesSince(accountId: String, mark: String, limit: Int, offset: Int): List<MessageEntity>
+    /** #EXP-2032 (chat-store.json MESSAGES BY ARRIVAL): the chat rows from
+     *  arrival position [from] on (inclusive), in arrival order, at most [limit]. */
+    suspend fun messagesFrom(accountId: String, from: Long, limit: Int): List<ArrivedMessage>
+    /** The highest arrival position of `messages` (null = none). */
+    suspend fun highestArrival(accountId: String): Long?
     suspend fun messagesByIds(accountId: String, ids: List<String>): List<MessageEntity>
     fun messagesStamp(accountId: String): Flow<String?>
     fun sessionsStamp(accountId: String): Flow<String?>
@@ -189,6 +196,20 @@ class ChatStoreManager internal constructor(
     private val foreground = MutableStateFlow(false)
     private val kicks = Channel<Unit>(Channel.CONFLATED)
     private val passing = Mutex()
+
+    /** #EXP-2021: the chats (root ids) whose rows the store just took in. */
+    private val taken = MutableSharedFlow<Set<String>>(extraBufferCapacity = 64)
+
+    private fun took(roots: Set<String>) {
+        if (roots.isNotEmpty()) taken.tryEmit(roots)
+    }
+
+    /**
+     * #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): ticks every time
+     * the store takes in rows of the chat [rootId] (the synced messages, a
+     * feed, a catch-up answer); an open find bar asks its query again.
+     */
+    fun taken(rootId: String): Flow<Unit> = taken.filter { rootId in it }.map { }
 
     /** The account whose store is open (tests, logs). */
     val openAccountId: String? get() = open.value?.accountId
@@ -325,10 +346,13 @@ class ChatStoreManager internal constructor(
                 val row = rows.session(opened.accountId, sessionId) ?: continue
                 if (row.deviceId.isEmpty()) continue
                 val rootId = row.rootId.ifEmpty { row.id }
+                var put = false
                 writes.flatMap { it.events }.chunked(FEED_CHUNK).forEach { chunk ->
                     runCatching { opened.store.putFeed(rootId, sessionId, row.deviceId, ChatStoreCodec.feedJson(chunk), nowMs()) }
+                        .onSuccess { put = true }
                         .onFailure { Log.w(TAG, "storing a feed failed: ${it.javaClass.simpleName}") }
                 }
+                if (put) took(setOf(rootId))
             }
         }
     }
@@ -416,28 +440,48 @@ class ChatStoreManager internal constructor(
 
     // ── MESSAGES ─────────────────────────────────────────────────────────
 
-    /** The synced messages since the last mark (inclusive); [slow] = also the ones stored sealed, opened again. */
+    /**
+     * #EXP-2032 (chat-store.json MESSAGES BY ARRIVAL): the synced messages in
+     * the order they REACHED this device, from the last mark on (inclusive:
+     * the row at the mark is read again, so a reused position is never
+     * missed); [slow] = also the ones stored sealed, opened again. A row that
+     * arrives late with an older `createdAt` is taken like any new row. A
+     * mark above the table's highest position (a refetch emptied and
+     * refilled it) starts over; the old `createdAt` mark is never read, so
+     * the first pass after the update takes every row once (latest wins by id).
+     */
     private suspend fun catchUpMessages(opened: Opened, slow: Boolean) {
         val store = opened.store
         try {
-            val mark = store.meta(MESSAGES_MARK).orEmpty()
-            var newest = mark
-            var offset = 0
+            val stored = store.meta(MESSAGES_MARK)?.toLongOrNull() ?: 0L
+            val highest = rows.highestArrival(opened.accountId) ?: 0L
+            val mark = if (stored > highest) 0L else stored
+            var from = mark
+            var last = mark
+            val roots = HashSet<String>()
             while (true) {
-                val page = rows.messagesSince(opened.accountId, mark, MESSAGES_PAGE, offset)
+                val page = rows.messagesFrom(opened.accountId, from, MESSAGES_PAGE)
                 if (page.isEmpty()) break
-                val stored = page.mapNotNull(::storedMessage)
-                if (stored.isNotEmpty()) store.putMessages(ChatStoreCodec.messagesJson(stored))
-                page.maxOf { it.createdAt }.let { if (it > newest) newest = it }
+                val taken = page.mapNotNull { storedMessage(it.row) }
+                if (taken.isNotEmpty()) {
+                    store.putMessages(ChatStoreCodec.messagesJson(taken))
+                    taken.mapTo(roots) { it.rootId }
+                }
+                last = page.last().arrival
                 if (page.size < MESSAGES_PAGE) break
-                offset += MESSAGES_PAGE
+                from = last + 1
             }
-            if (newest > mark) store.setMeta(MESSAGES_MARK, newest)
-            if (!slow) return
-            for (ids in store.lockedMessageIds().chunked(MESSAGES_PAGE)) {
-                val unlocked = rows.messagesByIds(opened.accountId, ids).mapNotNull(::storedMessage).filter { it.body != null }
-                if (unlocked.isNotEmpty()) store.putMessages(ChatStoreCodec.messagesJson(unlocked))
+            if (last != stored) store.setMeta(MESSAGES_MARK, last.toString())
+            if (slow) {
+                for (ids in store.lockedMessageIds().chunked(MESSAGES_PAGE)) {
+                    val unlocked = rows.messagesByIds(opened.accountId, ids).mapNotNull(::storedMessage).filter { it.body != null }
+                    if (unlocked.isNotEmpty()) {
+                        store.putMessages(ChatStoreCodec.messagesJson(unlocked))
+                        unlocked.mapTo(roots) { it.rootId }
+                    }
+                }
             }
+            took(roots)
         } catch (err: CancellationException) {
             throw err
         } catch (err: Throwable) {
@@ -519,6 +563,7 @@ class ChatStoreManager internal constructor(
                 true
             },
             nowMs = nowMs,
+            onTaken = { took(setOf(it.rootId)) },
         )
         val due = driver.pass(sessions)
         retention(opened)
@@ -579,7 +624,9 @@ class ChatStoreManager internal constructor(
         const val STORE_DIR = "chat-store"
         /** A phone runs no sessions: no own device to skip. */
         private const val OWN_DEVICE = ""
-        private const val MESSAGES_MARK = "messages.createdAt"
+        /** #EXP-2032: the highest arrival position taken (the old
+         *  `messages.createdAt` mark is left unread). */
+        internal const val MESSAGES_MARK = "messages.rowid"
         private const val MESSAGES_PAGE = 500
         private const val FEED_CHUNK = 1_000
         private val HISTORY = "\"history_".encodeToByteArray()
@@ -608,8 +655,10 @@ private class DatabaseChatStoreRows(private val holder: DatabaseHolder) : ChatSt
 
     override suspend fun catchUpRows(accountId: String) = holder.database(accountId).sessionDao().catchUpRows()
 
-    override suspend fun messagesSince(accountId: String, mark: String, limit: Int, offset: Int) =
-        holder.database(accountId).messageDao().rawSince(mark, limit, offset)
+    override suspend fun messagesFrom(accountId: String, from: Long, limit: Int) =
+        holder.database(accountId).messageDao().rawFrom(from, limit)
+
+    override suspend fun highestArrival(accountId: String) = holder.database(accountId).messageDao().highestArrival()
 
     override suspend fun messagesByIds(accountId: String, ids: List<String>) =
         holder.database(accountId).messageDao().rawByIds(ids)

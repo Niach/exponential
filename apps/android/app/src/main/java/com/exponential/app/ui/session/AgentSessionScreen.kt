@@ -1249,13 +1249,16 @@ private fun RunFaceContent(
             // #EDE-130 (find-in-chat.json): what find in chat asks of this
             // session (its keys, the store, the device and its name).
             val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
+                val findRoot = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId
                 TranscriptFindHost(
                     sessionId = viewModel.codingSessionId,
-                    rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
+                    rootId = findRoot,
                     deviceOnline = hostDevice.online,
                     deviceName = hostDevice.displayLabel,
                     searchStore = viewModel::findInStore,
                     searchDevice = viewModel::findOnDevice,
+                    // #EXP-2021: the store taking in this chat's rows re-asks.
+                    storeTaken = viewModel.findStoreTaken(findRoot),
                 )
             }
             // EXP-893: the diff is the Changes face and Merge lives in the
@@ -2190,18 +2193,39 @@ private fun ActivityFeed(
     // the host's footer).
     val ownFindKeys = remember(ownTail) { ownTail.mapTo(HashSet(), ::ownBubbleFindKey) }
     val hasFeedFooter = LocalFeedFooter.current != null
+    // #EXP-2051: the own tail is ONE list item holding every own bubble, so a
+    // stop on one of them lands on THAT bubble (its place inside the item),
+    // never the item's centre (75 own bubbles centred on their middle: every
+    // stop "landed" on the same stretch).
+    val ownTailItem = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
+    val ownBubbleCoords = remember { HashMap<String, androidx.compose.ui.layout.LayoutCoordinates>() }
+    val findTarget: (String) -> FindListTarget? = { key ->
+        if (focused != null) {
+            null
+        } else {
+            val total = listState.layoutInfo.totalItemsCount
+            findListTarget(
+                key, rows, transcriptFind.keys,
+                lead = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size,
+                ownKeys = ownFindKeys,
+                ownTailIndex = (total - 1 - (if (hasFeedFooter) 1 else 0)).takeIf { total > 0 },
+            )
+        }
+    }
     val findLink = rememberDeepLink(
         listState = listState,
         request = transcriptFind.request,
-        indexOf = { key ->
-            if (focused != null) {
+        indexOf = { key -> findTarget(key)?.index },
+        itemKeyOf = { key -> findTarget(key)?.itemKey },
+        innerOf = { key -> findTarget(key)?.inner == true },
+        spanOf = { key ->
+            val item = ownTailItem[0]?.takeIf { it.isAttached }
+            val bubble = ownBubbleCoords[key]?.takeIf { it.isAttached }
+            if (item == null || bubble == null) {
                 null
-            } else if (key in ownFindKeys) {
-                val total = listState.layoutInfo.totalItemsCount
-                (total - 1 - (if (hasFeedFooter) 1 else 0)).takeIf { it >= 0 }
             } else {
-                val at = rows.indexOfFirst { findRowHolds(it, key, transcriptFind.keys) }
-                if (at < 0) null else (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + at
+                val top = item.localPositionOf(bubble, androidx.compose.ui.geometry.Offset.Zero).y.toInt()
+                ItemSpan(top, bubble.size.height)
             }
         },
         // #EXP-1998: an older synced MESSAGE stop pages in by widening the
@@ -2705,9 +2729,18 @@ private fun ActivityFeed(
             // #FEED-237 (message-delivery.json ORDER): the viewer's own rows
             // the device has not consumed, then the outbox entries.
             if (ownTail.isNotEmpty()) {
-                item(key = "own-tail", contentType = "own-tail") {
-                    TranscriptRow(TranscriptGap.Turn) {
-                        com.exponential.app.ui.chat.OwnTailBubbles(ownTail, onOwnAction)
+                item(key = OWN_TAIL_ITEM_KEY, contentType = "own-tail") {
+                    // #EXP-2051: each bubble's place inside the item (find
+                    // in chat lands on the bubble) and the ring of an own stop.
+                    val ownLanding = remember(findRing, ownFindKeys) {
+                        FindBubbleLanding(findRing?.takeIf { it in ownFindKeys }) { key, coordinates -> ownBubbleCoords[key] = coordinates }
+                    }
+                    Box(Modifier.fillMaxWidth().onGloballyPositioned { ownTailItem[0] = it }) {
+                        CompositionLocalProvider(LocalFindBubbleLanding provides ownLanding) {
+                            TranscriptRow(TranscriptGap.Turn) {
+                                com.exponential.app.ui.chat.OwnTailBubbles(ownTail, onOwnAction)
+                            }
+                        }
                     }
                 }
             }
