@@ -137,16 +137,14 @@ impl LocalAgent {
     pub fn start(&self, request: RunRequest) -> Result<LocalRun, EngineError> {
         let RunRequest { cwd, prompt, resume, servers, env, system_append, options, sink, runtime } =
             request;
-        let (runtime, owned) = match runtime {
-            Some(handle) => (handle, None),
-            None => {
-                let runtime = tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                    .map_err(EngineError::Spawn)?;
-                (runtime.handle().clone(), Some(runtime))
-            }
+        // #PERF-12: no runtime of the caller's = the process's shared one,
+        // never one per run.
+        let runtime = match runtime {
+            Some(handle) => handle,
+            None => crate::engine::runtime::shared()
+                .ok_or_else(|| EngineError::Spawn(std::io::Error::other("the engine runtime failed to start")))?
+                .handle()
+                .clone(),
         };
         let (sink, events): (Arc<dyn EventSink>, _) = match sink {
             Some(sink) => (sink, None),
@@ -187,7 +185,7 @@ impl LocalAgent {
         let mut session = SessionSpec::for_launch(&launch, runtime);
         session.sink = Some(sink);
         let session = crate::engine::start(launch, session, Arc::new(NoBackend::new()))?;
-        Ok(LocalRun { session, events, _runtime: owned })
+        Ok(LocalRun { session, events })
     }
 }
 
@@ -210,7 +208,8 @@ pub struct RunRequest {
     pub options: RunOptions,
     /// Where events go instead of [`LocalRun::events`].
     pub sink: Option<Arc<dyn EventSink>>,
-    /// The tokio runtime to drive the connection on; `None` = the run owns one.
+    /// The tokio runtime to drive the connection on; `None` = the process's
+    /// shared engine runtime ([`crate::engine::runtime::shared`]).
     pub runtime: Option<tokio::runtime::Handle>,
 }
 
@@ -269,8 +268,6 @@ impl RunRequest {
 pub struct LocalRun {
     session: EngineSession,
     events: Option<flume::Receiver<ActivityEvent>>,
-    // Declared last: the runtime outlives the session's handles.
-    _runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl LocalRun {
