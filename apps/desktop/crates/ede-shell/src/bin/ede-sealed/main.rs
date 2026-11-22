@@ -23,7 +23,8 @@
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
 //!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
-//!   `remote_control`, `outputs`, `windows`), the picks on stdout
+//!   `remote_control`, `outputs`, `windows`, `selected` = the rows a
+//!   restored share starts with), the picks on stdout
 //!   (`output:NAME`, `window:ID`, and `allow` for remote control).
 //!
 //! Drawn with the same gpui + eui-gpui the shell uses, the same tokens;
@@ -579,8 +580,9 @@ fn share() {
     let types: Vec<String> = ask["types"].as_array().map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
     let multiple = ask["multiple"].as_bool().unwrap_or(false);
     let remote = ask["remote_control"].as_bool().unwrap_or(false);
-    let outputs: Vec<Value> = ask["outputs"].as_array().map(|l| l.iter().map(|o| json!({"id": format!("output:{}", o["name"].as_str().unwrap_or("")), "label": o["name"], "detail": format!("{}×{}", o["width"], o["height"]), "selected": false})).collect()).unwrap_or_default();
-    let windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_id"].as_str().unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
+    let mut outputs: Vec<Value> = ask["outputs"].as_array().map(|l| l.iter().map(|o| json!({"id": format!("output:{}", o["name"].as_str().unwrap_or("")), "label": o["name"], "detail": format!("{}×{}", o["width"], o["height"]), "selected": false})).collect()).unwrap_or_default();
+    let mut windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_id"].as_str().unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
+    let preselected = preselect(&ask, multiple, &mut outputs, &mut windows);
     let what = match (types.iter().any(|t| t == "monitor"), types.iter().any(|t| t == "window")) {
         (true, true) => "share a screen or a window",
         (true, false) => "share a screen",
@@ -596,7 +598,7 @@ fn share() {
         if open.is_none() {
             exit(1);
         }
-        let mut picks: Vec<String> = Vec::new();
+        let mut picks = preselected;
         let mut allow = false;
         let (mut outputs, mut windows) = (outputs, windows);
         cx.spawn(async move |cx| {
@@ -654,6 +656,18 @@ fn share() {
     });
 }
 
+/// #EDE-172 (D6 a): the ask's `selected` (a restored share's last picks)
+/// start selected, so one click on Share shares them again; an id not
+/// offered is dropped, one pick unless `multiple`.
+fn preselect(ask: &Value, multiple: bool, outputs: &mut [Value], windows: &mut [Value]) -> Vec<String> {
+    let offered = |id: &str| outputs.iter().chain(windows.iter()).any(|row| row["id"] == id);
+    let picks: Vec<String> = ask["selected"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|&id| offered(id)).take(if multiple { usize::MAX } else { 1 }).map(String::from).collect();
+    for row in outputs.iter_mut().chain(windows.iter_mut()) {
+        row["selected"] = json!(picks.iter().any(|p| row["id"] == p.as_str()));
+    }
+    picks
+}
+
 fn main() {
     // A crash-monitor process (ede-observability) runs and exits here.
     ede_observability::run_crash_monitor_if_requested();
@@ -697,6 +711,22 @@ mod tests {
             Value::Array(a) => a.iter().for_each(|v| calls(v, out)),
             _ => {}
         }
+    }
+
+    /// #EDE-172 (D6 a): a restored share opens with its last picks
+    /// selected; a new one with none.
+    #[test]
+    fn a_restored_share_opens_with_its_last_picks_selected() {
+        let row = |id: &str| json!({"id": id, "selected": false});
+        let ask = json!({"selected": ["window:w2", "output:gone", "output:A"]});
+        let (mut outputs, mut windows) = (vec![row("output:A"), row("output:B")], vec![row("window:w2")]);
+        let selected = |rows: &[Value]| rows.iter().map(|r| r["selected"] == true).collect::<Vec<_>>();
+        assert_eq!(preselect(&ask, true, &mut outputs, &mut windows), ["window:w2", "output:A"]);
+        assert_eq!((selected(&outputs), selected(&windows)), (vec![true, false], vec![true]));
+        assert_eq!(preselect(&ask, false, &mut outputs, &mut windows), ["window:w2"]);
+        assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![true]));
+        assert!(preselect(&json!({}), true, &mut outputs, &mut windows).is_empty());
+        assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![false]));
     }
 
     /// The unlock grant is read from the descriptor the compositor passed.
