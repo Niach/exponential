@@ -273,6 +273,10 @@ impl DialLink for SteerDial {
     fn end(&self) {
         self.0.end();
     }
+
+    fn fail(&self) {
+        self.0.fail();
+    }
 }
 
 fn dial_event(event: steer::call_caller::CallCallerEvent) -> DialLinkEvent {

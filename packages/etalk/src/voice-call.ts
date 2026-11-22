@@ -512,6 +512,261 @@ export function callSealStep(role: CallSealRole, state: CallSealState, event: Ca
   }
 }
 
+// ── #EXP-1993 / #EXP-2017: THE CALLER'S SESSION (`caller`) ─────────────────
+//
+// One pure machine for a caller that streams its call to a host: the phones
+// (iOS ExpCore `VoiceCall.Caller`, Android `VoiceCall.Caller`) and web
+// (apps/web lib/voice-call/call.ts executes this one). `callerStep` answers
+// the next state and the effects in order; the caller only does them and
+// hands in what happened. Every `caller.cases` row replays here as written:
+// its inputs and effects ARE these types.
+
+/** `holding` = the tap went, the hold is asked; `asking` = it rings, the
+ *  ticket is asked; `dialed` = the ticket's url was dialled; `paired` =
+ *  `call_ready` came. */
+export type CallerStage = `idle` | `holding` | `asking` | `dialed` | `paired`
+
+export interface CallerState {
+  /** The flow (`callStep`). */
+  call: CallState
+  stage: CallerStage
+  /** The ticket's `seal`: mute rides inside every sealed frame. */
+  sealed: boolean
+}
+
+export const CALLER_IDLE: CallerState = { call: CALL_IDLE, stage: `idle`, sealed: false }
+
+/** What happened (the fixture's `t`). */
+export type CallerInput =
+  /** The tap, on the device `callTarget` named. */
+  | { t: `start`; device: string; language?: string; fallback?: boolean }
+  /** The hold's answer; a refusal fails the call with `code` (none = dropped). */
+  | { t: `held`; ok: boolean; code?: string }
+  /** `voice.startCall`'s usable answer (EXP-1857: its device and fallback win). */
+  | { t: `ticket`; device?: string; fallback?: boolean; sealed?: boolean }
+  /** Its refusal, in this platform's words. */
+  | { t: `refused`; message: string }
+  /** One control frame off the socket as its JSON (`wire.control`, the
+   *  relay's `error` / `bye`), a sealed call's opened by its line first. */
+  | { t: `frame`; frame: unknown }
+  /** The socket went away. */
+  | { t: `closed` }
+  /** The call's own failure; `told` = the seal line sent its own `call_end`. */
+  | { t: `failed`; code: string; told?: boolean }
+  /** The ring's bound (`ring`'s `ms`) passed. */
+  | { t: `ringTimeout` }
+  | { t: `mute` }
+  | { t: `speaker` }
+  /** End call (also an account switch, a page or an app going away). */
+  | { t: `end` }
+
+/** A control frame the caller sends. */
+export type CallerOutgoing = { t: `call_end`; reason?: string } | { t: `call_mute`; muted: boolean }
+
+/** What to do (the fixture's `do`), in order. */
+export type CallerEffect =
+  | { do: `hold` }
+  /** The ring tone, looped; `ringTimeout` after `ms`. */
+  | { do: `ring`; ms: number }
+  | { do: `ticket` }
+  | { do: `dial` }
+  /** The microphone's frames and the playback. */
+  | { do: `startAudio` }
+  /** Answered: the ring stops, the call's timer starts. */
+  | { do: `stopRing` }
+  /** Barge-in: the buffered reply goes. */
+  | { do: `flush` }
+  | { do: `mute`; muted: boolean }
+  | { do: `speaker`; on: boolean }
+  /** On the call's socket (nothing while it still connects). */
+  | { do: `send`; frame: CallerOutgoing }
+  /** `call_alive`: the liveness deadline starts. */
+  | { do: `alive` }
+  /** Everything the call holds goes. */
+  | { do: `release` }
+  | { do: `toast`; text: string }
+
+export interface CallerStepped {
+  state: CallerState
+  effects: CallerEffect[]
+}
+
+/** One control frame as the caller reads it. `event` null = a host event
+ *  this build does not know, or a malformed one. */
+export type CallerFrame =
+  | { t: `ready` }
+  | { t: `event`; event: CallEvent | null }
+  | { t: `end`; reason: string | null }
+  | { t: `error`; code: string | null }
+  | { t: `bye`; outcome: string | null }
+  | { t: `alive` }
+  | { t: `other` }
+
+const stringOf = (value: unknown): string | null => (typeof value === `string` ? value : null)
+
+/** A `call_event`'s event off the wire: a flow event (`callStep`'s), else
+ *  null. A text event without its text, or `queued` without its count, is
+ *  malformed. */
+export function callerHostEvent(raw: unknown): CallEvent | null {
+  if (!raw || typeof raw !== `object`) return null
+  const event = raw as Record<string, unknown>
+  const text = stringOf(event.text)
+  switch (event.t) {
+    case `partial`:
+    case `said`:
+    case `replyStarted`:
+      return text === null ? null : { t: event.t, text }
+    case `queued`:
+      return typeof event.count === `number` && text !== null ? { t: `queued`, count: event.count, text } : null
+    case `rang`:
+    case `ready`:
+    case `noSound`:
+    case `speechStarted`:
+    case `replyFinished`:
+    case `mute`:
+    case `unmute`:
+    case `end`:
+      return { t: event.t }
+    case `speaker`:
+      return { t: `speaker`, on: event.on !== false }
+    case `start`:
+      return { t: `start`, device: stringOf(event.device) ?? `` }
+    case `hungUp`:
+      return { t: `hungUp`, reason: stringOf(event.reason) }
+    case `failed`:
+      return { t: `failed`, code: stringOf(event.code) ?? `` }
+    default:
+      return null
+  }
+}
+
+/** One control frame's JSON as the caller reads it. */
+export function callerFrame(json: unknown): CallerFrame {
+  const frame = json && typeof json === `object` ? (json as Record<string, unknown>) : {}
+  switch (frame.t) {
+    case `call_ready`:
+      return { t: `ready` }
+    case `call_event`:
+      return { t: `event`, event: callerHostEvent(frame.event) }
+    case `call_end`:
+      return { t: `end`, reason: stringOf(frame.reason) }
+    case `error`:
+      return { t: `error`, code: stringOf(frame.code) }
+    case `bye`:
+      return { t: `bye`, outcome: stringOf(frame.outcome) }
+    case `call_alive`:
+      return { t: `alive` }
+    default:
+      return { t: `other` }
+  }
+}
+
+/** The caller's next state and its effects, in order (`caller.$comment`). */
+export function callerStep(state: CallerState, input: CallerInput): CallerStepped {
+  const failedCode = fixture.hangUpRules.failedCode
+  const stay: CallerStepped = { state, effects: [] }
+  if (input.t === `start`) {
+    if (state.stage !== `idle`) return stay
+    const call = callStep(state.call, { t: `start`, device: input.device, language: input.language, fallback: input.fallback ?? false })
+    return { state: { call, stage: `holding`, sealed: false }, effects: [{ do: `hold` }] }
+  }
+  if (state.stage === `idle`) return stay
+  const dialled = state.stage === `dialed` || state.stage === `paired`
+  // A call ends once: the flow steps `event`, everything goes, then its toast.
+  const ended = (event: CallEvent, first: CallerEffect[] = []): CallerStepped => {
+    const call = callStep(state.call, event)
+    return {
+      state: { call, stage: `idle`, sealed: false },
+      effects: [...first, { do: `release` }, ...(call.toast ? [{ do: `toast` as const, text: call.toast }] : [])],
+    }
+  }
+  // The host learns an own failure from the caller, once dialled.
+  const own = (code: string, told = false): CallerStepped =>
+    ended({ t: `failed`, code }, dialled && !told ? [{ do: `send`, frame: { t: `call_end`, reason: failedCode } }] : [])
+  const wire = (code: string | null): string => (code ? callSealWireCode(code) : failedCode)
+
+  switch (input.t) {
+    case `held`:
+      if (state.stage !== `holding`) return stay
+      if (!input.ok) return own(input.code ?? failedCode)
+      return { state: { ...state, stage: `asking` }, effects: [{ do: `ring`, ms: fixture.constants.maxRingMs }, { do: `ticket` }] }
+    case `ticket`:
+      if (state.stage !== `asking`) return stay
+      return {
+        state: {
+          call: { ...state.call, device: input.device ?? state.call.device, fallback: input.fallback ?? state.call.fallback },
+          stage: `dialed`,
+          sealed: input.sealed ?? false,
+        },
+        effects: [{ do: `dial` }],
+      }
+    case `refused`:
+      if (state.stage !== `asking`) return stay
+      return { state: CALLER_IDLE, effects: [{ do: `release` }, { do: `toast`, text: input.message }] }
+    case `frame`: {
+      if (!dialled) return stay
+      const frame = callerFrame(input.frame)
+      switch (frame.t) {
+        case `ready`:
+          if (state.stage !== `dialed`) return stay
+          return { state: { ...state, stage: `paired` }, effects: [{ do: `startAudio` }] }
+        case `event`: {
+          const event = frame.event
+          switch (event?.t) {
+            case undefined:
+            case `start`:
+            case `mute`:
+            case `unmute`:
+            case `speaker`:
+              return stay
+            // #EXP-1936: as a `call_end` would.
+            case `end`:
+              return ended({ t: `hungUp`, reason: null })
+            case `hungUp`:
+              return ended({ t: `hungUp`, reason: event.reason })
+            // The host failed the call (its `call_end` follows): nothing goes back.
+            case `failed`:
+              return ended({ t: `failed`, code: wire(event.code) })
+          }
+          const call = callStep(state.call, event!)
+          const effects: CallerEffect[] = event!.t === `speechStarted` ? [{ do: `flush` }] : []
+          if (state.call.phase === `ringing` && call.phase !== `ringing`) effects.push({ do: `stopRing` })
+          return { state: { ...state, call }, effects }
+        }
+        case `end`:
+          return ended({ t: `hungUp`, reason: frame.reason })
+        case `error`:
+          return ended({ t: `failed`, code: wire(frame.code) })
+        case `bye`:
+          return ended({ t: `failed`, code: wire(frame.outcome) })
+        case `alive`:
+          return { state, effects: [{ do: `alive` }] }
+        case `other`:
+          return stay
+      }
+    }
+    case `closed`:
+      return dialled ? ended({ t: `failed`, code: failedCode }) : stay
+    case `failed`:
+      return own(input.code, input.told ?? false)
+    case `ringTimeout`:
+      return state.call.phase === `ringing` ? own(`unavailable`) : stay
+    case `mute`: {
+      const muted = !state.call.muted
+      const call = callStep(state.call, { t: muted ? `mute` : `unmute` })
+      // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
+      const told: CallerEffect[] = state.stage === `paired` && !state.sealed ? [{ do: `send`, frame: { t: `call_mute`, muted } }] : []
+      return { state: { ...state, call }, effects: [{ do: `mute`, muted }, ...told] }
+    }
+    case `speaker`: {
+      const on = !state.call.speaker
+      return { state: { ...state, call: callStep(state.call, { t: `speaker`, on }) }, effects: [{ do: `speaker`, on }] }
+    }
+    case `end`:
+      return ended({ t: `end` }, dialled ? [{ do: `send`, frame: { t: `call_end` } }] : [])
+  }
+}
+
 // EXP-1961 (`callSession`): a call runs in its own call session, a child of
 // the chat. Pure parts the server (pick, duration) and the Rust hosts
 // (opening) replay.

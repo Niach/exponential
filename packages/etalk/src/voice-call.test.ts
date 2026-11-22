@@ -28,6 +28,12 @@ import {
   type CallAvailabilityInput,
   type CallTargetInput,
   type CallEvent,
+  CALLER_IDLE,
+  callerFrame,
+  callerStep,
+  type CallerEffect,
+  type CallerInput,
+  type CallerState,
 } from "./voice-call"
 
 describe(`callSpeechOf`, () => {
@@ -153,6 +159,52 @@ describe(`EXP-1941: callSealStep (seal.modeCases)`, () => {
       expect(callSealWireCode(code)).toBe(`dropped`)
     }
     expect(callSealWireCode(`busy`)).toBe(`busy`)
+  })
+})
+
+// #EXP-1993 / #EXP-2017: every `caller.cases` row, as iOS
+// (`VoiceCallCallerTests`) and Android (`VoiceCallCallerTest`) replay it:
+// per event the effects in order, then the final stage and phase.
+describe(`#EXP-2017 callerStep (caller.cases)`, () => {
+  test(`every row is replayed`, () => {
+    expect(fixture.caller.cases.length).toBeGreaterThanOrEqual(31)
+  })
+  for (const entry of fixture.caller.cases) {
+    test(entry.name, () => {
+      expect(entry.events.length).toBe(entry.effects.length)
+      let state = CALLER_IDLE
+      const effects = (entry.events as CallerInput[]).map((event) => {
+        const stepped = callerStep(state, event)
+        state = stepped.state
+        return stepped.effects
+      })
+      expect(effects).toEqual(entry.effects as CallerEffect[][])
+      const row = entry as { stage: string; phase: string; device?: string; fallback?: boolean; muted?: boolean; speaker?: boolean }
+      expect(state.stage).toBe(row.stage as typeof state.stage)
+      expect(state.call.phase).toBe(row.phase as typeof state.call.phase)
+      if (row.device !== undefined) expect(state.call.device).toBe(row.device)
+      if (row.fallback !== undefined) expect(state.call.fallback).toBe(row.fallback)
+      if (row.muted !== undefined) expect(state.call.muted).toBe(row.muted)
+      if (row.speaker !== undefined) expect(state.call.speaker).toBe(row.speaker)
+    })
+  }
+
+  test(`what goes on the socket is the effect's frame as JSON; a reason-less call_end carries no reason key`, () => {
+    const end = callerStep({ ...CALLER_IDLE, stage: `paired`, call: { ...CALL_IDLE, phase: `listening`, device: `mint` } }, { t: `end` })
+    expect(end.effects[0]).toEqual({ do: `send`, frame: { t: `call_end` } })
+    expect(JSON.stringify((end.effects[0] as { frame: unknown }).frame)).toBe(`{"t":"call_end"}`)
+  })
+
+  test(`a frame that is no JSON object, or a host event this build does not know, is nothing`, () => {
+    const paired: CallerState = { ...CALLER_IDLE, stage: `paired`, call: { ...CALL_IDLE, phase: `listening`, device: `mint` } }
+    for (const frame of [null, `call_end`, [], { t: `call_event` }, { t: `call_event`, event: { t: `said` } }, { t: `call_event`, event: { t: `newThing` } }]) {
+      expect(callerStep(paired, { t: `frame`, frame })).toEqual({ state: paired, effects: [] })
+    }
+    expect(callerFrame({ t: `call_event`, event: { t: `failed` } })).toEqual({ t: `event`, event: { t: `failed`, code: `` } })
+    expect(callerStep(paired, { t: `frame`, frame: { t: `call_event`, event: { t: `failed` } } }).effects).toEqual([
+      { do: `release` },
+      { do: `toast`, text: fixture.copy.failed.dropped },
+    ])
   })
 })
 

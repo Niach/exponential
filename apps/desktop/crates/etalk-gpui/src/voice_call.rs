@@ -960,7 +960,7 @@ impl VoiceCall {
             DialLinkEvent::Ready => log::info!("[voice] call {id}: the dialled desktop is on the line"),
             DialLinkEvent::Event(value) => match call_event_of_wire(&value) {
                 // The host failed the call (its `call_end` follows): its toast.
-                Some(CallEvent::Failed(code)) => self.fail(&code, cx),
+                Some(CallEvent::Failed(code)) => self.far_failed(&code, cx),
                 // #EXP-1936: a host forwards flow events only (voice-call.json
                 // `wire.control.call_event`). Its `end` / `hungUp` end the
                 // call for real (a step alone would hide a call whose
@@ -986,10 +986,11 @@ impl VoiceCall {
             // A reason-less hang-up is silent, the relay's `idle` /
             // `max_length` toast `dropped` (voice-call.json `hangUpRules`).
             DialLinkEvent::Ended { reason } => self.close_dialled(false, CallEvent::HungUp(reason), cx),
-            DialLinkEvent::Failed(code) => self.fail(&code, cx),
+            DialLinkEvent::Failed(code) => self.far_failed(&code, cx),
+            // The link is gone (a path gone silent told the host itself).
             DialLinkEvent::Dropped(reason) => {
                 log::warn!("[voice] call {id}: the dialled call dropped: {reason}");
-                self.fail("dropped", cx);
+                self.far_failed("dropped", cx);
             }
         }
     }
@@ -1133,7 +1134,20 @@ impl VoiceCall {
         self.step(event, cx);
     }
 
+    /// The call's OWN failure (the ring's bound, the worker, its
+    /// microphone). #EXP-2017 (voice-call.json `caller`): a dialled call
+    /// tells its host `call_end {reason: dropped}` before it lets go.
     fn fail(&mut self, code: &str, cx: &mut Context<Self>) {
+        self.close_failed(code, true, cx);
+    }
+
+    /// A dialled call the far side failed (the host's `failed`, the relay's
+    /// `error` / `bye`, the link gone): no reason of this side's.
+    fn far_failed(&mut self, code: &str, cx: &mut Context<Self>) {
+        self.close_failed(code, false, cx);
+    }
+
+    fn close_failed(&mut self, code: &str, own: bool, cx: &mut Context<Self>) {
         if !self.dialled() {
             return self.host_input(HostInput::Fail { code: code.to_string() }, cx);
         }
@@ -1143,7 +1157,11 @@ impl VoiceCall {
         }
         // EXP-1857: a dialled call hangs up on its host.
         if let Some(dial) = active.dial.as_ref() {
-            dial.end();
+            if own {
+                dial.fail();
+            } else {
+                dial.end();
+            }
         }
         self.step(CallEvent::Failed(code.to_string()), cx);
     }
@@ -1864,6 +1882,9 @@ mod tests {
         fn end(&self) {
             self.0.borrow_mut().push("end".into());
         }
+        fn fail(&self) {
+            self.0.borrow_mut().push("end dropped".into());
+        }
     }
 
     /// A dialled call, ringing, its link connected (no worker, no relay).
@@ -2512,6 +2533,54 @@ mod tests {
             assert_eq!(global(cx).unwrap().read(cx).toasts, vec![VOICE_CALL.copy.failed["dropped"].clone()]);
         });
         assert_eq!(*recorder.0.borrow(), ["end"]);
+    }
+
+    /// #EXP-2017 (voice-call.json `caller`): a dialled call's OWN failure
+    /// (the ring's bound while it still rings, the worker's microphone, the
+    /// worker gone) tells the host `call_end {reason: dropped}`; a failure
+    /// of the far side (the relay's code, the host's `failed`, the link
+    /// gone) brings no reason of this side's.
+    #[gpui::test]
+    async fn a_dialled_calls_own_failure_tells_the_host_dropped(cx: &mut gpui::TestAppContext) {
+        setup(cx);
+        let unavailable = VOICE_CALL.copy.failed["unavailable"].replace("{device}", "mint");
+        let dropped = VOICE_CALL.copy.failed["dropped"].clone();
+        let (id, recorder) = dialled(cx);
+        cx.update(|cx| {
+            host_event(&id, serde_json::json!({ "t": "rang" }), cx);
+            global(cx).unwrap().update(cx, |this, cx| this.on_max_ring(&id, cx));
+            assert!(!active(cx), "the ring's bound fails a call that still rings");
+        });
+        assert_eq!(*recorder.0.borrow(), ["end dropped"]);
+        let own: [fn(&str) -> etalk::Event; 2] = [
+            |id| etalk::Event::ListenFailed { id: id.into(), reason: etalk::ListenFailure::Failed, detail: "mic".into() },
+            |_| etalk::Event::EXITED,
+        ];
+        for event in own {
+            let (id, recorder) = dialled(cx);
+            cx.update(|cx| {
+                on_worker_event(event(&id), cx);
+                assert!(!active(cx));
+            });
+            assert_eq!(*recorder.0.borrow(), ["end dropped"]);
+        }
+        let far: [fn(&str, &mut App); 3] = [
+            |id, cx| global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Failed("no_answer".into()), cx)),
+            |id, cx| host_event(id, serde_json::json!({ "t": "failed", "code": "unavailable" }), cx),
+            |id, cx| global(cx).unwrap().update(cx, |this, cx| this.on_dial(id, DialLinkEvent::Dropped("gone".into()), cx)),
+        ];
+        for event in far {
+            let (id, recorder) = dialled(cx);
+            cx.update(|cx| {
+                event(&id, cx);
+                assert!(!active(cx));
+            });
+            assert!(recorder.0.borrow().iter().all(|line| line != "end dropped"), "{:?}", recorder.0.borrow());
+        }
+        cx.update(|cx| {
+            let toasts = &global(cx).unwrap().read(cx).toasts;
+            assert_eq!(toasts[..3], [unavailable.clone(), dropped.clone(), dropped.clone()]);
+        });
     }
 
     /// F41: a host that fails the call names the code before `call_end`.
