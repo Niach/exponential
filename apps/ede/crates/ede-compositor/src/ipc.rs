@@ -1236,7 +1236,11 @@ impl Ede {
             }
             return;
         }
-        let argv = vec![crate::sealed::sealed_binary(), "consent".into(), "--title".into(), asking.title.clone(), "--body".into(), asking.body.clone(), "--allow".into(), "Allow".into(), "--deny".into(), "Don't allow".into()];
+        let mut argv = vec![crate::sealed::sealed_binary(), "consent".into(), "--title".into(), asking.title.clone(), "--body".into(), asking.body.clone(), "--allow".into(), "Allow".into(), "--deny".into(), "Don't allow".into()];
+        // #EDE-172 (P7): the size it covers, so the prompt asks nothing back.
+        if let Some(o) = self.output_infos().first() {
+            argv.extend(["--size".into(), format!("{}x{}", o.width, o.height)]);
+        }
         let child = self.client_command(&argv).and_then(|mut command| command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).spawn().map_err(|e| tracing::warn!("{}: {e}", argv[0])).ok());
         let Some(child) = child else {
             self.consent_failed(&key, "the consent prompt could not start");

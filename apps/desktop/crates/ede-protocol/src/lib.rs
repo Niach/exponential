@@ -1189,6 +1189,30 @@ impl Client {
     /// `EDE_TOKEN`): the shell's and the harness's way in. Anything else
     /// uses [`Client::connect_as`].
     pub fn connect_env() -> Result<Self, Error> {
+        let (socket, token) = Self::env_socket_and_token()?;
+        Self::connect(&socket, token)
+    }
+
+    /// #EDE-172: [`Client::connect_env`] whose hello waits up to
+    /// `hello_within` for its reply: with Exponential Desktop's gate on, the
+    /// compositor holds it while the person reads a consent prompt
+    /// (`exponential-ctl`). Later calls wait [`CALL_TIMEOUT`].
+    pub fn connect_env_waiting(hello_within: std::time::Duration) -> Result<Self, Error> {
+        let (socket, token) = Self::env_socket_and_token()?;
+        Self::over_waiting(UnixStream::connect(socket)?, token, hello_within)
+    }
+
+    /// Hello over `stream` waiting up to `hello_within` for its reply;
+    /// later calls wait [`CALL_TIMEOUT`] ([`Client::connect_env_waiting`]).
+    pub fn over_waiting(stream: UnixStream, token: Token, hello_within: std::time::Duration) -> Result<Self, Error> {
+        let mut client = Self::over_within(stream, token, hello_within)?;
+        client.set_call_timeout(CALL_TIMEOUT);
+        Ok(client)
+    }
+
+    /// The socket of `$WAYLAND_DISPLAY`'s compositor and the token
+    /// `EDE_TOKEN` (else the root token file) names.
+    fn env_socket_and_token() -> Result<(PathBuf, Token), Error> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;
         let display = std::env::var("WAYLAND_DISPLAY").map_err(|_| Error::Protocol("WAYLAND_DISPLAY unset".into()))?;
         let runtime = Path::new(&runtime);
@@ -1197,7 +1221,7 @@ impl Client {
             Err(_) => std::fs::read_to_string(token_path(runtime, &display))?,
         };
         let token = Token::new(token.trim()).map_err(|e| Error::Protocol(e.to_string()))?;
-        Self::connect(&socket_path(runtime, &display), token)
+        Ok((socket_path(runtime, &display), token))
     }
 
     /// A grant of this process's own for `session_id`, holding
@@ -2107,6 +2131,31 @@ mod tests {
             Request::OpenWayland => "open_wayland",
             Request::OpenServices { .. } => "open_services",
         }
+    }
+
+    /// #EDE-172: a hello may wait longer than a call (the compositor holds
+    /// it while the person answers a consent prompt); the calls after it
+    /// wait [`CALL_TIMEOUT`] again.
+    #[cfg(unix)]
+    #[test]
+    fn a_hello_may_wait_for_the_person() {
+        let late_hello = |delay: std::time::Duration| {
+            let (ours, mut theirs) = UnixStream::pair().unwrap();
+            std::thread::spawn(move || {
+                let Ok(frame) = read_frame(&mut theirs) else { return };
+                let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+                std::thread::sleep(delay);
+                let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![], unknown_capabilities: vec![] };
+                let _ = write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: call["id"].as_u64().unwrap(), result: serde_json::to_value(hello).unwrap() }).unwrap());
+                let _ = read_frame(&mut theirs);
+            });
+            ours
+        };
+        let token = || Token::new("0".repeat(64)).unwrap();
+        let ms = std::time::Duration::from_millis;
+        assert!(Client::over_waiting(late_hello(ms(400)), token(), ms(100)).is_err(), "a hello past its wait fails");
+        let client = Client::over_waiting(late_hello(ms(400)), token(), ms(3000)).expect("a hello within its wait");
+        assert_eq!(client.call_timeout, CALL_TIMEOUT, "the calls after it wait as usual");
     }
 
     /// A peer that answers hello and then nothing, and never reads again.
