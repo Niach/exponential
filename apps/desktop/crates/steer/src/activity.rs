@@ -234,37 +234,105 @@ impl Default for AgentTitleForwarder {
     }
 }
 
+/// EXP-2060: the diff cadence of an IDLE run (no turn, no background task):
+/// its worktree changes only through a person then. A busy run keeps
+/// [`DIFF_INTERVAL`], and a turn's end is diffed at once ([`DiffPace`]).
+/// With 25 sessions the 3 s ticks of runs waiting for input were most of the
+/// app's git spawns.
+pub const DIFF_IDLE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// EXP-2060: how many worktree diffs run at once in this process. Every
+/// session's ticker used to start its own git the second it was due; a run
+/// that finds every slot taken asks again on its next tick.
+pub const DIFF_CONCURRENCY: usize = 2;
+
+/// What the run is doing, for [`DiffSnapshots`]' pacing (EXP-2060).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiffPace {
+    /// A turn or a background task is running.
+    pub busy: bool,
+    /// Turns started so far: a turn that opened and closed between two
+    /// ticks still ended one.
+    pub turns: u64,
+}
+
+/// The process-wide diff slots ([`DIFF_CONCURRENCY`]).
+pub struct DiffSlots {
+    running: std::sync::atomic::AtomicUsize,
+    max: usize,
+}
+
+static DIFF_SLOTS: DiffSlots = DiffSlots::new(DIFF_CONCURRENCY);
+
+impl DiffSlots {
+    pub const fn new(max: usize) -> Self {
+        Self { running: std::sync::atomic::AtomicUsize::new(0), max }
+    }
+
+    fn take(&'static self) -> Option<DiffSlot> {
+        self.running
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |running| (running < self.max).then_some(running + 1))
+            .ok()
+            .map(|_| DiffSlot(self))
+    }
+}
+
+/// One taken [`DiffSlots`] slot, given back on drop (a panicking git read
+/// included).
+struct DiffSlot(&'static DiffSlots);
+
+impl Drop for DiffSlot {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// The debounced changed-only worktree diff snapshot — step 8 of every
 /// emitter, extracted verbatim so the codex emitter shares it (EXP-383).
 pub struct DiffSnapshots {
     last: String,
     last_at: Option<Instant>,
+    /// The pace the last check ran under (EXP-2060).
+    last_pace: Option<DiffPace>,
+    slots: &'static DiffSlots,
 }
 
 impl DiffSnapshots {
     pub fn new() -> Self {
+        Self::with_slots(&DIFF_SLOTS)
+    }
+
+    /// [`Self::new`] on its own slots (tests).
+    pub fn with_slots(slots: &'static DiffSlots) -> Self {
         Self {
             last: String::new(),
             last_at: None,
+            last_pace: None,
+            slots,
         }
     }
 
     /// EXP-746: the whole rule WITHOUT a sink — the ACP engine drives its own
     /// loop and routes the event to the publisher AND to the local feed, so
     /// it cannot hand a bare [`ActivitySender`] over. `None` means "nothing
-    /// to publish this tick" (not due, git failed, or the diff is unchanged).
-    /// [`Self::tick`] is this plus the send.
+    /// to publish this tick" (not due, no free slot, git failed, or the diff
+    /// is unchanged). [`Self::tick`] is this plus the send.
     pub fn next_diff(
         &mut self,
         worktree: &Path,
         base_ref: Option<&str>,
         redactor: &Redactor,
+        pace: DiffPace,
     ) -> Option<ActivityEvent> {
-        let due = self.last_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
-        if !due {
+        let now = Instant::now();
+        if !self.due(now, pace) {
             return None;
         }
-        self.last_at = Some(Instant::now());
+        // Every slot taken: not now, and nothing recorded, so the next tick
+        // is still due (a turn's end included).
+        let _slot = self.slots.take()?;
+        self.last_at = Some(now);
+        self.last_pace = Some(pace);
         // A git failure (index lock, rebase in flight) is not an empty diff:
         // keep the last answer and try again next tick.
         let diff = worktree_diff(worktree, base_ref)?;
@@ -280,14 +348,29 @@ impl DiffSnapshots {
             .then(|| ActivityEvent::diff(truncate(&redactor.redact(&diff), DIFF_MAX)))
     }
 
+    /// EXP-2060: the first check, a busy run every [`DIFF_INTERVAL`], an
+    /// idle one every [`DIFF_IDLE_INTERVAL`], and at once when a turn ended
+    /// since the last check (its edge, or a whole turn between two checks).
+    fn due(&self, now: Instant, pace: DiffPace) -> bool {
+        let (Some(at), Some(last)) = (self.last_at, self.last_pace) else {
+            return true;
+        };
+        if !pace.busy && (last.busy || last.turns != pace.turns) {
+            return true;
+        }
+        let every = if pace.busy { DIFF_INTERVAL } else { DIFF_IDLE_INTERVAL };
+        now.saturating_duration_since(at) >= every
+    }
+
     pub fn tick(
         &mut self,
         worktree: &Path,
         base_ref: Option<&str>,
         sender: &ActivitySender,
         redactor: &Redactor,
+        pace: DiffPace,
     ) {
-        if let Some(event) = self.next_diff(worktree, base_ref, redactor) {
+        if let Some(event) = self.next_diff(worktree, base_ref, redactor, pace) {
             sender.send(event);
         }
     }
@@ -731,26 +814,27 @@ mod tests {
     /// Mirrors the sink-driven test above answer for answer.
     #[test]
     fn next_diff_returns_what_tick_would_have_published() {
+        static SLOTS: DiffSlots = DiffSlots::new(DIFF_CONCURRENCY);
         let repo = DiffRepo::new("diff-next");
         let redactor = Redactor::new(Vec::new());
-        let mut diffs = DiffSnapshots::new();
+        let mut diffs = DiffSnapshots::with_slots(&SLOTS);
 
         repo.write("base.txt", "a\nwip\n");
-        match diffs.next_diff(&repo.0, None, &redactor) {
+        match diffs.next_diff(&repo.0, None, &redactor, BUSY) {
             Some(ActivityEvent::Diff { diff, .. }) => assert!(diff.contains("wip"), "{diff}"),
             other => panic!("expected a diff event, got {other:?}"),
         }
 
         // The same 3s debounce, and it lives in `next_diff`, not in `tick`.
         assert!(
-            diffs.next_diff(&repo.0, None, &redactor).is_none(),
+            diffs.next_diff(&repo.0, None, &redactor, BUSY).is_none(),
             "the 3s debounce still holds"
         );
 
         // EXP-688: the clear is an explicit empty event, not silence.
         repo.commit("committed");
         diffs.last_at = None;
-        match diffs.next_diff(&repo.0, None, &redactor) {
+        match diffs.next_diff(&repo.0, None, &redactor, BUSY) {
             Some(ActivityEvent::Diff { diff, .. }) => {
                 assert_eq!(diff, "", "an empty event clears the viewer")
             }
@@ -759,9 +843,75 @@ mod tests {
 
         diffs.last_at = None;
         assert!(
-            diffs.next_diff(&repo.0, None, &redactor).is_none(),
+            diffs.next_diff(&repo.0, None, &redactor, BUSY).is_none(),
             "an unchanged empty diff is silent"
         );
+    }
+
+    const BUSY: DiffPace = DiffPace { busy: true, turns: 1 };
+    const IDLE: DiffPace = DiffPace { busy: false, turns: 1 };
+
+    /// A snapshot whose last check ran at `at` under `pace`.
+    fn checked(at: Instant, pace: DiffPace) -> DiffSnapshots {
+        static SLOTS: DiffSlots = DiffSlots::new(DIFF_CONCURRENCY);
+        let mut diffs = DiffSnapshots::with_slots(&SLOTS);
+        diffs.last_at = Some(at);
+        diffs.last_pace = Some(pace);
+        diffs
+    }
+
+    /// EXP-2060: a run waiting for input is diffed every 30 s, not every 3 s.
+    #[test]
+    fn an_idle_run_is_diffed_at_the_idle_cadence() {
+        let at = Instant::now();
+        let diffs = checked(at, IDLE);
+        assert!(!diffs.due(at + DIFF_INTERVAL, IDLE));
+        assert!(!diffs.due(at + DIFF_IDLE_INTERVAL - Duration::from_millis(1), IDLE));
+        assert!(diffs.due(at + DIFF_IDLE_INTERVAL, IDLE));
+        assert!(DiffSnapshots::new().due(at, IDLE), "the first check runs at once");
+    }
+
+    /// A busy run keeps the 3 s cadence, also right after its turn started.
+    #[test]
+    fn a_busy_run_is_diffed_every_diff_interval() {
+        let at = Instant::now();
+        let diffs = checked(at, BUSY);
+        assert!(!diffs.due(at + DIFF_INTERVAL - Duration::from_millis(1), BUSY));
+        assert!(diffs.due(at + DIFF_INTERVAL, BUSY));
+        let started = checked(at, IDLE);
+        assert!(!started.due(at + Duration::from_secs(1), DiffPace { busy: true, turns: 2 }));
+        assert!(started.due(at + DIFF_INTERVAL, DiffPace { busy: true, turns: 2 }));
+    }
+
+    /// A turn's end shows its last edits at once: the busy→idle edge, and a
+    /// whole turn that opened and closed between two checks.
+    #[test]
+    fn a_turns_end_is_diffed_at_once() {
+        let at = Instant::now();
+        let soon = at + Duration::from_millis(10);
+        assert!(checked(at, BUSY).due(soon, IDLE), "the busy→idle edge");
+        assert!(checked(at, IDLE).due(soon, DiffPace { busy: false, turns: 2 }), "a turn between two checks");
+        assert!(!checked(at, IDLE).due(soon, IDLE), "nothing happened");
+    }
+
+    /// At most [`DIFF_CONCURRENCY`] diffs at once; a run without a slot
+    /// records nothing, so it is still due on its next tick.
+    #[test]
+    fn diffs_beyond_the_slots_wait_for_the_next_tick() {
+        static TWO: DiffSlots = DiffSlots::new(2);
+        let first = TWO.take().expect("a slot");
+        let second = TWO.take().expect("a second slot");
+        assert!(TWO.take().is_none(), "two at once");
+        drop(first);
+        let third = TWO.take().expect("a slot freed");
+        drop((second, third));
+
+        static NONE: DiffSlots = DiffSlots::new(0);
+        let mut diffs = DiffSnapshots::with_slots(&NONE);
+        let redactor = Redactor::new(Vec::new());
+        let missing = std::env::temp_dir().join("exp-2060-no-worktree");
+        assert!(diffs.next_diff(&missing, None, &redactor, IDLE).is_none());
+        assert!(diffs.last_at.is_none() && diffs.due(Instant::now(), IDLE), "still due");
     }
 
     /// EXP-746: the publisher→engine seam is a plain queue — submit, drain,

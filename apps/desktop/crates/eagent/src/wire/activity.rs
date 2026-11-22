@@ -349,8 +349,16 @@ pub fn synthetic_question_id(
 /// `None` = git itself failed (an index lock mid-commit, a rebase in flight,
 /// a vanished worktree): the caller keeps its last answer rather than
 /// publishing an authoritative empty diff off a transient error.
+///
+/// EXP-2060: ONE git per tick, not two: `git diff --merge-base <base>`
+/// (git 2.30+) is `git diff $(git merge-base <base> HEAD)` by definition.
+/// It fails where the two-step form decides (an unknown base, several merge
+/// bases, an older git), so that form runs after it, as before.
 pub fn worktree_diff(worktree: &Path, base_ref: Option<&str>) -> Option<String> {
     if let Some(base) = base_ref.map(str::trim).filter(|base| !base.is_empty()) {
+        if let Some(diff) = git_out_bounded(worktree, &["diff", "--merge-base", base, "--"], DIFF_READ_MAX) {
+            return Some(diff);
+        }
         if let Some(merge_base) = git_merge_base(worktree, base) {
             return git_out_bounded(worktree, &["diff", &merge_base], DIFF_READ_MAX);
         }
@@ -1080,6 +1088,27 @@ mod tests {
         // An unknown base is a fallback, never an error.
         assert!(worktree_diff(&repo.0, Some("origin/nope")).unwrap_or_default().is_empty());
         assert!(worktree_diff(&repo.0, Some("   ")).unwrap_or_default().is_empty());
+    }
+
+    /// EXP-2060: the ticker's diff is a `posix_spawn`, never a fork of the
+    /// app; with a base it is one git, and it matches the two-step form.
+    #[cfg(unix)]
+    #[test]
+    fn worktree_diff_spawns_without_forking_the_host() {
+        let _lock = crate::process::signals_lock();
+        crate::process::catch_ignored_signals();
+        let repo = DiffRepo::new("diff-no-fork");
+        repo.write("base.txt", "a\nlanded\n");
+        repo.commit("the agent committed");
+        repo.write("base.txt", "a\nlanded\nand more\n");
+        let before = crate::process::forks_on_this_thread();
+        let one_git = worktree_diff(&repo.0, Some("main")).expect("git answers");
+        let uncommitted = worktree_diff(&repo.0, None).expect("git answers");
+        assert_eq!(crate::process::forks_on_this_thread(), before, "a diff forked the host");
+        let merge_base = git_merge_base(&repo.0, "main").expect("a merge base");
+        assert_eq!(Some(one_git.clone()), git_out_bounded(&repo.0, &["diff", &merge_base], DIFF_READ_MAX));
+        assert!(one_git.contains("+landed") && one_git.contains("+and more"));
+        assert!(uncommitted.contains("+and more") && !uncommitted.contains("+landed"));
     }
 
     /// The diff ticker never holds more than [`DIFF_READ_MAX`] bytes of a
