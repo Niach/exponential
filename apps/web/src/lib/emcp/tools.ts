@@ -194,6 +194,7 @@ import {
   buildQuestionCard,
   buildSealedShowCard,
   buildSurfaceCard,
+  picturesOnlySurface,
   postSealedSuggestionCard,
   postShowCard,
   sealedCardEnvelope,
@@ -519,16 +520,6 @@ export function showSurfaceLinkProblem(surface: { root: Record<string, unknown> 
 /** #VAPP-292: what `exponential_show` refuses outside a session (it draws a
  *  surface inline; a question, plan or pictures need a session's chat). */
 export const SHOW_INLINE_ONLY_ERROR = `Outside an Exponential session exponential_show draws a surface inline (no ask, plan or pictures): ask with Buttons whose press is a reply event, e.g. on:{press:{event:{name:"reply",context:{text:"Yes"}}}}.`
-
-/** F38: `exponential_show {pictures}` with no surface: a Stack holding the
- *  title (else the picture labels) above the pictures; never a Card, the
- *  chat already draws one around every surface (#EXP-1447). */
-export function picturesOnlySurface(title: string | undefined, pictures: readonly { label: string }[]) {
-  const text = title?.trim() || pictures.map((picture) => picture.label).join(`, `)
-  return {
-    root: { id: `s`, component: `Stack`, children: [{ id: `h`, component: `Heading`, props: { text } }] },
-  }
-}
 
 // FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
 // plan mode (and any "ask before side effects" posture) raises a permission
@@ -3027,7 +3018,7 @@ export function registerExponentialTools(
           if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
           if (!ask && !plan && !surface && !pictures?.length) throw new Error(`Pass surface, ask, plan or pictures.`)
           // F38: pictures alone (a result's screenshots) = a surface
-          // card whose surface is a Stack holding the title.
+          // card whose surface is the title over the pictures as they land.
           const shown = surface ?? picturesOnlySurface(title, pictures ?? [])
           const card = plan
             ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
