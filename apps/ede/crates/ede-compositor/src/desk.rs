@@ -62,8 +62,9 @@ pub fn desk_of_client(client: &Client) -> Option<DeskId> {
 }
 
 /// The filter of every global that is the person's alone: their seat and
-/// outputs, the layer shell, the session lock, input methods, the virtual
-/// keyboard, decorations, and GPU buffers.
+/// outputs, the layer shell, the session lock, decorations, and GPU
+/// buffers. The input-method and virtual keyboard managers are the
+/// person's input methods' alone (#EDE-172, [`crate::InputMethods`]).
 pub fn on_person(client: &Client) -> bool {
     desk_of_client(client) == Some(DeskId::PERSON)
 }

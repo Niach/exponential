@@ -227,6 +227,19 @@ impl Harness {
         ours
     }
 
+    /// #EDE-172 (P3): a new in-process client connection of the person
+    /// taken for an installed input method: it sees the virtual keyboard
+    /// and input-method managers (a real one is known by its file,
+    /// [`crate::InputMethods`]).
+    pub fn connect_input_method(&self) -> UnixStream {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        self.with(move |state| {
+            let client = ClientState { input_method: true, ..Default::default() };
+            state.display_handle.insert_client(theirs, Arc::new(client)).expect("insert client");
+        });
+        ours
+    }
+
     /// An `ede-protocol` connection with the root grant (every capability).
     pub fn ipc(&self) -> ede_protocol::Client {
         let (ours, theirs) = UnixStream::pair().expect("socketpair");

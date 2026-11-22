@@ -1,6 +1,7 @@
 //! #EDE-125 headless: the person's seat, outputs and shell globals are
 //! announced to the person's clients only, and a global of another desk to
-//! none of them.
+//! none of them. #EDE-172 (P3): the virtual keyboard and input-method
+//! managers to the person's input methods alone.
 
 mod common;
 
@@ -12,16 +13,17 @@ use ede_compositor::{
 use smithay::output::{Output, PhysicalProperties, Subpixel};
 
 /// What only a client of the person's desk is told about.
-const PERSONS: [&str; 8] = [
+const PERSONS: [&str; 6] = [
     "wl_seat",
     "wl_output",
     "zwlr_layer_shell_v1",
     "exponential_popup_namespace_v1",
     "zxdg_decoration_manager_v1",
     "ext_session_lock_manager_v1",
-    "zwp_input_method_manager_v2",
-    "zwp_virtual_keyboard_manager_v1",
 ];
+
+/// What only an input method of the person's desk is told about (#EDE-172).
+const INPUT_METHODS: [&str; 2] = ["zwp_input_method_manager_v2", "zwp_virtual_keyboard_manager_v1"];
 
 fn harness() -> Harness {
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
@@ -39,9 +41,16 @@ fn a_client_of_another_desk_sees_no_global_of_the_person() {
     for global in PERSONS {
         assert_eq!(count(&person, global), 1, "the person's client sees {global}");
     }
+    for global in INPUT_METHODS {
+        assert_eq!(count(&person, global), 0, "the person's client is no input method: no {global}");
+    }
+    let input_method = Session::connect(h.connect_input_method());
+    for global in PERSONS.iter().chain(&INPUT_METHODS) {
+        assert_eq!(count(&input_method, global), 1, "the person's input method sees {global}");
+    }
 
     let foreign = Session::connect(h.connect_foreign());
-    for global in PERSONS {
+    for global in PERSONS.iter().chain(&INPUT_METHODS) {
         assert_eq!(count(&foreign, global), 0, "a client of another desk sees no {global}");
     }
     // Everything else is announced to both, in the same order.

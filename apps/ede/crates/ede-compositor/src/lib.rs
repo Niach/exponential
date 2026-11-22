@@ -48,4 +48,6 @@ pub mod workspaces;
 pub mod xauth;
 
 pub use config::Config;
+/// #EDE-172 (P3): who sees the virtual keyboard and input-method managers.
+pub use handlers::input_method::InputMethods;
 pub use state::Ede;

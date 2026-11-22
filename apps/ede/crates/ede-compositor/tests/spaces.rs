@@ -13,8 +13,9 @@ use ede_compositor::{backend::headless::Harness, desk::DeskId, Config};
 use ede_protocol::{Capability, CaptureTarget, Error, ErrorCode, InputEvent, Request, SessionId, SpaceId};
 use smithay::backend::input::{ButtonState, KeyState};
 
-/// Every global a client of the person's desk is told about, in order.
-const PERSONS_GLOBALS: [&str; 20] = [
+/// Every global a client of the person's desk is told about, in order (an
+/// input method also sees its two managers, #EDE-172, `tests/filter.rs`).
+const PERSONS_GLOBALS: [&str; 18] = [
     "wl_compositor",
     "wl_subcompositor",
     "xdg_wm_base",
@@ -27,9 +28,7 @@ const PERSONS_GLOBALS: [&str; 20] = [
     "ext_idle_notifier_v1",
     "ext_session_lock_manager_v1",
     "zwp_idle_inhibit_manager_v1",
-    "zwp_input_method_manager_v2",
     "zwp_text_input_manager_v3",
-    "zwp_virtual_keyboard_manager_v1",
     "wp_fractional_scale_manager_v1",
     "wp_viewporter",
     "zxdg_decoration_manager_v1",
