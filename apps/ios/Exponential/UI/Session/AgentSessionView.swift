@@ -697,6 +697,9 @@ struct AgentSessionView: View {
     private enum NoFeedPlaceholder {
         case history(String)
         case deviceAway
+        /// #EXP-2000 (steer-enet.json NEVER HELD): no device picked the row up
+        /// yet: nothing to say.
+        case waiting
         case queued
         case idle
         case loading
@@ -712,6 +715,17 @@ struct AgentSessionView: View {
                deviceOffline: model.hostDevice.offline
            ) == .away {
             return .deviceAway
+        }
+        // #EXP-2000 (steer-enet.json NEVER HELD): a row no device picked up
+        // yet (`startedAt` null) says nothing, never "No live transcript":
+        // only its sent inputs and own tail draw.
+        if model.phase != .live,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy,
+               deviceOffline: model.hostDevice.offline,
+               started: (model.session ?? session).startedAt != nil
+           ) == .waiting {
+            return .waiting
         }
         // Android 0.14.134 (steer-enet.json SENT INPUTS): a QUEUED row (sent,
         // its device not on it yet) reads "Starting on {device}", never the
@@ -752,6 +766,8 @@ struct AgentSessionView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
+                            // #EXP-2000: nothing to say; the own bubbles sit at the bottom.
+                            if case .waiting = placeholder { Spacer(minLength: 0) }
                             if !inputs.isEmpty {
                                 VStack(alignment: .trailing, spacing: 0) {
                                     ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
@@ -787,7 +803,9 @@ struct AgentSessionView: View {
                                     .padding(.top, 8)
                                     .transcriptColumn()
                             }
-                            noFeedPlaceholderView(placeholder, model: model)
+                            if case .waiting = placeholder {} else {
+                                noFeedPlaceholderView(placeholder, model: model)
+                            }
                             VStack(alignment: .leading, spacing: 0) {
                                 inlineToolCards(waitingIds, model: model)
                             }
@@ -1275,6 +1293,17 @@ struct AgentSessionView: View {
                     guard new > old else { return }
                     atBottom = true
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    // #EXP-1976: from a reader scrolled up, the jump lands on
+                    // ESTIMATED heights of tall lazy rows (and the window
+                    // slides back to the newest rows), leaving the offset past
+                    // the content: an empty transcript until the next drag.
+                    // Pin again once those rows have laid out.
+                    for delay in [0.05, DesignTokens.Motion.Duration.standard + 0.2] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            guard atBottom else { return }
+                            proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                        }
+                    }
                 }
                 // Switching conversation tabs re-pins to the newest event
                 // (EXP-356).
@@ -1583,6 +1612,10 @@ struct AgentSessionView: View {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         var extraSessions: [TranscriptGrouping.KnownSession] = []
+        // #EXP-2049 (find-in-chat.json AFTER AN OLDER LANDING): the origin is
+        // the FEED's first prompt; a synced-tail row (a paged-in older one
+        // too) draws by the synced rule (the viewer's own = the own bubble).
+        var firstInputSynced: Bool?
         for entry in entries {
             let id = "row:\(entry.id)"
             var item = TranscriptGrouping.Item(id: id, kind: .full)
@@ -1595,13 +1628,14 @@ struct AgentSessionView: View {
                 switch feedItem {
                 case .narration:
                     item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
-                case let .userMessage(_, text, _, _):
+                case let .userMessage(rowId, text, _, _):
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
                     }
                     if case .marker = TranscriptGrouping.feedInput(text) { break }
                     // #EXP-1943: a call's report relay = its card, a full row.
                     if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
+                    if firstInputSynced == nil { firstInputSynced = model.findMessageId(rowId) != nil }
                     if let input = TranscriptGrouping.crossSessionInput(text) {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
@@ -1633,7 +1667,7 @@ struct AgentSessionView: View {
         let viewed = model.session ?? session
         let input = transcriptRows?.transcriptInput(
             items: items, viewerId: viewerId, chat: viewed, originSessionId: originSessionId,
-            fromStart: model.transcriptFromStart, extraSessions: extraSessions
+            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions
         ) ?? TranscriptGrouping.Input(
             viewerId: viewerId,
             chat: TranscriptGrouping.Chat(
