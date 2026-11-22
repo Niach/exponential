@@ -1717,8 +1717,15 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
             size.height = Some(view.height);
         }
     }
-    taskbar_popup_room(&mut header, out.1);
+    taskbar_popup_room(&mut header, popup_output_height(shell));
     header
+}
+
+/// #EDE-168: the height a taskbar popup measures its room on: the
+/// compositor's first output (the goldens' demo feeds sample outputs to the
+/// Displays page, never the headless output the shell stands on).
+fn popup_output_height(shell: &Shell) -> u32 {
+    shell.first_output.map(|o| o.3).filter(|h| *h > 0).map(|h| h as u32).unwrap_or_else(|| output_size(shell).1)
 }
 
 /// #EDE-168: a taskbar popup never reaches past the output's work area: it
@@ -4297,6 +4304,10 @@ fn main() {
         if !demo {
             // The outputs first: a stretched surface takes the output's size.
             outputs_refresh(&shell);
+        } else {
+            // #EDE-168: the output the taskbar's popups measure their room on.
+            let outputs = with_ede(&shell, |ede| ede.outputs()).unwrap_or_default();
+            shell.borrow_mut().first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
         }
         // #EXP-2024: the spaces' feeds at the first display's size.
         spaces_feed(&shell);
