@@ -156,6 +156,19 @@ fn layers(h: &Harness) -> usize {
     h.with(|ede| ede.desk.space.outputs().map(|o| smithay::desktop::layer_map_for_output(o).layers().count()).sum())
 }
 
+/// `child`'s stderr lines so far (each still printed).
+fn log_of(child: &mut Child) -> Arc<Mutex<Vec<String>>> {
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (stderr, out) = (child.stderr.take().expect("a piped stderr"), lines.clone());
+    std::thread::spawn(move || {
+        for line in std::io::BufRead::lines(std::io::BufReader::new(stderr)).map_while(Result::ok) {
+            eprintln!("{line}");
+            out.lock().unwrap().push(line);
+        }
+    });
+    lines
+}
+
 /// #EDE-127: polkitd finds the authentication agent by the login session,
 /// and an agent space's processes are in the person's session. So the real
 /// agent hears a request whose subject is a process launched into a space:
@@ -166,8 +179,10 @@ fn layers(h: &Harness) -> usize {
 /// person's session (and, while the space's launches run outside systemd
 /// scopes, every process) gets the prompt without the keyboard until a
 /// click; with no space (before the first, after the last closed) the same
-/// request takes the keyboard as before. With `EDE_PICTURES=<dir>` the
-/// states are pictured.
+/// request takes the keyboard as before. #EDE-184: the agent brings its
+/// renderer up at its start, before polkitd asks anything, and leaves
+/// nothing on the person's desk. With `EDE_PICTURES=<dir>` the states are
+/// pictured.
 #[test]
 #[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed, and dbus-daemon"]
 fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps() {
@@ -205,10 +220,18 @@ fn the_polkit_agent_refuses_a_request_from_an_agent_space_before_anything_maps()
         .unwrap()
         .build()
         .unwrap();
-    let agent = Command::new(&bin).arg("polkit").env("DBUS_SYSTEM_BUS_ADDRESS", &address).env("XDG_SESSION_ID", "ede127").env("WAYLAND_DISPLAY", &display).env("XDG_RUNTIME_DIR", &runtime).spawn().unwrap();
+    let mut agent = Command::new(&bin).arg("polkit").env("DBUS_SYSTEM_BUS_ADDRESS", &address).env("XDG_SESSION_ID", "ede127").env("WAYLAND_DISPLAY", &display).env("XDG_RUNTIME_DIR", &runtime).stderr(Stdio::piped()).spawn().unwrap();
+    let log = log_of(&mut agent);
     let _agent = Kill(agent);
     wait("the agent never registered with polkitd", || authority.agent.lock().unwrap().is_some());
     let registered = authority.agent.lock().unwrap().clone().unwrap();
+    // #EDE-184: wgpu's device (gpui's line) and the whole warm-up came
+    // before any request; its window never stayed.
+    wait("the agent never brought its renderer up before a request", || {
+        let log = log.lock().unwrap();
+        log.iter().any(|l| l.contains("Selected GPU adapter")) && log.iter().any(|l| l.contains("the renderer is up"))
+    });
+    wait("the agent's warm-up left a surface on the person's desk", || layers(&h) == 0);
 
     // 0. #EDE-143: no agent space yet. A process outside the person's
     // session (here: the session seen from another cgroup, as a terminal's
