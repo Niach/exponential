@@ -446,6 +446,16 @@ impl InstallNode {
         self.inner.wake.notify_one();
     }
 
+    /// #EXP-1983: this device's `devices` row was just written (the control
+    /// channel's `devices.register` landed). A first sign-in's install was
+    /// refused `Unknown device` before it existed: it registers now instead
+    /// of after [`REGISTER_RETRY`]. A registered install is left alone.
+    pub fn device_registered(&self) {
+        if self.install_id().is_none() {
+            self.inner.wake.notify_one();
+        }
+    }
+
     /// The node, once it is up.
     pub fn node(&self) -> Option<Arc<Node>> {
         lock(&self.inner.node).clone()
