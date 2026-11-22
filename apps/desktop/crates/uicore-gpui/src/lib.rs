@@ -615,13 +615,13 @@ impl Surfaces {
     }
 
     /// #EDE-168: an open popup document's window at its root's laid-out
-    /// height, so a root that hugs its content stands on its anchor with no
+    /// height (at most `max`), so a root that hugs its content stands on its anchor with no
     /// empty height (an `xdg_popup` reposition keeps the anchor). `true`
     /// when it was resized.
-    pub fn fit_popup(&mut self, name: &str, cx: &mut App) -> bool {
+    pub fn fit_popup(&mut self, name: &str, max: f32, cx: &mut App) -> bool {
         let Some(region) = self.open.get(name).cloned() else { return false };
         let Some(h) = root_height(region.view.read(cx)) else { return false };
-        let target = px(h.ceil());
+        let target = px(h.min(max).ceil());
         region
             .handle
             .update(cx, |_, window, _| {

@@ -348,6 +348,8 @@ struct Shell {
     /// #EDE-89: when each popup document last opened (epoch ms, the clock of
     /// the compositor's event stamps).
     popups_opened: HashMap<String, i64>,
+    /// #EDE-168: the height each open taskbar popup was drawn to fit in.
+    popup_rooms: HashMap<String, u32>,
     /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
     switcher_generation: u64,
     notifications: Notifications,
@@ -1736,21 +1738,35 @@ fn taskbar_popup_room(header: &mut SurfaceHeader, out_h: u32) {
     popup.size.height = popup.size.height.min(room);
 }
 
-/// #EDE-168: the open taskbar popups' windows at their roots' laid-out
-/// heights (every tick: a popup's rows arrive after it opened).
+/// #EDE-168: the open taskbar popups (every tick): drawn again when the
+/// output's room for them changed (an output that arrived or changed after
+/// the popup opened), their windows at their roots' laid-out heights (a
+/// popup's rows arrive after it opened).
 fn fit_popups(shell: &SharedShell, cx: &mut App) {
-    let names: Vec<String> = {
+    let open: Vec<Document> = {
         let s = shell.borrow();
         let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
         ui.documents()
             .filter(|d| matches!(&d.surface, SurfaceHeader::Popup { popup, .. } if popup.parent == "taskbar"))
-            .map(|d| d.name.clone())
-            .filter(|n| s.surfaces.is_open(n))
+            .filter(|d| s.surfaces.is_open(&d.name))
+            .cloned()
             .collect()
     };
-    for name in names {
-        if shell.borrow_mut().surfaces.fit_popup(&name, cx) {
-            tracing::info!(document = %name, "popup fitted");
+    shell.borrow_mut().popup_rooms.retain(|n, _| open.iter().any(|d| &d.name == n));
+    for doc in open {
+        let SurfaceHeader::Popup { popup, .. } = header_for(&shell.borrow(), &doc) else { continue };
+        let room = popup.size.height;
+        let before = shell.borrow_mut().popup_rooms.insert(doc.name.clone(), room);
+        if before.is_some_and(|b| b != room) {
+            let (drawn, feed) = {
+                let s = shell.borrow();
+                (drawn_now(&s, &doc), s.feed.clone())
+            };
+            shell.borrow_mut().surfaces.redraw(&drawn, &feed, cx);
+            tracing::info!(document = %doc.name, room, "popup room changed");
+        }
+        if shell.borrow_mut().surfaces.fit_popup(&doc.name, room as f32, cx) {
+            tracing::info!(document = %doc.name, "popup fitted");
         }
     }
 }
@@ -1874,6 +1890,9 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
     let Some(doc) = document(&shell.borrow(), name) else { return };
     // #EDE-168: at the room the output has for it.
     let doc = drawn_now(&shell.borrow(), &doc);
+    if let SurfaceHeader::Popup { popup, .. } = &doc.surface {
+        shell.borrow_mut().popup_rooms.insert(name.to_string(), popup.size.height);
+    }
     let feed = shell.borrow().feed.clone();
     shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
@@ -4195,6 +4214,7 @@ fn main() {
             layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
+            popup_rooms: HashMap::new(),
             switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
