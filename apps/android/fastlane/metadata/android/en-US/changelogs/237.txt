@@ -1,0 +1,1 @@
+- Tapping a reply or suggestion card works in end-to-end encrypted chats

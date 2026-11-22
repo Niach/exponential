@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-22-phones-sealed-cards",
+    date: "2026-11-22",
+    title: "Reply and suggestion cards work in encrypted chats",
+    summary: "Android 0.14.154 and iOS 0.14.142: tapping a reply or suggestion card in an end-to-end encrypted chat sends it, as on the web and the desktop.",
+    body: r##"- **Cards in encrypted chats**: in a chat whose messages are end-to-end encrypted, tapping one of an agent's suggested replies or a suggestion card sends your pick, and the card shows it as answered."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_347: ChangelogEntry = ChangelogEntry {
     id: "2026-11-22-desktop-cli-0-14-173",
     date: "2026-11-22",
     title: "One sidebar for all teams, computer use in every Claude Code, card taps",

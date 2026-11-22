@@ -1,3 +1,4 @@
+- Tapping a reply or suggestion card works in end-to-end encrypted chats
 - The Work screen offers an agent space, or an agent space only, when your device has one
 - Calls from your phone follow the same rules as on the desktop; a late opening line no longer crashes the app
 - Find in chat reaches every message of the chat, older ones included
@@ -54,5 +55,3 @@
 - Deleted issues go to a trash and come back with Restore
 - Settings › Boards lists the deleted issues
 - Large chats open instantly from what was stored last time
-- The MCP picker shows each server's brand mark
-- Settings › MCP is one list of servers
