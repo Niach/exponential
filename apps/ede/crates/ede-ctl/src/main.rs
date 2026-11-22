@@ -20,8 +20,9 @@
 //!                                                       connection (#EDE-172 P7): one question to the person for all
 //! ```
 //!
-//! #EDE-172: in a real Exponential Desktop session (the gate, `[control]
-//! consent`, on unless the file says `false`), the
+//! #EDE-172: in a real Exponential Desktop session (the gate is on unless
+//! root's `/etc/exponential-desktop/control.toml` says `[control] consent =
+//! false`), the
 //! person is asked once per `exponential-ctl` process whether it may control
 //! the desktop: a script that runs many commands runs them through one
 //! `exponential-ctl session` and is asked once. A VM or a CI machine names

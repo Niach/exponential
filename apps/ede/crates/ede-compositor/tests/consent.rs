@@ -542,25 +542,43 @@ fn a_genuine_shell_started_by_hand_is_refused_once_the_compositor_starts_the_hel
 }
 
 /// A policy file that root does not own (here: the test's), group-writable
-/// or not, is ignored: no principal comes from it.
+/// or not, is ignored: no principal comes from it, and (P14) its `[control]
+/// consent = false` and `[session] helpers = "units"` do not weaken a real
+/// session; the same words from a file root's policy parses are followed.
 #[test]
 fn a_policy_file_not_owned_by_root_is_ignored() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("control.toml");
-    std::fs::write(&path, "[[allow]]\npath = \"/usr/bin/sleep\"\nprincipal = \"root\"\n").unwrap();
+    let text = "[control]\nconsent = false\n[session]\nhelpers = \"units\"\n[[allow]]\npath = \"/usr/bin/sleep\"\nprincipal = \"root\"\n";
+    std::fs::write(&path, text).unwrap();
     for mode in [0o644, 0o664] {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
         assert!(Policy::load(&path).is_err(), "mode {mode:o}");
         let mut gate = ede_compositor::consent::Gate::default();
         gate.policy_path = Some(path.clone());
         assert_eq!(gate.policy(), Policy::default());
+        let (real, _) = Config::default().for_a_real_session(&gate.policy());
+        assert_eq!((real.session.helpers(), real.control.consent()), (ede_compositor::config::Helpers::Compositor, true), "mode {mode:o}: the gate stays on");
     }
+    let (followed, _) = Config::default().for_a_real_session(&Policy::parse(text).unwrap());
+    assert_eq!((followed.session.helpers(), followed.control.consent()), (ede_compositor::config::Helpers::Units, false), "root's file is followed");
     assert_eq!(Policy::load(&dir.path().join("none.toml")).unwrap(), None);
 }
 
+/// A real session whose person's `compositor.toml` (any process of theirs
+/// can write it) says `consent = false` and `helpers = "units"` keeps the
+/// gate on and the helpers the compositor's (P14).
+#[test]
+fn the_persons_file_never_turns_the_gate_off() {
+    let persons = Config::parse("[control]\nconsent = false\n[session]\nhelpers = \"units\"\n").unwrap();
+    let (real, said) = persons.for_a_real_session(&Policy::default());
+    assert_eq!((real.session.helpers(), real.control.consent()), (ede_compositor::config::Helpers::Compositor, true));
+    assert_eq!(said.len(), 2, "{said:?}");
+}
+
 /// Off in a test's or a nested compositor (a real session's gate is on
-/// since eDE's flip, P14, unless its file says `consent = false`), the
-/// token works from anyone: no question.
+/// since eDE's flip, P14, unless root's policy file says `consent =
+/// false`), the token works from anyone: no question.
 #[test]
 fn the_gate_is_off_by_default() {
     let h = harness();

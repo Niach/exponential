@@ -10,7 +10,8 @@
 //!   [`Service::interval`], only while someone subscribes), over the
 //!   connections the compositor hands its intake (#EDE-172 P13, each with
 //!   the capabilities of the principal that asked) or, with `[session]
-//!   helpers = "units"` (as before eDE's flip, P14),
+//!   helpers = "units"` (as before eDE's flip, P14; in a real session only
+//!   from root's policy file),
 //!   `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`;
 //! - the **MCP face** ([`mcp`]): eMCP's loopback server with one tool per
 //!   action plus `<domain>_get`, grants per agent session with the

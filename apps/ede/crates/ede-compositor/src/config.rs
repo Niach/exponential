@@ -50,9 +50,10 @@ pub struct Session {
     /// of its own, with its channel at fd 3 and its Wayland connection from
     /// the compositor (`WAYLAND_SOCKET`), a pinned environment, and started
     /// again when it ends ([`crate::helpers`]); or `"units"`: their systemd
-    /// user units, as before eDE's flip. Unset = the compositor in a real
-    /// session (P14, [`Config::for_a_real_session`]), nobody in a test's or
-    /// a nested compositor ([`Session::helpers`]).
+    /// user units, as before eDE's flip. A real session always takes the
+    /// compositor unless root's policy file says `"units"` (P14: the
+    /// person's file may not, [`Config::for_a_real_session`]); a test's or a
+    /// nested compositor starts nobody unless asked ([`Session::helpers`]).
     pub helpers: Option<Helpers>,
 }
 
@@ -73,9 +74,11 @@ pub enum Helpers {
 
 /// `[control]` (#EDE-172): `consent`, the root token's gate
 /// ([`crate::consent`]): only eDE's own programs, the policy file's and
-/// what the person allowed may use the token. Unset = on in a real session
-/// (eDE's flip, P14: [`Config::for_a_real_session`]), off in a test's or a
-/// nested compositor unless the test asks (`--consent-answer`).
+/// what the person allowed may use the token. Always on in a real session
+/// unless root's policy file says `consent = false` (eDE's flip, P14: the
+/// person's file may turn it on, never off, [`Config::for_a_real_session`]);
+/// off in a test's or a nested compositor unless the test asks
+/// (`--consent-answer`).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Control {
@@ -322,15 +325,36 @@ impl Keyboard {
 }
 
 impl Config {
-    /// #EDE-172 (P14, eDE's flip): what a real session (the udev backend on
-    /// a real screen, safe mode too) takes for what its file leaves unset:
-    /// the compositor starts the session's helpers, and the root token's
-    /// gate is on. A file that says `helpers = "units"` or `consent =
-    /// false` is followed (the compositor warns).
-    pub fn for_a_real_session(mut self) -> Self {
-        self.session.helpers.get_or_insert(Helpers::Compositor);
-        self.control.consent.get_or_insert(true);
-        self
+    /// #EDE-172 (P14, eDE's flip): a real session (the udev backend on a
+    /// real screen, safe mode too) starts its helpers itself and gates the
+    /// root token. Only `root`, the root-owned policy file
+    /// ([`crate::consent::POLICY_PATH`]), may weaken that: its `[control]
+    /// consent = false` and `[session] helpers = "units"` are followed.
+    /// The person's own file (any process of theirs can write it) may turn
+    /// them on, never off: its `false` and `"units"` are not followed, and
+    /// say so in what this returns, the lines the compositor logs once.
+    pub fn for_a_real_session(mut self, root: &crate::consent::Policy) -> (Self, Vec<String>) {
+        let path = crate::consent::POLICY_PATH;
+        let mut said = Vec::new();
+        let person_helpers = self.session.helpers.take();
+        let person_consent = self.control.consent.take();
+        let helpers = if person_helpers == Some(Helpers::Compositor) { Helpers::Compositor } else { root.session.helpers.unwrap_or(Helpers::Compositor) };
+        let consent = person_consent == Some(true) || root.control.consent.unwrap_or(true);
+        if person_helpers == Some(Helpers::Units) && helpers != Helpers::Units {
+            said.push(format!("[session] helpers = \"units\" in the person's compositor.toml is not followed: only {path} (root's) gives the helpers back to the units (#EDE-172)"));
+        }
+        if person_consent == Some(false) && consent {
+            said.push(format!("[control] consent = false in the person's compositor.toml is not followed: only {path} (root's) turns the root token's gate off (#EDE-172)"));
+        }
+        if helpers == Helpers::Units {
+            said.push(format!("[session] helpers = \"units\" ({path}): the session's units start the shell, the polkit agent, the portal and the services daemon (#EDE-172)"));
+        }
+        if !consent {
+            said.push(format!("[control] consent = false ({path}): the root token works from any process of the person's (#EDE-172)"));
+        }
+        self.session.helpers = Some(helpers);
+        self.control.consent = Some(consent);
+        (self, said)
     }
 
     /// The system's keyboard ([`SYSTEM_KEYBOARD`]) for an empty `[keyboard]
@@ -486,19 +510,33 @@ mod tests {
     }
 
     /// #EDE-172 (P14, eDE's flip): in a real session the compositor starts
-    /// the session's programs and the root token's gate is on, unless the
-    /// file says otherwise; a test's or a nested compositor starts nothing
-    /// and gates nothing unless asked to.
+    /// the session's programs and the root token's gate is on. The person's
+    /// file saying off is not followed (and said once); the root-owned
+    /// policy file saying off is; the person's file may still turn them on
+    /// over it. A test's or a nested compositor starts nothing and gates
+    /// nothing unless asked to.
     #[test]
-    fn a_real_session_starts_its_helpers_and_gates_the_token() {
-        let real = Config::default().for_a_real_session();
-        assert_eq!((real.session.helpers(), real.control.consent()), (Helpers::Compositor, true));
+    fn a_real_session_takes_off_only_from_roots_file() {
+        use crate::consent::Policy;
+        let none = Policy::default();
+        let (real, said) = Config::default().for_a_real_session(&none);
+        assert_eq!((real.session.helpers(), real.control.consent(), said.len()), (Helpers::Compositor, true, 0));
         assert_eq!((Config::default().session.helpers(), Config::default().control.consent()), (Helpers::Units, false), "a test's or a nested compositor");
-        let units = Config::parse("[session]\nhelpers = \"units\"\n[control]\nconsent = false\n").unwrap().for_a_real_session();
-        assert_eq!((units.session.helpers(), units.control.consent()), (Helpers::Units, false), "the file's word stands");
-        let asked = Config::parse("[session]\nhelpers = \"compositor\"\n[control]\nconsent = true\n").unwrap();
-        assert_eq!((asked.session.helpers(), asked.control.consent()), (Helpers::Compositor, true));
+        let persons_off = Config::parse("[session]\nhelpers = \"units\"\n[control]\nconsent = false\n").unwrap();
+        let (kept, said) = persons_off.clone().for_a_real_session(&none);
+        assert_eq!((kept.session.helpers(), kept.control.consent()), (Helpers::Compositor, true), "the person's off is not followed");
+        assert!(said.len() == 2 && said.iter().all(|line| line.contains("is not followed")), "{said:?}");
+        let roots_off = Policy::parse("[control]\nconsent = false\n[session]\nhelpers = \"units\"\n").unwrap();
+        let (off, said) = Config::default().for_a_real_session(&roots_off);
+        assert_eq!((off.session.helpers(), off.control.consent()), (Helpers::Units, false), "root's off is followed");
+        assert!(said.len() == 2 && said.iter().all(|line| !line.contains("is not followed")), "{said:?}");
+        let (both, _) = persons_off.for_a_real_session(&roots_off);
+        assert_eq!((both.session.helpers(), both.control.consent()), (Helpers::Units, false));
+        let persons_on = Config::parse("[session]\nhelpers = \"compositor\"\n[control]\nconsent = true\n").unwrap();
+        let (on, said) = persons_on.for_a_real_session(&roots_off);
+        assert_eq!((on.session.helpers(), on.control.consent(), said.len()), (Helpers::Compositor, true, 0), "the person may turn them on over root's off");
         assert!(Config::parse("[session]\nhelpers = \"systemd\"\n").is_err());
+        assert!(Policy::parse("[control]\nconsent = \"no\"\n").is_err());
     }
 
     #[test]

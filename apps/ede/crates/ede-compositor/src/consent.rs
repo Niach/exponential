@@ -2,7 +2,9 @@
 //!
 //! eDE keeps writing the root token file: the released Exponential app and
 //! CLI read it and say `hello` with it, and they must keep working with no
-//! change. With the gate on (`[control] consent`, eDE's flip turns it on),
+//! change. With the gate on (always in a real session since eDE's flip,
+//! unless this module's root-owned policy file says `[control] consent =
+//! false`; the person's `compositor.toml` may turn it on, never off),
 //! the token is honoured by who presents it, read from the connection's
 //! peer ([`crate::peer`]):
 //!
@@ -167,6 +169,16 @@ pub enum Key {
 #[serde(default, deny_unknown_fields)]
 pub struct Policy {
     pub allow: Vec<Entry>,
+    /// P14: `[control] consent = false`, the root token's gate off in a
+    /// real session (a VM or CI machine that wants the old bearer token).
+    /// Only this root-owned file turns it off: the person's own
+    /// `compositor.toml` may turn it on, never off
+    /// ([`crate::Config::for_a_real_session`]).
+    pub control: crate::config::Control,
+    /// P14: `[session] helpers = "units"`, the session's units start the
+    /// helpers again (and `services.sock` comes back). As `[control]`: only
+    /// from here.
+    pub session: crate::config::Session,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

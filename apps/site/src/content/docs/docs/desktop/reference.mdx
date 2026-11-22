@@ -11,7 +11,7 @@ description: "For agents: the shell document format, the surface header, the dat
 | `~/.config/exponential-desktop/ui/theme.json` | The look, in the [genUI theme format](/docs/sdk/genui/guides/themes/); `extends` may name a built-in theme. |
 | `/usr/share/exponential-desktop/ui/` | The factory documents. |
 | `~/.config/exponential-desktop/compositor.toml` | Compositor settings: keyboard, windows, lock, idle, protected apps, outputs, theme bridge. A broken file is logged and ignored. |
-| `/etc/exponential-desktop/control.toml` | Programs that may use the desktop's control token without asking (`[[allow]]` with `path` and `principal = "root"` or `"computer-use"`). Root-owned and writable by root only, or it is ignored. |
+| `/etc/exponential-desktop/control.toml` | Programs that may use the desktop's control token without asking (`[[allow]]` with `path` and `principal = "root"` or `"computer-use"`). The only file that can switch the token check off (`[control] consent = false`) or give the shell and the other session programs back to their systemd units (`[session] helpers = "units"`); `compositor.toml` cannot. Root-owned and writable by root only, or it is ignored. |
 
 A document name is lowercase letters, digits, `-` and `_`.
 

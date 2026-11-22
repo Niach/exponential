@@ -313,7 +313,7 @@ off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
   never for computer use or a space), the compositor hands the daemon its
   end with those capabilities, and its `call` holds exactly them (the
   shell's root channel asks with all of them). With `helpers = "units"`
-  (as before eDE's flip), `exponential-services.service` serves
+  (as before eDE's flip; in a real session only from root's `control.toml`), `exponential-services.service` serves
   `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`: every capability
   to any process of the person.
 - **MCP face**: eMCP's loopback server (`exponential-services tools` lists them:
@@ -697,9 +697,10 @@ the person's on the backend's renderer.
 
 **Who may present the root token** (#EDE-172). Any process of the person
 can read the file, so in a real session the token is honoured by who
-presents it (`[control] consent`, on unless the file says `false`; a test's
-or a nested compositor gates nothing unless asked: `--consent-answer
-allow|deny`). The compositor reads the connection's peer when it comes in
+presents it (the gate is always on there unless root's policy file below
+says `[control] consent = false`; the person's own `compositor.toml` may
+turn it on, never off; a test's or a nested compositor gates nothing unless
+asked: `--consent-answer allow|deny`). The compositor reads the connection's peer when it comes in
 (its pidfd, its executable's `(st_dev, st_ino)`, its user namespace) and,
 at a `hello` with the root token:
 
@@ -728,7 +729,18 @@ shows it black. A `hello` with no token is anonymous: `list_outputs` and
 path = "/usr/bin/exponential-ctl"      # as /proc/<pid>/exe names it
 principal = "root"                     # or "computer-use"
 # sha256 = "…"                         # optional: only that content
+
+# What weakens a real session comes from this file only, never from the
+# person's compositor.toml (any process of theirs can write that one):
+# [control]
+# consent = false                      # the gate off: the token is a bearer again
+# [session]
+# helpers = "units"                    # the units start the helpers (services.sock comes back)
 ```
+
+A person's `compositor.toml` that says `consent = false` or `helpers =
+"units"` is not followed in a real session: the compositor logs it once at
+the start and keeps the gate on and the helpers its own.
 
 ```rust
 let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN), gated as above
@@ -1383,10 +1395,10 @@ icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size 
 send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
 
 [session]            # read at the compositor's start (#EDE-172)
-helpers = "compositor"   # unset = "compositor" in a real session: the compositor starts the shell (under exponential-ui supervise), the polkit agent, the portal and the services daemon itself; "units": their systemd user units, as before eDE's flip
+helpers = "compositor"   # a real session's own: the compositor starts the shell (under exponential-ui supervise), the polkit agent, the portal and the services daemon itself; "units" here is not followed (only root's control.toml, see ede-protocol)
 
 [control]            # read at the compositor's start (#EDE-172)
-consent = true       # unset = true in a real session: the root token's gate (see ede-protocol); false = any process of the person's may use the token
+consent = true       # a real session's own: the root token's gate (see ede-protocol); false here is not followed (only root's control.toml)
 ```
 
 `helpers = "compositor"` (#EDE-172 P4; a real session's default since eDE's flip, P14): each helper runs

@@ -1,8 +1,9 @@
 # #EDE-172 (P4): with `[session] helpers = "compositor"` the compositor runs
 # the portal itself and it owns the bus name; this unit (D-Bus activation)
 # stays off then.
-# That is a real session's default since eDE's flip (P14); `helpers =
-# "units"` in compositor.toml starts this unit again.
+# That is a real session's default since eDE's flip (P14); `[session]
+# helpers = "units"` in root's /etc/exponential-desktop/control.toml starts
+# this unit again (the person's compositor.toml cannot).
 [Unit]
 Description=Portal service (Exponential Desktop implementation)
 PartOf=graphical-session.target

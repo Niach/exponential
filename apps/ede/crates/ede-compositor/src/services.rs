@@ -10,8 +10,9 @@
 //! other. The shell's root channel asks with every capability (its buttons
 //! and pages); no other principal asks today.
 //!
-//! With `helpers = "units"` the daemon's unit serves `services.sock` as
-//! before eDE's flip: every capability to any process of the person.
+//! With `helpers = "units"` (in a real session only from root's policy
+//! file) the daemon's unit serves `services.sock` as before eDE's flip:
+//! every capability to any process of the person.
 
 use std::os::{fd::OwnedFd, unix::net::UnixStream};
 
