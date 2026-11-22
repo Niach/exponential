@@ -4,7 +4,8 @@
 //! ONE host function `ede_settings {page, key, value}` writing them:
 //! `compositor.toml` keys the compositor already reads (`[keyboard]`,
 //! `[windows]`; main reloads it), the XDG autostart overrides, `xdg-mime
-//! default`, `timedatectl`. A setting the machine cannot apply yet is fed as
+//! default`, timedated over the system bus (#EDE-182: off the UI thread, so
+//! polkit's prompt can ask). A setting the machine cannot apply yet is fed as
 //! a value the page shows read-only (Mouse & Touchpad, the workspace count
 //! and wrap-around: the compositor has no key for them, `handle` refuses
 //! them). `EDE_SHELL_DEMO` feeds fixed sample data; every reader's pure part
@@ -91,26 +92,35 @@ fn demo_state_for(spec: &str) -> Value {
     json!({"page": page, "deviceOpen": !team, "personalOpen": personal || !team, "codingOpen": coding, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": switcher})
 }
 
-/// `ede_settings {page, key, value}`: `Ok(true)` when the compositor must
-/// reload its configuration, `Err` when the page refuses the key.
-pub fn handle(args: &Value) -> Result<bool, String> {
+/// What `ede_settings` did with a change.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Handled {
+    /// Written; `reload` = the compositor must reload its configuration.
+    Applied { reload: bool },
+    /// Nothing to change: the time zone picker's open and close fire its
+    /// `change` with the zone it shows (#FEED-247).
+    Unchanged,
+    /// A Date & Time change for timedated: [`apply_time`] off the UI thread,
+    /// polkit may ask the person for as long as its prompt is open.
+    Asks(TimeChange),
+}
+
+/// `ede_settings {page, key, value}`; `Err` when the page refuses the key.
+/// Never waits for a daemon: what may ask comes back as [`Handled::Asks`].
+pub fn handle(args: &Value) -> Result<Handled, String> {
     let page = args.get("page").and_then(Value::as_str).ok_or("page is a string")?;
     let key = args.get("key").and_then(Value::as_str).ok_or("key is a string")?;
     let value = args.get("value").cloned().unwrap_or(Value::Null);
     match page {
         "keyboard" | "windows" => {
             settings::persist_config(&config_change(page, key, &value)?)?;
-            Ok(true)
+            Ok(Handled::Applied { reload: true })
         }
-        "datetime" => {
-            let (verb, arg) = timedate_command(key, &value)?;
-            run("timedatectl", &[verb, &arg])?;
-            Ok(false)
-        }
+        "datetime" => Ok(time_change(key, &value, &current_zone())?.map_or(Handled::Unchanged, Handled::Asks)),
         "startup" => {
             let on = value.as_bool().ok_or("value is a boolean")?;
             autostart_toggle(&config_dirs().iter().map(|d| d.join("autostart")).collect::<Vec<_>>(), &config_home().join("autostart"), key, on)?;
-            Ok(false)
+            Ok(Handled::Applied { reload: false })
         }
         "defaults" => {
             let app = value.as_str().filter(|a| !a.is_empty()).ok_or("value is a desktop entry id")?;
@@ -118,7 +128,7 @@ pub fn handle(args: &Value) -> Result<bool, String> {
             let mut args: Vec<&str> = vec!["default", app];
             args.extend(mimes.iter().copied());
             run("xdg-mime", &args)?;
-            Ok(false)
+            Ok(Handled::Applied { reload: false })
         }
         other => Err(format!("{other}: the compositor applies no such setting yet")),
     }
@@ -232,17 +242,86 @@ pub fn parse_ntp(text: &str) -> bool {
     matches!(text.trim(), "yes" | "true" | "1")
 }
 
-/// `ede_settings {page: datetime}`: the `timedatectl` verb and argument.
-pub fn timedate_command(key: &str, value: &Value) -> Result<(&'static str, String), String> {
+/// A Date & Time change, applied by timedated.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TimeChange {
+    /// "Set the time automatically" (`SetNTP`).
+    Ntp(bool),
+    /// The time zone (`SetTimezone`).
+    TimeZone(String),
+}
+
+impl TimeChange {
+    /// The failed action's `Couldn't <verb> <thing>` (feedback-states.json `errors`).
+    pub fn failed(&self) -> (&'static str, &'static str) {
+        match self {
+            TimeChange::Ntp(true) => ("turn on", "automatic time"),
+            TimeChange::Ntp(false) => ("turn off", "automatic time"),
+            TimeChange::TimeZone(_) => ("change", "the time zone"),
+        }
+    }
+
+    /// What the page shows once timedated took it. `NTP` reads the time
+    /// service's unit, which is still starting or stopping when `SetNTP`
+    /// answers, so the switch keeps the value timedated accepted.
+    pub fn applied(&self, mut datetime: Value) -> Value {
+        match self {
+            TimeChange::Ntp(on) => datetime["ntp"] = json!(on),
+            TimeChange::TimeZone(zone) => datetime["timeZone"] = json!(zone),
+        }
+        datetime
+    }
+}
+
+/// `ede_settings {page: datetime}`: the change, `None` for the zone the
+/// machine already has (the picker's open and close).
+pub fn time_change(key: &str, value: &Value, current_zone: &str) -> Result<Option<TimeChange>, String> {
     match key {
-        "timeZone" => Ok(("set-timezone", value.as_str().filter(|z| !z.is_empty() && !z.contains("..") && !z.starts_with('/')).ok_or("timeZone is a zone name")?.to_string())),
-        "ntp" => Ok(("set-ntp", if value.as_bool().ok_or("ntp is a boolean")? { "true".into() } else { "false".into() })),
+        "timeZone" => {
+            let zone = value.as_str().filter(|z| !z.is_empty() && !z.contains("..") && !z.starts_with('/')).ok_or("timeZone is a zone name")?;
+            Ok((zone != current_zone).then(|| TimeChange::TimeZone(zone.to_string())))
+        }
+        "ntp" => Ok(Some(TimeChange::Ntp(value.as_bool().ok_or("ntp is a boolean")?))),
         other => Err(format!("datetime: {other} is not a setting")),
     }
 }
 
+const TIMEDATE: &str = "org.freedesktop.timedate1";
+const TIMEDATE_PATH: &str = "/org/freedesktop/timedate1";
+
+/// #EDE-182: the change through `org.freedesktop.timedate1` on `conn` (the
+/// system bus), `interactive` true on a call that allows interactive
+/// authorization, so the person's polkit agent asks where polkit wants a
+/// password. `timedatectl` with no terminal allowed neither, and timedated
+/// refused without a prompt. Blocks while the prompt is open: never on the
+/// UI thread. `Err` = timedated's refusal (a cancelled prompt, the wrong
+/// password, no NTP service), for the failed action's toast.
+pub fn apply_time(conn: &zbus::blocking::Connection, change: &TimeChange) -> Result<(), String> {
+    use ede_services::domains::call_asking;
+    match change {
+        TimeChange::Ntp(on) => call_asking::<_, ()>(conn, TIMEDATE, TIMEDATE_PATH, TIMEDATE, "SetNTP", &(*on, true)),
+        TimeChange::TimeZone(zone) => call_asking::<_, ()>(conn, TIMEDATE, TIMEDATE_PATH, TIMEDATE, "SetTimezone", &(zone.as_str(), true)),
+    }
+}
+
+/// [`apply_time`] on the system bus, then `/pages` as the machine has it
+/// now: what was applied, or, on a refusal, what stayed (the switch the
+/// person flipped goes back).
+pub fn apply_time_on_system_bus(change: &TimeChange) -> (Result<(), String>, Value) {
+    let applied = zbus::blocking::Connection::system().map_err(|e| format!("no system bus: {e}")).and_then(|conn| apply_time(&conn, change));
+    let mut pages = pages_json();
+    if applied.is_ok() {
+        pages["datetime"] = change.applied(pages["datetime"].take());
+    }
+    (applied, pages)
+}
+
+fn current_zone() -> String {
+    std::fs::read_link("/etc/localtime").ok().and_then(|t| zone_from_link(&t)).or_else(|| std::fs::read_to_string("/etc/timezone").ok().map(|t| t.trim().to_string())).unwrap_or_else(|| "UTC".into())
+}
+
 fn datetime_json() -> Value {
-    let zone = std::fs::read_link("/etc/localtime").ok().and_then(|t| zone_from_link(&t)).or_else(|| std::fs::read_to_string("/etc/timezone").ok().map(|t| t.trim().to_string())).unwrap_or_else(|| "UTC".into());
+    let zone = current_zone();
     let ntp = Command::new("timedatectl").args(["show", "-p", "NTP", "--value"]).output().ok().map(|o| parse_ntp(&String::from_utf8_lossy(&o.stdout))).unwrap_or(false);
     json!({
         "timeZone": zone,
@@ -251,6 +330,46 @@ fn datetime_json() -> Value {
         // The shell's clock draws HH:MM; there is no 12-hour clock yet.
         "clock": "24-hour",
     })
+}
+
+// ---- the services' actions (#EDE-13) -------------------------------------------
+
+/// A page's `ede_service {domain, action, args}` (or the start menu's power
+/// rows) that failed, as `Couldn't <verb> <thing>` (feedback-states.json
+/// `errors`): a refused polkit prompt included (#EDE-182).
+pub fn service_failed(domain: &str, action: &str, args: &Value) -> (String, String) {
+    let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);
+    let switch = if on { "turn on" } else { "turn off" };
+    let (verb, thing): (&str, String) = match (domain, action) {
+        ("power", "suspend") => ("suspend", "the computer".into()),
+        ("power", "hibernate") => ("hibernate", "the computer".into()),
+        ("power", "reboot") => ("restart", "the computer".into()),
+        ("power", "poweroff") => ("shut down", "the computer".into()),
+        ("power", "set_profile") => ("change", "the power mode".into()),
+        ("network", "wifi_enable") => (switch, "Wi-Fi".into()),
+        ("network", "wired_enable") => (switch, "wired networking".into()),
+        ("network", "connect") => ("connect to", args.get("ssid").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("the network").to_string()),
+        ("network", "disconnect") => ("disconnect", "the network".into()),
+        ("network", "vpn_connect") => ("connect", "the VPN".into()),
+        ("network", "vpn_disconnect") => ("disconnect", "the VPN".into()),
+        ("bluetooth", "power") => (switch, "Bluetooth".into()),
+        ("bluetooth", "connect") => ("connect", "the device".into()),
+        ("bluetooth", "disconnect") => ("disconnect", "the device".into()),
+        ("bluetooth", "discover") => ("search for", "devices".into()),
+        ("sound", "set_volume") => ("change", "the volume".into()),
+        ("sound", "mute") => (if on { "mute" } else { "unmute" }, "the sound".into()),
+        ("sound", "set_mic_volume") => ("change", "the microphone volume".into()),
+        ("sound", "mute_mic") => (if on { "mute" } else { "unmute" }, "the microphone".into()),
+        ("sound", "set_default") => ("switch", "the output".into()),
+        ("sound", "set_default_source") => ("switch", "the microphone".into()),
+        ("disks", "mount") => ("mount", "the drive".into()),
+        ("disks", "unmount") => ("unmount", "the drive".into()),
+        ("updates", "refresh") => ("check for", "updates".into()),
+        ("updates", "upgrade") => ("install", "the updates".into()),
+        ("about", "check") => ("run", "the system check".into()),
+        _ => ("change", "the setting".into()),
+    };
+    (verb.to_string(), thing)
 }
 
 // ---- desktop entries (autostart, default apps) --------------------------------
@@ -546,10 +665,41 @@ mod tests {
         assert_eq!(zone_from_link(Path::new("../usr/share/zoneinfo/posix/UTC")).as_deref(), Some("UTC"));
         assert_eq!(zone_from_link(Path::new("/etc/localtime")), None);
         assert!(parse_ntp("yes\n") && !parse_ntp("no"));
-        assert_eq!(timedate_command("timeZone", &json!("Europe/Vienna")).unwrap(), ("set-timezone", "Europe/Vienna".into()));
-        assert_eq!(timedate_command("ntp", &json!(false)).unwrap(), ("set-ntp", "false".into()));
-        assert!(timedate_command("timeZone", &json!("../etc")).is_err());
-        assert!(timedate_command("clock", &json!("12-hour")).is_err());
+        assert_eq!(time_change("timeZone", &json!("Europe/Vienna"), "UTC").unwrap(), Some(TimeChange::TimeZone("Europe/Vienna".into())));
+        assert_eq!(time_change("timeZone", &json!("Europe/Vienna"), "Europe/Vienna").unwrap(), None, "the picker's open and close");
+        assert_eq!(time_change("ntp", &json!(false), "UTC").unwrap(), Some(TimeChange::Ntp(false)));
+        assert!(time_change("timeZone", &json!("../etc"), "UTC").is_err());
+        assert!(time_change("ntp", &json!("yes"), "UTC").is_err());
+        assert!(time_change("clock", &json!("12-hour"), "UTC").is_err());
+        assert_eq!(TimeChange::Ntp(true).applied(json!({"ntp": false, "timeZone": "UTC"})), json!({"ntp": true, "timeZone": "UTC"}));
+        assert_eq!(TimeChange::TimeZone("Asia/Tokyo".into()).applied(json!({"ntp": true, "timeZone": "UTC"})), json!({"ntp": true, "timeZone": "Asia/Tokyo"}));
+    }
+
+    /// #EDE-182: the UI thread never waits for timedated: `handle` names
+    /// the change and the shell applies it off the main loop.
+    #[test]
+    fn a_date_and_time_change_is_handed_back_never_run_on_the_ui_thread() {
+        assert_eq!(handle(&json!({"page": "datetime", "key": "ntp", "value": true})), Ok(Handled::Asks(TimeChange::Ntp(true))));
+        assert!(handle(&json!({"page": "datetime", "key": "ntp", "value": "on"})).is_err());
+    }
+
+    /// The failed action's words per service action (#EDE-182: a refused
+    /// prompt on the Power page toasts too).
+    #[test]
+    fn a_failed_service_action_names_what_it_tried() {
+        let words = |service: &str, action: &str, args: Value| {
+            let (verb, thing) = service_failed(service, action, &args);
+            domain::action_error::title(&verb, &thing)
+        };
+        assert_eq!(words("power", "reboot", json!({})), "Couldn't restart the computer");
+        assert_eq!(words("power", "poweroff", json!({})), "Couldn't shut down the computer");
+        assert_eq!(words("network", "wifi_enable", json!({"on": false})), "Couldn't turn off Wi-Fi");
+        assert_eq!(words("network", "connect", json!({"ssid": "Home"})), "Couldn't connect to Home");
+        assert_eq!(words("bluetooth", "power", json!({"on": true})), "Couldn't turn on Bluetooth");
+        assert_eq!(words("updates", "upgrade", json!({})), "Couldn't install the updates");
+        assert_eq!(words("printers", "anything", json!({})), "Couldn't change the setting");
+        assert_eq!(TimeChange::Ntp(true).failed(), ("turn on", "automatic time"));
+        assert_eq!(TimeChange::TimeZone("UTC".into()).failed(), ("change", "the time zone"));
     }
 
     #[test]
@@ -623,5 +773,123 @@ mod tests {
         assert_eq!(demo_state_for("worktrees"), json!({"page": "worktrees", "deviceOpen": true, "personalOpen": true, "codingOpen": true, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false}));
         let team = demo_state_for("local-general,switcher");
         assert_eq!((team["switcherOpen"].as_bool(), team["deviceOpen"].as_bool(), team["personalOpen"].as_bool()), (Some(true), Some(false), Some(false)));
+    }
+}
+
+/// timedated's stand-in on a dbus-daemon of the test's own (never the
+/// machine's system bus): each call as `(method, argument, whether the
+/// message allowed interactive authorization, its `interactive`
+/// argument)`, answered as the test says (#EDE-182).
+#[cfg(test)]
+pub(crate) mod fake_timedated {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::dbus::private_bus::PrivateBus;
+
+    /// How timedated answers.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum Answer {
+        /// Applied.
+        Takes,
+        /// Applied after the person took `Duration` at the prompt.
+        TakesAfter(Duration),
+        /// The person cancelled the prompt (or gave up on the password):
+        /// polkit says no, systemd answers `AccessDenied`.
+        Cancelled,
+        /// Refused for another reason (no NTP service on the machine).
+        Fails,
+    }
+
+    pub type Heard = Arc<Mutex<Vec<(String, String, bool, bool)>>>;
+
+    struct Timedated {
+        answer: Answer,
+        heard: Heard,
+    }
+
+    impl Timedated {
+        async fn answer(&self, method: &str, arg: String, header: &zbus::message::Header<'_>, interactive: bool) -> zbus::fdo::Result<()> {
+            let asked = header.primary().flags().contains(zbus::message::Flags::AllowInteractiveAuth);
+            self.heard.lock().unwrap().push((method.to_string(), arg.clone(), asked, interactive));
+            match self.answer {
+                Answer::Takes => Ok(()),
+                Answer::TakesAfter(wait) => {
+                    blocking::unblock(move || std::thread::sleep(wait)).await;
+                    Ok(())
+                }
+                Answer::Cancelled => Err(zbus::fdo::Error::AccessDenied("Permission denied".into())),
+                Answer::Fails if method == "SetNTP" => Err(zbus::fdo::Error::Failed("NTP not supported".into())),
+                Answer::Fails => Err(zbus::fdo::Error::InvalidArgs(format!("Invalid or not installed time zone '{arg}'"))),
+            }
+        }
+    }
+
+    #[zbus::interface(name = "org.freedesktop.timedate1")]
+    impl Timedated {
+        #[zbus(name = "SetNTP")]
+        async fn set_ntp(&self, #[zbus(header)] header: zbus::message::Header<'_>, use_ntp: bool, interactive: bool) -> zbus::fdo::Result<()> {
+            self.answer("SetNTP", use_ntp.to_string(), &header, interactive).await
+        }
+
+        async fn set_timezone(&self, #[zbus(header)] header: zbus::message::Header<'_>, timezone: String, interactive: bool) -> zbus::fdo::Result<()> {
+            self.answer("SetTimezone", timezone, &header, interactive).await
+        }
+    }
+
+    /// The bus, the daemon's connection (keep it) and the client's.
+    pub fn serve(answer: Answer) -> (PrivateBus, zbus::blocking::Connection, zbus::blocking::Connection, Heard) {
+        let bus = PrivateBus::start();
+        let heard = Heard::default();
+        let daemon = bus.builder().unwrap().name("org.freedesktop.timedate1").unwrap().serve_at("/org/freedesktop/timedate1", Timedated { answer, heard: heard.clone() }).unwrap().build().unwrap();
+        let client = bus.builder().unwrap().build().unwrap();
+        (bus, daemon, client, heard)
+    }
+}
+
+#[cfg(test)]
+mod timedated_calls {
+    use std::time::{Duration, Instant};
+
+    use super::fake_timedated::{serve, Answer};
+    use super::*;
+
+    fn heard(method: &str, arg: &str) -> (String, String, bool, bool) {
+        (method.to_string(), arg.to_string(), true, true)
+    }
+
+    /// Every call lets polkit ask: the flag on the message and timedated's
+    /// own `interactive` argument (`timedatectl` without a terminal sent
+    /// neither, so timedated refused without a prompt).
+    #[test]
+    fn each_call_allows_interactive_authorization() {
+        let (_bus, _daemon, client, calls) = serve(Answer::Takes);
+        assert_eq!(apply_time(&client, &TimeChange::Ntp(true)), Ok(()));
+        assert_eq!(apply_time(&client, &TimeChange::Ntp(false)), Ok(()));
+        assert_eq!(apply_time(&client, &TimeChange::TimeZone("Europe/Vienna".into())), Ok(()));
+        assert_eq!(*calls.lock().unwrap(), vec![heard("SetNTP", "true"), heard("SetNTP", "false"), heard("SetTimezone", "Europe/Vienna")]);
+    }
+
+    /// The call waits for as long as the prompt is open (no timeout cuts
+    /// the person short).
+    #[test]
+    fn a_call_waits_while_the_prompt_is_open() {
+        let (_bus, _daemon, client, calls) = serve(Answer::TakesAfter(Duration::from_millis(1500)));
+        let started = Instant::now();
+        assert_eq!(apply_time(&client, &TimeChange::Ntp(true)), Ok(()));
+        assert!(started.elapsed() >= Duration::from_millis(1500), "{:?}", started.elapsed());
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    /// A cancelled prompt and any other refusal come back as timedated's
+    /// sentence, for the failed action's toast.
+    #[test]
+    fn a_cancelled_prompt_and_a_failure_come_back_as_the_daemons_sentence() {
+        let (_bus, _daemon, client, calls) = serve(Answer::Cancelled);
+        assert_eq!(apply_time(&client, &TimeChange::Ntp(true)), Err("Permission denied".into()));
+        assert_eq!(*calls.lock().unwrap(), vec![heard("SetNTP", "true")]);
+        let (_bus, _daemon, client, _) = serve(Answer::Fails);
+        assert_eq!(apply_time(&client, &TimeChange::TimeZone("Asia/Tokyo".into())), Err("Invalid or not installed time zone 'Asia/Tokyo'".into()));
+        assert_eq!(apply_time(&client, &TimeChange::Ntp(true)), Err("NTP not supported".into()));
     }
 }

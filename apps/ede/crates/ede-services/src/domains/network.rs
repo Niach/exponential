@@ -9,7 +9,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as ZValue};
 
-use super::{polled_system_bus, prop, set_prop, system_bus};
+use super::{call_asking, polled_system_bus, prop, set_prop, system_bus};
 use crate::{unavailable, ActionSpec, Service};
 
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -195,7 +195,7 @@ impl Service for Network {
             }
             "disconnect" => {
                 let device = args["device"].as_str().ok_or("device")?;
-                conn.call_method(Some(NM), device, Some(format!("{NM}.Device").as_str()), "Disconnect", &()).map_err(|e| e.to_string())?;
+                call_asking::<_, ()>(&conn, NM, device, &format!("{NM}.Device"), "Disconnect", &())?;
                 Ok(json!({"disconnected": device}))
             }
             "wired_enable" => {
@@ -213,11 +213,11 @@ impl Service for Network {
                     set_prop(&conn, NM, path, &dev, "Autoconnect", ZValue::from(on))?;
                     if on && d["state"] == "disconnected" {
                         // "/" = NetworkManager picks the device's best saved connection.
-                        if conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(root_path(), path_obj, root_path())).is_ok() {
+                        if call_asking::<_, OwnedObjectPath>(&conn, NM, NM_PATH, NM, "ActivateConnection", &(root_path(), path_obj, root_path())).is_ok() {
                             touched.push(path.to_string());
                         }
                     } else if !on && d["state"] != "disconnected" && d["state"] != "unavailable" && d["state"] != "unmanaged" {
-                        conn.call_method(Some(NM), path, Some(dev.as_str()), "Disconnect", &()).map_err(|e| e.to_string())?;
+                        call_asking::<_, ()>(&conn, NM, path, &dev, "Disconnect", &())?;
                         touched.push(path.to_string());
                     }
                 }
@@ -227,14 +227,14 @@ impl Service for Network {
                 let id = args["id"].as_str().ok_or("id")?;
                 let saved = saved_connections(&conn).into_iter().find(|c| c.uuid == id && is_vpn(&c.kind)).ok_or_else(|| format!("no VPN connection {id}"))?;
                 let path = OwnedObjectPath::try_from(saved.path.clone()).map_err(|e| e.to_string())?;
-                conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(path, root_path(), root_path())).map_err(|e| e.to_string())?;
+                call_asking::<_, OwnedObjectPath>(&conn, NM, NM_PATH, NM, "ActivateConnection", &(path, root_path(), root_path()))?;
                 Ok(json!({"id": id, "name": saved.id, "connecting": true}))
             }
             "vpn_disconnect" => {
                 let id = args["id"].as_str().ok_or("id")?;
                 let (path, _) = active_connections(&conn).into_iter().find(|(_, uuid)| uuid == id).ok_or_else(|| format!("VPN {id} is not active"))?;
                 let path = OwnedObjectPath::try_from(path).map_err(|e| e.to_string())?;
-                conn.call_method(Some(NM), NM_PATH, Some(NM), "DeactivateConnection", &(path,)).map_err(|e| e.to_string())?;
+                call_asking::<_, ()>(&conn, NM, NM_PATH, NM, "DeactivateConnection", &(path,))?;
                 Ok(json!({"id": id, "active": false}))
             }
             "connect" => {
@@ -250,7 +250,7 @@ impl Service for Network {
                     let s: HashMap<String, HashMap<String, OwnedValue>> = conn.call_method(Some(NM), c.as_str(), Some(format!("{NM}.Settings.Connection").as_str()), "GetSettings", &()).and_then(|r| r.body().deserialize()).unwrap_or_default();
                     if s.get("connection").map(|m| super::str_of(m, "id")) == Some(ssid.to_string()) {
                         let root = OwnedObjectPath::try_from("/").unwrap();
-                        conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(c, device_path, root)).map_err(|e| e.to_string())?;
+                        call_asking::<_, OwnedObjectPath>(&conn, NM, NM_PATH, NM, "ActivateConnection", &(c, device_path, root))?;
                         return Ok(json!({"connecting": ssid, "saved": true}));
                     }
                 }
@@ -263,7 +263,7 @@ impl Service for Network {
                     return Err(format!("{ssid} needs a password"));
                 }
                 let root = OwnedObjectPath::try_from("/").unwrap();
-                conn.call_method(Some(NM), NM_PATH, Some(NM), "AddAndActivateConnection", &(connection, device_path, root)).map_err(|e| e.to_string())?;
+                call_asking::<_, (OwnedObjectPath, OwnedObjectPath)>(&conn, NM, NM_PATH, NM, "AddAndActivateConnection", &(connection, device_path, root))?;
                 Ok(json!({"connecting": ssid, "saved": false}))
             }
             other => Err(format!("no action {other}")),

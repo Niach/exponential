@@ -5,7 +5,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::zvariant::OwnedValue;
 
-use super::{bool_of, by_path, managed_objects, polled_system_bus, str_of, system_bus, u64_of, Managed};
+use super::{bool_of, by_path, call_asking, managed_objects, polled_system_bus, str_of, system_bus, u64_of, Managed};
 use crate::{unavailable, ActionSpec, Service};
 
 const UDISKS: &str = "org.freedesktop.UDisks2";
@@ -70,12 +70,11 @@ impl Service for Disks {
         let options: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> = std::collections::HashMap::new();
         match action {
             "mount" => {
-                let reply = conn.call_method(Some(UDISKS), volume, Some("org.freedesktop.UDisks2.Filesystem"), "Mount", &(options,)).map_err(|e| e.to_string())?;
-                let at: String = reply.body().deserialize().unwrap_or_default();
+                let at: String = call_asking(&conn, UDISKS, volume, "org.freedesktop.UDisks2.Filesystem", "Mount", &(options,))?;
                 Ok(json!({"mounted": at}))
             }
             "unmount" => {
-                conn.call_method(Some(UDISKS), volume, Some("org.freedesktop.UDisks2.Filesystem"), "Unmount", &(options,)).map_err(|e| e.to_string())?;
+                call_asking::<_, ()>(&conn, UDISKS, volume, "org.freedesktop.UDisks2.Filesystem", "Unmount", &(options,))?;
                 Ok(json!({"unmounted": volume}))
             }
             other => Err(format!("no action {other}")),

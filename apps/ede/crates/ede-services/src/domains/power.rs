@@ -3,9 +3,12 @@
 
 use ede_protocol::Capability;
 use serde_json::{json, Value};
-use zbus::zvariant::{OwnedValue, Value as ZValue};
+use zbus::{
+    blocking::Connection,
+    zvariant::{OwnedValue, Value as ZValue},
+};
 
-use super::{polled_system_bus, prop, set_prop, system_bus};
+use super::{call_asking, polled_system_bus, prop, set_prop, system_bus};
 use crate::{unavailable, ActionSpec, Service};
 
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -125,18 +128,28 @@ impl Service for Power {
                 Ok(json!({"profile": profile}))
             }
             "suspend" | "hibernate" | "reboot" | "poweroff" => {
-                let method = match action {
-                    "suspend" => "Suspend",
-                    "hibernate" => "Hibernate",
-                    "reboot" => "Reboot",
-                    _ => "PowerOff",
-                };
-                conn.call_method(Some(LOGIN), LOGIN_PATH, Some(MANAGER), method, &(false,)).map_err(|e| e.to_string())?;
+                login(&conn, action)?;
                 Ok(json!({"action": action}))
             }
             other => Err(format!("no action {other}")),
         }
     }
+}
+
+/// logind's `Suspend`, `Hibernate`, `Reboot` or `PowerOff` (the Power page,
+/// the start menu's power rows): `interactive` true on a call that allows
+/// interactive authorization (#EDE-182), so where polkit wants a password
+/// (another session open, `*-multiple-sessions`) the person's agent asks
+/// instead of logind refusing. Blocks while the prompt is open.
+pub fn login(conn: &Connection, action: &str) -> Result<(), String> {
+    let method = match action {
+        "suspend" => "Suspend",
+        "hibernate" => "Hibernate",
+        "reboot" => "Reboot",
+        "poweroff" => "PowerOff",
+        other => return Err(format!("no power action {other}")),
+    };
+    call_asking::<_, ()>(conn, LOGIN, LOGIN_PATH, MANAGER, method, &(true,))
 }
 
 #[cfg(test)]
