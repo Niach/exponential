@@ -48,6 +48,17 @@ const TERM_GRACE: Duration = Duration::from_secs(2);
 const DROPPED: [&str; 6] = ["DISPLAY", "WAYLAND_SOCKET", "XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID", "DBUS_SESSION_BUS_ADDRESS", "EDE_TOKEN"];
 /// The compositor's to set: with [`DROPPED`], refused in a caller's `env`.
 const SET: [&str; 6] = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX_TMPDIR", "SCREENDIR", "GNUPGHOME", "XAUTHORITY"];
+/// Refused in a caller's `env`, never the compositor's either ([`KEPT`]):
+/// what would take a space's program into the person's profile or
+/// installation. Firefox (and its forks) read their restart variables
+/// `XRE_PROFILE_PATH` and `XRE_PROFILE_LOCAL_PATH` AHEAD of `--profile`
+/// (#EDE-187); `FLATPAK_USER_DIR` would be the person's own Flatpak
+/// installation, which the space would write into (#EDE-158).
+const PERSONS: [(&str, &str); 3] = [
+    ("XRE_PROFILE_PATH", "Firefox's restart variable: it picks the profile ahead of --profile, so a launch never sets it"),
+    ("XRE_PROFILE_LOCAL_PATH", "Firefox's restart variable: it picks the profile ahead of --profile, so a launch never sets it"),
+    ("FLATPAK_USER_DIR", "the person's own Flatpak installation: a space has the system-wide Flatpaks only"),
+];
 /// What a launch takes of the compositor's environment (#EDE-138): who
 /// the person is, their language, where programs and their files are, the
 /// desktop's name and the toolkits' hints. NOTHING else: no agent's socket
@@ -268,7 +279,8 @@ impl Ede {
     /// a user manager ([`Spaces::units`]) all of that starts in a scope of
     /// the space's slice.
     /// What a launch into space `desk` is refused for: no such space, an
-    /// empty argv, a variable that is the compositor's to set, a program
+    /// empty argv, a variable that is the compositor's to set or that would
+    /// reach the person's profile or installation ([`PERSONS`]), a program
     /// or a directory that is not there. Its working directory otherwise.
     pub(crate) fn space_launch_valid(&self, desk: DeskId, argv: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>) -> Result<PathBuf, Failure> {
         let fail = |code, message: &str| Failure::new(code, message);
@@ -276,6 +288,9 @@ impl Ede {
         let Some(program) = argv.first() else { return Err(fail(ErrorCode::Invalid, "argv is empty")) };
         if let Some(name) = env.keys().find(|name| DROPPED.contains(&name.as_str()) || SET.contains(&name.as_str()) || super::render::SET.contains(&name.as_str()) || PROFILE.iter().any(|(var, _)| var == name)) {
             return Err(fail(ErrorCode::Invalid, &format!("{name} is the compositor's to set")));
+        }
+        if let Some((name, why)) = PERSONS.iter().find(|(name, _)| env.contains_key(*name)) {
+            return Err(fail(ErrorCode::Invalid, &format!("{name} is {why}")));
         }
         if !found(program) {
             return Err(fail(ErrorCode::NotFound, &format!("no such program: {program}")));

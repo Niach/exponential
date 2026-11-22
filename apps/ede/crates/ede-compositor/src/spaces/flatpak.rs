@@ -60,6 +60,45 @@ pub fn escaped(app_slice: &Path, compositor: u32, launches: &[(u32, u32)], cgrou
     found
 }
 
+/// #EDE-158: where this system's Flatpaks are installed: the person's own
+/// installation (`flatpak install --user`) and the system-wide ones.
+pub struct Installations {
+    pub user: PathBuf,
+    pub system: Vec<PathBuf>,
+}
+
+/// This system's [`Installations`], from the compositor's environment:
+/// `FLATPAK_USER_DIR` or `$XDG_DATA_HOME/flatpak` (`~/.local/share/flatpak`);
+/// `FLATPAK_SYSTEM_DIR` or `/var/lib/flatpak`, and every `Path=` of
+/// `/etc/flatpak/installations.d`.
+pub fn installations() -> Installations {
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|dir| dir.is_absolute());
+    let home = var("HOME").unwrap_or_else(|| "/".into());
+    let user = var("FLATPAK_USER_DIR").unwrap_or_else(|| var("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share")).join("flatpak"));
+    let mut system = vec![var("FLATPAK_SYSTEM_DIR").unwrap_or_else(|| "/var/lib/flatpak".into())];
+    for entry in std::fs::read_dir("/etc/flatpak/installations.d").into_iter().flatten().flatten() {
+        let conf = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        system.extend(conf.lines().filter_map(|line| line.trim().strip_prefix("Path=")).map(|path| PathBuf::from(path.trim())).filter(|path| path.is_absolute()));
+    }
+    Installations { user, system }
+}
+
+/// Why `argv`, which runs Flatpak `id`, finds nothing in a space: a space's
+/// `XDG_DATA_HOME` is its own, so it has no installation of the person's
+/// own, only the system-wide ones. `id` is installed in the person's
+/// installation alone, or the launch asks for that one (`--user`). The
+/// person's installation is never shared: the space's programs run as the
+/// person, and `flatpak install`, `update`, `uninstall` or `remote-add`
+/// there would write into it.
+pub fn persons_alone(argv: &[String], id: &str, installations: &Installations) -> Option<String> {
+    let installed = |dir: &Path| dir.join("app").join(id).is_dir();
+    let asks_user = argv.iter().take_while(|arg| *arg != id).any(|arg| arg == "--user");
+    if installed(&installations.user) && (asks_user || !installations.system.iter().any(|dir| installed(dir))) {
+        return Some(format!("{id} is installed for the person alone (flatpak install --user): a space has the system-wide Flatpaks only (#EDE-158)"));
+    }
+    asks_user.then(|| "flatpak run --user: a space has no Flatpak installation of the person's own, only the system-wide ones (#EDE-158)".to_string())
+}
+
 /// What the compositor keeps of the Flatpaks it brought back.
 #[derive(Default)]
 pub(crate) struct Adoptions {
@@ -119,6 +158,28 @@ impl Ede {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-158: a Flatpak the person installed for themselves alone is
+    /// refused with why; a system-wide one starts, also when the person has
+    /// one too, unless the launch asks for theirs.
+    #[test]
+    fn a_flatpak_of_the_persons_own_installation_is_not_in_a_space() {
+        let dir = tempfile::tempdir().unwrap();
+        let installations = Installations { user: dir.path().join("user"), system: vec![dir.path().join("system"), dir.path().join("extra")] };
+        for app in ["user/app/org.example.Mine", "user/app/org.example.Both", "system/app/org.example.Both", "extra/app/org.example.Extra"] {
+            std::fs::create_dir_all(dir.path().join(app)).unwrap();
+        }
+        let run = |args: &[&str]| args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        let why = persons_alone(&run(&["flatpak", "run", "org.example.Mine"]), "org.example.Mine", &installations).unwrap();
+        assert!(why.contains("installed for the person alone") && why.contains("system-wide"), "{why}");
+        assert!(persons_alone(&run(&["/home/a/.local/share/flatpak/exports/bin/org.example.Mine"]), "org.example.Mine", &installations).is_some(), "its exported launcher");
+        assert_eq!(persons_alone(&run(&["flatpak", "run", "org.example.Both"]), "org.example.Both", &installations), None, "the system's starts");
+        assert_eq!(persons_alone(&run(&["flatpak", "run", "org.example.Extra"]), "org.example.Extra", &installations), None, "an installation of installations.d is the system's");
+        assert!(persons_alone(&run(&["flatpak", "run", "--user", "org.example.Both"]), "org.example.Both", &installations).is_some(), "--user asks for the person's");
+        assert!(persons_alone(&run(&["flatpak", "run", "--user", "org.example.None"]), "org.example.None", &installations).is_some());
+        assert_eq!(persons_alone(&run(&["flatpak", "run", "org.example.None"]), "org.example.None", &installations), None, "not installed: flatpak says so itself");
+        assert_eq!(persons_alone(&run(&["flatpak", "run", "org.example.Both", "--user"]), "org.example.Both", &installations), None, "the app's own argument");
+    }
 
     /// Only a Flatpak scope whose first process a space started is the
     /// space's: a launch, or a child of a process in the space's slice.
