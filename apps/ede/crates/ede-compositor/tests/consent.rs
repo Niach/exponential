@@ -122,17 +122,18 @@ fn role_ask() {
         other => format!("{other}"),
     };
     let started = Instant::now();
-    let mut client = match Client::over(UnixStream::connect(&sock).unwrap(), token) {
+    let first = Client::over(UnixStream::connect(&sock).unwrap(), token);
+    let mut client = match first {
         Ok(client) => {
             println!("\n@@ hello ok {}", started.elapsed().as_millis());
-            client
+            Some(client)
         }
         Err(e) => {
             println!("\n@@ hello {}", code(e));
-            return;
+            None
         }
     };
-    if ops.contains("cu") {
+    if let (Some(client), true) = (client.as_mut(), ops.contains("cu")) {
         let r = |name: &str, out: Result<(), Error>| println!("\n@@ {name} {}", out.map_or_else(code, |_| "ok".into()));
         r("lock", client.lock());
         r("logout", client.logout());
@@ -256,9 +257,10 @@ fn computer_use_is_held_to_what_the_app_does() {
     let foreign_grant = h.ipc().mint(SessionId::new("someone").unwrap(), vec![Capability::Ui], None).unwrap().token;
     let app = copy_as(&dir.path().join("a"), "exp-desktop", b"");
     let cu = run(&h, &asks, &app, "cu", &[("EDE172_FOREIGN_SPACE", foreign_space.clone()), ("EDE172_FOREIGN_GRANT", foreign_grant.as_str().to_string())], Some((true, Duration::ZERO)));
-    for refused in ["lock", "logout", "set_output", "bindings", "subscribe", "launch_token", "mint_system", "mint_mixed", "revoke_foreign"] {
+    for refused in ["lock", "logout", "set_output", "bindings", "subscribe", "launch_token", "mint_system", "revoke_foreign"] {
         assert_eq!(said(&cu, refused), "Forbidden", "{refused}: {:?}", cu.lines);
     }
+    assert_eq!(said(&cu, "mint_mixed"), "Invalid", "a space grant is [space] alone, for anyone");
     for allowed in ["mint_run", "mint_space", "revoke_own", "windows", "capture"] {
         assert_eq!(said(&cu, allowed), "ok", "{allowed}: {:?}", cu.lines);
     }
