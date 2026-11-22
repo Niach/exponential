@@ -37,10 +37,36 @@ pub(crate) struct Queue {
     passes: VecDeque<(Instant, Duration)>,
     /// A timer is armed for then.
     wake_at: Option<Instant>,
-    /// Passes drawn per space (tests read it).
-    drawn: HashMap<DeskId, u64>,
+    /// What each space's captures did (tests read it).
+    record: HashMap<DeskId, Record>,
     /// [`FLOOR`] unless a test sets another.
     floor: Option<Duration>,
+}
+
+/// What a space's captures did, on this thread's clock: the floor holds
+/// between its passes, and a caller that reads a reply late (a loaded
+/// machine) says nothing about it (#EDE-198).
+#[derive(Default)]
+struct Record {
+    passes: u64,
+    /// When the last pass started, and when it was done: the next one's
+    /// floor counts from then.
+    last: Option<(Instant, Instant)>,
+    /// Captures that waited for their turn.
+    waited: u64,
+}
+
+impl Queue {
+    /// A pass of space `desk` that started at `started` and took `cpu` of
+    /// this thread is done: the next one's floor counts from now.
+    fn drawn(&mut self, desk: DeskId, started: Instant, cpu: Duration) {
+        let done = Instant::now();
+        self.passes.push_back((started, cpu));
+        self.last_pass.insert(desk, done);
+        let record = self.record.entry(desk).or_default();
+        record.passes += 1;
+        record.last = Some((started, done));
+    }
 }
 
 pub(super) struct Waiting {
@@ -150,6 +176,7 @@ impl Ede {
                 for job in draw.iter_mut().filter(|j| !j.waited) {
                     job.waited = true;
                     self.spaces.frames.stats.waited();
+                    self.spaces.frames.queue.record.entry(desk).or_default().waited += 1;
                 }
                 // Back in front: they asked first.
                 draw.append(&mut self.spaces.frames.queue.waiting);
@@ -161,10 +188,7 @@ impl Ede {
                 match self.space_gpu_capture(desk, draw) {
                     Ok(cpu) => {
                         self.spaces.frames.stats.pass(cpu, now.elapsed());
-                        let queue = &mut self.spaces.frames.queue;
-                        queue.passes.push_back((now, cpu));
-                        queue.last_pass.insert(desk, Instant::now());
-                        *queue.drawn.entry(desk).or_default() += 1;
+                        self.spaces.frames.queue.drawn(desk, now, cpu);
                         continue;
                     }
                     Err(draw) => draw,
@@ -181,10 +205,7 @@ impl Ede {
             let frame = self.capture_space(desk);
             let (cpu, wall) = (thread_cpu().saturating_sub(cpu), now.elapsed());
             self.spaces.frames.stats.pass(cpu, wall);
-            let queue = &mut self.spaces.frames.queue;
-            queue.passes.push_back((now, cpu));
-            queue.last_pass.insert(desk, Instant::now());
-            *queue.drawn.entry(desk).or_default() += 1;
+            self.spaces.frames.queue.drawn(desk, now, cpu);
             let serial = self.spaces.get(desk).map_or(serial, |s| s.serial);
             match frame {
                 Ok(frame) => {
@@ -237,7 +258,19 @@ impl Ede {
 
     /// How many capture passes space `desk` has drawn.
     pub fn space_passes(&self, desk: DeskId) -> u64 {
-        self.spaces.frames.queue.drawn.get(&desk).copied().unwrap_or(0)
+        self.spaces.frames.queue.record.get(&desk).map_or(0, |r| r.passes)
+    }
+
+    /// When space `desk`'s last capture pass started and when it was done,
+    /// on this thread's clock: the floor holds from one pass's end to the
+    /// next one's start (#EDE-198).
+    pub fn space_last_pass(&self, desk: DeskId) -> Option<(Instant, Instant)> {
+        self.spaces.frames.queue.record.get(&desk).and_then(|r| r.last)
+    }
+
+    /// How many captures of space `desk` waited for their turn.
+    pub fn space_captures_waited(&self, desk: DeskId) -> u64 {
+        self.spaces.frames.queue.record.get(&desk).map_or(0, |r| r.waited)
     }
 }
 
