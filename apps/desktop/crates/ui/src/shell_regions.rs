@@ -295,6 +295,15 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
     };
     input.needs_you = needs_you.values().sum();
     let sessions: Vec<domain::rows::SessionRow> = collections.sessions.read(cx).iter().filter(|s| s.parent_id.is_none()).cloned().collect();
+    // ONE pass for every team (was per team, and every placed session's tree
+    // walked all synced sessions: O(placed × sessions) per refresh).
+    let session_inputs: Vec<domain::sidebar_tree::SidebarSessionInput> =
+        sessions.iter().filter_map(|s| Some(domain::sidebar_tree::SidebarSessionInput { id: s.id.clone(), team_id: s.team_id.clone()?, parent_id: None })).collect();
+    let root_by_id: HashMap<&str, &domain::rows::SessionRow> = sessions.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut trees: HashMap<String, Vec<String>> = HashMap::new();
+    for s in collections.sessions.read(cx).iter() {
+        trees.entry(s.root_id_or_self().to_string()).or_default().push(s.id.clone());
+    }
     for team_id in &shown {
         let Some(team) = all_teams.iter().find(|t| &t.id == team_id) else { continue };
         let mark = team_mark_icon(team_id);
@@ -328,16 +337,16 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
             &[],
             &[],
             &[],
-            &sessions.iter().filter_map(|s| Some(domain::sidebar_tree::SidebarSessionInput { id: s.id.clone(), team_id: s.team_id.clone()?, parent_id: None })).collect::<Vec<_>>(),
+            &session_inputs,
             &entries,
         );
         for item in placed {
-            let Some(session) = sessions.iter().find(|s| s.id == item.id) else { continue };
+            let Some(session) = root_by_id.get(item.id.as_str()).copied() else { continue };
             let icon = format!("ide:run:{}", session.id);
             let agent = crate::run_rows::run_agent(session.cli.as_deref());
             let state = crate::sidebar::running_row_state(crate::session_data::session_is_working(session), false);
             glyphs.insert(icon.clone(), Glyph::Run(agent, state));
-            let tree: Vec<String> = collections.sessions.read(cx).iter().filter(|s| s.root_id_or_self() == session.id).map(|s| s.id.clone()).collect();
+            let tree: Vec<String> = trees.get(&session.id).cloned().unwrap_or_default();
             let name = crate::session_data::session_title_of(&session.id, cx).unwrap_or_else(|| domain::session_tree::SESSION_CHAT.copy.untitled.clone());
             items.push(IdeItemInput { kind: "session".into(), id: session.id.clone(), name, icon, session_ids: tree, ..Default::default() });
         }
