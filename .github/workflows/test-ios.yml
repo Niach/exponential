@@ -117,9 +117,9 @@ jobs:
       # entry, so every new PR uploaded ~790 MB (5 min, and the repo's cache budget)
       # to save a resolve that takes ~30 s from the Mac's own SwiftPM cache.
       #
-      # Restore only: each PR ref's save (~1.55 GB) evicted master's Gradle
-      # seed. seed-tuist-caches.yml writes the one master entry, on the hosted
-      # image with this key.
+      # Restore only, and nothing seeds it: each PR ref's save (~1.6 GB)
+      # evicted master's Gradle seed, and a master seed would put master's
+      # entries past the repo's 10 GB. A miss is a cold `tuist install`.
       - name: Restore SPM dependencies
         if: ${{ !(inputs.compile_only && runner.environment == 'self-hosted') }}
         uses: actions/cache/restore@v4
