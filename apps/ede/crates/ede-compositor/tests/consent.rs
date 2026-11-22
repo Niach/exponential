@@ -302,32 +302,39 @@ fn a_rewrite_in_place_is_hashed_again() {
 /// #EDE-206: what a hash is cached by. A file the person can write: by the
 /// process too, each new process of it hashed once, the file unchanged or
 /// not; root's own file: by the file, for every process that runs it.
+/// #EDE-211: the person's file is the ELF loader copied, running
+/// `/usr/bin/sleep`; never a copy of `sleep`, which on uutils (Ubuntu
+/// 26.04, the GitHub-hosted runners) is the multicall `coreutils`: it takes
+/// its utility from its own name, and as `exponential` it ends within
+/// milliseconds (`30: function/utility not found`), between `peer_running`
+/// and `hash_key`.
 #[test]
 fn a_persons_file_is_hashed_per_process_and_roots_per_file() {
-    use ede_compositor::consent::hash_key;
+    if loader().is_none() {
+        eprintln!("skipped: this test binary has no ELF loader to copy");
+        return;
+    }
     let sleep = std::fs::canonicalize("/usr/bin/sleep").unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let theirs = dir.path().join("exponential");
-    std::fs::copy(&sleep, &theirs).unwrap();
-    let theirs = std::fs::canonicalize(theirs).unwrap();
-    let running = |exe: &Path| {
-        let child = spawn(Command::new(exe).arg("30"));
+    let theirs = std::fs::canonicalize(copy_as(dir.path(), "exponential", b"")).unwrap();
+    let running = |exe: &Path, args: &[&Path]| {
+        let child = spawn(Command::new(exe).args(args).arg("30"));
         let peer = peer_running(child.id(), exe);
         (child, peer)
     };
-    let (a, peer_a) = running(&theirs);
-    let (b, peer_b) = running(&theirs);
-    let key_a = hash_key(&peer_a).unwrap();
+    let (a, peer_a) = running(&theirs, &[&sleep]);
+    let (b, peer_b) = running(&theirs, &[&sleep]);
+    let key_a = key_of(&peer_a, &theirs);
     assert!(matches!(key_a, HashKey::Process { pid, start, .. } if pid == peer_a.pid && start == peer_a.start), "{key_a:?}");
-    assert_eq!(hash_key(&peer_a), Some(key_a), "one process: one key");
-    assert_ne!(hash_key(&peer_b), Some(key_a), "another process of the same file: hashed again");
+    assert_eq!(ede_compositor::consent::hash_key(&peer_a), Some(key_a), "one process: one key");
+    assert_ne!(key_of(&peer_b, &theirs), key_a, "another process of the same file: hashed again");
     let mut children = vec![a, b];
     if ede_compositor::peer::root_owned(&sleep).is_some() {
-        let (c, peer_c) = running(&sleep);
-        let (d, peer_d) = running(&sleep);
-        let key_c = hash_key(&peer_c).unwrap();
+        let (c, peer_c) = running(&sleep, &[]);
+        let (d, peer_d) = running(&sleep, &[]);
+        let key_c = key_of(&peer_c, &sleep);
         assert!(matches!(key_c, HashKey::File(..)), "{key_c:?}");
-        assert_eq!(hash_key(&peer_d), Some(key_c), "root's file: one key for every process");
+        assert_eq!(key_of(&peer_d, &sleep), key_c, "root's file: one key for every process");
         children.extend([c, d]);
     } else {
         eprintln!("skipped root's half: {} is not root-owned here", sleep.display());
@@ -336,6 +343,28 @@ fn a_persons_file_is_hashed_per_process_and_roots_per_file() {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+/// [`hash_key`] of `peer`, a process of the file `exe`; else a failure that
+/// says which case it is (#EDE-211): both `(dev, ino)` pairs, the file's by
+/// its path and `/proc/<pid>/exe`'s, the peer's, and whether the process
+/// still runs.
+fn key_of(peer: &Peer, exe: &Path) -> HashKey {
+    ede_compositor::consent::hash_key(peer).unwrap_or_else(|| {
+        let pair = |path: &Path| std::fs::metadata(path).map(|m| (m.dev(), m.ino())).map_err(|e| e.to_string());
+        let link = PathBuf::from(format!("/proc/{}/exe", peer.pid));
+        let stat = std::fs::read_to_string(format!("/proc/{}/stat", peer.pid)).unwrap_or_else(|e| format!("({e})"));
+        panic!(
+            "no hash key for process {} of {}: the file's (dev, ino) {:?}, {}'s {:?}, the peer's {:?}; stat {}",
+            peer.pid,
+            exe.display(),
+            pair(exe),
+            link.display(),
+            pair(&link),
+            peer.exe.as_ref().map(|e| (e.dev, e.ino)),
+            stat.trim()
+        )
+    })
 }
 
 /// Several hellos of one new binary at once: each process of it is hashed
