@@ -157,15 +157,25 @@ pub(crate) fn checks_submenu(
         return menu;
     };
     let list = domain::pr_checks::checks_list(rows, crate::session_data::now_ms());
-    let icon = Icon::new(glyph_icon(summary.glyph)).text_color(tone_color(summary.tone, cx));
+    let (glyph, tone) = (summary.glyph, summary.tone);
     let label = domain::pr_checks::CHECKS_LABEL;
-    menu.submenu_with_value(Some(icon), label, Some(summary.value.clone()), window, cx, move |mut sub, _, _| {
-        sub = sub.min_w(px(t::menu::pointer::MIN_WIDTH + 60.));
-        for (index, row) in list.iter().cloned().enumerate() {
-            sub = sub.item(check_menu_item(index, row));
-        }
-        sub
-    })
+    // #EXP-2001: THE pointer submenu row (the `…`'s other rows' anatomy),
+    // never the crate's icon slot that indents every pointer row.
+    crate::controls::pointer_submenu_glyph(
+        menu,
+        move |cx| Some(Icon::new(glyph_icon(glyph)).text_color(tone_color(tone, cx))),
+        label,
+        Some(summary.value.clone().into()),
+        window,
+        cx,
+        move |mut sub, _, _| {
+            sub = sub.min_w(px(t::menu::pointer::MIN_WIDTH + 60.));
+            for (index, row) in list.iter().cloned().enumerate() {
+                sub = sub.item(check_menu_item(index, row));
+            }
+            sub
+        },
+    )
 }
 
 /// The open Checks submenu drawn as a STATIC menu panel (the styleguide
