@@ -13,12 +13,21 @@
 //! Display numbers are the epilot crate's (`epilot::displays`, the RandR
 //! monitors' order). On pure Wayland the epilot crate has no displays, so
 //! the portal's streams are numbered by position (left to right).
+//!
+//! #EXP-2064: a portal stream that names its output (eDE's stream `id`,
+//! `output:NAME`, the display's id) is that display's whatever the rects
+//! say; the others go by the portal's position and size. When the display
+//! set changes (a monitor plugged or unplugged, a new mode) the session's
+//! rects are stale: [`Shared`] closes it and opens a new one with the
+//! saved restore token, off the capture thread (on eDE that is the chooser
+//! with the last pick; GNOME and KDE restore their own way).
 
 #[cfg(feature = "portal")]
 mod portal;
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use x11rb::connection::Connection;
@@ -262,27 +271,43 @@ fn x_pixels_to_rgba(data: &[u8], bytes: usize, little: bool, masks: (u32, u32, u
 
 /// A portal stream as the portal describes it (compositor coordinates).
 #[cfg_attr(not(feature = "portal"), allow(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct StreamRect {
+    /// The portal's stream id; eDE's names the output (`output:NAME`).
+    id: Option<String>,
     position: Option<(i32, i32)>,
     size: Option<(i32, i32)>,
 }
 
 /// The display number of each portal stream. With the epilot crate's
-/// displays (X11): the display the stream's rect overlaps most (an exact
-/// rect wins), each display once; a stream left over takes the next free
-/// display in position order, then numbers past the last display. Without
-/// them (pure Wayland): 1.. by position, left to right then top to bottom,
-/// position-less streams last in the portal's order.
+/// displays (X11, eDE): first the display whose id the stream names
+/// (#EXP-2064: eDE's `output:NAME`, so two displays of one size that swap
+/// places keep their numbers), then the display the stream's rect overlaps
+/// most (an exact rect wins), each display once; a stream left over takes
+/// the next free display in position order, then numbers past the last
+/// display. Without them (pure Wayland): 1.. by position, left to right
+/// then top to bottom, position-less streams last in the portal's order.
 #[cfg_attr(not(feature = "portal"), allow(dead_code))]
 fn number_streams(streams: &[StreamRect], displays: &[epilot::Display]) -> Vec<u32> {
     let mut numbers: Vec<Option<u32>> = vec![None; streams.len()];
     let mut taken = vec![false; displays.len()];
+    for (stream_index, stream) in streams.iter().enumerate() {
+        let Some(id) = stream.id.as_deref() else { continue };
+        if let Some(display_index) = displays.iter().position(|display| display.id == id) {
+            if !taken[display_index] {
+                numbers[stream_index] = Some(displays[display_index].number);
+                taken[display_index] = true;
+            }
+        }
+    }
     let mut pairs = Vec::new();
     for (stream_index, stream) in streams.iter().enumerate() {
         let (Some((x, y)), Some((width, height))) = (stream.position, stream.size) else {
             continue;
         };
+        if numbers[stream_index].is_some() {
+            continue;
+        }
         for (display_index, display) in displays.iter().enumerate() {
             let left = x.max(display.x) as i64;
             let top = y.max(display.y) as i64;
@@ -332,6 +357,185 @@ fn frame_fits(sizes: &[(u32, (u32, u32))], number: u32, width: u32, height: u32)
     sizes.iter().find(|(display, _)| *display == number).is_none_or(|(_, size)| *size == (width, height))
 }
 
+/// One stream's answer to a grab ([`Streams::ask`]).
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+struct Answer {
+    ended: bool,
+    seq: u64,
+    /// STAMP: when the held buffer arrived (Unix ms).
+    at: i64,
+    image: Option<(u32, u32, Vec<u8>)>,
+}
+
+/// What a grab asks of one stream: its index, the seq last handed out
+/// (`u64::MAX` = only whether it ended) and STALE's `since`.
+type Ask = (usize, u64, Option<Instant>);
+
+/// The streams of one ScreenCast session (the portal's, on PipeWire);
+/// dropping them closes the session.
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+trait Streams: Send {
+    /// Each stream as the portal described it at the session's start.
+    fn rects(&self) -> &[StreamRect];
+    /// The held frame of each asked stream newer than its seq, one
+    /// [`Answer`] per ask.
+    fn ask(&mut self, asks: Vec<Ask>) -> Result<Vec<Answer>, String>;
+}
+
+/// Opens a new session (the portal with the saved restore token).
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+type Open<S> = Arc<dyn Fn() -> Result<S, String> + Send + Sync>;
+
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+enum Sharing<S> {
+    Live(S),
+    /// #EXP-2064: the display set changed; the new session comes here.
+    Reopening(mpsc::Receiver<Result<S, String>>),
+    /// The session that could not open again, and why.
+    Gone(String),
+}
+
+/// #EXP-2064: the portal capturer's numbering and its session over the
+/// display set: the streams numbered against the displays they were
+/// shared under; when that set changes the session closes and a new one
+/// opens (the saved restore token) on a thread of its own, so a chooser
+/// the person has not answered yet holds up no tick and no stop. Grabs
+/// meanwhile have nothing; a session that did not open again (declined,
+/// failed) answers its reason from then on.
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+struct Shared<S> {
+    session: Sharing<S>,
+    open: Open<S>,
+    numbers: Vec<u32>,
+    /// The pixel size of each display the streams were numbered against.
+    sizes: Vec<(u32, (u32, u32))>,
+    mapped_from: Option<Vec<epilot::Display>>,
+    /// Per stream: the seq `grab_all` last handed out.
+    seen: Vec<u64>,
+}
+
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+const ENDED: &str = "The screen sharing session ended.";
+
+#[cfg_attr(not(feature = "portal"), allow(dead_code))]
+impl<S: Streams + 'static> Shared<S> {
+    fn new(streams: S, open: Open<S>) -> Shared<S> {
+        let count = streams.rects().len();
+        Shared { session: Sharing::Live(streams), open, numbers: Vec::new(), sizes: Vec::new(), mapped_from: None, seen: vec![0; count] }
+    }
+
+    /// Before every grab, with the displays now: takes a session that
+    /// opened again, reopens on a changed display set, numbers the
+    /// streams. `Ok(false)` = no session yet (reopening).
+    fn refresh(&mut self, displays: &[epilot::Display]) -> Result<bool, String> {
+        if let Sharing::Reopening(done) = &self.session {
+            self.session = match done.try_recv() {
+                Ok(Ok(streams)) => {
+                    log::info!("[screen] ScreenCast portal reopened: {} monitor stream(s)", streams.rects().len());
+                    self.seen = vec![0; streams.rects().len()];
+                    self.mapped_from = None;
+                    Sharing::Live(streams)
+                }
+                Ok(Err(reason)) => {
+                    log::warn!("[screen] the ScreenCast session did not open again: {reason}");
+                    Sharing::Gone(reason)
+                }
+                Err(mpsc::TryRecvError::Empty) => return Ok(false),
+                Err(mpsc::TryRecvError::Disconnected) => Sharing::Gone("The screen sharing session did not open again.".to_string()),
+            };
+        }
+        let streams = match &self.session {
+            Sharing::Live(streams) => streams,
+            Sharing::Reopening(_) => return Ok(false),
+            Sharing::Gone(reason) => return Err(reason.clone()),
+        };
+        match self.mapped_from.as_deref() {
+            Some(from) if from == displays => {}
+            Some(_) => {
+                self.reopen();
+                return Ok(false);
+            }
+            None => {
+                self.numbers = number_streams(streams.rects(), displays);
+                self.sizes = displays.iter().map(|display| (display.number, epilot::pixel_size(display))).collect();
+                self.mapped_from = Some(displays.to_vec());
+            }
+        }
+        Ok(true)
+    }
+
+    /// The old session closes first (its rects are of the old set), then
+    /// a new one opens on a thread of its own.
+    fn reopen(&mut self) {
+        log::info!("[screen] the displays changed: reopening the ScreenCast session");
+        self.session = Sharing::Gone(String::new());
+        let (done, opened) = mpsc::channel();
+        let open = self.open.clone();
+        let spawned = std::thread::Builder::new().name("screen-portal-reopen".to_string()).spawn(move || {
+            let _ = done.send(open());
+        });
+        self.session = match spawned {
+            Ok(_) => Sharing::Reopening(opened),
+            Err(error) => Sharing::Gone(format!("The screen sharing session did not open again: {error}")),
+        };
+    }
+
+    fn streams(&mut self) -> &mut S {
+        match &mut self.session {
+            Sharing::Live(streams) => streams,
+            _ => unreachable!("refresh said the session is live"),
+        }
+    }
+
+    fn grab_all(&mut self, wanted: &[Want], displays: &[epilot::Display]) -> Result<Vec<Frame>, String> {
+        if !self.refresh(displays)? {
+            return Ok(Vec::new());
+        }
+        // Every stream is asked (an all-ended answer is the session's end);
+        // only the wanted ones are converted.
+        let asks = (0..self.seen.len())
+            .map(|index| match wanted.iter().find(|want| self.numbers.get(index) == Some(&want.display)) {
+                Some(want) => (index, self.seen[index], want.since),
+                None => (index, u64::MAX, None),
+            })
+            .collect();
+        let answers = self.streams().ask(asks)?;
+        if answers.iter().all(|answer| answer.ended) {
+            return Err(ENDED.to_string());
+        }
+        let mut frames = Vec::new();
+        for (index, answer) in answers.into_iter().enumerate() {
+            let Some((width, height, rgba)) = answer.image else { continue };
+            self.seen[index] = answer.seq;
+            if !frame_fits(&self.sizes, self.numbers[index], width, height) {
+                log::debug!("[screen] a {width}x{height} frame is not display {}'s: dropped", self.numbers[index]);
+                continue;
+            }
+            frames.push(Frame::rgba(self.numbers[index], width, height, rgba).stamped(answer.at));
+        }
+        Ok(frames)
+    }
+
+    fn grab(&mut self, wanted: Want, displays: &[epilot::Display]) -> Result<Option<Frame>, String> {
+        if !self.refresh(displays)? {
+            return Ok(None);
+        }
+        let Some(index) = self.numbers.iter().position(|&number| number == wanted.display) else {
+            return Ok(None);
+        };
+        let mut answers = self.streams().ask(vec![(index, 0, wanted.since)])?;
+        let Some(answer) = answers.pop() else { return Ok(None) };
+        let Some((width, height, rgba)) = answer.image else {
+            return if answer.ended { Err(ENDED.to_string()) } else { Ok(None) };
+        };
+        self.seen[index] = answer.seq;
+        if !frame_fits(&self.sizes, wanted.display, width, height) {
+            return Ok(None);
+        }
+        Ok(Some(Frame::rgba(wanted.display, width, height, rgba).stamped(answer.at)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,7 +545,7 @@ mod tests {
     }
 
     fn stream(x: i32, y: i32, width: i32, height: i32) -> StreamRect {
-        StreamRect { position: Some((x, y)), size: Some((width, height)) }
+        StreamRect { id: None, position: Some((x, y)), size: Some((width, height)) }
     }
 
     #[test]
@@ -356,7 +560,7 @@ mod tests {
     fn a_scaled_stream_maps_by_overlap_and_a_stranger_takes_the_free_number() {
         let displays = [display(1, 0, 0, 3840, 2160), display(2, 3840, 0, 1920, 1080)];
         // A logical (scaled) rect for display 1, none for display 2.
-        let streams = [StreamRect { position: None, size: None }, stream(0, 0, 1920, 1080)];
+        let streams = [StreamRect { id: None, position: None, size: None }, stream(0, 0, 1920, 1080)];
         assert_eq!(number_streams(&streams, &displays), vec![2, 1]);
         // More streams than displays: numbers past the last one.
         let streams = [stream(0, 0, 3840, 2160), stream(9000, 0, 10, 10), stream(3840, 0, 1920, 1080)];
@@ -380,8 +584,201 @@ mod tests {
 
     #[test]
     fn without_displays_streams_number_by_position() {
-        let streams = [stream(1920, 0, 1920, 1080), StreamRect { position: None, size: None }, stream(0, 0, 1920, 1080)];
+        let streams = [stream(1920, 0, 1920, 1080), StreamRect { id: None, position: None, size: None }, stream(0, 0, 1920, 1080)];
         assert_eq!(number_streams(&streams, &[]), vec![2, 3, 1]);
+    }
+
+    fn named(id: &str, number: u32, x: i32, y: i32, width: u32, height: u32) -> epilot::Display {
+        epilot::Display { id: id.to_string(), number, x, y, width, height, primary: number == 1 }
+    }
+
+    fn named_stream(id: &str, x: i32, y: i32, width: i32, height: i32) -> StreamRect {
+        StreamRect { id: Some(id.to_string()), ..stream(x, y, width, height) }
+    }
+
+    /// #EXP-2064: two displays of one size swap places; eDE's streams name
+    /// their outputs, so each keeps its number though its rect (of the
+    /// session's start) now lies on the other display.
+    #[test]
+    fn streams_that_name_their_output_keep_its_number_whatever_the_rects_say() {
+        let streams = [named_stream("output:A", 0, 0, 1920, 1080), named_stream("output:B", 1920, 0, 1920, 1080)];
+        let before = [named("output:A", 1, 0, 0, 1920, 1080), named("output:B", 2, 1920, 0, 1920, 1080)];
+        assert_eq!(number_streams(&streams, &before), vec![1, 2]);
+        let swapped = [named("output:A", 1, 1920, 0, 1920, 1080), named("output:B", 2, 0, 0, 1920, 1080)];
+        assert_eq!(number_streams(&streams, &swapped), vec![1, 2], "by name, not by the stale rects");
+        let by_rect: Vec<StreamRect> = streams.iter().map(|s| StreamRect { id: None, ..s.clone() }).collect();
+        assert_eq!(number_streams(&by_rect, &swapped), vec![2, 1], "without names the rects decide (the session reopens for that)");
+        // A name nobody has (another desktop's opaque id) falls back to the rect.
+        let opaque = [named_stream("0", 1920, 0, 1920, 1080)];
+        assert_eq!(number_streams(&opaque, &before), vec![2]);
+    }
+
+    /// A portal session's streams for the tests: each stream delivers a new
+    /// frame of its size on every ask; dropping it counts a close.
+    struct Fake {
+        rects: Vec<StreamRect>,
+        seq: u64,
+        closed: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl Streams for Fake {
+        fn rects(&self) -> &[StreamRect] {
+            &self.rects
+        }
+
+        fn ask(&mut self, asks: Vec<Ask>) -> Result<Vec<Answer>, String> {
+            self.seq += 1;
+            Ok(asks
+                .into_iter()
+                .map(|(index, seen, _)| {
+                    let size = self.rects[index].size.unwrap();
+                    let image = (seen < self.seq).then(|| (size.0 as u32, size.1 as u32, vec![0; (size.0 * size.1 * 4) as usize]));
+                    Answer { ended: false, seq: self.seq, at: 0, image }
+                })
+                .collect())
+        }
+    }
+
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            self.closed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// The portal for the tests: what it shares now (eDE: every output by
+    /// name), how often it opened, and a gate standing for the chooser
+    /// (each open waits for one `answer`).
+    struct Portal {
+        shares: std::sync::Mutex<Vec<StreamRect>>,
+        opened: std::sync::atomic::AtomicUsize,
+        closed: Arc<std::sync::atomic::AtomicUsize>,
+        chooser: std::sync::Mutex<mpsc::Receiver<Result<(), String>>>,
+    }
+
+    impl Portal {
+        fn open(&self) -> Result<Fake, String> {
+            self.opened.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.chooser.lock().unwrap().recv().map_err(|_| "no answer".to_string())??;
+            Ok(Fake { rects: self.shares.lock().unwrap().clone(), seq: 0, closed: self.closed.clone() })
+        }
+    }
+
+    fn wants(displays: &[u32]) -> Vec<Want> {
+        displays.iter().map(|&display| Want { display, since: None }).collect()
+    }
+
+    /// The frames' (display, width, height).
+    fn grabbed(shared: &mut Shared<Fake>, wanted: &[u32], displays: &[epilot::Display]) -> Result<Vec<(u32, u32, u32)>, String> {
+        let mut frames: Vec<(u32, u32, u32)> = shared.grab_all(&wants(wanted), displays)?.into_iter().map(|f| (f.display, f.width, f.height)).collect();
+        frames.sort();
+        Ok(frames)
+    }
+
+    /// Grabs until the reopened session is in (the thread that opens it).
+    fn reopened(shared: &mut Shared<Fake>, wanted: &[u32], displays: &[epilot::Display]) -> Result<Vec<(u32, u32, u32)>, String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let frames = grabbed(shared, wanted, displays)?;
+            if !frames.is_empty() {
+                return Ok(frames);
+            }
+            assert!(Instant::now() < deadline, "the session never opened again");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// #EXP-2064 on eDE's terms: two outputs, one unplugged and plugged
+    /// back. Each change closes the session and opens a new one (the
+    /// chooser; grabs have nothing while it is up), and frames come back
+    /// for every output with its own number and size.
+    #[test]
+    fn a_changed_display_set_reopens_the_session_and_frames_resume_with_the_right_numbers() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let a = named("output:A", 1, 0, 0, 1920, 1080);
+        let b = named("output:B", 2, 1920, 0, 1280, 720);
+        let both = vec![named_stream("output:A", 0, 0, 1920, 1080), named_stream("output:B", 1920, 0, 1280, 720)];
+        let (answer, chooser) = mpsc::channel();
+        let portal = Arc::new(Portal { shares: std::sync::Mutex::new(both.clone()), opened: Default::default(), closed: Default::default(), chooser: std::sync::Mutex::new(chooser) });
+        answer.send(Ok(())).unwrap();
+        let first = portal.open().unwrap();
+        let open: Open<Fake> = {
+            let portal = portal.clone();
+            Arc::new(move || portal.open())
+        };
+        let mut shared = Shared::new(first, open);
+        assert_eq!(grabbed(&mut shared, &[1, 2], &[a.clone(), b.clone()]), Ok(vec![(1, 1920, 1080), (2, 1280, 720)]));
+
+        // B is unplugged: the session closes, a new one opens (the chooser
+        // up: nothing meanwhile, and no tick waits for it).
+        *portal.shares.lock().unwrap() = vec![named_stream("output:A", 0, 0, 1920, 1080)];
+        let started = Instant::now();
+        assert_eq!(grabbed(&mut shared, &[1], &[a.clone()]), Ok(vec![]));
+        assert!(started.elapsed() < Duration::from_secs(1), "the reopen held up the tick");
+        assert_eq!(portal.closed.load(SeqCst), 1, "the old session closed");
+        assert_eq!(grabbed(&mut shared, &[1], &[a.clone()]), Ok(vec![]), "the chooser is still up");
+        answer.send(Ok(())).unwrap();
+        assert_eq!(reopened(&mut shared, &[1], &[a.clone()]), Ok(vec![(1, 1920, 1080)]));
+        assert_eq!(portal.opened.load(SeqCst), 2);
+
+        // B is back, now LEFT of A and the portal lists it first: by name.
+        let b_left = named("output:B", 2, 0, 0, 1280, 720);
+        let a_right = named("output:A", 1, 1280, 0, 1920, 1080);
+        *portal.shares.lock().unwrap() = vec![named_stream("output:B", 0, 0, 1280, 720), named_stream("output:A", 1280, 0, 1920, 1080)];
+        assert_eq!(grabbed(&mut shared, &[1, 2], &[a_right.clone(), b_left.clone()]), Ok(vec![]));
+        answer.send(Ok(())).unwrap();
+        let displays = [a_right.clone(), b_left.clone()];
+        assert_eq!(reopened(&mut shared, &[1, 2], &displays), Ok(vec![(1, 1920, 1080), (2, 1280, 720)]));
+        assert_eq!((portal.opened.load(SeqCst), portal.closed.load(SeqCst)), (3, 2));
+        // An unchanged set opens nothing.
+        assert_eq!(grabbed(&mut shared, &[1, 2], &displays), Ok(vec![(1, 1920, 1080), (2, 1280, 720)]));
+        assert_eq!(portal.opened.load(SeqCst), 3);
+
+        // A new mode on A, and the person declines the chooser: the grabs
+        // say so from then on (as a share stopped from the indicator).
+        let a_big = named("output:A", 1, 1280, 0, 2560, 1440);
+        answer.send(Err("screen sharing was declined".to_string())).unwrap();
+        let displays = [a_big, b_left];
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let declined = loop {
+            match grabbed(&mut shared, &[1, 2], &displays) {
+                Ok(frames) => assert!(frames.is_empty(), "frames without a session: {frames:?}"),
+                Err(reason) => break reason,
+            }
+            assert!(Instant::now() < deadline, "the declined reopen never answered");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(declined, "screen sharing was declined");
+        assert_eq!(shared.grab(Want { display: 1, since: None }, &displays).map(|f| f.is_some()), Err(declined));
+    }
+
+    /// A stop while the chooser of a reopen is up does not wait for it; the
+    /// session it opens later closes at once.
+    #[test]
+    fn a_stop_during_a_reopen_does_not_wait_for_the_chooser() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let a = named("output:A", 1, 0, 0, 1920, 1080);
+        let (answer, chooser) = mpsc::channel();
+        let portal = Arc::new(Portal { shares: std::sync::Mutex::new(vec![named_stream("output:A", 0, 0, 1920, 1080)]), opened: Default::default(), closed: Default::default(), chooser: std::sync::Mutex::new(chooser) });
+        answer.send(Ok(())).unwrap();
+        let first = portal.open().unwrap();
+        let open: Open<Fake> = {
+            let portal = portal.clone();
+            Arc::new(move || portal.open())
+        };
+        let mut shared = Shared::new(first, open);
+        assert_eq!(grabbed(&mut shared, &[1], &[a.clone()]), Ok(vec![(1, 1920, 1080)]));
+        let moved = named("output:A", 1, 0, 0, 1600, 900);
+        assert_eq!(grabbed(&mut shared, &[1], &[moved]), Ok(vec![]));
+        let started = Instant::now();
+        drop(shared);
+        assert!(started.elapsed() < Duration::from_millis(500), "the stop waited for the chooser");
+        assert_eq!(portal.closed.load(SeqCst), 1);
+        answer.send(Ok(())).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while portal.closed.load(SeqCst) < 2 {
+            assert!(Instant::now() < deadline, "the late session was never closed");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
