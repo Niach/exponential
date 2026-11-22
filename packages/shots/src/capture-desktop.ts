@@ -309,18 +309,8 @@ export async function sessionValid(baseUrl: string, token: string): Promise<bool
   }
 }
 
-/**
- * Does this desktop capture wait for the steer feed's first replay
- * (`apps/desktop/crates/ui/src/dev_ready.rs`)? A `session:` screen always
- * does; any other view that pictures a transcript (a chat's Chat tab, an
- * agent's or app's chat pane) sets `EXP_DEV_WAIT_FEED`. #EXP-1886: a chat
- * view without it photographed "No live transcript" before the feed joined.
- * Such a view needs the relay stub, or its capture waits forever.
- */
-export function desktopWaitsForFeed(desktop: DesktopCapture): boolean {
-  if (desktop.drive.kind === `screen` && desktop.drive.value?.startsWith(`session:`)) return true
-  return desktop.env?.EXP_DEV_WAIT_FEED === `1`
-}
+/** #EXP-1886: moved to @exp/view-catalog (web mirrors it, #EXP-1891). */
+export { desktopWaitsForFeed } from "@exp/view-catalog"
 
 /** Translate a catalog drive into the app's dev env vars. */
 export function driveEnv(

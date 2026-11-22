@@ -983,6 +983,18 @@ private fun RunFaceContent(
         session?.let {
             steerNoFeedState(ended = sessionEnded, busy = it.busy, deviceOffline = hostDevice.offline)
         } == SteerNoFeedState.Away
+    // #EXP-2000 (steer-enet.json NEVER HELD): a row no device picked up yet
+    // (`startedAt` null) says nothing: no copy, spinner or skeleton, only its
+    // sent inputs and the own tail, at the bottom.
+    val noFeedWaiting = feed.isEmpty() && history == null && phase != AgentPhase.Live &&
+        session?.let {
+            steerNoFeedState(
+                ended = sessionEnded,
+                busy = it.busy,
+                deviceOffline = hostDevice.offline,
+                started = !it.startedAt.isNullOrEmpty(),
+            )
+        } == SteerNoFeedState.Waiting
     // The placeholder states (no feed yet) centre in the space between the
     // bands; the feed itself scrolls under both.
     val feedPlaceholder = noFeedAway || feed.isEmpty() && (
@@ -1072,6 +1084,8 @@ private fun RunFaceContent(
                     modifier = Modifier.testTag("transcript-device-away"),
                 )
             }
+            // #EXP-2000: nothing to say yet (the spacer above the bubbles).
+            noFeedWaiting -> Unit
             // EXP-773: a finished run's transcript lives on the
             // machine that ran it (VAPP-43: served over eNet). Say
             // plainly when that machine cannot answer — this is not a
@@ -1342,6 +1356,8 @@ private fun RunFaceContent(
                     // mechanism: the consumed inputs stand in for the
                     // transcript (`read`), then the own tail (unconsumed rows,
                     // the outbox) with their marks.
+                    // #EXP-2000: a never-held row's bubbles sit at the bottom.
+                    if (noFeedWaiting) Spacer(Modifier.fillMaxWidth().weight(1f).testTag("transcript-waiting"))
                     if (placeholderBubbles.isNotEmpty()) {
                     Column(
                         Modifier
@@ -1373,7 +1389,7 @@ private fun RunFaceContent(
                     }
                     }
                     }
-                    Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
+                    if (!noFeedWaiting) Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     if (waitingCardRows.isNotEmpty()) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                             CompositionLocalProvider(LocalCardHighlight provides placeholderRing) {
