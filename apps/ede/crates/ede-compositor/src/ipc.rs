@@ -651,7 +651,7 @@ impl Ede {
                 Request::SpaceReadiness => Ok(Some((serde_json::to_value(self.space_readiness_reply()).unwrap(), None))),
                 other => {
                     debug_assert!(!other.anonymous(), "{other:?} is on the allowlist and has no arm here");
-                    Err(fail(ErrorCode::Forbidden, "an anonymous connection asks only list_outputs, space_readiness and request_grant"))
+                    Err(fail(ErrorCode::Forbidden, "an anonymous connection asks only list_outputs and space_readiness"))
                 }
             };
         }
