@@ -325,9 +325,11 @@ function busRelayTurn(ctx: Ctx, child: HubSession, body: string, sealed: boolean
     hidden: { body: privateText(child.id, copy.privateReplyLead), card: null },
     waking: true,
     // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
-    // #FEED-194: unless it is the agent that started the root session.
+    // #FEED-194: unless it is the agent that started the root session. #FEED-266: the child's own child that watches
+    // it (no subagent) hears no turn either: its turns already wake the child, a relay back would ping-pong.
     skip: (listener) =>
-      listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
+      (listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId) ||
+      (listener.parentId === child.id && !isSubagent(listener)),
   })
 }
 

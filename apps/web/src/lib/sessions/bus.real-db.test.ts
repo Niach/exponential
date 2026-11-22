@@ -395,6 +395,31 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     expect((await watchedSessionIds(watcher))).toEqual([])
   })
 
+  it(`#FEED-266: a child watching its parent hears none of its turns (no ping-pong); -<id> cancels`, async () => {
+    const w = await world()
+    const rootId = await w.root(`coordinator`)
+    const childId = await w.child(rootId)
+    const other = await w.root(`other watcher`)
+    for (const watcher of [childId, other]) {
+      await sendSession({ userId: w.owner, callerSessionId: watcher, viaMcp: true, input: { wakeOn: [rootId] } })
+    }
+    expect(await watchedSessionIds(childId)).toEqual([rootId])
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
+    // The parent's turn: the other watcher hears it, the watching child does not (its turns wake the parent).
+    await w.host.reply({ sessionId: rootId, body: `Waiting on the child.` })
+    expect((await fromChild(other, rootId)).filter((m) => m.card === null)).toMatchObject([{ body: `Waiting on the child.`, consumedAt: null }])
+    expect((await fromChild(childId, rootId)).filter((m) => m.card === null)).toEqual([])
+    // The child's turn still wakes its parent, once: nothing bounces back.
+    await w.host.reply({ sessionId: childId, body: `Still on it.` })
+    expect((await fromChild(rootId, childId)).filter((m) => m.card === null)).toMatchObject([{ body: `Still on it.`, consumedAt: null }])
+    expect((await fromChild(childId, rootId)).filter((m) => m.card === null)).toEqual([])
+    // A cancel clears the watch (the other one keeps its own).
+    await sendSession({ userId: w.owner, callerSessionId: childId, viaMcp: true, input: { wakeOn: [`-${rootId}`] } })
+    expect(await watchedSessionIds(childId)).toEqual([])
+    expect(await watchedSessionIds(other)).toEqual([rootId])
+  })
+
   it(`a root started from inside a session is watched by it`, async () => {
     const w = await world()
     const starter = await w.root(`starter`)

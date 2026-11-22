@@ -74,6 +74,9 @@ interface Listener {
   shared: boolean
   userId: string
   status: Session[`status`]
+  /** #FEED-266: a child of the session that watches it hears none of its turns. */
+  parentId: string | null
+  subagentKey: string | null
 }
 
 const LISTENER = {
@@ -84,6 +87,8 @@ const LISTENER = {
   shared: sessions.shared,
   userId: sessions.userId,
   status: sessions.status,
+  parentId: sessions.parentId,
+  subagentKey: sessions.subagentKey,
 }
 
 /** The sessions a transition of `child` reaches: its parent (whatever its
@@ -331,8 +336,11 @@ export async function busRelayTurn(
     hidden: { body: privateText(child, PRIVATE_REPLY_LEAD), card: null },
     waking: true,
     originMessageId,
+    // #FEED-266 (bus.json): nor does the child's own child that watches it (no subagent): its turns
+    // already wake the child, so a relay back ping-pongs between the two.
     skip: (listener) =>
-      listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
+      (listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId) ||
+      (listener.parentId === child.id && listener.subagentKey === null),
   })
 }
 
