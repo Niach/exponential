@@ -2,12 +2,19 @@
 //!
 //! eDE keeps writing the root token file: the released Exponential app and
 //! CLI read it and say `hello` with it, and they must keep working with no
-//! change. With the gate on (`[control] consent`, eDE's flip turns it on),
+//! change. With the gate on (always in a real session since eDE's flip,
+//! unless this module's root-owned policy file says `[control] consent =
+//! false`; the person's `compositor.toml` may turn it on, never off),
 //! the token is honoured by who presents it, read from the connection's
 //! peer ([`crate::peer`]):
 //!
-//! - eDE's own root-owned binaries (the shell, sealed, the portal), the
-//!   compositor itself and the tests' stand-ins: root, no prompt.
+//! - The compositor itself, the children it started (its helpers, the
+//!   lock, the consent prompt) and the tests' stand-ins: root, no prompt.
+//!   eDE's own root-owned binaries (the shell, sealed, the portal) by file
+//!   too, but only while their units start them (`[session] helpers =
+//!   "units"`): with the compositor starting them (eDE's flip, P14) they
+//!   hold their channel, and a genuine binary that anything else started
+//!   gets nothing by its file ([`Own`]).
 //! - What the root-owned policy file names: its principal, no prompt.
 //! - The root-owned `exponential-ctl`: the sealed consent for every ctl
 //!   process (D3 a); on Allow, root for that process.
@@ -74,6 +81,34 @@ impl Principal {
     }
 }
 
+/// Row 1 of design v3's 3.3' (#EDE-172): who gets root with no prompt.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Own {
+    /// The compositor itself and a test's stand-ins.
+    pub pids: Vec<u32>,
+    /// The children the compositor started (its helpers, the lock client,
+    /// the consent prompt): theirs only while the compositor is the
+    /// process's parent (a pid used again is someone else's).
+    pub children: Vec<u32>,
+    /// eDE's installed binaries by file ([`Installed`]) too: only while the
+    /// session's units start them. With `[session] helpers = "compositor"`
+    /// (P14) they are the compositor's children and hold their channel.
+    pub by_file: bool,
+}
+
+impl Own {
+    /// `peer` is the compositor's own (no prompt, root).
+    pub fn holds(&self, peer: &Peer, installed: &Installed) -> bool {
+        let parent = peer.parent.as_ref().map(|(pid, _)| *pid);
+        self.pids.contains(&peer.pid) || (self.children.contains(&peer.pid) && parent == Some(std::process::id())) || (self.by_file && edes_own(peer, installed))
+    }
+}
+
+/// `peer` runs eDE's installed shell, sealed or portal ([`Installed::is`]).
+fn edes_own(peer: &Peer, installed: &Installed) -> bool {
+    [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL].iter().any(|name| installed.is(peer, name))
+}
+
 /// What the compositor does with a root `hello` from a peer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -115,10 +150,34 @@ pub fn shown(text: &str) -> String {
     out
 }
 
-/// What an executable is for the hash cache: `(st_dev, st_ino, size,
-/// mtime, ctime sec, ctime nsec)`. The owner can set mtime; only the kernel
-/// sets ctime, so a rewrite in place is hashed again.
-pub type FileKey = (u64, u64, u64, i64, i64, i64);
+/// What an executable's hash is cached by (#EDE-206). A rewrite in place
+/// keeps the file's `(st_dev, st_ino)` and its size, its owner can put its
+/// mtime back, and where timestamps are coarse (1 s: ext4 with 128-byte
+/// inodes, some FUSE and network filesystems) its ctime reads as before
+/// within the same second. So only a file the person cannot rewrite is
+/// cached by the file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HashKey {
+    /// A file nobody but root can write, or on a read-only filesystem (the
+    /// AppImage's mount): for every process that runs it, by `(st_dev,
+    /// st_ino, size, mtime, ctime sec, ctime nsec)`.
+    File(u64, u64, u64, i64, i64, i64),
+    /// A file the person can write (the CLI's `~/.local/bin/exponential`):
+    /// by the process too (pid and start). A running executable cannot be
+    /// written (`ETXTBSY`), so each new process is hashed once.
+    Process { pid: u32, start: u64, dev: u64, ino: u64 },
+}
+
+impl HashKey {
+    /// A process's entry outlives it for nothing: the next process of the
+    /// file is hashed again anyway.
+    fn gone(&self) -> bool {
+        match *self {
+            HashKey::File(..) => false,
+            HashKey::Process { pid, start, .. } => crate::peer::stat_of(pid).is_none_or(|(now, _)| now != start),
+        }
+    }
+}
 
 /// What an answer is remembered by.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -134,6 +193,16 @@ pub enum Key {
 #[serde(default, deny_unknown_fields)]
 pub struct Policy {
     pub allow: Vec<Entry>,
+    /// P14: `[control] consent = false`, the root token's gate off in a
+    /// real session (a VM or CI machine that wants the old bearer token).
+    /// Only this root-owned file turns it off: the person's own
+    /// `compositor.toml` may turn it on, never off
+    /// ([`crate::Config::for_a_real_session`]).
+    pub control: crate::config::Control,
+    /// P14: `[session] helpers = "units"`, the session's units start the
+    /// helpers again (and `services.sock` comes back). As `[control]`: only
+    /// from here.
+    pub session: crate::config::Session,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -227,12 +296,40 @@ pub fn hash_exe(pid: u32, dev: u64, ino: u64) -> Result<[u8; 32], String> {
     Ok(hasher.finalize().into())
 }
 
-/// What `peer`'s executable is for the hash cache ([`FileKey`]), if it is
+/// What `peer`'s executable is for the hash cache ([`HashKey`]), if it is
 /// still the file it connected with.
-pub fn file_key(peer: &Peer) -> Option<FileKey> {
+pub fn hash_key(peer: &Peer) -> Option<HashKey> {
     let meta = std::fs::metadata(format!("/proc/{}/exe", peer.pid)).ok()?;
     let exe = peer.exe.as_ref()?;
-    ((meta.dev(), meta.ino()) == (exe.dev, exe.ino)).then(|| (meta.dev(), meta.ino(), meta.size(), meta.mtime(), meta.ctime(), meta.ctime_nsec()))
+    if (meta.dev(), meta.ino()) != (exe.dev, exe.ino) {
+        return None;
+    }
+    // An ACL that lets anyone else write shows in the group bits (its mask).
+    let roots = meta.uid() == 0 && meta.mode() & 0o022 == 0;
+    Some(if roots || read_only_fs(peer.pid, meta.dev()) {
+        HashKey::File(meta.dev(), meta.ino(), meta.size(), meta.mtime(), meta.ctime(), meta.ctime_nsec())
+    } else {
+        HashKey::Process { pid: peer.pid, start: peer.start, dev: meta.dev(), ino: meta.ino() }
+    })
+}
+
+/// The filesystem of device `dev` is read-only as process `pid`'s mount
+/// table says ([`read_only_in`]).
+fn read_only_fs(pid: u32, dev: u64) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/mountinfo")).is_ok_and(|table| read_only_in(&table, dev))
+}
+
+/// A `mountinfo` line of device `dev` whose superblock options say `ro`.
+/// Every mount of a device shares its superblock; a read-only bind mount of
+/// a writable filesystem has `ro` only in its mount options, and does not
+/// count. A device not in the table is not read-only.
+pub fn read_only_in(mountinfo: &str, dev: u64) -> bool {
+    let wanted = format!("{}:{}", libc::major(dev), libc::minor(dev));
+    mountinfo.lines().any(|line| {
+        // `id parent major:minor root point options [optional...] - type source super`
+        let (Some(device), Some((_, after))) = (line.split(' ').nth(2), line.split_once(" - ")) else { return false };
+        device == wanted && after.split(' ').nth(2).is_some_and(|options| options.split(',').any(|o| o == "ro"))
+    })
 }
 
 /// A `hello` waiting for the person (or for its executable's hash).
@@ -267,12 +364,13 @@ pub struct Gate {
     /// content (the app's, the CLI's) and by its file (`exponential-ctl`).
     backoff: HashMap<[u8; 32], Instant>,
     file_backoff: HashMap<(u64, u64), Instant>,
-    /// Executables hashed already ([`FileKey`]).
-    hashes: HashMap<FileKey, [u8; 32]>,
-    /// The hashes being read, one per file, and the hellos waiting for each.
-    pub hashing: HashMap<FileKey, Vec<(u64, u64)>>,
-    /// How many hashes were started, per file (tests: one per file).
-    pub hashes_started: HashMap<FileKey, u32>,
+    /// Executables hashed already ([`HashKey`]).
+    hashes: HashMap<HashKey, [u8; 32]>,
+    /// The hashes being read, one per [`HashKey`], and the hellos waiting
+    /// for each.
+    pub hashing: HashMap<HashKey, Vec<(u64, u64)>>,
+    /// How many hashes were started (tests).
+    pub hashes_started: u32,
     /// The hellos waiting for an answer; the first one's question is open.
     pub waiting: VecDeque<Waiter>,
     /// The open question's key and, when the compositor spawned the
@@ -307,19 +405,26 @@ impl Gate {
     }
 
     pub fn cached_hash(&self, peer: &Peer) -> Option<[u8; 32]> {
-        file_key(peer).and_then(|key| self.hashes.get(&key).copied())
+        hash_key(peer).and_then(|key| self.hashes.get(&key).copied())
     }
 
-    pub fn remember_hash(&mut self, key: FileKey, hash: [u8; 32]) {
+    pub fn remember_hash(&mut self, key: HashKey, hash: [u8; 32]) {
         self.hashes.insert(key, hash);
+    }
+
+    /// A hash starts: counted, and what processes that are gone left in
+    /// the cache goes.
+    pub fn hash_started(&mut self) {
+        self.hashes.retain(|k, _| !k.gone());
+        self.hashes_started += 1;
     }
 
     /// The verdict for a root `hello` from `peer`, given what is known now.
     /// `hash` = the executable's, when it was needed and is known; `None`
     /// with [`Gate::needs_hash`] true = hash it first.
-    pub fn verdict(&self, peer: Option<&Peer>, installed: &Installed, own: &[u32], policy: &Policy, hash: Option<&[u8; 32]>) -> Verdict {
+    pub fn verdict(&self, peer: Option<&Peer>, installed: &Installed, own: &Own, policy: &Policy, hash: Option<&[u8; 32]>) -> Verdict {
         let Some(peer) = peer else { return Verdict::Refuse("the root token is honoured only from a process the compositor knows".into()) };
-        if own.contains(&peer.pid) || [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL].iter().any(|name| installed.is(peer, name)) {
+        if own.holds(peer, installed) {
             return Verdict::Grant(Principal::Root);
         }
         if let Some(principal) = policy.principal_for(peer, hash) {
@@ -349,6 +454,10 @@ impl Gate {
             });
         }
         let named = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| ASKING_NAMES.contains(&n));
+        if edes_own(peer, installed) {
+            // P14: the compositor starts eDE's own programs itself.
+            return Verdict::Refuse(format!("the root token is not honoured from {}: the compositor did not start it", path.display()));
+        }
         if !named || !peer.same_userns {
             return Verdict::Refuse(format!("the root token is not honoured from {}", path.display()));
         }
@@ -371,7 +480,7 @@ impl Gate {
 
     /// Whether the verdict for `peer` needs its executable's hash first.
     pub fn needs_hash(&self, peer: &Peer, installed: &Installed, policy: &Policy) -> bool {
-        if [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL, crate::peer::CTL].iter().any(|name| installed.is(peer, name)) {
+        if edes_own(peer, installed) || installed.is(peer, crate::peer::CTL) {
             return false;
         }
         let named = peer.exe_path().and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|n| ASKING_NAMES.contains(&n))).unwrap_or(false);
@@ -420,6 +529,23 @@ mod tests {
         assert_eq!(out, "/home/u/x\\nAllow is safe\\u{202e}lmth.\\u{2066}/exponential");
         assert_eq!(shown("/tmp/.mount_Expo/usr/bin/exp-desktop"), "/tmp/.mount_Expo/usr/bin/exp-desktop", "an ordinary path as it is");
         assert_eq!(shown("a\u{7}b\u{200f}"), "a\\u{7}b\\u{200f}");
+    }
+
+    /// #EDE-206: the file-wide cache on a read-only filesystem: the
+    /// AppImage's FUSE mount is; a read-only bind mount of a writable one,
+    /// or a device the table does not name, is not.
+    #[test]
+    fn a_read_only_filesystem_is_told_by_its_superblock() {
+        let table = "29 1 253:1 / / rw,relatime shared:1 - ext4 /dev/mapper/vgmint-root rw,errors=remount-ro\n\
+                     729 33 0:93 / /tmp/.mount_ExponebFcFiO ro,nosuid,nodev,relatime shared:722 - fuse.Exponential-production-x86_64.AppImage Exponential-production-x86_64.AppImage ro,user_id=1000,group_id=1000\n\
+                     812 29 253:1 /home/u/bin /srv/ro\\040bin ro,relatime shared:1 - ext4 /dev/mapper/vgmint-root rw,errors=remount-ro\n\
+                     900 29 7:3 / /snap/core22/2045 ro,nodev,relatime shared:500 - squashfs /dev/loop3 ro\n";
+        let dev = |major: u32, minor: u32| libc::makedev(major, minor);
+        assert!(read_only_in(table, dev(0, 93)), "the AppImage's mount");
+        assert!(read_only_in(table, dev(7, 3)), "a squashfs");
+        assert!(!read_only_in(table, dev(253, 1)), "a read-only bind mount of a writable filesystem");
+        assert!(!read_only_in(table, dev(0, 94)), "a device the table does not name");
+        assert!(!read_only_in("garbage\n\n", dev(0, 93)));
     }
 
     #[test]

@@ -9,15 +9,22 @@
 //! eCore's [`Envelope`].
 //!
 //! The compositor writes a root token (every capability) to
-//! `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; whoever
+//! `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600); whoever
 //! holds `system` mints narrower, expiring grants for agents with
 //! [`Request::MintGrant`]. A grant never mints more than it holds.
+//! [`Client::connect_as`] mints a grant of its own holding only what the
+//! caller names and drops the root connection (#EDE-22: grants by default).
+//! A process handed a grant in `EDE_TOKEN` (a space's agent) keeps that one.
 //!
-//! The root token is the shell's (and the test harness's): everything else
-//! comes in through [`Client::connect_as`], which mints a grant of its own
-//! holding only what the caller names and drops the root connection
-//! (#EDE-22: grants by default). A process handed a grant in `EDE_TOKEN`
-//! (the sealed lock, a sandboxed agent) keeps that one.
+//! #EDE-172: in a real Exponential Desktop session the root token is
+//! honoured by who presents it, not by who read the file: the compositor's
+//! own children hold channels (below) and present none; the root-owned
+//! `exponential-ctl` and an executable named `exp-desktop` or `exponential`
+//! (the released app and CLI) are asked about through the sealed consent
+//! (the app's `hello` waits for the person's answer); what the root-owned
+//! `/etc/exponential-desktop/control.toml` names passes; anything else is
+//! refused with [`ErrorCode::Unauthorized`]. A `hello` with no token is
+//! anonymous ([`Request::anonymous`]).
 //!
 //! #EDE-172, channels: a grant can live on connections instead of in a
 //! string. A connection the compositor made (inherited at spawn,
@@ -28,9 +35,9 @@
 //! it no wider and no longer-lived. A child is bound: its token is never
 //! taken at hello (the wire [`Grant`] keeps the field; for a bound grant it
 //! is the grant's id, which [`Request::RevokeGrant`] takes), and revoking
-//! it, or the end of its parent, ends its connections. Until eDE's flip
-//! the token file stays and every reader falls back to it; an older
-//! compositor answers `open_channel` with [`Error::Unsupported`].
+//! it, or the end of its parent, ends its connections. The token file stays
+//! (the released app reads it), gated as above; an older compositor answers
+//! `open_channel` with [`Error::Unsupported`].
 
 use std::{
     io::{Read, Write},

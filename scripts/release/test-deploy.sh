@@ -26,7 +26,10 @@ case "$1 $2" in
   "deploy uuid") grep -qx "$3" $S/stuck 2>/dev/null || cp $S/tag_$3 $S/run_$3; echo queued;;
   "app update") echo "$5" >$S/tag_$3;;
   "app get") echo "{\"docker_registry_image_tag\":\"$(cat $S/tag_$3)\",\"status\":\"running:healthy\"}";;
-  "app deployments") st=finished; grep -qx "$4" $S/deployfail 2>/dev/null && st=failed; echo "[{\"status\":\"$st\"}]";;
+  "app deployments") st=finished; grep -qx "$4" $S/deployfail 2>/dev/null && st=failed
+    # deployonce: that app's FIRST deployment fails, the next finishes (#EXP-1974)
+    grep -qx "$4" $S/deployonce 2>/dev/null && [ "$(grep -c "^coolify deploy uuid $4" $S/calls)" = 1 ] && st=failed
+    echo "[{\"status\":\"$st\"}]";;
 esac
 EOF
   cat >"$ST/bin/ssh" <<'EOF'
@@ -43,6 +46,7 @@ case "$cmd" in
   *"grep -ciE"*) cat $S/errlines 2>/dev/null || echo 0;;
   *"docker logs"*) echo "Listening on: http://localhost:3000/";;
   *"image prune"*) echo "Total reclaimed space: 0B";;
+  *"docker pull"*) [ -f $S/pullfail ] && exit 1; exit 0;;
   *"docker ps"*) echo "$p-20261116T000000";;
 esac
 EOF
@@ -105,7 +109,26 @@ setup; echo 3 >"$ST/errlines"; out=$(run "$R/webdeploy.sh" bbbbbbb); rc=$?
 [[ $rc == 1 && $out == *"STAGING BOOT NOT CLEAN (3"* ]] && ! deployed prodapp1 \
   && pass "webdeploy: staging boot errors hold prod" || bad "boot errors rc=$rc" "$out"
 
-# 10. the query run on the host is shares.sql
+# 10. #EXP-1974: the host pulls the image before Coolify does, and prunes only after the deploy
+setup; out=$(run "$R/webdeploy.sh" bbbbbbb); rc=$?
+pull_at=$(grep -n "docker pull -q ghcr.io/niach/exponential-web:sha-bbbbbbb" "$ST/calls" | head -1 | cut -d: -f1)
+first_deploy=$(grep -n "^coolify deploy uuid" "$ST/calls" | head -1 | cut -d: -f1)
+prune_at=$(grep -n "image prune" "$ST/calls" | head -1 | cut -d: -f1)
+last_deploy=$(grep -n "^coolify deploy uuid" "$ST/calls" | tail -1 | cut -d: -f1)
+[[ $rc == 0 && -n $pull_at && -n $prune_at && $pull_at -lt $first_deploy && $prune_at -gt $last_deploy ]] \
+  && pass "webdeploy: pull before the first deploy, prune after the last" || bad "pull/prune order rc=$rc" "$(cat $ST/calls)"
+
+# 11. a failed staging deployment pulls and deploys once more, then goes on
+setup; echo stagapp1-uuid >"$ST/deployonce"; out=$(run "$R/webdeploy.sh" bbbbbbb); rc=$?
+[[ $rc == 0 && $out == *"one retry"* && $out == *"DEPLOYED sha-bbbbbbb"* && $(grep -c "^coolify deploy uuid stagapp1" "$ST/calls") == 2 ]] \
+  && pass "webdeploy: one failed staging deployment is retried once" || bad "staging retry rc=$rc" "$out"
+
+# 12. the image never pulls: nothing deployed, no tag touched
+setup; touch "$ST/pullfail"; out=$(run "$R/webdeploy.sh" bbbbbbb); rc=$?
+[[ $rc == 1 && $out == *"STAGING PULL FAILED"* ]] && ! deployed stagapp1 && ! tagged stagapp1 && ! tagged prodapp1 \
+  && pass "webdeploy: an image that never pulls deploys nothing" || bad "pull fail rc=$rc" "$out"
+
+# 13. the query run on the host is shares.sql
 setup; run "$R/shares.sh" >/dev/null; grep -q "docker exec -i .*psql" "$ST/calls" && ! grep -q "bun run" "$ST/calls" \
   && pass "shares: runs psql in the DB container on the host, not bun on this machine" || bad "shares host-side" "$(cat $ST/calls)"
 exit $fail

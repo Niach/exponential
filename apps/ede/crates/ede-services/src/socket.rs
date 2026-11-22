@@ -13,8 +13,9 @@
 //!   exactly those. No socket path exists.
 //! - **`$XDG_RUNTIME_DIR/exponential-desktop/services.sock`** ([`serve`];
 //!   the directory is 0700, the compositor's): any process of the person,
-//!   and `call` holds every capability (the shell's own buttons). Until
-//!   eDE's flip (P14).
+//!   and `call` holds every capability (the shell's own buttons). Only
+//!   with `[session] helpers = "units"` (as before eDE's flip, P14; in a
+//!   real session only from root's policy file).
 //!
 //! #EDE-172: `grant` (an MCP bearer over the socket) is gone; the MCP face
 //! ([`crate::mcp`]) serves nothing until agents reach it through a relay.

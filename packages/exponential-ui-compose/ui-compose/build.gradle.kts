@@ -23,6 +23,22 @@ val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoo
 // sets `exponential.uiFfi.linkedByHost=true`: no `.so` of our own is built or packaged.
 val ffiLinkedByHost = findProperty("exponential.uiFfi.linkedByHost") == "true"
 
+// #EXP-2054: Robolectric's android-all jar (sdk 34, every test's `@Config`)
+// comes through Gradle, so the seeded Gradle cache (seed-gradle-caches.yml)
+// carries it, and Robolectric runs OFFLINE from `robolectric-jars`: never its
+// own fetch from Maven Central (HTTP 429 on CI). The coordinate follows the
+// Robolectric version (4.17); after a bump a test names the jar it misses.
+// A plain string, not the catalog: apps/android includes this module with
+// its own `libs`.
+val robolectricRuntime: Configuration by configurations.creating {
+    isTransitive = false
+}
+val robolectricJarsDir = layout.buildDirectory.dir("robolectric-jars")
+val robolectricJars = tasks.register<Sync>("robolectricJars") {
+    from(robolectricRuntime)
+    into(robolectricJarsDir)
+}
+
 // The facade's `.so` per ABI, built here (cargo-ndk, before merge*JniLibFolders)
 // so a plain gradle build (the app's included `:ui-compose`, the runner, a
 // fresh worktree) never packages an app host without it: opening an app would
@@ -91,6 +107,10 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
         unitTests.all {
+            it.dependsOn(robolectricJars)
+            it.inputs.files(robolectricJars).withPropertyName("robolectricJars").withPathSensitivity(PathSensitivity.NAME_ONLY)
+            it.systemProperty("robolectric.offline", "true")
+            it.systemProperty("robolectric.dependency.dir", robolectricJarsDir.get().asFile.absolutePath)
             // #VAPP-291: the binding picks android.system.SystemCleaner at sdk 34, and
             // Robolectric's runs on the JDK's internal CleanerFactory.
             it.jvmArgs("--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED")
@@ -218,6 +238,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.jna.aar)
     testImplementation(libs.robolectric)
+    robolectricRuntime("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.compose.ui.test.manifest)

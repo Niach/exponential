@@ -973,13 +973,24 @@ export const sessionsRouter = router({
         isRunnerModel(session.cli ?? (await effectiveCli(session)), input.model)
           ? input.model
           : undefined
+      // #FEED-267: the run itself spoke (a report naming neither busy nor
+      // status, e.g. a background-tasks edge) and cleared a mid-turn
+      // `device_offline` its loaded host's late beat set: running + busy
+      // again, as the heartbeat listing it would make it; never an idle row
+      // the undelivered rule walls "Not picked up" a minute later.
+      const revived =
+        session.blocked?.kind === `device_offline` &&
+        session.blocked.resume === true &&
+        nextBlocked === null &&
+        input.busy === undefined &&
+        status === undefined
       const turnEnded =
         (input.busy === false && session.busy) || status === `idle` || ending
       // EXP-1413: the merge-train edge = a REAL busy → idle transition (or the
       // process going); a repeated idle report is none, and neither is the
       // end of a turn a person's Stop interrupted (`stoppedAt`).
       const nowBusy =
-        input.busy !== undefined ? input.busy : status === `idle` ? false : session.busy
+        input.busy !== undefined ? input.busy : status === `idle` ? false : revived || session.busy
       // EXP-1418: a turn = busy seen true OR the row `running` (a device
       // that never reports `busy: true` still flips running → idle); a Stop
       // the device says cut nothing (`interrupted: false`) holds nothing.
@@ -1012,13 +1023,15 @@ export const sessionsRouter = router({
         await tx
           .update(sessions)
           .set({
-            ...(status ? { status } : {}),
+            ...(status ? { status } : revived ? { status: `running` as const } : {}),
             // #FEED-85: idle with no explicit busy = the turn is over.
             ...(input.busy !== undefined
               ? { busy: input.busy }
               : status === `idle`
                 ? { busy: false }
-                : {}),
+                : revived
+                  ? { busy: true }
+                  : {}),
             // EXP-1374: never background without busy.
             ...(input.busy === false || (input.busy === undefined && status === `idle`)
               ? { background: false }

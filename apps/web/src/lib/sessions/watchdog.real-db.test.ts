@@ -355,6 +355,37 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect((await row(childId)).blocked).toMatchObject({ kind: `device_offline` })
   })
 
+  it(`#FEED-267: a parked busy run whose own report lands without busy or status (a background-tasks edge) is running + busy again, never walled "Not picked up" a minute later`, async () => {
+    // Live 2026-11-22: child 86252146 waited for the heavy lane in a
+    // background shell; mint's late beat parked it `device_offline`, its
+    // `background` report at 14:35:52 cleared the flag but left the row idle
+    // and not busy, and the undelivered rule walled it at 14:36:52.
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `wait for the lane in the background`)
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    await w.host.report({ sessionId: child, busy: true, background: true })
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(child))
+    const at = ago((watchdog.undeliveredMinutes + 1) * MIN).toISOString()
+    await backdate(() => sql`UPDATE sessions SET started_at = ${at} WHERE id = ${child}`)
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    expect(await row(child)).toMatchObject({ busy: false, blocked: { kind: `device_offline`, resume: true } })
+
+    await w.host.report({ sessionId: child, background: true })
+    expect(await row(child)).toMatchObject({ status: `running`, busy: true, background: true, blocked: null })
+    await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.deviceId, w.deviceId))
+    await runWatchdog(NOW)
+    expect(await row(child)).toMatchObject({ busy: true, blocked: null, needsInput: false })
+    expect(await lines(rootId, `session_unclaimed`, child)).toHaveLength(0)
+
+    // A report that names its state keeps it: an idle edge is the turn's end.
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    await w.host.report({ sessionId: child, status: `idle`, busy: false })
+    expect(await row(child)).toMatchObject({ status: `idle`, busy: false, blocked: null })
+  }, COLD_CASE_MS)
+
   it(`#FEED-210: a busy run that itself spoke to the server inside the online window is not parked by a late beat; the beat listing it keeps it busy, nothing said`, async () => {
     const w = await world()
     const rootId = await w.root()
@@ -1149,6 +1180,34 @@ describe.skipIf(!ready.ok)(`#FEED-257: needs input clears with what set it`, () 
       .where(eq(sessions.id, child))
     expect(await db.transaction((tx) => clearDrainedInTx(tx, [child]))).toBe(0)
     expect(await row(child)).toMatchObject({ needsInput: true, blocked: { kind: `unclaimed` } })
+  }, COLD_CASE_MS)
+
+  it(`#FEED-267: a child whose turns closed QUIET (no reply row of its own) ran its first Request: never flagged; a stored flag drains`, async () => {
+    // Tree e5835f81's children aa2edce0 / 2fac4dd9: they opened PRs, ended
+    // every turn with `quiet` and no text, and drew "Not picked up" after
+    // each turn (07:47, again 07:48:59 after a turn at 07:48:44).
+    const w = await world()
+    const rootId = await w.root()
+    const child = await w.child(rootId, `open the PR, then end quiet`)
+    await w.host.claim({ sessionId: child, deviceId: w.deviceId })
+    await w.host.report({ sessionId: child, status: `running`, busy: true })
+    await w.host.report({ sessionId: child, status: `idle`, busy: false })
+    await db.update(messages).set({ consumedAt: new Date() }).where(inSession(child))
+    const at = ago((watchdog.undeliveredMinutes + 1) * MIN).toISOString()
+    await backdate(() => sql`UPDATE sessions SET started_at = ${at} WHERE id = ${child}`)
+    expect((await row(child)).lastTurnAt).not.toBeNull()
+
+    await runWatchdog(NOW)
+    expect(await row(child)).toMatchObject({ blocked: null, needsInput: false })
+    expect(await lines(rootId, `session_unclaimed`, child)).toHaveLength(0)
+
+    // A flag stored before the fix is the drained rule's: cleared silently.
+    await db
+      .update(sessions)
+      .set({ blocked: { kind: `unclaimed`, agent: null, window: null, resetsAt: null, since: NOW.toISOString() }, needsInput: true })
+      .where(eq(sessions.id, child))
+    expect(await db.transaction((tx) => clearDrainedInTx(tx, [child]))).toBe(1)
+    expect(await row(child)).toMatchObject({ blocked: null, needsInput: false })
   }, COLD_CASE_MS)
 
   it(`the claim clears unclaimed but an open card keeps Needs you`, async () => {

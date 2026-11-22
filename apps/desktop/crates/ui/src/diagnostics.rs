@@ -3,22 +3,51 @@
 //! - the connected account's server + user id → `observability::connect`
 //!   (fetches the server's monitoring config, starts/stops the client);
 //! - the main-thread heartbeat (`lag::tick` every `lag::TICK`) the hang
-//!   watchdog listens for;
+//!   watchdog listens for, and every window's activation changes
+//!   (`lag::set_foreground`, #EXP-2005: the watchdog learns the app lost
+//!   focus when it does, not one throttled heartbeat later);
 //! - gpui's own per-draw timings (`Window::draw` start/end) →
 //!   `lag::record_frame`.
 //!
 //! Idle while nothing listens: one check every few seconds, no timer at
 //! display rate, frame tracing left off.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
-use gpui::App;
+use gpui::{App, AppContext as _, Entity, WindowId};
 use observability::lag;
 
 /// While nothing listens: how often to look again.
 const IDLE_RECHECK: Duration = Duration::from_secs(5);
 /// Frame timings are drained this often (gpui buffers them).
 const DRAIN_EVERY: u32 = 5;
+
+/// Owns the windows' activation observers.
+struct FocusWatch;
+
+/// #EXP-2005: observe the activation of every window not yet watched
+/// (windows open at any time; the heartbeat looks each beat).
+fn watch_windows(watch: &Entity<FocusWatch>, watched: &mut HashSet<WindowId>, cx: &mut App) {
+    let windows = cx.windows();
+    watched.retain(|id| windows.iter().any(|handle| handle.window_id() == *id));
+    for handle in windows {
+        if !watched.insert(handle.window_id()) {
+            continue;
+        }
+        let _ = handle.update(cx, |_, window, cx| {
+            watch.update(cx, |_, cx| {
+                cx.observe_window_activation(window, |_, window, cx| {
+                    let this = window.window_handle();
+                    // Deactivating this one while another already is active
+                    // keeps the app focused.
+                    lag::set_foreground(window.is_window_active() || cx.active_window().is_some_and(|active| active != this));
+                })
+                .detach();
+            });
+        });
+    }
+}
 
 pub fn install(cx: &mut App) {
     // Connect whenever the signed-in account changes.
@@ -42,6 +71,8 @@ pub fn install(cx: &mut App) {
         #[cfg(feature = "frame-stats")]
         let mut frames: Option<gpui::FrameTimingCollector> = None;
         let mut beat = 0u32;
+        let watch = cx.update(|cx| cx.new(|_| FocusWatch));
+        let mut watched = HashSet::new();
         loop {
             if !lag::active() {
                 cx.background_executor().timer(IDLE_RECHECK).await;
@@ -53,7 +84,10 @@ pub fn install(cx: &mut App) {
                 frames = Some(gpui::FrameTimingCollector::new());
             }
             cx.background_executor().timer(lag::TICK).await;
-            let foreground = cx.update(|cx| cx.active_window().is_some());
+            let foreground = cx.update(|cx| {
+                watch_windows(&watch, &mut watched, cx);
+                cx.active_window().is_some()
+            });
             lag::tick(foreground);
             beat += 1;
             #[cfg(feature = "frame-stats")]

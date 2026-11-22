@@ -225,11 +225,14 @@ impl HostPlugin for ReplyHost {
     }
 }
 
-/// The surface views by message id (built once, on the next frame) and the
-/// live arrivals' start instants.
+/// The surface views by message id (built on the next frame, again when the
+/// card's surface changes in place) and the live arrivals' start instants.
 #[derive(Default)]
 struct SurfaceCards {
     views: HashMap<String, Option<Entity<SurfaceView>>>,
+    /// #FEED-292: the surface each view was (or is being) built from; a
+    /// `replace` or a picture landing edits the card in place.
+    built: HashMap<String, CardSurface>,
     building: HashSet<String>,
     /// Per screen view: the surface ids it has synced (first sync = history).
     seen: HashMap<EntityId, HashSet<String>>,
@@ -270,12 +273,14 @@ pub(crate) fn sync_rows(screen: EntityId, rows: &[SessionChatRow], cx: &mut App)
     }
 }
 
-/// Build the view for `id` on the next frame (once).
+/// Build the view for `id` on the next frame (once per surface: the old view
+/// paints until the rebuilt one lands).
 fn ensure_view(id: &str, session_id: &str, surface: &CardSurface, window: &Window, cx: &mut App) {
     let cards = cx.default_global::<SurfaceCards>();
-    if cards.views.contains_key(id) || !cards.building.insert(id.to_string()) {
+    if cards.built.get(id) == Some(surface) || !cards.building.insert(id.to_string()) {
         return;
     }
+    cards.built.insert(id.to_string(), surface.clone());
     let (id, session_id, surface) = (id.to_string(), session_id.to_string(), surface.clone());
     window.defer(cx, move |window, cx| {
         let host = Rc::new(ReplyHost {

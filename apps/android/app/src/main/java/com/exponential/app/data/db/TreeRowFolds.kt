@@ -35,6 +35,13 @@ data class CatchUpRow(
     val busy: Boolean,
 )
 
+/** #EXP-2032 (chat-store.json MESSAGES BY ARRIVAL): a `messages` row's
+ *  arrival position (its `rowid`). */
+data class MessageArrival(val arrival: Long, val id: String)
+
+/** #EXP-2032: a `messages` row RAW with its arrival position. */
+data class ArrivedMessage(val arrival: Long, val row: MessageEntity)
+
 /** #ERR-19: one session's title-eligible rows, summarized (count + newest stamp). */
 data class TitleStamp(
     @ColumnInfo(name = "session_id") val sessionId: String,

@@ -42,7 +42,7 @@ public final class ChatStoreHub: @unchecked Sendable {
     static let lockedRetry: TimeInterval = 300
     static let lockedChunk = 500
     static let messagesChunk = 1000
-    static let messagesMark = "messages.createdAt"
+    static let messagesMark = "messages.rowid"
     /// How long a sign-out waits for the store's holders to let go, and how
     /// often it tries the delete.
     var closeWait: TimeInterval = 10
