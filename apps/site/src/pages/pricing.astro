@@ -1,25 +1,11 @@
 ---
-/* Pricing: the plans (genUI, a billing switch), the comparison as a genUI
-   Table, the questions as a genUI Accordion. */
+/* Pricing: the plans (genUI, a billing switch) and the questions as a
+   genUI Accordion. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import EuiSurface from "../components/eui/EuiSurface.tsx"
 import PricingPlans from "../components/landing/PricingPlans.tsx"
-import { COMPARISON, EVERY_PLAN_INCLUDES } from "../components/landing/plans.ts"
+import { EVERY_PLAN_INCLUDES } from "../components/landing/plans.ts"
 import { PRICING_PRODUCT, seoHead } from "../components/landing/seo.ts"
-
-const TABLE = {
-  id: `compare`,
-  component: `Table`,
-  props: {
-    columns: [
-      { key: `label`, label: `` },
-      { key: `exponential`, label: `Exponential` },
-      { key: `linear`, label: `Linear` },
-    ],
-    rows: COMPARISON.map((row, i) => ({ id: `c${i}`, ...row })),
-    rowKey: `id`,
-  },
-}
 
 const FAQ = [
   { q: `Is there a free plan?`, a: `Yes: three seats with the full product, for as long as you like.` },
@@ -49,13 +35,6 @@ const ACCORDION = {
     <section class="exp-band exp-band-first not-content" id="plans">
       <PricingPlans client:visible />
       <p class="exp-fine">{EVERY_PLAN_INCLUDES}</p>
-    </section>
-
-    <section class="exp-band not-content" id="compare">
-      <div class="exp-band-head">
-        <h2>Exponential and Linear</h2>
-      </div>
-      <div class="exp-reveal"><EuiSurface id="compare" tree={TABLE} /></div>
     </section>
 
     <section class="exp-band exp-faq not-content" id="faq">
