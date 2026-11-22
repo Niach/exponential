@@ -32,7 +32,7 @@ use smithay::{
 use crate::{
     config::Config,
     desk::{on_person, DeskId},
-    handlers::layer_shell::is_sealed_prompt,
+    handlers::{input_method::on_person_input_method, layer_shell::is_sealed_prompt},
     layout::{self, Rect, Tile},
 };
 
@@ -98,10 +98,15 @@ pub struct Ede {
     pub idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState,
     pub idle: crate::idle::Idle,
     /// input-method-v2 + text-input-v3 (ibus, fcitx5) and the virtual
-    /// keyboard IMEs forward keys through.
+    /// keyboard IMEs forward keys through. #EDE-172: the input-method and
+    /// virtual keyboard managers are the installed input methods' alone
+    /// ([`crate::InputMethods`]); text-input-v3 is every app's.
     pub input_method_state: smithay::wayland::input_method::InputMethodManagerState,
     pub text_input_state: smithay::wayland::text_input::TextInputManagerState,
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
+    /// #EDE-172: the input methods by file, decided per client of the
+    /// person's socket when it connects ([`ClientState::input_method`]).
+    pub input_methods: crate::InputMethods,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
@@ -275,9 +280,10 @@ impl Ede {
             idle_notifier,
             idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh),
             idle: crate::idle::Idle::default(),
-            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, on_person),
+            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, on_person_input_method),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
-            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, on_person),
+            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, on_person_input_method),
+            input_methods: crate::InputMethods::system(),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
@@ -298,10 +304,12 @@ impl Ede {
     }
 
     /// A client of the person's Wayland socket. #EDE-172: who connected is
-    /// taken now, before its first request ([`crate::peer::Peer`]).
+    /// taken now, before its first request ([`crate::peer::Peer`]), and
+    /// with it whether it is an installed input method (P3).
     pub fn insert_person_client(&mut self, stream: std::os::unix::net::UnixStream) {
         let peer = crate::peer::Peer::of_socket(std::os::fd::AsFd::as_fd(&stream)).map(Arc::new);
-        if let Err(e) = self.display_handle.insert_client(stream, Arc::new(ClientState { peer, ..ClientState::default() })) {
+        let input_method = peer.as_deref().is_some_and(|peer| self.input_methods.admits(peer));
+        if let Err(e) = self.display_handle.insert_client(stream, Arc::new(ClientState { peer, input_method, ..ClientState::default() })) {
             tracing::warn!("client refused: {e}");
         }
     }
@@ -951,6 +959,11 @@ pub struct ClientState {
     /// connected ([`crate::peer::Peer::of_socket`]); `None` for the
     /// compositor's own clients (Xwayland, a space's, a test's pair).
     pub peer: Option<Arc<crate::peer::Peer>>,
+    /// #EDE-172 (P3): that process is an installed input method
+    /// ([`crate::InputMethods::admits`]): it sees the virtual keyboard and
+    /// input-method managers. Set only there, and on a headless test's
+    /// own pair ([`crate::backend::headless::Harness::connect_input_method`]).
+    pub input_method: bool,
     /// #EDE-172 (P4): the compositor made this client for one of its
     /// helpers ([`crate::helpers`]): what it is, by construction.
     pub helper: Option<crate::helpers::Kind>,

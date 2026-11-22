@@ -37,6 +37,8 @@ pub struct Config {
     pub theme: toml::Table,
     /// `[session]`: how the session's own programs start (#EDE-172).
     pub session: Session,
+    /// `[control]`: who may present the root token (#EDE-172, design v3).
+    pub control: Control,
 }
 
 /// `[session]` (#EDE-172). Read at the compositor's start only.
@@ -58,6 +60,15 @@ pub enum Helpers {
     #[default]
     Units,
     Compositor,
+}
+
+/// `[control]` (#EDE-172): `consent = true` turns the root token's gate on
+/// ([`crate::consent`]): only eDE's own binaries, the policy file's and
+/// what the person allowed may use it. Off until eDE's flip (P14).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Control {
+    pub consent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -227,6 +238,7 @@ impl Default for Config {
             diagnostics: Diagnostics::default(),
             theme: toml::Table::new(),
             session: Session::default(),
+            control: Control::default(),
         }
     }
 }

@@ -142,8 +142,10 @@ pub fn is_shell(ede: &Ede, client: &Client) -> bool {
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
     let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false } };
     let pid = client_pid(&ede.display_handle, &client);
-    // Consent and the share chooser (the shell's and the portal's) still connect by the socket.
-    let sealed = made_for(&client) == Some(Kind::Sealed) || (pid != 0 && ede.sealed_stand_in == Some(pid)) || is_installed(ede, &client, crate::peer::SEALED);
+    // Consent and the share chooser (the shell's and the portal's) still
+    // connect by the socket. #EDE-172 (P5'): the consent prompt the
+    // compositor spawned is known by its pid, as the lock is.
+    let sealed = made_for(&client) == Some(Kind::Sealed) || (pid != 0 && (ede.sealed_stand_in == Some(pid) || ede.consent_prompt_pid() == Some(pid))) || is_installed(ede, &client, crate::peer::SEALED);
     // Only the shell's own view hides: another client naming the namespace stays in captures.
     let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, &client);
     LayerOrigin { pid, sealed, space_view }

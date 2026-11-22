@@ -55,6 +55,9 @@ png = "0.17"
 wayland-scanner = "0.31"
 # #EDE-172: SO_PEERPIDFD (a connecting process's pidfd; not in rustix).
 libc = "0.2"
+# #EDE-172 (P5'): an executable's content hash, what the person's yes is
+# remembered by (the version the workspace already resolves).
+sha2 = "0.10"
 
 [dev-dependencies]
 wayland-client = "0.31.10"
