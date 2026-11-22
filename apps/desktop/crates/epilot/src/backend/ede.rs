@@ -3297,7 +3297,9 @@ mod tests {
         ede.key(Key::Named(crate::keys::Named::Return), true).unwrap();
         ede.key(Key::Named(crate::keys::Named::Return), false).unwrap();
         ede.type_char('A').unwrap();
-        assert!(ede.type_char('\u{2603}').is_err(), "no key types a snowman on the default layout");
+        // #EDE-85: no key on the default layout makes a snowman; a throwaway
+        // keymap types it all the same.
+        ede.type_char('\u{2603}').unwrap();
         assert_eq!(ede.list_windows().unwrap(), vec![]);
 
         // The hold is taken and given back, again and again.
