@@ -1392,6 +1392,21 @@ process's executable), plus `[protected] app_ids`. Captures draw them black
 input to them is refused, a virtual keyboard cannot type into them, and an
 input method loses its keyboard grab and stays off while one has focus.
 
+Only installed input methods get the virtual keyboard and the input-method
+manager (`zwp_virtual_keyboard_manager_v1`, `zwp_input_method_manager_v2`;
+#EDE-172): a client of the person's socket whose process runs one of the
+root-owned files of `DEFAULTS` (`crates/ede-compositor/src/handlers/input_method.rs`:
+`/usr/bin/fcitx5`; `/usr/bin/ibus`, `/usr/libexec/ibus-ui-gtk3` and
+`/usr/libexec/ibus-wayland`, or `/usr/lib/ibus/…`; `/usr/bin/squeekboard`;
+`/usr/bin/maliit-server`) or of `/etc/exponential-desktop/input-methods.toml`
+(`paths = ["/usr/bin/wvkbd-mobintl"]`; it counts only as a file root owns and
+only root may write, and so must each path it names), in the compositor's
+user namespace. Every other client sees neither: `wtype`, a copy or a rename
+of an input method elsewhere (the log names it), an input method in a
+flatpak. text-input-v3 stays every app's, and an agent space's clients see
+neither manager, as before. Start ibus with `ibus start --type wayland`, or
+fcitx5 with `fcitx5 -d`.
+
 Try it on real hardware (Danny; never from a session another display server
 owns): `sudo apt install swaylock`, put the `[lock]` block above in the
 config, log into **Exponential**, then check: Super+L locks and the password

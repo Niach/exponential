@@ -75,15 +75,14 @@ fn is_locked(h: &Harness) -> bool {
 fn the_globals_are_advertised() {
     let h = harness(Config::default());
     let client = Session::connect(h.connect());
-    for global in [
-        "ext_session_lock_manager_v1",
-        "ext_idle_notifier_v1",
-        "zwp_idle_inhibit_manager_v1",
-        "zwp_input_method_manager_v2",
-        "zwp_text_input_manager_v3",
-        "zwp_virtual_keyboard_manager_v1",
-    ] {
+    for global in ["ext_session_lock_manager_v1", "ext_idle_notifier_v1", "zwp_idle_inhibit_manager_v1", "zwp_text_input_manager_v3"] {
         assert!(client.state.globals.iter().any(|g| g == global), "{global} missing");
+    }
+    // #EDE-172 (P3): the input methods' alone.
+    let input_method = Session::connect(h.connect_input_method());
+    for global in ["zwp_input_method_manager_v2", "zwp_virtual_keyboard_manager_v1"] {
+        assert!(!client.state.globals.iter().any(|g| g == global), "{global} for a client that is no input method");
+        assert!(input_method.state.globals.iter().any(|g| g == global), "{global} missing for an input method");
     }
 }
 
@@ -342,7 +341,7 @@ fn a_virtual_keyboard_cannot_type_into_a_protected_window() {
     let h = harness(Config::default());
     let mut app = Session::connect(h.connect());
     app.keyboard();
-    let mut typist = Session::connect(h.connect());
+    let mut typist = Session::connect(h.connect_input_method());
     typist.keyboard();
     let vk = typist.virtual_keyboard();
     let mut time = 0;
