@@ -646,7 +646,10 @@ impl Surface {
     /// MOVES: the first finished pass it shows in fixes its anchor's frame, a
     /// later one with another frame (the anchor moved, or went and the
     /// overlay fell back to its wrapper) closes it. Scrolls are
-    /// [`Surface::close_overlays_in`].
+    /// [`Surface::close_overlays_in`]. #EXP-2047: a HOSTED layer
+    /// ([`Layer::hosted`]) follows a move instead: the host places it against
+    /// `anchor_frame`, so the new frame becomes the one it keeps; it still
+    /// closes when its anchor goes (another node) or scrolls.
     fn check_anchor_frames(&mut self, layers: &[Layer]) {
         let anchored = |l: &Layer| l.placement.is_some() && l.position != "point" && l.class == crate::layout_tree::LayerClass::Overlay;
         let mut seen = HashMap::new();
@@ -660,11 +663,13 @@ impl Surface {
             // By the layer's root: a submenu shares its menu's owner.
             let key = self.nodes[layer.root as usize].id.clone();
             match self.anchor_frames.get(&key) {
-                Some((id, opened)) if *id != current.0 || !same_frame(opened, &frame) => lost.push(layer.owner.clone()),
-                Some(opened) => {
+                Some((id, _)) if *id != current.0 => lost.push(layer.owner.clone()),
+                Some((_, opened)) if !same_frame(opened, &frame) && !layer.hosted => lost.push(layer.owner.clone()),
+                Some(opened) if !layer.hosted => {
                     seen.insert(key, opened.clone());
                 }
-                None => {
+                // Opening, or a hosted layer that followed its anchor.
+                _ => {
                     seen.insert(key, current);
                 }
             }

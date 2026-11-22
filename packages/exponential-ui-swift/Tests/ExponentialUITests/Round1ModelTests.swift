@@ -182,7 +182,8 @@ final class Round1ModelTests: XCTestCase {
     /// interactions-round1.json `overlayAnchor` (#EXP-1739): an open
     /// anchored Popover closes once its anchor scrolls, moves or leaves the
     /// tree. The core raises the close during the pass; the model's late
-    /// events take it and the next pass drops the layer.
+    /// events take it and the next pass drops the layer. #EXP-2047: a
+    /// `hosted` case (hostedPopups) stays open when its anchor moves.
     func testOverlayAnchorCasesCloseOnScrollMoveAndRemoval() throws {
         let f = try Fixtures.json("interactions-round1.json")
         let fx = try XCTUnwrap(f["overlayAnchor"])
@@ -191,8 +192,11 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
             let name = c["name"]?.string ?? "?"
-            let m = try model(.object(base))
+            // #EXP-2047: a hosted popup follows its anchor's move.
+            let hosted = c["hosted"]?.bool == true
+            let m = try model(.object(base), settings: hosted ? SurfaceSettings(hostedPopups: true) : nil)
             XCTAssertTrue(m.layers.contains { $0.owner == "pop" }, "\(name): opens against its anchor")
+            XCTAssertEqual(m.layers.first { $0.owner == "pop" }?.hosted, hosted, "\(name): hosted as the case says")
             let step = c["step"] ?? .null
             var children = base["children"]?.array ?? []
             if step["insertAbove"]?.bool == true, let above = fx["above"] { children.insert(above, at: 0) }

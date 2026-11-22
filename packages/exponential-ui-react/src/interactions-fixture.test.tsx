@@ -14,8 +14,8 @@ import { useEffect } from "react"
 import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
-import type { SurfaceActionEvent } from "./host"
-import { keyRecorderCode, propColor } from "@exponential_app/eui/web"
+import type { HostPlugin, SurfaceActionEvent } from "./host"
+import { keyRecorderCode, propColor, type HostedPopup } from "@exponential_app/eui/web"
 
 afterEach(() => cleanup())
 
@@ -558,6 +558,7 @@ describe(`fixtures/interactions-round1.json checkbox`, () => {
 
 interface OverlayAnchorCase {
   name: string
+  hosted?: boolean
   step: { relayout?: boolean; scroll?: string; y?: number; insertAbove?: boolean; removeAnchor?: boolean }
   after: boolean
 }
@@ -577,16 +578,38 @@ describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
       })
       const shown = () => document.querySelector(`[data-xui-overlay="Popover"]`) !== null
       const frames = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)))
-      const { container, rerender } = render(<ExponentialSurface root={tree(fx.surface)} theme="neutral" id="oa" />)
+      // #EXP-2047: a hosted case's host keeps one box per popup, placed at
+      // the anchor it last heard (`mount` again = its anchor moved).
+      const heard: HostedPopup[] = []
+      const boxes = new Map<string, HTMLElement>()
+      const host: HostPlugin | undefined = c.hosted
+        ? {
+            popupHost: {
+              mount: (p) => {
+                heard.push(p)
+                const el = boxes.get(p.owner) ?? document.body.appendChild(document.createElement(`div`))
+                boxes.set(p.owner, el)
+                return el
+              },
+              unmount: (p) => {
+                boxes.get(p.owner)?.remove()
+                boxes.delete(p.owner)
+              },
+            },
+          }
+        : undefined
+      const { container, rerender } = render(<ExponentialSurface root={tree(fx.surface)} theme="neutral" id="oa" host={host} />)
       await frames()
       expect(shown(), `${c.name}: opens against its anchor`).toBe(true)
       const children = [...(fx.surface.children ?? [])] as NestedNode[]
       if (c.step.insertAbove) children.unshift(fx.above)
       const next = c.step.removeAnchor ? children.filter((child) => child.id !== `target`) : children
-      rerender(<ExponentialSurface root={tree({ ...fx.surface, children: next })} theme="neutral" id="oa" />)
+      if (c.hosted) expect(document.querySelector(`[data-xui-hosted="pop"] [data-xui-overlay="Popover"]`), `${c.name}: the host holds it`).not.toBeNull()
+      rerender(<ExponentialSurface root={tree({ ...fx.surface, children: next })} theme="neutral" id="oa" host={host} />)
       if (c.step.scroll) fireEvent.scroll(container.querySelector(`[data-xui-id="${c.step.scroll}"]`)!)
       await frames()
       expect(shown(), c.name).toBe(c.after)
+      if (c.hosted && c.step.insertAbove) expect(heard.at(-1)?.anchor.y, `${c.name}: the host heard the anchor's new box`).toBe(40)
       rect.mockRestore()
     })
   }

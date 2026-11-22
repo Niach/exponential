@@ -135,8 +135,12 @@ export function withinOtherOverlay(own: Element | null | undefined, target: Even
  *  MOVES (its box's origin changes, checked every animation frame) or GOES
  *  (it leaves the document, or another element replaces it). `get` is read
  *  every frame; `onLost` runs once.
+ *  #EXP-2047: a HOSTED popup (`popupHost` took it) passes `onMoved`: a move
+ *  (or a resize) calls it instead (the host places the popup against the anchor's new box)
+ *  and the new box is the one it keeps; a scroll or the anchor going still
+ *  loses it.
  *  Returns the cleanup (call it when the overlay closes). */
-export function watchAnchor(get: () => Element | null | undefined, onLost: () => void): () => void {
+export function watchAnchor(get: () => Element | null | undefined, onLost: () => void, onMoved?: () => void): () => void {
   const first = get()
   if (!first || typeof window === `undefined`) return () => {}
   // A web font still loading lays text out in its fallback first: the swap
@@ -162,7 +166,15 @@ export function watchAnchor(get: () => Element | null | undefined, onLost: () =>
     if (get() !== first || !first.isConnected) return lose()
     const rect = first.getBoundingClientRect()
     opened = loading() ? undefined : (opened ?? rect)
-    if (opened && (Math.abs(rect.x - opened.x) >= 0.5 || Math.abs(rect.y - opened.y) >= 0.5)) return lose()
+    const moved = !!opened && (Math.abs(rect.x - opened.x) >= 0.5 || Math.abs(rect.y - opened.y) >= 0.5)
+    if (moved && !onMoved) return lose()
+    // A hosted popup also follows a resize (a badge widening its button: an
+    // end-aligned popup's edge moves with it).
+    if (opened && onMoved && (moved || Math.abs(rect.width - opened.width) >= 0.5 || Math.abs(rect.height - opened.height) >= 0.5)) {
+      opened = rect
+      onMoved()
+      if (done) return
+    }
     frame = requestAnimationFrame(tick)
   }
   const stop = () => {
