@@ -140,7 +140,7 @@ fn exited(pidfd: &OwnedFd) -> bool {
 
 /// `(start, ppid)` from `/proc/<pid>/stat` (the fields after the command,
 /// which may hold spaces and parentheses itself).
-fn stat_of(pid: u32) -> Option<(u64, u32)> {
+pub(crate) fn stat_of(pid: u32) -> Option<(u64, u32)> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = &stat[stat.rfind(')')? + 2..];
     let fields: Vec<&str> = rest.split(' ').collect();
