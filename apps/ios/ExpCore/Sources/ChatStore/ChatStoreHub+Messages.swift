@@ -4,8 +4,14 @@ import GRDB
 /// #EDE-114: the synced `messages` of every chat, OPENED with the tree key
 /// (sealed-content.json); a row whose key is not here yet is stored with
 /// `body: null` and opened again when a key arrives (and every
-/// `lockedRetry`). Taken in a few seconds after the table moved, from a mark
-/// on `createdAt` (inclusive: a row landing in the same instant is not lost).
+/// `lockedRetry`). Taken in a few seconds after the table moved, in ARRIVAL
+/// order (chat-store.json MESSAGES BY ARRIVAL, #EXP-2032): the mark is the
+/// highest `messages` rowid taken, read inclusive, so a row that syncs later
+/// with an older `createdAt` is still stored. The sync writes rows with
+/// GRDB's `save` (UPDATE, else INSERT): an insert gets a new rowid at the end,
+/// an update keeps its rowid; a refetch (`mustRefetch` empties the table)
+/// refills it from rowid 1, below the mark, so a mark above `MAX(rowid)`
+/// starts over.
 extension ChatStoreHub {
     /// A synced message as the store keeps it (nil = it belongs to no chat).
     public static func storedMessage(_ row: MessageEntity, opener: SealedOpener) -> [String: Any]? {
@@ -64,22 +70,28 @@ extension ChatStoreHub {
     func catchUpMessages(accountId: String) {
         let (db, opener) = lock.withLock { (self.db, self.opener) }
         guard let store = store(accountId: accountId), let pool = try? db?.pool(forAccountId: accountId) else { return }
-        var mark = (try? store.meta(key: Self.messagesMark)) ?? nil ?? ""
+        // The old `createdAt` mark (another key) is never read: the first
+        // pass takes every row once (latest wins by id).
+        var mark = Int64((try? store.meta(key: Self.messagesMark)) ?? nil ?? "") ?? 0
+        let top = (try? pool.read { db in try Int64.fetchOne(db, sql: "SELECT MAX(rowid) FROM messages") }) ?? nil ?? 0
+        if mark > top { mark = 0 }
         while true {
             let since = mark
             let rows = (try? pool.read { db in
-                try MessageEntity.fetchAll(
+                try Row.fetchAll(
                     db,
-                    sql: "SELECT * FROM messages WHERE session_id IS NOT NULL AND session_id != '' AND created_at >= ? ORDER BY created_at LIMIT ?",
+                    sql: "SELECT rowid AS _rowid, * FROM messages WHERE rowid >= ? AND session_id IS NOT NULL AND session_id != '' ORDER BY rowid LIMIT ?",
                     arguments: [since, Self.messagesChunk]
                 )
             }) ?? []
-            guard let json = Self.messagesJson(rows.compactMap { Self.storedMessage($0, opener: opener) }) else { break }
-            guard (try? store.putMessages(messagesJson: json)) != nil else { return }
-            let newest = rows.map(\.createdAt).max() ?? since
+            let messages = rows.compactMap { try? MessageEntity(row: $0) }
+            if let json = Self.messagesJson(messages.compactMap { Self.storedMessage($0, opener: opener) }) {
+                guard (try? store.putMessages(messagesJson: json)) != nil else { return }
+            }
+            let newest = rows.compactMap { $0["_rowid"] as Int64? }.max() ?? since
             guard newest > mark else { break }
             mark = newest
-            try? store.setMeta(key: Self.messagesMark, value: mark)
+            try? store.setMeta(key: Self.messagesMark, value: String(mark))
             if rows.count < Self.messagesChunk { break }
         }
         let due = lock.withLock { () -> Bool in

@@ -367,6 +367,39 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(ChatStoreHub.storedMessage(sealed, opener: opener)?["body"] as? String, "secret")
     }
 
+    /// chat-store.json MESSAGES BY ARRIVAL (#EXP-2032): the mark is the
+    /// arrival position, never `createdAt`.
+    func testMessagesAreTakenInByArrivalNotByCreatedAt() throws {
+        let manager = DatabaseManager()
+        let accountId = "chat-store-arrival-\(UUID().uuidString.prefix(8))"
+        accounts.append((manager, accountId))
+        let pool = try manager.pool(forAccountId: accountId)
+        func message(_ id: String, _ at: String) -> MessageEntity {
+            MessageEntity(id: id, conversationId: "c", rootId: "r1", teamId: "t", authorKind: "user", body: id, createdAt: at, updatedAt: at, sessionId: "r1")
+        }
+        try pool.write { db in try message("new", "2026-11-20T09:00:00.000Z").save(db) }
+        let fake = FakeFactory()
+        let hub = hub(fake, db: manager)
+        // A mark of the old kind (a createdAt) is dropped.
+        let store = try XCTUnwrap(fake.factory.open(tempDir(), accountId) as? FakeChatStore)
+        try store.setMeta(key: "messages.createdAt", value: "2026-11-21T00:00:00.000Z")
+        hub.sync(accounts: [accountId: "u1"])
+        hub.drain()
+        hub.queue.sync { hub.catchUpMessages(accountId: accountId) }
+        XCTAssertEqual(Set(store.messages.keys), ["new"], "the first pass takes every row once")
+        // A row that reaches the phone later with an OLDER createdAt.
+        try pool.write { db in try message("late", "2026-11-01T09:00:00.000Z").save(db) }
+        hub.queue.sync { hub.catchUpMessages(accountId: accountId) }
+        XCTAssertEqual(Set(store.messages.keys), ["new", "late"])
+        XCTAssertEqual(try store.meta(key: ChatStoreHub.messagesMark), "2")
+        // A refetch emptied and refilled the table: the mark above MAX(rowid) starts over.
+        try store.setMeta(key: ChatStoreHub.messagesMark, value: "99")
+        try pool.write { db in try db.execute(sql: "DELETE FROM messages") }
+        try pool.write { db in try message("refilled", "2026-10-01T09:00:00.000Z").save(db) }
+        hub.queue.sync { hub.catchUpMessages(accountId: accountId) }
+        XCTAssertNotNil(store.messages["refilled"])
+    }
+
     // MARK: - Sign-out
 
     func testADeliberateSignOutDeletesTheStoreAnExpiryKeepsIt() throws {
