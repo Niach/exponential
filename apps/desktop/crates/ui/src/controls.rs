@@ -510,6 +510,19 @@ pub(crate) fn menu_row(
     disabled: bool,
     cx: &App,
 ) -> Div {
+    let muted = cx.theme().muted_foreground;
+    menu_row_glyph(icon.map(|icon| Icon::new(icon).text_color(muted)), label, trailing, disabled, cx)
+}
+
+/// [`menu_row`] with a glyph the caller tints (#EXP-2001: the Checks row's
+/// summary glyph in its tone); the row sizes it like every other glyph.
+pub(crate) fn menu_row_glyph(
+    glyph: Option<Icon>,
+    label: impl Into<SharedString>,
+    trailing: Option<AnyElement>,
+    disabled: bool,
+    cx: &App,
+) -> Div {
     use gpui::prelude::FluentBuilder as _;
     let muted = cx.theme().muted_foreground;
     pointer_row_fill(
@@ -518,13 +531,8 @@ pub(crate) fn menu_row(
             .min_w_0()
             .gap(px(t::menu::pointer::ITEM_GAP))
             .items_center()
-            .when_some(icon, |row, icon| {
-                row.child(
-                    Icon::new(icon)
-                        .size(px(t::menu::pointer::ICON_SIZE))
-                        .flex_shrink_0()
-                        .text_color(muted),
-                )
+            .when_some(glyph, |row, glyph| {
+                row.child(glyph.size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
             })
             .child(div().flex_1().min_w_0().truncate().child(label.into()))
             .children(trailing),
@@ -550,11 +558,32 @@ pub(crate) fn pointer_submenu(
     cx: &mut gpui::Context<PopupMenu>,
     f: impl Fn(PopupMenu, &mut Window, &mut gpui::Context<PopupMenu>) -> PopupMenu + 'static,
 ) -> PopupMenu {
+    pointer_submenu_glyph(
+        menu,
+        move |cx| icon.clone().map(|icon| Icon::new(icon).text_color(cx.theme().muted_foreground)),
+        label,
+        value,
+        window,
+        cx,
+        f,
+    )
+}
+
+/// [`pointer_submenu`] with a glyph the caller builds (and tints).
+pub(crate) fn pointer_submenu_glyph(
+    menu: PopupMenu,
+    glyph: impl Fn(&App) -> Option<Icon> + 'static,
+    label: impl Into<SharedString>,
+    value: Option<SharedString>,
+    window: &mut Window,
+    cx: &mut gpui::Context<PopupMenu>,
+    f: impl Fn(PopupMenu, &mut Window, &mut gpui::Context<PopupMenu>) -> PopupMenu + 'static,
+) -> PopupMenu {
     let label: SharedString = label.into();
     let row_label = label.clone();
     menu.submenu_element(
         label,
-        move |_, cx| menu_row(icon.clone(), row_label.clone(), Some(menu_row_value(value.clone(), true, cx)), false, cx),
+        move |_, cx| menu_row_glyph(glyph(cx), row_label.clone(), Some(menu_row_value(value.clone(), true, cx)), false, cx),
         window,
         cx,
         f,
