@@ -5,9 +5,13 @@
 //! (a child of this test, never started by the compositor) gets nothing:
 //!
 //! - every 64-hex string it can read under `XDG_RUNTIME_DIR` and in every
-//!   readable `/proc/*/environ` is refused at `hello`;
+//!   readable `/proc/*/environ` is refused at `hello` (the root token file
+//!   stays, design v3: its value works only from eDE's own binaries and
+//!   what the person allowed);
 //! - an anonymous connection is refused `input`, `capture` and `hold_input`;
-//! - `request_grant` is refused (no one says Allow);
+//! - a copy of it named like the app (`exponential`) presenting the file's
+//!   token is asked about, the person (`--consent-answer deny`) says Don't
+//!   allow, and it is refused;
 //! - the Wayland virtual keyboard and input-method managers are not offered;
 //! - there is no services socket to reach and it holds no socket;
 //! - `ptrace`, `pidfd_getfd` and `/proc/<pid>/environ` of the shell stand-in
@@ -86,7 +90,9 @@ fn a_process_of_the_person_without_a_channel_gets_nothing() {
     // The compositor, its channel at fd 3, as the session starts it.
     let (compositor_end, shell_end) = UnixStream::pair().unwrap();
     let mut compositor = Command::new(env!("CARGO_BIN_EXE_exponential-compositor"));
-    compositor.args(["--headless", "800x600", "--no-xwayland", "--safe-mode", "--control-fd", "3"]);
+    // The root token's gate on (P5'; the flip turns it on for the real
+    // session), the person saying Don't allow to every question.
+    compositor.args(["--headless", "800x600", "--no-xwayland", "--safe-mode", "--control-fd", "3", "--consent-answer", "deny"]);
     env(&mut compositor);
     at_fd_3(&mut compositor, compositor_end.as_raw_fd());
     let _compositor = Killed(compositor.spawn().unwrap());
@@ -133,9 +139,23 @@ fn a_process_of_the_person_without_a_channel_gets_nothing() {
     assert!(output.status.success(), "the foreign process failed to run: {report}");
     assert!(report.lines().any(|l| l.ends_with("DONE")), "the foreign process did not finish: {report}");
 
+    let mut failures: Vec<String> = failures.into_iter().map(String::from).collect();
+    // The same, named like the app: asked, refused (the person said no).
+    let named = dir.path().join("named");
+    std::fs::create_dir(&named).unwrap();
+    let app_copy = named.join("exponential");
+    std::fs::copy(std::env::current_exe().unwrap(), &app_copy).unwrap();
+    let mut asking = Command::new(&app_copy);
+    asking.args(["--exact", "role_named_like_the_app", "--ignored", "--nocapture", "--test-threads=1"]);
+    env(&mut asking);
+    asking.env(ROLE, "named").env("WAYLAND_DISPLAY", &display).stdout(Stdio::piped()).stderr(Stdio::inherit());
+    let output = asking.output().unwrap();
+    let report = String::from_utf8_lossy(&output.stdout);
+    failures.extend(report.lines().filter_map(|l| l.split_once("GOT: ").map(|(_, what)| what.to_string())));
+    assert!(report.lines().any(|l| l.ends_with("DONE")), "the copy named like the app did not finish: {report}");
+
     std::thread::sleep(Duration::from_millis(200));
     app.roundtrip();
-    let mut failures: Vec<String> = failures.into_iter().map(String::from).collect();
     if !app.state.keys.is_empty() {
         failures.push(format!("the person's window saw keys {:?}", app.state.keys));
     }
@@ -162,6 +182,24 @@ fn role_shell_stand_in() {
     while std::io::stdin().read_line(&mut line).is_ok_and(|n| n > 0) {
         line.clear();
     }
+}
+
+/// A copy of this binary named `exponential` (the CLI's name): it reads
+/// the root token file and says hello with it; the person says no.
+#[test]
+#[ignore = "#EDE-172: a role of the acceptance test"]
+fn role_named_like_the_app() {
+    if std::env::var(ROLE).as_deref() != Ok("named") {
+        return;
+    }
+    let runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").unwrap());
+    let display = std::env::var("WAYLAND_DISPLAY").unwrap();
+    let token = std::fs::read_to_string(ede_protocol::token_path(&runtime, &display)).unwrap();
+    match Client::connect(&ede_protocol::socket_path(&runtime, &display), Token::new(token.trim()).unwrap()) {
+        Ok(client) => println!("\nGOT: the file's token from a copy named like the app, refused by the person ({:?})", client.hello.capabilities),
+        Err(e) => eprintln!("named like the app, refused: {e}"),
+    }
+    println!("\nDONE");
 }
 
 /// Every 64-hex run in `bytes` (and each 64-hex window of a longer run).
@@ -262,15 +300,6 @@ fn role_foreign() {
                 let op = serde_json::to_value(Call { id: 0, request }).unwrap();
                 if raw_call(&mut stream, 10 + n as u64, op.clone()).is_some() {
                     got(format!("an anonymous {}", op["op"]));
-                }
-            }
-            // request_grant: nobody says Allow.
-            let ask = serde_json::json!({"op": "request_grant", "principal": "computer-use", "capabilities": ["capture", "input:person", "ui"], "reason": "the acceptance test"});
-            if let Some(reply) = raw_call(&mut stream, 20, ask) {
-                got(format!("request_grant answered {reply}"));
-                let op = serde_json::to_value(Call { id: 0, request: Request::Capture { target: CaptureTarget::Output { name: "HEADLESS-1".into() }, since: None } }).unwrap();
-                if raw_call(&mut stream, 21, op).is_some() {
-                    got("a capture after request_grant".into());
                 }
             }
         }

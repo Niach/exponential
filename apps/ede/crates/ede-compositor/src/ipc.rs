@@ -17,6 +17,10 @@
 //! anonymous: it holds no grant and asks only what
 //! [`Request::anonymous`] lets it. Every socket connection's peer is taken
 //! as it comes in ([`crate::peer::Peer`]).
+//!
+//! #EDE-172 (P5', design v3): with the gate on, the root token is honoured
+//! by who presents it ([`crate::consent`]); a connection the person allowed
+//! acts as the `computer-use` principal.
 
 use std::{
     io::{Read, Write},
@@ -42,6 +46,7 @@ use smithay::{
 };
 
 use crate::{
+    consent::{Key, Principal, Verdict, Waiter},
     desk::DeskId,
     spaces::scope::{Scope, Scoped},
     state::Ede,
@@ -64,6 +69,15 @@ pub struct Ipc {
     /// #EDE-172: the bound grants (by their token, which is their id) and
     /// the grant each was opened on.
     bound: std::collections::HashMap<Token, Bound>,
+    /// #EDE-172 (P5'): who may present the root token, and what the person
+    /// answered this login.
+    pub consent: crate::consent::Gate,
+    /// The grants the `computer-use` principal minted or opened, and the
+    /// sessions of its space grants: its lineage (one per person).
+    cu_grants: std::collections::HashSet<Token>,
+    cu_sessions: std::collections::HashSet<SessionId>,
+    /// The gate's channel on the loop, made on first use.
+    consent_tx: Option<smithay::reexports::calloop::channel::Sender<ConsentEvent>>,
     clients: Vec<Conn>,
     next_client: u64,
     next_event: u64,
@@ -71,6 +85,16 @@ pub struct Ipc {
     pub paths: Vec<PathBuf>,
     /// The portal's global shortcuts (#EDE-15).
     pub shortcuts: crate::shortcuts::Shortcuts,
+}
+
+/// #EDE-172 (P5'): what the gate hears on the loop.
+#[derive(Debug)]
+pub(crate) enum ConsentEvent {
+    /// An executable's hash, read off the loop: every hello waiting for
+    /// that file ([`crate::consent::Gate::hashing`]) goes on with it.
+    Hashed { file: crate::consent::FileKey, hash: Result<[u8; 32], String> },
+    /// The person's answer to the question `key`.
+    Answered { key: Key, allowed: bool },
 }
 
 /// A bound grant (#EDE-172): never taken by its token, it lives on its
@@ -103,6 +127,8 @@ struct Conn {
     /// Who connected it (a socket's peer; `None` for a channel the
     /// compositor made), taken before its first call.
     peer: Option<crate::peer::Peer>,
+    /// #EDE-172 (P5'): what a root hello on it acts as.
+    principal: Principal,
     inbuf: Vec<u8>,
     /// Whole frames not served yet: they wait while a call's reply is
     /// deferred (a clipboard read), so replies keep the calls' order.
@@ -181,6 +207,15 @@ static CONTROL_FD: std::sync::Mutex<Option<OwnedFd>> = std::sync::Mutex::new(Non
 /// `--test-token-file PATH` (headless and nested only): the root token is
 /// written there too (0600), for scripts that drive a test compositor.
 static TEST_TOKEN_FILE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// `--consent-answer allow|deny` (headless and nested only): the gate is on
+/// and this is the person's answer to every question, without a prompt.
+static CONSENT_ANSWER: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
+/// `--consent-answer`: see [`CONSENT_ANSWER`].
+pub fn answer_consent_with(allow: bool) {
+    *CONSENT_ANSWER.lock().unwrap_or_else(|p| p.into_inner()) = Some(allow);
+}
 
 /// `--control-fd N`: `fd` becomes a root channel when the socket listens.
 pub fn hand_control_fd(fd: OwnedFd) {
@@ -315,6 +350,11 @@ impl Ede {
             write_token_file(&path, &root)?;
             self.ipc.paths.push(path);
         }
+        // #EDE-172 (P5'): the gate, from the config read at the start (a
+        // later edit of the person's file does not turn it off).
+        let answer = *CONSENT_ANSWER.lock().unwrap_or_else(|p| p.into_inner());
+        self.ipc.consent.on = self.config.control.consent || answer.is_some();
+        self.ipc.consent.answer_with = answer;
         if let Some(fd) = CONTROL_FD.lock().unwrap_or_else(|p| p.into_inner()).take() {
             if !self.ipc_insert_root_channel(UnixStream::from(fd)) {
                 tracing::warn!("--control-fd: the connection could not be served");
@@ -379,7 +419,7 @@ impl Ede {
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
         let scope = held.as_ref().and_then(|t| self.ipc.grant(t)).map(Scope::of);
-        self.ipc.clients.push(Conn { id, writer: stream, channel: held.is_some(), pending_fd: None, anonymous: false, peer: None, inbuf: Vec::new(), queued: Default::default(), busy: None, token: held, scope, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
+        self.ipc.clients.push(Conn { id, writer: stream, channel: held.is_some(), pending_fd: None, anonymous: false, peer: None, principal: Principal::Root, inbuf: Vec::new(), queued: Default::default(), busy: None, token: held, scope, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
             let mut r: &UnixStream = reader;
@@ -621,28 +661,17 @@ impl Ede {
             };
             let grant = held.and_then(|t| self.ipc.grant(&t).cloned()).filter(|g| g.expires_at.is_none_or(|e| now < e));
             let Some(grant) = grant else { return Err(fail(ErrorCode::Unauthorized, "unknown or expired token")) };
-            let scope = Scope::of(&grant);
-            if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
-                if c.scope.as_ref().is_some_and(|kept| *kept != scope) {
-                    return Err(fail(ErrorCode::Forbidden, "a connection keeps the desk of its first hello"));
+            // #EDE-172 (P5'): the root token, presented on a socket
+            // connection, goes through the gate: by who presents it.
+            let principal = if named.is_some() && !channel && grant.session_id.as_str() == ROOT_SESSION && self.ipc.consent.on {
+                match self.ipc_gate(id, call_id, None)? {
+                    Some(principal) => principal,
+                    None => return Ok(None),
                 }
-                c.token = Some(grant.token.clone());
-                c.scope = Some(scope);
-            }
-            let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
-            // #EXP-1514 (#EXP-2011, the flip): what offers a space to people.
-            if self.says_space_readiness() {
-                features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
-            }
-            let named = named.is_some();
-            let id_of = grant.token.clone();
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features, unknown_capabilities: vec![] };
-            let mut hello = serde_json::to_value(hello).unwrap();
-            // #EDE-172: a channel learns which grant it holds (a bound one's id).
-            if !named {
-                hello["grant"] = serde_json::Value::String(id_of.as_str().to_string());
-            }
-            return Ok(Some((hello, None)));
+            } else {
+                Principal::Root
+            };
+            return self.ipc_bind_hello(id, grant, principal, named.is_some()).map(|hello| Some((hello, None)));
         }
         // #EDE-172: an anonymous connection holds nothing: the allowlist.
         if anonymous {
@@ -660,6 +689,12 @@ impl Ede {
         };
         if grant.expires_at.is_some_and(|e| now >= e) {
             return Err(fail(ErrorCode::Unauthorized, "the grant expired"));
+        }
+        // #EDE-172 (P5'): the person's yes to the app is computer use, not
+        // the shell's power.
+        let principal = self.ipc.clients.iter().find(|c| c.id == id).map_or(Principal::Root, |c| c.principal);
+        if principal == Principal::ComputerUse {
+            self.ipc_computer_use(&request)?;
         }
         // #EDE-126: a space connection never reaches the arms below.
         let (desk, request) = if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
@@ -761,7 +796,7 @@ impl Ede {
                     // #EDE-125: any space, for `system` alone.
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
                     CaptureTarget::Space { space } => {
-                        let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
+                        let desk = self.spaces.iter().find(|s| s.id == space && (principal == Principal::Root || self.ipc.cu_sessions.contains(&s.owner))).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
                         return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id }, false);
                     }
                     CaptureTarget::Window { window } => {
@@ -868,7 +903,16 @@ impl Ede {
                         return Err(fail(ErrorCode::Forbidden, "cannot outlive the minting grant"));
                     }
                 }
+                if !principal.may_mint(&capabilities) {
+                    return Err(fail(ErrorCode::Forbidden, "computer use mints {capture, input:person, ui} or [space], nothing wider"));
+                }
                 let minted = Grant { token: new_token(), session_id, run_id, capabilities, expires_at };
+                if principal == Principal::ComputerUse {
+                    self.ipc.cu_grants.insert(minted.token.clone());
+                    if minted.capabilities == [Capability::Space] {
+                        self.ipc.cu_sessions.insert(minted.session_id.clone());
+                    }
+                }
                 self.ipc.grants.push(minted.clone());
                 json(serde_json::to_value(minted).unwrap())
             }
@@ -876,6 +920,9 @@ impl Ede {
                 // #EDE-172: `system` ends any grant; a holder ends its own
                 // and what was opened on it (asked before the lookup: no
                 // other grant's existence shows).
+                if principal == Principal::ComputerUse && !self.ipc.cu_grants.contains(&token) {
+                    return Err(fail(ErrorCode::Forbidden, "computer use ends only the grants it made"));
+                }
                 if !grant.admits(Capability::System, now) && !self.ipc.lineage(&grant.token).contains(&token) {
                     return Err(fail(ErrorCode::Forbidden, "needs the system capability, or a grant opened on the caller's"));
                 }
@@ -907,9 +954,19 @@ impl Ede {
                 }
                 json(serde_json::to_value(ede_protocol::LaunchToken { token: self.mint_launch_token() }).unwrap())
             }
-            // #EDE-125: the person's side, `system` only: every space.
-            Request::ListSpaces => json(serde_json::to_value(self.space_infos(None)).unwrap()),
+            // #EDE-125: the person's side, `system` only: every space;
+            // #EDE-172 (P5'): computer use, its own lineage's.
+            Request::ListSpaces => {
+                let mut spaces = self.space_infos(None);
+                if principal == Principal::ComputerUse {
+                    spaces.retain(|s| self.ipc.cu_sessions.contains(&s.session_id));
+                }
+                json(serde_json::to_value(spaces).unwrap())
+            }
             Request::DestroySpace { space } => {
+                if principal == Principal::ComputerUse && !self.spaces.iter().any(|s| s.id == space && self.ipc.cu_sessions.contains(&s.owner)) {
+                    return Err(fail(ErrorCode::NotFound, "no such space"));
+                }
                 self.space_destroy(None, &space)?;
                 json(serde_json::Value::Null)
             }
@@ -920,7 +977,13 @@ impl Ede {
             // #EXP-1514 (#EXP-2011, the flip): from what holds now (`spaces::readiness`).
             Request::SpaceReadiness => json(serde_json::to_value(self.space_readiness_reply()).unwrap()),
             Request::OpenChannel { session_id, capabilities, expires_at } => {
+                if principal == Principal::ComputerUse && (session_id.is_none() || capabilities.contains(&Capability::Space) || !principal.may_mint(&capabilities)) {
+                    return Err(fail(ErrorCode::Forbidden, "computer use opens children of {capture, input:person, ui}, never root's own"));
+                }
                 let opened = self.ipc_open_channel(&grant, session_id, capabilities, expires_at, now)?;
+                if principal == Principal::ComputerUse {
+                    self.ipc.cu_grants.insert(opened.token.clone());
+                }
                 let (ours, theirs) = UnixStream::pair().map_err(|e| fail(ErrorCode::Internal, &e.to_string()))?;
                 if !self.ipc_insert_channel(ours, &opened.token) {
                     if opened.token != grant.token {
@@ -934,6 +997,239 @@ impl Ede {
                 json(serde_json::to_value(opened).unwrap())
             }
         }
+    }
+
+    /// The hello's end: connection `id` holds `grant` as `principal` from
+    /// now on (its desk is its first hello's), and the reply. `named` =
+    /// it said the token (else a channel learns which grant it holds).
+    fn ipc_bind_hello(&mut self, id: u64, grant: Grant, principal: Principal, named: bool) -> Result<serde_json::Value, Failure> {
+        let scope = Scope::of(&grant);
+        if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+            if c.scope.as_ref().is_some_and(|kept| *kept != scope) {
+                return Err(fail(ErrorCode::Forbidden, "a connection keeps the desk of its first hello"));
+            }
+            c.token = Some(grant.token.clone());
+            c.scope = Some(scope);
+            c.principal = principal;
+        }
+        let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
+        // #EXP-1514 (#EXP-2011, the flip): what offers a space to people.
+        if self.says_space_readiness() {
+            features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
+        }
+        let id_of = grant.token.clone();
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features, unknown_capabilities: vec![] };
+        let mut hello = serde_json::to_value(hello).unwrap();
+        // #EDE-172: a channel learns which grant it holds (a bound one's id).
+        if !named {
+            hello["grant"] = serde_json::Value::String(id_of.as_str().to_string());
+        }
+        Ok(hello)
+    }
+
+    /// #EDE-172 (P5'): what the `computer-use` principal never does (the
+    /// app does none of it): `forbidden` before anything else is looked at.
+    fn ipc_computer_use(&self, request: &Request) -> Result<(), Failure> {
+        let refused = match request {
+            Request::Lock | Request::Logout | Request::Unlock | Request::SetOutput { .. } | Request::ReloadConfig | Request::LaunchToken => true,
+            Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => true,
+            Request::Input { bindings, .. } => *bindings,
+            _ => false,
+        };
+        if refused {
+            return Err(fail(ErrorCode::Forbidden, "computer use does not do that: it is the shell's"));
+        }
+        Ok(())
+    }
+
+    /// #EDE-172 (P5'): the gate for a root hello on connection `id`:
+    /// `Some(principal)` now, `None` = the reply comes later (a hash being
+    /// read, a question to the person), or the refusal. `hash` = the
+    /// executable's, read off the loop.
+    fn ipc_gate(&mut self, id: u64, call_id: u64, hash: Option<[u8; 32]>) -> Result<Option<Principal>, Failure> {
+        let own = [Some(std::process::id()), self.sealed_stand_in, self.shell_stand_in];
+        let own: Vec<u32> = own.into_iter().flatten().collect();
+        let policy = self.ipc.consent.policy();
+        let Some(conn) = self.ipc.clients.iter().find(|c| c.id == id) else { return Err(fail(ErrorCode::Unauthorized, "gone")) };
+        let peer = conn.peer.as_ref();
+        let hash = hash.or_else(|| peer.and_then(|p| self.ipc.consent.cached_hash(p)));
+        if hash.is_none() && peer.is_some_and(|p| self.ipc.consent.needs_hash(p, &self.installed, &policy)) {
+            let peer = peer.unwrap();
+            let (pid, exe) = (peer.pid, peer.exe.clone());
+            let (Some(file), Some(exe)) = (crate::consent::file_key(peer), exe) else { return Err(fail(ErrorCode::Unauthorized, "its executable could not be read")) };
+            // One hash per file: a hello for a file already being read waits for it.
+            if let Some(waiting) = self.ipc.consent.hashing.get_mut(&file) {
+                waiting.push((id, call_id));
+                return Ok(None);
+            }
+            self.ipc.consent.hashing.insert(file, vec![(id, call_id)]);
+            *self.ipc.consent.hashes_started.entry(file).or_default() += 1;
+            let tx = self.consent_events();
+            let spawned = std::thread::Builder::new().name("ede-consent-hash".into()).spawn(move || {
+                let _ = tx.send(ConsentEvent::Hashed { file, hash: crate::consent::hash_exe(pid, exe.dev, exe.ino) });
+            });
+            if let Err(e) = spawned {
+                self.ipc.consent.hashing.remove(&file);
+                return Err(fail(ErrorCode::Internal, &e.to_string()));
+            }
+            return Ok(None);
+        }
+        let verdict = self.ipc.consent.verdict(peer, &self.installed, &own, &policy, hash.as_ref());
+        let (pid, start) = peer.map_or((0, 0), |p| (p.pid, p.start));
+        match verdict {
+            Verdict::Grant(principal) => Ok(Some(principal)),
+            Verdict::Refuse(why) => {
+                tracing::warn!(pid, "the root token was refused: {why}");
+                Err(fail(ErrorCode::Unauthorized, &why))
+            }
+            Verdict::Ask(asking) => {
+                self.ipc.consent.waiting.push_back(Waiter { conn: id, call: call_id, pid, start, asking });
+                self.consent_ask_next();
+                Ok(None)
+            }
+        }
+    }
+
+    /// The gate's own events, on the loop: one channel for the compositor's life.
+    fn consent_events(&mut self) -> smithay::reexports::calloop::channel::Sender<ConsentEvent> {
+        if let Some(tx) = &self.ipc.consent_tx {
+            return tx.clone();
+        }
+        let (tx, rx) = smithay::reexports::calloop::channel::channel::<ConsentEvent>();
+        let inserted = self.loop_handle.insert_source(rx, |event, _, state| {
+            if let smithay::reexports::calloop::channel::Event::Msg(event) = event {
+                state.consent_event(event);
+            }
+        });
+        if let Err(e) = inserted {
+            tracing::error!("the consent gate's channel: {e}");
+        }
+        self.ipc.consent_tx = Some(tx.clone());
+        tx
+    }
+
+    fn consent_event(&mut self, event: ConsentEvent) {
+        match event {
+            ConsentEvent::Hashed { file, hash } => {
+                let waiting = self.ipc.consent.hashing.remove(&file).unwrap_or_default();
+                if let Ok(hash) = hash {
+                    self.ipc.consent.remember_hash(file, hash);
+                }
+                for (conn, call) in waiting {
+                    let outcome = match &hash {
+                        Ok(hash) => self.ipc_gate(conn, call, Some(*hash)),
+                        Err(why) => Err(fail(ErrorCode::Unauthorized, &format!("its executable could not be read: {why}"))),
+                    };
+                    match outcome {
+                        Ok(Some(principal)) => self.consent_finish(conn, call, principal),
+                        Ok(None) => {}
+                        Err(failure) => self.ipc_reply_later(conn, call, Err(failure)),
+                    }
+                }
+            }
+            ConsentEvent::Answered { key, allowed } => self.consent_answered(key, allowed),
+        }
+    }
+
+    /// A waiting hello's end: bound as `principal`, answered.
+    fn consent_finish(&mut self, conn: u64, call: u64, principal: Principal) {
+        let root = self.ipc.root_grant();
+        let reply = self.ipc_bind_hello(conn, root, principal, true);
+        self.ipc_reply_later(conn, call, reply);
+    }
+
+    /// Opens the next question when none is open: the prompt (the sealed
+    /// consent the compositor spawns), a test's stand-in, or
+    /// `--consent-answer`.
+    fn consent_ask_next(&mut self) {
+        if self.ipc.consent.open.is_some() {
+            return;
+        }
+        let Some(asking) = self.ipc.consent.waiting.front().map(|w| w.asking.clone()) else { return };
+        let key = asking.key.clone();
+        let (tx, rx) = smithay::reexports::calloop::channel::channel::<bool>();
+        let events = self.consent_events();
+        let answered = key.clone();
+        let inserted = self.loop_handle.insert_source(rx, move |event, _, _| {
+            if let smithay::reexports::calloop::channel::Event::Msg(allowed) = event {
+                let _ = events.send(ConsentEvent::Answered { key: answered.clone(), allowed });
+            }
+        });
+        if inserted.is_err() {
+            self.consent_failed(&key, "the consent prompt could not be watched");
+            return;
+        }
+        if let Some(allowed) = self.ipc.consent.answer_with {
+            self.ipc.consent.open = Some((key, None));
+            let _ = tx.send(allowed);
+            return;
+        }
+        if let Some(stand_in) = self.ipc.consent.stand_in.clone() {
+            self.ipc.consent.open = Some((key.clone(), None));
+            if stand_in.send(crate::consent::StandIn { asking, answer: tx }).is_err() {
+                self.ipc.consent.open = None;
+                self.consent_failed(&key, "nobody answers for the person");
+            }
+            return;
+        }
+        let argv = vec![crate::sealed::sealed_binary(), "consent".into(), "--title".into(), asking.title.clone(), "--body".into(), asking.body.clone(), "--allow".into(), "Allow".into(), "--deny".into(), "Don't allow".into()];
+        let child = self.client_command(&argv).and_then(|mut command| command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).spawn().map_err(|e| tracing::warn!("{}: {e}", argv[0])).ok());
+        let Some(child) = child else {
+            self.consent_failed(&key, "the consent prompt could not start");
+            return;
+        };
+        let pid = child.id();
+        tracing::info!(pid, "the consent prompt asks the person: {}", asking.body);
+        self.ipc.consent.open = Some((key, Some(pid)));
+        let spawned = std::thread::Builder::new().name("ede-consent-prompt".into()).spawn(move || {
+            let allowed = child.wait_with_output().is_ok_and(|out| out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "allow");
+            let _ = tx.send(allowed);
+        });
+        if spawned.is_err() {
+            tracing::error!("the consent prompt's watcher did not start");
+        }
+    }
+
+    /// The person answered the open question: every hello waiting for the
+    /// same key gets it; then the next question.
+    fn consent_answered(&mut self, key: Key, allowed: bool) {
+        if self.ipc.consent.open.as_ref().is_some_and(|(open, _)| *open == key) {
+            self.ipc.consent.open = None;
+        }
+        let waiting = std::mem::take(&mut self.ipc.consent.waiting);
+        let (mine, rest): (Vec<Waiter>, Vec<Waiter>) = waiting.into_iter().partition(|w| w.asking.key == key);
+        self.ipc.consent.waiting = rest.into();
+        let askers: Vec<(u32, u64)> = mine.iter().map(|w| (w.pid, w.start)).collect();
+        let files: Vec<(u64, u64)> = mine.iter().filter_map(|w| w.asking.file).collect();
+        self.ipc.consent.answered(&key, allowed, &askers, &files);
+        tracing::info!(allowed, "the person answered the consent prompt");
+        for w in mine {
+            if allowed {
+                self.consent_finish(w.conn, w.call, w.asking.grants);
+            } else {
+                self.ipc_reply_later(w.conn, w.call, Err(fail(ErrorCode::Unauthorized, "the person did not allow it")));
+            }
+        }
+        self.consent_ask_next();
+    }
+
+    /// No answer could be had (no prompt): the hellos of `key` are refused,
+    /// nothing is remembered (the person said nothing).
+    fn consent_failed(&mut self, key: &Key, why: &str) {
+        tracing::warn!("{why}");
+        let waiting = std::mem::take(&mut self.ipc.consent.waiting);
+        let (mine, rest): (Vec<Waiter>, Vec<Waiter>) = waiting.into_iter().partition(|w| w.asking.key == *key);
+        self.ipc.consent.waiting = rest.into();
+        for w in mine {
+            self.ipc_reply_later(w.conn, w.call, Err(fail(ErrorCode::Unavailable, why)));
+        }
+        self.consent_ask_next();
+    }
+
+    /// The consent prompt the compositor spawned, while it is open: its
+    /// surface is sealed ([`crate::sealed::origin_of`]).
+    pub fn consent_prompt_pid(&self) -> Option<u32> {
+        self.ipc.consent.open.as_ref().and_then(|(_, pid)| *pid)
     }
 
     /// #EDE-172: connection `id` is anonymous from now on: its hello's reply
