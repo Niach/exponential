@@ -69,8 +69,11 @@ impl Tools {
         );
         // The space's own user manager: brings the bus (a file stands for
         // its socket), writes its environment and its process id, stays.
+        // It stays with no environment: a real one is in its space's slice,
+        // so a close never counts it among the space's strays (#EDE-183),
+        // and only `systemctl exit` ends it (#EDE-195).
         let systemd = format!(
-            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\necho $$ > \"$XDG_RUNTIME_DIR/manager.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec sleep 300\n"
+            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\necho $$ > \"$XDG_RUNTIME_DIR/manager.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec env -i sleep 300\n"
         );
         // #EXP-1514: readiness reads that the user manager was given the
         // memory and pids controllers (`user@<uid>.service`, the parent of
@@ -316,7 +319,7 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     other.destroy_space(other_space.id.clone()).unwrap();
     let first_stop = format!("systemctl [--user] [stop] [app-exponential_p{me}-s2.slice] ");
     until("the slice of a space whose manager stays was never stopped", || tools.log().iter().any(|line| line.starts_with(&first_stop)));
-    assert!(asked.elapsed() >= EXIT_BOUND, "the slice was stopped before its manager's bound: {:?}", asked.elapsed());
+    assert!(asked.elapsed() >= EXIT_BOUND, "the slice was stopped before its manager's bound: {:?} {:#?}", asked.elapsed(), tools.log());
     until("the kernel was never told to end what the stop left", || std::fs::read_to_string(second_cgroup.join("cgroup.kill")).is_ok_and(|told| told == "1"));
     until("the outlived slice was not stopped once more", || tools.log().iter().filter(|line| line.starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s2.slice] "))).count() == 2);
     until("the other space's launch outlived it", || !alive(other_pid));

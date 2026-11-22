@@ -433,9 +433,9 @@ impl Ede {
         let exit = units.exit_manager(&dir);
         let pidfd = rustix::process::Pid::from_raw(child.id() as i32).and_then(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok());
         if let Some(pidfd) = pidfd {
-            let unit = unit.clone();
+            let exited = unit.clone();
             let watched = self.loop_handle.insert_source(Generic::new(pidfd, Interest::READ, Mode::OneShot), move |_, _, state| {
-                state.space_manager_exited(&unit);
+                state.space_manager_exited(&exited);
                 Ok(PostAction::Remove)
             });
             if let Err(e) = watched {
