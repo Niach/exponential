@@ -1,6 +1,6 @@
 #!/bin/bash
-# usage: webdeploy.sh <7-char sha>: device-shares, prune, STAGING (deploy, revision, health, boot log),
-# then PROD (pinned only now), revision on BOTH, settle tags. Prod is never touched (not even its
+# usage: webdeploy.sh <7-char sha>: device-shares, pull, STAGING (deploy, revision, health, boot log),
+# then PROD (pinned only now), revision on BOTH, settle tags, prune. Prod is never touched (not even its
 # tag) unless staging verifiably runs <sha> and is healthy (#EXP-1838).
 #   STAGING_ONLY=1   stop after staging (a soak); prod's tag is not touched
 #   PRE_PROD_HOOK=…  a shell command that must pass before prod
@@ -13,9 +13,17 @@ SHA=$1; U=$EXP_APP_PROD; S=$EXP_APP_STAGING
 case $rc in 0) ;; 1) echo "SHARES FAILED: duplicates found, nothing deployed"; exit 1;;
   *) echo "SHARES CHECK COULD NOT RUN (exit $rc): no result, nothing deployed; rerun"; exit 2;; esac
 cd /tmp; PREV_U=$(tag_of $U); PREV_S=$(tag_of $S); echo "tags before: prod=$PREV_U staging=$PREV_S"
-on_host 'docker image prune -af 2>&1 | tail -1'
+# #EXP-1974: the prune ran right before Coolify's pull, and containerd's GC behind it raced the
+# pull's ingest/extract (shared layers): "failed to extract layer", "failed commit on ref". Now the
+# host pulls the image itself first (Coolify's pull is a no-op), nothing prunes until the script
+# exits (an unused image only: never the one a container now runs), and a failed staging deploy
+# pulls and deploys once more before it counts.
+pull() { on_host "for i in 1 2 3; do docker pull -q $EXP_WEB_IMAGE:sha-$SHA >/dev/null && exit 0; sleep 10; done; exit 1"; }
+pull || { echo "STAGING PULL FAILED ($EXP_WEB_IMAGE:sha-$SHA): nothing deployed, prod held, untouched"; exit 1; }
+trap 'echo "--- prune"; on_host "docker image prune -af 2>&1 | tail -1"' EXIT
 coolify app update $S --docker-tag sha-$SHA >/dev/null 2>&1
-deploy_app $S $EXP_STAGING_URL || { echo "STAGING DEPLOY FAILED: prod held, untouched"; exit 1; }
+deploy_app $S $EXP_STAGING_URL || { echo "staging deploy failed: pulling again, one retry"; pull && deploy_app $S $EXP_STAGING_URL; } \
+  || { echo "STAGING DEPLOY FAILED: prod held, untouched"; exit 1; }
 sleep 90
 require_rev $S $SHA staging || { echo "prod held, untouched"; exit 3; }
 c=$(ctr $S); echo "--- staging boot log ($c):"
