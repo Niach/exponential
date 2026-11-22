@@ -200,11 +200,16 @@ pub struct SteerRuntime {
 
 impl SteerRuntime {
     pub fn new() -> std::io::Result<Arc<Self>> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("steer-ws")
-            .enable_all()
-            .build()?;
+        // #PERF-12: every hosted run's engine work lands here too (the ACP
+        // connection, its drains, its reports), so the blocking pool is the
+        // engine's: bounded, its threads kept rather than re-made.
+        let runtime = eagent::engine::runtime::configure(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(eagent::engine::runtime::WORKER_THREADS)
+                .thread_name("steer-ws"),
+        )
+        .enable_all()
+        .build()?;
         Ok(Arc::new(Self { runtime }))
     }
 
