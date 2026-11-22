@@ -22,6 +22,9 @@ pub const WIP_COMMIT_MESSAGE: &str =
 pub const WIP_FINISH_COMMIT_MESSAGE: &str =
     "WIP: uncommitted changes saved when the session ended (Exponential)";
 
+/// Paths per `git add` argv (well under any OS argv limit).
+const ADD_CHUNK: usize = 200;
+
 /// The identity a commit falls back to when the worktree has none configured.
 const FALLBACK_NAME: &str = "user.name=Exponential";
 const FALLBACK_EMAIL: &str = "user.email=noreply@exponential.local";
@@ -44,6 +47,11 @@ pub enum WipSave {
 /// worktree's own identity, or the Exponential fallback identity when the
 /// first attempt fails for a missing one. Hooks and signing are skipped: a
 /// save at stop time must not hang on a prompt or be vetoed by a linter.
+///
+/// #EXP-2039: by the auto-push snapshot's rules
+/// ([`crate::auto_push::stop_save_paths`]): a flood of untracked files
+/// (build output nobody ignored) and secret-looking or oversized files stay
+/// out, uncommitted; the end cleanup later pushes this commit.
 pub fn save_wip_commit(worktree: &Path) -> WipSave {
     save(worktree, &["add", "-A"], WIP_COMMIT_MESSAGE)
 }
@@ -79,8 +87,32 @@ fn save(worktree: &Path, add: &[&str], message: &str) -> WipSave {
                 .to_string(),
         );
     }
-    if let Err(err) = run_git(Some(worktree), add, None, "git add") {
-        return WipSave::Failed(err.detail);
+    if tracked_only {
+        if let Err(err) = run_git(Some(worktree), add, None, "git add") {
+            return WipSave::Failed(err.detail);
+        }
+    } else {
+        let (paths, skipped) = match crate::auto_push::stop_save_paths(worktree) {
+            Ok(selected) => selected,
+            Err(detail) => return WipSave::Failed(detail),
+        };
+        if !skipped.is_empty() {
+            log::info!(
+                "WIP save in {}: {} path(s) left out (secret-looking, too big or untracked build output)",
+                worktree.display(),
+                skipped.len()
+            );
+        }
+        if paths.is_empty() {
+            return WipSave::Clean;
+        }
+        for chunk in paths.chunks(ADD_CHUNK) {
+            let mut args = vec!["--literal-pathspecs", "add", "-A", "--"];
+            args.extend(chunk.iter().map(String::as_str));
+            if let Err(err) = run_git(Some(worktree), &args, None, "git add (WIP)") {
+                return WipSave::Failed(err.detail);
+            }
+        }
     }
     let commit = |identity: &[&str]| {
         let mut args: Vec<&str> = identity.to_vec();
@@ -201,6 +233,36 @@ mod tests {
         std::fs::write(dir.join("notes.md"), "draft\n").unwrap();
         assert!(matches!(save_wip_commit(&dir), WipSave::Committed { .. }));
         assert_eq!(worktree_dirty_state(&dir), DirtyState::Clean);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-2039 (`exp/leftover-0119c15e`: 7,681 DerivedData files): a
+    /// stop-time save takes the real work and leaves a flood of untracked
+    /// build output and secret-looking files out.
+    #[test]
+    fn a_stop_save_leaves_build_output_floods_and_secrets_out() {
+        let dir = repo("flood");
+        std::fs::write(dir.join("README.md"), "changed\n").unwrap();
+        let derived = dir.join("apps/ios/.dd-exp1958/Build");
+        std::fs::create_dir_all(&derived).unwrap();
+        for n in 0..=crate::auto_push::MAX_WIP_PATHS {
+            std::fs::write(derived.join(format!("obj-{n}.o")), "x").unwrap();
+        }
+        assert!(matches!(save_wip_commit(&dir), WipSave::Committed { .. }));
+        let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(files.trim(), "README.md", "only the tracked change: {}", files.lines().count());
+        assert!(derived.join("obj-0.o").exists(), "the build output stays on disk, uncommitted");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let dir = repo("secret");
+        std::fs::write(dir.join("notes.md"), "draft\n").unwrap();
+        std::fs::write(dir.join(".env"), "TOKEN=1\n").unwrap();
+        assert!(matches!(save_wip_commit(&dir), WipSave::Committed { .. }));
+        let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(files.trim(), "notes.md");
+        // Only a secret left: nothing to save.
+        assert_eq!(save_wip_commit(&dir), WipSave::Clean);
+        assert!(dir.join(".env").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

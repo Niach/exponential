@@ -152,6 +152,10 @@ struct AgentSessionView: View {
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
     @State private var atBottom = true
+    /// #EXP-1976: a send from a reader scrolled up is settling at the bottom.
+    @State private var sendSettling = false
+    /// #EXP-1976: the transcript's bottom anchor is realised.
+    @State private var bottomShown = false
     /// steer-enet.json REPLAY TAIL: the row that headed the transcript when
     /// the reader's scroll near its top paged older rows in; the scroll
     /// lands back on it once they are above it (nil = no page pending).
@@ -697,6 +701,9 @@ struct AgentSessionView: View {
     private enum NoFeedPlaceholder {
         case history(String)
         case deviceAway
+        /// #EXP-2000 (steer-enet.json NEVER HELD): no device picked the row up
+        /// yet: nothing to say.
+        case waiting
         case queued
         case idle
         case loading
@@ -712,6 +719,17 @@ struct AgentSessionView: View {
                deviceOffline: model.hostDevice.offline
            ) == .away {
             return .deviceAway
+        }
+        // #EXP-2000 (steer-enet.json NEVER HELD): a row no device picked up
+        // yet (`startedAt` null) says nothing, never "No live transcript":
+        // only its sent inputs and own tail draw.
+        if model.phase != .live,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy,
+               deviceOffline: model.hostDevice.offline,
+               started: (model.session ?? session).startedAt != nil
+           ) == .waiting {
+            return .waiting
         }
         // Android 0.14.134 (steer-enet.json SENT INPUTS): a QUEUED row (sent,
         // its device not on it yet) reads "Starting on {device}", never the
@@ -752,6 +770,8 @@ struct AgentSessionView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 0) {
+                            // #EXP-2000: nothing to say; the own bubbles sit at the bottom.
+                            if case .waiting = placeholder { Spacer(minLength: 0) }
                             if !inputs.isEmpty {
                                 VStack(alignment: .trailing, spacing: 0) {
                                     ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
@@ -787,7 +807,9 @@ struct AgentSessionView: View {
                                     .padding(.top, 8)
                                     .transcriptColumn()
                             }
-                            noFeedPlaceholderView(placeholder, model: model)
+                            if case .waiting = placeholder {} else {
+                                noFeedPlaceholderView(placeholder, model: model)
+                            }
                             VStack(alignment: .leading, spacing: 0) {
                                 inlineToolCards(waitingIds, model: model)
                             }
@@ -843,6 +865,11 @@ struct AgentSessionView: View {
                 EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
             }
             .accessibilityIdentifier("transcript-device-away")
+        case .waiting:
+            // #EXP-2000: nothing to say before a device picked the row up.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("transcript-waiting")
         case .idle:
             // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
             // a row that is not busy (idle, or on an open question) is never
@@ -1134,6 +1161,8 @@ struct AgentSessionView: View {
                         Color.clear
                             .frame(height: 1)
                             .id(AgentSessionLayout.bottomAnchor)
+                            .onAppear { bottomShown = true }
+                            .onDisappear { bottomShown = false }
                     }
                     .padding(.vertical, 8)
                     // EXP-787: a transcript is a reading measure. The 16pt
@@ -1163,7 +1192,7 @@ struct AgentSessionView: View {
                 // initial offset only, never re-anchored on size changes,
                 // EXP-70), so the opening pass sizes the newest rows, not the
                 // oldest before the scroll-to-bottom.
-                .modifier(InitialBottomOffset())
+                .modifier(InitialBottomOffset(keepBottom: sendSettling))
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
@@ -1274,7 +1303,24 @@ struct AgentSessionView: View {
                 .onChange(of: model.ownPending.count) { old, new in
                     guard new > old else { return }
                     atBottom = true
+                    // #EXP-1976: from a reader scrolled up over tall lazy
+                    // rows the jump lands on their ESTIMATED heights; the
+                    // real ones collapse the content under it, and a pin by
+                    // scrollTo left the lazy stack with no row realised (an
+                    // empty transcript until the next drag). While the jump
+                    // settles, the scroll view itself keeps its bottom edge.
+                    sendSettling = true
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        sendSettling = false
+                        // Still nothing realised at the end: move the offset
+                        // for real (the newest row), then pin again.
+                        guard atBottom, !bottomShown, let last = model.transcript.last?.id else { return }
+                        proxy.scrollTo(last, anchor: .center)
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                        }
+                    }
                 }
                 // Switching conversation tabs re-pins to the newest event
                 // (EXP-356).
@@ -1583,6 +1629,10 @@ struct AgentSessionView: View {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         var extraSessions: [TranscriptGrouping.KnownSession] = []
+        // #EXP-2049 (find-in-chat.json AFTER AN OLDER LANDING): the origin is
+        // the FEED's first prompt; a synced-tail row (a paged-in older one
+        // too) draws by the synced rule (the viewer's own = the own bubble).
+        var firstInputSynced: Bool?
         for entry in entries {
             let id = "row:\(entry.id)"
             var item = TranscriptGrouping.Item(id: id, kind: .full)
@@ -1595,13 +1645,14 @@ struct AgentSessionView: View {
                 switch feedItem {
                 case .narration:
                     item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
-                case let .userMessage(_, text, _, _):
+                case let .userMessage(rowId, text, _, _):
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
                     }
                     if case .marker = TranscriptGrouping.feedInput(text) { break }
                     // #EXP-1943: a call's report relay = its card, a full row.
                     if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
+                    if firstInputSynced == nil { firstInputSynced = model.findMessageId(rowId) != nil }
                     if let input = TranscriptGrouping.crossSessionInput(text) {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
@@ -1633,7 +1684,7 @@ struct AgentSessionView: View {
         let viewed = model.session ?? session
         let input = transcriptRows?.transcriptInput(
             items: items, viewerId: viewerId, chat: viewed, originSessionId: originSessionId,
-            fromStart: model.transcriptFromStart, extraSessions: extraSessions
+            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions
         ) ?? TranscriptGrouping.Input(
             viewerId: viewerId,
             chat: TranscriptGrouping.Chat(
@@ -5524,9 +5575,14 @@ struct BodySlice<Content: View>: View {
 
 /// iOS 18+: `defaultScrollAnchor(.bottom, for: .initialOffset)`.
 private struct InitialBottomOffset: ViewModifier {
+    /// #EXP-1976: size changes keep the bottom edge too (a send settling).
+    var keepBottom = false
+
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+            content
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(keepBottom ? .bottom : nil, for: .sizeChanges)
         } else {
             content
         }

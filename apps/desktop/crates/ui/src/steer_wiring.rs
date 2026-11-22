@@ -199,6 +199,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // server; the online frame carries neither.
         // NEW-78 / NEW-55: the voice rows the doctor carries.
         let voice = cx.update(|cx| crate::device_readiness::voice_rows(cx));
+        let enet_node = cx.update(|cx| crate::enet_wiring::node(&account_id, cx));
         register_device(
             Arc::clone(&trpc),
             account_id.clone(),
@@ -210,6 +211,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             Some(&report),
             &register_dir,
             voice,
+            enet_node,
             &cx.background_executor(),
         );
         let _ = cx.update(|cx| {
@@ -368,6 +370,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
         Some(&report),
         &auth.data_dir,
         crate::device_readiness::voice_rows(cx),
+        crate::enet_wiring::node(&account.id, cx),
         &cx.background_executor(),
     );
     if let Some(channels) = ControlChannels::global_ref(cx) {
@@ -447,6 +450,7 @@ fn register_device(
     report: Option<&coding::DoctorReport>,
     data_dir: &std::path::Path,
     voice: crate::device_readiness::VoiceRows,
+    enet_node: Option<steer::enet::InstallNode>,
     executor: &gpui::BackgroundExecutor,
 ) {
     // EXP-1654: DEV-ONLY. The shots lane photographs the seeded demo fleet
@@ -522,6 +526,11 @@ fn register_device(
                 }
                 Ok(_) => {
                     launch_registered().insert(account_id);
+                    // #EXP-1983: the row exists now; an eNet install refused
+                    // `Unknown device` before it registers at once.
+                    if let Some(node) = enet_node {
+                        node.device_registered();
+                    }
                 }
                 Err(_) => {}
             }

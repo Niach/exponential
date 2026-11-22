@@ -58,7 +58,6 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 }))
 
 import {
-  picturesOnlySurface,
   registerExponentialTools,
   SHOW_CARD_ROOT_ERROR,
   SHOW_INLINE_ONLY_ERROR,
@@ -66,7 +65,8 @@ import {
   showSurfaceLinkProblem,
   showSurfaceProblem,
 } from "@/lib/emcp/tools"
-import { buildSurfaceCard } from "@/lib/sessions/plan"
+import { buildSurfaceCard, picturesOnlySurface, withPicturesSurface } from "@/lib/sessions/plan"
+import { resolveUpload, type AskCardLike } from "@exp/domain-contract/plan-card"
 import { decodeGenuiResult } from "@exp/mcp-apps/genui-result"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/emcp/gates"
 import { FULL_ACCESS } from "@/lib/emcp/scope"
@@ -157,6 +157,30 @@ describe(`exponential_show with pictures only (F38)`, () => {
     expect(JSON.stringify(card.surface)).toContain(`"Chats"`)
     expect(card.pictures?.map((picture) => picture.label)).toEqual([`web chats`])
     expect(JSON.stringify(picturesOnlySurface(undefined, [{ label: `web a` }, { label: `ios a` }]))).toContain(`web a, ios a`)
+  })
+
+  // #FEED-292: a `result: false` card showed only its title in the chat.
+  it(`paints each picture as it lands: one Image, several in a Carousel`, () => {
+    const pictures = [{ label: `web a` }, { label: `ios a` }]
+    let card = buildSurfaceCard({ surface: picturesOnlySurface(`Shots`, pictures), title: `Shots`, pictures, result: false })
+    expect(JSON.stringify(card.surface)).not.toContain(`Image`)
+    const land = (label: string, attachmentId: string) =>
+      (card = withPicturesSurface(
+        resolveUpload(card as unknown as AskCardLike, { label, attachmentId, width: 1440, height: 900 }) as unknown as typeof card
+      ))
+    land(`web a`, `a1`)
+    const one = JSON.stringify(card.surface)
+    expect(one).toContain(`/api/attachments/a1`)
+    expect(one).not.toContain(`Carousel`)
+    land(`ios a`, `a2`)
+    const both = JSON.stringify(card.surface)
+    expect(both).toContain(`Carousel`)
+    expect(both).toContain(`/api/attachments/a2`)
+    expect(both).toContain(`"Shots"`)
+    expect(card.result).toBe(false)
+    // An agent's own surface is never rewritten.
+    const own = buildSurfaceCard({ surface: { root: { id: `s`, component: `Stack`, children: [{ id: `b`, component: `Badge`, props: { text: `Green` } }] } }, pictures })
+    expect(withPicturesSurface(own)).toBe(own)
   })
 })
 

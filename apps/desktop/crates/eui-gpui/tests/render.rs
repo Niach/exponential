@@ -91,7 +91,12 @@ impl ExtensionPainter for Broken {
     }
 }
 
+#[path = "support/crash_report.rs"]
+mod crash_report;
+
 fn init(cx: &mut TestAppContext) {
+    // #EXP-1967: a fault (one SIGILL so far) prints its rip, stack and maps.
+    crash_report::install();
     cx.update(gpui_component::init);
 }
 

@@ -1325,15 +1325,18 @@ impl AppScreenView {
                 .id(id)
                 .flex_shrink_0()
                 .w_full()
-                .justify_center()
                 .p_2()
-                // #EXP-1874: a frame narrower than its tabs (a narrow pane
-                // beside the Assistant FAB) squeezes them; the bar never
-                // leaves the frame.
-                .child(crate::phone_bar::capsule().max_w_full().children(screens.into_iter().map(
+                // #EXP-2003: the capsule spans the frame like the phones' own
+                // bar (iOS `frame(maxWidth: .infinity)`, Android
+                // `fillMaxWidth`, web `flex-1`); each tab starts at its
+                // label's width and the tabs share the rest evenly (web
+                // `flex-auto`). #EXP-1874: a frame narrower than its tabs
+                // squeezes them; the bar never leaves the frame.
+                .child(crate::phone_bar::capsule().flex_1().min_w_0().children(screens.into_iter().map(
                     |(template, title, icon)| {
                         let selected = template == shown;
                         crate::phone_bar::screen_tab(screen_icon(icon.as_deref()), title, selected, cx)
+                            .flex_auto()
                             .min_w_0()
                             .overflow_hidden()
                             .whitespace_nowrap()

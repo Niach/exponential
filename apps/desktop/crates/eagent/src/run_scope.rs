@@ -263,6 +263,62 @@ pub fn stop_session_scopes(session: &str) -> bool {
     run_ok(&argv)
 }
 
+/// #EXP-1917: the scope units `session` has on this host right now: the
+/// ones a run that is ending owns. Its teardown stops exactly these
+/// ([`stop_scope_units`]), never a scope a revive of the same session
+/// started after this list was read.
+pub fn session_scope_units(session: &str) -> Vec<String> {
+    let Some(pattern) = session_scope_pattern(session) else { return Vec::new() };
+    let Some(mut argv) = systemctl(ScopeMode::current()) else { return Vec::new() };
+    argv.extend(["list-units", "--type=scope", "--no-legend", "--plain", "--state=active"].map(str::to_string));
+    argv.push(pattern);
+    let Some((program, args)) = argv.split_first() else { return Vec::new() };
+    let output = crate::process::background_command(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else { return Vec::new() };
+    parse_session_units(&String::from_utf8_lossy(&output.stdout), session)
+}
+
+/// The units of `session` in `systemctl list-units --plain` output, each once.
+pub fn parse_session_units(listing: &str, session: &str) -> Vec<String> {
+    let mut units: Vec<String> = listing
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|unit| scope_session(unit) == Some(session))
+        .map(str::to_string)
+        .collect();
+    units.dedup();
+    units
+}
+
+/// #EXP-1917: the argv that stops exactly `units` (each one of a session's
+/// scopes, [`scope_session`]); `None` when there is nothing to stop.
+pub fn stop_scope_units_argv(mode: &ScopeMode, units: &[String]) -> Option<Vec<String>> {
+    // Names, never globs: a pattern would reach a revived run's scope too.
+    let units: Vec<&String> = units
+        .iter()
+        .filter(|unit| scope_session(unit).is_some() && !unit.contains(['*', '?', '[', ']', '\\']))
+        .collect();
+    if units.is_empty() {
+        return None;
+    }
+    let mut argv = systemctl(mode)?;
+    argv.extend(["stop".to_string(), "--no-block".to_string()]);
+    argv.extend(units.into_iter().cloned());
+    Some(argv)
+}
+
+/// #EXP-1917: stops exactly `units` ([`session_scope_units`] of an ending
+/// run). False = nothing could be asked.
+pub fn stop_scope_units(units: &[String]) -> bool {
+    let Some(argv) = stop_scope_units_argv(ScopeMode::current(), units) else { return false };
+    log::info!("run scope: stopping {}", units.join(", "));
+    run_ok(&argv)
+}
+
 /// The sessions that have a scope on this host right now (live or leftover).
 pub fn sessions_with_scopes() -> Vec<String> {
     let Some(mut argv) = systemctl(ScopeMode::current()) else { return Vec::new() };
@@ -415,6 +471,28 @@ mod tests {
         assert!(!mode.wrap_for("claude", &[], Some("a b*")).iter().any(|arg| arg.starts_with("--unit=")));
         assert_eq!(stop_session_scopes_argv(&mode, "*"), None, "a glob is never a session");
         assert_eq!(stop_session_scopes_argv(&ScopeMode::Off, session), None);
+    }
+
+    /// #EXP-1917: an ending run stops the units it listed, by name, and
+    /// nothing that is not one of a session's scopes.
+    #[test]
+    fn a_run_stops_exactly_its_listed_units() {
+        let session = "36b5b51a-dde0-47d7-af90-b4b008e11df5";
+        let listing = format!(
+            "run-exp-{session}-10x0.scope loaded active running x\n\
+             run-exp-{session}-10x1.scope loaded active running x\n\
+             run-exp-aaaa-1-1x0.scope loaded active running x\n"
+        );
+        let units = parse_session_units(&listing, session);
+        assert_eq!(units, vec![format!("run-exp-{session}-10x0.scope"), format!("run-exp-{session}-10x1.scope")]);
+        let mode = ScopeMode::Systemd { user: true, oom_policy: false, no_expand: false, background: false, memory_max: None };
+        let first = vec![units[0].clone(), "ssh.service".to_string(), format!("run-exp-{session}-*.scope")];
+        assert_eq!(
+            stop_scope_units_argv(&mode, &first).unwrap(),
+            s(&["systemctl", "--user", "stop", "--no-block", &units[0]])
+        );
+        assert_eq!(stop_scope_units_argv(&mode, &[]), None);
+        assert_eq!(stop_scope_units_argv(&ScopeMode::Off, &units), None);
     }
 
     #[test]

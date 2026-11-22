@@ -135,24 +135,11 @@ export function SurfaceCard({
   animate?: boolean
   className?: string
 }) {
-  const upgraded = useMemo(() => paintedCard(surface), [surface])
-  const state = useSurface({
-    surfaceId: `surface-${testKey}`,
-    catalogId: CORE_CATALOG_ID,
-    initial: upgraded.root as NestedNode,
-    data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
-  })
+  // #FEED-292: a card edited in place (`replace`, a picture landing) paints
+  // its new surface: the body remounts on a changed tree, the frame stays.
+  const paintKey = useMemo(() => JSON.stringify(surface), [surface])
   const replyRef = useRef(onReply)
   replyRef.current = onReply
-  const links = useCardLinks()
-  const host = useMemo(
-    () =>
-      planCardHost((event) => {
-        const reply = surfaceReply(event)
-        if (reply) replyRef.current?.(reply.text)
-      }, links),
-    [links]
-  )
   const frameRef = useRef<HTMLDivElement>(null)
   const glowRef = useRef<HTMLSpanElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -184,11 +171,39 @@ export function SurfaceCard({
           className="pointer-events-none absolute -inset-px rounded-[inherit] border border-primary opacity-0"
         />
         <div ref={bodyRef} className="min-w-0">
-          <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+          <SurfaceCardBody key={paintKey} surface={surface} testKey={testKey} replyRef={replyRef} />
         </div>
       </div>
     </div>
   )
+}
+
+function SurfaceCardBody({
+  surface,
+  testKey,
+  replyRef,
+}: {
+  surface: CardSurface
+  testKey: string
+  replyRef: { current: ((text: string) => void) | undefined }
+}) {
+  const upgraded = useMemo(() => paintedCard(surface), [surface])
+  const state = useSurface({
+    surfaceId: `surface-${testKey}`,
+    catalogId: CORE_CATALOG_ID,
+    initial: upgraded.root as NestedNode,
+    data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
+  })
+  const links = useCardLinks()
+  const host = useMemo(
+    () =>
+      planCardHost((event) => {
+        const reply = surfaceReply(event)
+        if (reply) replyRef.current?.(reply.text)
+      }, links),
+    [links, replyRef]
+  )
+  return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
 }
 
 /** A person's `/new` or `/compact` line: the centred glass pill. EXP-1459:

@@ -240,15 +240,33 @@ pub fn in_use(worktree: &Path, now: SystemTime) -> Option<String> {
         if git_dir.join("index.lock").exists() {
             return Some("a git index.lock is held".to_string());
         }
-        let written = std::fs::metadata(git_dir.join("logs/HEAD"))
-            .and_then(|meta| meta.modified())
-            .ok()
-            .map(|at| now.duration_since(at).unwrap_or_default());
+        let written = last_head_write(&git_dir).map(|at| now.duration_since(at).unwrap_or_default());
         if let Some(age) = written.filter(|age| *age < RECENT_WRITE) {
             return Some(format!("written to {}s ago", age.as_secs()));
         }
     }
     process_cwd_inside(worktree).map(|pid| format!("process {pid} works in it"))
+}
+
+/// #EXP-2038: when the worktree's `HEAD` last moved (a commit, a checkout,
+/// a reset): the time its reflog's LAST entry records, else the `HEAD`
+/// file's mtime. Never `logs/HEAD`'s mtime: `git gc --auto` (`reflog
+/// expire --all`) rewrites every worktree's reflog at once, and every
+/// worktree of a busy clone then read "written to Ns ago".
+fn last_head_write(git_dir: &Path) -> Option<SystemTime> {
+    let logged = std::fs::read_to_string(git_dir.join("logs/HEAD"))
+        .ok()
+        .and_then(|log| log.lines().rev().find(|line| !line.trim().is_empty()).and_then(reflog_entry_time));
+    logged.or_else(|| std::fs::metadata(git_dir.join("HEAD")).and_then(|meta| meta.modified()).ok())
+}
+
+/// A reflog line's time: `<old> <new> <name> <<email>> <unix seconds> <tz>\t<message>`.
+fn reflog_entry_time(line: &str) -> Option<SystemTime> {
+    let head = line.split('\t').next()?;
+    let mut fields = head.rsplit(' ');
+    let _tz = fields.next()?;
+    let seconds: u64 = fields.next()?.parse().ok()?;
+    Some(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
 }
 
 /// A process (not this one) whose current directory is `dir` or below it.
@@ -497,6 +515,48 @@ mod tests {
         assert!(launcher_owned(&clone, "exp/EXP-77", &missing));
         assert!(launcher_owned(&real.join("repo"), "exp/EXP-77", &missing));
         assert!(!launcher_owned(&clone, "exp/EXP-77", &crate::git_worktree::worktrees_dir(&clone).join("rel-3a741b2f")));
+    }
+
+    /// #EXP-2038: `git gc --auto` rewrote every worktree's `logs/HEAD` a
+    /// moment ago (fresh mtime, old entries): the worktree is idle; a real
+    /// commit in it is in use again.
+    #[test]
+    fn a_reflog_rewritten_by_gc_does_not_make_a_worktree_look_in_use() {
+        let dir = temp_dir("gc-reflog");
+        let repo = repo(&dir.0);
+        let wt = dir.0.join("wt");
+        git(&repo, &["worktree", "add", "--quiet", "-b", "exp/EXP-90", wt.to_str().unwrap()]);
+        let git_dir = linked_git_dir(&wt).unwrap();
+        let log = git_dir.join("logs/HEAD");
+        let old = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() - 3 * 24 * 3600;
+        let rewritten: String = fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                // The worktree's first entry carries no message (no tab).
+                let (head, message) = line.split_once('\t').map_or((line, None), |(h, m)| (h, Some(m)));
+                let parts: Vec<&str> = head.rsplitn(3, ' ').collect();
+                let message = message.map(|m| format!("\t{m}")).unwrap_or_default();
+                format!("{} {old} {}{message}\n", parts[2], parts[0])
+            })
+            .collect();
+        // Rewritten NOW, like `reflog expire --all` does.
+        fs::write(&log, rewritten).unwrap();
+        let head = fs::OpenOptions::new().write(true).open(git_dir.join("HEAD")).unwrap();
+        head.set_modified(SystemTime::now() - 3 * RECENT_WRITE).unwrap();
+        assert_eq!(in_use(&wt, SystemTime::now()), None);
+
+        fs::write(wt.join("work.txt"), "work\n").unwrap();
+        git(&wt, &["add", "work.txt"]);
+        git(&wt, &["commit", "--quiet", "-m", "work"]);
+        assert!(in_use(&wt, SystemTime::now()).is_some_and(|why| why.starts_with("written to")));
+    }
+
+    #[test]
+    fn a_reflog_line_reads_its_entry_time() {
+        let line = "0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 A B <a@b.c> 1763600000 +0100\tcommit: x y";
+        assert_eq!(reflog_entry_time(line), Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_763_600_000)));
+        assert_eq!(reflog_entry_time("garbage"), None);
     }
 
     fn git(cwd: &Path, args: &[&str]) {

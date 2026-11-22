@@ -339,9 +339,19 @@ class MarkdownComposeText(
             },
         )
 
+    /**
+     * #EXP-2034: the height one painted line takes (dp). Compose gives every
+     * line `ceil(lineHeight px)` whole pixels (`LineHeightStyleSpan`), so at a
+     * fractional product (22 sp × 2.625 = 57.75 px → 58) n lines paint taller
+     * than `n × lineHeight`; the block box (the paragraph's height
+     * constraint) must hold the painted lines, else a long paragraph's last
+     * line is clipped by the shortfall (88 lines × 0.25 px ≈ 22 px).
+     */
+    private fun lineBox(spec: MarkdownTextSpec): Float = ceil(spec.lineHeight * density) / density
+
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?): Float {
-        if (inlines.all { it.text.isEmpty() }) return spec.lineHeight
-        return maxOf(1, layout(inlines, spec, width).lineCount) * spec.lineHeight
+        if (inlines.all { it.text.isEmpty() }) return lineBox(spec)
+        return maxOf(1, layout(inlines, spec, width).lineCount) * lineBox(spec)
     }
 
     override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float {
@@ -369,7 +379,7 @@ class MarkdownComposeText(
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
         if (inlines.none { it.chip != null || it.code }) return height(inlines, spec, width)
-        return maxOf(1, layout(inlines, spec, width, placeholders(inlines, spec, chips, width), chips.code).lineCount) * spec.lineHeight
+        return maxOf(1, layout(inlines, spec, width, placeholders(inlines, spec, chips, width), chips.code).lineCount) * lineBox(spec)
     }
 
     override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
