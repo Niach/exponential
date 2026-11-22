@@ -17,6 +17,7 @@ import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
+import at.exponential.ui.model.SurfaceSettings
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.boxHover
 import at.exponential.ui.model.keyRecorderBlur
@@ -730,6 +731,8 @@ class InteractionTest {
      * anchored Popover closes once its anchor scrolls, moves or leaves the
      * tree. The core raises the close during the pass; the model drains it
      * (like iOS and the desktop) and the next pass drops the layer.
+     * #EXP-2047: a `hosted` case (hostedPopups) stays open when its anchor
+     * moves.
      */
     @Test
     fun overlayAnchorCasesCloseOnScrollMoveAndRemoval() {
@@ -739,11 +742,14 @@ class InteractionTest {
         assertTrue(cases.isNotEmpty())
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
-            val m = SurfaceModel("anchor", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            // #EXP-2047: a hosted popup follows its anchor's move.
+            val hosted = c["hosted"]?.bool == true
+            val m = SurfaceModel("anchor", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light, settings = SurfaceSettings(hostedPopups = hosted)), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
             m.fixedMeasure = true
             m.setNested(JsonValue.Obj(base).json)
             m.setViewport(390f, 800f)
             assertTrue("$name: opens against its anchor", m.layers.any { it.owner == "pop" })
+            assertEquals("$name: hosted as the case says", hosted, m.layers.first { it.owner == "pop" }.hosted)
             val step = c["step"]!!
             var children = base["children"]!!.array!!
             if (step["insertAbove"]?.bool == true) children = listOf(fx["above"]!!) + children

@@ -579,18 +579,27 @@ fn checkbox_cases_resolve_mixed_like_the_reference() {
 /// scrolls (`scroll` on the container), moves (a node inserted above it) or
 /// leaves the tree; the core raises the close through `take_events` and the
 /// next pass drops the layer. A pass that moves nothing keeps it.
+/// #EXP-2047: a `hosted` case lays out with `hosted_popups`: a move keeps
+/// the layer, its `anchor_frame` the anchor's new box.
 #[test]
 fn overlay_anchor_cases_close_on_scroll_move_and_removal_like_the_reference() {
     let f = fixture();
     let fx = &f["overlayAnchor"];
     for c in fx["cases"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
+        let hosted = c["hosted"] == json!(true);
         let base = fx["surface"].clone();
         let mut s = surface(base.clone());
+        if hosted {
+            s.set_settings(eui_core::surface::SurfaceSettings { hosted_popups: true, ..s.settings().clone() });
+        }
         let mut m = fixed();
         let open = |s: &mut Surface, m: &mut FixedMeasure| s.layout(m).layers.iter().any(|l| l.owner == "pop");
+        let anchor_y = |s: &mut Surface, m: &mut FixedMeasure| s.layout(m).layers.iter().find(|l| l.owner == "pop").and_then(|l| l.anchor_frame).map(|f| f.y);
         assert!(open(&mut s, &mut m), "{name}: opens against its anchor");
         assert!(open(&mut s, &mut m), "{name}: a second pass keeps it");
+        assert_eq!(s.layout(&mut m).layers.iter().find(|l| l.owner == "pop").map(|l| l.hosted), Some(hosted), "{name}: hosted as the case says");
+        let opened_y = anchor_y(&mut s, &mut m);
         let step = &c["step"];
         let mut tree = base.clone();
         let children = tree["children"].as_array_mut().unwrap();
@@ -609,6 +618,10 @@ fn overlay_anchor_cases_close_on_scroll_move_and_removal_like_the_reference() {
         s.layout(&mut m);
         let _ = s.take_events();
         assert_eq!(open(&mut s, &mut m), c["after"].as_bool().unwrap(), "{name}");
+        if hosted && step["insertAbove"] == json!(true) {
+            let moved = anchor_y(&mut s, &mut m);
+            assert!(moved.zip(opened_y).is_some_and(|(a, b)| a > b), "{name}: placed against the anchor's new box ({opened_y:?} → {moved:?})");
+        }
     }
 }
 

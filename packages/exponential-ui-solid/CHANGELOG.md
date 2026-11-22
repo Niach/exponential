@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A hosted Popover / Menu follows its anchor (#EXP-2047), React's (`watchAnchor`'s `onMoved` → `popupHost.mount` again); `overlay-anchor.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843), React's (`treeGuideDepth`); `list-reorder.test.tsx`.
 - `highlight` on Text and Markdown (#EDE-95), React's (`paintHighlights`); `highlight.test.tsx`.
 - Markdown chips keep their punctuation (#EXP-1882), React's (`.xui-md-glue`, `glueChips`).

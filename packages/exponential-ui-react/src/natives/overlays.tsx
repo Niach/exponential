@@ -68,11 +68,21 @@ type HostedContainer = HTMLElement | null | `pending`
 
 /** VAPP-281: with `host.popupHost`, ask it for a container when the popup
  *  opens (its anchor's box in surface coordinates, side, align); tell it
- *  when it closes. */
-function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean, anchorEl: Element | null | undefined, side: HostedPopup[`side`], align: HostedPopup[`align`]): HostedContainer {
+ *  when it closes. #EXP-2047: the second half = `reposition` while the host
+ *  holds it (its anchor moved: `mount` again with the same owner and the
+ *  anchor's new box), else undefined. */
+function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean, anchorEl: Element | null | undefined, side: HostedPopup[`side`], align: HostedPopup[`align`]): [HostedContainer, (() => void) | undefined] {
   const ctx = useSurfaceContext()
   const host = ctx.host.popupHost
   const [asked, setAsked] = useState<{ el: HTMLElement | null } | null>(null)
+  const latest = useRef({ owner, kind, anchorEl, side, align, dir: ctx.direction })
+  latest.current = { owner, kind, anchorEl, side, align, dir: ctx.direction }
+  const reposition = useCallback(() => {
+    const l = latest.current
+    if (!host) return
+    const el = mountHostedPopup(host, hostedPopupOf(l.owner, l.kind, l.anchorEl, l.side, l.align, l.dir), l.anchorEl)
+    setAsked((a) => (a && a.el === el ? a : { el }))
+  }, [host])
   // Asked again when the anchor's element changes (an `anchor` node is found
   // after the first commit).
   useLayoutEffect(() => {
@@ -84,8 +94,8 @@ function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean,
       setAsked(null)
     }
   }, [host, open, owner, kind, anchorEl, side, align, ctx.direction])
-  if (!host || !open) return null
-  return asked ? asked.el : `pending`
+  const container: HostedContainer = !host || !open ? null : asked ? asked.el : `pending`
+  return [container, container && container !== `pending` ? reposition : undefined]
 }
 
 /** VAPP-276: the element of the overlay's `anchor` node (found after every
@@ -123,15 +133,19 @@ function useAnchor(id: string, from: { current: Element | null }, link: AnchorLi
 
 /** #EXP-1739 (overlayAnchor): while `open`, the overlay closes once its
  *  anchor `el` scrolls, moves or goes (watched from the element it resolved
- *  to; a newly resolved element starts a new watch). */
-function useCloseOnAnchorLost(open: boolean, el: Element | null | undefined, close: () => void) {
+ *  to; a newly resolved element starts a new watch). #EXP-2047: a hosted
+ *  popup passes `moved` (`useHostedPopup`'s reposition): a move follows. */
+function useCloseOnAnchorLost(open: boolean, el: Element | null | undefined, close: () => void, moved?: () => void) {
   const ctx = useSurfaceContext()
   const closeRef = useRef(close)
   closeRef.current = close
+  const movedRef = useRef(moved)
+  movedRef.current = moved
+  const follows = !!moved
   useEffect(() => {
     if (!open || ctx.inlineOverlays || !el) return
-    return watchAnchor(() => el, () => closeRef.current())
-  }, [open, el, ctx.inlineOverlays])
+    return watchAnchor(() => el, () => closeRef.current(), follows ? () => movedRef.current?.() : undefined)
+  }, [open, el, ctx.inlineOverlays, follows])
 }
 
 /** VAPP-276: the popper reference a Radix DropdownMenu Trigger measures and
@@ -330,8 +344,8 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const typeahead = anchored && isFieldAnchorElement(anchor.el)
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
-  const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
-  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
+  const [hosted, reposition] = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
+  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false), reposition)
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
   const panelWidth = popoverPanelWidth(props, `--radix-popover-trigger-width`)
@@ -679,8 +693,8 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `menu`, toggle: () => setOpen(!openRef.current), open: () => setOpen(true) }, open, contentId)
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
-  const hosted = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
-  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
+  const [hosted, reposition] = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
+  useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false), reposition)
   const preview = useMenuPreview(open)
   return (
     <MenuPreviewContext.Provider value={anyPreview(items) ? preview : null}>
