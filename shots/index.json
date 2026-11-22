@@ -2163,8 +2163,8 @@
         "file": "shots/ede-applet-sound/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14152,
-        "sha256": "e48607c3c56eeb18cdb4146c6d7c73a9f3fe09a095d74076fb63429f4261778e"
+        "bytes": 14008,
+        "sha256": "e82b20ff4288f6fc4535ab552b462cf72a9601aec6af5b7c748a45b074246cd8"
       }
     },
     "ede-chat": {
@@ -2316,8 +2316,8 @@
         "file": "shots/ede-tray-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7050,
-        "sha256": "519e9bf7f054d037ab8e0283a59f2b261967d1082f9845153dbb4a0267d05e4a"
+        "bytes": 7360,
+        "sha256": "c82b62338093210a10b9e79f537fcaaedaaa223c9c1e5c2de2f9ee3918980b7f"
       }
     },
     "exponential-ui-accordion": {
