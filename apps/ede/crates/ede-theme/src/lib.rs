@@ -33,6 +33,13 @@
 //!   `exponential-session` before the compositor starts so its cursor matches;
 //! - `~/.icons/default/index.theme` (the cursor for X11 clients).
 //!
+//! #EDE-196: with snapd on the machine the choice prefers the themes the
+//! installed snaps carry too (`gtk-common-themes`: Adwaita-dark, Yaru-dark,
+//! Adwaita, …; snapd's `/v2/connections`, [`SnapThemes`]). Snap apps draw
+//! with the same names, and snapd-desktop-integration asks the person to
+//! install a theme snap for any name snapd calls `available` (Papirus-Dark
+//! has a store snap but none installed): a question at every login.
+//!
 //! `org.gnome.desktop.interface` (gsettings) gets the same names and
 //! `org.gnome.desktop.wm.preferences button-layout` GTK's own title bar
 //! buttons ([`DECORATION_LAYOUT`]), the previous values kept in `$XDG_STATE_HOME/exponential-desktop/theme-before.json` for
@@ -44,6 +51,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 /// The first line of every generated file (behind the file's comment sign).
@@ -170,6 +178,71 @@ pub struct Installed {
     pub fonts: Vec<String>,
     pub qt5ct: bool,
     pub qt6ct: bool,
+    /// #EDE-196: what the installed snaps carry; `None` without snapd.
+    pub snaps: Option<SnapThemes>,
+}
+
+/// snapd's socket.
+pub const SNAPD_SOCKET: &str = "/run/snapd.socket";
+
+/// How long the theme bridge waits for snapd (it runs at login, before
+/// the shell). snapd answers its local `/v2/connections` in milliseconds.
+pub const SNAPD_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// #EDE-196: the theme names the installed snaps carry, as snapd counts a
+/// theme `installed` (its `/v2/accessories/themes`, which
+/// snapd-desktop-integration asks at every start): the last path element
+/// of each `source.read` of a `content` slot whose content is
+/// `gtk-3-themes` or `icon-themes` (cursor themes are icon themes there).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SnapThemes {
+    pub gtk: Vec<String>,
+    pub icons: Vec<String>,
+}
+
+impl SnapThemes {
+    /// From snapd's answer to `GET /v2/connections?select=all&interface=content`.
+    pub fn from_connections(answer: &serde_json::Value) -> SnapThemes {
+        let mut themes = SnapThemes::default();
+        for slot in answer["result"]["slots"].as_array().into_iter().flatten() {
+            if slot["interface"] != "content" {
+                continue;
+            }
+            // snapd's default: the content is the slot's name.
+            let content = slot["attrs"]["content"].as_str().or_else(|| slot["slot"].as_str()).unwrap_or_default();
+            let list = match content {
+                "gtk-3-themes" => &mut themes.gtk,
+                "icon-themes" => &mut themes.icons,
+                _ => continue,
+            };
+            for source in slot["attrs"]["source"]["read"].as_array().into_iter().flatten().filter_map(|s| s.as_str()) {
+                let name = source.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
+                if !name.is_empty() && !list.iter().any(|n| n == name) {
+                    list.push(name.to_string());
+                }
+            }
+        }
+        themes
+    }
+
+    /// Asks snapd at `socket` (local: no store, no network). `None` when
+    /// there is no snapd or it does not answer within [`SNAPD_TIMEOUT`].
+    pub fn query(socket: &Path) -> Option<SnapThemes> {
+        use std::io::{Read, Write};
+        let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+        stream.set_read_timeout(Some(SNAPD_TIMEOUT)).ok()?;
+        stream.set_write_timeout(Some(SNAPD_TIMEOUT)).ok()?;
+        // HTTP/1.0: snapd closes the connection after the one answer.
+        stream.write_all(b"GET /v2/connections?select=all&interface=content HTTP/1.0\r\nHost: localhost\r\n\r\n").ok()?;
+        let mut answer = Vec::new();
+        stream.take(16 << 20).read_to_end(&mut answer).ok()?;
+        let answer = String::from_utf8(answer).ok()?;
+        let (head, body) = answer.split_once("\r\n\r\n")?;
+        if head.split_whitespace().nth(1) != Some("200") {
+            return None;
+        }
+        Some(SnapThemes::from_connections(&serde_json::from_str(body).ok()?))
+    }
 }
 
 impl Installed {
@@ -177,7 +250,7 @@ impl Installed {
         let mut roots: Vec<PathBuf> = vec![paths.home.join(".local/share"), paths.home.join(".themes"), paths.home.join(".icons")];
         let data_dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
         roots.extend(data_dirs.split(':').map(PathBuf::from));
-        let mut installed = Installed { qt5ct: on_path("qt5ct"), qt6ct: on_path("qt6ct"), ..Default::default() };
+        let mut installed = Installed { qt5ct: on_path("qt5ct"), qt6ct: on_path("qt6ct"), snaps: SnapThemes::query(Path::new(SNAPD_SOCKET)), ..Default::default() };
         for root in &roots {
             for (dir, list, probe) in [
                 ("themes", &mut installed.gtk_themes, "gtk-3.0"),
@@ -266,30 +339,37 @@ pub struct Choice {
 }
 
 /// Preferences, best first; the first installed wins, the last is the
-/// fallback when nothing is. The shell's launcher searches the same icon
-/// themes (`apps.rs`), so the menu and GTK agree.
+/// fallback when nothing is (#EDE-196: with snaps, the first installed one
+/// they carry too). The shell's launcher searches the same icon themes
+/// (`apps.rs`), so the menu and GTK agree.
 pub const GTK_THEMES: &[&str] = &["Adwaita-dark", "Yaru-dark", "Adwaita"];
-pub const ICON_THEMES: &[&str] = &["Papirus-Dark", "Papirus", "Yaru", "Adwaita", "breeze-dark", "hicolor"];
+pub const ICON_THEMES: &[&str] = &["Papirus-Dark", "Papirus", "Yaru-dark", "Yaru", "Adwaita", "breeze-dark", "hicolor"];
 pub const CURSOR_THEMES: &[&str] = &["Bibata-Modern-Classic", "Adwaita", "Yaru", "DMZ-White", "default"];
 pub const FONTS: &[&str] = &["Inter", "Ubuntu Sans", "Cantarell", "Noto Sans", "DejaVu Sans", "sans-serif"];
 pub const MONOSPACE: &[&str] = &["JetBrains Mono", "Ubuntu Sans Mono", "Ubuntu Mono", "Noto Sans Mono", "DejaVu Sans Mono", "monospace"];
 
-fn pick(prefer: Option<&String>, list: &[&str], installed: &[String]) -> String {
+/// `prefer` (the person's `compositor.toml`) as it is; else the first of
+/// `list` installed here that the snaps carry too (`snaps`: `None` = no
+/// snapd), else the first installed, else the last.
+fn pick(prefer: Option<&String>, list: &[&str], installed: &[String], snaps: Option<&[String]>) -> String {
     if let Some(p) = prefer {
         return p.clone();
     }
-    list.iter().find(|t| installed.iter().any(|i| i == *t)).or(list.last()).map(|s| s.to_string()).unwrap_or_default()
+    let here = |t: &&&str| installed.iter().any(|i| i == **t);
+    let carried = |t: &&&str| snaps.is_some_and(|s| s.iter().any(|n| n == **t));
+    list.iter().filter(here).find(carried).or_else(|| list.iter().find(here)).or(list.last()).map(|s| s.to_string()).unwrap_or_default()
 }
 
 impl Choice {
     pub fn resolve(overrides: &Overrides, installed: &Installed) -> Choice {
+        let snaps = installed.snaps.as_ref();
         Choice {
-            gtk: pick(overrides.gtk.as_ref(), GTK_THEMES, &installed.gtk_themes),
-            icons: pick(overrides.icons.as_ref(), ICON_THEMES, &installed.icon_themes),
-            cursor: pick(overrides.cursor.as_ref(), CURSOR_THEMES, &installed.cursor_themes),
+            gtk: pick(overrides.gtk.as_ref(), GTK_THEMES, &installed.gtk_themes, snaps.map(|s| s.gtk.as_slice())),
+            icons: pick(overrides.icons.as_ref(), ICON_THEMES, &installed.icon_themes, snaps.map(|s| s.icons.as_slice())),
+            cursor: pick(overrides.cursor.as_ref(), CURSOR_THEMES, &installed.cursor_themes, snaps.map(|s| s.icons.as_slice())),
             cursor_size: overrides.cursor_size.unwrap_or(24),
-            font: pick(overrides.font.as_ref(), FONTS, &installed.fonts),
-            monospace: pick(overrides.monospace.as_ref(), MONOSPACE, &installed.fonts),
+            font: pick(overrides.font.as_ref(), FONTS, &installed.fonts, None),
+            monospace: pick(overrides.monospace.as_ref(), MONOSPACE, &installed.fonts, None),
             font_size: overrides.font_size.unwrap_or(10),
             qt_platform_theme: if installed.qt6ct { "qt6ct" } else if installed.qt5ct { "qt5ct" } else { "gtk3" }.into(),
         }
@@ -695,7 +775,34 @@ mod tests {
             fonts: vec!["DejaVu Sans".into(), "Ubuntu Sans".into(), "DejaVu Sans Mono".into()],
             qt5ct: false,
             qt6ct: false,
+            snaps: None,
         }
+    }
+
+    /// Ubuntu 26.04 as the release check found it (#EDE-196): the Papirus
+    /// deb, the Yaru debs, and snapd's `gtk-common-themes`.
+    fn ubuntu_with_snaps() -> Installed {
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        Installed {
+            gtk_themes: names(&["Adwaita-dark", "Yaru-dark", "Yaru", "Adwaita"]),
+            icon_themes: names(&["Papirus-Dark", "Papirus", "Yaru-dark", "Yaru", "Adwaita", "hicolor"]),
+            cursor_themes: names(&["Bibata-Modern-Classic", "Adwaita", "Yaru", "DMZ-White"]),
+            fonts: names(&["Ubuntu Sans"]),
+            snaps: Some(SnapThemes::from_connections(&snapd_connections())),
+            ..Default::default()
+        }
+    }
+
+    /// snapd's `/v2/connections?select=all&interface=content` (shortened
+    /// from the VM's): gtk-common-themes' slots, and a plug that is no theme.
+    fn snapd_connections() -> serde_json::Value {
+        serde_json::json!({"type": "sync", "status-code": 200, "result": {"established": [], "plugs": [
+            {"snap": "firefox", "plug": "icon-themes", "interface": "content", "attrs": {"content": "icon-themes", "target": "$SNAP/data-dir/icons"}}
+        ], "slots": [
+            {"snap": "gtk-common-themes", "slot": "gtk-3-themes", "interface": "content", "attrs": {"content": "gtk-3-themes", "source": {"read": ["$SNAP/share/themes/Adwaita", "$SNAP/share/themes/Adwaita-dark", "$SNAP/share/themes/Yaru-dark"]}}},
+            {"snap": "gtk-common-themes", "slot": "icon-themes", "interface": "content", "attrs": {"source": {"read": ["$SNAP/share/icons/default", "$SNAP/share/icons/Adwaita", "$SNAP/share/icons/hicolor", "$SNAP/share/icons/DMZ-White", "$SNAP/share/icons/Yaru", "$SNAP/share/icons/Yaru-dark", "$SNAP/share/icons/Papirus-Dark-Maia"]}}},
+            {"snap": "gtk-common-themes", "slot": "sound-themes", "interface": "content", "attrs": {"content": "sound-themes", "source": {"read": ["$SNAP/share/sounds/Yaru"]}}}
+        ]}})
     }
 
     /// The compositor's own bytes (`text.rs` `colour`) for the same tokens.
@@ -728,6 +835,52 @@ mod tests {
         let c = Choice::resolve(&o, &installed());
         assert_eq!((c.icons.as_str(), c.cursor_size, c.font.as_str()), ("Papirus-Dark", 32, "Inter"));
         assert!(c.summary().starts_with("GTK Adwaita-dark · icons Papirus-Dark · cursor Adwaita 32 px · Inter 10"));
+    }
+
+    /// #EDE-196: with snaps, the icon theme is one they carry (Papirus-Dark
+    /// is a store snap no one installed: snapd-desktop-integration asked to
+    /// install it at every login); without snapd, the plain preference.
+    #[test]
+    fn with_snaps_the_choice_is_a_theme_the_snaps_carry_too() {
+        let snaps = SnapThemes::from_connections(&snapd_connections());
+        assert_eq!(snaps.gtk, ["Adwaita", "Adwaita-dark", "Yaru-dark"]);
+        assert_eq!(snaps.icons, ["default", "Adwaita", "hicolor", "DMZ-White", "Yaru", "Yaru-dark", "Papirus-Dark-Maia"], "the slot's name is its content");
+        let c = Choice::resolve(&Overrides::default(), &ubuntu_with_snaps());
+        assert_eq!((c.gtk.as_str(), c.icons.as_str(), c.cursor.as_str()), ("Adwaita-dark", "Yaru-dark", "Adwaita"));
+        let without = Choice::resolve(&Overrides::default(), &Installed { snaps: None, ..ubuntu_with_snaps() });
+        assert_eq!((without.icons.as_str(), without.cursor.as_str()), ("Papirus-Dark", "Bibata-Modern-Classic"));
+        // Snaps that carry none of the installed ones change nothing.
+        let none = Choice::resolve(&Overrides::default(), &Installed { snaps: Some(SnapThemes::default()), ..ubuntu_with_snaps() });
+        assert_eq!(none.icons, "Papirus-Dark");
+        // The person's own choice stays theirs.
+        let mine = Choice::resolve(&Overrides::from_config("[theme]\nicons = \"Papirus-Dark\"\n"), &ubuntu_with_snaps());
+        assert_eq!(mine.icons, "Papirus-Dark");
+    }
+
+    /// The question goes over snapd's socket as HTTP/1.0 (a stand-in on a
+    /// socket of the test's own); no snapd, or an error, is `None`.
+    #[test]
+    fn snapd_is_asked_over_its_socket() {
+        use std::io::{BufRead, BufReader, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("snapd.socket");
+        assert_eq!(SnapThemes::query(&socket), None, "no snapd");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let mut asked = Vec::new();
+            for status in ["200 OK", "404 Not Found"] {
+                let (mut conn, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(&conn).read_line(&mut line).unwrap();
+                asked.push(line.trim_end().to_string());
+                let body = snapd_connections().to_string();
+                write!(conn, "HTTP/1.0 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            }
+            asked
+        });
+        assert_eq!(SnapThemes::query(&socket), Some(SnapThemes::from_connections(&snapd_connections())));
+        assert_eq!(SnapThemes::query(&socket), None, "an error answer");
+        assert_eq!(server.join().unwrap(), ["GET /v2/connections?select=all&interface=content HTTP/1.0"; 2]);
     }
 
     #[test]

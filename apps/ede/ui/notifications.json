@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory toasts (#EDE-12): the shell is the session's org.freedesktop.Notifications server; a new notification opens this on-demand top-right layer surface and the newest three show as cards until they expire (the app's timeout, else 6 s; critical ones stay) or are closed. /notifications/toasts holds them newest first; every card may close (ede_notify_close) or press one of the app's actions (ede_notify_action). #EDE-65: a new unread Exponential inbox entry of a signed-in account toasts the same way (its actions Open and Mark read; its close only hides the toast, the entry stays in the bell). The whole history is the panel's bell (notification-center.json).",
+  "$comment": "Exponential Desktop's factory toasts (#EDE-12): the shell is the session's org.freedesktop.Notifications server; a new notification opens this on-demand top-right layer surface and the newest three show as cards until they expire (the app's timeout, else 6 s; critical ones stay) or are closed. /notifications/toasts holds them newest first; every card may close (ede_notify_close) or press one of the app's actions (ede_notify_action {id, key}: each action carries its toast's id, as a template item reads only its own fields and the root, #EDE-196). The app's `default` action is no button: a press on the card itself is it (ede_notify_open, the bell row's press: the app hears `default` when it gave one, then the notification closes). #EDE-65: a new unread Exponential inbox entry of a signed-in account toasts the same way (its actions Open and Mark read; its close only hides the toast, the entry stays in the bell). The whole history is the panel's bell (notification-center.json).",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -16,6 +16,7 @@
     },
     "onDemand": true,
     "functions": [
+      "ede_notify_open",
       "ede_notify_close",
       "ede_notify_action"
     ]
@@ -46,6 +47,18 @@
           "borderWidth": 1,
           "borderColor": "$color.border",
           "borderRadius": "$radius.md"
+        },
+        "on": {
+          "press": {
+            "functionCall": {
+              "@call": "ede_notify_open",
+              "args": {
+                "id": {
+                  "@path": "id"
+                }
+              }
+            }
+          }
         },
         "children": [
           {
@@ -188,7 +201,7 @@
                       "@call": "ede_notify_action",
                       "args": {
                         "id": {
-                          "@path": "/id"
+                          "@path": "id"
                         },
                         "key": {
                           "@path": "key"
