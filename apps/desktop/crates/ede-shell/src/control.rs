@@ -5,7 +5,8 @@
 //! UI's own, the Engine apps' grant. No token is read then. Started by its
 //! unit, it reads the token file as before. A shell without a channel in a
 //! session whose compositor starts the shell itself is not the shell: it
-//! says so and ends ([`take`]).
+//! says so and ends ([`take`]). The services daemon is reached the same
+//! way, through the compositor ([`services`], #EDE-172 P13).
 
 use std::sync::{Mutex, OnceLock};
 
@@ -47,6 +48,23 @@ pub fn connect() -> Result<Client, Error> {
         }
     }
     Client::connect_env()
+}
+
+/// #EDE-172 (P13): a connection to the services daemon. The compositor
+/// hands one over when it runs the daemon itself (`open_services`, holding
+/// this shell's capabilities); else (the daemon's unit) `services.sock`.
+/// In a session whose compositor starts its helpers the socket is never
+/// asked: whatever listens there is no daemon of the compositor's.
+pub fn services() -> Result<ede_services::socket::Client, String> {
+    let handed = connect().map_err(|e| e.to_string()).and_then(|mut client| {
+        let held = client.hello.capabilities.clone();
+        client.open_services(held).map_err(|e| e.to_string())
+    });
+    match handed {
+        Ok(fd) => Ok(ede_services::socket::Client::from_fd(fd)),
+        Err(e) if ede_protocol::process::helpers_spawned() => Err(e),
+        Err(_) => ede_services::socket::Client::connect_default().map_err(|e| e.to_string()),
+    }
 }
 
 /// Once the first roundtrips on the Wayland and the control connection are

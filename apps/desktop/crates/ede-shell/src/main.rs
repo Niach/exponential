@@ -2817,7 +2817,7 @@ fn service_call(shell: &SharedShell, domain: String, action: String, args: Value
     let shell = shell.clone();
     cx.spawn(async move |cx| {
         let call = json!({"op": "call", "domain": domain, "action": action, "args": args});
-        let result = blocking::unblock(move || ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(call))).await;
+        let result = blocking::unblock(move || control::services().and_then(|mut c| c.call(call))).await;
         match result {
             Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
             Err(e) => {
@@ -3932,43 +3932,50 @@ fn main() {
     // The hosted popups of every surface (VAPP-281).
     let (hosted_tx, hosted_rx) = mpsc::channel::<HostedReport>();
     // The services data source: every domain's snapshot, then its changes.
+    // #EDE-172 (P13): through the compositor when it runs the daemon
+    // ([`control::services`]); a daemon that ends and starts again is
+    // connected to again.
     let (services_tx, services_rx) = mpsc::channel::<(String, Value)>();
     if !demo {
         std::thread::Builder::new()
             .name("ede-shell-services".into())
             .spawn(move || {
-                // The daemon may start after the shell: try for a while.
-                let mut client = None;
-                for _ in 0..30 {
-                    match ede_services::socket::Client::connect_default() {
-                        Ok(c) => {
-                            client = Some(c);
-                            break;
+                let mut wait = Duration::from_secs(1);
+                let mut said = false;
+                loop {
+                    // The daemon may start after the shell, or start again.
+                    let mut client = match control::services() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            if !said {
+                                tracing::info!("no services daemon yet ({e}): /services waits for it");
+                                said = true;
+                            }
+                            std::thread::sleep(wait);
+                            wait = (wait * 2).min(Duration::from_secs(10));
+                            continue;
                         }
-                        Err(_) => std::thread::sleep(Duration::from_secs(1)),
-                    }
-                }
-                let Some(mut client) = client else {
-                    tracing::info!("no exponential-services socket: /services stays empty");
-                    return;
-                };
-                // Subscribed first (#EDE-135): a change during the gets waits
-                // on the stream instead of reaching nobody.
-                if client.subscribe().is_err() {
-                    return;
-                }
-                let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
-                for d in &domains {
-                    if let Ok(snapshot) = client.get(d) {
-                        let _ = services_tx.send((d.clone(), snapshot));
-                    }
-                }
-                while let Ok(event) = client.next_event() {
-                    if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {
-                        if services_tx.send((d.to_string(), s.clone())).is_err() {
-                            return;
+                    };
+                    (wait, said) = (Duration::from_secs(1), false);
+                    // Subscribed first (#EDE-135): a change during the gets waits
+                    // on the stream instead of reaching nobody.
+                    if client.subscribe().is_ok() {
+                        let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+                        for d in &domains {
+                            if let Ok(snapshot) = client.get(d) {
+                                let _ = services_tx.send((d.clone(), snapshot));
+                            }
+                        }
+                        while let Ok(event) = client.next_event() {
+                            if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {
+                                if services_tx.send((d.to_string(), s.clone())).is_err() {
+                                    return;
+                                }
+                            }
                         }
                     }
+                    tracing::info!("the services connection ended; connecting again");
+                    std::thread::sleep(wait);
                 }
             })
             .expect("the services thread");

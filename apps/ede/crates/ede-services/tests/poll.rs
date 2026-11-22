@@ -68,7 +68,7 @@ fn start(services: Vec<Box<dyn Service>>) -> (tempfile::TempDir, std::path::Path
     let path = dir.path().join("services.sock");
     let registry = Arc::new(Registry::new(services));
     let p = path.clone();
-    thread::spawn(move || serve(&p, registry, None));
+    thread::spawn(move || serve(&p, registry));
     let deadline = Instant::now() + Duration::from_secs(5);
     while !path.exists() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(20));

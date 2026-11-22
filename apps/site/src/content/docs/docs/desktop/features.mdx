@@ -78,7 +78,7 @@ The shell runs under `exponential-ui supervise`. An edit that draws no frame wit
 An agent works the desktop through three doors.
 
 - **Documents**: the same files, the same checks, the same history. An agent's edit is a commit you can undo.
-- **System services**: `exponential-services` serves network, sound, Bluetooth, power, disks, updates, firmware, printers and about as MCP tools, one bearer per agent session, each action gated by a capability, every call written to an audit log. See [Services MCP](/docs/desktop/reference/#services-mcp).
+- **System services**: `exponential-services` serves network, sound, Bluetooth, power, disks, updates, firmware, printers and about to the panel and the settings pages. Each action is also an MCP tool gated by a capability; agents do not reach them yet. See [Services MCP](/docs/desktop/reference/#services-mcp).
 - **The compositor**: `exponential-ctl` lists windows and outputs, captures the screen as PNG and sends keys and pointer input. Captures and input are what [Computer Use](/docs/sdk/computer-use/) works with: look, act, look again.
 
 With **Computer use** on, a session works in an [agent space](/docs/desktop/agent-spaces/): a desktop of its own beside yours, never your screen. The taskbar shows the spaces that are open; pin one to watch it.

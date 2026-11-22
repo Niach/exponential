@@ -3,8 +3,8 @@
 //!
 //! - **The list** ([`session_specs`]): the shell under its supervisor
 //!   (`exponential-ui supervise -- exponential-shell`), the polkit agent
-//!   (`exponential-sealed polkit`) and the portal. P13 adds the services
-//!   daemon to it.
+//!   (`exponential-sealed polkit`), the portal and the services daemon
+//!   (`exponential-services serve`, its intake at fd 3: [`crate::services`]).
 //! - **Each in a scope of its own** (`systemd-run --user --scope
 //!   --slice=session.slice`, part of the session's targets as the units
 //!   were) where the person's user manager answers, else in the
@@ -66,6 +66,9 @@ pub enum Channel {
     /// A bound child of root for `session`, holding `capabilities` (none for
     /// the polkit agent: `space_of_process` and the outputs take any grant).
     Child { session: String, capabilities: Vec<Capability> },
+    /// #EDE-172 (P13): no control channel but the services daemon's intake
+    /// ([`crate::services`], [`ede_protocol::intake`]).
+    Intake,
 }
 
 /// How a helper gets its Wayland connection.
@@ -196,6 +199,8 @@ pub fn session_specs() -> Vec<Spec> {
             wayland: None,
             env: portal_env,
         },
+        // #EDE-172 (P13): no services.sock; connections come over its intake.
+        Spec { name: "exponential-services".into(), argv: vec![installed("exponential-services", false), "serve".into()], channel: Some(Channel::Intake), wayland: None, env: vec![("RUST_LOG".into(), "info".into())] },
     ]
 }
 
@@ -381,8 +386,16 @@ impl Ede {
         // after a few quick deaths in a row it starts in the compositor's cgroup.
         let unit = (self.helpers.running[i].respawns < 3).then(|| format!("{}-p{}-{starts}.scope", spec.name, std::process::id()));
         let channel = match &spec.channel {
+            // #EDE-172 (P13): the services daemon's intake, at fd 3 too.
+            Some(Channel::Intake) => match self.services_intake() {
+                Some(fd) => Some((None, fd, None)),
+                None => {
+                    tracing::error!(helper = spec.name, "its intake could not be made; trying again");
+                    return;
+                }
+            },
             Some(channel) => match self.ipc_helper_channel(channel) {
-                Some(made) => Some(made),
+                Some((conn, fd, grant)) => Some((Some(conn), fd, grant)),
                 None => {
                     tracing::error!(helper = spec.name, "its channel could not be made; trying again");
                     return;
@@ -396,7 +409,7 @@ impl Ede {
         };
         let Some(mut cmd) = self.helper_command(&spec.name, &spec.argv, &spec.env, unit.as_deref().filter(|_| self.spaces.units.is_some())) else { return };
         let (conn, fd, grant) = match channel {
-            Some((conn, fd, grant)) => (Some(conn), Some(fd), grant),
+            Some((conn, fd, grant)) => (conn, Some(fd), grant),
             None => (None, None, None),
         };
         let (client, wayland_fd) = match wayland {

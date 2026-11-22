@@ -103,17 +103,16 @@ One issue refuses the whole document; the last good version stays.
 
 ## Services MCP
 
-`exponential-services` runs in the session. Its MCP server listens on loopback; each agent session gets its own bearer.
+`exponential-services` runs in the session and feeds the panel and the settings pages. `get` and `call` run in the command's own process.
 
 ```sh
 exponential-services list                                # the domains
 exponential-services get sound                           # a snapshot
 exponential-services call sound set_volume '{"percent": 40}'
 exponential-services tools                               # the MCP tool list
-exponential-services grant <session> [label] [system,ui] # a bearer for an agent session
 ```
 
-Tools: `<domain>_get` for every domain, `<domain>_<action>` for every action. A call outside the grant comes back as an `isError` result. Every call writes an audit row. A domain whose daemon is missing answers `{available: false, reason}`.
+`tools` lists each domain's MCP tools (`<domain>_get`, `<domain>_<action>`), each gated by the capability in the table; agents do not reach them yet. A domain whose daemon is missing answers `{available: false, reason}`.
 
 | Domain | Through | Actions | Capability |
 |---|---|---|---|

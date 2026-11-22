@@ -141,6 +141,7 @@ fn role_ask() {
         r("bindings", client.input_as_person(InputEvent::Key { key: 30, pressed: true }));
         r("subscribe", client.subscribe());
         r("launch_token", client.launch_token().map(|_| ()));
+        r("open_services", client.open_services(vec![Capability::Ui]).map(|_| ()));
         r("mint_system", client.mint(SessionId::new("x").unwrap(), vec![Capability::System], None).map(|_| ()));
         r("mint_mixed", client.mint(SessionId::new("x").unwrap(), vec![Capability::Space, Capability::Capture], None).map(|_| ()));
         let run = client.mint(SessionId::new("cu-run").unwrap(), vec![Capability::Capture, Capability::InputPerson, Capability::Ui], None);
@@ -339,7 +340,7 @@ fn computer_use_is_held_to_what_the_app_does() {
     let foreign_grant = h.ipc().mint(SessionId::new("someone").unwrap(), vec![Capability::Ui], None).unwrap().token;
     let app = copy_as(&dir.path().join("a"), "exp-desktop", b"");
     let cu = run(&h, &asks, &app, "cu", &[("EDE172_FOREIGN_SPACE", foreign_space.clone()), ("EDE172_FOREIGN_GRANT", foreign_grant.as_str().to_string())], Some((true, Duration::ZERO)));
-    for refused in ["lock", "logout", "set_output", "bindings", "subscribe", "launch_token", "mint_system", "revoke_foreign"] {
+    for refused in ["lock", "logout", "set_output", "bindings", "subscribe", "launch_token", "open_services", "mint_system", "revoke_foreign"] {
         assert_eq!(said(&cu, refused), "Forbidden", "{refused}: {:?}", cu.lines);
     }
     assert_eq!(said(&cu, "mint_mixed"), "Invalid", "a space grant is [space] alone, for anyone");
