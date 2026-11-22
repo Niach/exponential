@@ -1,0 +1,82 @@
+name: seed-tuist-caches
+
+# The iOS twin of seed-gradle-caches.yml: test-ios.yml's `actions/cache` saved
+# a ~1.55 GB `macOS-tuist-spm-*` entry (Firebase's binary artifacts) on every
+# PR ref the hosted fallback compiled. No other ref could read it, and each one
+# pushed the repo past GitHub's 10 GB, evicting master's Gradle seed. Now
+# test-ios.yml only RESTORES, and this writes the one master entry it
+# restores: `tuist install` alone, on the hosted image test-ios.yml falls back
+# to (pick-runner's `mac-fallback`).
+#
+# The key is test-ios.yml's, byte for byte: the runner OS, the checkout path
+# (SwiftPM's workspace-state.json holds absolute artifact paths, so the hosted
+# runner's path, which every workflow of this repo shares there) and the hash
+# of the dependency manifests. A seed whose exact key is already on master
+# stops after the restore.
+#
+# Not on every master push (macOS minutes): nightly, plus master pushes that
+# move the dependency manifests.
+
+on:
+  schedule:
+    - cron: '47 3 * * *'
+  push:
+    branches: [master]
+    paths:
+      - apps/ios/Tuist/Package.swift
+      - apps/ios/Tuist/Package.resolved
+      - .github/workflows/seed-tuist-caches.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-tuist-caches
+  cancel-in-progress: true
+
+jobs:
+  tuist:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    defaults:
+      run:
+        working-directory: apps/ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Look for this key on master
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/ios/Tuist/.build
+          key: ${{ runner.os }}-tuist-spm-${{ github.workspace }}-${{ hashFiles('apps/ios/Tuist/Package.swift', 'apps/ios/Tuist/Package.resolved') }}
+          lookup-only: true
+      - name: Select Xcode 27
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh"
+      - name: Install tuist
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+      - name: Pin tuist
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mise use -g tuist@4.215.1
+          tuist version
+      - name: Resolve SPM dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tuist install
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: macOS-tuist-spm-
+          restored-exact: ${{ steps.cache.outputs.cache-hit }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/ios/Tuist/.build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
