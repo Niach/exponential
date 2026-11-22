@@ -50,29 +50,56 @@ fn passes(h: &Harness, desk: DeskId) -> u64 {
     h.with(move |state| state.space_passes(desk))
 }
 
+/// When space `desk`'s last pass started and when it was done, on the
+/// compositor's clock (#EDE-198: when a reply reaches the test is the
+/// test's own scheduling).
+fn last_pass(h: &Harness, desk: DeskId) -> (Instant, Instant) {
+    h.with(move |state| state.space_last_pass(desk)).expect("a pass")
+}
+
+/// Space `desk`'s clock rests: no tick is armed, its next buffer goes
+/// through at once.
+fn rested(h: &Harness, desk: DeskId) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.with(move |state| state.spaces.get(desk).is_some_and(|s| s.scheduled)) {
+        assert!(Instant::now() < deadline, "the space's clock never rests");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn a_changing_space_is_drawn_at_most_once_per_floor_and_an_unchanged_one_answers_at_once() {
     let (h, _dir) = start_with_spaces(&[(800, 600)]);
     let (desk, id, mut b, window) = space_with_a_window(&h);
+    // The new buffer below goes through at once: the capture after it asks
+    // inside the first one's floor.
+    rested(&h, desk);
     let mut root = h.ipc();
     let target = || CaptureTarget::Space { space: id.clone() };
 
+    let asked_first = Instant::now();
     let first = root.capture(target()).expect("a capture");
-    let first_at = Instant::now();
     assert_eq!(first.at(320, 240), RED);
     assert_eq!(passes(&h, desk), 1);
+    let (_, first_done) = last_pass(&h, desk);
 
-    // Nothing new: answered at once, inside the floor, with no pass.
-    let asked = Instant::now();
+    // Nothing new: answered at once, with no turn to wait for and no pass.
     assert!(root.capture_since(target(), Some(first.info.serial)).unwrap().is_none());
-    assert!(asked.elapsed() < FLOOR, "an unchanged space waited {:?}", asked.elapsed());
+    assert_eq!(h.with(move |state| state.space_captures_waited(desk)), 0, "an unchanged space's capture waited for its turn");
     assert_eq!(passes(&h, desk), 1);
 
-    // New pixels right away: drawn, but not before the floor is over.
+    // New pixels right away: drawn, but not before the floor is over. The
+    // floor holds between the compositor's passes, so that is where it is
+    // measured.
     b.draw_configured(&window, 64, 64, GREEN);
     applied(&h, desk);
     let second = root.capture_since(target(), Some(first.info.serial)).unwrap().expect("new pixels");
-    assert!(first_at.elapsed() >= FLOOR - Duration::from_millis(5), "two passes {:?} apart", first_at.elapsed());
+    let (second_started, _) = last_pass(&h, desk);
+    let apart = second_started.duration_since(first_done);
+    assert!(apart >= FLOOR, "two passes {apart:?} apart");
+    // Nor does a caller see two inside a floor: from before its first ask
+    // to its second reply.
+    assert!(asked_first.elapsed() >= FLOOR, "a caller saw two passes {:?} apart", asked_first.elapsed());
     assert_eq!(second.at(320, 240), GREEN);
     assert!(second.info.serial > first.info.serial);
     assert_eq!(passes(&h, desk), 2);
