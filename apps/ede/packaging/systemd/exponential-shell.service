@@ -10,6 +10,9 @@
 # #EDE-172 (P4): with `[session] helpers = "compositor"` in compositor.toml
 # the compositor runs the supervisor and the shell itself (a scope of their
 # own, the channel inherited); this unit stays off then.
+# That is a real session's default since eDE's flip (P14); `[session]
+# helpers = "units"` in root's /etc/exponential-desktop/control.toml starts
+# this unit again (the person's compositor.toml cannot).
 [Unit]
 Description=Exponential Desktop shell (the genUI panel under the exponential-ui supervisor)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede

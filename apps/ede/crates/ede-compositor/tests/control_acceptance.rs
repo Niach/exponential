@@ -1,5 +1,5 @@
-//! #EDE-172, eDE's acceptance test (L-69: it lands with the first PR,
-//! ignored, and runs from the flip on, P14). A compositor started as in
+//! #EDE-172, eDE's acceptance test (L-69: it landed with the first PR,
+//! ignored, and runs from eDE's flip on, P14). A compositor started as in
 //! production (headless here) with a shell stand-in on its channel; a
 //! process of the same user that holds no descriptor of the control plane
 //! (a child of this test, never started by the compositor) gets nothing:
@@ -76,7 +76,6 @@ fn wayland_socket(runtime: &Path) -> Option<String> {
 }
 
 #[test]
-#[ignore = "#EDE-172: green from eDE's flip (P14) on"]
 fn a_process_of_the_person_without_a_channel_gets_nothing() {
     use std::os::fd::AsRawFd;
     let dir = tempfile::tempdir().unwrap();
@@ -90,8 +89,8 @@ fn a_process_of_the_person_without_a_channel_gets_nothing() {
     // The compositor, its channel at fd 3, as the session starts it.
     let (compositor_end, shell_end) = UnixStream::pair().unwrap();
     let mut compositor = Command::new(env!("CARGO_BIN_EXE_exponential-compositor"));
-    // The root token's gate on (P5'; the flip turns it on for the real
-    // session), the person saying Don't allow to every question.
+    // The root token's gate on (P5'; on by default in a real session since
+    // eDE's flip, P14), the person saying Don't allow to every question.
     compositor.args(["--headless", "800x600", "--no-xwayland", "--safe-mode", "--control-fd", "3", "--consent-answer", "deny"]);
     env(&mut compositor);
     at_fd_3(&mut compositor, compositor_end.as_raw_fd());

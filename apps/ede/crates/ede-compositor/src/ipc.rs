@@ -353,7 +353,7 @@ impl Ede {
         // #EDE-172 (P5'): the gate, from the config read at the start (a
         // later edit of the person's file does not turn it off).
         let answer = *CONSENT_ANSWER.lock().unwrap_or_else(|p| p.into_inner());
-        self.ipc.consent.on = self.config.control.consent || answer.is_some();
+        self.ipc.consent.on = self.config.control.consent() || answer.is_some();
         self.ipc.consent.answer_with = answer;
         if let Some(fd) = CONTROL_FD.lock().unwrap_or_else(|p| p.into_inner()).take() {
             if !self.ipc_insert_root_channel(UnixStream::from(fd)) {
@@ -1111,8 +1111,7 @@ impl Ede {
     /// read, a question to the person), or the refusal. `hash` = the
     /// executable's, read off the loop.
     fn ipc_gate(&mut self, id: u64, call_id: u64, hash: Option<[u8; 32]>) -> Result<Option<Principal>, Failure> {
-        let own = [Some(std::process::id()), self.sealed_stand_in, self.shell_stand_in];
-        let own: Vec<u32> = own.into_iter().flatten().collect();
+        let own = self.consent_own();
         let policy = self.ipc.consent.policy();
         let Some(conn) = self.ipc.clients.iter().find(|c| c.id == id) else { return Err(fail(ErrorCode::Unauthorized, "gone")) };
         let peer = conn.peer.as_ref();
@@ -1151,6 +1150,23 @@ impl Ede {
                 self.consent_ask_next();
                 Ok(None)
             }
+        }
+    }
+
+    /// #EDE-172: who gets root with no prompt ([`crate::consent::Own`]): the
+    /// compositor, its children (the helpers, the lock client, the consent
+    /// prompt), a test's stand-ins; eDE's installed binaries by file only
+    /// while the compositor does not start them itself (P14).
+    fn consent_own(&self) -> crate::consent::Own {
+        let lock = match &self.lock {
+            crate::lock::LockState::Sealed(s) => s.child.as_ref().map(std::process::Child::id),
+            _ => None,
+        };
+        let helpers = self.helpers.running.iter().filter_map(|r| r.child.as_ref().map(std::process::Child::id));
+        crate::consent::Own {
+            pids: [Some(std::process::id()), self.sealed_stand_in, self.shell_stand_in].into_iter().flatten().collect(),
+            children: helpers.chain(lock).chain(self.consent_prompt_pid()).collect(),
+            by_file: !self.helpers.on,
         }
     }
 
@@ -1502,8 +1518,10 @@ impl Ede {
         };
         let mut config = crate::Config::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?.with_system_keyboard();
         config.xwayland = self.config.xwayland;
-        // #EDE-172 (P4): who starts the helpers is decided at the start.
+        // #EDE-172 (P4, P14): who starts the helpers and whether the root
+        // token is gated are decided at the start.
         config.session.helpers = self.config.session.helpers;
+        config.control.consent = self.config.control.consent;
         let kb = config.keyboard.clone();
         self.config = config;
         let keyboard = self.desk.seat.get_keyboard().unwrap();

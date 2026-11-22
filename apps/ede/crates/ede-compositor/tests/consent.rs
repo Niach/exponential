@@ -20,7 +20,7 @@ use std::{
 
 use ede_compositor::{
     backend::headless::Harness,
-    consent::{Key, Policy, Principal, StandIn, Verdict},
+    consent::{Key, Own, Policy, Principal, StandIn, Verdict},
     peer::{Installed, Peer},
     Config,
 };
@@ -374,14 +374,16 @@ fn installed_binaries_ctl_and_the_policy() {
     };
     let gate = ede_compositor::consent::Gate::default();
     let none = Policy::default();
+    // The units start eDE's programs: they pass by file.
+    let units = Own { by_file: true, ..Own::default() };
     let as_shell = Installed::of(&[("exponential-shell".into(), sleep.clone())]);
-    assert_eq!(gate.verdict(Some(&peer), &as_shell, &[], &none, None), Verdict::Grant(Principal::Root));
+    assert_eq!(gate.verdict(Some(&peer), &as_shell, &units, &none, None), Verdict::Grant(Principal::Root));
     let as_ctl = Installed::of(&[("exponential-ctl".into(), sleep.clone())]);
-    let Verdict::Ask(ask) = gate.verdict(Some(&peer), &as_ctl, &[], &none, None) else { panic!("ctl is asked") };
+    let Verdict::Ask(ask) = gate.verdict(Some(&peer), &as_ctl, &units, &none, None) else { panic!("ctl is asked") };
     assert_eq!((ask.key.clone(), ask.grants), (Key::Process(peer.pid, peer.start), Principal::Root));
     let mut gate = gate;
     gate.answered(&ask.key, true, &[(peer.pid, peer.start)], &[]);
-    assert_eq!(gate.verdict(Some(&peer), &as_ctl, &[], &none, None), Verdict::Grant(Principal::Root), "that process, from now on");
+    assert_eq!(gate.verdict(Some(&peer), &as_ctl, &units, &none, None), Verdict::Grant(Principal::Root), "that process, from now on");
     // A "Don't allow" to ctl backs its file off: another ctl process (the
     // same file) is refused without a question for the back-off.
     let other = Command::new(&sleep).arg("30").spawn().unwrap();
@@ -393,7 +395,7 @@ fn installed_binaries_ctl_and_the_policy() {
         assert!(Instant::now() < deadline, "sleep never ran");
         std::thread::sleep(Duration::from_millis(20));
     };
-    let Verdict::Ask(asked) = gate.verdict(Some(&second), &as_ctl, &[], &none, None) else { panic!("another ctl process is asked") };
+    let Verdict::Ask(asked) = gate.verdict(Some(&second), &as_ctl, &units, &none, None) else { panic!("another ctl process is asked") };
     gate.answered(&asked.key, false, &[(second.pid, second.start)], &[asked.file.unwrap()]);
     let third = Command::new(&sleep).arg("30").spawn().unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -404,38 +406,179 @@ fn installed_binaries_ctl_and_the_policy() {
         assert!(Instant::now() < deadline, "sleep never ran");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert!(matches!(gate.verdict(Some(&third_peer), &as_ctl, &[], &none, None), Verdict::Refuse(_)), "ctl in a loop is not asked again at once");
+    assert!(matches!(gate.verdict(Some(&third_peer), &as_ctl, &units, &none, None), Verdict::Refuse(_)), "ctl in a loop is not asked again at once");
     for mut child in [other, third] {
         let _ = child.kill();
         let _ = child.wait();
     }
     let policy = Policy::parse(&format!("[[allow]]\npath = \"{}\"\nprincipal = \"computer-use\"\n", sleep.display())).unwrap();
-    assert_eq!(gate.verdict(Some(&peer), &Installed::default(), &[], &policy, None), Verdict::Grant(Principal::ComputerUse));
+    assert_eq!(gate.verdict(Some(&peer), &Installed::default(), &units, &policy, None), Verdict::Grant(Principal::ComputerUse));
     let wrong_hash = Policy::parse(&format!("[[allow]]\npath = \"{}\"\nsha256 = \"{}\"\nprincipal = \"root\"\n", sleep.display(), "0".repeat(64))).unwrap();
-    assert!(matches!(gate.verdict(Some(&peer), &Installed::default(), &[], &wrong_hash, Some(&[1; 32])), Verdict::Refuse(_)), "another hash is not the entry's");
+    assert!(matches!(gate.verdict(Some(&peer), &Installed::default(), &units, &wrong_hash, Some(&[1; 32])), Verdict::Refuse(_)), "another hash is not the entry's");
     let _ = child.kill();
     let _ = child.wait();
 }
 
+/// `exe` (root-owned) as process `pid` once it runs it.
+fn peer_running(pid: u32, exe: &Path) -> Peer {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe_path().as_deref() == Some(exe)) {
+            return p;
+        }
+        assert!(Instant::now() < deadline, "{} never ran", exe.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// P14 (eDE's flip): with the compositor starting the session's helpers,
+/// eDE's genuine binary gets root with no prompt only as a child the
+/// compositor started (here the test is the compositor); the same file
+/// started by anything else is refused, as is a listed pid whose parent
+/// is not the compositor (a pid used again).
+#[test]
+fn edes_own_binaries_pass_only_as_the_compositors_children() {
+    let sleep = std::fs::canonicalize("/usr/bin/sleep").unwrap();
+    let as_shell = Installed::of(&[("exponential-shell".into(), sleep.clone())]);
+    if as_shell.paths().is_empty() {
+        eprintln!("skipped: {} is not root-owned here", sleep.display());
+        return;
+    }
+    let gate = ede_compositor::consent::Gate::default();
+    let none = Policy::default();
+    let mut ours = Command::new(&sleep).arg("30").spawn().unwrap();
+    let peer = peer_running(ours.id(), &sleep);
+    let by_file = Own { by_file: true, ..Own::default() };
+    assert_eq!(gate.verdict(Some(&peer), &as_shell, &by_file, &none, None), Verdict::Grant(Principal::Root), "the units start it: by file");
+    let helpers = Own { pids: vec![std::process::id()], children: vec![], by_file: false };
+    let Verdict::Refuse(why) = gate.verdict(Some(&peer), &as_shell, &helpers, &none, None) else { panic!("eDE's file, not started by the compositor, passed") };
+    assert!(why.contains("the compositor did not start it"), "{why}");
+    let child = Own { children: vec![ours.id()], ..helpers.clone() };
+    assert_eq!(gate.verdict(Some(&peer), &as_shell, &child, &none, None), Verdict::Grant(Principal::Root), "the compositor's child");
+    assert!(!gate.needs_hash(&peer, &as_shell, &none), "eDE's own file is never hashed");
+    // A listed pid run by someone else: its parent is not the compositor.
+    let out = Command::new("/bin/sh").arg("-c").arg(format!("{} 30 >/dev/null 2>&1 & echo $!", sleep.display())).output().unwrap();
+    let theirs: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+    let their_peer = peer_running(theirs, &sleep);
+    let listed = Own { children: vec![theirs], ..helpers.clone() };
+    assert!(matches!(gate.verdict(Some(&their_peer), &as_shell, &listed, &none, None), Verdict::Refuse(_)), "a pid in the list whose parent is not the compositor");
+    // Safety: signalling the sleep this test started through sh.
+    unsafe { libc::kill(theirs as libc::pid_t, libc::SIGKILL) };
+    let _ = ours.kill();
+    let _ = ours.wait();
+}
+
+/// What the root-owned interpreter runs: hello with the root token on
+/// `EDE172_SOCKET`, the answer's frame to `EDE172_OUT`, then it stays.
+const PY_HELLO: &str = "import os, socket, struct, time\ns = socket.socket(socket.AF_UNIX)\ns.connect(os.environ['EDE172_SOCKET'])\nhello = bytes.fromhex(os.environ['EDE172_HELLO'])\ns.sendall(struct.pack('<I', len(hello)) + hello)\ndef exact(n):\n    b = b''\n    while len(b) < n:\n        c = s.recv(n - len(b))\n        if not c:\n            raise SystemExit('closed')\n        b += c\n    return b\nn = struct.unpack('<I', exact(4))[0]\nbody = exact(n)\nopen(os.environ['EDE172_OUT'] + '.part', 'wb').write(body)\nos.rename(os.environ['EDE172_OUT'] + '.part', os.environ['EDE172_OUT'])\ntime.sleep(60)\n";
+
+/// A root-owned interpreter taken for eDE's shell (`exe`) says hello with
+/// the root token: started by `start` (a command of the test's), else by
+/// the compositor as its helper. What the compositor answered, as JSON.
+fn interpreted_hello(h: &Harness, exe: &Path, start: impl FnOnce(Vec<(String, String)>) -> Option<Command>) -> serde_json::Value {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("ede.sock");
+    let out = dir.path().join("said");
+    let listener = UnixListener::bind(&sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let root = h.with(|ede| ede.ipc.root_grant().token);
+    let hello = serde_json::to_vec(&ede_protocol::Call { id: 1, request: Request::Hello { version: ede_protocol::PROTOCOL_VERSION, token: Some(root) } }).unwrap();
+    let hex: String = hello.iter().map(|b| format!("{b:02x}")).collect();
+    let env = vec![("EDE172_SOCKET".to_string(), sock.display().to_string()), ("EDE172_HELLO".to_string(), hex), ("EDE172_OUT".to_string(), out.display().to_string())];
+    let mut by_hand = start(env.clone()).map(|mut c| c.spawn().unwrap());
+    if by_hand.is_none() {
+        let spec = ede_compositor::helpers::Spec { name: "ede172-interpreter".into(), argv: vec![exe.display().to_string(), "-I".into(), "-c".into(), PY_HELLO.into()], channel: None, wayland: None, env };
+        h.with(move |ede| ede.start_helpers_with(vec![spec]));
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !out.exists() {
+        assert!(Instant::now() < deadline, "the interpreter never said what it was answered");
+        if let Ok((stream, _)) = listener.accept() {
+            h.with(move |ede| ede.ipc_insert(stream));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if let Some(child) = by_hand.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap()
+}
+
+/// The same end to end, on the harness's compositor: a root-owned
+/// interpreter taken for eDE's installed shell passes by file while the
+/// units start the helpers; once the compositor starts them it is refused
+/// when started by hand, and passes as the compositor's own helper.
+#[test]
+fn a_genuine_shell_started_by_hand_is_refused_once_the_compositor_starts_the_helpers() {
+    let Ok(python) = std::fs::canonicalize("/usr/bin/python3") else {
+        eprintln!("skipped: no /usr/bin/python3");
+        return;
+    };
+    let as_shell = Installed::of(&[("exponential-shell".into(), python.clone())]);
+    if as_shell.paths().is_empty() {
+        eprintln!("skipped: {} is not root-owned here", python.display());
+        return;
+    }
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    h.with(move |ede| ede.installed = as_shell);
+    let by_hand = |env: Vec<(String, String)>| {
+        let mut command = Command::new(&python);
+        command.args(["-I", "-c", PY_HELLO]).envs(env).stdout(Stdio::null()).stderr(Stdio::null());
+        Some(command)
+    };
+    let kind = |said: &serde_json::Value| said["type"].as_str().unwrap_or_default().to_string();
+    let said = interpreted_hello(&h, &python, by_hand);
+    assert_eq!(kind(&said), "reply", "the units start the helpers: by file ({said})");
+    h.with(|ede| ede.start_helpers_with(vec![]));
+    let said = interpreted_hello(&h, &python, by_hand);
+    assert_eq!((kind(&said), said["error"]["code"].as_str()), ("error".to_string(), Some("unauthorized")), "started by hand: {said}");
+    assert!(said["error"]["message"].as_str().unwrap_or_default().contains("the compositor did not start it"), "{said}");
+    let said = interpreted_hello(&h, &python, |_| None);
+    assert_eq!(kind(&said), "reply", "the compositor's own helper: {said}");
+    assert!(asks.try_recv().is_err(), "nobody was asked");
+}
+
 /// A policy file that root does not own (here: the test's), group-writable
-/// or not, is ignored: no principal comes from it.
+/// or not, is ignored: no principal comes from it, and (P14) its `[control]
+/// consent = false` and `[session] helpers = "units"` do not weaken a real
+/// session; the same words from a file root's policy parses are followed.
 #[test]
 fn a_policy_file_not_owned_by_root_is_ignored() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("control.toml");
-    std::fs::write(&path, "[[allow]]\npath = \"/usr/bin/sleep\"\nprincipal = \"root\"\n").unwrap();
+    let text = "[control]\nconsent = false\n[session]\nhelpers = \"units\"\n[[allow]]\npath = \"/usr/bin/sleep\"\nprincipal = \"root\"\n";
+    std::fs::write(&path, text).unwrap();
     for mode in [0o644, 0o664] {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
         assert!(Policy::load(&path).is_err(), "mode {mode:o}");
         let mut gate = ede_compositor::consent::Gate::default();
         gate.policy_path = Some(path.clone());
         assert_eq!(gate.policy(), Policy::default());
+        let (real, _) = Config::default().for_a_real_session(&gate.policy());
+        assert_eq!((real.session.helpers(), real.control.consent()), (ede_compositor::config::Helpers::Compositor, true), "mode {mode:o}: the gate stays on");
     }
+    let (followed, _) = Config::default().for_a_real_session(&Policy::parse(text).unwrap());
+    assert_eq!((followed.session.helpers(), followed.control.consent()), (ede_compositor::config::Helpers::Units, false), "root's file is followed");
     assert_eq!(Policy::load(&dir.path().join("none.toml")).unwrap(), None);
 }
 
-/// Off (the default until the flip), the token works from anyone, as
-/// today: no question.
+/// A real session whose person's `compositor.toml` (any process of theirs
+/// can write it) says `consent = false` and `helpers = "units"` keeps the
+/// gate on and the helpers the compositor's (P14).
+#[test]
+fn the_persons_file_never_turns_the_gate_off() {
+    let persons = Config::parse("[control]\nconsent = false\n[session]\nhelpers = \"units\"\n").unwrap();
+    let (real, said) = persons.for_a_real_session(&Policy::default());
+    assert_eq!((real.session.helpers(), real.control.consent()), (ede_compositor::config::Helpers::Compositor, true));
+    assert_eq!(said.len(), 2, "{said:?}");
+}
+
+/// Off in a test's or a nested compositor (a real session's gate is on
+/// since eDE's flip, P14, unless root's policy file says `consent =
+/// false`), the token works from anyone: no question.
 #[test]
 fn the_gate_is_off_by_default() {
     let h = harness();
