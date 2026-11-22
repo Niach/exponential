@@ -90,6 +90,8 @@ class FakeForge {
   /** Decides each run: which PR numbers conflict, whether CI is red, and
    *  whether it composed nothing (`empty`: its head is the base itself). */
   judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string; empty?: boolean } = () => ({})
+  /** Runs as the worker reads a run's verdict (a person acting meanwhile). */
+  onReadPipeline: (() => Promise<void>) | null = null
   private outcomes = new Map<string, TrainPipelineOutcome>()
   private checks = new Map<string, TrainCheck[]>()
 
@@ -148,6 +150,7 @@ class FakeForge {
         return { ok: true, runRef: null }
       },
       readPipeline: async (_repo, trainId) => {
+        await this.onReadPipeline?.()
         const outcome = this.hold ? null : (this.outcomes.get(trainId) ?? null)
         return { outcome, finished: !!outcome }
       },
@@ -973,6 +976,75 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(after.map((l) => outcomeOf(l))).toEqual([`held`, `merged`])
     expect(after[0]!.consumedAt).not.toBeNull()
     expect(after[1]!.consumedAt).toBeNull()
+  })
+
+  it(`#FEED-283: a person's Hold that lands while a direct landing is under way stops it`, async () => {
+    const w = await world()
+    fake.missingPipeline = true
+    const a = await w.pr(961)
+    await w.idle()
+    const [run] = await db
+      .insert(mergeTrains)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, base: `main`, baseSha: `base0`, units: [[a]], attempt: 0, pending: [], heads: { [a]: `head-961` } })
+      .returning()
+    await db.update(pullRequests).set({ mergeState: `testing`, mergeTrainId: run!.id }).where(eq(pullRequests.id, a))
+    await worker.holdPullRequest(a)
+    await worker.drainMergeTrainEdges()
+    await worker.landDirectForTests(w.repoId, run!.id)
+    expect(fake.squashed).toEqual([])
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `held`, mergeHold: `person` })
+    await pass(w.repoId, 2)
+    expect(fake.squashed).toEqual([])
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `held`, mergeHold: `person` })
+  })
+
+  it(`#FEED-284: a PR made a draft on the forge never lands directly, green or not`, async () => {
+    const w = await world()
+    fake.missingPipeline = true
+    const a = await w.pr(962)
+    await w.idle()
+    const [run] = await db
+      .insert(mergeTrains)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, base: `main`, baseSha: `base0`, units: [[a]], attempt: 0, pending: [], heads: { [a]: `head-962` } })
+      .returning()
+    await db.update(pullRequests).set({ mergeState: `testing`, mergeTrainId: run!.id }).where(eq(pullRequests.id, a))
+    // GitHub says draft; our row has not heard yet (a delivery still on its way).
+    fake.prs.get(962)!.draft = true
+    await worker.landDirectForTests(w.repoId, run!.id)
+    expect(fake.squashed).toEqual([])
+    expect((await prRow(a)).state).toBe(`open`)
+    expect((await prRow(a)).mergeState).not.toBe(`merged`)
+  })
+
+  it(`#FEED-283: a Hold arriving while the train reads a green verdict never fast-forwards it`, async () => {
+    const w = await world()
+    const a = await w.pr(963)
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+    let held = false
+    fake.onReadPipeline = async () => {
+      if (held) return
+      held = true
+      await db.update(pullRequests).set({ mergeState: `held`, mergeHold: `person` }).where(eq(pullRequests.id, a))
+    }
+    await pass(w.repoId)
+    expect(fake.branch.get(`main`)).toBe(`base0`)
+    expect(fake.closed).toEqual([])
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `held`, mergeHold: `person` })
+  })
+
+  it(`#FEED-283: an agent's force (Merge now) keeps a person's Hold`, async () => {
+    const w = await world()
+    const a = await w.pr(964)
+    await w.idle()
+    await worker.holdPullRequest(a)
+    await worker.drainMergeTrainEdges()
+    await worker.mergeNowPullRequest(a, { keepPersonHolds: true })
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId, 2)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `held`, mergeHold: `person`, mergeNow: false })
+    expect(fake.dispatches).toEqual([])
   })
 
   it(`hold, resume and the queue report`, async () => {
