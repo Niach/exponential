@@ -66,6 +66,28 @@ pub fn end_session_processes(data_dir: &Path, session_id: &str, worktree: Option
 /// the session itself means it was revived.
 fn teardown(data_dir: &Path, session_id: &str, worktree: Option<&Path>, own: Option<&str>) -> Vec<String> {
     eagent::run_scope::stop_session_scopes(session_id);
+    session_wide_teardown(data_dir, session_id, worktree, own)
+}
+
+/// #EXP-1917: the teardown of ONE run's end, on its own thread: the scope
+/// units `units` that run owned when it ended ([`eagent::run_scope::session_scope_units`],
+/// read before the thread), by name, never the session's pattern. What
+/// belongs to the SESSION (its manifest, its worktree's compose stacks) goes
+/// only while no run of it is live here: a revive that started meanwhile
+/// keeps them, and its own scope.
+fn teardown_run(data_dir: &Path, session_id: &str, worktree: Option<&Path>, units: &[String]) -> Vec<String> {
+    if !units.is_empty() {
+        eagent::run_scope::stop_scope_units(units);
+    }
+    if live_on_host(data_dir, session_id) {
+        log::info!("session teardown [{session_id}]: revived meanwhile, the new run keeps its manifest and stacks");
+        return Vec::new();
+    }
+    session_wide_teardown(data_dir, session_id, worktree, Some(session_id))
+}
+
+/// The session's manifest and its worktree's compose stacks ([`teardown`]).
+fn session_wide_teardown(data_dir: &Path, session_id: &str, worktree: Option<&Path>, own: Option<&str>) -> Vec<String> {
     // What it created outside its scope (simulators, AVDs, build dirs,
     // compose projects it listed): its manifest, same on macOS and Linux.
     if let Some(manifests) = crate::session_manifest::manifest_dir() {
@@ -84,10 +106,14 @@ fn teardown(data_dir: &Path, session_id: &str, worktree: Option<&Path>, own: Opt
     down_compose_stacks(session_id, worktree)
 }
 
-/// [`end_session_processes`] on a side thread (the end never waits on docker).
+/// [`end_session_processes`] for the run ending NOW, on a side thread (the
+/// end never waits on docker). #EXP-1917: run-scoped: the run's scope units
+/// are read here, before the thread, and only they are stopped; a revive of
+/// the session that starts before the thread runs keeps its new scope.
 pub fn end_session_processes_soon(data_dir: PathBuf, session_id: String, worktree: Option<PathBuf>) {
+    let units = eagent::run_scope::session_scope_units(&session_id);
     let spawned = std::thread::Builder::new().name("exp-session-teardown".to_string()).spawn(move || {
-        let downed = end_session_processes(&data_dir, &session_id, worktree.as_deref());
+        let downed = teardown_run(&data_dir, &session_id, worktree.as_deref(), &units);
         if !downed.is_empty() {
             log::info!("session teardown [{session_id}]: compose stacks down: {}", downed.join(", "));
         }
@@ -490,6 +516,63 @@ sibling\t/repos/acme.worktrees/exp-session-c026c74a2\t/repos/acme.worktrees/exp-
         assert!(end_session_processes(&dir, session, Some(&dir)).is_empty());
         assert!(end_session_processes(&dir, session, None).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1917 (the proof the issue asks for): a run is killed, the
+    /// session is revived before the killed run's teardown thread ran: the
+    /// teardown stops the old run's scope and the new run's survives. On a
+    /// host without run scopes there is nothing to stop.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_killed_runs_teardown_spares_the_revived_runs_scope() {
+        let mode = eagent::run_scope::ScopeMode::current();
+        if *mode == eagent::run_scope::ScopeMode::Off {
+            return;
+        }
+        let session = format!("00000000-0000-4000-8000-{:012}", 1917_000_000u64 + u64::from(std::process::id()));
+        let spawn = || {
+            let argv = mode.wrap_for("sleep", &["300".to_string()], Some(&session));
+            std::process::Command::new(&argv[0]).args(&argv[1..]).spawn().expect("a scoped sleep")
+        };
+        let listed = |count: usize| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                let units = eagent::run_scope::session_scope_units(&session);
+                if units.len() >= count || std::time::Instant::now() > deadline {
+                    return units;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let alive = |child: &mut std::process::Child| matches!(child.try_wait(), Ok(None));
+        let mut old = spawn();
+        // The killed run's end reads its units ...
+        let units = listed(1);
+        assert_eq!(units.len(), 1, "{units:?}");
+        // ... the revive starts a new run (and its record) before the
+        // teardown thread got to run.
+        let mut revived = spawn();
+        assert_eq!(listed(2).len(), 2);
+        let dir = std::env::temp_dir().join(format!("exp-teardown-revive-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut record = crate::run_registry::sample_record(&session);
+        record.host_pid = Some(std::process::id());
+        crate::run_registry::record(&dir, record);
+        teardown_run(&dir, &session, None, &units);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while alive(&mut old) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let old_gone = !alive(&mut old);
+        let revived_alive = alive(&mut revived);
+        eagent::run_scope::stop_session_scopes(&session);
+        let _ = old.kill();
+        let _ = revived.kill();
+        let _ = old.wait();
+        let _ = revived.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(old_gone, "the killed run's scope is stopped");
+        assert!(revived_alive, "the revived run's scope survives the old run's teardown");
     }
 
     /// #EXP-1909: one teardown can take minutes (docker); a session revived

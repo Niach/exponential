@@ -581,10 +581,12 @@ public enum SteerLostBanner {
 /// #EXP-1703: a live row whose device is offline = `away`; a busy row =
 /// `starting`; a row that is neither (idle, or waiting on an open
 /// question) is never `starting`: the `idle` empty state (no spinner) while
-/// it keeps redialing on its backoff.
+/// it keeps redialing on its backoff; #EXP-2000 NEVER HELD: such a row no
+/// device picked up yet (`started` false = `startedAt` null) is `waiting`:
+/// the placeholder says nothing.
 public enum SteerNoFeed {
     public enum State: String, Equatable, Sendable {
-        case offline, away, starting, idle
+        case offline, away, starting, idle, waiting
     }
 
     /// `noFeedIdle.title` / `noFeedIdle.text`.
@@ -602,10 +604,11 @@ public enum SteerNoFeed {
         return (awayTitle.replacingOccurrences(of: "{device}", with: device), awayText)
     }
 
-    public static func state(ended: Bool, busy: Bool, deviceOffline: Bool = false) -> State {
+    public static func state(ended: Bool, busy: Bool, deviceOffline: Bool = false, started: Bool = true) -> State {
         if ended { return .offline }
         if deviceOffline { return .away }
-        return busy ? .starting : .idle
+        if busy { return .starting }
+        return started ? .idle : .waiting
     }
 
     /// SENT INPUTS (Android 0.14.134, the fixture's `noFeedInputsMax`).

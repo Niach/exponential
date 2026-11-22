@@ -256,6 +256,19 @@ async function nudgeStalled(now: Date): Promise<number> {
   return seen.size
 }
 
+/** #FEED-235: a claimed first Request no turn closed for: an input row,
+ *  nothing of the session's own and (#FEED-267) no closed turn either: a
+ *  turn that ends quiet writes no agent row, its report's close stamps
+ *  `last_turn_at`. `mine` = the session's own messages. */
+function unansweredRequest(mine: SQL): SQL {
+  return and(
+    isNull(sessions.lastTurnAt),
+    // `pendingInput()` names the messages table itself: no alias here.
+    sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.card} IS NULL AND (${pendingInput()}))`,
+    sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.authorKind} = 'agent' AND (${messages.authorSessionId} IS NULL OR ${messages.authorSessionId} = ${sessions.id}))`
+  )!
+}
+
 /** #FEED-235: input no turn ran for `undeliveredMinutes` on a claimed,
  *  not-busy live session whose host is ONLINE: pending input the nudges did
  *  not get in, or a first Request the claim delivered with nothing of the
@@ -281,11 +294,7 @@ async function flagUndelivered(now: Date): Promise<number> {
           or(
             // `pendingInput()` names the messages table itself: no alias here.
             sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.consumedAt} IS NULL AND ${messages.createdAt} < ${cutoff} AND (${pendingInput()}))`,
-            and(
-              lt(sessions.startedAt, cutoff),
-              sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.card} IS NULL AND (${pendingInput()}))`,
-              sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.authorKind} = 'agent' AND (${messages.authorSessionId} IS NULL OR ${messages.authorSessionId} = ${sessions.id}))`
-            )
+            and(lt(sessions.startedAt, cutoff), unansweredRequest(mine))
           )
         )
       )
@@ -322,10 +331,7 @@ export async function clearDrainedInTx(tx: Tx, sessionIds?: readonly string[]): 
         sql`${sessions.blocked} ->> 'kind' = 'unclaimed'`,
         // `pendingInput()` names the messages table itself: no alias here.
         sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.consumedAt} IS NULL AND (${pendingInput()}))`,
-        or(
-          sql`NOT EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.card} IS NULL AND (${pendingInput()}))`,
-          sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${mine} AND ${messages.authorKind} = 'agent' AND (${messages.authorSessionId} IS NULL OR ${messages.authorSessionId} = ${sessions.id}))`
-        )
+        sql`NOT (${unansweredRequest(mine)})`
       )
     )
     .for(`update`, { skipLocked: true })

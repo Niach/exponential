@@ -64,27 +64,28 @@ fn start_menu(feed: &Feed, cx: &mut TestAppContext) -> (Plugin, Region, VisualTe
     start_menu_with(feed, false, cx)
 }
 
-fn drop_direction(n: &mut Value) {
+fn unscroll(n: &mut Value) {
     if n.get("id").and_then(Value::as_str) == Some("apps_scroll") {
-        if let Some(props) = n.get_mut("props").and_then(Value::as_object_mut) {
-            props.remove("direction");
+        if let Some(node) = n.as_object_mut() {
+            node.insert("style".into(), json!({"overflowX": "hidden", "overflowY": "hidden"}));
         }
     }
     match n {
-        Value::Object(m) => m.values_mut().for_each(drop_direction),
-        Value::Array(a) => a.iter_mut().for_each(drop_direction),
+        Value::Object(m) => m.values_mut().for_each(unscroll),
+        Value::Array(a) => a.iter_mut().for_each(unscroll),
         _ => {}
     }
 }
 
-/// `unscrolled`: the results' ScrollArea without its `direction`, as it was
-/// before #EDE-92: the shared macro maps a missing direction to `overflow:
-/// hidden` (#EXP-1939), so the results are no scroll container at all.
+/// `unscrolled`: the results' ScrollArea is no scroll container at all (its
+/// authored style overflows hidden on both axes), as before #EDE-92 when a
+/// missing direction expanded to hidden; since #EXP-1939 a missing direction
+/// scrolls vertically, so the case hides the overflow by hand.
 fn start_menu_with(feed: &Feed, unscrolled: bool, cx: &mut TestAppContext) -> (Plugin, Region, VisualTestContext) {
     cx.update(gpui_component::init);
     let mut factory = uicore_docs::doc("start-menu").expect("the factory start menu").json();
     if unscrolled {
-        drop_direction(&mut factory["root"]);
+        unscroll(&mut factory["root"]);
     }
     let source = json!({
         "surface": {"layer": "top", "anchor": ["bottom", "left"], "size": {"width": 760, "height": 620}, "keyboard": "on-demand", "functions": factory["surface"]["functions"]},

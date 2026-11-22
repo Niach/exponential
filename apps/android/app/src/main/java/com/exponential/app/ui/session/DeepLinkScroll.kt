@@ -44,6 +44,15 @@ internal fun rememberDeepLink(
     /** false = a link of the transcript's own (find in chat's landing): the
      *  host's card link ([LocalCardScrollSettled]) is not told. */
     reportSettled: Boolean = true,
+    /** #EXP-2051: the target's LazyColumn item KEY (null = look it up by
+     *  [indexOf]'s index): the laid-out item is found by its key, never by
+     *  an index a page or a widened tail may have shifted. */
+    itemKeyOf: (id: String) -> Any? = { null },
+    /** #EXP-2051: the target is ONE part of its item (an own-tail bubble
+     *  inside the own-tail item): [spanOf] places it; until it does the
+     *  target is not laid out (never the item's centre). */
+    innerOf: (id: String) -> Boolean = { false },
+    spanOf: (id: String) -> ItemSpan? = { null },
 ): DeepLinkState {
     val settle = if (reportSettled) LocalCardScrollSettled.current else null
     val latestIndexOf by rememberUpdatedState(indexOf)
@@ -52,6 +61,9 @@ internal fun rememberDeepLink(
     val latestPage by rememberUpdatedState(page)
     val latestTake by rememberUpdatedState(onTake)
     val latestSettle by rememberUpdatedState(settle)
+    val latestKeyOf by rememberUpdatedState(itemKeyOf)
+    val latestInnerOf by rememberUpdatedState(innerOf)
+    val latestSpanOf by rememberUpdatedState(spanOf)
     var settled by remember { mutableStateOf<CardScrollRequest?>(null) }
     var ringing by remember { mutableStateOf<Pair<String, Long>?>(null) }
     LaunchedEffect(request) {
@@ -68,8 +80,13 @@ internal fun rememberDeepLink(
             while (driver.link != null) {
                 withFrameNanos { }
                 val index = latestIndexOf(req.id)
-                val info = layoutInfoOf(listState, index)
-                val delta = info?.let { centreDelta(listState, it.offset, it.size) } ?: 0
+                val item = layoutInfoOf(listState, index, if (index == null) null else latestKeyOf(req.id))
+                val span = if (item != null && latestInnerOf(req.id)) latestSpanOf(req.id) else null
+                val info = item?.takeIf { !latestInnerOf(req.id) || span != null }
+                val delta = info?.let {
+                    val layout = listState.layoutInfo
+                    deepLinkCentreDelta(it.offset, it.size, span, layout.viewportStartOffset, layout.viewportEndOffset)
+                } ?: 0
                 val centred = info != null && (
                     abs(delta) <= 2 ||
                         (delta > 0 && !listState.canScrollForward) ||
@@ -88,7 +105,7 @@ internal fun rememberDeepLink(
                     WaitingCards.DeepLinkStep.Scroll -> listState.animateScrollBy(delta.toFloat())
                     // Loaded but off screen: bring it into the layout once,
                     // the next frame measures it at its real height.
-                    WaitingCards.DeepLinkStep.Wait -> if (index != null && info == null && nudged != index) {
+                    WaitingCards.DeepLinkStep.Wait -> if (index != null && item == null && nudged != index) {
                         nudged = index
                         listState.scrollToItem(index)
                     }
@@ -111,12 +128,20 @@ internal fun rememberDeepLink(
     return DeepLinkState(pending = request != null && request != settled, ringing = ring?.first)
 }
 
-private fun layoutInfoOf(state: LazyListState, index: Int?) =
-    index?.let { at -> state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == at } }
+/** The target's laid-out item: by its [key] when it has one, else by [index]. */
+private fun layoutInfoOf(state: LazyListState, index: Int?, key: Any?) = when {
+    index == null -> null
+    key != null -> state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
+    else -> state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+}
 
-/** How far the item's centre sits below the viewport's centre (px). */
-private fun centreDelta(state: LazyListState, offset: Int, size: Int): Int {
-    val info = state.layoutInfo
-    val viewportCentre = (info.viewportStartOffset + info.viewportEndOffset) / 2
-    return offset + size / 2 - viewportCentre
+/** #EXP-2051: a deep-link target that is one part of its list item: its top
+ *  below the item's top and its height (px). */
+internal data class ItemSpan(val top: Int, val size: Int)
+
+/** How far the target's centre (the item's, or its [span]'s inside it) sits
+ *  below the viewport's centre (px). */
+internal fun deepLinkCentreDelta(itemOffset: Int, itemSize: Int, span: ItemSpan?, viewportStart: Int, viewportEnd: Int): Int {
+    val centre = span?.let { it.top + it.size / 2 } ?: (itemSize / 2)
+    return itemOffset + centre - (viewportStart + viewportEnd) / 2
 }

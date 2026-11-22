@@ -179,6 +179,10 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // EXP-2060: first, before any thread: an inherited SIG_IGN of the
+    // termination signals becomes a no-op handler, so every git this host
+    // runs starts at the defaults through posix_spawn, never a fork of it.
+    terminal::process::catch_ignored_signals();
     // #EXP-1616: started AS `git-remote-exp` (the link the daemon installs):
     // git's remote helper for exp:// and nothing else (stdout is git's pipe).
     if git_remote_exp::invoked_as_helper() {
@@ -273,6 +277,8 @@ fn main() -> ExitCode {
     };
 
     observability::flush();
+    // #EXP-1892: the log file is written off-thread; land the last lines.
+    log::logger().flush();
     match result {
         Ok(code) => code,
         Err(err) => {

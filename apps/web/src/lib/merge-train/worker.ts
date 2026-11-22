@@ -487,6 +487,13 @@ async function land(
   for (const id of ids) {
     const pr = (await loadPrs([id])).get(id)
     const live = pr ? await forge.readPullRequest(fr, pr.number).catch(() => null) : null
+    // #FEED-283/#FEED-284: held or drafted since the verdict: the run is
+    // cancelled, the PR keeps its hold (or waits as a draft), never lands.
+    if (pr && live && live.state === `open` && live.headSha === run.heads[id] && !(await stillLandable(id, run.id, live))) {
+      await requeue(rest.filter((other) => other !== id), run.base, now)
+      await finishRun(run, `cancelled`, { error: `#${pr.number} was held or made a draft before landing` })
+      return false
+    }
     if (!pr || !live || live.state !== `open` || live.headSha !== run.heads[id]) {
       if (pr) await stepPullRequest(id, { type: `push` }, { base: run.base, now })
       await requeue(rest.filter((other) => other !== id), run.base, now)
@@ -647,6 +654,20 @@ async function landPullRequests(
   await db.transaction((tx) => postAssistantBatch(tx, batch, base))
 }
 
+/** #FEED-283/#FEED-284 (merge-train.json `landing`): the last gate before
+ *  any landing reaches the forge, read fresh: the PR is still `testing` in
+ *  `runId` (a person's Hold, a push or a close took it out), open (not a
+ *  draft) here and no draft on the forge. */
+async function stillLandable(id: string, runId: string, live: { draft: boolean } | null): Promise<boolean> {
+  if (!live || live.draft) return false
+  const [row] = await db
+    .select({ mergeState: pullRequests.mergeState, mergeTrainId: pullRequests.mergeTrainId, state: pullRequests.state, mergeHold: pullRequests.mergeHold })
+    .from(pullRequests)
+    .where(eq(pullRequests.id, id))
+    .limit(1)
+  return !!row && row.mergeState === `testing` && row.mergeTrainId === runId && row.state === `open` && row.mergeHold === null
+}
+
 /** The required checks of a PR's head all green (a lone unit's tested_sha). */
 async function provenHead(pr: PrRow, head: string): Promise<boolean> {
   const rows = await db
@@ -787,6 +808,14 @@ async function landDirect(
         await stepPullRequest(bottom!, { type: `readiness`, wait, at: now.toISOString() }, { base, now, extra: { mergeWait: wait } })
         continue
       }
+    }
+    // #FEED-283/#FEED-284: a person's Hold or a draft that arrived after
+    // the run was composed stops the landing here, the last read before
+    // the forge's merge: only a PR still testing in THIS run, open and no
+    // draft on the forge, ever merges.
+    if (!(await stillLandable(bottom!, run.id, read))) {
+      await requeue([bottom!], base, now)
+      continue
     }
     const merged = await forge.squashMerge(fr, {
       number: pr.number,
@@ -1114,8 +1143,21 @@ export function resumePullRequest(pullRequestId: string): Promise<StepOutcome | 
   return personEvent(pullRequestId, { type: `resume` })
 }
 /** An owner's Merge now: next, alone, untested (a stack lands whole). */
-export async function mergeNowPullRequest(pullRequestId: string): Promise<StepOutcome | null> {
+export async function mergeNowPullRequest(
+  pullRequestId: string,
+  opts: { keepPersonHolds?: boolean } = {}
+): Promise<StepOutcome | null> {
   const ids = await stackOf(pullRequestId)
+  // #FEED-283: an agent's `pr merge {force}` never lifts a person's Hold
+  // (only that person's Resume does): a held stack stays as it is.
+  if (opts.keepPersonHolds) {
+    const [personHeld] = await db
+      .select({ id: pullRequests.id })
+      .from(pullRequests)
+      .where(and(inArray(pullRequests.id, ids), eq(pullRequests.mergeState, `held`), eq(pullRequests.mergeHold, `person`)))
+      .limit(1)
+    if (personHeld) return null
+  }
   let outcome: StepOutcome | null = null
   const now = new Date()
   for (const id of ids) {

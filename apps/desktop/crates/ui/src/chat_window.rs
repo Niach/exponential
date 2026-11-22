@@ -175,7 +175,12 @@ fn follow(live: &mut Live, query: Query, root_id: &str, keys: Vec<&RowKey>, mess
         let RowKey::Single(id) = key else { continue };
         match messages.get_key(key) {
             Some(row) if in_tree(row, root_id, sessions) && (query == Query::Newest || is_candidate(row)) => {
-                live.rows.insert(id.clone(), row.clone());
+                // #EXP-2021: a row new to the page counts like a read one, so
+                // a page read before the store caught up knows (`more`) that
+                // older rows exist once the catch-up's rows land past it.
+                if live.rows.insert(id.clone(), row.clone()).is_none() {
+                    live.newest += 1;
+                }
                 moved = true;
             }
             _ => {
@@ -185,6 +190,7 @@ fn follow(live: &mut Live, query: Query, root_id: &str, keys: Vec<&RowKey>, mess
                     if query == Query::Newest && live.newest >= live.limit {
                         live.stale = true;
                     }
+                    live.newest = live.newest.saturating_sub(1);
                 }
             }
         }
@@ -495,6 +501,47 @@ mod tests {
         let ids: Vec<&str> = results.rows.iter().map(|row| row.id.as_str()).collect();
         assert_eq!(ids, ["old-report"]);
         assert!(!results.more);
+        drop(dir);
+    }
+
+    /// #EXP-2021: the first read lands before the store caught up (a few
+    /// rows); the catch-up's rows arrive through the change log. The page
+    /// is then the newest `limit` and says older ones exist, so find in
+    /// chat counts the store's hits in them and `Load earlier` widens.
+    #[gpui::test]
+    fn a_page_read_before_the_catch_up_knows_older_rows_exist_after_it(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("local.sqlite");
+        let disk = ShapeStore::open(&db).unwrap();
+        put(&disk, "sessions", vec![json!({"id": "r1", "team_id": "t1", "root_id": "r1", "status": "idle", "shared": "t", "created_at": at(0)})]);
+        let row = |n: usize| json!({"id": format!("m{n:03}"), "session_id": "r1", "root_id": "r1", "author_kind": "agent", "body": format!("{n}"), "created_at": at(n)});
+        put(&disk, "messages", (491..=500).map(row).collect());
+        let (changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            Store::global(cx).clone().connect_local("local-test", &db, rx, cx).unwrap();
+        });
+        let limit = chat_message_limit();
+        cx.update(|cx| chat_messages("r1", cx));
+        cx.run_until_parked();
+        let early = cx.update(|cx| chat_messages("r1", cx));
+        assert_eq!(early.rows.len(), 10);
+        assert!(!early.more);
+        // The catch-up: the other 490 rows, a few at a time (the change log).
+        for from in (1..=490).step_by(10) {
+            put(&disk, "messages", (from..from + 10).map(row).collect());
+            changes.send(("messages".into(), (from..from + 10).map(|n| format!("m{n:03}")).collect())).unwrap();
+            cx.run_until_parked();
+        }
+        let caught = cx.update(|cx| chat_messages("r1", cx));
+        assert_eq!(caught.rows.len(), limit);
+        assert_eq!(caught.rows.last().unwrap().id, "m500");
+        assert!(caught.more, "older rows exist below the page");
+        assert!(cx.update(|cx| load_earlier("r1", cx)));
+        cx.run_until_parked();
+        let wider = cx.update(|cx| chat_messages("r1", cx));
+        assert_eq!(wider.rows.len(), 500.min(widened_limit(limit)));
         drop(dir);
     }
 }

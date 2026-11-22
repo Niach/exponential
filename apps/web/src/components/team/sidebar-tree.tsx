@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react"
+import { memo, useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY, railAgents } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
@@ -48,7 +48,7 @@ import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { useApps } from "@/hooks/use-apps"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { useAgents, useTeamChatTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { sidebarTeamSlice, useSidebarTeamsData, type SidebarChatMark, type SidebarTeamSlice } from "@/hooks/use-sidebar-teams-data"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useSidebarFolders } from "@/hooks/use-sidebar-folders"
 import {
@@ -58,7 +58,7 @@ import {
   type SidebarDevice,
 } from "@/hooks/use-sidebar-tree"
 import { SidebarFolderRows, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
-import { SidebarAgentRow, useAgentBadges } from "@/components/team/sidebar-agents"
+import { SidebarAgentRow } from "@/components/team/sidebar-agents"
 import { SidebarAppRow } from "@/components/team/sidebar-apps"
 import { ChatRunMark } from "@/components/team/sidebar-running"
 import { NavCountBadge } from "@/components/team/sidebar-shared"
@@ -313,6 +313,9 @@ export function SidebarTeamsGroup({
   onNewTeam: () => void
   onJoinTeam: () => void
 }) {
+  // #PERF-13: every team's lists read ONCE, each section its own slice.
+  const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
+  const data = useSidebarTeamsData(teamIds, me, chatRows)
   const teamsMenu: MenuEntry[] = SIDEBAR_TEAMS_MENU.map((id) =>
     id === `new-team`
       ? { kind: `item`, id, label: SIDEBAR_TREE_COPY.newTeam, icon: AddIcon, onSelect: onNewTeam }
@@ -339,8 +342,7 @@ export function SidebarTeamsGroup({
             team={team}
             owner={owners.has(team.id)}
             needsYou={needsYou.get(team.id) ?? 0}
-            chatRows={chatRows}
-            me={me}
+            data={sidebarTeamSlice(data, team.id)}
             active={active}
           />
         ))}
@@ -349,27 +351,26 @@ export function SidebarTeamsGroup({
   )
 }
 
-/** One team: its row and (open) its list, every list read for THIS team. */
-function SidebarTeamSection({
+/** One team: its row and (open) its list. #PERF-13: its session lists are
+ *  `data`, the group's one read; memoised, a synced row that moved none of
+ *  THIS team's rows renders nothing here. */
+const SidebarTeamSection = memo(function SidebarTeamSection({
   team,
   owner,
   needsYou,
-  chatRows,
-  me,
+  data,
   active,
 }: {
   team: Team
   owner: boolean
   needsYou: number
-  chatRows: ReadonlyMap<string, ChatsListRow>
-  me: string | null | undefined
+  data: SidebarTeamSlice
   active: SidebarActive
 }) {
   const navigate = useNavigate()
   const [open, setOpen] = useSidebarOpenFlag(sidebarTeamOpenKey(team.id))
   const boards = useTeamBoards(team.id)
-  const { agents } = useAgents(team.id, me)
-  const badges = useAgentBadges(team.id, agents, me)
+  const { agents, badges, titles, chatRows } = data
   const { apps } = useApps(team.id)
   // #FEED-239 / #EXP-1837 (`railAgents`): an app's agent shows as its app,
   // the Assistant never.
@@ -377,12 +378,7 @@ function SidebarTeamSection({
     () => railAgents(agents, apps.map((app) => ({ agentId: app.row?.agentId ?? null }))),
     [agents, apps]
   )
-  const { rows: sessionRows } = useTeamSessions(team.id)
-  const titles = useTeamChatTitles(team.id)
-  const sessionInputs = useMemo(
-    () => sessionRows.map((row) => ({ id: row.id, teamId: row.teamId, parentId: row.parentId ?? null })),
-    [sessionRows]
-  )
+  const sessionInputs = data.sessions
 
   const itemsOf = useCallback(
     (entries: readonly SidebarEntry[]) =>
@@ -614,7 +610,7 @@ function SidebarTeamSection({
       listProps={{ [SIDEBAR_TEAM_LIST_ATTR]: team.id }}
     />
   )
-}
+})
 
 /** `Remove from sidebar`: the caller's entry for a placed session goes. */
 function removeFromSidebar(targetId: string) {
@@ -681,7 +677,7 @@ function SidebarSessionRow({
   teamId: string
   teamSlug: string
   title: string
-  row: ChatsListRow | undefined
+  row: SidebarChatMark | undefined
   active: boolean
   itemProps: SidebarRowItemProps
   guides: ReactNode

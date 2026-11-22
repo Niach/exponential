@@ -43,7 +43,13 @@ const MESSAGES_DEBOUNCE: Duration = Duration::from_secs(3);
 const SLOW_CATCH_UP: Duration = Duration::from_secs(5 * 60);
 /// Message ids read per retry of the sealed ones.
 const LOCKED_CHUNK: usize = 500;
-const MESSAGES_MARK: &str = "messages.createdAt";
+/// #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL): the arrival position
+/// (the sync store's `messages` rowid) the catch-up took last. A new key: the
+/// old `messages.createdAt` watermark is left behind, so the first pass after
+/// the update takes every row once (the rows it had skipped included).
+const MESSAGES_MARK: &str = "messages.arrival";
+/// Messages read per page of the catch-up.
+const MESSAGES_PAGE: usize = 1000;
 /// How often the app looks at whether one of its windows is active (the
 /// catch-up's idleness on battery).
 const ACTIVITY_POLL: Duration = Duration::from_secs(30);
@@ -63,9 +69,31 @@ struct ChatStoreGlobal {
     last_active: Arc<AtomicU64>,
     _sessions: Option<Subscription>,
     _activity: Option<Task<()>>,
+    /// #EXP-2021: tells the open views which chats the store took rows of.
+    changed: flume::Sender<Vec<String>>,
+    _changed: Option<Task<()>>,
 }
 
 impl gpui::Global for ChatStoreGlobal {}
+
+/// #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): the store took in
+/// rows of these chats (root and session ids) at revision `rev`; an open
+/// find bar of one of them asks the store again. Views observe it as a
+/// global.
+#[derive(Default)]
+pub(crate) struct ChatStoreChanged {
+    pub(crate) rev: u64,
+    pub(crate) ids: std::collections::HashSet<String>,
+}
+
+impl gpui::Global for ChatStoreChanged {}
+
+impl ChatStoreChanged {
+    /// Did the last change touch the chat `root_id` or its session `session_id`?
+    pub(crate) fn touches(&self, root_id: Option<&str>, session_id: &str) -> bool {
+        self.ids.contains(session_id) || root_id.is_some_and(|root| self.ids.contains(root))
+    }
+}
 
 /// One job for the writer thread.
 enum Write {
@@ -97,7 +125,13 @@ pub(crate) fn start(account_id: &str, cx: &mut App) {
     };
     let (writes, rx) = flume::unbounded::<Write>();
     let writer = Arc::clone(&store);
-    if let Err(err) = std::thread::Builder::new().name("chat-store".into()).spawn(move || run_writer(&writer, &rx)) {
+    let (changed, changed_rx) = flume::unbounded::<Vec<String>>();
+    let told = changed.clone();
+    if let Err(err) = std::thread::Builder::new().name("chat-store".into()).spawn(move || {
+        run_writer(&writer, &rx, &move |ids| {
+            let _ = told.send(ids);
+        })
+    }) {
         log::warn!("[chat-store] no writer thread: {err}");
         return;
     }
@@ -116,6 +150,15 @@ pub(crate) fn start(account_id: &str, cx: &mut App) {
             cx.background_executor().timer(ACTIVITY_POLL).await;
         })
     };
+    let changed_task = cx.spawn(async move |cx| {
+        while let Ok(first) = changed_rx.recv_async().await {
+            let ids: std::collections::HashSet<String> = std::iter::once(first).chain(changed_rx.try_iter()).flatten().collect();
+            let _ = cx.update(|cx| {
+                let rev = cx.try_global::<ChatStoreChanged>().map_or(0, |changed| changed.rev) + 1;
+                cx.set_global(ChatStoreChanged { rev, ids });
+            });
+        }
+    });
     cx.set_global(ChatStoreGlobal {
         account_id: account_id.to_string(),
         store,
@@ -127,6 +170,8 @@ pub(crate) fn start(account_id: &str, cx: &mut App) {
         last_active,
         _sessions: sessions,
         _activity: Some(activity),
+        changed,
+        _changed: Some(changed_task),
     });
     sessions_changed(cx);
     schedule_catch_up(cx);
@@ -180,6 +225,7 @@ fn start_enet_catch_up(cx: &mut App) {
     };
     let sessions = Arc::clone(&global.sessions);
     let last_active = Arc::clone(&global.last_active);
+    let changed = global.changed.clone();
     let deps = steer::enet_catchup::CatchUpDeps {
         user_id: install.user_id().to_string(),
         install,
@@ -190,7 +236,9 @@ fn start_enet_catch_up(cx: &mut App) {
             let idle = (now_ms() as u64).saturating_sub(last_active.load(Ordering::Relaxed));
             steer::enet_catchup::may_run_now(idle)
         }),
-        on_stored: None,
+        on_stored: Some(Arc::new(move |session_id: &str| {
+            let _ = changed.send(vec![session_id.to_string()]);
+        })),
     };
     let handle = steer::enet_catchup::spawn(runtime.handle(), deps);
     cx.global_mut::<ChatStoreGlobal>().enet = Some(handle);
@@ -323,16 +371,19 @@ fn stored_events(root_id: &str, session_id: &str, device_id: &str, events: &[(u6
         .collect()
 }
 
-/// The writer thread: one job at a time, feeds coalesced.
-fn run_writer(store: &SqliteStore, rx: &flume::Receiver<Write>) {
+/// The writer thread: one job at a time, feeds coalesced; `changed` is told
+/// the chats (root and session ids) each job took rows of (#EXP-2021).
+fn run_writer(store: &SqliteStore, rx: &flume::Receiver<Write>, changed: &dyn Fn(Vec<String>)) {
     let mut slow_at: Option<Instant> = None;
     while let Ok(first) = rx.recv() {
         for write in std::iter::once(first).chain(rx.try_iter()) {
             match write {
                 Write::Feed { root_id, session_id, device_id, events } => {
                     let stored = stored_events(&root_id, &session_id, &device_id, &events);
-                    if let Err(err) = store.put_events(&stored) {
-                        log::warn!("[chat-store] storing {session_id}'s feed failed: {err}");
+                    match store.put_events(&stored) {
+                        Ok(added) if added > 0 => changed(vec![root_id, session_id]),
+                        Ok(_) => {}
+                        Err(err) => log::warn!("[chat-store] storing {session_id}'s feed failed: {err}"),
                     }
                 }
                 Write::CatchUp { sqlite, data_dir, device_id } => {
@@ -340,13 +391,17 @@ fn run_writer(store: &SqliteStore, rx: &flume::Receiver<Write>) {
                     if slow {
                         slow_at = Some(Instant::now());
                     }
+                    let mut roots = std::collections::BTreeSet::new();
                     if let Some(sqlite) = &sqlite {
-                        if let Err(err) = catch_up_messages(store, sqlite, slow) {
+                        if let Err(err) = catch_up_messages(store, sqlite, slow, &mut roots) {
                             log::warn!("[chat-store] messages catch-up failed: {err}");
                         }
                     }
                     if slow {
-                        catch_up_journals(store, &data_dir, &device_id);
+                        catch_up_journals(store, &data_dir, &device_id, &mut roots);
+                    }
+                    if !roots.is_empty() {
+                        changed(roots.into_iter().collect());
                     }
                 }
             }
@@ -375,17 +430,38 @@ fn stored_message(row: &MessageRow) -> Option<StoredMessage> {
     })
 }
 
-/// The synced messages since the last catch-up (the mark is inclusive, so a
-/// row landing in the same instant is not lost); `slow` = also the rows
-/// stored sealed, opened again.
-fn catch_up_messages(store: &SqliteStore, sqlite: &ShapeStore, slow: bool) -> Result<(), String> {
-    let mark = store.meta(MESSAGES_MARK).map_err(|err| err.to_string())?.unwrap_or_default();
-    let rows = sync::message_pages::messages_since(sqlite, &mark).map_err(|err| err.to_string())?;
-    let newest = rows.iter().filter_map(|row| row.created_at.as_deref()).max().map(str::to_string);
-    let stored: Vec<StoredMessage> = rows.iter().filter_map(stored_message).collect();
-    store.put_messages(&stored).map_err(|err| err.to_string())?;
-    if let Some(newest) = newest.filter(|newest| *newest > mark) {
-        store.set_meta(MESSAGES_MARK, &newest).map_err(|err| err.to_string())?;
+/// #EXP-2018: the synced messages that ARRIVED since the last catch-up, by
+/// the sync store's arrival order (never a `created_at` watermark: a row
+/// reaching this device late with an older `created_at` is taken too). The
+/// mark is inclusive (a reused position is not lost); a mark above the
+/// table's newest position (a refetch emptied and refilled it) starts over.
+/// `slow` = also the rows stored sealed, opened again.
+/// `roots` = the chats it stored rows of.
+fn catch_up_messages(
+    store: &SqliteStore,
+    sqlite: &ShapeStore,
+    slow: bool,
+    roots: &mut std::collections::BTreeSet<String>,
+) -> Result<(), String> {
+    let stored_mark = store.meta(MESSAGES_MARK).map_err(|err| err.to_string())?.and_then(|mark| mark.parse::<i64>().ok());
+    let newest = sqlite.messages_arrival_max().map_err(|err| err.to_string())?;
+    let mut mark = stored_mark.filter(|mark| *mark <= newest).unwrap_or(0);
+    loop {
+        let page = sync::message_pages::messages_by_arrival(sqlite, mark, MESSAGES_PAGE).map_err(|err| err.to_string())?;
+        let stored: Vec<(i64, StoredMessage)> =
+            page.rows.iter().filter_map(|(at, row)| Some((*at, stored_message(row)?))).collect();
+        store.put_messages(stored.iter().map(|(_, message)| message)).map_err(|err| err.to_string())?;
+        // The inclusive mark's own row comes back every pass: not a change.
+        roots.extend(stored.iter().filter(|(at, _)| *at > mark).map(|(_, message)| message.root_id.clone()));
+        let Some(last) = page.last else { break };
+        let moved = last > mark;
+        mark = last;
+        if !moved || page.read < MESSAGES_PAGE {
+            break;
+        }
+    }
+    if stored_mark != Some(mark) {
+        store.set_meta(MESSAGES_MARK, &mark.to_string()).map_err(|err| err.to_string())?;
     }
     if !slow {
         return Ok(());
@@ -396,6 +472,7 @@ fn catch_up_messages(store: &SqliteStore, sqlite: &ShapeStore, slow: bool) -> Re
         let rows = sync::message_pages::messages_by_ids(sqlite, &ids).map_err(|err| err.to_string())?;
         let opened: Vec<StoredMessage> = rows.iter().filter_map(stored_message).filter(|message| message.body.is_some()).collect();
         store.put_messages(&opened).map_err(|err| err.to_string())?;
+        roots.extend(opened.iter().map(|message| message.root_id.clone()));
     }
     Ok(())
 }
@@ -403,7 +480,7 @@ fn catch_up_messages(store: &SqliteStore, sqlite: &ShapeStore, slow: bool) -> Re
 /// This device's journals that changed since they were last taken in. A
 /// journal whose session the synced rows have not named a root for yet
 /// waits for the next pass.
-fn catch_up_journals(store: &SqliteStore, data_dir: &Path, device_id: &str) {
+fn catch_up_journals(store: &SqliteStore, data_dir: &Path, device_id: &str, roots: &mut std::collections::BTreeSet<String>) {
     let Ok(entries) = std::fs::read_dir(steer::journal_dir(data_dir)) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -422,7 +499,10 @@ fn catch_up_journals(store: &SqliteStore, data_dir: &Path, device_id: &str) {
         let Some(events) = steer::read_journal_seq(data_dir, &session_id) else { continue };
         let stored = stored_events(&root_id, &session_id, device_id, &events);
         match store.put_events(&stored) {
-            Ok(_) => {
+            Ok(added) => {
+                if added > 0 {
+                    roots.insert(root_id.clone());
+                }
                 let _ = store.set_meta(&key, &stamp);
             }
             Err(err) => log::warn!("[chat-store] taking in {session_id}'s journal failed: {err}"),
@@ -456,7 +536,7 @@ mod tests {
         std::fs::write(data_dir.join("accounts/u1/sync.sqlite"), b"sync").unwrap();
         let held = Arc::downgrade(&store);
         let (writes, rx) = flume::unbounded::<Write>();
-        let writer = std::thread::spawn(move || run_writer(&store, &rx));
+        let writer = std::thread::spawn(move || run_writer(&store, &rx, &|_| {}));
         drop(writes);
         wipe(&data_dir, "u1", Some(&held));
         writer.join().unwrap();
@@ -485,7 +565,7 @@ mod tests {
         std::fs::write(data_dir.join("accounts").join(&account).join("sync.sqlite"), b"sync").unwrap();
         let held = Arc::downgrade(&store);
         let (writes, rx) = flume::unbounded::<Write>();
-        let writer = std::thread::spawn(move || run_writer(&store, &rx));
+        let writer = std::thread::spawn(move || run_writer(&store, &rx, &|_| {}));
         drop(writes);
         wipe(&data_dir, &account, Some(&held));
         writer.join().unwrap();
@@ -508,6 +588,37 @@ mod tests {
         let found = store.search_chat("r", "CAFE", 10).unwrap();
         assert_eq!(found.total, 1);
         assert_eq!(found.hits[0].seq, Some(1));
+    }
+
+    /// #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL): a message that
+    /// syncs AFTER a catch-up with an OLDER `created_at` is still taken in
+    /// and found; an old `createdAt` watermark is dropped (a full pass).
+    #[test]
+    fn a_late_older_message_is_taken_in_by_arrival() {
+        let dir = std::env::temp_dir().join(format!("ui-chat-store-arrival-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let sqlite = ShapeStore::open(&dir.join("sync.sqlite")).unwrap();
+        let spec = sync::shapes::shape_by_name("messages").unwrap();
+        let insert = |id: &str, session: &str, body: &str, at: &str| {
+            let value = serde_json::json!({"id": id, "session_id": session, "root_id": session, "author_kind": "user", "body": body, "created_at": at});
+            let msg = sync::protocol::ShapeMessage::Insert { key: sync::protocol::RowKey::Single(id.into()), value: value.as_object().unwrap().clone() };
+            sqlite.apply_batch(spec, &[msg], None).unwrap();
+        };
+        let store = SqliteStore::open_in_memory().unwrap();
+        store.set_meta("messages.createdAt", "2026-11-22 12:00:00+00").unwrap();
+        insert("m1", "r1", "the newest wombat", "2026-11-22 12:00:00+00");
+        catch_up_messages(&store, &sqlite, false, &mut Default::default()).unwrap();
+        assert_eq!(store.search_chat("r1", "wombat", 10).unwrap().total, 1);
+        // A chat that became visible later: its rows are hours older.
+        insert("m0", "r2", "an early wombat", "2026-11-22 08:00:00+00");
+        catch_up_messages(&store, &sqlite, false, &mut Default::default()).unwrap();
+        assert_eq!(store.search_chat("r2", "wombat", 10).unwrap().total, 1, "the late older row is indexed");
+        // A refetch emptied the table and refilled it: the mark starts over.
+        sqlite.apply_batch(spec, &[sync::protocol::ShapeMessage::MustRefetch], None).unwrap();
+        insert("m9", "r3", "a refetched wombat", "2026-11-22 07:00:00+00");
+        catch_up_messages(&store, &sqlite, false, &mut Default::default()).unwrap();
+        assert_eq!(store.search_chat("r3", "wombat", 10).unwrap().total, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

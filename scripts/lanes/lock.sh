@@ -113,24 +113,94 @@ lock_overdue() {
   [ "$_lane_held" -gt "$_lane_max" ]
 }
 
-# The waiter registry `lane.sh status` reads: one file per waiting pid.
+# The waiter registry `lane.sh status` reads: one file per waiting pid,
+# "<owner> <since> <pid> <session> <queue> <ticket> <poll>", named
+# "<queue>.<pid>". <queue> is the lock dir's name (lane.sh: the lane's slot 1
+# for every slot). #EXP-2055: try_take_lock serves the queue first come,
+# first served by <ticket> (nanoseconds where `date` has them). A waiter
+# touches its file every poll; one not touched for 2 polls + 60 s (a
+# take_lock interrupted in a shell that lives on) is skipped, a dead pid's
+# file is pruned.
 lane_waiters_dir() {
   echo "${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-waiters"
 }
 
+lane_ticket() {
+  _lane_tk=$(date +%s%N 2>/dev/null)
+  case "$_lane_tk" in '' | *[!0-9]*) _lane_tk="$(date +%s)000000000" ;; esac
+  echo "$_lane_tk"
+}
+
 # Starts waiting for <dir> as <owner> (once per wait): logs `wait` with the
-# holder, registers the waiter and remembers since when (for `take`).
+# holder, registers the waiter and remembers since when (for `take`). Every
+# later call (one per poll) marks the waiter as still polling.
 lane_wait_begin() {
-  [ -n "${_lane_wait_since:-}" ] && return 0
-  _lane_wait_since=$(date +%s)
+  _lane_wf="$(lane_waiters_dir)/$(basename "$1").${LANE_LOCK_PID:-$$}"
+  if [ -n "${_lane_wait_since:-}" ]; then
+    touch "$_lane_wf" 2>/dev/null
+    return 0
+  fi
+  _lane_wait_ticket=$(lane_ticket)
+  _lane_wait_since=${_lane_wait_ticket%?????????}
   lane_log "$1" "wait owner=$2 session=$(lane_session) pid=${LANE_LOCK_PID:-$$} holder=$(lock_owner "$1") holder_session=$(lock_field "$1" 5) holder_pid=$(lock_field "$1" 3)"
-  _lane_wd=$(lane_waiters_dir)
-  mkdir -p "$_lane_wd" 2>/dev/null && echo "$2 $_lane_wait_since ${LANE_LOCK_PID:-$$} $(lane_session) $(basename "$1")" > "$_lane_wd/$(basename "$1").${LANE_LOCK_PID:-$$}" 2>/dev/null
+  mkdir -p "$(lane_waiters_dir)" 2>/dev/null && echo "$2 $_lane_wait_since ${LANE_LOCK_PID:-$$} $(lane_session) $(basename "$1") $_lane_wait_ticket $LANE_LOCK_POLL_SECONDS" > "$_lane_wf" 2>/dev/null
   return 0
 }
 
 lane_wait_end() {
   rm -f "$(lane_waiters_dir)"/*."${LANE_LOCK_PID:-$$}" 2>/dev/null
+  return 0
+}
+
+# True when <owner> holds a slot of <queue dir>'s lane under a live pid other
+# than <pid> (slot 1 = <queue dir>, slot k its `-k` sibling).
+lane_owner_holds() {
+  # `ls`, not a glob: zsh aborts on a glob without matches.
+  _lane_base=$(basename "$1")
+  for _lane_n in $(ls "$(dirname "$1")" 2>/dev/null); do
+    if [ "$_lane_n" != "$_lane_base" ]; then
+      case "$_lane_base" in *-1) ;; *) continue ;; esac
+      case "$_lane_n" in "${_lane_base%-1}"-*) ;; *) continue ;; esac
+      case "${_lane_n#"${_lane_base%-1}"-}" in '' | *[!0-9]* | 1) continue ;; esac
+    fi
+    _lane_d="$(dirname "$1")/$_lane_n"
+    [ -r "$_lane_d/owner" ] || continue
+    [ "$(lock_field "$_lane_d" 1)" = "$2" ] || continue
+    [ "$(lock_field "$_lane_d" 3)" = "$3" ] && continue
+    lock_holder_dead "$_lane_d" && continue
+    return 0
+  done
+  return 1
+}
+
+# #EXP-2055: true when no live waiter on <queue dir> is ahead of us (<owner>,
+# LANE_LOCK_PID). Ahead = an earlier ticket (pid breaks a tie), or any waiter
+# at all while we are not registered yet. A waiter whose owner already holds
+# a slot of the lane is behind everyone; so are we when our owner does.
+lane_my_turn() {
+  _lane_me=${LANE_LOCK_PID:-$$}
+  _lane_mine=${_lane_wait_ticket:-}
+  lane_owner_holds "$1" "$2" "$_lane_me" && _lane_mine=
+  _lane_now=$(date +%s)
+  _lane_wd=$(lane_waiters_dir)
+  for _lane_n in $(ls "$_lane_wd" 2>/dev/null); do
+    case "$_lane_n" in "$(basename "$1")".*) ;; *) continue ;; esac
+    _lane_f="$_lane_wd/$_lane_n"
+    [ -f "$_lane_f" ] || continue
+    read -r _w_owner _w_since _w_pid _w_session _w_queue _w_ticket _w_poll < "$_lane_f" || continue
+    case "$_w_pid" in '' | *[!0-9]*) continue ;; esac
+    [ "$_w_pid" = "$_lane_me" ] && continue
+    if ! ps -p "$_w_pid" >/dev/null 2>&1; then rm -f "$_lane_f"; continue; fi
+    case "$_w_ticket" in '' | *[!0-9]*) _w_ticket="${_w_since}000000000" ;; esac
+    _w_poll=${_w_poll%%.*}
+    case "$_w_poll" in '' | *[!0-9]*) _w_poll=$LANE_LOCK_POLL_SECONDS; _w_poll=${_w_poll%%.*} ;; esac
+    _w_mtime=$(stat -c %Y "$_lane_f" 2>/dev/null || stat -f %m "$_lane_f" 2>/dev/null) || continue
+    [ $(( _lane_now - _w_mtime )) -gt $(( 2 * ${_w_poll:-0} + 60 )) ] && continue
+    lane_owner_holds "$1" "$_w_owner" "$_w_pid" && continue
+    [ -z "$_lane_mine" ] && return 1
+    [ "$_w_ticket" -lt "$_lane_mine" ] && return 1
+    [ "$_w_ticket" -eq "$_lane_mine" ] && [ "$_w_pid" -lt "$_lane_me" ] && return 1
+  done
   return 0
 }
 
@@ -157,7 +227,10 @@ take_lock() {
 # ONE attempt at <dir> (no wait): 0 = it is ours now. Reclaims a dead
 # holder's lock and a stale ownerless dir exactly as take_lock always did,
 # and hands over a heavy slot whose holder is past its max hold (#EXP-1844).
+# #EXP-2055: only when it is our turn in <queue dir>'s waiter queue (default
+# <dir>; lane.sh passes the lane's slot 1 for every slot).
 try_take_lock() {
+  lane_my_turn "${3:-$1}" "$2" || return 1
   while ! { mkdir "$1" 2>/dev/null && (set -C; echo "$2 $(date +%s) ${LANE_LOCK_PID:--} $(lane_lock_host) $(lane_session)" > "$1/owner") 2>/dev/null; }; do
     if lock_holder_dead "$1" || lock_overdue "$1"; then
       lock_take_over "$1" "$2" && continue
@@ -176,6 +249,7 @@ try_take_lock() {
   lane_log "$1" "take owner=$2 session=$(lane_session) pid=${LANE_LOCK_PID:--} waited=$(( _lane_now - ${_lane_wait_since:-$_lane_now} ))s"
   lane_wait_end
   _lane_wait_since=
+  _lane_wait_ticket=
 }
 
 # How many holders <lane> admits on THIS machine (lines `heavy=2`), else 1:

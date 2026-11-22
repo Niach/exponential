@@ -110,12 +110,20 @@ final class ImageActionsTests: XCTestCase {
         let m = try model(host)
         let src = Self.dataSrc
         let request = try XCTUnwrap(m.mediaRequest(src))
-        _ = await MediaLoader.shared.load(request, options: m.mediaPolicy)
+        let preloaded = await MediaLoader.shared.load(request, options: m.mediaPolicy)
+        XCTAssertNotNil(preloaded, "the data: picture decodes")
         let tree = JSONValue.object(["id": .string("root"), "component": .string("Stack"), "props": .object([:]), "children": .array([
             .object(["id": .string("pic"), "component": .string("Image"), "props": .object(["src": .string(src), "alt": .string("red"), "width": .number(40), "height": .number(30)])]),
         ])])
         try m.setNested(json: tree.json)
-        paint(m)
+        // #EXP-2023: the first pass paints the picture only while the loader's
+        // NSCache still holds the preload, and the system may purge it at any
+        // time (memory pressure on the shared CI Mac): then the first pass is
+        // the placeholder and the view's OWN load paints the picture. Host it
+        // in a window (its `.task` runs) and wait for that.
+        let window = TestWindow(ExponentialSurface(model: m).frame(width: 320), size: CGSize(width: 320, height: 400))
+        defer { window.close() }
+        try await eventually(timeout: .seconds(30)) { !host.menus.isEmpty }
         let target = try XCTUnwrap(host.menus.first, "the rendered picture asked the host's image menu")
         XCTAssertEqual(target.src, src)
         XCTAssertEqual(target.alt, "red")

@@ -46,6 +46,10 @@ import com.exponential.app.domain.parseSteerMessage
 import com.exponential.app.domain.splitWorkflowToolRows
 import com.exponential.app.ui.chat.FindInChatState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -65,6 +69,9 @@ internal class TranscriptFindHost(
     val deviceName: String,
     val searchStore: suspend (rootId: String, query: String) -> List<StoredChatHit>?,
     val searchDevice: suspend (query: String, beforeSeq: Long?) -> SteerSearchResult?,
+    /** #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): ticks every time
+     *  the chat store takes in rows of this chat. */
+    val storeTaken: Flow<Unit> = emptyFlow(),
 )
 
 internal val LocalTranscriptFindHost = staticCompositionLocalOf<TranscriptFindHost?> { null }
@@ -294,6 +301,36 @@ internal fun findRowHolds(row: AgentFeedRow, key: String, keys: Map<Long, String
     else -> false
 }
 
+/** #EXP-2051: the transcript list's item key of the own tail (ALL the
+ *  viewer's own bubbles after the rows are ONE item). */
+internal const val OWN_TAIL_ITEM_KEY = "own-tail"
+
+/** #EXP-2051: where a find stop lands in the transcript's LazyColumn:
+ *  [index] (to bring it into the layout), [itemKey] (THE item, found by
+ *  key), [inner] = the stop is one bubble inside that item (the own tail),
+ *  placed by its own position there, never the item's centre. */
+internal data class FindListTarget(val index: Int, val itemKey: Any, val inner: Boolean)
+
+/**
+ * #EXP-2051 (find-in-chat.json AFTER AN OLDER LANDING: the host scrolls by
+ * the stop's KEY): the list item of the stop keyed [key]: a row stop = the
+ * row drawing it ([lead] = the items above the rows: Load earlier, the head
+ * cards), an own bubble = the own-tail item at [ownTailIndex] with the
+ * bubble inside it. Null = not drawn here (yet).
+ */
+internal fun findListTarget(
+    key: String,
+    rows: List<AgentFeedRow>,
+    keys: Map<Long, String>,
+    lead: Int,
+    ownKeys: Set<String>,
+    ownTailIndex: Int?,
+): FindListTarget? {
+    if (key in ownKeys) return ownTailIndex?.takeIf { it >= 0 }?.let { FindListTarget(it, OWN_TAIL_ITEM_KEY, inner = true) }
+    val at = rows.indexOfFirst { findRowHolds(it, key, keys) }
+    return if (at < 0) null else FindListTarget(lead + at, rows[at].id, inner = false)
+}
+
 /** The folded groups find opened (a group row opens itself when it is in). */
 internal val LocalFindOpenGroups = compositionLocalOf<Set<String>> { emptySet() }
 
@@ -357,10 +394,17 @@ internal fun rememberTranscriptFind(
             },
         )
         launch {
-            val hits = runCatching { host.searchStore(host.rootId, query) }.getOrNull().orEmpty()
-                .filter { it.kind in STORE_KINDS }
-                .map { FindInChat.StoreHit(it.sessionId, it.seq, it.messageId, it.kind) }
-            if (older.query == query) older = older.copy(store = hits, storePhase = FindInChat.Phase.Done)
+            // #EXP-2021 (THE STORE CATCHING UP): asked again every time the
+            // store takes in rows of this chat (no new debounce, the field
+            // untouched; the current stop is kept by identity below), so a
+            // bar opened before the store caught up finds what it took in
+            // later. A newer take cancels an ask still running.
+            host.storeTaken.onStart { emit(Unit) }.collectLatest {
+                val hits = runCatching { host.searchStore(host.rootId, query) }.getOrNull().orEmpty()
+                    .filter { it.kind in STORE_KINDS }
+                    .map { FindInChat.StoreHit(it.sessionId, it.seq, it.messageId, it.kind) }
+                if (older.query == query) older = older.copy(store = hits, storePhase = FindInChat.Phase.Done)
+            }
         }
         if (askDevice) {
             launch {

@@ -2035,6 +2035,14 @@ function authoredStyleCases(): ComponentCase[] {
   ]
 }
 
+/** #EXP-1939: a macro prop left out expands to its catalogue default (a
+ *  ScrollArea without `direction` scrolls vertically, as `vertical`). */
+function omittedPropCases(): ComponentCase[] {
+  return [
+    { name: `ScrollArea/direction-omitted`, node: { id: `scroll_area`, component: `ScrollArea`, props: { maxHeight: 240 }, children: [{ id: `scroll_area_child`, component: `Text`, props: { text: `Child` } }] } },
+  ]
+}
+
 /** #VAPP-277: a Sidebar's nav column, for the rail cases: a count and a
  *  trailing slot on Inbox, a leading slot instead of an icon on Issues, a
  *  Row in a closed collapsible Section (the rail shows it: header → rule). */
@@ -2114,7 +2122,7 @@ function messageBubbleCases(): ComponentCase[] {
 }
 
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -2604,7 +2612,7 @@ function renderFiles(): Record<string, string> {
       cases,
     }),
     "fixtures/catalog-macros.json": json({
-      $comment: `${HEADER} Every macro case of catalog-components.json (plus the */author-style cases: the macro node's own style keys, sorted, land in the root's recipe.authored and win over the part recipes) → the tree the expander produces (macros.json applied, recipes attached). The Rust core replays these byte for byte.`,
+      $comment: `${HEADER} Every macro case of catalog-components.json (plus the */author-style cases: the macro node's own style keys, sorted, land in the root's recipe.authored and win over the part recipes; and the */<prop>-omitted cases: a prop left out expands as its catalogue default) → the tree the expander produces (macros.json applied, recipes attached). The Rust core replays these byte for byte.`,
       catalogId: CORE_CATALOG_ID,
       cases: macroCases(cases),
     }),

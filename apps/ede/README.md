@@ -9,7 +9,7 @@ libraries, never the other way round.
 | `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
-| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`; `session` runs those from stdin, one per line, on one connection (#EDE-172 P7: with the gate on, the person is asked once per ctl process; a VM or CI machine names `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml`). |
+| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`; `session` runs those from stdin, one per line, on one connection (#EDE-172 P7: in a real session the person is asked once per ctl process; a VM or CI machine names `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml`). |
 | `exponential-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/exponential-desktop/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## The shell (`apps/desktop/crates/ede-shell`)
@@ -312,10 +312,10 @@ off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
   channel (`open_services {capabilities}`, no more than the grant holds,
   never for computer use or a space), the compositor hands the daemon its
   end with those capabilities, and its `call` holds exactly them (the
-  shell's root channel asks with all of them). Without the switch,
-  `exponential-services.service` serves
+  shell's root channel asks with all of them). With `helpers = "units"`
+  (as before eDE's flip; in a real session only from root's `control.toml`), `exponential-services.service` serves
   `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`: every capability
-  to any process of the person, until eDE's flip.
+  to any process of the person.
 - **MCP face**: eMCP's loopback server (`exponential-services tools` lists them:
   `<domain>_get` and `<domain>_<action>`), each action gated by the eCore
   capability its description names (`ui` for sound and media, `system`
@@ -685,20 +685,65 @@ first; each op needs the Core capability it names:
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
-`$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; `mint_grant`
-hands narrower, expiring grants to agents (never more than the minting grant
-holds, never outliving it). The root token is the shell's and
-`exponential-ctl`'s; every other client (the portal, ePilot, an agent)
-connects with `Client::connect_as(session, capabilities, expires)`, which
-mints its own grant and drops the root connection (#EDE-22: grants by
-default); a process handed a grant in `EDE_TOKEN` keeps that one. Any process of the same user can read the token
-file, so the boundary is between the shell and the agents it mints for (an
-agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
-lending come with their own issues; a space's captures are drawn on its GPU when it has one
-(below), the person's on the backend's renderer.
+`$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600): the
+released Exponential app and CLI read it. `mint_grant` hands narrower,
+expiring grants to agents (never more than the minting grant holds, never
+outliving it); a client connects with `Client::connect_as(session,
+capabilities, expires)`, which mints its own grant and drops the root
+connection (#EDE-22: grants by default), and a process handed a grant in
+`EDE_TOKEN` keeps that one. Agent spaces and window lending come with their
+own issues; a space's captures are drawn on its GPU when it has one (below),
+the person's on the backend's renderer.
+
+**Who may present the root token** (#EDE-172). Any process of the person
+can read the file, so in a real session the token is honoured by who
+presents it (the gate is always on there unless root's policy file below
+says `[control] consent = false`; the person's own `compositor.toml` may
+turn it on, never off; a test's or a nested compositor gates nothing unless
+asked: `--consent-answer allow|deny`). The compositor reads the connection's peer when it comes in
+(its pidfd, its executable's `(st_dev, st_ino)`, its user namespace) and,
+at a `hello` with the root token:
+
+| The peer is | It gets |
+|---|---|
+| The compositor's own: the helpers it started (`[session] helpers = "compositor"`, a real session's default since eDE's flip), the lock, the consent prompt. They hold a channel at fd 3 and present no token at all. With `helpers = "units"`, eDE's root-owned `exponential-shell`, `exponential-sealed` and portal by file too | Root, no prompt. A genuine `/usr/bin/exponential-shell` that anything else started is refused |
+| A binary `/etc/exponential-desktop/control.toml` names (root-owned, writable by root only, or it is ignored) | Its principal, no prompt |
+| The root-owned `exponential-ctl` | The sealed consent for every ctl process; Allow = root for that process |
+| An executable named `exp-desktop` or `exponential` (the app inside its AppImage, the CLI) | The sealed consent at its first `hello` per login and content hash, naming its path, pid and parent; Allow = the `computer-use` principal for that binary until logout |
+| Anything else | `unauthorized`, logged with its path, no prompt |
+
+The `computer-use` principal reads as root (all six capabilities) and is
+held to what the app does: input, capture, windows, grants no wider than
+`{capture, input:person, ui}` or `[space]`, the spaces and grants of its own
+lineage; never `lock`, `logout`, `unlock`, `set_output`, `reload_config`,
+`launch_token`, bindings, `subscribe` or shortcuts. A "Don't allow" refuses
+the asking process for good and the binary for 60 s; nothing is written to
+disk, so a new login asks again. The asking `hello` gets its reply when the
+person answers, one prompt is open at a time, and a capture while it is open
+shows it black. A `hello` with no token is anonymous: `list_outputs` and
+`space_readiness` only.
+
+```toml
+# /etc/exponential-desktop/control.toml (sudo; a VM or CI machine, or a yes that outlasts the login)
+[[allow]]
+path = "/usr/bin/exponential-ctl"      # as /proc/<pid>/exe names it
+principal = "root"                     # or "computer-use"
+# sha256 = "…"                         # optional: only that content
+
+# What weakens a real session comes from this file only, never from the
+# person's compositor.toml (any process of theirs can write that one):
+# [control]
+# consent = false                      # the gate off: the token is a bearer again
+# [session]
+# helpers = "units"                    # the units start the helpers (services.sock comes back)
+```
+
+A person's `compositor.toml` that says `consent = false` or `helpers =
+"units"` is not followed in a real session: the compositor logs it once at
+the start and keeps the gate on and the helpers its own.
 
 ```rust
-let mut ede = ede_protocol::Client::connect_env()?;   // the shell: $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
+let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN), gated as above
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 // Anyone else: a grant of its own, minted from the root token and no wider than it needs.
 let mut agent = ede_protocol::Client::connect_as(SessionId::new("my-agent")?, vec![Capability::Capture], None)?;
@@ -1350,10 +1395,13 @@ icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size 
 send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
 
 [session]            # read at the compositor's start (#EDE-172)
-helpers = "units"    # "compositor": the compositor starts the shell (under exponential-ui supervise), the polkit agent, the portal and the services daemon itself
+helpers = "compositor"   # a real session's own: the compositor starts the shell (under exponential-ui supervise), the polkit agent, the portal and the services daemon itself; "units" here is not followed (only root's control.toml, see ede-protocol)
+
+[control]            # read at the compositor's start (#EDE-172)
+consent = true       # a real session's own: the root token's gate (see ede-protocol); false here is not followed (only root's control.toml)
 ```
 
-`helpers = "compositor"` (#EDE-172 P4, off until eDE's flip): each helper runs
+`helpers = "compositor"` (#EDE-172 P4; a real session's default since eDE's flip, P14): each helper runs
 in a scope of its own (`systemd-run --user --scope --slice=session.slice`,
 `exponential-shell-p<compositor pid>-<n>.scope` and so on, logs under the
 same names: `journalctl --user -t exponential-shell`), with its channel at

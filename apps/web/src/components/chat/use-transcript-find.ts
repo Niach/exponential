@@ -16,7 +16,7 @@ import {
 import type { ChatHit } from "@exp/domain-contract/chat-store"
 import { globalChatStart } from "@exp/domain-contract/search-list"
 import { HIGHLIGHT_NAMES } from "@exponential_app/eui/web"
-import { chatStoreCall } from "@/lib/chat-store/client"
+import { chatStoreCall, onChatStoreChanged } from "@/lib/chat-store/client"
 import type { SteerSearchResult } from "@exp/domain-contract/steer-enet"
 import type { FindInChat, FindPaint } from "@/components/chat/find-in-chat"
 
@@ -145,6 +145,26 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
       live = false
     }
   }, [query, rootId, sessionId])
+  // #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): the store took rows
+  // of this chat while the bar holds a query: ask it again (what is shown,
+  // the current stop and the status stay until it answers).
+  useEffect(() => {
+    if (!query) return
+    let live = true
+    const off = onChatStoreChanged((roots) => {
+      if (!roots.has(rootId)) return
+      void chatStoreCall<{ hits: ChatHit[] }>(`searchChat`, rootId, query, FIND_IN_CHAT_HITS_MAX)
+        .catch(() => undefined)
+        .then((result) => {
+          if (!live || !result) return
+          setOlder((prev) => (prev.query === query ? { ...prev, store: result.hits ?? [], storePhase: `done` } : prev))
+        })
+    })
+    return () => {
+      live = false
+      off()
+    }
+  }, [query, rootId])
 
   // #EXP-1998 (`olderCases`): an older hit is an event BELOW the loaded
   // stretch, or a synced message the screen would draw but does not show.

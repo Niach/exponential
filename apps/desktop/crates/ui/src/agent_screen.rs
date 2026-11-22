@@ -1282,15 +1282,20 @@ impl AgentScreenView {
                     }
                     Row::AddFile => {
                         let view = view.clone();
-                        menu.item(crate::controls::pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
-                            if let Some(view) = view.upgrade() {
-                                view.update(cx, |_, cx| {
-                                    composer_images::pick_attachment_files(window, cx, |this: &mut Self, read, window, cx| {
-                                        this.stage_first_files(read, window, cx)
+                        // #EXP-2001: the launch "+"'s anatomy — every row's glyph in
+                        // the crate's slot, like the submenus around it.
+                        menu.item(
+                            crate::controls::pointer_menu_item(None, row.label(), |_| None, move |window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |_, cx| {
+                                        composer_images::pick_attachment_files(window, cx, |this: &mut Self, read, window, cx| {
+                                            this.stage_first_files(read, window, cx)
+                                        });
                                     });
-                                });
-                            }
-                        }))
+                                }
+                            })
+                            .icon(row.menu_icon()),
+                        )
                     }
                     Row::ImplementIssue => {
                         let Some(team_id) = team_id.clone() else {
