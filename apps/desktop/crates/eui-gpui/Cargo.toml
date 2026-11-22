@@ -102,6 +102,9 @@ gpui-component-assets.workspace = true
 # deterministic. Already in the lock (gpui_linux's text system).
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
 gpui_wgpu = { workspace = true }
+# #EXP-1967: tests/support/crash_report.rs (a fault's rip, stack and maps
+# before the process dies); already in the lock.
+libc.workspace = true
 
 # Mac platform on the process main thread (see the file's header).
 [[test]]
