@@ -3098,7 +3098,8 @@ describe(`pull request tools (EXP-1291)`, () => {
     dbRows.current = [callerRow({ rootAgentId: `agent-1`, teamId: `ws-1` }), callerRow({ rootAgentId: `agent-1`, teamId: `ws-1` })]
     const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
     expect(result).toMatchObject({ mergeNow: true })
-    expect(train.mergeNowPullRequest).toHaveBeenCalled()
+    // #FEED-283: an agent's force never lifts a person's Hold.
+    expect(train.mergeNowPullRequest).toHaveBeenCalledWith(expect.any(String), { keepPersonHolds: true })
   })
 
   it(`pr_update hold holds and resumes`, async () => {

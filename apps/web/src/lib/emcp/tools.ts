@@ -3321,7 +3321,7 @@ export function registerExponentialTools(
         // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
         // or a team agent = Merge now: next, alone, past any session wait.
         if (force && (await mayMergeNow(pr.teamId))) {
-          await train.mergeNowPullRequest(pr.id)
+          await train.mergeNowPullRequest(pr.id, { keepPersonHolds: true })
           await train.runRepository(pr.repositoryId)
           return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
         }
