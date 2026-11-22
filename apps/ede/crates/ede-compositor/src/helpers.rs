@@ -187,9 +187,15 @@ pub fn session_specs() -> Vec<Spec> {
             wayland: Some(Wayland::AtStart(Kind::Sealed)),
             env: vec![],
         },
-        // #EDE-172 P7 hands the portal its channel ({capture, input:person,
-        // ui}); until then it mints from the token file, as before.
-        Spec { name: "xdg-desktop-portal-exponential".into(), argv: vec![installed("xdg-desktop-portal-exponential", true)], channel: None, wayland: None, env: portal_env },
+        // #EDE-172 (P7): the portal's grant on its channel, what it used to
+        // mint from the token file.
+        Spec {
+            name: "xdg-desktop-portal-exponential".into(),
+            argv: vec![installed("xdg-desktop-portal-exponential", true)],
+            channel: Some(Channel::Child { session: "ede-portal".into(), capabilities: vec![Capability::Capture, Capability::InputPerson, Capability::Ui] }),
+            wayland: None,
+            env: portal_env,
+        },
     ]
 }
 
