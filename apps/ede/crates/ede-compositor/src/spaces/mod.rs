@@ -20,7 +20,7 @@ pub mod render;
 pub mod ipc;
 mod members;
 mod windows;
-pub use close::DIR_RETRIES;
+pub use close::{DIR_RETRIES, EXIT_BOUND};
 pub mod flatpak;
 pub mod readiness;
 pub mod scope;

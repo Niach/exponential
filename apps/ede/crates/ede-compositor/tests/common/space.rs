@@ -6,6 +6,23 @@ use ede_compositor::{backend::headless::Harness, Config};
 
 use super::Session;
 
+/// #EDE-176: a real test (a real user manager) runs without the eDE
+/// package's installed space guard: that one refuses the tests' spaces
+/// directory under `/tmp` (only `$XDG_RUNTIME_DIR/<socket>.spaces` is a
+/// person's), and every space's first program would end at once. With
+/// `EDE_TEST_SPACE_GUARD=1` the installed guard is asked as in a session.
+/// Call it before the compositor starts (one test per binary: the
+/// variable is the process's).
+pub fn without_installed_guard() {
+    if std::env::var_os("EDE_TEST_SPACE_GUARD").is_some() {
+        eprintln!("EDE_TEST_SPACE_GUARD: an installed space guard is asked (it refuses a spaces directory under /tmp)");
+        return;
+    }
+    if std::env::var_os("EDE_SPACE_GUARD_SOCKET").is_none() {
+        std::env::set_var("EDE_SPACE_GUARD_SOCKET", "");
+    }
+}
+
 /// A headless compositor that can make spaces: their directories live in a
 /// temp dir (dropped with the returned guard), never the runtime dir.
 pub fn start_with_spaces(outputs: &[(i32, i32)]) -> (Harness, tempfile::TempDir) {
