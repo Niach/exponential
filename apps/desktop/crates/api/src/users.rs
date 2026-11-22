@@ -13,6 +13,12 @@
 //!   team (valid on `/api/mcp` only; `scope.teams` names it). The launcher
 //!   mints one per (account, team) for an agent's conversation tree
 //!   ([`ensure_agent_team_key`]).
+//! - #EXP-2028: `users.mintPersonalApiKey({name?, purpose: 'agent',
+//!   sessionId})` → the same output plus `sessionId`: a hidden agent key
+//!   BOUND to that session (MCP only; every request on it speaks for the
+//!   session, header or not, so a plain chat's agent cannot leave its tree's
+//!   teams). The launcher mints one per launch of a plain chat's session
+//!   ([`session_key`]); the server replaces the session's earlier key.
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
 //!   createdAt, lastRequest, scope}]}` — FEED-76: `scope` = `null` for an
 //!   unscoped key, else `{teams: [{id, name}], boards: [{id, name, prefix}]}`
@@ -66,6 +72,10 @@ pub struct MintedPersonalKey {
     /// FEED-76: the minted key's scope by name, `None` = all teams.
     #[serde(default)]
     pub scope: Option<PersonalKeyScope>,
+    /// #EXP-2028: the session the key is bound to (`None` = unbound, or a
+    /// server older than the binding).
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// One row of `users.listPersonalApiKeys` — display metadata only, no secret.
@@ -192,6 +202,10 @@ struct MintInput<'a> {
     /// [`AGENT_KEY_PURPOSE`]); absent = the device's full agent key.
     #[serde(rename = "teamId", skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
+    /// #EXP-2028: the ONE session an agent key is bound to (with `purpose`
+    /// [`AGENT_KEY_PURPOSE`]).
+    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+    session_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -222,6 +236,7 @@ pub fn mint_personal_api_key(
             purpose,
             scope,
             team_id: None,
+            session_id: None,
         },
     )
 }
@@ -243,6 +258,7 @@ pub fn mint_agent_team_key(
             purpose: Some(AGENT_KEY_PURPOSE),
             scope: None,
             team_id: Some(team_id),
+            session_id: None,
         },
     )?;
     if !scoped_to_team(minted.scope.as_ref(), team_id) {
@@ -250,6 +266,53 @@ pub fn mint_agent_team_key(
         return Err(ApiError::Decode(AGENT_TEAM_KEY_UNSCOPED.to_string()));
     }
     Ok(minted)
+}
+
+/// #EXP-2028: `users.mintPersonalApiKey({name, purpose: 'agent',
+/// sessionId})` — mutation, the hidden agent key bound to `session_id`.
+/// `Ok(None)` = the server did not bind it (older than #EXP-2028): the
+/// unbound key it minted is revoked again at once.
+pub fn mint_session_key(
+    trpc: &TrpcClient,
+    name: Option<&str>,
+    session_id: &str,
+) -> Result<Option<MintedPersonalKey>, ApiError> {
+    let minted: MintedPersonalKey = trpc.mutation(
+        "users.mintPersonalApiKey",
+        &MintInput {
+            name,
+            purpose: Some(AGENT_KEY_PURPOSE),
+            scope: None,
+            team_id: None,
+            session_id: Some(session_id),
+        },
+    )?;
+    if !minted.session_id.as_deref().is_some_and(|bound| bound.eq_ignore_ascii_case(session_id)) {
+        let _ = revoke_personal_api_key(trpc, &minted.id);
+        return Ok(None);
+    }
+    Ok(Some(minted))
+}
+
+/// #EXP-2028: the MCP credential of one launch of a plain chat's session:
+/// a fresh key bound to it ([`mint_session_key`]; never stored, the server
+/// replaces it on the session's next launch and drops it once the session
+/// ended). A server older than the binding answers the device's key
+/// ([`ensure_personal_key`]), the credential such a server always had.
+pub fn session_key(
+    trpc: &TrpcClient,
+    store: &TokenStore,
+    account_id: &str,
+    session_id: &str,
+) -> Result<String, ApiError> {
+    let name = format!("{} (session)", device_key_name());
+    match mint_session_key(trpc, Some(&name), session_id)? {
+        Some(minted) => Ok(minted.key),
+        None => {
+            log::warn!("[personal-key] the server does not bind session keys; using the device key");
+            ensure_personal_key(trpc, store, account_id)
+        }
+    }
 }
 
 /// #EXP-1383: what a mint answering with a key NOT confined to the team
@@ -835,6 +898,49 @@ mod tests {
         assert_eq!(store.get("acct", SecretKind::AgentTeamKey("t-1".to_string())), None);
         // A blank team never mints.
         assert!(ensure_agent_team_key(&client("http://127.0.0.1:1"), &store, "acct", " ").is_err());
+    }
+
+    const SESSION_MINT_BODY: &str = r#"{"result":{"data":{
+        "key":"expu_sessionsecret","id":"key-s1","name":"Device: testbox (session)",
+        "start":"expu_se","prefix":"expu_","createdAt":"2026-11-22T10:00:00.000Z",
+        "scope":null,"sessionId":"5e55a0b0-0000-4000-8000-000000000001"}}}"#;
+
+    /// #EXP-2028: a plain chat's launch mints a key bound to its session:
+    /// the wire = `{name, purpose: "agent", sessionId}`, nothing stored.
+    #[test]
+    fn session_key_mints_a_key_bound_to_the_session() {
+        let dir = TempDir::new("session-mint");
+        let store = TokenStore::file_only(dir.0.clone());
+        let (base, captured) = one_shot_server(200, SESSION_MINT_BODY);
+        let session = "5e55a0b0-0000-4000-8000-000000000001";
+        let key = session_key(&client(&base), &store, "acct", session).unwrap();
+        assert_eq!(key, "expu_sessionsecret");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.mintPersonalApiKey HTTP/1.1"));
+        let body: serde_json::Value =
+            serde_json::from_str(&request[request.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert_eq!(body["purpose"], "agent");
+        assert_eq!(body["sessionId"], session);
+        assert!(body.get("scope").is_none() && body.get("teamId").is_none());
+        assert!(body["name"].as_str().unwrap().ends_with("(session)"));
+        // Never stored: the device key slot stays empty.
+        assert_eq!(store.get("acct", SecretKind::PersonalApiKey), None);
+    }
+
+    /// #EXP-2028: a server older than the binding mints an unbound key:
+    /// it is revoked again and the session runs on the device key, the
+    /// credential such a server always had.
+    #[test]
+    fn session_key_on_an_older_server_is_the_device_key() {
+        let dir = TempDir::new("session-old-server");
+        let store = TokenStore::file_only(dir.0.clone());
+        let (base, _captured) = one_shot_server(200, MINT_BODY);
+        assert!(mint_session_key(&client(&base), None, "s-1").unwrap().is_none());
+
+        store.set("acct", SecretKind::PersonalApiKey, "expu_device").unwrap();
+        store.set("acct", SecretKind::PersonalApiKeyPurpose, AGENT_KEY_PURPOSE).unwrap();
+        let (base, _captured) = one_shot_server(200, MINT_BODY);
+        assert_eq!(session_key(&client(&base), &store, "acct", "s-1").unwrap(), "expu_device");
     }
 
     #[test]

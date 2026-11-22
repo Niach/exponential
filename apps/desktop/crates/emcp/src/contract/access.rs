@@ -188,3 +188,52 @@ pub fn tree_scope(input: &TreeScopeInput) -> Vec<String> {
         picked_team_ids: picked,
     })
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActingSessionInput {
+    /// The session the request's key is bound to; `None` = an unbound
+    /// credential.
+    pub key_session_id: Option<String>,
+    /// The request's `X-Exp-Session-Id`; `None` = absent.
+    pub header_session_id: Option<String>,
+    /// Whether the session the request would speak for resolves as the
+    /// caller's own.
+    pub resolves: bool,
+}
+
+/// Why a request's session is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ActingRefusal {
+    /// The header names another session than the key's.
+    Mismatch,
+    /// The key's session no longer resolves as the caller's.
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ActingSessionVerdict {
+    SpeaksFor(Option<String>),
+    Refused(ActingRefusal),
+}
+
+/// #EXP-2028 (access.json `actingSession`): the session a request speaks
+/// for. A bound key speaks for its session with or without the header (one
+/// naming another session is refused, a bound session that no longer
+/// resolves too); an unbound credential speaks for the header's session
+/// when it resolves, else for none.
+pub fn acting_session(input: &ActingSessionInput) -> ActingSessionVerdict {
+    if let Some(key) = &input.key_session_id {
+        if input.header_session_id.as_ref().is_some_and(|header| header != key) {
+            return ActingSessionVerdict::Refused(ActingRefusal::Mismatch);
+        }
+        return if input.resolves {
+            ActingSessionVerdict::SpeaksFor(Some(key.clone()))
+        } else {
+            ActingSessionVerdict::Refused(ActingRefusal::Unknown)
+        };
+    }
+    ActingSessionVerdict::SpeaksFor(input.header_session_id.clone().filter(|_| input.resolves))
+}

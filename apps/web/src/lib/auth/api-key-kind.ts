@@ -20,6 +20,10 @@
 // device keys, agent keys, "Everything" picks) stays a full key.
 // #EXP-1383: a TEAM agent's key (`mintPersonalApiKey({purpose: 'agent',
 // teamId})`) stores the one-team scope and is MCP-only the same way.
+// #EXP-2028: a plain chat's session runs on a key BOUND to it
+// (`mintPersonalApiKey({purpose: 'agent', sessionId})`, metadata
+// `sessionId`): MCP-only too, and /api/mcp treats every request on it as
+// speaking for that session, header or not (access.json `actingSession`).
 //
 // How a request maps to its key: the Better Auth api-key plugin
 // (`enableSessionForAPIKeys`) builds a mock session whose `session.id` IS
@@ -51,9 +55,13 @@ export interface ApiKeyMetadata {
   kind: ApiKeyKind
   /** `null` = unscoped (full membership access everywhere). */
   scope: ApiKeyScope | null
+  /** #EXP-2028: the session the key is bound to (`null` = unbound). */
+  sessionId?: string | null
 }
 
 const UNSCOPED_PERSONAL: ApiKeyMetadata = { kind: `personal`, scope: null }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === `string`)
@@ -75,8 +83,17 @@ export function parseApiKeyMetadata(
     return UNSCOPED_PERSONAL
   }
   if (!parsed || typeof parsed !== `object`) return UNSCOPED_PERSONAL
-  const record = parsed as { kind?: unknown; scope?: unknown }
+  const record = parsed as { kind?: unknown; scope?: unknown; sessionId?: unknown }
   const kind: ApiKeyKind = record.kind === `agent` ? `agent` : `personal`
+  // #EXP-2028: a session-bound key (only the launcher's agent key is ever
+  // minted bound). A present but malformed binding fails CLOSED: the key
+  // grants nothing (an empty scope), never the unbound full key.
+  if (record.sessionId !== undefined && record.sessionId !== null) {
+    if (typeof record.sessionId !== `string` || !UUID_RE.test(record.sessionId)) {
+      return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
+    }
+    return { kind, scope: null, sessionId: record.sessionId.toLowerCase() }
+  }
   if (record.scope === undefined || record.scope === null) {
     return { kind, scope: null }
   }
@@ -192,3 +209,8 @@ export const AGENT_KEY_MANAGES_MCP_MESSAGE = `Agent keys cannot manage MCP serve
 /** #EXP-1383: `teamId` confines an AGENT key to one team (never with a
  *  consent `scope`, never on a person's key). */
 export const AGENT_KEY_TEAM_MESSAGE = `teamId mints a team agent's key: pass it with purpose 'agent' and no scope`
+/** #EXP-2028: `sessionId` binds an AGENT key to one session (never with a
+ *  scope or a team). */
+export const SESSION_KEY_INPUT_MESSAGE = `sessionId mints a session's agent key: pass it with purpose 'agent', no scope and no teamId`
+/** #EXP-2028: only the session's starter, or its device's host, mints its key. */
+export const SESSION_KEY_NOT_YOURS_MESSAGE = `That session is not yours: only its starter or its device's host can mint its key`
