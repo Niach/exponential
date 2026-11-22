@@ -116,9 +116,13 @@ jobs:
       # #EXP-1680: not on a Mac's PR compile. A PR can't restore another PR's
       # entry, so every new PR uploaded ~790 MB (5 min, and the repo's cache budget)
       # to save a resolve that takes ~30 s from the Mac's own SwiftPM cache.
-      - name: Cache SPM dependencies
+      #
+      # Restore only: each PR ref's save (~1.55 GB) evicted master's Gradle
+      # seed. seed-tuist-caches.yml writes the one master entry, on the hosted
+      # image with this key.
+      - name: Restore SPM dependencies
         if: ${{ !(inputs.compile_only && runner.environment == 'self-hosted') }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: apps/ios/Tuist/.build
           key: ${{ runner.os }}-tuist-spm-${{ github.workspace }}-${{ hashFiles('apps/ios/Tuist/Package.swift', 'apps/ios/Tuist/Package.resolved') }}
