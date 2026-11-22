@@ -453,3 +453,82 @@ fn playwrights_chrome_keeps_its_own_profile_and_draws_in_software() {
 
     agent.destroy_space(space.id.clone()).unwrap();
 }
+
+/// A stand-in program named `name` in `bin`: it writes its environment to
+/// `env`, one variable a line, and its arguments to `env.args`, and stays.
+fn env_stand_in(bin: &Path, name: &str, env: &Path) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(bin).unwrap();
+    let path = bin.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {0}.args\nenv > {0}.tmp && mv {0}.tmp {0}\nexec sleep 60\n", env.display())).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+/// #EDE-187: Firefox reads its restart variables `XRE_PROFILE_PATH` and
+/// `XRE_PROFILE_LOCAL_PATH` ahead of `--profile`: a caller's are refused,
+/// the compositor's never reach a launch, and a stand-in `firefox` that
+/// writes down its environment runs with the space's profile alone. A
+/// caller's `FLATPAK_USER_DIR` (the person's installation, #EDE-158) is
+/// refused too.
+#[test]
+fn firefoxs_restart_variables_never_reach_a_spaces_browser() {
+    std::env::set_var("XRE_PROFILE_PATH", "/nonexistent/persons/.mozilla/firefox/x.default-release");
+    std::env::set_var("XRE_PROFILE_LOCAL_PATH", "/nonexistent/persons/.cache/mozilla/firefox/x.default-release");
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let recorded = dir.path().join("firefox.env");
+    let firefox = env_stand_in(&dir.path().join("bin"), "firefox", &recorded);
+
+    for name in ["XRE_PROFILE_PATH", "XRE_PROFILE_LOCAL_PATH", "FLATPAK_USER_DIR"] {
+        let env: BTreeMap<String, String> = [(name.to_string(), "/home/a/.mozilla/firefox/x.default-release".to_string())].into();
+        let refused = agent.launch(vec![firefox.clone()], env, None);
+        assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Invalid && f.message.contains(name)), "{name}: {refused:?}");
+    }
+    assert!(!recorded.exists(), "a refused launch ran");
+
+    agent.launch(vec![firefox.clone(), "about:blank".into()], Default::default(), None).unwrap();
+    until("the browser never ran", || recorded.exists());
+    let env = std::fs::read_to_string(&recorded).unwrap();
+    assert!(!env.lines().any(|line| line.starts_with("XRE_PROFILE_")), "{env}");
+    let profile = dir.path().join("homes").join(format!("p{}", std::process::id())).join(space.id.as_str()).join("browsers/firefox");
+    let args: Vec<String> = std::fs::read_to_string(format!("{}.args", recorded.display())).unwrap().lines().map(str::to_string).collect();
+    assert_eq!(args, ["--profile".to_string(), profile.display().to_string(), "--new-instance".into(), "about:blank".into()]);
+
+    agent.destroy_space(space.id.clone()).unwrap();
+}
+
+/// #EDE-166: a Flatpak the table does not know whose `.desktop` file says
+/// it is a browser is refused in a space, naming the gap (here a stand-in
+/// exported launcher and its installation's `.desktop`); one that is not a
+/// browser starts as before. #EDE-158: a Flatpak of the person's own
+/// installation alone is refused with why.
+#[test]
+fn an_unknown_sandboxed_browser_and_the_persons_own_flatpaks_are_refused() {
+    let (h, dir) = start_with_spaces(&[(800, 600)]);
+    let (mut agent, space) = agent(&h, "run-1");
+    let installation = dir.path().join("flatpak");
+    let applications = installation.join("exports/share/applications");
+    std::fs::create_dir_all(&applications).unwrap();
+    std::fs::write(applications.join("org.example.Web.desktop"), "[Desktop Entry]\nName=Web\nExec=org.example.Web %u\nCategories=Network;WebBrowser;\n").unwrap();
+    std::fs::write(applications.join("org.example.Tool.desktop"), "[Desktop Entry]\nName=Tool\nCategories=Utility;\n").unwrap();
+    let bin = installation.join("exports/bin");
+    let web = stand_in(&bin, "org.example.Web", &dir.path().join("web.args"));
+    let tool = stand_in(&bin, "org.example.Tool", &dir.path().join("tool.args"));
+
+    let refused = agent.launch(vec![web, "https://example.org".into()], Default::default(), None);
+    assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::Forbidden && f.message.contains("org.example.Web") && f.message.contains("person's own profile")), "{refused:?}");
+    assert!(!dir.path().join("web.args").exists(), "the refused browser ran");
+    agent.launch(vec![tool, "x".into()], Default::default(), None).unwrap();
+    assert_eq!(args_of(&dir.path().join("tool.args")), ["x"]);
+
+    // The person's own installation: this compositor's `FLATPAK_USER_DIR`.
+    let persons = dir.path().join("persons-flatpak");
+    std::fs::create_dir_all(persons.join("app/org.example.Mine")).unwrap();
+    std::env::set_var("FLATPAK_USER_DIR", &persons);
+    let flatpak = stand_in(&dir.path().join("bin"), "flatpak", &dir.path().join("flatpak.args"));
+    let refused = agent.launch(vec![flatpak, "run".into(), "org.example.Mine".into()], Default::default(), None);
+    assert!(matches!(refused, Err(Error::Failed(ref f)) if f.code == ErrorCode::NotFound && f.message.contains("installed for the person alone")), "{refused:?}");
+
+    agent.destroy_space(space.id.clone()).unwrap();
+}

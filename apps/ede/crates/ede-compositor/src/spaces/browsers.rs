@@ -40,8 +40,16 @@
 //! so the space's is refused, and Chromium then exits where GTK (Firefox)
 //! falls back to the space's Xwayland by itself (#EDE-180).
 //!
-//! A browser this table does not know runs as any other program: as a
-//! snap or a Flatpak, with the person's profile (#EDE-166).
+//! GNOME Web (Epiphany) gets `--profile=<dir>`: with it, it runs as an
+//! instance of its own, never joining the person's.
+//!
+//! A browser this table does not know runs as any other program when it is
+//! the system's: its data goes to the space's `XDG_*` directories. A snap or
+//! a Flatpak the table does not know is refused when its `.desktop` file
+//! says it is a browser (`Categories=WebBrowser`, or it opens `http`/`https`
+//! links): it keeps its data under the person's `HOME`, so it would run in
+//! the person's signed-in profile or hand its window to the person's own
+//! instance (#EDE-166).
 
 use std::{
     ffi::OsString,
@@ -64,6 +72,9 @@ pub enum Kind {
     /// The SwiftShader switches alone (its data is under the space's
     /// `XDG_CONFIG_HOME` already).
     Electron,
+    /// GNOME Web: `--profile=<dir>`, which also makes it an instance of its
+    /// own (Epiphany's "standalone" mode is never the unique one).
+    Epiphany,
 }
 
 /// A browser the table knows: the names it runs by, its snap's, its
@@ -88,6 +99,12 @@ pub const KNOWN: &[Known] = &[
     Known { names: &["vivaldi", "vivaldi-stable", "vivaldi-bin"], snap: None, flatpaks: &["com.vivaldi.Vivaldi"], kind: Kind::Chromium },
     Known { names: &["firefox", "firefox-esr"], snap: Some("firefox"), flatpaks: &["org.mozilla.firefox"], kind: Kind::Firefox },
     Known { names: &["librewolf"], snap: None, flatpaks: &["io.gitlab.librewolf-community"], kind: Kind::Firefox },
+    // #EDE-166: Firefox's and Chromium's forks take their engine's flags.
+    Known { names: &["zen", "zen-browser"], snap: None, flatpaks: &["app.zen_browser.zen"], kind: Kind::Firefox },
+    Known { names: &["floorp"], snap: None, flatpaks: &["one.ablaze.floorp"], kind: Kind::Firefox },
+    Known { names: &["waterfox"], snap: None, flatpaks: &["net.waterfox.waterfox"], kind: Kind::Firefox },
+    Known { names: &["opera", "opera-beta", "opera-developer"], snap: Some("opera"), flatpaks: &["com.opera.Opera"], kind: Kind::Chromium },
+    Known { names: &["epiphany", "epiphany-browser"], snap: None, flatpaks: &["org.gnome.Epiphany"], kind: Kind::Epiphany },
     Known { names: &["code", "code-insiders", "codium", "electron"], snap: Some("code"), flatpaks: &["com.visualstudio.code", "com.vscodium.codium"], kind: Kind::Electron },
 ];
 
@@ -111,13 +128,13 @@ pub struct Browser {
 }
 
 /// What the system says about argv[0]: where `PATH` finds it, what that
-/// file is when every link is followed, whether it is a script that runs
-/// `/snap/bin/…` (Ubuntu's `/usr/bin/firefox`), and whether snap `name` is
-/// installed (`/snap/bin/<name>`).
+/// file is when every link is followed, the snap it runs when it is a
+/// script that runs `/snap/bin/<name>` (Ubuntu's `/usr/bin/firefox`), and
+/// whether snap `name` is installed (`/snap/bin/<name>`).
 pub struct Found<'a> {
     pub path: Option<&'a Path>,
     pub canonical: Option<&'a Path>,
-    pub runs_a_snap: bool,
+    pub runs_a_snap: Option<&'a str>,
     pub snap_installed: &'a dyn Fn(&str) -> bool,
 }
 
@@ -164,10 +181,83 @@ pub fn browser_of(argv: &[String], found: &Found) -> Option<Browser> {
     // Ubuntu's `/usr/bin/firefox` and `/usr/bin/chromium-browser`: scripts
     // that run the snap.
     let packaging = match known.snap {
-        Some(snap) if found.runs_a_snap && (found.snap_installed)(snap) => Packaging::Snap(snap),
+        Some(snap) if found.runs_a_snap.is_some() && (found.snap_installed)(snap) => Packaging::Snap(snap),
         _ => Packaging::System,
     };
     Some(Browser { kind: known.kind, name: known.names[0], packaging, at: 0 })
+}
+
+/// A launch's snap or Flatpak, whatever it is: its snap's name or its
+/// Flatpak's id, the same ways [`browser_of`] finds them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Sandboxed {
+    Snap(String),
+    Flatpak(String),
+}
+
+/// The snap or Flatpak `argv` starts, if it starts one.
+pub fn sandboxed_of(argv: &[String], found: &Found) -> Option<Sandboxed> {
+    let base = file_name(argv.first()?);
+    if (base == "snap" || base == "flatpak") && argv.get(1).map(String::as_str) == Some("run") {
+        let app = &argv[app_after(argv, 2)?];
+        return Some(if base == "snap" { Sandboxed::Snap(app.split('.').next()?.to_string()) } else { Sandboxed::Flatpak(app.clone()) });
+    }
+    let path = found.path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| argv[0].clone());
+    if path.contains("/flatpak/exports/bin/") {
+        return Some(Sandboxed::Flatpak(base.to_string()));
+    }
+    if path.starts_with("/snap/bin/") || found.canonical.is_some_and(|c| c.file_name().is_some_and(|f| f == "snap")) {
+        return Some(Sandboxed::Snap(base.split('.').next()?.to_string()));
+    }
+    let snap = found.runs_a_snap.filter(|snap| (found.snap_installed)(snap))?;
+    Some(Sandboxed::Snap(snap.to_string()))
+}
+
+/// Whether a `.desktop` file's `[Desktop Entry]` says its app is a web
+/// browser: `WebBrowser` in its `Categories`, or `x-scheme-handler/http`
+/// or `https` in its `MimeType`.
+pub fn desktop_is_browser(entry: &str) -> bool {
+    let mut in_entry = false;
+    for line in entry.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=').filter(|_| in_entry) else { continue };
+        let mut values = value.split(';').map(str::trim);
+        match key.trim() {
+            "Categories" if values.any(|c| c == "WebBrowser") => return true,
+            "MimeType" if values.any(|m| m == "x-scheme-handler/http" || m == "x-scheme-handler/https") => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The `.desktop` files of `app` in the `applications` directories `dirs`:
+/// a snap's are `<snap>_<app>.desktop`, a Flatpak's `<id>.desktop` and
+/// `<id>.<more>.desktop`.
+pub fn desktop_files(app: &Sandboxed, dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let ours = |name: &str| {
+        let Some(stem) = name.strip_suffix(".desktop") else { return false };
+        match app {
+            Sandboxed::Snap(snap) => stem.strip_prefix(snap.as_str()).is_some_and(|rest| rest.starts_with('_')),
+            Sandboxed::Flatpak(id) => stem == id || stem.strip_prefix(id.as_str()).is_some_and(|rest| rest.starts_with('.')),
+        }
+    };
+    dirs.iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()).filter(|entry| entry.file_name().to_str().is_some_and(ours)).map(|entry| entry.path()).collect()
+}
+
+/// Where this system's `.desktop` files are: the person's data directory,
+/// `XDG_DATA_DIRS`, and the Flatpak and snap exports also when
+/// `XDG_DATA_DIRS` does not name them.
+fn applications_dirs() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into());
+    let data_home = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|dir| dir.is_absolute()).unwrap_or_else(|| home.join(".local/share"));
+    let data_dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|dirs| !dirs.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    let mut dirs: Vec<PathBuf> = [data_home.clone(), data_home.join("flatpak/exports/share")].into_iter().chain(data_dirs.split(':').filter(|dir| dir.starts_with('/')).map(PathBuf::from)).chain(["/var/lib/flatpak/exports/share".into(), "/var/lib/snapd/desktop".into()]).map(|dir| dir.join("applications")).collect();
+    dirs.dedup();
+    dirs
 }
 
 /// Where `browser`'s profile in space `space` of compositor `compositor`
@@ -191,6 +281,8 @@ pub struct Persons<'a> {
     pub home: &'a Path,
     /// `~/.config`, and `$XDG_CONFIG_HOME` where that is elsewhere.
     pub configs: &'a [PathBuf],
+    /// `~/.local/share`, and `$XDG_DATA_HOME` where that is elsewhere.
+    pub datas: &'a [PathBuf],
     pub cwd: &'a Path,
 }
 
@@ -205,10 +297,15 @@ struct Place {
 
 /// Under `~/.config` (or `$XDG_CONFIG_HOME`): Chromium's, Chrome's
 /// (`google-chrome*`: also Chrome for Testing's `google-chrome-for-testing`),
-/// Brave's, Edge's, Vivaldi's, and Firefox's and LibreWolf's where they
-/// keep theirs there (XDG).
+/// Brave's, Edge's, Vivaldi's, Opera's, and Firefox's, LibreWolf's and
+/// Zen's where they keep theirs there (XDG).
 fn config_profile(name: &str) -> bool {
-    ["chromium", "BraveSoftware", "mozilla", "librewolf"].contains(&name) || ["google-chrome", "microsoft-edge", "vivaldi"].iter().any(|prefix| name.starts_with(prefix))
+    ["chromium", "BraveSoftware", "mozilla", "librewolf", "zen"].contains(&name) || ["google-chrome", "microsoft-edge", "vivaldi", "opera"].iter().any(|prefix| name.starts_with(prefix))
+}
+
+/// Under `~/.local/share` (or `$XDG_DATA_HOME`): GNOME Web's.
+fn data_profile(name: &str) -> bool {
+    name == "epiphany"
 }
 
 impl Place {
@@ -226,18 +323,20 @@ impl Place {
 impl Persons<'_> {
     fn places(&self) -> Vec<Place> {
         let mut places = vec![
-            Place { parent: self.home.to_path_buf(), named: |name| [".mozilla", ".librewolf"].contains(&name), except: None },
+            Place { parent: self.home.to_path_buf(), named: |name| [".mozilla", ".librewolf", ".zen", ".floorp", ".waterfox"].contains(&name), except: None },
             Place { parent: self.home.join("snap"), named: |name| KNOWN.iter().any(|known| known.snap == Some(name)), except: Some("common/exponential-space") },
             Place { parent: self.home.join(".var/app"), named: |name| KNOWN.iter().any(|known| known.flatpaks.contains(&name)), except: Some("exponential-space") },
         ];
         places.extend(self.configs.iter().map(|parent| Place { parent: parent.clone(), named: config_profile, except: None }));
+        places.extend(self.datas.iter().map(|parent| Place { parent: parent.clone(), named: data_profile, except: None }));
         places
     }
 
     /// Whether `dir`, as a caller gave it (`~` the home, a relative path
     /// from the launch's directory), is or is inside one of the person's
     /// browser profiles: those of [`config_profile`] in each of `configs`,
-    /// `~/.mozilla`, `~/.librewolf`, a known browser's snap
+    /// of [`data_profile`] in each of `datas`, `~/.mozilla`, `~/.librewolf`,
+    /// `~/.zen`, `~/.floorp`, `~/.waterfox`, a known browser's snap
     /// (`~/snap/<name>`) or Flatpak (`~/.var/app/<id>`) data but for its
     /// `exponential-space`. A loop of links counts too: it leads nowhere a
     /// browser could start in.
@@ -303,7 +402,9 @@ pub fn resolved(path: &Path) -> Option<PathBuf> {
 /// winning, and no switch after `--`; `--profile-directory=` is a name in
 /// it, never a path. Firefox reads `-profile <dir>` with
 /// one or two dashes in any case; `-P <name>`, `-ProfileManager` and
-/// `-CreateProfile` go to the person's `profiles.ini`.
+/// `-CreateProfile` go to the person's `profiles.ini`. GNOME Web reads
+/// `--profile <dir>` and `--profile=<dir>`; `--private-instance` (`-p`) and
+/// `--automation-mode` bring a temporary profile of their own.
 pub fn callers_profile(kind: Kind, args: &[String], persons: &dyn Fn(&str) -> bool) -> Result<bool, String> {
     let mut own = false;
     match kind {
@@ -337,6 +438,22 @@ pub fn callers_profile(kind: Kind, args: &[String], persons: &dyn Fn(&str) -> bo
                 }
             }
         }
+        Kind::Epiphany => {
+            for (at, arg) in args.iter().enumerate().take_while(|(_, arg)| *arg != "--") {
+                match arg.split_once('=').map_or((arg.as_str(), None), |(name, value)| (name, Some(value))) {
+                    ("--profile", Some(dir)) if dir.is_empty() => return Err(format!("{arg} names no directory")),
+                    ("--profile", Some(dir)) if persons(dir) => return Err(format!("{arg} is the person's own browser profile: a browser in a space never uses it")),
+                    ("--profile", Some(_)) => own = true,
+                    ("--profile", None) => match args.get(at + 1) {
+                        Some(dir) if !dir.starts_with('-') && persons(dir) => return Err(format!("{arg} {dir} is the person's own browser profile: a browser in a space never uses it")),
+                        Some(dir) if !dir.starts_with('-') => own = true,
+                        _ => return Err(format!("{arg} names no directory")),
+                    },
+                    ("--private-instance" | "-p" | "--automation-mode", None) => own = true,
+                    _ => {}
+                }
+            }
+        }
         Kind::Electron => {}
     }
     Ok(own)
@@ -351,6 +468,7 @@ pub fn with_profile(argv: &[String], browser: &Browser, dir: Option<&Path>, soft
     match (browser.kind, dir) {
         (Kind::Chromium, Some(dir)) => flags.push(format!("--user-data-dir={}", dir.display())),
         (Kind::Firefox, Some(dir)) => flags.extend(["--profile".to_string(), dir.display().to_string(), "--new-instance".to_string()]),
+        (Kind::Epiphany, Some(dir)) => flags.push(format!("--profile={}", dir.display())),
         _ => {}
     }
     if matches!(browser.kind, Kind::Chromium | Kind::Electron) {
@@ -368,23 +486,34 @@ pub fn with_profile(argv: &[String], browser: &Browser, dir: Option<&Path>, soft
     out
 }
 
-/// What [`Found`] needs, from this system: `PATH`, the links, the script.
-pub fn look_up(program: &str) -> (Option<PathBuf>, Option<PathBuf>, bool) {
+/// What [`Found`] needs, from this system: `PATH`, the links, the snap a
+/// script runs.
+pub fn look_up(program: &str) -> (Option<PathBuf>, Option<PathBuf>, Option<String>) {
     let path = if program.contains('/') {
         Some(PathBuf::from(program))
     } else {
         std::env::var_os("PATH").and_then(|paths| std::env::split_paths(&paths).map(|dir| dir.join(program)).find(|p| p.is_file()))
     };
     let canonical = path.as_deref().and_then(|p| std::fs::canonicalize(p).ok());
-    // A script that runs a snap: `#!` and `/snap/bin/` in its first 4 KiB.
+    // A script that runs a snap: `#!` and `/snap/bin/<name>` in its first 4 KiB.
     let runs_a_snap = canonical.as_deref().and_then(|p| {
         use std::io::Read;
         let mut head = [0u8; 4096];
         let n = std::fs::File::open(p).ok()?.read(&mut head).ok()?;
-        let head = &head[..n];
-        Some(head.starts_with(b"#!") && head.windows(10).any(|w| w == b"/snap/bin/"))
+        snap_of_script(&head[..n])
     });
-    (path, canonical, runs_a_snap.unwrap_or(false))
+    (path, canonical, runs_a_snap)
+}
+
+/// The snap a script (its first bytes `head`) runs: the name after its
+/// first `/snap/bin/`.
+pub fn snap_of_script(head: &[u8]) -> Option<String> {
+    if !head.starts_with(b"#!") {
+        return None;
+    }
+    let at = head.windows(10).position(|w| w == b"/snap/bin/")? + 10;
+    let name: String = head[at..].iter().take_while(|b| b.is_ascii_alphanumeric() || **b == b'-' || **b == b'_' || **b == b'.').map(|b| *b as char).collect();
+    Some(name.split('.').next().unwrap_or_default().to_string()).filter(|name| !name.is_empty())
 }
 
 /// The profiles under `parent` (an app's `exponential-space`) of
@@ -411,13 +540,37 @@ impl Ede {
         let Some(program) = argv.first() else { return Ok(argv) };
         let (path, canonical, runs_a_snap) = look_up(program);
         let installed = |snap: &str| Path::new("/snap/bin").join(snap).exists();
-        let found = Found { path: path.as_deref(), canonical: canonical.as_deref(), runs_a_snap, snap_installed: &installed };
-        let Some(browser) = browser_of(&argv, &found) else { return Ok(argv) };
+        let found = Found { path: path.as_deref(), canonical: canonical.as_deref(), runs_a_snap: runs_a_snap.as_deref(), snap_installed: &installed };
+        let sandboxed = sandboxed_of(&argv, &found);
+        // #EDE-158: what the person installed for themselves alone is not there.
+        if let Some(Sandboxed::Flatpak(id)) = &sandboxed {
+            if let Some(why) = super::flatpak::persons_alone(&argv, id, &super::flatpak::installations()) {
+                return Err(Failure::new(ErrorCode::NotFound, &why));
+            }
+        }
+        let Some(browser) = browser_of(&argv, &found) else {
+            // #EDE-166: a sandboxed browser the table does not know would run in
+            // the person's profile. Its `.desktop` file says whether it is one:
+            // in this system's places, and in an exported launcher's own
+            // installation, whether the system names that or not.
+            let mut dirs = applications_dirs();
+            dirs.extend(path.as_deref().and_then(|path| path.parent()).filter(|bin| bin.ends_with("exports/bin")).and_then(Path::parent).map(|exports| exports.join("share/applications")));
+            if let Some(app) = sandboxed.filter(|app| desktop_files(app, &dirs).iter().any(|file| std::fs::read_to_string(file).is_ok_and(|entry| desktop_is_browser(&entry)))) {
+                let (what, name) = match &app {
+                    Sandboxed::Snap(name) => ("snap", name),
+                    Sandboxed::Flatpak(id) => ("Flatpak", id),
+                };
+                return Err(Failure::new(ErrorCode::Forbidden, &format!("{name} is a browser as a {what} that agent spaces do not know yet: it would run with the person's own profile, so it does not start in a space; a browser of the system or a known one does (#EDE-166)")));
+            }
+            return Ok(argv);
+        };
         let space = self.spaces.get(desk).ok_or_else(|| Failure::new(ErrorCode::NotFound, "no such space"))?;
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into());
         let mut configs = vec![home.join(".config")];
         configs.extend(std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).filter(|dir| dir.is_absolute() && *dir != configs[0]));
-        let persons = Persons { home: &home, configs: &configs, cwd };
+        let mut datas = vec![home.join(".local/share")];
+        datas.extend(std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|dir| dir.is_absolute() && *dir != datas[0]));
+        let persons = Persons { home: &home, configs: &configs, datas: &datas, cwd };
         let own = callers_profile(browser.kind, &argv[browser.at + 1..], &|dir| persons.profile(dir)).map_err(|why| Failure::new(ErrorCode::Invalid, &why))?;
         let dir = if own { None } else { profile_dir(&browser, &home, &self.spaces.home_of(space), std::process::id(), space.id.as_str()) };
         let argv = with_profile(&argv, &browser, dir.as_deref(), space.software_rendering);
@@ -449,7 +602,7 @@ mod tests {
     }
 
     fn found<'a>(path: Option<&'a Path>, canonical: Option<&'a Path>, runs_a_snap: bool, snaps: &'a dyn Fn(&str) -> bool) -> Found<'a> {
-        Found { path, canonical, runs_a_snap, snap_installed: snaps }
+        Found { path, canonical, runs_a_snap: runs_a_snap.then_some("firefox"), snap_installed: snaps }
     }
 
     /// The table per packaging: the system's, a snap's (its command, `snap
@@ -475,7 +628,7 @@ mod tests {
         assert_eq!((exported.kind, &exported.packaging), (Kind::Chromium, &Packaging::Flatpak("com.google.Chrome")));
         let alternative = browser_of(&argv(&["x-www-browser"]), &found(Some(Path::new("/usr/bin/x-www-browser")), Some(Path::new("/usr/lib/chromium/chromium")), false, &none)).unwrap();
         assert_eq!(alternative.name, "chromium", "found by what the link resolves to");
-        for unknown in [argv(&["xterm"]), argv(&["snap", "run", "spotify"]), argv(&["flatpak", "run", "org.gnome.Epiphany"])] {
+        for unknown in [argv(&["xterm"]), argv(&["snap", "run", "spotify"]), argv(&["flatpak", "run", "org.gnome.Maps"])] {
             assert_eq!(browser_of(&unknown, &found(None, None, false, &none)), None, "{unknown:?}");
         }
         assert_eq!(browser_of(&argv(&["code", "."]), &found(None, None, false, &none)).unwrap().kind, Kind::Electron);
@@ -490,6 +643,16 @@ mod tests {
         ] {
             let browser = browser_of(&argv(&[path, "--headless"]), &found(Some(Path::new(path)), Some(Path::new(path)), false, &none)).unwrap_or_else(|| panic!("{path} is not known"));
             assert_eq!((browser.kind, browser.name, &browser.packaging, browser.at), (Kind::Chromium, name, &Packaging::System, 0), "{path}");
+        }
+        // #EDE-166: the forks and GNOME Web.
+        for (args, kind, packaging) in [
+            (&["flatpak", "run", "org.gnome.Epiphany"][..], Kind::Epiphany, Packaging::Flatpak("org.gnome.Epiphany")),
+            (&["flatpak", "run", "app.zen_browser.zen"], Kind::Firefox, Packaging::Flatpak("app.zen_browser.zen")),
+            (&["snap", "run", "opera"], Kind::Chromium, Packaging::Snap("opera")),
+            (&["epiphany"], Kind::Epiphany, Packaging::System),
+        ] {
+            let browser = browser_of(&argv(args), &found(None, None, false, &none)).unwrap_or_else(|| panic!("{args:?} is not known"));
+            assert_eq!((browser.kind, browser.packaging), (kind, packaging), "{args:?}");
         }
         let linked = browser_of(&argv(&["/home/a/bin/my-chrome"]), &found(Some(Path::new("/home/a/bin/my-chrome")), Some(Path::new("/opt/google/chrome/chrome")), false, &none)).unwrap();
         assert_eq!(linked.name, "chrome", "found by what the link resolves to");
@@ -601,7 +764,11 @@ mod tests {
             "home/snap/spotify/common",
             "home/.var/app/org.mozilla.firefox/.mozilla/firefox",
             "home/.var/app/org.mozilla.firefox/exponential-space/p9-space-1",
-            "home/.var/app/org.gnome.Epiphany/data",
+            "home/.var/app/org.gnome.Maps/data",
+            "home/.var/app/org.gnome.Epiphany/data/epiphany",
+            "home/.local/share/epiphany",
+            "home/.local/share/my-data",
+            "home/.zen/x.default",
             "elsewhere/librewolf",
             "xdg/chromium",
             "work/a",
@@ -615,7 +782,8 @@ mod tests {
         symlink(at("work/loop"), at("work/loop")).unwrap();
         symlink(&home, at("home-link")).unwrap();
         let configs = [home.join(".config"), at("xdg")];
-        let persons = Persons { home: &home, configs: &configs, cwd: &at("work") };
+        let datas = [home.join(".local/share")];
+        let persons = Persons { home: &home, configs: &configs, datas: &datas, cwd: &at("work") };
         let path = |rel: &str| at(rel).to_string_lossy().into_owned();
 
         for kept in [
@@ -629,7 +797,8 @@ mod tests {
             path("home/snap/chromium/common/exponential-space/p9-space-1"),
             path("home/snap/spotify/common"),
             path("home/.var/app/org.mozilla.firefox/exponential-space/p9-space-1"),
-            path("home/.var/app/org.gnome.Epiphany/data"),
+            path("home/.var/app/org.gnome.Maps/data"),
+            path("home/.local/share/my-data"),
         ] {
             assert!(!persons.profile(&kept), "{kept} is not the person's");
         }
@@ -646,6 +815,11 @@ mod tests {
             path("home/.mozilla/firefox/x.default"),
             path("home/.librewolf"),
             path("elsewhere/librewolf/x.default"),
+            // #EDE-166: GNOME Web's, Zen's, Opera's.
+            path("home/.local/share/epiphany"),
+            path("home/.var/app/org.gnome.Epiphany/data/epiphany"),
+            path("home/.zen/x.default"),
+            path("home/.config/opera"),
             path("xdg/chromium"),
             // A link to it, a relative one, through a link to the home.
             path("work/link"),
@@ -673,9 +847,70 @@ mod tests {
         ] {
             assert!(persons.profile(&refused), "{refused} is the person's");
         }
-        let tilde = Persons { home: &home, configs: &configs, cwd: Path::new("/") };
+        let tilde = Persons { home: &home, configs: &configs, datas: &datas, cwd: Path::new("/") };
         assert!(tilde.profile("~/.config/chromium") && tilde.profile("~/.mozilla") && !tilde.profile("~/work"));
         assert_eq!(resolved(&at("work/link/../BraveSoftware/x")), Some(std::fs::canonicalize(home.join(".config")).unwrap().join("BraveSoftware/x")), "`..` after a link is taken where the link leads");
+    }
+
+    /// #EDE-166: what a launch's snap or Flatpak is, known or not.
+    #[test]
+    fn a_launchs_snap_or_flatpak_is_found_known_or_not() {
+        let none = |_: &str| false;
+        let opera = |snap: &str| snap == "unknown-browser";
+        let of = |args: &[&str], path: Option<&str>, canonical: Option<&str>, script: Option<&'static str>, snaps: &dyn Fn(&str) -> bool| {
+            sandboxed_of(&argv(args), &Found { path: path.map(Path::new), canonical: canonical.map(Path::new), runs_a_snap: script, snap_installed: snaps })
+        };
+        assert_eq!(of(&["snap", "run", "some-browser.beta", "x"], None, None, None, &none), Some(Sandboxed::Snap("some-browser".into())));
+        assert_eq!(of(&["flatpak", "run", "--branch=stable", "org.example.Web", "x"], None, None, None, &none), Some(Sandboxed::Flatpak("org.example.Web".into())));
+        assert_eq!(of(&["org.example.Web"], Some("/home/a/.local/share/flatpak/exports/bin/org.example.Web"), None, None, &none), Some(Sandboxed::Flatpak("org.example.Web".into())));
+        assert_eq!(of(&["some-browser"], Some("/snap/bin/some-browser"), Some("/usr/bin/snap"), None, &none), Some(Sandboxed::Snap("some-browser".into())));
+        assert_eq!(of(&["web"], Some("/usr/bin/web"), Some("/usr/bin/web"), Some("unknown-browser"), &opera), Some(Sandboxed::Snap("unknown-browser".into())), "a script that runs an installed snap");
+        assert_eq!(of(&["web"], Some("/usr/bin/web"), Some("/usr/bin/web"), Some("unknown-browser"), &none), None, "its snap is not installed");
+        assert_eq!(of(&["xterm"], Some("/usr/bin/xterm"), Some("/usr/bin/xterm"), None, &none), None);
+        assert_eq!(snap_of_script(b"#!/bin/sh\nexec /snap/bin/firefox.beta \"$@\"\n").as_deref(), Some("firefox"));
+        assert_eq!(snap_of_script(b"#!/bin/sh\nexec /usr/lib/firefox \"$@\"\n"), None);
+        assert_eq!(snap_of_script(b"ELF /snap/bin/firefox"), None, "not a script");
+    }
+
+    /// #EDE-166: a `.desktop` file says its app is a browser by its
+    /// category or the links it opens; found by the snap's or Flatpak's
+    /// name.
+    #[test]
+    fn a_browser_is_known_by_its_desktop_file() {
+        assert!(desktop_is_browser("[Desktop Entry]\nName=Web\nCategories=Network;WebBrowser;\n"));
+        assert!(desktop_is_browser("[Desktop Entry]\nMimeType=text/html;x-scheme-handler/https;\n"));
+        assert!(!desktop_is_browser("[Desktop Entry]\nCategories=Network;Chat;\nMimeType=x-scheme-handler/irc;\n"));
+        assert!(!desktop_is_browser("[Desktop Entry]\nCategories=Game;\n[Desktop Action web]\nCategories=WebBrowser;\n"), "another group's key");
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["org.example.Web.desktop", "org.example.Web.Private.desktop", "org.example.WebTools.desktop", "some-browser_some-browser.desktop", "some-browserx_a.desktop"] {
+            std::fs::write(dir.path().join(name), "").unwrap();
+        }
+        let names = |app| {
+            let mut names: Vec<String> = desktop_files(&app, &[dir.path().to_path_buf(), dir.path().join("missing")]).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+            names.sort();
+            names
+        };
+        assert_eq!(names(Sandboxed::Flatpak("org.example.Web".into())), ["org.example.Web.Private.desktop", "org.example.Web.desktop"]);
+        assert_eq!(names(Sandboxed::Snap("some-browser".into())), ["some-browser_some-browser.desktop"]);
+    }
+
+    /// #EDE-166: GNOME Web's profile flag, a caller's own, the person's.
+    #[test]
+    fn gnome_webs_profile_is_the_spaces_unless_its_own() {
+        let dir = Path::new("/p");
+        let web = Browser { kind: Kind::Epiphany, name: "epiphany", packaging: Packaging::Flatpak("org.gnome.Epiphany"), at: 2 };
+        assert_eq!(with_profile(&argv(&["flatpak", "run", "org.gnome.Epiphany", "https://x"]), &web, Some(dir), true), argv(&["flatpak", "run", "org.gnome.Epiphany", "--profile=/p", "https://x"]), "no SwiftShader switches: WebKit");
+        let persons = |dir: &str| dir.starts_with("/home/a/.local/share/epiphany");
+        let profile = |args: &[&str]| callers_profile(Kind::Epiphany, &argv(args), &persons);
+        assert_eq!(profile(&["https://x"]), Ok(false));
+        assert_eq!(profile(&["--profile=/tmp/x"]), Ok(true));
+        assert_eq!(profile(&["--profile", "/tmp/x"]), Ok(true));
+        assert_eq!(profile(&["--private-instance"]), Ok(true), "a temporary profile of its own");
+        assert_eq!(profile(&["--automation-mode"]), Ok(true));
+        assert_eq!(profile(&["--", "--profile=/home/a/.local/share/epiphany"]), Ok(false));
+        for refused in [&["--profile=/home/a/.local/share/epiphany"][..], &["--profile", "/home/a/.local/share/epiphany"], &["--profile="], &["--profile"], &["--profile", "--private-instance"]] {
+            assert!(profile(refused).is_err(), "{refused:?}");
+        }
     }
 
     #[test]

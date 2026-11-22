@@ -960,7 +960,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   "new and empty"). Needs `dbus-daemon` (the packages depend on it).
   A Flatpak installed for the person alone (`flatpak install --user`) is
   not there in a space: its installation is under `XDG_DATA_HOME`, and a
-  space has its own; system-wide ones are (#EDE-158). `flatpak run` asks
+  space has its own; system-wide ones are (#EDE-158). Such a launch is
+  refused with why, and so is a caller's `FLATPAK_USER_DIR`: the person's
+  installation is never shared, since a space's programs run as the person
+  and `flatpak install`, `update`, `uninstall` or `remote-add` would write
+  into it. `flatpak run` asks
   the person's user manager for its scope whatever the environment says,
   so the compositor finds such a scope of a space's (its first process is
   a launch of the space's, or a child of one) within a second and moves
@@ -1021,8 +1025,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi, and
   their binaries started by name: `chrome` of Chrome, Chrome for Testing
   and Playwright, `chrome-headless-shell`, `headless_shell`, `msedge`,
-  `vivaldi-bin`) gets `--user-data-dir=`; Firefox and LibreWolf get
-  `--profile <dir> --new-instance`. For a browser of the system the
+  `vivaldi-bin`, and Opera) gets `--user-data-dir=`; Firefox, LibreWolf,
+  Zen, Floorp and Waterfox get `--profile <dir> --new-instance`; GNOME Web
+  (Epiphany) gets `--profile=<dir>`, an instance of its own. A caller's
+  `XRE_PROFILE_PATH` or `XRE_PROFILE_LOCAL_PATH` is refused: Firefox reads
+  them ahead of `--profile` (#EDE-187). For a browser of the system the
   directory is in the space's home. For a snap or a Flatpak (its command,
   `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
   runs the snap) it is in the app's own data, the one place it may write:
@@ -1032,8 +1039,10 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   start. A launch that names its own profile (Playwright always does, in a
   temporary directory) keeps it, and the space makes none, unless that
   profile is, or is inside, one of the person's:
-  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,mozilla,librewolf}`
-  (and the same under `$XDG_CONFIG_HOME`), `~/.mozilla`, `~/.librewolf`, or
+  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,opera*,mozilla,librewolf,zen}`
+  (and the same under `$XDG_CONFIG_HOME`), `~/.local/share/epiphany` (and
+  under `$XDG_DATA_HOME`), `~/.mozilla`, `~/.librewolf`, `~/.zen`,
+  `~/.floorp`, `~/.waterfox`, or
   a known browser's `~/snap/<name>` or `~/.var/app/<id>` outside its
   `exponential-space`, each followed through links and `..` from the
   launch's directory. Such a launch is refused (#EDE-186), and so are
@@ -1047,10 +1056,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   of the Chromium family also gets `--ozone-platform=x11`: it exits where
   the space's Wayland socket is refused, rather than falling back. Firefox
   gets nothing more: it switches to software WebRender by itself. A browser
-  that is not on the list runs like any other program. A browser of the
-  system then keeps its data in the space's own directories, but a snap or
-  Flatpak one uses the person's profile and may open on the person's desk
-  (#EDE-166).
+  of the system that is not on the list runs like any other program and
+  keeps its data in the space's own directories. A snap or Flatpak the list
+  does not know is refused when its `.desktop` file says it is a browser
+  (`Categories=WebBrowser`, or it opens `http`/`https` links): it would use
+  the person's profile and may open on the person's desk (#EDE-166).
 - **The person's Xwayland starts again** when it dies, on the same display
   and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
   session was given stay right. Its X11 windows are let go of, and its
