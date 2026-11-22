@@ -994,22 +994,40 @@ function useMirrorOrigins(rows: readonly SyncedMessageRow[]): SyncedMessageRow[]
  *  links, the linked issues, and the rows' own messages, read in three live
  *  queries for the whole set. `held` = the rows whose title could still
  *  flip (`unsettledTitleRoots`); `titles` omits them, `ready` = none held. */
+/** #PERF-13: above this many sessions `useSessionTitles` reads by team. */
+export const SESSION_TITLES_ID_QUERY_MAX = 64
+
 export function useSessionTitles(rows: readonly SessionRow[]): {
   titles: Map<string, string>
   held: Set<string>
   ready: boolean
 } {
   const ids = [...new Set(rows.map((row) => row.id))].sort()
-  const key = ids.join(`,`)
+  // #PERF-13: a large set (a cross-team list: every session of every team)
+  // reads by its few TEAMS, a key that holds while sessions come and go; an
+  // id-keyed query over thousands of ids was torn down and rebuilt on every
+  // new session. A small set (one chat's tree) keeps the narrow id query.
+  const byTeam = ids.length > SESSION_TITLES_ID_QUERY_MAX
+  const teamIds = byTeam ? [...new Set(rows.map((row) => row.teamId))].sort() : []
+  const key = byTeam ? `teams:${teamIds.join(`,`)}` : ids.join(`,`)
   // NEW-1: a session's title reads its OWN rows (root or child alike).
-  const { data: links, isReady: linksReady } = useLiveQuery(
+  const { data: scopedLinks, isReady: linksReady } = useLiveQuery(
     (query) =>
-      ids.length > 0
+      byTeam
         ? query
             .from({ links: sessionIssueCollection })
-            .where(({ links }) => inArray(links.sessionId, ids))
-        : undefined,
+            .where(({ links }) => inArray(links.teamId, teamIds))
+        : ids.length > 0
+          ? query
+              .from({ links: sessionIssueCollection })
+              .where(({ links }) => inArray(links.sessionId, ids))
+          : undefined,
     [key]
+  )
+  const idSet = useMemo(() => new Set(ids), [ids.join(`,`)]) // eslint-disable-line react-hooks/exhaustive-deps
+  const links = useMemo(
+    () => (byTeam ? ((scopedLinks ?? []) as SessionIssueRow[]).filter((link) => idSet.has(link.sessionId)) : scopedLinks),
+    [byTeam, scopedLinks, idSet]
   )
   const issueIds = [
     ...new Set(((links ?? []) as SessionIssueRow[]).map((link) => link.issueId)),
@@ -1031,7 +1049,13 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
   )
   // #EXP-1380: the rows' own DIGESTS (`useDigestMessages`; #EXP-1730
   // `sessions.digest` rides the row, so nothing lags behind it).
-  const { messages, isReady: messagesReady } = useDigestMessages({ sessionIds: ids })
+  const { messages: scopedMessages, isReady: messagesReady } = useDigestMessages(
+    byTeam ? { teamIds } : { sessionIds: ids }
+  )
+  const messages = useMemo(
+    () => (byTeam ? scopedMessages.filter((message) => idSet.has(message.sessionId)) : scopedMessages),
+    [byTeam, scopedMessages, idSet]
+  )
   const keyVersion = useKeyVersion()
   return useMemo(() => {
     const sessions = rows.map(toTreeSession)

@@ -36,7 +36,7 @@ import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
-import { useAppIconBadge } from "@/hooks/use-app-icon-badge"
+import { MemberNeedsYouProvider } from "@/hooks/use-app-icon-badge"
 import { useWebInstall } from "@/lib/enet/use-web-install"
 import { startChatStore, stopChatStore } from "@/lib/chat-store/client"
 import {
@@ -101,8 +101,6 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
     startChatStore(storeUserId)
     return () => stopChatStore()
   }, [storeUserId])
-  // #FEED-232: the OS app icon's count (every team's Needs you rows).
-  useAppIconBadge(user?.id)
   // #EXP-1815: a new notification while the app is open = THE toast,
   // unless this page already shows it (notification-delivery.json).
   useNotificationToasts(user?.id)
@@ -161,6 +159,9 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   const { boards: tabBoards } = useBoardsForTeams(tabTeamIds)
 
   return (
+    // #FEED-232 / #PERF-13: the OS app icon's count, and the ONE Needs you
+    // count the sidebar and the team page read.
+    <MemberNeedsYouProvider userId={user?.id}>
     <SidebarProvider ref={setSidebarWrapper}>
       <SidebarWidthSync wrapper={sidebarWrapper} occupant={occupant.kind} />
       {/* Team-scoped `#IDENTIFIER` + `@email` resolution for pill
@@ -263,5 +264,6 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
       </GettingStartedProgressProvider>
       </TeamStatusesProvider>
     </SidebarProvider>
+    </MemberNeedsYouProvider>
   )
 }
