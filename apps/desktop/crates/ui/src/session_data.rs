@@ -1493,15 +1493,24 @@ struct ListsKey {
 }
 
 #[derive(Default)]
-struct ListsMemo(Option<(ListsKey, Rc<Vec<ChatsListGroup>>)>);
+struct ListsMemo(HashMap<String, (ListsKey, Rc<Vec<ChatsListGroup>>)>);
 
-/// [`chat_lists`]' rows, kept per sessions write ([`crate::chat_rows`]).
+/// [`chat_lists`]' rows, kept per sessions write ([`crate::chat_rows`]),
+/// ONE per team: #EXP-2027's rail derives every team per refresh, and a
+/// single slot made each team's call a whole derive of the last one's.
 #[derive(Default)]
-struct IncrementalChatRows(Option<crate::chat_rows::ChatRows>);
+struct IncrementalChatRows(HashMap<String, crate::chat_rows::ChatRows>);
 
 impl gpui::Global for IncrementalChatRows {}
 
 impl gpui::Global for ListsMemo {}
+
+/// Trees [`chat_lists`] derived (whole derives count every tree): the
+/// rail-refresh guard's budget.
+#[cfg(test)]
+thread_local! {
+    static CHAT_TREES_DERIVED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The Chats page bands of `team_id` (`partition_chats`: Needs you ·
 /// Running · Recent, empty bands omitted). Memoised per store change: the
@@ -1520,16 +1529,18 @@ pub(crate) fn chat_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ChatsListGroup>>
             collections.session_reads.read(cx).revision(),
         ],
     };
-    if let Some((cached, lists)) = &cx.default_global::<ListsMemo>().0 {
+    if let Some((cached, lists)) = cx.default_global::<ListsMemo>().0.get(team_id) {
         if *cached == key {
             return lists.clone();
         }
     }
     // #PERF-3: only the trees a sessions write touched derive again.
-    let mut rows = cx.default_global::<IncrementalChatRows>().0.take().unwrap_or_default();
+    let mut rows = cx.default_global::<IncrementalChatRows>().0.remove(team_id).unwrap_or_default();
     let lists = Rc::new(rows.derive(team_id, now_ms(), cx));
-    cx.global_mut::<IncrementalChatRows>().0 = Some(rows);
-    cx.global_mut::<ListsMemo>().0 = Some((key, lists.clone()));
+    #[cfg(test)]
+    CHAT_TREES_DERIVED.with(|n| n.set(n.get() + rows.derived_trees));
+    cx.global_mut::<IncrementalChatRows>().0.insert(team_id.to_string(), rows);
+    cx.global_mut::<ListsMemo>().0.insert(team_id.to_string(), (key, lists.clone()));
     lists
 }
 
@@ -2022,16 +2033,17 @@ fn live_roots_with(groups: &[ChatsListGroup], sessions: &[&SessionRow], words: &
 /// #PERF-3: the team's chat words ([`crate::chats_view::ChatWords`]), once
 /// per change of its pull requests.
 fn team_chat_words(team_id: &str, cx: &App) -> Rc<crate::chats_view::ChatWords> {
-    type Memo = Option<(Rc<Vec<PullRequestRow>>, Rc<crate::chats_view::ChatWords>)>;
+    // Per team (#EXP-2027: the rail asks for every team per refresh).
+    type Memo = HashMap<String, (Rc<Vec<PullRequestRow>>, Rc<crate::chats_view::ChatWords>)>;
     thread_local! {
-        static MEMO: std::cell::RefCell<Memo> = const { std::cell::RefCell::new(None) };
+        static MEMO: std::cell::RefCell<Memo> = Default::default();
     }
     let pulls = team_pulls(team_id, cx);
-    if let Some(hit) = MEMO.with(|memo| memo.borrow().as_ref().filter(|(at, _)| Rc::ptr_eq(at, &pulls)).map(|(_, words)| words.clone())) {
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(team_id).filter(|(at, _)| Rc::ptr_eq(at, &pulls)).map(|(_, words)| words.clone())) {
         return hit;
     }
     let words = Rc::new(crate::chats_view::ChatWords::new(&pulls));
-    MEMO.with(|memo| *memo.borrow_mut() = Some((pulls, words.clone())));
+    MEMO.with(|memo| memo.borrow_mut().insert(team_id.to_string(), (pulls, words.clone())));
     words
 }
 
@@ -2056,9 +2068,10 @@ pub(crate) fn team_pulls(team_id: &str, cx: &App) -> Rc<Vec<PullRequestRow>> {
 
 /// The rail's Active band for `team_id` ([`live_roots_from`]).
 pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRow> {
-    type Memo = Option<((Rc<Vec<ChatsListGroup>>, Rc<crate::chats_view::ChatWords>, gpui::EntityId, u64), Vec<LiveRootRow>)>;
+    // Per team (#EXP-2027: the rail asks for every team per refresh).
+    type Memo = HashMap<String, ((Rc<Vec<ChatsListGroup>>, Rc<crate::chats_view::ChatWords>, gpui::EntityId, u64), Vec<LiveRootRow>)>;
     thread_local! {
-        static MEMO: std::cell::RefCell<Memo> = const { std::cell::RefCell::new(None) };
+        static MEMO: std::cell::RefCell<Memo> = Default::default();
     }
     let groups = chat_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
@@ -2071,7 +2084,7 @@ pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRo
     let stamp = (sessions.entity_id(), sessions.read(cx).revision());
     let hit = MEMO.with(|memo| {
         memo.borrow()
-            .as_ref()
+            .get(team_id)
             .filter(|((at_groups, at_words, store, revision), _)| Rc::ptr_eq(at_groups, &groups) && Rc::ptr_eq(at_words, &words) && (*store, *revision) == stamp)
             .map(|(_, rows)| rows.clone())
     });
@@ -2084,7 +2097,7 @@ pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRo
         .filter(|session| session.team_id.as_deref() == Some(team_id))
         .collect();
     let live = live_roots_with(&groups, &rows, &words);
-    MEMO.with(|memo| *memo.borrow_mut() = Some(((groups, words, stamp.0, stamp.1), live.clone())));
+    MEMO.with(|memo| memo.borrow_mut().insert(team_id.to_string(), ((groups, words, stamp.0, stamp.1), live.clone())));
     live
 }
 
@@ -2127,6 +2140,61 @@ mod tests {
     use super::*;
     use domain::session_tree::ChatsListKey;
     use serde_json::json;
+
+    /// #EXP-2027 hang (0.14.173): the rail derives EVERY team per refresh;
+    /// one sessions write must derive that write's tree, not every team's
+    /// whole list (one-slot memos made each team a whole derive: 8 teams ×
+    /// 300 trees × 2 calls per refresh, the main thread pinned on mint).
+    #[gpui::test]
+    fn a_rail_refresh_over_many_teams_derives_only_the_written_tree(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        const TEAMS: usize = 8;
+        const ROOTS: usize = 300;
+        let teams: Vec<String> = (0..TEAMS).map(|t| format!("t{t}")).collect();
+        let row = |id: &str, root: Option<&str>, team: &str, updated: &str| -> SessionRow {
+            serde_json::from_value(json!({"id": id, "team_id": team, "root_id": root.unwrap_or(id), "parent_id": root, "status": "idle", "shared": true, "created_at": "2026-11-01T09:00:00.000Z", "updated_at": updated})).unwrap()
+        };
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let sessions = Store::global(cx).collections().sessions.clone();
+            sessions.update(cx, |c, cx| {
+                for team in &teams {
+                    for n in 0..ROOTS {
+                        let root = format!("{team}-r{n}");
+                        let r = row(&root, None, team, "2026-11-10T10:00:00.000Z");
+                        c.seed(r.key(), r);
+                        let child = row(&format!("{team}-c{n}"), Some(&root), team, "2026-11-10T10:00:00.000Z");
+                        c.seed(child.key(), child);
+                    }
+                }
+                cx.notify();
+            });
+        });
+        // What a refresh asks for (rail_chats_count + live_roots_for_rail).
+        let refresh = |cx: &mut gpui::TestAppContext| -> usize {
+            cx.update(|cx| {
+                CHAT_TREES_DERIVED.with(|n| n.set(0));
+                for team in &teams {
+                    let _ = rail_chats_count(team, cx);
+                    let _ = live_roots_for_rail(team, cx);
+                }
+                CHAT_TREES_DERIVED.with(std::cell::Cell::get)
+            })
+        };
+        assert_eq!(refresh(cx), TEAMS * ROOTS, "the first refresh derives every tree once");
+        assert_eq!(refresh(cx), 0, "an unchanged store derives nothing");
+        cx.update(|cx| {
+            let sessions = Store::global(cx).collections().sessions.clone();
+            sessions.update(cx, |c, cx| {
+                let r = row("t3-c7", Some("t3-r7"), "t3", "2026-11-12T10:00:00.000Z");
+                c.seed(r.key(), r);
+                cx.notify();
+            });
+        });
+        // Budget: the written tree (was TEAMS × 2 whole derives = 4,800).
+        assert!(refresh(cx) <= 1, "one write derives its own tree only");
+    }
 
     /// #LOGS-11: a chat's view and messages after agent replies stream in
     /// (the incremental append) equal a fresh read of the same store; an
