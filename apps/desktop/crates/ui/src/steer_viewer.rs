@@ -5931,7 +5931,21 @@ impl SteerSessionView {
         if self.feed.is_empty() && self.synced_tail.is_empty() {
             // S-3: no paused body; #EXP-1703: the away state below.
             let host_away = self.host_away(cx);
-            let body: AnyElement = if self.phase.is_device_offline() {
+            // #EXP-2000 (steer-enet.json NEVER HELD): a row no device picked
+            // up yet (`startedAt` null) says nothing: no copy, spinner or
+            // skeleton, only its sent inputs and the own tail at the bottom.
+            let never_held = self.phase != ViewerPhase::Live
+                && self.row.as_ref().is_some_and(|row| {
+                    steer::enet_steer::no_feed_state_held(
+                        row.is_ended(),
+                        row.busy,
+                        host_away,
+                        row.started_at.as_deref().is_some_and(|at| !at.is_empty()),
+                    ) == steer::enet_steer::NoFeedState::Waiting
+                });
+            let body: AnyElement = if never_held {
+                div().into_any_element()
+            } else if self.phase.is_device_offline() {
                 // VAPP-171: an ended row no device fed — the machine that
                 // holds its transcript, named (×4).
                 centered(vec![div()
@@ -6097,9 +6111,11 @@ impl SteerSessionView {
             return v_flex()
                 .flex_1()
                 .min_h_0()
+                // #EXP-2000: nothing to say yet, the own bubbles at the bottom.
+                .when(never_held, |column| column.child(div().flex_1()))
                 .children(inputs)
                 // #EXP-1998: the copy keeps its room under a long column.
-                .child(div().flex_1().min_h(px(160.)).child(body))
+                .when(!never_held, |column| column.child(div().flex_1().min_h(px(160.)).child(body)))
                 .children(cards.map(|cards| div().w_full().flex_shrink_0().px_4().pb_2().child(cards)))
                 .into_any_element();
         }
