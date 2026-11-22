@@ -261,7 +261,10 @@ nothing; the GPU (dmabuf) path for udev is still to come. What to share
 is the sealed chooser `exponential-sealed share` (`[screencast] chooser` in
 `~/.config/exponential-desktop/portal.toml` replaces it): screens and windows to pick,
 the remote-control switch, Share or Cancel; remote control is never
-granted silently (the switch, or `[remote_desktop] allow`). Global
+granted silently (the switch, or `[remote_desktop] allow`). A restored
+share (an app's restore token) shows the chooser too, its last picks
+selected: one click shares again, and restore data alone never shares
+(#EDE-172). Global
 shortcuts follow the XDG spec (`CTRL+SHIFT+a`), never take a plain key or
 a compositor binding, never fire on the lock or a protected surface.
 Settings serves `org.freedesktop.appearance` (dark, the accent). Tests

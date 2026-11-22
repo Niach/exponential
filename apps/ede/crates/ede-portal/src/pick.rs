@@ -1,5 +1,6 @@
 //! What a ScreenCast (or RemoteDesktop) session shares: the chooser
-//! command's picks, a restored selection, or the focused output/window.
+//! command's picks, or (no chooser) the focused output/window. A restored
+//! selection only preselects the chooser's rows (#EDE-172, D6 a).
 
 use std::{
     io::Write,
@@ -63,6 +64,10 @@ pub struct Ask<'a> {
     pub types: u32,
     pub multiple: bool,
     pub remote_control: bool,
+    /// The last share's picks (its restore data): the chooser starts with
+    /// them selected. Never an answer: only the chooser's own output
+    /// shares, and without a chooser they are ignored.
+    pub selected: &'a [Pick],
 }
 
 /// The chooser's answer: what to share, and (a line `allow`) whether a
@@ -77,11 +82,17 @@ pub struct Chosen {
 /// alone).
 pub fn choose(chooser: &[String], ask: &Ask, outputs: &[OutputInfo], windows: &[WindowInfo]) -> Result<Option<Chosen>, String> {
     let types = ask.types;
+    // Asked for and still there (a window: not protected).
+    let offered = |p: &Pick| p.source_type() & types != 0 && p.geometry(outputs, windows).is_some();
     let windows: Vec<&WindowInfo> = windows.iter().filter(|w| !w.protected).collect();
     let mut allow = false;
     let picks = if chooser.is_empty() {
         auto(types, outputs, &windows)
     } else {
+        let mut selected: Vec<String> = ask.selected.iter().filter(|&p| offered(p)).map(Pick::encode).collect();
+        if !ask.multiple {
+            selected.truncate(1);
+        }
         let mut names = Vec::new();
         if types & MONITOR != 0 {
             names.push("monitor");
@@ -96,14 +107,11 @@ pub fn choose(chooser: &[String], ask: &Ask, outputs: &[OutputInfo], windows: &[
             "remote_control": ask.remote_control,
             "outputs": outputs,
             "windows": if types & WINDOW != 0 { windows.clone() } else { vec![] },
+            "selected": selected,
         });
         let out = run(chooser, &input.to_string())?;
         allow = ask.remote_control && out.lines().any(|l| l.trim() == "allow");
-        out.lines()
-            .filter_map(Pick::decode)
-            .filter(|p| p.source_type() & types != 0)
-            .filter(|p| p.geometry(outputs, &windows.iter().map(|w| (*w).clone()).collect::<Vec<_>>()).is_some())
-            .collect()
+        out.lines().filter_map(Pick::decode).filter(|p| offered(p)).collect()
     };
     let mut picks: Vec<Pick> = picks;
     if !ask.multiple {
@@ -163,7 +171,7 @@ mod tests {
     fn auto_shares_the_focused_output_or_window() {
         let outputs = [output("A", 0), output("B", 800)];
         let windows = [window("w1", 50, false, false), window("w2", 900, true, false)];
-        let ask = Ask { app_id: "", types: MONITOR, multiple: false, remote_control: false };
+        let ask = Ask { app_id: "", types: MONITOR, multiple: false, remote_control: false, selected: &[] };
         assert_eq!(choose(&[], &ask, &outputs, &windows).unwrap(), Some(Chosen { picks: vec![Pick::Output("B".into())], allow: false }));
         let ask = Ask { types: WINDOW, ..ask };
         assert_eq!(choose(&[], &ask, &outputs, &windows).unwrap().unwrap().picks, [Pick::Window(WindowId::new("w2").unwrap())]);
@@ -175,7 +183,7 @@ mod tests {
     fn the_chooser_picks_and_can_cancel() {
         let outputs = [output("A", 0), output("B", 800)];
         let windows = [window("w1", 50, true, false), window("w2", 60, false, true)];
-        let ask = Ask { app_id: "org.example", types: MONITOR | WINDOW, multiple: true, remote_control: false };
+        let ask = Ask { app_id: "org.example", types: MONITOR | WINDOW, multiple: true, remote_control: false, selected: &[] };
         let sh = |script: &str| vec!["sh".to_string(), "-c".to_string(), script.to_string()];
         let picks = choose(&sh("cat >/dev/null; printf 'output:B\\nwindow:w2\\nwindow:w1\\nbogus\\n'"), &ask, &outputs, &windows).unwrap();
         assert_eq!(picks.unwrap().picks, [Pick::Output("B".into()), Pick::Window(WindowId::new("w1").unwrap())]);
@@ -189,9 +197,50 @@ mod tests {
         let ids: Vec<_> = input["windows"].as_array().unwrap().iter().map(|w| w["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["w1"], "protected windows are never offered");
 
-        let control = Ask { app_id: "org.example", types: 0, multiple: false, remote_control: true };
+        let control = Ask { app_id: "org.example", types: 0, multiple: false, remote_control: true, selected: &[] };
         assert_eq!(choose(&sh("cat >/dev/null; echo allow"), &control, &outputs, &windows).unwrap(), Some(Chosen { picks: vec![], allow: true }));
         assert_eq!(choose(&sh("cat >/dev/null"), &control, &outputs, &windows).unwrap(), None);
         assert_eq!(choose(&[], &control, &outputs, &windows).unwrap(), None, "remote control is never granted by default");
+    }
+
+    /// The chooser's answer to `ask` (a shell `answer` after reading the
+    /// ask) and the rows it was told to start selected.
+    fn asked(ask: &Ask, answer: &str, outputs: &[OutputInfo], windows: &[WindowInfo]) -> (Vec<String>, Option<Chosen>) {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = dir.path().join("in.json");
+        let chooser = vec!["sh".to_string(), "-c".to_string(), format!("cat > {}; {answer}", seen.display())];
+        let chosen = choose(&chooser, ask, outputs, windows).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(seen).unwrap()).unwrap();
+        (input["selected"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect(), chosen)
+    }
+
+    /// #EDE-172 (D6 a): a restored share's picks preselect the chooser's
+    /// rows; only the chooser's answer shares.
+    #[test]
+    fn restored_picks_preselect_the_chooser_and_never_answer_it() {
+        let outputs = [output("A", 0), output("B", 800)];
+        let windows = [window("w1", 50, false, false), window("w2", 60, false, true), window("w3", 900, true, false)];
+        let w = |id: &str| Pick::Window(WindowId::new(id).unwrap());
+        let restored = [Pick::Output("gone".into()), w("w2"), Pick::Output("B".into()), w("w1"), w("w9")];
+        let ask = Ask { app_id: "org.example", types: MONITOR | WINDOW, multiple: true, remote_control: false, selected: &restored };
+
+        let (rows, chosen) = asked(&ask, "echo output:B; echo window:w1", &outputs, &windows);
+        assert_eq!(rows, ["output:B", "window:w1"], "a gone output, a protected window and a closed one are never preselected");
+        assert_eq!(chosen.unwrap().picks, [Pick::Output("B".into()), w("w1")]);
+        let (_, chosen) = asked(&ask, "echo output:A", &outputs, &windows);
+        assert_eq!(chosen.unwrap().picks, [Pick::Output("A".into())], "the person's pick, not the restored one");
+        assert_eq!(asked(&ask, "exit 1", &outputs, &windows), (vec!["output:B".to_string(), "window:w1".to_string()], None), "a cancel shares nothing");
+        assert_eq!(asked(&ask, "true", &outputs, &windows).1, None, "an empty answer shares nothing");
+
+        let one_window = Ask { types: WINDOW, multiple: false, ..ask };
+        assert_eq!(asked(&one_window, "exit 1", &outputs, &windows).0, ["window:w1"], "one pick: the first restored one asked for");
+        let control = Ask { types: MONITOR, multiple: false, remote_control: true, ..ask };
+        let (rows, chosen) = asked(&control, "echo output:B", &outputs, &windows);
+        assert_eq!((rows, chosen.map(|c| c.allow)), (vec!["output:B".to_string()], Some(false)), "a preselected restore never allows remote control");
+
+        let focused_on_a = [window("w1", 50, true, false)];
+        let restored_b = [Pick::Output("B".into())];
+        let no_chooser = Ask { types: MONITOR, multiple: false, selected: &restored_b, ..ask };
+        assert_eq!(choose(&[], &no_chooser, &outputs, &focused_on_a).unwrap().unwrap().picks, [Pick::Output("A".into())], "without a chooser restore data picks nothing: the focused output, as for any ask");
     }
 }
