@@ -46,21 +46,19 @@ vi.mock(`@/hooks/use-team-data`, () => ({
 vi.mock(`@/hooks/use-apps`, () => ({
   useApps: () => ({ apps: [{ id: `p-1`, slug: `crm`, name: `CRM`, icon: null, color: null, row: null }] }),
 }))
-vi.mock(`@/hooks/use-session-tree`, () => ({
-  useAgents: () => ({
+vi.mock(`@/hooks/use-sidebar-teams-data`, () => {
+  const slice = {
     agents: [
       { agentId: `a-x`, teamId: `t-acme`, name: `Assistant`, icon: ``, color: ``, busy: false, needsYou: false, assistant: true },
       { agentId: `a-1`, teamId: `t-acme`, name: `Triage`, icon: ``, color: ``, busy: false, needsYou: false, assistant: false },
     ],
-  }),
-  useTeamSessions: () => ({ rows: [{ id: `s-1`, teamId: `t-acme`, parentId: null }] }),
-  useTeamChatTitles: () => new Map([[`s-1`, `Store screenshots`]]),
-}))
-vi.mock(`@/components/team/sidebar-agents`, async () => {
-  const actual = await vi.importActual<typeof import("@/components/team/sidebar-agents")>(`@/components/team/sidebar-agents`)
-  return { ...actual, useAgentBadges: () => new Map() }
+    badges: new Map(),
+    sessions: [{ id: `s-1`, teamId: `t-acme`, parentId: null }],
+    titles: new Map([[`s-1`, `Store screenshots`]]),
+    chatRows: new Map(),
+  }
+  return { useSidebarTeamsData: () => new Map([[`t-acme`, slice]]), sidebarTeamSlice: (data: Map<string, unknown>, id: string) => data.get(id) }
 })
-
 const h = vi.hoisted(() => ({ entries: [] as SidebarEntry[], addFolder: vi.fn() }))
 vi.mock(`@/hooks/use-sidebar-folders`, () => ({
   useSidebarFolders: (_teamId: string, _section: string, ids: (entries: SidebarEntry[]) => string[]) => ({

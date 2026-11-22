@@ -2,12 +2,19 @@
 //!
 //! eDE keeps writing the root token file: the released Exponential app and
 //! CLI read it and say `hello` with it, and they must keep working with no
-//! change. With the gate on (`[control] consent`, eDE's flip turns it on),
+//! change. With the gate on (always in a real session since eDE's flip,
+//! unless this module's root-owned policy file says `[control] consent =
+//! false`; the person's `compositor.toml` may turn it on, never off),
 //! the token is honoured by who presents it, read from the connection's
 //! peer ([`crate::peer`]):
 //!
-//! - eDE's own root-owned binaries (the shell, sealed, the portal), the
-//!   compositor itself and the tests' stand-ins: root, no prompt.
+//! - The compositor itself, the children it started (its helpers, the
+//!   lock, the consent prompt) and the tests' stand-ins: root, no prompt.
+//!   eDE's own root-owned binaries (the shell, sealed, the portal) by file
+//!   too, but only while their units start them (`[session] helpers =
+//!   "units"`): with the compositor starting them (eDE's flip, P14) they
+//!   hold their channel, and a genuine binary that anything else started
+//!   gets nothing by its file ([`Own`]).
 //! - What the root-owned policy file names: its principal, no prompt.
 //! - The root-owned `exponential-ctl`: the sealed consent for every ctl
 //!   process (D3 a); on Allow, root for that process.
@@ -74,6 +81,34 @@ impl Principal {
     }
 }
 
+/// Row 1 of design v3's 3.3' (#EDE-172): who gets root with no prompt.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Own {
+    /// The compositor itself and a test's stand-ins.
+    pub pids: Vec<u32>,
+    /// The children the compositor started (its helpers, the lock client,
+    /// the consent prompt): theirs only while the compositor is the
+    /// process's parent (a pid used again is someone else's).
+    pub children: Vec<u32>,
+    /// eDE's installed binaries by file ([`Installed`]) too: only while the
+    /// session's units start them. With `[session] helpers = "compositor"`
+    /// (P14) they are the compositor's children and hold their channel.
+    pub by_file: bool,
+}
+
+impl Own {
+    /// `peer` is the compositor's own (no prompt, root).
+    pub fn holds(&self, peer: &Peer, installed: &Installed) -> bool {
+        let parent = peer.parent.as_ref().map(|(pid, _)| *pid);
+        self.pids.contains(&peer.pid) || (self.children.contains(&peer.pid) && parent == Some(std::process::id())) || (self.by_file && edes_own(peer, installed))
+    }
+}
+
+/// `peer` runs eDE's installed shell, sealed or portal ([`Installed::is`]).
+fn edes_own(peer: &Peer, installed: &Installed) -> bool {
+    [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL].iter().any(|name| installed.is(peer, name))
+}
+
 /// What the compositor does with a root `hello` from a peer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -134,6 +169,16 @@ pub enum Key {
 #[serde(default, deny_unknown_fields)]
 pub struct Policy {
     pub allow: Vec<Entry>,
+    /// P14: `[control] consent = false`, the root token's gate off in a
+    /// real session (a VM or CI machine that wants the old bearer token).
+    /// Only this root-owned file turns it off: the person's own
+    /// `compositor.toml` may turn it on, never off
+    /// ([`crate::Config::for_a_real_session`]).
+    pub control: crate::config::Control,
+    /// P14: `[session] helpers = "units"`, the session's units start the
+    /// helpers again (and `services.sock` comes back). As `[control]`: only
+    /// from here.
+    pub session: crate::config::Session,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -317,9 +362,9 @@ impl Gate {
     /// The verdict for a root `hello` from `peer`, given what is known now.
     /// `hash` = the executable's, when it was needed and is known; `None`
     /// with [`Gate::needs_hash`] true = hash it first.
-    pub fn verdict(&self, peer: Option<&Peer>, installed: &Installed, own: &[u32], policy: &Policy, hash: Option<&[u8; 32]>) -> Verdict {
+    pub fn verdict(&self, peer: Option<&Peer>, installed: &Installed, own: &Own, policy: &Policy, hash: Option<&[u8; 32]>) -> Verdict {
         let Some(peer) = peer else { return Verdict::Refuse("the root token is honoured only from a process the compositor knows".into()) };
-        if own.contains(&peer.pid) || [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL].iter().any(|name| installed.is(peer, name)) {
+        if own.holds(peer, installed) {
             return Verdict::Grant(Principal::Root);
         }
         if let Some(principal) = policy.principal_for(peer, hash) {
@@ -349,6 +394,10 @@ impl Gate {
             });
         }
         let named = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| ASKING_NAMES.contains(&n));
+        if edes_own(peer, installed) {
+            // P14: the compositor starts eDE's own programs itself.
+            return Verdict::Refuse(format!("the root token is not honoured from {}: the compositor did not start it", path.display()));
+        }
         if !named || !peer.same_userns {
             return Verdict::Refuse(format!("the root token is not honoured from {}", path.display()));
         }
@@ -371,7 +420,7 @@ impl Gate {
 
     /// Whether the verdict for `peer` needs its executable's hash first.
     pub fn needs_hash(&self, peer: &Peer, installed: &Installed, policy: &Policy) -> bool {
-        if [crate::peer::SHELL, crate::peer::SEALED, crate::peer::PORTAL, crate::peer::CTL].iter().any(|name| installed.is(peer, name)) {
+        if edes_own(peer, installed) || installed.is(peer, crate::peer::CTL) {
             return false;
         }
         let named = peer.exe_path().and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|n| ASKING_NAMES.contains(&n))).unwrap_or(false);

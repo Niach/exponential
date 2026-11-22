@@ -774,11 +774,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // TTL retires the record.
                         let live = live_holders.clone().with_registry(&ctx.data_dir, &session_id);
                         let trpc = Arc::clone(&ctx.trpc);
+                        let data_dir = ctx.data_dir.clone();
                         let spawned = std::thread::Builder::new()
                             .name("exp-run-finish".to_string())
                             .spawn(move || {
-                                let verdict =
-                                    coding::finish_session_worktree(&trpc, &session_id, &cleanup, &live);
+                                // #EXP-2038: a held launch gate is tried
+                                // again within minutes.
+                                let verdict = coding::finish_session_worktree_retrying(
+                                    &trpc,
+                                    &session_id,
+                                    &cleanup,
+                                    &live,
+                                    &data_dir,
+                                );
                                 log::info!(
                                     "run cleanup [{session_id}] on {}: {verdict:?}",
                                     cleanup.branch

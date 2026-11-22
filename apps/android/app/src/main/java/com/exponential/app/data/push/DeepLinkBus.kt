@@ -144,6 +144,20 @@ class DeepLinkBus @Inject constructor() {
         _pendingMyIssues.value = false
     }
 
+    // #EXP-1638 (app-shortcuts.json `new-chat` = THE composer): the New chat
+    // shortcut focuses the Agent tab's composer, a cold start too (the flag
+    // waits for the composer to mount; it reads and clears it).
+    private val _pendingComposerFocus = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val pendingComposerFocus: kotlinx.coroutines.flow.StateFlow<Boolean> = _pendingComposerFocus
+
+    fun requestComposerFocus() {
+        _pendingComposerFocus.value = true
+    }
+
+    fun consumeComposerFocus() {
+        _pendingComposerFocus.value = false
+    }
+
     fun openWebUrl(uri: android.net.Uri) {
         _target.value = Target.WebUrl(uri)
     }

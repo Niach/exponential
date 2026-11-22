@@ -643,7 +643,17 @@ pub fn moved_base_candidates(moved: &api::session_device::SessionMove) -> Vec<St
 /// (#FEED-169) the parent's parked `exp/leftover-<id8>` (a moved session's
 /// device parks unpushed work there when it ends), the repo default.
 /// Deduplicated; never empty.
-pub fn child_base_candidates(row: &SessionRow, parent_branch: &str, default_branch: &str) -> Vec<String> {
+///
+/// #EXP-2037: the parent's leftover only when the child continues a MOVE
+/// (`continues_move`, the brief's `moved`): a live parent's leftover is an
+/// old stop's snapshot (a release shepherd's, 18 days behind), never its
+/// current work; its children cut from the default instead.
+pub fn child_base_candidates(
+    row: &SessionRow,
+    parent_branch: &str,
+    default_branch: &str,
+    continues_move: bool,
+) -> Vec<String> {
     let parent_id8 = row
         .parent_id
         .as_deref()
@@ -651,8 +661,10 @@ pub fn child_base_candidates(row: &SessionRow, parent_branch: &str, default_bran
         .filter(|id| !id.is_empty())
         .map(crate::run_cleanup::session_id8);
     let parent_own = parent_id8.as_ref().map(|id8| format!("{SESSION_BRANCH_PREFIX}{id8}"));
-    let parent_leftover =
-        parent_id8.as_ref().map(|id8| format!("{}{id8}", crate::run_cleanup::LEFTOVER_BRANCH_PREFIX));
+    let parent_leftover = parent_id8
+        .as_ref()
+        .filter(|_| continues_move)
+        .map(|id8| format!("{}{id8}", crate::run_cleanup::LEFTOVER_BRANCH_PREFIX));
     let mut candidates: Vec<String> = Vec::new();
     for candidate in [Some(parent_branch.to_string()), parent_own, parent_leftover, Some(default_branch.to_string())]
         .into_iter()
@@ -2239,7 +2251,8 @@ fn prepare_session(
                         // FEED-170: the parent's row may name a branch that
                         // never reached origin (a throwaway local checkout):
                         // the first base that exists on origin wins.
-                        let candidates = child_base_candidates(row, parent, &minted.default_branch);
+                        let candidates =
+                            child_base_candidates(row, parent, &minted.default_branch, req.brief.moved.is_some());
                         let mut wanted = moved_bases.clone();
                         wanted.extend(candidates.iter().filter(|c| !moved_bases.contains(c)).cloned());
                         let picked = deps.worktrees.pick_base(
@@ -4946,14 +4959,27 @@ mod tests {
         let mut child = row(SESSION_ID, Some("repo-child"));
         child.parent_id = Some("2fb083bf-0000-4000-8000-000000000000".to_string());
         assert_eq!(
-            child_base_candidates(&child, "verify", "master"),
+            child_base_candidates(&child, "verify", "master", true),
             ["verify", "exp/session-2fb083bf", "exp/leftover-2fb083bf", "master"]
         );
         // #FEED-169: a moved root's continuation (a child of the ended root,
         // on its branch) tries the work its old device parked first.
         assert_eq!(
-            child_base_candidates(&child, "exp/session-2fb083bf", "master"),
+            child_base_candidates(&child, "exp/session-2fb083bf", "master", true),
             ["exp/session-2fb083bf", "exp/leftover-2fb083bf", "master"]
+        );
+    }
+
+    /// #EXP-2037 (Release shepherd #10's 57 children): a LIVE parent whose
+    /// branch never reached origin has an 18-day-old `exp/leftover-<id8>`
+    /// from an old stop: its children cut from the default, never from it.
+    #[test]
+    fn a_live_parents_stale_leftover_is_never_a_childs_base() {
+        let mut child = row(SESSION_ID, Some("repo-child"));
+        child.parent_id = Some("3500e6a3-0000-4000-8000-000000000000".to_string());
+        assert_eq!(
+            child_base_candidates(&child, "exp/ede-smoke-arch", "master", false),
+            ["exp/ede-smoke-arch", "exp/session-3500e6a3", "master"]
         );
     }
 

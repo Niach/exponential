@@ -71,7 +71,11 @@ fn create_private_temp(temp: &Path) -> std::io::Result<fs::File> {
 /// never survives a failure.
 pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        fs::create_dir_all(dir)?;
+        let made = fs::create_dir_all(dir);
+        if made.is_err() {
+            crate::disk_health::note("state", &made);
+        }
+        made?;
     }
     let temp = temp_path(path);
     let replace = || -> std::io::Result<()> {
@@ -96,13 +100,16 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
         }
         fs::rename(&temp, path)
     };
-    match replace() {
+    let result = match replace() {
         Ok(()) => Ok(()),
         Err(err) => {
             let _ = fs::remove_file(&temp);
             Err(err)
         }
-    }
+    };
+    // #EXP-1892: a full disk reaches the doctor (`Disk writes`).
+    crate::disk_health::note("state", &result);
+    result
 }
 
 #[cfg(test)]

@@ -88,3 +88,47 @@ func renderInWindow<V: View>(_ root: V, size: CGSize) {
     window.rootViewController = nil
 }
 #endif
+
+#if canImport(AppKit)
+import AppKit
+import SwiftUI
+#endif
+
+/// `root` hosted in an offscreen window that stays until `close()`: unlike a
+/// bare hosting view, its `.task` / `onAppear` run, so a test can wait
+/// (`eventually`) on what the view loads itself.
+@MainActor
+final class TestWindow {
+    #if canImport(UIKit)
+    private let window: UIWindow
+
+    init<V: View>(_ root: V, size: CGSize) {
+        window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window.windowScene = scene
+        }
+        window.rootViewController = UIHostingController(rootView: root)
+        window.isHidden = false
+        window.rootViewController?.view.layoutIfNeeded()
+    }
+
+    func close() {
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+    #else
+    private let window: NSWindow
+
+    init<V: View>(_ root: V, size: CGSize) {
+        window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: root)
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func close() {
+        window.contentView = nil
+        window.close()
+    }
+    #endif
+}

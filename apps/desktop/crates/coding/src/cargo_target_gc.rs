@@ -165,7 +165,8 @@ impl SweepReport {
     }
 }
 
-/// The last sweep that freed (or, dry, found) something.
+/// The last sweep that freed (or, dry, found) something, and when the
+/// sweep last ran at all.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SweepRecord {
@@ -174,6 +175,10 @@ pub struct SweepRecord {
     pub freed_bytes: u64,
     pub dry_run: bool,
     pub target: PathBuf,
+    /// #EXP-1892: unix seconds of the last sweep, freeing or not (a stalled
+    /// sweep shows as an old one); absent in records before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<i64>,
 }
 
 /// The record the doctor's `Build cache` row reads.
@@ -182,13 +187,21 @@ pub fn last_sweep(data_dir: &Path) -> Option<SweepRecord> {
     serde_json::from_str(&raw).ok()
 }
 
+/// Record one sweep: a sweep that freed something replaces the record; one
+/// that freed nothing only moves `checkedAt` (no record yet = none).
 fn record(data_dir: &Path, report: &SweepReport, at: SystemTime) {
     let at = at.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
-    let record = SweepRecord {
-        at,
-        freed_bytes: report.bytes_freed,
-        dry_run: report.dry_run,
-        target: report.target.clone(),
+    let record = if report.bytes_freed > 0 {
+        SweepRecord {
+            at,
+            freed_bytes: report.bytes_freed,
+            dry_run: report.dry_run,
+            target: report.target.clone(),
+            checked_at: Some(at),
+        }
+    } else {
+        let Some(last) = last_sweep(data_dir) else { return };
+        SweepRecord { checked_at: Some(at), ..last }
     };
     if let Ok(rendered) = serde_json::to_string(&record) {
         if let Err(err) = api::atomic_file::write_atomic(&data_dir.join(RECORD_FILE), &rendered) {
@@ -245,7 +258,7 @@ pub fn sweep_if_due(clone: &Path, data_dir: &Path) -> Option<SweepReport> {
 }
 
 /// One sweep of `target` now (no trigger check): probe the open files,
-/// sweep, log one line, record it when it found something.
+/// sweep, log one line, record it (what it freed, or only that it ran).
 pub fn sweep_now(target: &Path, data_dir: &Path, dry_run: bool) -> SweepReport {
     let options = Options::new(dry_run);
     let report = match fs::canonicalize(target).ok().and_then(|root| Some((open_files_under(&root)?, root))) {
@@ -258,9 +271,7 @@ pub fn sweep_now(target: &Path, data_dir: &Path, dry_run: bool) -> SweepReport {
         },
     };
     log::info!("{}", report.summary());
-    if report.bytes_freed > 0 {
-        record(data_dir, &report, options.now);
-    }
+    record(data_dir, &report, options.now);
     report
 }
 
@@ -971,6 +982,25 @@ mod tests {
         let bare = tmp.0.join("acme/api");
         fs::create_dir_all(&bare).unwrap();
         assert_eq!(sweep_if_due(&bare, &tmp.0), None);
+    }
+
+    /// #EXP-1892: every sweep moves `checkedAt`; only a freeing one moves
+    /// what it freed, and nothing is recorded before the first.
+    #[test]
+    fn every_sweep_moves_the_check_time_and_only_a_freeing_one_the_record() {
+        let tmp = temp_dir("checked");
+        let at = |secs: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+        let empty = SweepReport { target: "/t".into(), ..SweepReport::default() };
+        record(&tmp.0, &empty, at(100));
+        assert_eq!(last_sweep(&tmp.0), None, "no record before the first freeing sweep");
+        let freed = SweepReport { bytes_freed: 500, ..empty.clone() };
+        record(&tmp.0, &freed, at(200));
+        record(&tmp.0, &empty, at(300));
+        let last = last_sweep(&tmp.0).unwrap();
+        assert_eq!((last.at, last.freed_bytes, last.checked_at), (200, 500, Some(300)));
+        // A record from before #EXP-1892 reads without a check time.
+        fs::write(tmp.0.join(RECORD_FILE), r#"{"at":1,"freedBytes":2,"dryRun":false,"target":"/t"}"#).unwrap();
+        assert_eq!(last_sweep(&tmp.0).unwrap().checked_at, None);
     }
 
     #[test]

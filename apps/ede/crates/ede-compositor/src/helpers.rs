@@ -1,5 +1,6 @@
 //! #EDE-172 (P4): the compositor starts the session's own programs itself
-//! (`[session] helpers = "compositor"`; dark until eDE's flip, P14):
+//! (`[session] helpers = "compositor"`; a real session's default since
+//! eDE's flip, P14):
 //!
 //! - **The list** ([`session_specs`]): the shell under its supervisor
 //!   (`exponential-ui supervise -- exponential-shell`), the polkit agent

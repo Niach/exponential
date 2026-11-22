@@ -1,5 +1,5 @@
 import { AssistantMark } from "@/components/team/assistant-mark"
-import { useMemo, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY, teamMeta } from "@exp/domain-contract/chats"
 import {
@@ -33,7 +33,7 @@ import { GETTING_STARTED_TITLE } from "@/components/getting-started/getting-star
 import gettingStartedSpec from "@exp/domain-contract/fixtures/getting-started.json"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useSignOut } from "@/hooks/use-sign-out"
-import { useNeedsYouCounts } from "@/hooks/use-needs-you"
+import { useMemberNeedsYouCounts } from "@/hooks/use-app-icon-badge"
 import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
 import { useTeamBoards, useTeamMemberships } from "@/hooks/use-team-data"
 import { isAdminUser } from "@/lib/auth/app-user"
@@ -188,8 +188,7 @@ function TeamTabPage() {
   const boards = useTeamBoards(team?.id)
   const { agents } = useAgents(team?.id, user?.id)
   const { myTeams } = useTeamMemberships(user?.id)
-  const myTeamIds = useMemo(() => myTeams.map((row) => row.id), [myTeams])
-  const teamNeedsYou = useNeedsYouCounts(myTeamIds, user?.id)
+  const teamNeedsYou = useMemberNeedsYouCounts()
   const handleSignOut = useSignOut()
   const feedbackAvailable = useFeedbackWidgetAvailable()
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
