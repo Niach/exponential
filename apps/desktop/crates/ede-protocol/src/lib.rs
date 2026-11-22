@@ -617,8 +617,8 @@ impl Request {
 
     /// #EDE-172: may an anonymous connection (a hello without a token on
     /// the socket: it holds no grant) ask this? An allowlist with no
-    /// wildcard arm: the outputs' sizes, whether a space is ready, and
-    /// (from P5 on) asking for a grant. Everything else is refused.
+    /// wildcard arm: the outputs' sizes and whether a space is ready.
+    /// Everything else is refused.
     pub fn anonymous(&self) -> bool {
         match self {
             Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
@@ -1105,7 +1105,7 @@ impl Client {
     /// #EDE-172: a connection to the compositor of `$WAYLAND_DISPLAY` that
     /// holds no grant: its hello names no token. It asks only what
     /// [`Request::anonymous`] lets it (the outputs, whether a space is
-    /// ready; later a grant). An older compositor refuses the hello
+    /// ready). An older compositor refuses the hello
     /// ([`Error::Unsupported`]).
     pub fn anonymous() -> Result<Self, Error> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;

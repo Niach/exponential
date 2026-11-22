@@ -1,4 +1,4 @@
-//! `exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [--control-fd N] [--test-token-file PATH] [-- command args…]`
+//! `exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [--control-fd N] [--test-token-file PATH] [--consent-answer allow|deny] [-- command args…]`
 //! `--debug-captures`: ede-protocol captures show protected surfaces and the
 //! lock (pictures of them in a VM); refused with --udev, a real screen is
 //! never captured unredacted.
@@ -6,7 +6,10 @@
 //! parent made, is a connection holding the root grant (no token: a test's
 //! way in). `--test-token-file PATH`: the root token is written to PATH
 //! too (0600), for the scripts that drive a test compositor; headless and
-//! nested only, refused with --udev.
+//! nested only, refused with --udev. `--consent-answer allow|deny`: the
+//! root token's gate is on (#EDE-172) and this answers every question for
+//! the person, without a prompt; headless and nested only, refused with
+//! --udev.
 //! `exponential-compositor doctor`: what this machine is missing for eDE.
 //! `exponential-compositor recovery --reason … [--next …]`: the message a failed
 //! session leaves on the displays, without a GPU ([`ede_compositor::fallback`]).
@@ -126,6 +129,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut safe_mode = false;
     let mut debug_captures = false;
     let mut test_token_file: Option<std::path::PathBuf> = None;
+    let mut consent_answer: Option<bool> = None;
     let mut udev = std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none();
     let mut config_path = Config::default_path();
     let mut command: Vec<String> = Vec::new();
@@ -145,9 +149,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--control-fd" => ede_compositor::ipc::hand_control_fd(control_fd(&args.next().ok_or("--control-fd needs a descriptor")?)?),
             "--test-token-file" => test_token_file = Some(args.next().ok_or("--test-token-file needs a path")?.into()),
+            "--consent-answer" => {
+                consent_answer = Some(match args.next().as_deref() {
+                    Some("allow") => true,
+                    Some("deny") => false,
+                    _ => return Err("--consent-answer needs allow or deny".into()),
+                })
+            }
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--control-fd N] [--test-token-file PATH] [-- command args…]\n       exponential-compositor doctor [--json]\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
+                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--control-fd N] [--test-token-file PATH] [--consent-answer allow|deny] [-- command args…]\n       exponential-compositor doctor [--json]\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),
@@ -181,6 +192,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Err("--test-token-file is for a test compositor (headless or nested), never a real screen (udev)".into());
         }
         ede_compositor::ipc::write_test_token_to(path);
+    }
+    // #EDE-172 (P5'): a test compositor's stand-in for the person.
+    if let Some(answer) = consent_answer {
+        if udev && headless.is_none() {
+            return Err("--consent-answer is for a test compositor (headless or nested), never a real screen (udev)".into());
+        }
+        ede_compositor::ipc::answer_consent_with(answer);
     }
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]

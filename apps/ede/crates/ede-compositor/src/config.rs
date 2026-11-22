@@ -35,6 +35,17 @@ pub struct Config {
     /// `[theme]`: the bridge's (#EDE-19, exponential-theme reads it), kept
     /// here only so the Theme page's writes do not make this file invalid.
     pub theme: toml::Table,
+    /// `[control]`: who may present the root token (#EDE-172, design v3).
+    pub control: Control,
+}
+
+/// `[control]` (#EDE-172): `consent = true` turns the root token's gate on
+/// ([`crate::consent`]): only eDE's own binaries, the policy file's and
+/// what the person allowed may use it. Off until eDE's flip (P14).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Control {
+    pub consent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -203,6 +214,7 @@ impl Default for Config {
             outputs: Vec::new(),
             diagnostics: Diagnostics::default(),
             theme: toml::Table::new(),
+            control: Control::default(),
         }
     }
 }

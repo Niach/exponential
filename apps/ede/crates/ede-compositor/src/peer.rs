@@ -30,6 +30,9 @@ use smithay::reexports::rustix;
 /// eDE's binaries whose processes the compositor tells apart.
 pub const SEALED: &str = "exponential-sealed";
 pub const SHELL: &str = "exponential-shell";
+/// #EDE-172 (P5'): the portal backend and `exponential-ctl`.
+pub const PORTAL: &str = "xdg-desktop-portal-exponential";
+pub const CTL: &str = "exponential-ctl";
 
 /// The file a process executed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,14 +171,15 @@ pub struct Installed {
 }
 
 impl Installed {
-    /// eDE's [`SEALED`] and [`SHELL`] where a package puts them: next to
-    /// this compositor and in `/usr/bin` ([`root_owned`] decides at each
-    /// check).
+    /// eDE's [`SEALED`], [`SHELL`], [`PORTAL`] and [`CTL`] where a package
+    /// puts them: next to this compositor, in `/usr/bin` and in
+    /// `/usr/libexec` ([`root_owned`] decides at each check).
     pub fn system() -> Installed {
         let mut dirs: Vec<PathBuf> = std::env::current_exe().ok().and_then(|p| Some(p.parent()?.to_path_buf())).into_iter().collect();
         dirs.push(PathBuf::from("/usr/bin"));
+        dirs.push(PathBuf::from("/usr/libexec"));
         let mut paths = Vec::new();
-        for name in [SEALED, SHELL] {
+        for name in [SEALED, SHELL, PORTAL, CTL] {
             for dir in &dirs {
                 paths.push((name.to_string(), dir.join(name)));
             }

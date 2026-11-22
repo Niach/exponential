@@ -14,6 +14,7 @@
 pub mod backend;
 pub mod clipboard;
 pub mod config;
+pub mod consent;
 pub mod desk;
 pub mod doctor;
 pub mod fallback;
