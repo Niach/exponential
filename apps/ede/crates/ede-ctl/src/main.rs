@@ -71,6 +71,9 @@ impl std::error::Error for NothingDrawn {}
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// How long the hello waits: the person may be reading the consent prompt.
+const HELLO_WITHIN: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// The next argument, or [`Usage`].
 fn next(args: &mut impl Iterator<Item = String>) -> Result<String> {
     args.next().ok_or_else(|| Usage.into())
@@ -135,7 +138,9 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let mut ede = match Client::connect_env() {
+    // #EDE-172: with the gate on, the compositor answers this hello once
+    // the person answered its question: give them the time to read it.
+    let mut ede = match Client::connect_env_waiting(HELLO_WITHIN) {
         Ok(ede) => ede,
         Err(e) => {
             eprintln!("exponential-ctl: {e}");
