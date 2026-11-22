@@ -40,6 +40,10 @@ const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
 const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
 
 fn main() {
+    // EXP-2060: first, before any thread: an inherited SIG_IGN of the
+    // termination signals becomes a no-op handler, so every git this host
+    // runs starts at the defaults through posix_spawn, never a fork of it.
+    terminal::process::catch_ignored_signals();
     // #EXP-1616: started AS `git-remote-exp` (the link installed below):
     // git's remote helper for exp:// and nothing else (stdout is git's pipe).
     if git_remote_exp::invoked_as_helper() {

@@ -1262,6 +1262,8 @@ fn spawn_tickers(
                     &ctx.run.worktree,
                     ctx.run.base_ref.as_deref(),
                     &ctx.redactor,
+                    // EXP-2060: an idle run every 30 s, a turn's end at once.
+                    steer::DiffPace { busy: ctx.agent_busy(), turns: ctx.turns_started.load(Ordering::SeqCst) },
                 ) {
                     let mut out = crate::mapper::MapOut::default();
                     out.local.push(crate::local::LocalFeedEvent::Activity {
