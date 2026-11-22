@@ -94,7 +94,7 @@ use crate::composer_images::{self, PendingImages};
 // #EDE-129: find in chat over this transcript (the bar, stops, landing).
 #[path = "chat_find.rs"]
 mod chat_find;
-pub(crate) use chat_find::{find_key_bindings, request_find, request_find_at, find_shortcut_hint, FindInChat};
+pub(crate) use chat_find::{find_key_bindings, request_find, request_find_at, find_shortcut_hint, screen_has_find, FindInChat};
 use crate::controls::{text_button, TextButtonVariant, WebText as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};

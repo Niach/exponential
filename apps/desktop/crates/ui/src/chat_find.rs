@@ -24,14 +24,22 @@ use crate::icons::registry;
 
 gpui::actions!(chat_find, [FindInChat]);
 
-/// Ctrl/Cmd+F inside a session view = find in chat; outside it stays THE
-/// global search (`search_sheet`), Ctrl/Cmd+K stays global everywhere.
+/// Ctrl/Cmd+F = find in chat while a chat screen is open (focus anywhere,
+/// or none); with no chat open it stays THE global search (`search_sheet`
+/// handles it unhandled), Ctrl/Cmd+K stays global everywhere.
 pub(crate) fn find_key_bindings() -> Vec<gpui::KeyBinding> {
     #[cfg(target_os = "macos")]
     let chord = "cmd-f";
     #[cfg(not(target_os = "macos"))]
     let chord = "ctrl-f";
-    vec![gpui::KeyBinding::new(chord, FindInChat, Some(KEY_CONTEXT))]
+    vec![gpui::KeyBinding::new(chord, FindInChat, None)]
+}
+
+/// The screens whose body is a session view (find in chat's `keyCases`
+/// `inChat`).
+pub(crate) fn screen_has_find(screen: &crate::navigation::Screen) -> bool {
+    use crate::navigation::Screen;
+    matches!(screen, Screen::Chat { .. } | Screen::Session { .. } | Screen::Agent { .. })
 }
 
 /// The session view's key context (its root carries it).
