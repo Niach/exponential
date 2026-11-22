@@ -72,22 +72,65 @@ struct Shared {
     stats: Mutex<Stats>,
     /// Micros since `epoch` of the last tick; 0 = none yet.
     last_tick: AtomicU64,
-    /// The last tick came from a focused app (a background app's timers are
-    /// throttled by the OS: their gaps are no hangs).
+    /// The app is focused (a background app's timers are throttled by the
+    /// OS: their gaps are no hangs). #EXP-2005: set by the window activation
+    /// events ([`set_foreground`]) the moment focus moves, and by each tick's
+    /// own sample; never only by the last heartbeat.
     foreground: AtomicBool,
+    /// Bumped on every focus change: a stall that saw one is the OS's
+    /// throttling, no hang.
+    focus_changes: AtomicU64,
     epoch: Instant,
+}
+
+impl Shared {
+    fn new() -> Self {
+        Self {
+            stack: Mutex::new(Vec::new()),
+            ring: Mutex::new(VecDeque::with_capacity(RING)),
+            stats: Mutex::new(Stats::new(Instant::now())),
+            last_tick: AtomicU64::new(0),
+            foreground: AtomicBool::new(false),
+            focus_changes: AtomicU64::new(0),
+            epoch: Instant::now(),
+        }
+    }
+
+    fn now_micros(&self) -> u64 {
+        (self.epoch.elapsed().as_micros() as u64).max(1)
+    }
+
+    fn tick(&self, foreground: bool) {
+        let now = self.now_micros();
+        let previous = self.last_tick.swap(now, Ordering::AcqRel);
+        let was_foreground = self.foreground.swap(foreground, Ordering::AcqRel);
+        if was_foreground != foreground {
+            self.focus_changes.fetch_add(1, Ordering::AcqRel);
+        }
+        // Only a gap focused at both ends is lag: one that covers a focus
+        // change is the OS throttling the background app's timers.
+        if previous != 0 && was_foreground && foreground {
+            let gap = Duration::from_micros(now.saturating_sub(previous));
+            lock(&self.stats).record_tick_gap(gap.saturating_sub(TICK));
+        }
+    }
+
+    fn set_foreground(&self, focused: bool) {
+        if self.foreground.swap(focused, Ordering::AcqRel) == focused {
+            return;
+        }
+        self.focus_changes.fetch_add(1, Ordering::AcqRel);
+        // Focus is back: the unfocused stretch is no baseline, the next
+        // stall is measured from now.
+        if focused && self.last_tick.load(Ordering::Acquire) != 0 {
+            self.last_tick.store(self.now_micros(), Ordering::Release);
+        }
+    }
 }
 
 fn shared() -> &'static Shared {
     static SHARED: OnceLock<Shared> = OnceLock::new();
-    SHARED.get_or_init(|| Shared {
-        stack: Mutex::new(Vec::new()),
-        ring: Mutex::new(VecDeque::with_capacity(RING)),
-        stats: Mutex::new(Stats::new(Instant::now())),
-        last_tick: AtomicU64::new(0),
-        foreground: AtomicBool::new(false),
-        epoch: Instant::now(),
-    })
+    SHARED.get_or_init(Shared::new)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -126,14 +169,17 @@ pub fn tick(foreground: bool) {
     if !active() {
         return;
     }
-    let shared = shared();
-    let now = shared.epoch.elapsed().as_micros() as u64;
-    let previous = shared.last_tick.swap(now.max(1), Ordering::AcqRel);
-    let was_foreground = shared.foreground.swap(foreground, Ordering::AcqRel);
-    if previous != 0 && was_foreground {
-        let gap = Duration::from_micros(now.saturating_sub(previous));
-        lock(&shared.stats).record_tick_gap(gap.saturating_sub(TICK));
+    shared().tick(foreground);
+}
+
+/// #EXP-2005: the app's focus moved (a window was activated or
+/// deactivated); `focused` = some window of the app is active now. The
+/// watchdog stops counting at once, before the throttled heartbeat lands.
+pub fn set_foreground(focused: bool) {
+    if !active() {
+        return;
     }
+    shared().set_foreground(focused);
 }
 
 /// One drawn frame (`Window::draw`).
@@ -164,13 +210,30 @@ pub fn record_frame(start: Instant, end: Instant, invalidations: u64) {
 }
 
 fn spans_between(start: Instant, end: Instant) -> Vec<SpanRecord> {
-    lock(&shared().ring)
+    shared().spans_between(start, end)
+}
+
+impl Shared {
+    fn spans_between(&self, start: Instant, end: Instant) -> Vec<SpanRecord> {
+        lock(&self.ring)
         .iter()
         .rev()
         .take_while(|span| span.end >= start)
         .filter(|span| span.start >= start && span.end <= end)
         .cloned()
         .collect()
+    }
+
+    fn current_stack(&self) -> String {
+        lock(&self.stack)
+            .iter()
+            .map(|live| match &live.label {
+                Some(label) => format!("{}({label})", live.name),
+                None => live.name.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(" > ")
+    }
 }
 
 fn maybe_print() {
@@ -262,14 +325,7 @@ where
 
 /// The live main-thread span stack, outermost first (`render(Shell) > …`).
 pub fn current_stack() -> String {
-    lock(&shared().stack)
-        .iter()
-        .map(|live| match &live.label {
-            Some(label) => format!("{}({label})", live.name),
-            None => live.name.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(" > ")
+    shared().current_stack()
 }
 
 // ---------------------------------------------------------------------------
@@ -290,36 +346,60 @@ pub struct Hang {
     pub probe: Option<crate::probe::HangProbe>,
 }
 
+/// A hang the watchdog is sampling.
+struct OpenHang {
+    start: Instant,
+    stacks: HashMap<String, u32>,
+    probed_from: Instant,
+    probe: crate::probe::HangProbeBuilder,
+    /// `Shared::focus_changes` when it opened.
+    focus_changes: u64,
+}
+
 fn watchdog() {
     let shared = shared();
-    let mut hang: Option<(Instant, HashMap<String, u32>, Instant, crate::probe::HangProbeBuilder)> = None;
+    let mut hang = None;
     loop {
         std::thread::sleep(Duration::from_millis(20));
-        let last = shared.last_tick.load(Ordering::Acquire);
-        if last == 0 || !shared.foreground.load(Ordering::Acquire) {
-            hang = None;
-            continue;
+        if let Some(hang) = shared.watch(&mut hang) {
+            report_hang(hang);
         }
-        let last_at = shared.epoch + Duration::from_micros(last);
+    }
+}
+
+impl Shared {
+    /// One watchdog look: opens, samples or closes `hang`; a closed one
+    /// comes back to be reported.
+    fn watch(&self, hang: &mut Option<OpenHang>) -> Option<Hang> {
+        let last = self.last_tick.load(Ordering::Acquire);
+        let focus_changes = self.focus_changes.load(Ordering::Acquire);
+        // #EXP-2005: unfocused now, or focus moved while it stalled: the
+        // OS throttled the app's timers, no hang.
+        if last == 0 || !self.foreground.load(Ordering::Acquire) || hang.as_ref().is_some_and(|open| open.focus_changes != focus_changes) {
+            *hang = None;
+            return None;
+        }
+        let last_at = self.epoch + Duration::from_micros(last);
         let since = last_at.elapsed();
         if since > TICK + HANG {
-            let (_, stacks, _, probe) = hang.get_or_insert_with(|| (last_at, HashMap::new(), Instant::now(), Default::default()));
-            let stack = current_stack();
-            *stacks.entry(if stack.is_empty() { "(no span)".into() } else { stack }).or_default() += 1;
-            probe.sample();
-        } else if let Some((start, stacks, probed_from, probe)) = hang.take() {
-            let end = shared.epoch + Duration::from_micros(shared.last_tick.load(Ordering::Acquire));
-            let mut stacks: Vec<(String, u32)> = stacks.into_iter().collect();
-            stacks.sort_by(|a, b| b.1.cmp(&a.1));
-            let mut spans = spans_between(start, end);
-            spans.sort_by(|a, b| b.self_time.cmp(&a.self_time));
-            spans.truncate(20);
-            // The probe's counters span its own samples (the hang minus the
-            // detection delay).
-            let probe = probe.finish(end.saturating_duration_since(probed_from));
-            let probe = (!probe.states.is_empty()).then_some(probe);
-            report_hang(Hang { start, end, stacks, spans, probe });
+            let open = hang.get_or_insert_with(|| OpenHang { start: last_at, stacks: HashMap::new(), probed_from: Instant::now(), probe: Default::default(), focus_changes });
+            let stack = self.current_stack();
+            *open.stacks.entry(if stack.is_empty() { "(no span)".into() } else { stack }).or_default() += 1;
+            open.probe.sample();
+            return None;
         }
+        let OpenHang { start, stacks, probed_from, probe, .. } = hang.take()?;
+        let end = last_at;
+        let mut stacks: Vec<(String, u32)> = stacks.into_iter().collect();
+        stacks.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut spans = self.spans_between(start, end);
+        spans.sort_by(|a, b| b.self_time.cmp(&a.self_time));
+        spans.truncate(20);
+        // The probe's counters span its own samples (the hang minus the
+        // detection delay).
+        let probe = probe.finish(end.saturating_duration_since(probed_from));
+        let probe = (!probe.states.is_empty()).then_some(probe);
+        Some(Hang { start, end, stacks, spans, probe })
     }
 }
 
@@ -616,6 +696,58 @@ mod tests {
         assert!(report.contains("2× self total    42.0 ms"), "{report}");
         assert!(report.contains("hangs >100ms: 1"), "{report}");
         assert!(report.contains("hang    250 ms · sync.apply(issues)"), "{report}");
+    }
+
+    /// #EXP-2005: focused tick → focus lost → a long gap (throttled timers)
+    /// → focused tick: no hang, no tick-gap stat.
+    #[test]
+    fn an_unfocused_stretch_is_no_hang() {
+        let shared = Shared::new();
+        let mut hang = None;
+        shared.tick(true);
+        assert!(shared.watch(&mut hang).is_none());
+        shared.set_foreground(false);
+        std::thread::sleep(TICK + HANG + Duration::from_millis(60));
+        assert!(shared.watch(&mut hang).is_none());
+        assert!(hang.is_none(), "an unfocused app opens no hang");
+        shared.set_foreground(true);
+        assert!(shared.watch(&mut hang).is_none(), "focus back starts a new baseline");
+        shared.tick(true);
+        assert!(shared.watch(&mut hang).is_none());
+        assert!(hang.is_none());
+        assert!(lock(&shared.stats).tick_gaps.is_empty(), "{:?}", lock(&shared.stats).tick_gaps);
+    }
+
+    /// The same stretch seen only by the heartbeat (no activation event):
+    /// a stall opened while "focused" is dropped once the tick tells focus
+    /// moved, and the gap is no stat.
+    #[test]
+    fn a_stall_across_a_focus_change_is_no_hang() {
+        let shared = Shared::new();
+        let mut hang = None;
+        shared.tick(true);
+        std::thread::sleep(TICK + HANG + Duration::from_millis(60));
+        assert!(shared.watch(&mut hang).is_none());
+        assert!(hang.is_some(), "a focused stall opens a hang");
+        shared.tick(false);
+        assert!(shared.watch(&mut hang).is_none());
+        shared.tick(true);
+        assert!(shared.watch(&mut hang).is_none());
+        assert!(lock(&shared.stats).tick_gaps.is_empty());
+    }
+
+    /// A focused stall still is one.
+    #[test]
+    fn a_focused_stall_is_a_hang() {
+        let shared = Shared::new();
+        let mut hang = None;
+        shared.tick(true);
+        std::thread::sleep(TICK + HANG + Duration::from_millis(60));
+        assert!(shared.watch(&mut hang).is_none());
+        shared.tick(true);
+        let reported = shared.watch(&mut hang).expect("the hang closes on the next tick");
+        assert!(reported.end.saturating_duration_since(reported.start) >= TICK + HANG);
+        assert_eq!(lock(&shared.stats).tick_gaps.len(), 1);
     }
 
     #[test]
