@@ -136,6 +136,11 @@ pub struct Supervisor {
     rx: mpsc::Receiver<Msg>,
     _watcher: crate::Watcher,
     on_report: Box<dyn FnMut(Report) + Send>,
+    /// #EDE-172 (P4): the channel the compositor started the supervisor
+    /// with (`[session] helpers = "compositor"`): each shell gets a channel
+    /// of its own on it and a Wayland connection the compositor made.
+    #[cfg(target_os = "linux")]
+    control: Option<ede_protocol::Client>,
 }
 
 impl Supervisor {
@@ -166,7 +171,32 @@ impl Supervisor {
                 let _ = tx.send(Msg::Changes(changes));
             })?
         };
-        Ok(Supervisor { ui, state, git_of, known, pending: HashMap::new(), drawn: HashMap::new(), command, child: None, shell: 0, tx, rx, _watcher: watcher, on_report: Box::new(on_report) })
+        Ok(Supervisor {
+            ui,
+            state,
+            git_of,
+            known,
+            pending: HashMap::new(),
+            drawn: HashMap::new(),
+            command,
+            child: None,
+            shell: 0,
+            tx,
+            rx,
+            _watcher: watcher,
+            on_report: Box::new(on_report),
+            #[cfg(target_os = "linux")]
+            control: None,
+        })
+    }
+
+    /// #EDE-172 (P4): every shell from now on starts with a channel of its
+    /// own on `control` (the same grant) at fd 3 and a Wayland connection
+    /// the compositor made at fd 4 ([`ede_protocol::process::hand_over`]).
+    #[cfg(target_os = "linux")]
+    pub fn with_control(mut self, control: ede_protocol::Client) -> Self {
+        self.control = Some(control);
+        self
     }
 
     pub fn state(&self) -> &ApplyState {
@@ -175,7 +205,11 @@ impl Supervisor {
 
     fn spawn(&mut self) -> io::Result<()> {
         let dir = self.ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
-        let mut child = Command::new(&self.command[0]).args(&self.command[1..]).env("EDE_UI_DIR", &dir).stdout(Stdio::piped()).stdin(Stdio::null()).spawn()?;
+        let mut command = Command::new(&self.command[0]);
+        command.args(&self.command[1..]).env("EDE_UI_DIR", &dir).stdout(Stdio::piped()).stdin(Stdio::null());
+        #[cfg(target_os = "linux")]
+        self.hand_over(&mut command)?;
+        let mut child = command.spawn()?;
         let stdout = child.stdout.take().expect("piped stdout");
         let tx = self.tx.clone();
         self.shell += 1;
@@ -191,6 +225,35 @@ impl Supervisor {
         (self.on_report)(Report::Started { pid: child.id() });
         self.child = Some(child);
         Ok(())
+    }
+
+    /// The shell ends with the supervisor (its parent-death signal), and
+    /// (#EDE-172 P4) gets its channel and its Wayland connection. A channel
+    /// that cannot be opened fails the start: the supervisor ends, and the
+    /// compositor starts it again on a channel of its own.
+    #[cfg(target_os = "linux")]
+    fn hand_over(&mut self, command: &mut Command) -> io::Result<()> {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: prctl only, between fork and exec; it holds across exec.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let Some(control) = self.control.as_mut() else { return Ok(()) };
+        let held = control.hello.capabilities.clone();
+        let (channel, _) = control.open_channel_fd(None, held, None).map_err(|e| io::Error::other(format!("the shell's channel: {e}")))?;
+        let wayland = match control.open_wayland() {
+            Ok(fd) => Some(fd),
+            Err(e) => {
+                eprintln!("exponential-ui supervise: no Wayland connection from the compositor for the shell ({e}); it connects to WAYLAND_DISPLAY");
+                None
+            }
+        };
+        ede_protocol::process::hand_over(command, Some(channel), wayland)
     }
 
     /// Runs the shell and the machine until `stop` is set, or the shell

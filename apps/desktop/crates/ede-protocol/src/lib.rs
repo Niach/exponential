@@ -225,6 +225,13 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
     },
+    /// #EDE-172 (P4): a Wayland connection the compositor made, as a
+    /// descriptor (`SCM_RIGHTS`) that comes with the reply frame (`null`):
+    /// for the `WAYLAND_SOCKET` of the shell the caller starts next. Only
+    /// on the channel the compositor handed the shell's supervisor at its
+    /// start (`[session] helpers = "compositor"`): the compositor knows the
+    /// client it made by construction, never by its executable.
+    OpenWayland,
     /// Global shortcuts for `owner` (the portal's session), replacing what
     /// it held (#EDE-15). Triggers follow the XDG shortcuts spec
     /// (`CTRL+SHIFT+a`, `LOGO+F5`); one that does not parse, takes a plain
@@ -597,6 +604,8 @@ impl Request {
             Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
             // #EDE-172: what the channel holds is checked against the grant.
             Request::OpenChannel { .. } => None,
+            // #EDE-172 (P4): the supervisor's own channel only (the arm checks).
+            Request::OpenWayland => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
@@ -625,7 +634,7 @@ impl Request {
             Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } => false,
             Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
-            Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
+            Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText | Request::LaunchToken => false,
             Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceBusy => false,
         }
@@ -646,7 +655,7 @@ impl Request {
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
-            Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } => false,
+            Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland => false,
         }
     }
 }
@@ -1227,6 +1236,14 @@ impl Client {
     /// longer-lived; and that connection's grant (a child's `token` is its
     /// id). An older compositor answers [`Error::Unsupported`].
     pub fn open_channel(&mut self, session_id: Option<SessionId>, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<(Client, Grant), Error> {
+        let (fd, grant) = self.open_channel_fd(session_id, capabilities, expires_at)?;
+        Ok((Client::from_fd(fd)?, grant))
+    }
+
+    /// [`Client::open_channel`] without the hello: the descriptor itself,
+    /// for a process this one starts (#EDE-172 P4: the shell's supervisor
+    /// hands each shell its own, [`process::hand_over`]).
+    pub fn open_channel_fd(&mut self, session_id: Option<SessionId>, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<(OwnedFd, Grant), Error> {
         // A descriptor left over from a call that failed after it arrived is no one's.
         self.fds.clear();
         let mut grant = self.call(Request::OpenChannel { session_id, capabilities, expires_at })?;
@@ -1235,7 +1252,16 @@ impl Client {
             capabilities.retain(|capability| capability.as_str().and_then(Capability::parse).is_some());
         }
         let grant: Grant = serde_json::from_value(grant).map_err(|e| Error::Protocol(e.to_string()))?;
-        Ok((Client::from_fd(fd)?, grant))
+        Ok((fd, grant))
+    }
+
+    /// #EDE-172 (P4, [`Request::OpenWayland`]): a Wayland connection the
+    /// compositor made, for the `WAYLAND_SOCKET` of a shell this process
+    /// starts. An older compositor answers [`Error::Unsupported`].
+    pub fn open_wayland(&mut self) -> Result<OwnedFd, Error> {
+        self.fds.clear();
+        self.call(Request::OpenWayland)?;
+        self.fds.pop_front().ok_or_else(|| Error::Protocol("open_wayland answered without a descriptor".into()))
     }
 
     /// [`Request::RevokeGrant`]: `grant` = a token, or a bound grant's id.
@@ -1991,13 +2017,14 @@ mod tests {
             (Request::SpaceReadiness, false),
             (Request::SpaceBusy, true),
             (Request::OpenChannel { session_id: None, capabilities: vec![Capability::Space], expires_at: None }, false),
+            (Request::OpenWayland, false),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 40, "one row per variant at least");
+        assert_eq!(seen.len(), 41, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2054,6 +2081,7 @@ mod tests {
             Request::SpaceReadiness => "space_readiness",
             Request::SpaceBusy => "space_busy",
             Request::OpenChannel { .. } => "open_channel",
+            Request::OpenWayland => "open_wayland",
         }
     }
 
@@ -2166,6 +2194,7 @@ mod tests {
                 serde_json::json!({"id": 1, "op": "open_channel", "session_id": "run-1", "capabilities": ["capture", "input:person"], "expires_at": 9}),
             ),
             (Request::RevokeGrant { token: token() }, serde_json::json!({"id": 1, "op": "revoke_grant", "token": "ab".repeat(32)})),
+            (Request::OpenWayland, serde_json::json!({"id": 1, "op": "open_wayland"})),
         ] {
             let call = Call { id: 1, request };
             assert_eq!(serde_json::to_value(&call).unwrap(), json);
@@ -2286,6 +2315,7 @@ mod tests {
             Request::MintGrant { session_id: SessionId::new("x").unwrap(), run_id: None, capabilities: vec![], expires_at: None },
             Request::RevokeGrant { token: token() },
             Request::OpenChannel { session_id: None, capabilities: vec![], expires_at: None },
+            Request::OpenWayland,
             Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] },
             Request::UnbindShortcuts { owner: "p".into() },
             Request::ClipboardSerial,
@@ -2310,7 +2340,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 40, "every op has a row");
+        assert_eq!(seen.len(), 41, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

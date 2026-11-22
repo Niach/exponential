@@ -33,6 +33,7 @@
 
 #[path = "../../assets.rs"]
 mod assets;
+mod control;
 mod pam;
 mod polkit;
 
@@ -104,9 +105,8 @@ fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option
 /// (Exclusive), else on the person's click (OnDemand: #EDE-143, a polkit
 /// request from outside their session).
 fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, cx: &mut App) -> Option<Open> {
-    let (w, h) = ede_protocol::Client::connect_env()
+    let (w, h) = control::with(|c| c.outputs(), ede_protocol::Client::connect_env)
         .ok()
-        .and_then(|mut c| c.outputs().ok())
         .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
     open_on(doc, data, acts, None, (w, h), Layer::Overlay, if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand }, cx)
@@ -279,6 +279,8 @@ fn exit(code: i32) -> ! {
 
 fn run_app(f: impl FnOnce(&mut App) + 'static) {
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
+        // #EDE-172 (P4): gpui's Wayland connection did its first roundtrip.
+        control::refuse_ptrace();
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         f(cx);
@@ -306,7 +308,7 @@ struct Shown {
 /// compositor reports for the output of that name (gpui's own bounds
 /// round a fractional scale up).
 fn lock_outputs(cx: &App) -> Vec<(DisplayId, (i32, i32))> {
-    let outputs = ede_protocol::persons(ede_protocol::Client::connect_env().ok().and_then(|mut c| c.outputs().ok()).unwrap_or_default());
+    let outputs = ede_protocol::persons(control::with(|c| c.outputs(), ede_protocol::Client::connect_env).unwrap_or_default());
     cx.displays()
         .into_iter()
         .map(|d| {
@@ -384,7 +386,8 @@ fn lock() {
                 }
                 while let Ok(result) = auth_rx.try_recv() {
                     match result {
-                        Ok(()) => match grant.clone().map_or_else(ede_protocol::Client::connect_env, ede_protocol::Client::connect_with_token).and_then(|mut c| c.unlock()) {
+                        // #EDE-172 (P4): on the channel when there is one: only it unlocks.
+                        Ok(()) => match control::with(|c| c.unlock(), || grant.clone().map_or_else(ede_protocol::Client::connect_env, ede_protocol::Client::connect_with_token)) {
                             Ok(()) => {
                                 tracing::info!("unlocked");
                                 cx.update(|cx| cx.quit());
@@ -680,6 +683,9 @@ fn main() {
         "share" => "sealed-share",
         _ => usage(),
     };
+    // #EDE-172 (P4): the channel the compositor started the lock or the
+    // polkit agent with, before the crash monitor or any thread starts.
+    control::take();
     // #ERR-29: the compositor's diagnostics (panics, errors, native
     // crashes), tagged per mode; stdout is consent's and share's answer. A
     // report says where a line was logged, never what it said.

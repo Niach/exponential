@@ -851,7 +851,7 @@ fn only_the_lock_clients_own_connection_unlocks() {
     assert!(is_locked(&h), "a stolen grant unlocked the session");
     // The lock client's own pid on the connection: it unlocks.
     let (token, pid) = sealed(&h, |s| (s.token.clone(), s.pid));
-    h.with(move |ede| ede.sealed_unlock(&token, Some(pid))).unwrap();
+    h.with(move |ede| ede.sealed_unlock(&token, Some(pid), None)).unwrap();
     assert!(!is_locked(&h));
 }
 

@@ -182,6 +182,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if no_xwayland {
         config.xwayland = false;
     }
+    // #EDE-172 (P4): a compositor that starts the session's helpers holds
+    // every grant they hold: no other process of the person reads its
+    // memory or its descriptors, nor attaches to it.
+    if config.session.helpers == ede_compositor::config::Helpers::Compositor {
+        if let Err(e) = ede_protocol::process::refuse_ptrace() {
+            tracing::warn!("PR_SET_DUMPABLE: {e}");
+        }
+    }
 
     if debug_captures && udev && headless.is_none() {
         return Err("--debug-captures never applies to a real screen (udev)".into());

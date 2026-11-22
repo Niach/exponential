@@ -879,7 +879,8 @@ impl Ede {
                 let conn = self.ipc.clients.iter().find(|c| c.id == id);
                 let token = conn.and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
                 let peer = conn.and_then(|c| smithay::reexports::rustix::net::sockopt::socket_peercred(&c.writer).ok()).map(|c| c.pid.as_raw_nonzero().get() as u32);
-                self.sealed_unlock(&token, peer).map_err(|e| fail(ErrorCode::Forbidden, e))?;
+                // #EDE-172 (P4): a lock client on its channel unlocks on that connection alone.
+                self.sealed_unlock(&token, peer, Some(id)).map_err(|e| fail(ErrorCode::Forbidden, e))?;
                 json(serde_json::Value::Null)
             }
             Request::Logout => {
@@ -996,6 +997,53 @@ impl Ede {
                 }
                 json(serde_json::to_value(opened).unwrap())
             }
+            // #EDE-172 (P4): the shell's supervisor, for each shell it starts.
+            Request::OpenWayland => {
+                let fd = self.helper_wayland_for(id).ok_or_else(|| fail(ErrorCode::Forbidden, "only the channel the compositor started a helper with asks for a Wayland connection"))?;
+                if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                    c.pending_fd = Some(fd);
+                }
+                json(serde_json::Value::Null)
+            }
+        }
+    }
+
+    /// #EDE-172 (P4): a channel for a helper the compositor starts
+    /// ([`crate::helpers`]): the connection's id, the helper's end, and the
+    /// bound child grant it holds (`None` = root's own). `None` = it could
+    /// not be made.
+    pub(crate) fn ipc_helper_channel(&mut self, channel: &crate::helpers::Channel) -> Option<(u64, OwnedFd, Option<Token>)> {
+        let root = self.ipc.root_grant();
+        let grant = match channel {
+            crate::helpers::Channel::Root => root.clone(),
+            crate::helpers::Channel::Child { session, capabilities } => {
+                let session = SessionId::new(session.as_str()).ok()?;
+                self.ipc_open_channel(&root, Some(session), capabilities.clone(), None, now_ms()).map_err(|e| tracing::warn!("a helper's channel: {}", e.message)).ok()?
+            }
+        };
+        let child = (grant.token != root.token).then(|| grant.token.clone());
+        let made = UnixStream::pair().ok().and_then(|(ours, theirs)| Some((self.ipc_insert_holding(ours, Some(grant.token.clone()))?, OwnedFd::from(theirs))));
+        match made {
+            Some((id, theirs)) => Some((id, theirs, child)),
+            None => {
+                if let Some(child) = &child {
+                    self.ipc.end_grants(std::slice::from_ref(child));
+                }
+                None
+            }
+        }
+    }
+
+    /// #EDE-172 (P4): helper channel `conn` is over (its helper ended): the
+    /// connection goes (what it held with it), and so does the bound grant
+    /// `grant` with everything opened on it.
+    pub(crate) fn ipc_end_channel(&mut self, conn: u64, grant: Option<&Token>) {
+        if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == conn) {
+            c.kill();
+        }
+        if let Some(grant) = grant {
+            let lineage = self.ipc.lineage(grant);
+            self.ipc.end_grants(&lineage);
         }
     }
 
@@ -1434,6 +1482,8 @@ impl Ede {
         };
         let mut config = crate::Config::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?.with_system_keyboard();
         config.xwayland = self.config.xwayland;
+        // #EDE-172 (P4): who starts the helpers is decided at the start.
+        config.session.helpers = self.config.session.helpers;
         let kb = config.keyboard.clone();
         self.config = config;
         let keyboard = self.desk.seat.get_keyboard().unwrap();

@@ -213,7 +213,10 @@ fn sign_in(client: &AuthClient, auth: &AuthStore, instance: &str, token: &str) -
 }
 
 pub(crate) fn open_url(url: &str) {
-    match std::process::Command::new("xdg-open").arg(url).spawn() {
+    let mut open = std::process::Command::new("xdg-open");
+    // #EDE-172 (P4): the person's browser in the person's environment.
+    ede_protocol::process::as_the_person(&mut open);
+    match open.arg(url).spawn() {
         Ok(_) => tracing::info!(url, "opened in the browser"),
         Err(e) => tracing::warn!(url, "xdg-open: {e}"),
     }

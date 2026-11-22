@@ -1339,7 +1339,26 @@ icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size 
 
 [diagnostics]        # Settings › About › Send diagnostics (#LOGS-2)
 send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
+
+[session]            # read at the compositor's start (#EDE-172)
+helpers = "units"    # "compositor": the compositor starts the shell (under exponential-ui supervise), the polkit agent and the portal itself
 ```
+
+`helpers = "compositor"` (#EDE-172 P4, off until eDE's flip): each helper runs
+in a scope of its own (`systemd-run --user --scope --slice=session.slice`,
+`exponential-shell-p<compositor pid>-<n>.scope` and so on, logs under the
+same names: `journalctl --user -t exponential-shell`), with its channel at
+fd 3 (`EDE_CONTROL_FD`) and a Wayland connection the compositor made
+(`WAYLAND_SOCKET`; the supervisor asks for one per shell it starts), in an
+environment without `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`,
+`GCONV_PATH`, the GL/GBM driver paths, PipeWire's module paths or any
+`VK_*` override (Vulkan's implicit layers are off but Mesa's
+device_select), and is started again when it ends. Their units stay
+installed and off (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`, which every
+process the compositor starts gets and `exponential-session --ready`
+exports); a copy started by hand finds no channel and ends. The compositor,
+the supervisor, the shell, the lock and the polkit agent refuse ptrace
+(`PR_SET_DUMPABLE 0`) once their first roundtrips are done.
 
 ## Diagnostics (#LOGS-2)
 

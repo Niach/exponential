@@ -2192,6 +2192,7 @@ version = "0.14.172"
 dependencies = [
  "crash-handler",
  "futures-executor",
+ "libc",
  "log",
  "minidump",
  "minidump-processor",
@@ -2953,6 +2954,7 @@ name = "ede-protocol"
 version = "0.14.172"
 dependencies = [
  "ecore",
+ "libc",
  "rustix",
  "serde",
  "serde_json",
@@ -3034,6 +3036,7 @@ dependencies = [
 name = "ede-ui"
 version = "0.2.31"
 dependencies = [
+ "ede-protocol",
  "eui-core",
  "libc",
  "notify 7.0.0",

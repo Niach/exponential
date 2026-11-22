@@ -160,6 +160,13 @@ fn attach(setup: &Setup) -> Result<std::process::Child, String> {
     // ack (`request_dump`), no allocation and no locks.
     let handler = crash_handler::CrashHandler::attach(unsafe {
         crash_handler::make_crash_event(move |context: &crash_handler::CrashContext| {
+            // #EDE-172 (P4): eDE's helpers refuse ptrace (PR_SET_DUMPABLE 0),
+            // which the monitor's ptrace and /proc/<pid>/mem need whatever
+            // PR_SET_PTRACER says. The process is ending: let it in (one
+            // async-signal-safe prctl; crash-handler 0.8 does it too, this
+            // does not rest on that).
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0);
             crash_handler::CrashEventResult::Handled(client.request_dump(context).is_ok())
         })
     })

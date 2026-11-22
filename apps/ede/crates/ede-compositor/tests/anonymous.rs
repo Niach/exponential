@@ -66,6 +66,7 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::MintGrant { session_id: SessionId::new("other").unwrap(), run_id: None, capabilities: vec![Capability::Capture], expires_at: None },
         Request::RevokeGrant { token: Token::new("0".repeat(64)).unwrap() },
         Request::OpenChannel { session_id: None, capabilities: vec![], expires_at: None },
+        Request::OpenWayland,
         Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] },
         Request::UnbindShortcuts { owner: "p".into() },
         Request::ClipboardSerial,
@@ -83,7 +84,7 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::SpaceBusy,
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 39, "one request per op at least");
+    assert_eq!(ops.len(), 40, "one request per op at least");
     all
 }
 
@@ -92,7 +93,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => {}
         Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput => {}
         Request::ReleaseInput | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } => {}
-        Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } => {}
+        Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland => {}
         Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } => {}
         Request::ClipboardText | Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
         Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}

@@ -35,7 +35,7 @@ impl Connect for Minted {
         if let Some(token) = self.token.lock().unwrap_or_else(|p| p.into_inner()).clone() {
             return Client::connect_with_token(token).map_err(|e| e.to_string());
         }
-        let mut root = Client::connect_env().map_err(|e| e.to_string())?;
+        let mut root = crate::control::connect().map_err(|e| e.to_string())?;
         if !root.hello.capabilities.contains(&EdeCapability::System) {
             return Ok(root);
         }
