@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-22-desktop-cli-0-14-173",
+    date: "2026-11-22",
+    title: "One sidebar for all teams, computer use in every Claude Code, card taps",
+    summary: "Desktop and CLI 0.14.173: one sidebar for all your teams, computer use and code mode stay on with every Claude Code version, the account menu opens inside the window, and taps on reply and suggestion cards work in encrypted chats, with eDE 0.2.32 for agent spaces.",
+    body: r##"- **One sidebar for all your teams**: Home, Chats, your devices, then each team as a folder with its boards, agents, apps and your own folders; no team switcher.
+- **Computer use and code mode**: some Claude Code versions dropped Exponential's computer use, code mode and local servers; they now stay on with every version.
+- **Account menu**: the account menu in the sidebar's footer opens above its row, inside the window, so Sign out can always be reached.
+- **Card taps**: tapping a reply or a suggestion on a card works in encrypted chats too.
+- **eDE 0.2.32** comes with this release and brings agent spaces to Exponential Desktop."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_346: ChangelogEntry = ChangelogEntry {
     id: "2026-11-21-agent-spaces",
     date: "2026-11-21",
     title: "Agents work in a space of their own on Exponential Desktop",
