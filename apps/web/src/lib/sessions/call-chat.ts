@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { BRIEF_RECENT_MAX, type BriefCall } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
 import { issues, messages, sessionIssues, sessions, users, type Session } from "@/db/schema"
@@ -48,9 +48,15 @@ export async function copyChatIntoCall(
             .where(and(inSession(call.id), inArray(messages.originMessageId, rows.map((row) => row.id))))
         ).map((row) => row.originMessageId)
   )
-  for (const row of rows) {
-    if (!row.body.trim() || copied.has(row.id)) continue
+  // #EXP-2012: the utterance lands in this same transaction, and `now()` is
+  // the transaction's start, so every row would share one `created_at` and
+  // readers (the daemon's pickup, the timelines: created_at, then the random
+  // id) could put the utterance first. The copies step back whole
+  // milliseconds from it, in order (ms: the clients compare in ms).
+  const fresh = rows.filter((row) => row.body.trim() && !copied.has(row.id))
+  for (const [index, row] of fresh.entries()) {
     await insertMessage(tx, call.id, {
+      createdAt: sql`now() - make_interval(secs => ${(fresh.length - index) / 1000}::double precision)`,
       authorKind: `agent`,
       authorSessionId: call.parentId,
       body: row.body,
