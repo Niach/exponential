@@ -575,23 +575,35 @@ mod tests {
         }
     }
 
+    /// #EDE-199: waits (5 s at most) until a spawned `program` has exec'd.
+    /// `spawn` can return while the child still runs on this test binary's
+    /// memory, its command line this binary's; right after the exec it is
+    /// empty until the new arguments are in. `program` as the first argument
+    /// is the exec done.
+    fn wait_for_exec(pid: u32, program: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+            if cmdline.split(|b| *b == 0).next() == Some(program.as_bytes()) {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "{program} (process {pid}) did not exec: {:?}", String::from_utf8_lossy(&cmdline));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// #EDE-143: a process is named by its command line and its id; a long
     /// one is shortened, one that ended is said to have.
     #[test]
     fn the_prompt_names_a_process_by_its_command_line() {
         let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-        // Its arguments are there a moment after the exec.
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while std::fs::read(format!("/proc/{}/cmdline", child.id())).map_or(true, |line| line.is_empty()) {
-            assert!(std::time::Instant::now() < deadline, "no command line");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_exec(child.id(), "sleep");
         assert_eq!(describe(child.id()), format!("sleep 30 (process {})", child.id()));
         let _ = child.kill();
         let _ = child.wait();
         let long = Command::new("sh").args(["-c", "sleep 30; true", &"x".repeat(200)]).spawn();
         if let Ok(mut long) = long {
-            std::thread::sleep(Duration::from_millis(100));
+            wait_for_exec(long.id(), "sh");
             let named = describe(long.id());
             assert!(named.chars().count() < 110 && named.contains('…'), "{named}");
             let _ = long.kill();
