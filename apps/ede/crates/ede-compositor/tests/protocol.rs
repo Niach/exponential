@@ -605,7 +605,8 @@ fn a_hold_locks_the_person_out_until_their_esc() {
 }
 
 /// #EDE-22: a keysym finds its key and level on the layout; `A` = Shift
-/// held around `a`, released with it; a keysym no key makes is `not_found`.
+/// held around `a`, released with it; a keysym xkb has no character for is
+/// `not_found`.
 #[test]
 fn keysyms_find_their_key_and_level_on_the_layout() {
     let h = harness();
@@ -621,8 +622,10 @@ fn keysyms_find_their_key_and_level_on_the_layout() {
     }
     wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_LEFTSHIFT, KEY_A]);
     assert!(h.with(|ede| ede.desk.seat.get_keyboard().unwrap().pressed_keys().is_empty()), "Shift is let go with the key");
-    let snowman = InputEvent::Keysym { keysym: 0x0100_2603, pressed: true };
-    assert_eq!(code(ipc.input(snowman).unwrap_err()), ErrorCode::NotFound);
+    // #EDE-85: one no key makes is typed through a throwaway keymap
+    // (`tests/keysym_inject.rs`); one xkb has no character for is not_found.
+    let unknown = InputEvent::Keysym { keysym: 0x00ff_fff0, pressed: true };
+    assert_eq!(code(ipc.input(unknown).unwrap_err()), ErrorCode::NotFound);
 
     ipc.input(InputEvent::PointerMotion { x: 120.0, y: 80.0 }).unwrap();
     let at = ipc.pointer().unwrap();
