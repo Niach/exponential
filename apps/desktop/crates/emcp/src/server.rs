@@ -12,6 +12,12 @@
 //!
 //! #EXP-1517: the token, the session id and the refusal are eCore's
 //! ([`Token`], [`SessionId`], [`Failure`]).
+//!
+//! #EDE-172 (P8): every server is also reachable over the host's local
+//! socket ([`crate::local`]) by its name, a connection there admitted as a
+//! run by the peer's process ancestry instead of a token. The run must
+//! still hold a grant here ([`Server::grant`]); [`Server::revoke`] ends
+//! that path too.
 
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
@@ -164,6 +170,12 @@ impl Grants {
         self.runs.lock().unwrap().values().any(|run| run.session_id == *session_id)
     }
 
+    /// #EDE-172: the run `session_id` as its grant names it (the local
+    /// socket's connections know the run, not a token).
+    fn caller_for(&self, session_id: &SessionId) -> Option<Caller> {
+        self.runs.lock().unwrap().values().find(|run| run.session_id == *session_id).cloned()
+    }
+
     /// Take the runs `ends` names out; their tokens are remembered as ended.
     fn end(&self, ends: impl Fn(&Caller) -> bool) -> Vec<Caller> {
         let mut gone = Vec::new();
@@ -239,7 +251,10 @@ impl Server {
         let port = listener.local_addr().map_err(|err| format!("The {name} server has no address: {err}"))?.port();
         let listener = Arc::new(listener);
         let grants = Arc::new(Grants::default());
-        let handler = Handler { info: Arc::new(info), provider: provider.clone(), grants: grants.clone() };
+        let handler = Handler { info: Arc::new(info), provider: provider.clone(), grants: grants.clone(), run: None };
+        // #EDE-172 (P8): the local socket reaches this server by its name
+        // (a later server of the same name replaces it there).
+        crate::local::register(&name, LocalEntry { handler: handler.clone() });
         let config = StreamableHttpServerConfig::default()
             .with_legacy_session_mode(false)
             .with_json_response(true)
@@ -313,7 +328,7 @@ impl Server {
 /// accept (the process is out of file descriptors: the connection stays
 /// pending, so the next accept fails at once) waits [`ACCEPT_RETRY`] and is
 /// logged once per run of failures.
-async fn accept_loop<S, F>(name: String, mut accept: impl FnMut() -> F, mut serve: impl FnMut(S))
+pub(crate) async fn accept_loop<S, F>(name: String, mut accept: impl FnMut() -> F, mut serve: impl FnMut(S))
 where
     F: std::future::Future<Output = std::io::Result<S>>,
 {
@@ -384,9 +399,7 @@ impl Listener {
 /// and the model never learns why its tools stopped: a `tools/call` gets a
 /// result the agent reads; anything else stays a 401, the reason its body.
 async fn ended(name: &str, request: Request<Incoming>) -> Response<Body> {
-    let text = format!(
-        "The {name} server ended this session's access: it was switched off on this device, or the session ended. Its tools stay unavailable; do not retry."
-    );
+    let text = ended_text(name);
     let body = Limited::new(request.into_body(), RAW_BODY_MAX_BYTES).collect().await.ok().map(|collected| collected.to_bytes());
     let message: Option<Value> = body.and_then(|body| serde_json::from_slice(&body).ok());
     let Some((id, message)) = message
@@ -408,6 +421,13 @@ async fn ended(name: &str, request: Request<Incoming>) -> Response<Body> {
     let mut response = Response::new(Full::new(Bytes::from(answer.to_string())).boxed());
     response.headers_mut().insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static("application/json"));
     response
+}
+
+/// #EXP-1918: what a run whose grant was revoked reads.
+fn ended_text(name: &str) -> String {
+    format!(
+        "The {name} server ended this session's access: it was switched off on this device, or the session ended. Its tools stay unavailable; do not retry."
+    )
 }
 
 async fn raw(route: Arc<dyn RawRoute>, request: Request<Incoming>) -> Response<Body> {
@@ -444,6 +464,42 @@ struct Handler {
     info: Arc<ServerInfo>,
     provider: Arc<dyn ToolProvider>,
     grants: Arc<Grants>,
+    /// #EDE-172: the run of a local socket connection ([`LocalEntry`]),
+    /// admitted at its accept; `None` over HTTP, where the request's
+    /// token names the run.
+    run: Option<SessionId>,
+}
+
+/// #EDE-172 (P8): a server as the local socket ([`crate::local`]) serves
+/// it: one MCP session per accepted connection, as one run.
+#[derive(Clone)]
+pub(crate) struct LocalEntry {
+    handler: Handler,
+}
+
+impl LocalEntry {
+    /// Whether `run` holds a grant on this server.
+    pub(crate) fn admits(&self, run: &SessionId) -> bool {
+        self.handler.grants.admits(run)
+    }
+
+    /// Serve MCP (newline-delimited JSON-RPC, rmcp's stdio framing) as
+    /// `run` over `read`/`write` until the peer goes away.
+    pub(crate) async fn serve<R, W>(&self, run: SessionId, read: R, write: W)
+    where
+        R: tokio::io::AsyncRead + Send + Unpin + 'static,
+        W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
+        use rmcp::ServiceExt as _;
+        let name = self.handler.info.name.clone();
+        let handler = Handler { run: Some(run.clone()), ..self.handler.clone() };
+        match handler.serve((read, write)).await {
+            Ok(service) => {
+                let _ = service.waiting().await;
+            }
+            Err(err) => log::info!("[emcp] {name}: a local session of {run} ended before it began: {err}"),
+        }
+    }
 }
 
 /// A tool object as rmcp's type; a missing `inputSchema` is an empty object
@@ -467,14 +523,24 @@ pub(crate) fn error_result(text: String) -> CallToolResult {
         .expect("a text error result")
 }
 
-/// The run a request belongs to (the listener put it in the parts).
-fn caller_of(context: &RequestContext<RoleServer>) -> Result<Caller, ErrorData> {
-    context
-        .extensions
-        .get::<http::request::Parts>()
-        .and_then(|parts| parts.extensions.get::<Caller>())
-        .cloned()
-        .ok_or_else(|| refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")))
+fn grant_ended() -> ErrorData {
+    refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended."))
+}
+
+impl Handler {
+    /// The run a request belongs to: over HTTP the listener put it in the
+    /// parts; a local connection's run as its grant names it now.
+    fn caller_of(&self, context: &RequestContext<RoleServer>) -> Result<Caller, ErrorData> {
+        if let Some(run) = &self.run {
+            return self.grants.caller_for(run).ok_or_else(grant_ended);
+        }
+        context
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<Caller>())
+            .cloned()
+            .ok_or_else(grant_ended)
+    }
 }
 
 impl ServerHandler for Handler {
@@ -495,7 +561,7 @@ impl ServerHandler for Handler {
     async fn initialize(&self, request: InitializeRequestParams, context: RequestContext<RoleServer>) -> Result<InitializeResult, ErrorData> {
         context.peer.set_peer_info(request.clone());
         let mut result = self.negotiate_initialize(&request)?;
-        if let Some(own) = caller_of(&context).ok().and_then(|caller| self.provider.instructions_for(&caller)) {
+        if let Some(own) = self.caller_of(&context).ok().and_then(|caller| self.provider.instructions_for(&caller)) {
             result.instructions = Some(own);
         }
         Ok(result)
@@ -507,7 +573,7 @@ impl ServerHandler for Handler {
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let provider = self.provider.clone();
-        let caller = caller_of(&context)?;
+        let caller = self.caller_of(&context)?;
         let tools = tokio::task::spawn_blocking(move || provider.tools_for(&caller))
             .await
             .map_err(|err| ErrorData::internal_error(err.to_string(), None))?
@@ -523,7 +589,17 @@ impl ServerHandler for Handler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let caller = caller_of(&context)?;
+        let caller = match self.caller_of(&context) {
+            Ok(caller) => caller,
+            // #EXP-1918 over the local socket: its run was admitted with a
+            // grant, so a missing one was revoked; the agent reads why.
+            Err(_) if self.run.is_some() => {
+                let mut result = error_result(ended_text(&self.info.name));
+                result.result_type.get_or_insert(ResultType::COMPLETE);
+                return Ok(CallToolResponse::Complete(result));
+            }
+            Err(err) => return Err(err),
+        };
         let provider = self.provider.clone();
         let name = request.name.to_string();
         let arguments = request.arguments.map(Value::Object).unwrap_or_else(|| json!({}));
@@ -538,7 +614,7 @@ impl ServerHandler for Handler {
         // #EXP-1894: the run ended while its call ran: what the call saw
         // or did is not its to read any more.
         if !self.grants.admits(&session_id) {
-            return Err(refusal(Failure::new(ErrorCode::Unauthorized, "This session's grant ended.")));
+            return Err(grant_ended());
         }
         let mut result = serde_json::from_value::<CallToolResult>(result)
             .unwrap_or_else(|err| error_result(format!("The tool answered a malformed result: {err}")));

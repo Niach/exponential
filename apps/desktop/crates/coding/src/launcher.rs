@@ -6876,6 +6876,220 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
     }
 
+    // ---- #EDE-172: the agents' bearer tokens ----
+
+    /// The agents' three bearer variables (`ede-172-design.md` 8).
+    #[cfg(target_os = "linux")]
+    const EDE_172_TOKEN_NAMES: [&str; 3] = [epilot::TOKEN_ENV, epilot_screen::TOKEN_ENV, codemode::TOKEN_ENV];
+
+    /// What [`ede_172_helper`] does, as JSON in this variable.
+    #[cfg(target_os = "linux")]
+    const EDE_172_HELPER_ENV: &str = "EXP_TEST_EDE_172_HELPER";
+
+    /// #EDE-172 ACCEPTANCE (`ede-172-design.md` 8.5, P10's; it lands ignored
+    /// with P8, L-69): a launch's agent holds none of the agents' bearer
+    /// tokens. A process of the person outside the run reads none of
+    /// `EXP_COMPUTER_TOKEN`, `EXP_SCREEN_TOKEN`, `EXP_CODEMODE_TOKEN` (nor
+    /// the run's computer-use token) in any environment it can read, and the
+    /// host's local socket refuses it; a process the run's agent starts is
+    /// admitted to the run's servers. The stand-in agent gets the launch's
+    /// spawn env on a clean environment (this test may itself run under an
+    /// agent whose environment still carries such a token).
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "EDE-172 P10: the agents' bearer tokens still ride the spawn environment"]
+    fn ede_172_no_process_of_the_person_reads_an_agents_bearer_token() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+        let dir = temp_dir("ede-172-acceptance");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        deps.settings.computer_use = true;
+        let session = "ede-172-acceptance";
+        let mut req = session_request(row(session, None), &[]);
+        req.session.computer_use = true;
+        let machine = FakeMachine::new(crate::computer_place::Offer::No, Ok(()), &[]);
+        let prepared = crate::computer_place::with_machine(machine, || ready(launch(req, &deps)));
+        let computer_token = "grant-token";
+        let names: Vec<&str> = prepared.acp.servers.iter().map(|server| server.name.as_str()).collect();
+        assert!(names.contains(&epilot::SERVER_NAME) && names.contains(&codemode::SERVER_NAME), "{names:?}");
+        for (name, value) in &prepared.spawn.env {
+            assert!(!EDE_172_TOKEN_NAMES.contains(&name.as_str()), "the spawn env names {name}");
+            assert_ne!(value, computer_token, "{name} carries the computer-use token");
+        }
+
+        let socket = emcp::local::listen().unwrap();
+        let out = |what: &str| dir.0.join(format!("{what}.json"));
+        // `env`: the helper's whole environment (`None` = this process's).
+        let helper = |spec: serde_json::Value, env: Option<&[(String, String)]>| {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            if let Some(env) = env {
+                command.env_clear().env("PATH", std::env::var_os("PATH").unwrap_or_default()).envs(env.iter().cloned());
+            }
+            command
+                .args(["--exact", "launcher::tests::ede_172_helper", "--nocapture", "--test-threads=1", "--include-ignored"])
+                .env(EDE_172_HELPER_ENV, spec.to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            command
+        };
+        // The stand-in agent: the launch's env and nothing inherited.
+        let mut agent = helper(
+            serde_json::json!({ "mode": "agent", "socket": socket, "server": codemode::SERVER_NAME, "out": out("agent") }),
+            Some(&prepared.spawn.env),
+        )
+        .spawn()
+        .unwrap();
+        emcp::local::bind_process(&emcp::SessionId::new(session).unwrap(), agent.id()).unwrap();
+        agent.stdin.as_mut().unwrap().write_all(b"go\n").unwrap();
+        let admitted = ede_172_result(&out("agent"));
+        assert_eq!(admitted["answer"], "ok", "the agent's child: {admitted}");
+        assert!(admitted["tools"].as_array().is_some_and(|tools| !tools.is_empty()), "{admitted}");
+
+        // A process of the person, started beside the host's children.
+        let foreign = helper(serde_json::json!({
+            "mode": "foreign", "socket": socket, "server": codemode::SERVER_NAME, "out": out("foreign"),
+            "agent": agent.id(), "value": computer_token,
+        }), None)
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+        assert!(foreign.success());
+        let foreign = ede_172_result(&out("foreign"));
+        assert_eq!(foreign["found"], serde_json::json!([]), "readable token variables: {foreign}");
+        assert!(foreign["answer"].as_str().is_some_and(|answer| answer.starts_with("refused: ")), "{foreign}");
+        let _ = agent.kill();
+        let _ = agent.wait();
+        codemode::revoke(session);
+        emcp::local::unbind_process(&emcp::SessionId::new(session).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    fn ede_172_result(out: &Path) -> serde_json::Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !out.exists() {
+            assert!(std::time::Instant::now() < deadline, "{} never appeared", out.display());
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        serde_json::from_str(&fs::read_to_string(out).unwrap()).unwrap()
+    }
+
+    /// Not a test of its own: [`ede_172_no_process_of_the_person_reads_an_agents_bearer_token`]'s
+    /// processes (this binary run again with [`EDE_172_HELPER_ENV`]).
+    /// `agent` waits for its go line, then starts a `peer` as its child and
+    /// waits for it, then for its end line; `peer` asks the socket for the server and lists its
+    /// tools; `foreign` reads every environment it can, then asks the socket.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "a helper process of the EDE-172 acceptance test"]
+    fn ede_172_helper() {
+        use std::io::{BufRead as _, Write as _};
+        let Ok(spec) = std::env::var(EDE_172_HELPER_ENV) else { return };
+        let spec: serde_json::Value = serde_json::from_str(&spec).unwrap();
+        let str_of = |key: &str| spec[key].as_str().unwrap_or_default().to_string();
+        let out = PathBuf::from(str_of("out"));
+        let write = |value: serde_json::Value| {
+            let tmp = out.with_extension("tmp");
+            fs::write(&tmp, value.to_string()).unwrap();
+            fs::rename(&tmp, &out).unwrap();
+        };
+        let ask = || -> serde_json::Value {
+            let Ok(mut stream) = std::os::unix::net::UnixStream::connect(str_of("socket")) else {
+                return serde_json::json!({ "answer": "no socket" });
+            };
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(20))).unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let _ = writeln!(stream, "{}", str_of("server"));
+            let mut answer = String::new();
+            let _ = reader.read_line(&mut answer);
+            let answer = answer.trim().to_string();
+            if answer != "ok" {
+                return serde_json::json!({ "answer": answer });
+            }
+            // `id: None` = a notification, nothing to wait for.
+            let mut rpc = |id: Option<u64>, method: &str, params: serde_json::Value| -> serde_json::Value {
+                let Some(id) = id else {
+                    let _ = writeln!(stream, "{}", serde_json::json!({ "jsonrpc": "2.0", "method": method }));
+                    return serde_json::Value::Null;
+                };
+                let _ = writeln!(stream, "{}", serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return serde_json::Value::Null;
+                    }
+                    match serde_json::from_str::<serde_json::Value>(&line) {
+                        Ok(value) if value["id"] == serde_json::json!(id) => return value,
+                        _ => {}
+                    }
+                }
+            };
+            rpc(Some(1), "initialize", serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "ede-172", "version": "1" } }));
+            rpc(None, "notifications/initialized", serde_json::Value::Null);
+            let tools = rpc(Some(2), "tools/list", serde_json::json!({}))["result"]["tools"].clone();
+            serde_json::json!({ "answer": answer, "tools": tools })
+        };
+        match str_of("mode").as_str() {
+            "agent" => {
+                let mut go = String::new();
+                let _ = std::io::stdin().read_line(&mut go);
+                let mut peer = spec.clone();
+                peer["mode"] = serde_json::json!("peer");
+                let status = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "launcher::tests::ede_172_helper", "--nocapture", "--test-threads=1", "--include-ignored"])
+                    .env(EDE_172_HELPER_ENV, peer.to_string())
+                    .stdout(std::process::Stdio::null())
+                    .status()
+                    .unwrap();
+                // Alive (its environment readable) until the test is done.
+                let _ = std::io::stdin().read_line(&mut go);
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            "peer" => write(ask()),
+            "foreign" => {
+                let agent = spec["agent"].as_u64().unwrap() as u32;
+                let value = str_of("value");
+                // The agent's tree: the agent and every process whose
+                // ancestry reaches it.
+                let parent_of = |pid: u32| -> Option<u32> {
+                    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+                    stat[stat.rfind(')')? + 1..].split_whitespace().nth(1)?.parse().ok()
+                };
+                let in_tree = |mut pid: u32| {
+                    for _ in 0..128 {
+                        if pid == agent {
+                            return true;
+                        }
+                        match parent_of(pid) {
+                            Some(parent) if parent > 1 => pid = parent,
+                            _ => return false,
+                        }
+                    }
+                    false
+                };
+                let mut found = Vec::new();
+                for entry in fs::read_dir("/proc").unwrap().flatten() {
+                    let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<u32>().ok()) else { continue };
+                    let Ok(environ) = fs::read(entry.path().join("environ")) else { continue };
+                    for pair in environ.split(|byte| *byte == 0).filter_map(|pair| std::str::from_utf8(pair).ok()) {
+                        let Some((name, set)) = pair.split_once('=') else { continue };
+                        if set == value || (EDE_172_TOKEN_NAMES.contains(&name) && in_tree(pid)) {
+                            found.push(format!("{pid}: {name}"));
+                        }
+                    }
+                }
+                let mut answer = ask();
+                answer["found"] = serde_json::json!(found);
+                write(answer);
+            }
+            other => panic!("no helper mode {other}"),
+        }
+        std::process::exit(0);
+    }
+
     /// The agent shell takes the same rules as a session launch.
     #[cfg(unix)]
     #[test]

@@ -10,7 +10,8 @@ from its fixtures.
 
 Everything is blocking from the host's side: the SDK runs on emcp's own
 runtime threads, never under a host's executor. The crate talks to no server
-of its own and reads no settings file or env var.
+of its own and reads no settings file or env var (but where the platform
+keeps a user's runtime files, for the local socket).
 
 Exponential links it from the `codemode` crate (a re-export of
 `emcp::codemode` plus the contract's tool rows), the `api`/`ui` crates (their
@@ -77,6 +78,28 @@ authorization.finish(&code, &state)?;
 let client = emcp::oauth::connect(&config.url, vault, "linear", "my-app", timeout)?;
 ```
 
+## The local socket
+
+The same servers again, for a run's agent, with no token at all (#EDE-172,
+Linux and macOS; nothing listens until the host calls `local::listen`). One
+socket per host process (`$XDG_RUNTIME_DIR/exponential/mcp-<pid>.sock`, macOS
+`$TMPDIR/exponential/…`, the directory 0700): the host binds a run to the agent
+process it spawned, and a connection is admitted as the run whose agent is the
+peer or one of its ancestors (the kernel's peer credentials, the parents walked
+with their start times compared; init or the host itself refuses). The peer's
+first line names the server, the host answers `ok` or `refused: <why>`, then
+MCP runs over the stream (newline-delimited, as over stdio) as that run, which
+must hold a grant on the server.
+
+```rust
+let socket = emcp::local::listen()?;                        // the host's socket, once per process
+let token = server.grant(&run, "EXP-12");                   // the run still needs its grant
+let agent = std::process::Command::new("claude").spawn()?;  // the run's agent
+emcp::local::bind_process(&run, agent.id())?;               // it and its descendants are the run
+// the agent's MCP config runs a stdio relay to `socket` that sends `<server name>\n` first
+emcp::local::unbind_process(&run);                          // the run ended
+```
+
 ## The local hub
 
 One loopback endpoint over several MCP servers (#EXP-1507). Mount upstreams
@@ -123,12 +146,14 @@ per-run `GatewayTransform`. A host with tools of its own installs a
 | `oauth::{begin, Authorization::finish, connect, connected, disconnect}` | an OAuth connection, following `upstream.json` |
 | `oauth::{Vault, SealedVault, MemoryVault}` | where credentials live; `SealedVault` seals every value with `contract::vault` |
 | `server::ToolProvider::{tools_for, try_call}` | optional: a per-run list, and MCP's unknown-tool error instead of content (`Refusal`) |
+| `local::{listen, bind_process, unbind_process, socket_path, host_identity}` | the local socket (Linux, macOS) |
 | `hub::{Hub, Mount, HubGrant, AuditSink, MemoryAudit, JsonlAudit, AuditRow}` | the local hub |
 | `codemode::{grant, gateway_grant, revoke, worker, set_subject_table, …}` | code mode (feature `codemode`) |
 | `contract::{exposes, automations, access, audit, vault, upstream, hub, actions}` | the pure contract, one module per fixture |
 
 `tests/fixtures.rs` replays every fixture case; `tests/loopback.rs` serves and
-calls over a real socket; `tests/hub.rs` replays hub.json's list and call cases
+calls over a real socket; `tests/local_socket.rs` admits and refuses real
+processes on the local socket; `tests/hub.rs` replays hub.json's list and call cases
 through a real hub (`cargo test -p emcp --features codemode` runs code mode's
 own tests too).
 

@@ -42,8 +42,9 @@ uuid = { workspace = true }
 # One private runtime per process (`runtime.rs`): every host of this crate is
 # blocking code, so the async SDK lives on emcp's own threads.
 # `process`: VAPP-239's stdio upstreams (`Client::spawn`), over rmcp's
-# async read/write transport (already on through `server`).
-tokio = { workspace = true, features = ["process"] }
+# async read/write transport (already on through `server`). `io-util`:
+# #EDE-172's local socket reads its name line.
+tokio = { workspace = true, features = ["process", "io-util"] }
 # The loopback listener: rmcp's tower service under a bare hyper HTTP/1.1
 # server (no web framework), plus the bearer check and the raw routes.
 hyper = { version = "1", features = ["server", "http1"] }
@@ -76,15 +77,17 @@ async-trait = "0.1"
 
 # EXP-1287: the script worker's memory ceiling — the host reads the child's
 # resident size (macOS `proc_pidinfo`, Linux `/proc`), the Linux child caps
-# its own data segment.
+# its own data segment. #EDE-172: the local socket's peer credentials
+# (`SO_PEERCRED`, `SO_PEERPIDFD`, `LOCAL_PEERPID`) and process table
+# (`proc_pidinfo`).
 [target.'cfg(unix)'.dependencies]
-libc = { workspace = true, optional = true }
+libc = { workspace = true }
 
 [features]
 # EXP-1507: code mode (`emcp::codemode`): `exec` + `describe` over a run's
 # other MCP servers, scripts in a worker process, and the MCP gateway (a
 # transparent proxy, the one blocking reqwest user).
-codemode = ["dep:boa_engine", "dep:libc", "reqwest/blocking"]
+codemode = ["dep:boa_engine", "reqwest/blocking"]
 
 [dev-dependencies]
 # Raw fake upstreams for code mode's gateway tests.

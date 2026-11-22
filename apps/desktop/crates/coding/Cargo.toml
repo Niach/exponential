@@ -94,3 +94,6 @@ windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 tiny_http = { version = "0.12", default-features = false }
 reqwest = { workspace = true }
 exp-http = { path = "../exp-http" }
+# #EDE-172: the acceptance test binds its stand-in agent to the local socket
+# (already in the tree via codemode).
+emcp = { path = "../emcp" }

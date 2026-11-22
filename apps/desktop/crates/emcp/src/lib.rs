@@ -16,6 +16,9 @@
 //!   audit row (`packages/emcp/fixtures/hub.json`).
 //! - `codemode` (feature `codemode`): code mode, `exec` + `describe` over
 //!   a run's other MCP servers (moved in from `crates/codemode`).
+//! - [`local`]: #EDE-172, the host's local socket: every [`server::Server`]
+//!   again, for a run's agent, admitted by its process ancestry instead of
+//!   a token in its environment.
 //! - [`contract`]: the eMCP contract of `packages/emcp` (exposes, access,
 //!   audit, vault, upstream), replayed case by case from its fixtures: the
 //!   app tool broker's rules, the same as the server broker's.
@@ -29,6 +32,7 @@ pub mod codemode;
 pub mod contract;
 pub mod device_call;
 pub mod hub;
+pub mod local;
 pub mod oauth;
 mod runtime;
 pub mod server;
