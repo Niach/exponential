@@ -1484,10 +1484,12 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         }
         shell.borrow_mut().local = None;
     }
+    // #VAPP-273: the apps follow the desktop (local records or the team's),
+    // booted before the chat starts: the Local agent's app tools and note
+    // are the seats at its start (#EDE-144).
+    engine_boot(shell, cx);
     chatting_changed(shell, cx);
     chats_refresh(shell, cx);
-    // #VAPP-273: the apps follow the desktop (local records or the team's).
-    engine_boot(shell, cx);
 }
 
 /// The Exponential app on `link` (its single-instance socket), else started.
@@ -2175,17 +2177,10 @@ fn chat_local(shell: &SharedShell) -> bool {
         // #VAPP-273: the desktop's own agent edits the shell through `shell_edit` (never an
         // app) and reaches the running apps' exposed tools (`<app>__<tool>`).
         let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
-        let mut providers: Vec<Arc<dyn emcp::server::ToolProvider>> = vec![Arc::new(engine::shell_edit::ShellEdit::new(ui_dir))];
-        let mut note = engine::shell_edit::ShellEdit::note();
         // #EDE-141: the seats the Engine's boots replace, so this chat's
         // tools reach the apps that run, whichever Engine booted them.
         let seats = shell.borrow().engine_seats.clone();
-        let names: Vec<String> = seats.read().unwrap_or_else(|p| p.into_inner()).iter().map(|a| a.server.clone()).collect();
-        if !names.is_empty() {
-            note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
-            providers.push(Arc::new(engine::exposes::AppsProvider { apps: seats, exponential: elocal::runs::local_tools(desktop.clone()) }));
-        }
-        let host = elocal::runs::HostTools { provider: Arc::new(engine::exposes::Providers(providers)), note };
+        let host = engine::exposes::local_host(Arc::new(engine::shell_edit::ShellEdit::new(ui_dir)), engine::shell_edit::ShellEdit::note(), seats, elocal::runs::local_tools(desktop.clone()));
         let chat = local_runs::LocalChat::start(desktop, Some(host));
         shell.borrow_mut().chat_local = Some(chat);
     }
@@ -4837,6 +4832,22 @@ mod function_names {
             checked.push(*name);
         }
         assert!(checked.contains(&"applet-sound"), "the sound applet is a popup ({checked:?})");
+    }
+}
+
+#[cfg(test)]
+mod switcher_pick {
+    /// #EDE-144: a pick boots the Engine before the chat starts, so the
+    /// Local agent's app tools and note are the picked desktop's
+    /// (`engine::exposes::local_host`, tested there), not the place's before.
+    #[test]
+    fn a_pick_boots_the_apps_before_the_chat_starts() {
+        let source = include_str!("main.rs");
+        let body = &source[source.find("\nfn switcher_picked(").expect("switcher_picked")..];
+        let body = &body[..body.find("\n}\n").expect("its end")];
+        let boot = body.find("engine_boot(shell, cx);").expect("the pick boots the apps");
+        let chat = body.find("chatting_changed(shell, cx);").expect("the pick starts the chat");
+        assert!(boot < chat, "the Engine boots before the chat starts");
     }
 }
 
