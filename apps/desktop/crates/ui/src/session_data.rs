@@ -2144,7 +2144,7 @@ mod tests {
     /// #EXP-2027 hang (0.14.173): the rail derives EVERY team per refresh;
     /// one sessions write must derive that write's tree, not every team's
     /// whole list (one-slot memos made each team a whole derive: 8 teams ×
-    /// 300 trees × 2 calls per refresh, the main thread pinned on mint).
+    /// 300 trees every refresh, idle or not, the main thread pinned on mint).
     #[gpui::test]
     fn a_rail_refresh_over_many_teams_derives_only_the_written_tree(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
@@ -2192,7 +2192,7 @@ mod tests {
                 cx.notify();
             });
         });
-        // Budget: the written tree (was TEAMS × 2 whole derives = 4,800).
+        // Budget: the written tree (was every team's whole derive = 2,400).
         assert!(refresh(cx) <= 1, "one write derives its own tree only");
     }
 
