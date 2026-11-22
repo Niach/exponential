@@ -49,9 +49,9 @@ export EDE_SHELL_DATE="${EDE_SHELL_DATE:-2026-11-08}"
 export EDE_SHELL_DEMO=1
 # Nor reads the machine's fonts (#EDE-140): the shell draws with the fonts it
 # embeds, and fontconfig is shown DejaVu alone, the family every runner image
-# has (gpui's system-font fallback, a menu's section label). A system Inter
-# (fonts-inter, another build of it) took the embedded one's place on a
-# developer's machine: 0.03 to 0.2 % of the pixels, at glyph edges.
+# has (the glyph fallback for what Inter lacks). Since #EDE-155 the embedded
+# Inter is the only Inter the shell sees (a system fonts-inter no longer
+# takes its place) and a hosted popup's text is Inter too.
 fonts="${EDE_SHOTS_FONTS:-/usr/share/fonts/truetype/dejavu}"
 [ -d "$fonts" ] || { echo "the goldens' fallback font is missing: $fonts (apt install fonts-dejavu-core, or EDE_SHOTS_FONTS=<the directory of DejaVu Sans>)" >&2; exit 1; }
 printf '<?xml version="1.0"?>\n<fontconfig><dir>%s</dir><cachedir>%s</cachedir></fontconfig>\n' "$fonts" "$scratch/fontcache" > "$scratch/fonts.conf"

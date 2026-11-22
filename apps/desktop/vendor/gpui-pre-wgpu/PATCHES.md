@@ -1,4 +1,4 @@
-# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166)
+# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155)
 
 Source: the `gpui-pre-wgpu` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_wgpu` crate (`crates/gpui_wgpu`) of
@@ -14,7 +14,7 @@ re-apply the change below, or drop the patch once upstream carries it.
 ## Changes (Apache-2.0 section 4(b))
 
 All in `src/cosmic_text_system.rs` (the Linux/FreeBSD text system), each
-marked `Exponential patch (#EDE-65)` or `(#VAPP-166)`:
+marked `Exponential patch (#EDE-65)`, `(#VAPP-166)` or `(#EDE-155)`:
 
 - Shaping prefers the colour emoji face for a grapheme cluster with emoji
   presentation (an `Emoji_Presentation` base or U+FE0F, never U+FE0E):
@@ -38,6 +38,13 @@ marked `Exponential patch (#EDE-65)` or `(#VAPP-166)`:
   Upstream, every request got the face's default instance (Google Fonts'
   `Nunito[wght]` painted everything at wght 200).
   `apps/desktop/crates/eui-gpui/tests/variable_fonts.rs` covers it.
+
+- #EDE-155, marked `Exponential patch (#EDE-155)`: `add_fonts` removes the
+  system faces of every family the added fonts name, so an app's embedded
+  faces are the only faces of their family. Upstream both stayed in the
+  database and a system copy (Debian's `fonts-inter` beside the embedded
+  Inter, another build of it) drew the text instead.
+  `apps/desktop/crates/eui-gpui/tests/app_fonts.rs` covers it.
 
 The earlier fix to `load_family` (it removed a known colour emoji face
 lacking an `m` glyph from the font database) is upstream since zed #65269:
