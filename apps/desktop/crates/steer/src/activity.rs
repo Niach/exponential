@@ -104,6 +104,11 @@ impl CommandLink {
         self.rx.try_recv().ok()
     }
 
+    /// #PERF-12: the emitter side's receiver, awaited instead of polled.
+    pub fn receiver(&self) -> flume::Receiver<crate::commands::ParsedCommand> {
+        self.rx.clone()
+    }
+
     /// Emitter side: publish the between-turns bit.
     pub fn set_composer_idle(&self, idle: bool) {
         self.composer_idle.store(idle, Ordering::Relaxed);

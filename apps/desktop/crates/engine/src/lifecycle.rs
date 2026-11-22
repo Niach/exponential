@@ -917,38 +917,33 @@ fn attach_publisher(
 
     // The three receivers the publisher fills, drained into the ONE command
     // channel the connection loop owns. #PERF-12: ONE task on the run's
-    // runtime (three threads before, each waking every `DRAIN_POLL`).
-    // `CommandLink` exposes only `try_recv` (its receiver is private, unlike
-    // `ConfigLink::receiver`), so the task still looks at it every
-    // `DRAIN_POLL`. A `/` command is a human keystroke away either way.
+    // runtime, awaiting all three (three threads before, each waking every
+    // 100 ms); it looks at `active` only to end with the run.
     let config_rx = config_link.receiver();
+    let command_rx = command_link.receiver();
     let commands = commands.clone();
     life.runtime.handle().spawn(async move {
         while active.load(Ordering::SeqCst) {
             let command = tokio::select! {
                 answer = answers.recv_async() => match answer {
-                    Ok(answer) => Some(EngineCommand::Answer(answer)),
+                    Ok(answer) => EngineCommand::Answer(answer),
                     Err(_) => return,
                 },
                 change = config_rx.recv_async() => match change {
-                    Ok(change) => Some(config_command(change)),
+                    Ok(change) => config_command(change),
                     Err(_) => return,
                 },
-                () = tokio::time::sleep(DRAIN_POLL) => None,
+                parsed = command_rx.recv_async() => match parsed {
+                    Ok(parsed) => EngineCommand::Command {
+                        name: parsed.command.name.to_string(),
+                        args: parsed.args.clone(),
+                    },
+                    Err(_) => return,
+                },
+                () = tokio::time::sleep(END_CHECK) => continue,
             };
-            if let Some(command) = command {
-                if commands.send(command).is_err() {
-                    return;
-                }
-            }
-            while let Some(parsed) = command_link.try_recv() {
-                let sent = commands.send(EngineCommand::Command {
-                    name: parsed.command.name.to_string(),
-                    args: parsed.args.clone(),
-                });
-                if sent.is_err() {
-                    return;
-                }
+            if commands.send(command).is_err() {
+                return;
             }
         }
     });
@@ -956,10 +951,9 @@ fn attach_publisher(
     handle
 }
 
-/// How often a drain task wakes: to notice a queued `/` command
-/// (`CommandLink` exposes no receiver), and to notice the run ending so no
-/// task outlives the session that owns it.
-const DRAIN_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+/// How often an idle drain task looks at `active`, so no task outlives the
+/// run that owns it (its feeds wake it at once; this is only the exit).
+const END_CHECK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The publisher's `write_input` on a path with no keystrokes: a steerer's
 /// raw bytes are buffered and submitted as ONE message on `\r`, which is
@@ -1020,7 +1014,7 @@ fn spawn_kill_pump(
     // #PERF-12: a task on the run's runtime, not a thread per run.
     runtime.spawn(async move {
         while active.load(Ordering::SeqCst) {
-            let reason = match tokio::time::timeout(DRAIN_POLL, kills.recv_async()).await {
+            let reason = match tokio::time::timeout(END_CHECK, kills.recv_async()).await {
                 Ok(Ok(reason)) => reason,
                 Err(_) => continue,
                 Ok(Err(_)) => return,
