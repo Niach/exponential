@@ -212,11 +212,10 @@ impl JournalWriter {
             line.push('\n');
             line
         };
-        if let Err(err) = self
-            .file
-            .write_all(line.as_bytes())
-            .and_then(|()| self.file.flush())
-        {
+        let written = self.file.write_all(line.as_bytes()).and_then(|()| self.file.flush());
+        // #EXP-1892: a full disk reaches the doctor (`Disk writes`).
+        eagent::disk_health::note("journal", &written);
+        if let Err(err) = written {
             log::warn!(
                 "steer history: write to {} failed: {err} — no longer recording",
                 self.path.display()

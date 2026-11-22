@@ -26,6 +26,8 @@
 
 pub mod atomic_config;
 pub mod atomic_file;
+// #EXP-1892: which writers a full disk refuses (the doctor's Disk writes row).
+pub mod disk_health;
 // EXP-1426 part 4c: the claude transcript locator (out of `coding::launcher`).
 pub mod claude_transcript;
 // EXP-1794: one conversation store for every claude login (links + migration).

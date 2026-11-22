@@ -273,6 +273,8 @@ fn main() -> ExitCode {
     };
 
     observability::flush();
+    // #EXP-1892: the log file is written off-thread; land the last lines.
+    log::logger().flush();
     match result {
         Ok(code) => code,
         Err(err) => {
