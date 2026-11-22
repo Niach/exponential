@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's sealed consent dialog (#EDE-17, Tier B): compiled into exponential-sealed. An agent's privileged action is put to the person here, never in an editable document: the title, the body, Allow and Deny. `exponential-sealed consent` prints the answer.",
+  "$comment": "Exponential Desktop's sealed consent dialog (#EDE-17, Tier B): compiled into exponential-sealed. An agent's privileged action is put to the person here, never in an editable document: the title, the body, Allow and Deny. `exponential-sealed consent` prints the answer. #EDE-181: the card lies on `backing`, the theme's background (what a card lies on in the app): the dark theme's card is translucent, and nothing under the prompt may show through it.",
   "root": {
     "id": "consent",
     "component": "Box",
@@ -13,87 +13,97 @@
     },
     "children": [
       {
-        "id": "card",
+        "id": "backing",
         "component": "Box",
         "style": {
-          "display": "flex",
-          "flexDirection": "column",
-          "gap": "$spacing.md",
-          "padding": "$spacing.xl",
-          "width": 420,
-          "backgroundColor": "$color.card",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
+          "backgroundColor": "$color.background",
           "borderRadius": "$radius.lg"
         },
         "children": [
           {
-            "id": "title",
-            "component": "Heading",
-            "props": {
-              "text": {
-                "@path": "/title"
-              },
-              "level": "h3"
-            }
-          },
-          {
-            "id": "body",
-            "component": "Text",
-            "props": {
-              "text": {
-                "@path": "/body"
-              },
-              "variant": "body"
-            }
-          },
-          {
-            "id": "actions",
-            "component": "Stack",
-            "props": {
-              "direction": "horizontal",
-              "gap": "sm",
-              "justify": "end"
+            "id": "card",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "padding": "$spacing.xl",
+              "width": 420,
+              "backgroundColor": "$color.card",
+              "borderWidth": 1,
+              "borderColor": "$color.border",
+              "borderRadius": "$radius.lg"
             },
             "children": [
               {
-                "id": "deny",
-                "component": "Button",
+                "id": "title",
+                "component": "Heading",
                 "props": {
-                  "label": {
-                    "@path": "/deny"
+                  "text": {
+                    "@path": "/title"
                   },
-                  "variant": "ghost"
-                },
-                "on": {
-                  "press": {
-                    "functionCall": {
-                      "@call": "sealed_answer",
-                      "args": {
-                        "answer": "deny"
-                      }
-                    }
-                  }
+                  "level": "h3"
                 }
               },
               {
-                "id": "allow",
-                "component": "Button",
+                "id": "body",
+                "component": "Text",
                 "props": {
-                  "label": {
-                    "@path": "/allow"
-                  }
+                  "text": {
+                    "@path": "/body"
+                  },
+                  "variant": "body"
+                }
+              },
+              {
+                "id": "actions",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "justify": "end"
                 },
-                "on": {
-                  "press": {
-                    "functionCall": {
-                      "@call": "sealed_answer",
-                      "args": {
-                        "answer": "allow"
+                "children": [
+                  {
+                    "id": "deny",
+                    "component": "Button",
+                    "props": {
+                      "label": {
+                        "@path": "/deny"
+                      },
+                      "variant": "ghost"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "sealed_answer",
+                          "args": {
+                            "answer": "deny"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "allow",
+                    "component": "Button",
+                    "props": {
+                      "label": {
+                        "@path": "/allow"
+                      }
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "sealed_answer",
+                          "args": {
+                            "answer": "allow"
+                          }
+                        }
                       }
                     }
                   }
-                }
+                ]
               }
             ]
           }

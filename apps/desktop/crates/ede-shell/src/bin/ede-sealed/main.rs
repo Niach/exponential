@@ -687,6 +687,38 @@ mod tests {
         assert_eq!(grant_from(read.into_raw_fd()).map(|t| t.as_str().to_string()), Some(grant));
     }
 
+    /// The nodes from `node` down to the one with `id`, in that order.
+    fn path_to<'a>(node: &'a Value, id: &str) -> Option<Vec<&'a Value>> {
+        if node["id"] == id {
+            return Some(vec![node]);
+        }
+        node["children"].as_array()?.iter().find_map(|child| path_to(child, id)).map(|mut path| {
+            path.insert(0, node);
+            path
+        })
+    }
+
+    /// #EDE-181: every sealed prompt's card is opaque in both modes: an
+    /// opaque colour lies under it in its document (the lock's screen, the
+    /// others' `backing`). The dark theme's card is translucent, so a card
+    /// over nothing let the window under the prompt show through its words.
+    #[test]
+    fn every_sealed_card_lies_on_an_opaque_colour() {
+        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        for (name, doc) in [("lock", LOCK), ("polkit", POLKIT), ("consent", CONSENT), ("share", SHARE)] {
+            let parsed: Value = serde_json::from_str(doc).expect(name);
+            let path = path_to(&parsed["root"], "card").unwrap_or_else(|| panic!("{name} has a card"));
+            for mode in [Mode::Light, Mode::Dark] {
+                let colors = &theme.modes.get(mode).color;
+                let opaque = path.iter().filter_map(|n| n["style"]["backgroundColor"].as_str()).any(|c| {
+                    let hex = c.strip_prefix("$color.").map_or(Some(c), |token| colors.get(token).map(String::as_str)).unwrap_or_else(|| panic!("{name}: {c} is no colour"));
+                    hex.get(7..9).map_or(hex.len() == 7, |alpha| alpha.eq_ignore_ascii_case("ff"))
+                });
+                assert!(opaque, "{name}'s card lies on nothing opaque in {mode:?}");
+            }
+        }
+    }
+
     /// Every call a sealed document makes is one this binary handles, and
     /// the source matches each by its flat name (#VAPP-289 renamed the
     /// documents' calls; the lock screen must keep unlocking).

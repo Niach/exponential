@@ -69,6 +69,138 @@ fn the_lock_client_covers_every_output_and_follows_them() {
     assert!(h.with(|ede| ede.is_locked()));
 }
 
+/// #EDE-181: a sealed prompt's card hides the window under it. Over the
+/// person's window, bright and busy, the polkit prompt, a consent and the
+/// share chooser each show the same pixels in their card's padding
+/// whatever the window shows under it: its pattern, then the inverse. With
+/// `EDE_PICTURES=<dir>` each is pictured over the window.
+#[test]
+#[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed, and dbus-daemon"]
+fn every_sealed_prompt_hides_the_window_under_its_card() {
+    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let bin = std::env::var("EDE_SEALED_BIN").expect("EDE_SEALED_BIN");
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = dir.path().join("run");
+    std::fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+    // Under ENV: no other test reads the environment meanwhile.
+    unsafe { std::env::set_var("XDG_RUNTIME_DIR", &runtime) };
+    let h = Harness::start(Config::default(), &[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    busy(&mut app, &t, false);
+    wait("the person's window never got the keyboard", || {
+        app.roundtrip();
+        app.state.keyboard_focus.as_ref() == Some(&t.surface)
+    });
+    let under = h.capture(0);
+    for doc in [POLKIT, CONSENT, SHARE] {
+        assert!(card_padding(&under, card_width(doc)).iter().all(|p| p & 0x00ff_ffff != 0), "the person's window does not lie under the cards");
+    }
+    let display = h.with(|ede| ede.listen()).unwrap();
+    let sealed = |mode: &str| {
+        let mut c = Command::new(&bin);
+        c.arg(mode).env("WAYLAND_DISPLAY", &display).env("XDG_RUNTIME_DIR", &runtime).stdout(Stdio::null());
+        c
+    };
+
+    // The polkit prompt, for the person's own `pkexec`.
+    let (_bus, address) = private_bus(dir.path());
+    let authority = Authority::default();
+    let polkitd = zbus::blocking::connection::Builder::address(address.as_str())
+        .unwrap()
+        .name("org.freedesktop.PolicyKit1")
+        .unwrap()
+        .serve_at("/org/freedesktop/PolicyKit1/Authority", authority.clone())
+        .unwrap()
+        .build()
+        .unwrap();
+    let agent = Kill(sealed("polkit").env("DBUS_SYSTEM_BUS_ADDRESS", &address).env("XDG_SESSION_ID", "ede181").spawn().unwrap());
+    wait("the agent never registered with polkitd", || authority.agent.lock().unwrap().is_some());
+    let registered = authority.agent.lock().unwrap().clone().unwrap();
+    let person = Kill(Command::new("sleep").arg("120").spawn().unwrap());
+    let reply = prompt_with_the_keyboard(&h, &mut app, &polkitd, &registered, "ede181", person.0.id());
+    hides(&h, &mut app, &t, "polkit", card_width(POLKIT));
+    cancel(&h, &mut app, &t, &polkitd, &registered, "ede181", reply);
+    drop(agent);
+
+    // A consent.
+    let consent = Kill(sealed("consent").args(["--title", "Install the package list?", "--body", "An agent asks to run apt-get update as the super user."]).spawn().unwrap());
+    hides(&h, &mut app, &t, "consent", card_width(CONSENT));
+    drop(consent);
+    wait("the consent stayed after its end", || layers(&h) == 0);
+
+    // The share chooser.
+    let mut share = sealed("share").stdin(Stdio::piped()).spawn().unwrap();
+    let ask = r#"{"app_id": "org.example.Viewer", "types": ["monitor", "window"], "multiple": false, "remote_control": false, "outputs": [{"name": "HEADLESS-1", "width": 800, "height": 600}], "windows": [{"id": "1", "title": "app", "app_id": "app"}]}"#;
+    std::io::Write::write_all(&mut share.stdin.take().unwrap(), ask.as_bytes()).unwrap();
+    let share = Kill(share);
+    hides(&h, &mut app, &t, "share", card_width(SHARE));
+    drop(share);
+}
+
+const POLKIT: &str = include_str!("../../../sealed/polkit.json");
+const CONSENT: &str = include_str!("../../../sealed/consent.json");
+const SHARE: &str = include_str!("../../../sealed/share.json");
+
+/// The width of a sealed document's `card`.
+fn card_width(doc: &str) -> i32 {
+    fn find(node: &serde_json::Value) -> Option<i32> {
+        if node["id"] == "card" {
+            return node["style"]["width"].as_i64().map(|w| w as i32);
+        }
+        node["children"].as_array()?.iter().find_map(find)
+    }
+    find(&serde_json::from_str::<serde_json::Value>(doc).unwrap()["root"]).expect("a card with a width")
+}
+
+/// The person's window over the whole output, bright and busy: diagonal
+/// bands of saturated colour under a fine white checker; `inverse` = every
+/// pixel's colour inverted.
+fn busy(app: &mut Session, t: &common::Toplevel, inverse: bool) {
+    const BANDS: [u32; 6] = [0xff_0000, 0xff_ff00, 0x00_ff00, 0x00_ffff, 0x00_00ff, 0xff_00ff];
+    app.draw_with(t, 800, 600, |x, y| {
+        let rgb = if (x / 4 + y / 4) % 2 == 0 { BANDS[((x + y) / 24 % 6) as usize] } else { 0xff_ffff };
+        0xff00_0000 | if inverse { rgb ^ 0xff_ffff } else { rgb }
+    });
+}
+
+/// The left and right padding of a `width`-wide card centred on the
+/// output, over the 120 rows round the middle (inside every card): no
+/// content, only the card.
+fn card_padding(frame: &ede_compositor::backend::headless::Frame, width: i32) -> Vec<u32> {
+    let (cx, cy) = (frame.width / 2, frame.height / 2);
+    let columns: Vec<i32> = (4..20).flat_map(|d| [cx - width / 2 + d, cx + width / 2 - 1 - d]).collect();
+    (cy - 60..cy + 60).flat_map(|y| columns.iter().map(move |&x| frame.at(x, y))).collect()
+}
+
+/// A prompt of `name` drew over the person's window: its card's padding
+/// is the same over the window's pattern and over its inverse.
+fn hides(h: &Harness, app: &mut Session, t: &common::Toplevel, name: &str, width: i32) {
+    wait(&format!("the {name} prompt never drew"), || drawn(h));
+    // Its first frames settle.
+    let mut last = card_padding(&h.capture(0), width);
+    wait(&format!("the {name} prompt never settled"), || {
+        std::thread::sleep(Duration::from_millis(300));
+        let now = card_padding(&h.capture(0), width);
+        std::mem::replace(&mut last, now) == last
+    });
+    picture_as(h, &format!("{name}-over-a-busy-window"));
+    busy(app, t, true);
+    let inverse = card_padding(&h.capture(0), width);
+    busy(app, t, false);
+    let changed = last.iter().zip(&inverse).filter(|(a, b)| a != b).count();
+    assert_eq!(changed, 0, "{changed} of {} pixels of the {name} prompt's card show the window under it", last.len());
+}
+
+/// A layer surface on the person's outputs has drawn.
+fn drawn(h: &Harness) -> bool {
+    h.with(|ede| {
+        ede.desk.space.outputs().any(|o| smithay::desktop::layer_map_for_output(o).layers().any(|l| smithay::backend::renderer::utils::with_renderer_surface_state(l.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)))
+    })
+}
+
 /// A process this test started, ended with the test.
 struct Kill(Child);
 
@@ -367,10 +499,15 @@ fn shows_beside(h: &Harness, _t: &common::Toplevel) -> bool {
 /// With `EDE_PICTURES=<dir>`: the person's screen as it is now, as
 /// `<dir>/polkit-<name>.png` (the pictures of the prompt on #EDE-143).
 fn picture(h: &Harness, name: &str) {
+    picture_as(h, &format!("polkit-{name}"));
+}
+
+/// [`picture`] as `<dir>/<name>.png`.
+fn picture_as(h: &Harness, name: &str) {
     let Some(dir) = std::env::var_os("EDE_PICTURES") else { return };
     let frame = h.capture(0);
     let rgba: Vec<u8> = frame.pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 0xff]).collect();
-    let path = std::path::Path::new(&dir).join(format!("polkit-{name}.png"));
+    let path = std::path::Path::new(&dir).join(format!("{name}.png"));
     let file = std::fs::File::create(&path).unwrap();
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), frame.width as u32, frame.height as u32);
     encoder.set_color(png::ColorType::Rgba);
