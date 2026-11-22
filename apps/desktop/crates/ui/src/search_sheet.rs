@@ -108,20 +108,26 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &OpenSearch, cx| {
         crate::navigation::on_active_window(cx, |window, cx| open_search(window, cx));
     });
-    // ⌘K (command-palette) and ⌘F (§8.13 quick-find parity) both open the
-    // same issue search — there is no second find surface to route ⌘F to.
+    // ⌘K (command-palette) is the issue search everywhere; ⌘F is find in
+    // chat while a chat screen is open, else the same search (§8.13).
     #[cfg(target_os = "macos")]
-    cx.bind_keys([
-        KeyBinding::new("cmd-k", OpenSearch, None),
-        KeyBinding::new("cmd-f", OpenSearch, None),
-    ]);
+    cx.bind_keys([KeyBinding::new("cmd-k", OpenSearch, None)]);
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([
-        KeyBinding::new("ctrl-k", OpenSearch, None),
-        KeyBinding::new("ctrl-f", OpenSearch, None),
-    ]);
-    // #EDE-129: inside a session view Ctrl/Cmd+F is find in chat instead.
+    cx.bind_keys([KeyBinding::new("ctrl-k", OpenSearch, None)]);
+    // #EDE-129: a session view handles Ctrl/Cmd+F itself (focus inside it).
+    // Unhandled (#EXP-2021: nothing focused, e.g. right after launch) it
+    // lands here: a chat screen opens its bar, any other the search.
     cx.bind_keys(crate::steer_viewer::find_key_bindings());
+    cx.on_action(|_: &crate::steer_viewer::FindInChat, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| {
+            let nav = crate::navigation::nav_for_window(window, cx);
+            if nav.read(cx).screen().is_some_and(crate::steer_viewer::screen_has_find) {
+                crate::steer_viewer::request_find(None, window, cx);
+            } else {
+                open_search(window, cx);
+            }
+        });
+    });
 }
 
 /// Open the search dialog on `window` (no-op unless the session is `Synced`
