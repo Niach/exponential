@@ -1,16 +1,24 @@
 // NEW-70 (voice V6): one web call, streamed to the member's voice device
-// (`fixtures/voice-call.json` TRANSPORT). `voice.startCall` mints the
-// caller's relay ticket; the relay rings the voice device and answers
-// `call_ready` once its host joined; from then on the microphone goes up as
-// `up` frames and the reply comes down as `down` frames, while the host's
-// `call_event`s drive the SAME `callStep` machine the voice device runs.
-// Mute = `call_mute` (the microphone keeps sending its silence), End call =
-// `call_end`; a refusal, an `error` code, a codec error, a socket that
-// simply went away or the relay's `call_end` with a reason (`idle`,
-// `max_length`: the flow's `hungUp`) ends the call with the fixture's toast;
-// only a reason-less `call_end` (the host hung up) ends it silently. A
-// browser without WebCodecs Opus toasts `unsupported` before the microphone
-// opens and never dials (Opus only: the host decodes nothing else).
+// (`fixtures/voice-call.json` TRANSPORT). #EXP-2017: THE CALLER IS THE
+// PHONES' PURE MACHINE: `callerStep` (@exp/etalk, voice-call.json `caller`,
+// whose `$comment` is the spec; iOS and Android replay the same rows)
+// decides, this class only does its effects, in order, and hands in what
+// happened; a report of a call that ended is dropped (the generation).
+//
+// Web holds nothing at the tap (iOS's way: `held ok` at once), so it rings
+// from the tap; the `ticket` effect opens the microphone and the Opus codec
+// first (a browser without WebCodecs Opus fails `unsupported` and never
+// dials: the host decodes nothing else), then waits for a key holder still
+// starting and asks `voice.startCall`. `call_ready` opens the pair (the
+// microphone's frames go up from then on as `up` frames, the reply comes
+// down as `down` frames) while the host's `call_event`s drive the SAME
+// `callStep` the voice device runs; its `rang` + `ready` answer the ring.
+// Mute = `call_mute` once paired (the microphone keeps sending its
+// silence), End call = `call_end`. An own failure once dialled (the codec,
+// a path gone silent, the ring's bound at `maxRingMs`: `unavailable`)
+// tells the host `call_end {reason: dropped}` before it lets go; an end from
+// the far side (`call_end`, its `end` / `hungUp` events, `error`, `bye`, the
+// socket going away) sends nothing.
 //
 // #EXP-1941: A SEALED CALL. A caller that holds a key holder claims `seal`;
 // when `voice.startCall` answers `seal: true` (both ends can seal and the
@@ -19,29 +27,27 @@
 // every microphone packet as ONE sealed frame of one size with mute inside
 // (no `call_mute`), and the host's events and audio opened before anything
 // else reads them (seal.ts). Nothing of the microphone leaves before the
-// host proved the chat's key; a seal failure reads `dropped`. A code about
-// this browser's OWN device (`no_microphone`, `not_granted`, `unsupported`)
-// is never taken from the wire: there it reads `dropped`.
-//
-// S-3: a call RINGS first. The caller plays its own ring tone (EXP-1423: the
-// shared cadence, looped until the ring ends, at most `maxRingMs`; the voice
-// device rings nothing for a remote call) while the host warms up; the host's `call_event`s `rang` + `ready` answer it (`call_ready` only
-// opens the pair: the microphone's frames start flowing then), its
-// `noSound` is the mic check.
+// host proved the chat's key; a seal failure reads `dropped` (its line
+// tells the host its own reason). A code about this browser's OWN device
+// (`no_microphone`, `not_granted`, `unsupported`) is never taken from the
+// wire: there it reads `dropped`.
 
 import {
   CALL_IDLE,
+  CALLER_IDLE,
+  callerStep,
   callPathDead,
-  callStep,
-  VOICE_CALL_CONSTANTS,
   VOICE_CALL_COPY,
-  type CallEvent,
+  type CallerEffect,
+  type CallerInput,
+  type CallerOutgoing,
+  type CallerState,
   type CallState,
 } from "@exp/etalk/voice-call"
 
 import { CallAudioError, type CallAudio } from "./audio"
 import { CallSealLine, type CallKeySource, type CallKeyTarget } from "./seal"
-import { audioFrame, hostCallEvent, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter, wireCode } from "./wire"
+import { audioFrame, KIND_DOWN, KIND_UP, parseAudioFrame, parseControl, seqAfter } from "./wire"
 
 /** The slice of a WebSocket a call uses (the tests hand in a fake). */
 export interface CallSocket {
@@ -79,7 +85,15 @@ export interface CallSnapshot {
   state: CallState
 }
 
+/** `voice.startCall`'s usable answer: where to dial, and a sealed call's ids. */
+interface CallTicket {
+  url: string
+  sealed: { callId: string; deviceId: string; target: CallKeyTarget } | null
+}
+
 const OPEN = 1
+/** EXP-1929: how often the liveness deadline is looked at. */
+const LIVENESS_TICK_MS = 1_000
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, `\\$&`)
 
@@ -96,24 +110,37 @@ function refusalReason(error: unknown): string | null {
 }
 
 export class VoiceCall {
+  /** The caller's session: the flow and its stage (`callerStep`). */
+  private caller: CallerState = CALLER_IDLE
   private snapshot: CallSnapshot = { state: CALL_IDLE }
   private listeners = new Set<() => void>()
   private level = 0
   private levelListeners = new Set<() => void>()
+  /** Bumped by every start and every `release`: what a call reports after
+   *  its end is dropped. */
+  private generation = 0
+  private inbox: CallerInput[] = []
+  private stepping = false
+  private agentId: string | null = null
+  /** The `ticket` effect's job: `start` settles with it. */
+  private asking: Promise<void> | null = null
+  private ticket: CallTicket | null = null
   private socket: CallSocket | null = null
   private audio: CallAudio | null = null
-  private ready = false
+  /** The pair is up on today's wire: the microphone's frames go up. */
+  private uplink = false
   private seq = 0
   private lastDown: number | null = null
-  private generation = 0
-  private stopRing: (() => void) | null = null
+  private stopRingTone: (() => void) | null = null
+  /** The ring's bound (`maxRingMs`): `ringTimeout`. */
+  private ringTimer: ReturnType<typeof setTimeout> | null = null
   /** EXP-1929: the relay beats (`call_alive`), when it last sent anything,
    *  and the check that ends a path gone silent. */
   private alive = false
-  /** #EXP-1941: the sealed line of a call the server marked sealed, else null (today's wire). */
-  private line: CallSealLine | null = null
   private heardAt = 0
   private liveness: ReturnType<typeof setInterval> | null = null
+  /** #EXP-1941: the sealed line of a call the server marked sealed, else null (today's wire). */
+  private line: CallSealLine | null = null
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
@@ -141,216 +168,269 @@ export class VoiceCall {
   }
 
   get active(): boolean {
-    return this.snapshot.state.phase !== `hidden`
-  }
-
-  private step(event: CallEvent) {
-    const state = callStep(this.snapshot.state, event)
-    this.snapshot = { state }
-    for (const listener of this.listeners) listener()
-    if (state.phase === `hidden` || state.muted) this.setLevel(0)
-    if (state.phase !== `ringing`) this.silenceRing()
-    if (state.toast) this.onToast?.(state.toast)
-  }
-
-  private silenceRing() {
-    const stop = this.stopRing
-    this.stopRing = null
-    stop?.()
+    return this.caller.stage !== `idle`
   }
 
   /** Dial `agentId` on the desktop called `device`; `language` = the
-   *  agent's voice language; EXP-1857:
-   *  `fallback` = that desktop is not the agent's own (`via` shows it). */
+   *  agent's voice language; EXP-1857: `fallback` = that desktop is not the
+   *  agent's own (`via` shows it). Settles once the ticket was asked. */
   async start(agentId: string, device: string, language?: string, fallback = false): Promise<void> {
     if (this.active) return
-    const generation = ++this.generation
-    this.step({ t: `start`, device, language, fallback })
-    this.stopRing = this.deps.ring?.(VOICE_CALL_CONSTANTS.maxRingMs) ?? null
+    this.generation += 1
+    this.agentId = agentId
+    this.asking = null
+    this.send({ t: `start`, device, language, fallback })
+    await this.asking
+  }
+
+  toggleMute() {
+    this.send({ t: `mute` })
+  }
+
+  /** End call (and the page going away). */
+  end() {
+    this.send({ t: `end` })
+  }
+
+  /** Hands `input` to `callerStep`, one at a time; `generation` = the call
+   *  it belongs to (a report of an ended call is dropped). */
+  private send(input: CallerInput, generation?: number) {
+    if (generation !== undefined && generation !== this.generation) return
+    this.inbox.push(input)
+    if (this.stepping) return
+    this.stepping = true
+    try {
+      while (this.inbox.length > 0) {
+        const stepped = callerStep(this.caller, this.inbox.shift()!)
+        this.caller = stepped.state
+        this.publish()
+        for (const effect of stepped.effects) this.perform(effect)
+      }
+    } finally {
+      this.stepping = false
+    }
+  }
+
+  private publish() {
+    const state = this.caller.call
+    if (state === this.snapshot.state) return
+    this.snapshot = { state }
+    for (const listener of this.listeners) listener()
+    if (state.phase === `hidden` || state.muted) this.setLevel(0)
+  }
+
+  private perform(effect: CallerEffect) {
+    const generation = this.generation
+    switch (effect.do) {
+      case `hold`:
+        // A browser holds nothing before it rings (iOS's way): the
+        // microphone is asked with the ticket.
+        return this.send({ t: `held`, ok: true }, generation)
+      case `ring`:
+        this.stopRingTone = this.deps.ring?.(effect.ms) ?? null
+        this.ringTimer = setTimeout(() => this.send({ t: `ringTimeout` }, generation), effect.ms)
+        return
+      case `ticket`:
+        this.asking = this.ask(generation)
+        return
+      case `dial`:
+        return this.dial(generation)
+      case `startAudio`:
+        // The microphone runs since the ticket: its frames go up from now on,
+        // a sealed call's only once its line has the host's proof.
+        if (this.line) this.line.ready()
+        else this.uplink = true
+        return
+      case `stopRing`:
+        return this.silenceRing()
+      case `flush`:
+        return this.audio?.flush()
+      case `mute`:
+        return this.audio?.setMuted(effect.muted)
+      case `speaker`:
+        // A browser has no earpiece to switch from.
+        return
+      case `send`:
+        return this.sendControl(effect.frame)
+      case `alive`:
+        this.alive = true
+        return
+      case `release`:
+        return this.teardown()
+      case `toast`:
+        return this.onToast?.(effect.text)
+    }
+  }
+
+  /** The `ticket` effect: the microphone and the codec, a key holder that is
+   *  still starting (then the claim), then `voice.startCall`. */
+  private async ask(generation: number): Promise<void> {
+    const live = () => generation === this.generation
     let audio: CallAudio
     try {
       audio = await this.deps.openAudio()
     } catch (error) {
-      if (generation !== this.generation) return
-      const code = error instanceof CallAudioError ? error.code : `no_microphone`
-      return this.step({ t: `failed`, code })
+      return this.send({ t: `failed`, code: error instanceof CallAudioError ? error.code : `no_microphone` }, generation)
     }
-    if (generation !== this.generation) return audio.close()
+    if (!live()) return audio.close()
     this.audio = audio
-    audio.setMuted(this.snapshot.state.muted)
-    audio.onLevel = (level) => this.setLevel(level)
-    audio.onError = () => {
-      if (generation === this.generation) this.fail(`dropped`)
+    audio.setMuted(this.caller.call.muted)
+    audio.onLevel = (level) => {
+      if (live()) this.setLevel(level)
     }
+    audio.onError = () => this.send({ t: `failed`, code: `dropped` }, generation)
     audio.onPacket = (packet) => {
-      if (this.socket?.readyState !== OPEN) return
-      // A sealed call's ONE gate: a frame leaves only through the sealer,
-      // which exists only after the host's proof opened.
-      const frame = this.line ? this.line.sealPacket(this.seq, this.snapshot.state.muted, packet) : this.ready ? audioFrame(KIND_UP, this.seq, packet) : null
-      if (!frame) return
-      this.socket?.send(frame)
-      this.seq = (this.seq + 1) & 0xffff
+      if (live()) this.up(packet)
     }
-    let url: string
-    let sealed: { callId: string; deviceId: string; target: CallKeyTarget } | null = null
+    const agentId = this.agentId!
+    let ticket: CallTicket
+    let named: { device?: string; fallback?: boolean }
     try {
       // A key holder that is still starting is waited for, then the caller
       // claims; one that cannot hold keys dials without the claim.
       const keys = this.deps.keys
       const claim = keys ? await keys.ready().catch(() => false) : false
-      if (generation !== this.generation) return
+      if (!live()) return
       const none: CallKeyTarget = { rootId: null, epoch: null }
       const [answer, target] = await Promise.all([
         this.deps.startCall(agentId, claim),
         claim ? keys!.target(agentId).catch(() => none) : none,
       ])
-      url = answer.url
-      if (answer.seal === true) {
-        // Told sealed without the claim or the ids: no clear call instead.
-        if (!claim || !answer.callId || !answer.deviceId) throw new Error(`a sealed call this caller cannot seal`)
-        sealed = { callId: answer.callId, deviceId: answer.deviceId, target }
+      // Told sealed without the claim or the ids: no usable answer, and no clear call instead.
+      if (answer.seal === true && (!claim || !answer.callId || !answer.deviceId)) throw new Error(`a sealed call this caller cannot seal`)
+      ticket = {
+        url: answer.url,
+        sealed: answer.seal === true ? { callId: answer.callId!, deviceId: answer.deviceId!, target } : null,
       }
-      // #EXP-1935: the answer names the device that speaks, as on the phones.
-      if (generation === this.generation && (answer.device !== undefined || answer.fallback !== undefined)) {
-        const state = this.snapshot.state
-        this.snapshot = {
-          state: { ...state, device: answer.device ?? state.device, fallback: answer.fallback ?? state.fallback },
-        }
-        for (const listener of this.listeners) listener()
-      }
+      named = { device: answer.device, fallback: answer.fallback }
     } catch (error) {
-      if (generation !== this.generation) return
-      this.teardown()
       // Only an availability refusal (the fixture's own words) is shown;
       // anything else (a network error, a 500) is a dropped call.
       const reason = refusalReason(error)
-      if (!reason) return this.step({ t: `failed`, code: `dropped` })
-      this.step({ t: `end` })
-      this.onToast?.(reason)
-      return
+      return this.send(reason ? { t: `refused`, message: reason } : { t: `failed`, code: `dropped` }, generation)
     }
-    if (generation !== this.generation) return
-    this.dial(url, generation)
-    if (sealed && this.deps.keys) {
+    if (!live()) return
+    this.ticket = ticket
+    // #EXP-1935: the answer names the device that speaks, as on the phones.
+    this.send(
+      {
+        t: `ticket`,
+        ...(named.device !== undefined ? { device: named.device } : {}),
+        ...(named.fallback !== undefined ? { fallback: named.fallback } : {}),
+        sealed: ticket.sealed !== null,
+      },
+      generation
+    )
+  }
+
+  /** The `dial` effect: the ticket's url, and a sealed call's line. */
+  private dial(generation: number) {
+    const ticket = this.ticket
+    if (!ticket) return
+    let socket: CallSocket
+    try {
+      socket = this.deps.openSocket(ticket.url)
+    } catch {
+      return this.send({ t: `failed`, code: `dropped` }, generation)
+    }
+    socket.binaryType = `arraybuffer`
+    this.socket = socket
+    this.heardAt = Date.now()
+    // EXP-1929: once the relay beat, a path that carries nothing for
+    // `idleTimeoutMs` is dead: an own failure (the host is told).
+    this.liveness = setInterval(() => {
+      if (callPathDead(this.alive, Date.now() - this.heardAt)) this.send({ t: `failed`, code: `dropped` }, generation)
+    }, LIVENESS_TICK_MS)
+    socket.onmessage = (message) => {
+      if (generation !== this.generation) return
+      this.heardAt = Date.now()
+      if (typeof message.data === `string`) return this.control(message.data, generation)
+      this.binary(new Uint8Array(message.data as ArrayBuffer))
+    }
+    socket.onclose = () => this.send({ t: `closed` }, generation)
+    socket.onerror = () => {}
+    const keys = this.deps.keys
+    if (ticket.sealed && keys) {
       this.line = new CallSealLine({
-        ...sealed,
-        agentId,
-        keys: this.deps.keys,
+        ...ticket.sealed,
+        agentId: this.agentId!,
+        keys,
         sendBinary: (frame) => {
           if (this.socket?.readyState === OPEN) this.socket.send(frame)
         },
         end: (reason) => this.sendControl({ t: `call_end`, reason }),
-        fail: (code) => this.fail(code),
+        // The line told the host its own reason first.
+        fail: (code) => this.send({ t: `failed`, code, told: true }, generation),
       })
     }
   }
 
-  private dial(url: string, generation: number) {
-    const socket = this.deps.openSocket(url)
-    socket.binaryType = `arraybuffer`
-    this.socket = socket
-    this.heardAt = Date.now()
-    this.liveness = setInterval(() => {
-      if (generation === this.generation && callPathDead(this.alive, Date.now() - this.heardAt)) this.fail(`dropped`)
-    }, 1_000)
-    socket.onmessage = (message) => {
-      if (generation !== this.generation) return
-      this.heardAt = Date.now()
-      if (typeof message.data === `string`) return this.control(message.data)
-      if (this.line) {
-        // Opened here, in arrival order; a frame with no packet reaches no decoder.
-        const opened = this.line.frame(new Uint8Array(message.data as ArrayBuffer))
-        if (opened && opened.packet.length > 0) this.audio?.play(opened.packet)
-        return
-      }
-      const frame = parseAudioFrame(message.data as ArrayBuffer)
-      if (!frame || frame.kind !== KIND_DOWN) return
-      // A late frame is worthless in a realtime call.
-      if (this.lastDown !== null && !seqAfter(frame.seq, this.lastDown)) return
-      this.lastDown = frame.seq
-      this.audio?.play(frame.packet)
-    }
-    socket.onclose = () => {
-      if (generation !== this.generation) return
-      this.fail(`dropped`)
-    }
-    socket.onerror = () => {}
-  }
-
-  private control(text: string) {
+  /** One control frame, in arrival order; a sealed call's host events are opened first. */
+  private control(text: string, generation: number) {
     const frame = parseControl(text)
     if (!frame) return
-    switch (frame.t) {
-      case `call_ready`:
-        if (this.line) return this.line.ready()
-        this.ready = true
-        if (this.snapshot.state.muted) this.sendControl({ t: `call_mute`, muted: true })
-        return
-      case `call_event`: {
-        const raw = frame.event as { t?: unknown; data?: unknown } | null
-        if (this.line && raw && typeof raw === `object` && raw.t !== `failed`) {
-          // A sealed call: the host's hello, or ONE control frame of today
-          // sealed. Clear content ends it (the line says so).
-          const inner = this.line.event(raw)
-          const opened = inner === null ? null : parseControl(inner)
-          if (opened?.t !== `call_event`) return
-          return this.hostEvent(opened.event)
-        }
-        return this.hostEvent(frame.event)
+    if (this.line && frame.t === `call_event`) {
+      const raw = frame.event as { t?: unknown; data?: unknown } | null
+      if (raw && typeof raw === `object` && raw.t !== `failed`) {
+        // The host's hello, or ONE control frame of today sealed. Clear
+        // content ends it (the line says so).
+        const inner = this.line.event(raw)
+        const opened = inner === null ? null : parseControl(inner)
+        if (opened?.t !== `call_event`) return
+        return this.send({ t: `frame`, frame: opened }, generation)
       }
-      case `call_end`:
-        this.teardown()
-        return this.step({ t: `hungUp`, reason: frame.reason ?? null })
-      case `error`:
-        return this.fail(wireCode(frame.code))
-      case `bye`:
-        return this.fail(wireCode(frame.outcome ?? `dropped`))
-      case `call_alive`:
-        this.alive = true
-        return
     }
+    this.send({ t: `frame`, frame }, generation)
   }
 
-  /** One flow event of the host (clear in today's call, opened in a sealed one). */
-  private hostEvent(raw: unknown) {
-    const event = hostCallEvent(raw)
-    if (!event) return
-    // The host failed the call (its `call_end` follows): its toast.
-    if (event.t === `failed`) return this.fail(wireCode(event.code))
-    // Barge-in: the reply still queued must not keep talking over it.
-    if (event.t === `speechStarted`) this.audio?.flush()
-    return this.step(event)
+  /** One binary frame: the host's audio, in order (a late frame is worthless in a realtime call). */
+  private binary(bytes: Uint8Array) {
+    if (this.line) {
+      // Opened here, in arrival order; a frame with no packet reaches no decoder.
+      const opened = this.line.frame(bytes)
+      if (opened && opened.packet.length > 0) this.audio?.play(opened.packet)
+      return
+    }
+    const frame = parseAudioFrame(bytes)
+    if (!frame || frame.kind !== KIND_DOWN) return
+    if (this.lastDown !== null && !seqAfter(frame.seq, this.lastDown)) return
+    this.lastDown = frame.seq
+    this.audio?.play(frame.packet)
   }
 
-  private sendControl(frame: Record<string, unknown>) {
+  /** One microphone packet. */
+  private up(packet: Uint8Array) {
+    if (this.socket?.readyState !== OPEN) return
+    // A sealed call's ONE gate: a frame leaves only through the sealer,
+    // which exists only after the host's proof opened.
+    const frame = this.line
+      ? this.line.sealPacket(this.seq, this.caller.call.muted, packet)
+      : this.uplink
+        ? audioFrame(KIND_UP, this.seq, packet)
+        : null
+    if (!frame) return
+    this.socket?.send(frame)
+    this.seq = (this.seq + 1) & 0xffff
+  }
+
+  private sendControl(frame: CallerOutgoing) {
     if (this.socket?.readyState === OPEN) this.socket.send(JSON.stringify(frame))
   }
 
-  private fail(code: string) {
-    if (!this.active) return
-    this.teardown()
-    this.step({ t: `failed`, code })
+  private silenceRing() {
+    if (this.ringTimer) clearTimeout(this.ringTimer)
+    this.ringTimer = null
+    const stop = this.stopRingTone
+    this.stopRingTone = null
+    stop?.()
   }
 
-  toggleMute() {
-    if (!this.active) return
-    const muted = !this.snapshot.state.muted
-    this.audio?.setMuted(muted)
-    // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
-    if (this.ready && !this.line) this.sendControl({ t: `call_mute`, muted })
-    this.step({ t: muted ? `mute` : `unmute` })
-  }
-
-  /** End call (and the page going away). */
-  end() {
-    if (!this.active) return
-    this.sendControl({ t: `call_end` })
-    this.teardown()
-    this.step({ t: `end` })
-  }
-
+  /** The `release` effect: everything the call holds goes; whatever it
+   *  still reports turns inert. */
   private teardown() {
     this.generation += 1
+    this.agentId = null
+    this.ticket = null
     this.line?.close()
     this.line = null
     const socket = this.socket
@@ -366,7 +446,7 @@ export class VoiceCall {
     this.silenceRing()
     this.audio?.close()
     this.audio = null
-    this.ready = false
+    this.uplink = false
     this.seq = 0
     this.lastDown = null
     if (this.liveness) clearInterval(this.liveness)

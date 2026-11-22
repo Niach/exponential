@@ -202,13 +202,14 @@ describe(`the web caller's wire`, () => {
     expect(audio.flushes).toBe(1)
   })
 
-  it(`ignores a host event outside the flow`, async () => {
+  it(`#EXP-1936: a host's start, mute, unmute, speaker and a malformed event are not the caller's`, async () => {
     const { call, socket } = await dialed()
     socket.text({ t: `call_ready` })
-    socket.text({ t: `call_event`, event: { t: `end` } })
-    socket.text({ t: `call_event`, event: { t: `said` } })
-    socket.text({ t: `call_event`, event: { t: `speaker`, on: false } })
-    expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, speaker: true })
+    for (const event of [{ t: `start`, device: `elsewhere` }, { t: `mute` }, { t: `unmute` }, { t: `speaker`, on: false }, { t: `said` }, { t: `newThing` }]) {
+      socket.text({ t: `call_event`, event })
+    }
+    expect(call.getSnapshot().state).toMatchObject({ phase: `ringing`, device: `mint`, muted: false, speaker: true })
+    expect(socket.controls()).toEqual([])
   })
 
   it(`EXP-1423: rings from the dial until answered (at most maxRingMs); call_ready answers nothing, the host's rang + ready do`, async () => {
@@ -231,16 +232,18 @@ describe(`the web caller's wire`, () => {
     expect(rings.stopped).toBe(1)
   })
 
-  it(`mute closes the microphone and tells the host; muted before ready is told on ready`, async () => {
+  it(`mute closes the microphone; call_mute goes only once paired (voice-call.json caller)`, async () => {
     const { call, socket, audio } = await dialed()
     call.toggleMute()
     expect(audio.muted).toBe(true)
-    expect(socket.controls()).toEqual([])
     socket.text({ t: `call_ready` })
-    expect(socket.controls()).toEqual([{ t: `call_mute`, muted: true }])
+    expect(socket.controls()).toEqual([])
     call.toggleMute()
-    expect(socket.controls().at(-1)).toEqual({ t: `call_mute`, muted: false })
+    expect(socket.controls()).toEqual([{ t: `call_mute`, muted: false }])
     expect(audio.muted).toBe(false)
+    call.toggleMute()
+    expect(socket.controls().at(-1)).toEqual({ t: `call_mute`, muted: true })
+    expect(audio.muted).toBe(true)
   })
 
   it(`End call sends call_end, closes the socket and the audio`, async () => {
@@ -400,6 +403,9 @@ describe(`the web caller's wire`, () => {
       expect(beating.call.active).toBe(false)
       expect(beating.audio.closed).toBe(true)
       expect(beating.toasts).toEqual([fixture.copy.failed.dropped])
+      // #EXP-2017: an own failure: the host hears it from the caller first.
+      expect(beating.socket.controls()).toEqual([{ t: `call_end`, reason: `dropped` }])
+      expect(beating.socket.closed).toBe(true)
       const older = await dialed()
       older.socket.text({ t: `call_ready` })
       vi.advanceTimersByTime(3 * idleTimeoutMs)
@@ -419,12 +425,13 @@ describe(`the web caller's wire`, () => {
     expect(toasts).toEqual([fixture.copy.failed.dropped])
   })
 
-  it(`a codec error ends it as dropped and closes the microphone`, async () => {
+  it(`a codec error ends it as dropped, tells the host and closes the microphone`, async () => {
     const { call, socket, audio, toasts } = await dialed()
     socket.text({ t: `call_ready` })
     audio.onError?.()
     expect(call.active).toBe(false)
     expect(audio.closed).toBe(true)
+    expect(socket.controls()).toEqual([{ t: `call_end`, reason: `dropped` }])
     expect(socket.closed).toBe(true)
     expect(toasts).toEqual([fixture.copy.failed.dropped])
   })
@@ -786,6 +793,366 @@ describe(`#EXP-1941 a sealed web call`, () => {
       socket.text({ t: `call_ready` })
       socket.text(frame)
       expect(toasts).toEqual([dropped])
+    }
+  })
+})
+
+// #EXP-2017: the three ways the web caller differed from voice-call.json
+// `caller` (a host's end / hungUp, an own failure's call_end, the ring's
+// bound), against a fake relay socket and a fake clock.
+describe(`#EXP-2017 the web caller ends a call as caller.cases do`, () => {
+  const dropped = fixture.copy.failed.dropped
+  const unavailable = fixture.copy.failed.unavailable.replace(`{device}`, `mint`)
+  const { maxRingMs } = fixture.constants
+  const answer = (socket: FakeSocket) => {
+    socket.text({ t: `call_ready` })
+    socket.text({ t: `call_event`, event: { t: `rang` } })
+    socket.text({ t: `call_event`, event: { t: `ready` } })
+  }
+
+  it(`#EXP-1936: a host's end event ends the call as a reason-less call_end would: silently, nothing goes back, everything is let go`, async () => {
+    const { call, socket, audio, rings, toasts } = await dialed()
+    answer(socket)
+    expect(view(call)?.activity).toBe(`listening`)
+    socket.text({ t: `call_event`, event: { t: `end` } })
+    expect(call.active).toBe(false)
+    expect(view(call)).toBeNull()
+    expect(socket.controls()).toEqual([])
+    expect([socket.closed, audio.closed, rings.stopped]).toEqual([true, true, 1])
+    expect(toasts).toEqual([])
+    // Every later frame of that call is ignored.
+    socket.text({ t: `call_event`, event: { t: `said`, text: `late` } })
+    expect(call.active).toBe(false)
+  })
+
+  it(`#EXP-1936: a host's hungUp with a reason fails it dropped; without one it ends silently, also while it still rings`, async () => {
+    const listening = await dialed()
+    answer(listening.socket)
+    listening.socket.text({ t: `call_event`, event: { t: `hungUp`, reason: `idle` } })
+    expect(listening.call.active).toBe(false)
+    expect(listening.toasts).toEqual([dropped])
+    expect(listening.socket.controls()).toEqual([])
+    expect([listening.socket.closed, listening.audio.closed]).toEqual([true, true])
+
+    const ringing = await dialed()
+    ringing.socket.text({ t: `call_ready` })
+    ringing.socket.text({ t: `call_event`, event: { t: `hungUp` } })
+    expect(ringing.call.active).toBe(false)
+    expect(ringing.toasts).toEqual([])
+    expect(ringing.socket.controls()).toEqual([])
+    expect(ringing.rings.stopped).toBe(1)
+  })
+
+  it(`an own failure once dialled tells the host call_end {reason: dropped} before it lets go; while the socket still connects nothing is sent`, async () => {
+    // Dialled, not paired yet: the codec failed.
+    const dialledOnly = await dialed()
+    dialledOnly.audio.onError?.()
+    expect(dialledOnly.socket.controls()).toEqual([{ t: `call_end`, reason: `dropped` }])
+    expect(dialledOnly.socket.closed).toBe(true)
+    expect(dialledOnly.toasts).toEqual([dropped])
+
+    const connecting = await dialed()
+    connecting.socket.readyState = 0
+    connecting.audio.onError?.()
+    expect(connecting.socket.sent).toEqual([])
+    expect(connecting.socket.closed).toBe(true)
+    expect(connecting.call.active).toBe(false)
+  })
+
+  it(`an own failure after the far side ended is no second end: nothing more is sent`, async () => {
+    const { call, socket, audio, toasts } = await dialed()
+    answer(socket)
+    socket.text({ t: `call_end` })
+    audio.onError?.()
+    expect(call.active).toBe(false)
+    expect(socket.controls()).toEqual([])
+    expect(toasts).toEqual([])
+  })
+
+  it(`before the dial there is nobody to tell: a failed startCall or a refused microphone sends nothing, dials nothing`, async () => {
+    const opened: string[] = []
+    for (const deps of [
+      { startCall: async () => Promise.reject(new Error(`Failed to fetch`)) },
+      { openAudio: async () => Promise.reject(new CallAudioError(`not_granted`)) },
+    ]) {
+      const call = new VoiceCall({
+        startCall: async () => ({ url: `wss://relay` }),
+        openAudio: async () => fakeAudio(),
+        ...deps,
+        openSocket: (url) => {
+          opened.push(url)
+          return new FakeSocket()
+        },
+      })
+      await call.start(`agent-1`, `mint`)
+      expect(call.active).toBe(false)
+    }
+    expect(opened).toEqual([])
+  })
+
+  it(`the ring's bound: still ringing at maxRingMs fails unavailable and tells the host`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { call, socket, audio, rings, toasts } = await dialed()
+      socket.text({ t: `call_ready` })
+      socket.text({ t: `call_event`, event: { t: `rang` } })
+      vi.advanceTimersByTime(maxRingMs - 1)
+      expect(call.active).toBe(true)
+      expect(view(call)?.status).toBe(fixture.copy.gettingReady)
+      expect(socket.controls()).toEqual([])
+      vi.advanceTimersByTime(1)
+      expect(call.active).toBe(false)
+      expect(socket.controls()).toEqual([{ t: `call_end`, reason: `dropped` }])
+      expect(toasts).toEqual([unavailable])
+      expect([socket.closed, audio.closed, rings.stopped]).toEqual([true, true, 1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`the ring's bound passes an answered call by`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { call, socket, toasts } = await dialed()
+      answer(socket)
+      vi.advanceTimersByTime(2 * maxRingMs)
+      expect(call.active).toBe(true)
+      expect(view(call)?.activity).toBe(`listening`)
+      expect(socket.controls()).toEqual([])
+      expect(toasts).toEqual([])
+      call.end()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`the ring's bound before the dial (startCall never answers): unavailable, nothing dialled, nobody to tell`, async () => {
+    vi.useFakeTimers()
+    try {
+      const audio = fakeAudio()
+      const openSocket = vi.fn(() => new FakeSocket())
+      const toasts: string[] = []
+      const call = new VoiceCall({ startCall: () => new Promise(() => {}), openSocket, openAudio: async () => audio })
+      call.onToast = (message) => toasts.push(message)
+      void call.start(`agent-1`, `mint`)
+      await vi.advanceTimersByTimeAsync(maxRingMs)
+      expect(call.active).toBe(false)
+      expect(toasts).toEqual([unavailable])
+      expect(audio.closed).toBe(true)
+      expect(openSocket).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// #EXP-2017: every clear `caller.cases` row through the REAL web caller with
+// a fake relay socket, microphone, ring and clock (Android: the same rows
+// through `VoiceCallDriver`): each fixture event becomes what the page would
+// see, and what the call then does is asserted against the row's effects.
+// Not replayed here: a hold's refusal or an End during it (a browser holds
+// nothing: its hold answers `held ok` at once, iOS's way), the loudspeaker
+// (a browser has no earpiece) and the sealed rows (the sealed suite above
+// runs the real line against a scripted host).
+describe(`#EXP-2017 the web caller replays caller.cases`, () => {
+  type Row = (typeof fixture.caller.cases)[number]
+  type Event = Row[`events`][number] & Record<string, unknown>
+  const holdsOnly = (row: Row) => {
+    const events = row.events as Event[]
+    const start = events.findIndex((event) => event.t === `start`)
+    const held = events.findIndex((event) => event.t === `held`)
+    return events.some((event) => event.t === `held` && event.ok === false) || (held > start + 1 && start >= 0)
+  }
+  const skipped = (row: Row) =>
+    holdsOnly(row) || (row.events as Event[]).some((event) => event.t === `speaker` || (event.t === `ticket` && event.sealed === true))
+  const rows = fixture.caller.cases.filter((row) => !skipped(row))
+
+  it(`replays every row but the hold's, the loudspeaker's and the sealed ones`, () => {
+    expect(fixture.caller.cases.filter(skipped).map((row) => row.name).length).toBe(6)
+    expect(rows.length).toBe(fixture.caller.cases.length - 6)
+  })
+
+  /** What a row's effects look like from outside a browser's call. */
+  function expected(row: Row) {
+    const seen: string[] = []
+    let releases = 0
+    let flowing = false
+    for (const effects of row.effects as Record<string, unknown>[][]) {
+      for (const effect of effects) {
+        switch (effect.do) {
+          case `ring`:
+            seen.push(`ring ${effect.ms}`)
+            break
+          case `ticket`:
+            seen.push(`openAudio`)
+            break
+          case `dial`:
+            seen.push(`openSocket`)
+            break
+          case `startAudio`:
+            flowing = true
+            break
+          case `stopRing`:
+            seen.push(`ring.stop`)
+            break
+          case `flush`:
+            seen.push(`flush`)
+            break
+          case `mute`:
+            seen.push(`setMuted ${effect.muted}`)
+            break
+          case `send`:
+            seen.push(`send ${JSON.stringify(effect.frame)}`)
+            break
+          case `release`:
+            releases += 1
+            flowing = false
+            break
+          case `toast`:
+            seen.push(`toast ${effect.text}`)
+            break
+        }
+      }
+      // A probe packet after every event: it goes up while the microphone's frames flow.
+      if (flowing) seen.push(`up`)
+    }
+    return { seen, releases }
+  }
+
+  it.each(rows.map((row) => [row.name, row] as const))(`%s`, async (_name, row) => {
+    vi.useFakeTimers()
+    try {
+      const seen: string[] = []
+      // What the call was handed, as it hands it (closures fill it in).
+      const fake: {
+        socket: FakeSocket | null
+        audio: ReturnType<typeof fakeAudio> | null
+        grant: { resolve: (audio: CallAudio) => void; reject: (error: unknown) => void } | null
+        answer: { resolve: (ticket: { url: string; device?: string; fallback?: boolean }) => void; reject: (error: unknown) => void } | null
+      } = { socket: null, audio: null, grant: null, answer: null }
+      let ringing = false
+      const call: VoiceCall = new VoiceCall({
+        startCall: () => new Promise((resolve, reject) => (fake.answer = { resolve, reject })),
+        openAudio: () => {
+          seen.push(`openAudio`)
+          return new Promise((resolve, reject) => (fake.grant = { resolve, reject }))
+        },
+        openSocket: () => {
+          seen.push(`openSocket`)
+          const next = new FakeSocket()
+          const send = next.send.bind(next)
+          next.send = (data) => {
+            if (typeof data === `string`) seen.push(`send ${data}`)
+            send(data)
+          }
+          return (fake.socket = next)
+        },
+        ring: (ms) => {
+          seen.push(`ring ${ms}`)
+          ringing = true
+          return () => {
+            ringing = false
+            // A stop by `release` is the release's; only an answered ring's is `stopRing`.
+            if (call.active) seen.push(`ring.stop`)
+          }
+        },
+      })
+      call.onToast = (text) => seen.push(`toast ${text}`)
+      const settle = async () => {
+        for (let n = 0; n < 10; n++) await Promise.resolve()
+      }
+      let granted = false
+      const microphone = () => {
+        const next = fakeAudio()
+        const setMuted = next.setMuted
+        next.setMuted = (muted) => {
+          if (muted !== next.muted) seen.push(`setMuted ${muted}`)
+          setMuted(muted)
+        }
+        next.flush = () => seen.push(`flush`)
+        return (fake.audio = next)
+      }
+      let releases = 0
+      for (const event of row.events as Event[]) {
+        const before = call.active
+        switch (event.t) {
+          case `start`:
+            void call.start(`agent-1`, event.device as string, event.language as string | undefined, (event.fallback as boolean | undefined) ?? false)
+            break
+          case `held`:
+            break
+          case `ticket`:
+          case `refused`: {
+            // The microphone opens once; a late answer finds the call gone.
+            if (fake.grant && !granted) {
+              granted = true
+              fake.grant.resolve(microphone())
+            }
+            await settle()
+            if (event.t === `refused`) fake.answer?.reject(new Error(event.message as string))
+            else
+              fake.answer?.resolve({
+                url: `wss://relay/ws?t=caller`,
+                ...(event.device !== undefined ? { device: event.device as string } : {}),
+                ...(event.fallback !== undefined ? { fallback: event.fallback as boolean } : {}),
+              })
+            break
+          }
+          case `frame`:
+            fake.socket?.text(event.frame as Record<string, unknown>)
+            break
+          case `closed`:
+            fake.socket?.drop()
+            break
+          case `failed`:
+            // Before the ticket's microphone opened: the browser refused it;
+            // once dialled: the codec failed.
+            if (fake.socket) fake.audio?.onError?.()
+            else if (fake.grant && !granted) {
+              granted = true
+              fake.grant.reject(new CallAudioError(event.code as CallAudioError[`code`]))
+            }
+            break
+          case `ringTimeout`:
+            await vi.advanceTimersByTimeAsync(fixture.constants.maxRingMs)
+            break
+          case `mute`:
+            call.toggleMute()
+            break
+          case `end`:
+            call.end()
+            break
+          default:
+            throw new Error(`no stimulus for ${event.t}`)
+        }
+        await settle()
+        if (before && !call.active) releases += 1
+        const { socket, audio } = fake
+        if (call.active && audio && socket) {
+          const sent = socket.sent.length
+          audio.onPacket?.(new Uint8Array([7]))
+          if (socket.sent.length > sent) seen.push(`up`)
+        }
+      }
+      const want = expected(row)
+      expect(seen).toEqual(want.seen)
+      expect(releases).toBe(want.releases)
+      const state = call.getSnapshot().state
+      const end = row as Row & { device?: string; fallback?: boolean; muted?: boolean }
+      expect(state.phase).toBe(end.phase)
+      expect(call.active).toBe(end.stage !== `idle`)
+      if (end.device !== undefined) expect(state.device).toBe(end.device)
+      if (end.fallback !== undefined) expect(state.fallback).toBe(end.fallback)
+      if (end.muted !== undefined) expect(state.muted).toBe(end.muted)
+      if (end.stage === `idle`) {
+        // Everything the call held went: the ring, the socket, the microphone.
+        expect(ringing).toBe(false)
+        if (fake.socket) expect(fake.socket.closed).toBe(true)
+        if (fake.audio) expect(fake.audio.closed).toBe(true)
+      }
+      call.end()
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

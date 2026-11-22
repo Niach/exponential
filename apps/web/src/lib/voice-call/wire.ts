@@ -7,8 +7,10 @@
 // spoken whenever `voice.startCall` does not answer `seal: true`, which is
 // every call until the hosts are released and the server turns sealing on
 // (#EXP-1941). A sealed call's wire is seal.ts (`seal` in the fixture).
+// #EXP-2017: what a control frame MEANS (the host's events, the codes, the
+// ends) is `callerStep`'s (@exp/etalk `callerFrame`): here it is only parsed.
 
-import { callSealWireCode, VOICE_CALL_COPY, VOICE_CALL_WIRE, type CallEvent } from "@exp/etalk/voice-call"
+import { VOICE_CALL_WIRE } from "@exp/etalk/voice-call"
 
 export const KIND_UP = VOICE_CALL_WIRE.kinds.up
 export const KIND_DOWN = VOICE_CALL_WIRE.kinds.down
@@ -36,46 +38,6 @@ export function parseAudioFrame(data: ArrayBuffer | Uint8Array): { kind: number;
 export function seqAfter(seq: number, last: number): boolean {
   const delta = (seq - last + 0x10000) & 0xffff
   return delta !== 0 && delta < 0x8000
-}
-
-/** The flow events a HOST may send in `call_event` (wire.control): anything
- *  else, or a malformed one, is ignored. A host's `failed` keeps its code
- *  when the fixture has copy for it, else it is `dropped`. */
-export function hostCallEvent(raw: unknown): CallEvent | null {
-  if (!raw || typeof raw !== `object`) return null
-  const event = raw as Record<string, unknown>
-  const text = typeof event.text === `string` ? event.text : null
-  switch (event.t) {
-    case `partial`:
-    case `said`:
-    case `replyStarted`:
-      return text === null ? null : { t: event.t, text }
-    case `queued`:
-      return typeof event.count === `number` && text !== null ? { t: `queued`, count: event.count, text } : null
-    case `replyFinished`:
-    case `speechStarted`:
-    // S-3: the host's ring (its `ringMs` ran out), its worker listening and
-    // its mic check: the caller rings exactly as long as the host does.
-    case `rang`:
-    case `ready`:
-    case `noSound`:
-      return { t: event.t }
-    case `failed`: {
-      const code = typeof event.code === `string` && Object.hasOwn(VOICE_CALL_COPY.failed, event.code) ? event.code : `dropped`
-      return { t: `failed`, code }
-    }
-    default:
-      return null
-  }
-}
-
-/** #EXP-1941: a failure code off the wire (`error`, `bye`, a host's
- *  `failed`). A code about the caller's OWN device ("No microphone",
- *  "Microphone not allowed", "This browser can't make calls") is never taken
- *  from there: it would send a person to change permissions or the browser
- *  on the relay's word. It reads `dropped`. */
-export function wireCode(code: string): string {
-  return callSealWireCode(code)
 }
 
 /** The relay's control frames a caller reads. */

@@ -66,7 +66,8 @@ pub(crate) enum Outbound {
     /// Microphone PCM, mono [`UP_RATE`] Hz.
     Audio(Vec<i16>),
     Mute(bool),
-    End,
+    /// `call_end` with this reason (none = End call), then close.
+    End(Option<String>),
 }
 
 /// The live caller socket; dropping every handle hangs up.
@@ -88,9 +89,28 @@ impl CallCaller {
 
     /// `call_end`, then close.
     pub fn end(&self) {
-        let _ = self.tx.send(Outbound::End);
+        let _ = self.tx.send(Outbound::End(None));
+    }
+
+    /// #EXP-2017: this side's own failure (voice-call.json `caller`): `call_end
+    /// {reason: dropped}`, then close; the host learns it from the caller,
+    /// not from the relay's guess.
+    pub fn fail(&self) {
+        let _ = self.tx.send(Outbound::End(Some(etalk::call::VOICE_CALL.hang_up_rules.failed_code.clone())));
     }
 }
+
+/// The `call_end` this caller sends (`reason` none = End call).
+fn call_end_frame(reason: Option<&str>) -> Message {
+    Message::text(match reason {
+        Some(reason) => json!({ "t": "call_end", "reason": reason }).to_string(),
+        None => json!({ "t": "call_end" }).to_string(),
+    })
+}
+
+/// #EXP-2017: how long the last word of a path gone silent may take: it
+/// may well be dead, and the IDE hears of the drop only after it.
+const LAST_WORD: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// `a` comes after `b` on the u16 sequence (wrapping).
 pub fn seq_after(a: u16, b: u16) -> bool {
@@ -362,7 +382,16 @@ pub(crate) async fn run(
         let offered = sealed.as_ref().and_then(|sealed| sealed.offered_at.filter(|_| sealed.seal.is_none()));
         let helloing = sealed.as_ref().is_some_and(|sealed| sealed.offered_at.is_some() && sealed.host_hello.is_none());
         tokio::select! {
-            () = liveness.dead() => return Err("the call went silent".into()),
+            () = liveness.dead() => {
+                // #EXP-2017: a path gone silent is this side's own failure:
+                // the host is told `dropped` first, as far as the path still carries.
+                let _ = tokio::time::timeout(LAST_WORD, async {
+                    let _ = sink.send(call_end_frame(Some(&etalk::call::VOICE_CALL.hang_up_rules.failed_code))).await;
+                    let _ = sink.close().await;
+                })
+                .await;
+                return Err("the call went silent".into());
+            }
             () = async { tokio::time::sleep_until(offered.expect("guarded") + timing.handshake).await }, if offered.is_some() => {
                 fail_call!(&reasons.no_key, "not sealed in time")
             }
@@ -563,8 +592,8 @@ pub(crate) async fn run(
                             send_within(&mut sink, Message::text(frame), timeout).await?;
                         }
                     }
-                    Outbound::End => {
-                        let _ = send_within(&mut sink, Message::text(json!({ "t": "call_end" }).to_string()), timeout).await;
+                    Outbound::End(reason) => {
+                        let _ = send_within(&mut sink, call_end_frame(reason.as_deref()), timeout).await;
                         let _ = sink.close().await;
                         return Ok(());
                     }
@@ -581,18 +610,24 @@ mod tests {
 
     /// EXP-1929 (voice-gpui-call-2): a dialled call whose relay beat once
     /// and then went silent drops within the deadline, though its own
-    /// microphone frames keep going out.
+    /// microphone frames keep going out. #EXP-2017: an own failure: the host
+    /// is told `call_end {reason: dropped}` before the socket goes.
     #[tokio::test]
     async fn a_dialled_call_that_goes_silent_drops() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let (said, heard) = flume::unbounded::<String>();
         tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
             for t in ["call_ready", "call_alive"] {
                 ws.send(Message::text(json!({ "t": t }).to_string())).await.unwrap();
             }
-            while ws.next().await.is_some() {}
+            while let Some(Ok(frame)) = ws.next().await {
+                if let Message::Text(text) = frame {
+                    let _ = said.send(text.to_string());
+                }
+            }
         });
         let timeout = Duration::from_millis(300);
         let timing = Timing { idle: timeout, ..TEST_TIMING };
@@ -609,6 +644,39 @@ mod tests {
         let ended = tokio::time::timeout(timeout * 10, run(&url, &rx, &|event| events.lock().unwrap().push(event), timing, None)).await;
         assert_eq!(ended.expect("the dead call ends"), Err("the call went silent".to_string()));
         assert_eq!(*events.lock().unwrap(), vec![CallCallerEvent::Ready]);
+        let told = tokio::time::timeout(timeout * 10, heard.recv_async()).await.expect("the host is told").unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&told).unwrap(), json!({ "t": "call_end", "reason": "dropped" }));
+    }
+
+    /// #EXP-2017 (voice-call.json `caller`): End call is a reason-less
+    /// `call_end`, an own failure `call_end {reason: dropped}`; either closes.
+    #[tokio::test]
+    async fn end_and_an_own_failure_tell_the_host() {
+        for (fail, expected) in [(false, json!({ "t": "call_end" })), (true, json!({ "t": "call_end", "reason": "dropped" }))] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("ws://{}/", listener.local_addr().unwrap());
+            let (said, heard) = flume::unbounded::<Value>();
+            tokio::spawn(async move {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                ws.send(Message::text(json!({ "t": "call_ready" }).to_string())).await.unwrap();
+                while let Some(Ok(frame)) = ws.next().await {
+                    if let Message::Text(text) = frame {
+                        let _ = said.send(serde_json::from_str(&text).unwrap());
+                    }
+                }
+            });
+            let (tx, rx) = flume::unbounded();
+            let caller = CallCaller { tx };
+            if fail {
+                caller.fail();
+            } else {
+                caller.end();
+            }
+            let ended = tokio::time::timeout(Duration::from_secs(5), run(&url, &rx, &|_| {}, TEST_TIMING, None)).await;
+            assert_eq!(ended.expect("it hangs up"), Ok(()));
+            assert_eq!(tokio::time::timeout(Duration::from_secs(5), heard.recv_async()).await.unwrap().unwrap(), expected);
+        }
     }
 
     // --- #EXP-1941: a sealed call end to end, through a relay that records ----
