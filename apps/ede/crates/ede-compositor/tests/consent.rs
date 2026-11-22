@@ -477,14 +477,7 @@ fn installed_binaries_ctl_and_the_policy() {
         return;
     }
     let mut child = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let peer = loop {
-        if let Some(p) = Peer::of_pid(child.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let peer = peer_running(child.id(), &sleep);
     let gate = ede_compositor::consent::Gate::default();
     let none = Policy::default();
     // The units start eDE's programs: they pass by file.
@@ -500,25 +493,11 @@ fn installed_binaries_ctl_and_the_policy() {
     // A "Don't allow" to ctl backs its file off: another ctl process (the
     // same file) is refused without a question for the back-off.
     let other = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let second = loop {
-        if let Some(p) = Peer::of_pid(other.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let second = peer_running(other.id(), &sleep);
     let Verdict::Ask(asked) = gate.verdict(Some(&second), &as_ctl, &units, &none, None) else { panic!("another ctl process is asked") };
     gate.answered(&asked.key, false, &[(second.pid, second.start)], &[asked.file.unwrap()]);
     let third = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let third_peer = loop {
-        if let Some(p) = Peer::of_pid(third.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let third_peer = peer_running(third.id(), &sleep);
     assert!(matches!(gate.verdict(Some(&third_peer), &as_ctl, &units, &none, None), Verdict::Refuse(_)), "ctl in a loop is not asked again at once");
     for mut child in [other, third] {
         let _ = child.kill();
@@ -532,14 +511,20 @@ fn installed_binaries_ctl_and_the_policy() {
     let _ = child.wait();
 }
 
-/// `exe` (root-owned) as process `pid` once it runs it.
+/// Process `pid` once it runs the file `exe` is, told by `(st_dev,
+/// st_ino)`, not by how `/proc/<pid>/exe` spells its path; within the
+/// harness's minute, as a slow runner needs (#EDE-207).
 fn peer_running(pid: u32, exe: &Path) -> Peer {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let file = std::fs::metadata(exe).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe_path().as_deref() == Some(exe)) {
+        if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe.as_ref().is_some_and(|e| (e.dev, e.ino) == (file.dev(), file.ino()))) {
             return p;
         }
-        assert!(Instant::now() < deadline, "{} never ran", exe.display());
+        if Instant::now() > deadline {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+            panic!("{} ({}:{}) never ran in process {pid}: its exe {:?}, peer {:?}, stat {}", exe.display(), file.dev(), file.ino(), std::fs::read_link(format!("/proc/{pid}/exe")), Peer::of_pid(pid).map(|p| p.exe), stat.trim());
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
