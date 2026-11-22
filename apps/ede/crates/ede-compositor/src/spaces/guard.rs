@@ -40,11 +40,13 @@ pub struct GuardState {
 }
 
 /// The guard's socket when the guard is installed (a debug build may name
-/// another in `EDE_SPACE_GUARD_SOCKET`; a release build never does).
+/// another in `EDE_SPACE_GUARD_SOCKET`, or none with it empty: the real
+/// tests on a machine with eDE installed, #EDE-176; a release build never
+/// does).
 pub fn installed() -> Option<PathBuf> {
     #[cfg(debug_assertions)]
     if let Some(socket) = std::env::var_os("EDE_SPACE_GUARD_SOCKET") {
-        return Some(socket.into());
+        return (!socket.is_empty()).then(|| socket.into());
     }
     let socket = PathBuf::from(ede_space_guard::SOCKET);
     (socket.exists() || GUARD_UNITS.iter().any(|unit| Path::new(unit).exists())).then_some(socket)

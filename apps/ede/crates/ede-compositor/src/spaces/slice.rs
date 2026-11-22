@@ -534,6 +534,16 @@ impl Units {
         self.systemctl(&["stop", unit]).spawn().inspect_err(|e| tracing::warn!("systemctl stop {unit}: {e}")).ok()
     }
 
+    /// #EDE-195: asks the own user manager of the space whose directory
+    /// (its runtime directory) is `space_dir` to exit (`exit.target`: its
+    /// units get SIGTERM from it, one by one), and does not wait: the
+    /// caller reaps the child.
+    pub(crate) fn exit_manager(&self, space_dir: &Path) -> Option<Child> {
+        let mut cmd = self.systemctl(&["exit"]);
+        cmd.env("XDG_RUNTIME_DIR", space_dir).env_remove("DBUS_SESSION_BUS_ADDRESS");
+        cmd.spawn().inspect_err(|e| tracing::warn!("systemctl --user exit in {}: {e}", space_dir.display())).ok()
+    }
+
     /// Stops `unit` and waits until it is gone, for at most `limit`: only
     /// at the session's start and at the compositor's end, never in the
     /// event loop.

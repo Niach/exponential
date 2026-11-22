@@ -15,6 +15,11 @@ use smithay::{
     utils::SERIAL_COUNTER,
 };
 
+use smithay::reexports::{
+    calloop::{generic::Generic, Interest, Mode, PostAction},
+    rustix,
+};
+
 use super::{scope::Scope, slice, AgentSpace, Spaces};
 use crate::{
     desk::{Desk, DeskId},
@@ -158,11 +163,50 @@ pub(crate) struct Stopping {
     since: Instant,
     /// The grace is over (or was not needed): nothing more is done.
     done: bool,
+    /// #EDE-195: the closed space's own user manager, asked to exit
+    /// before the slice is stopped: a stop while it runs SIGKILLs it and
+    /// all of its scope at once when a root helper of the space's bus is
+    /// in there (the document portal's `fusermount3`: the person's user
+    /// manager's SIGTERM to the scope fails with EPERM). The stop is asked
+    /// for once it has exited (its pidfd, in the event loop), or after
+    /// [`EXIT_BOUND`]; until then `stop` is `None` and [`STOP_GRACE`] has
+    /// not begun.
+    manager: Option<Exiting>,
 }
+
+/// A closed space's user manager on its way out.
+pub(crate) struct Exiting {
+    child: Child,
+    /// `systemctl --user exit` in the space's directory, until it is reaped.
+    exit: Option<Child>,
+    since: Instant,
+}
+
+/// How long a closed space's user manager gets to exit by itself before
+/// its slice is stopped anyway.
+pub const EXIT_BOUND: Duration = Duration::from_secs(2);
 
 /// After a space closed, how long its slice's processes get to end by the
 /// user manager's stop before the kernel ends what is left.
 const STOP_GRACE: Duration = Duration::from_millis(2500);
+
+impl Stopping {
+    /// #EDE-195: the manager has exited (or is not waited for any more):
+    /// the slice's stop is asked for and [`STOP_GRACE`] begins. What is
+    /// left to reap goes back.
+    fn begin_stop(&mut self, units: &slice::Units) -> Vec<Child> {
+        let Some(Exiting { mut child, exit, since }) = self.manager.take() else { return Vec::new() };
+        if !matches!(child.try_wait(), Ok(None)) {
+            tracing::info!("{}: its user manager exited after {} ms; the slice is stopped", self.unit, since.elapsed().as_millis());
+        }
+        self.stop = units.stop(&self.unit);
+        self.seen = self.cgroup.is_dir();
+        self.since = Instant::now();
+        let mut left = vec![child];
+        left.extend(exit);
+        left
+    }
+}
 
 impl Spaces {
     /// Sets where the spaces' directories live, first removing what a
@@ -250,8 +294,9 @@ impl Ede {
         // Its Xwayland goes now; its window manager when its connection does.
         #[cfg(feature = "xwayland")]
         self.space_x11_closed(x11);
-        // Its user manager ends with its slice; reaped on the tick.
-        self.spaces.ended_sessions.extend(session.take());
+        // #EDE-195: its user manager is asked to exit before its slice
+        // stops; reaped on the tick.
+        let manager = session.take();
 
         // Its seat lets go of everything: what is held down, a grab, the focus.
         let time = InputTime::from_millis(crate::ipc::now_ms() as u32);
@@ -279,8 +324,9 @@ impl Ede {
         // stopped (its user manager's units are in it).
         let dir = if sliced {
             self.space_flatpaks_closed(id.number());
-            self.space_slice_closed(id.number(), dir)
+            self.space_slice_closed(id.number(), dir, manager)
         } else {
+            self.spaces.ended_sessions.extend(manager);
             Some(dir)
         };
         // Its browsers' profiles in snaps' and Flatpaks' data too.
@@ -350,7 +396,7 @@ impl Ede {
                 units.stop_now(&unit, Duration::from_secs(10));
             } else {
                 let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
-                self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: None, seen, since: Instant::now(), done: false });
+                self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: None, seen, since: Instant::now(), done: false, manager: None });
             }
         }
         tracing::info!("agent spaces run in systemd scopes (systemd {}): {}", units.version, slice::described(&self.config.spaces, units.machine));
@@ -365,15 +411,49 @@ impl Ede {
 
     /// Space number `space` closed and had launches in scopes: its slice
     /// is stopped with all in it, and its directory `dir` is removed once
-    /// that is done (`Some(dir)` back = no slice: remove it now). Nothing
-    /// here waits for the user manager.
-    fn space_slice_closed(&mut self, space: u32, dir: PathBuf) -> Option<PathBuf> {
-        let Some(units) = &self.spaces.units else { return Some(dir) };
+    /// that is done (`Some(dir)` back = no slice: remove it now). A
+    /// `manager` that still runs is asked to exit first (#EDE-195); the
+    /// slice's stop waits for it, in the event loop, never here.
+    fn space_slice_closed(&mut self, space: u32, dir: PathBuf, manager: Option<Child>) -> Option<PathBuf> {
+        let Some(units) = &self.spaces.units else {
+            self.spaces.ended_sessions.extend(manager);
+            return Some(dir);
+        };
         let unit = ede_protocol::process::space_slice(units.compositor, space);
         let cgroup = units.space_cgroup(space);
-        let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
-        self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: Some(dir), seen, since: Instant::now(), done: false });
+        let exiting = manager.and_then(|mut child| match child.try_wait() {
+            Ok(None) => Some(child),
+            _ => None,
+        });
+        let Some(child) = exiting else {
+            let (stop, seen) = (units.stop(&unit), cgroup.is_dir());
+            self.spaces.stopping.push(Stopping { unit, stop, cgroup, dir: Some(dir), seen, since: Instant::now(), done: false, manager: None });
+            return None;
+        };
+        let exit = units.exit_manager(&dir);
+        let pidfd = rustix::process::Pid::from_raw(child.id() as i32).and_then(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok());
+        if let Some(pidfd) = pidfd {
+            let exited = unit.clone();
+            let watched = self.loop_handle.insert_source(Generic::new(pidfd, Interest::READ, Mode::OneShot), move |_, _, state| {
+                state.space_manager_exited(&exited);
+                Ok(PostAction::Remove)
+            });
+            if let Err(e) = watched {
+                tracing::warn!("{unit}: its user manager's exit is not watched ({e}); the tick looks");
+            }
+        }
+        tracing::info!("{unit}: its user manager is asked to exit");
+        self.spaces.stopping.push(Stopping { unit, stop: None, cgroup, dir: Some(dir), seen: false, since: Instant::now(), done: false, manager: Some(Exiting { child, exit, since: Instant::now() }) });
         None
+    }
+
+    /// #EDE-195: the user manager of the closed space whose slice is
+    /// `unit` has exited (its pidfd): the slice is stopped now.
+    pub(crate) fn space_manager_exited(&mut self, unit: &str) {
+        let Some(units) = &self.spaces.units else { return };
+        let Some(stopping) = self.spaces.stopping.iter_mut().find(|stopping| stopping.unit == unit && stopping.manager.is_some()) else { return };
+        let ended = stopping.begin_stop(units);
+        self.spaces.ended_sessions.extend(ended);
     }
 
     /// Once a second: what a stopped slice still holds after its grace is
@@ -382,7 +462,20 @@ impl Ede {
     pub(crate) fn space_slices_tick(&mut self) {
         let Some(units) = &self.spaces.units else { return };
         let mut stopped = Vec::new();
+        let mut ended = Vec::new();
         self.spaces.stopping.retain_mut(|stopping| {
+            // #EDE-195: a manager that exited unseen, or that did not in
+            // time: the slice's stop is asked for now.
+            if let Some(exiting) = &mut stopping.manager {
+                let running = matches!(exiting.child.try_wait(), Ok(None));
+                if running && exiting.since.elapsed() <= EXIT_BOUND {
+                    return true;
+                }
+                if running {
+                    tracing::warn!("{}: its user manager did not exit within {} s; the slice is stopped", stopping.unit, EXIT_BOUND.as_secs());
+                }
+                ended.extend(stopping.begin_stop(units));
+            }
             if stopping.stop.as_mut().is_some_and(|stop| !matches!(stop.try_wait(), Ok(None))) {
                 stopping.stop = None;
             }
@@ -408,6 +501,7 @@ impl Ede {
             }
             true
         });
+        self.spaces.ended_sessions.extend(ended);
         // Removed with the other closed spaces' directories (this tick's
         // `spaces_tick` comes to them next).
         self.spaces.leftovers.extend(stopped.into_iter().map(|dir| Leftover { dir, ticks: 0 }));
