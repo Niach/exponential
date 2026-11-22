@@ -120,13 +120,7 @@ fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, 
 /// size is `w`×`h`: the root fills it in px (a layer window takes its
 /// content's size otherwise) and the surface asks for it, on `layer`.
 fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), layer: Layer, keyboard: KeyboardInteractivity, cx: &mut App) -> Option<Open> {
-    let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
-    if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
-        style.insert("width".into(), json!(w));
-        style.insert("height".into(), json!(h));
-    }
-    let tree: NestedNode = serde_json::from_value(parsed["root"].clone()).expect("the sealed document's tree");
-    let mut initial = parsed.get("data").cloned().unwrap_or(json!({}));
+    let (tree, mut initial) = sized(doc, (w, h));
     if let (Some(base), Some(over)) = (initial.as_object_mut(), data.as_object()) {
         for (k, v) in over {
             base.insert(k.clone(), v.clone());
@@ -188,6 +182,30 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
         focus(o, "password", cx);
     }
     open
+}
+
+/// The sealed document `doc`'s tree, its root `w`×`h` in px, and its data.
+fn sized(doc: &str, (w, h): (f32, f32)) -> (NestedNode, Value) {
+    let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
+    if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
+        style.insert("width".into(), json!(w));
+        style.insert("height".into(), json!(h));
+    }
+    let tree: NestedNode = serde_json::from_value(parsed["root"].clone()).expect("the sealed document's tree");
+    (tree, parsed.get("data").cloned().unwrap_or(json!({})))
+}
+
+/// #EDE-209: `open`, showing `doc`, follows its output to a new logical
+/// size: the compositor configures the window to it, the root takes it
+/// here. The surface stays, and with it what the person typed and the
+/// focus (a surface opened anew starts empty).
+fn resize(open: &Open, doc: &str, size: (f32, f32), cx: &mut App) {
+    let (tree, _) = sized(doc, size);
+    let _ = open.handle.update(cx, |_, _, cx| {
+        open.view.update(cx, |v, cx| {
+            v.set_nested(tree, cx);
+        })
+    });
 }
 
 fn set(open: &Open, path: &str, value: Value, cx: &mut App) {
@@ -323,11 +341,12 @@ fn lock_outputs(cx: &App) -> Vec<(DisplayId, (i32, i32))> {
         .collect()
 }
 
-/// One lock surface per output: opens the missing ones and closes those
-/// whose output went or changed size. `seen` is what the outputs were at
-/// the last look. A surface the compositor closed under us while its
-/// output is still there ends the process: the compositor starts the lock
-/// client again.
+/// One lock surface per output: opens the missing ones, closes those whose
+/// output went, and resizes those whose output changed size (#EDE-209: a
+/// new mode, a new scale; what was typed and the focus stay). `seen` is
+/// what the outputs were at the last look. A surface the compositor closed
+/// under us while its output is still there ends the process: the
+/// compositor starts the lock client again.
 fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixels>)>, data: Value, acts: &mpsc::Sender<Act>, cx: &mut App) {
     let now: Vec<(DisplayId, Bounds<Pixels>)> = cx.displays().iter().map(|d| (d.id(), d.bounds())).collect();
     if shown.iter().any(|s| now.iter().any(|(id, _)| *id == s.display) && s.open.handle.update(cx, |_, _, _| ()).is_err()) {
@@ -339,10 +358,17 @@ fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixel
     }
     *seen = now;
     let want = lock_outputs(cx);
-    let (keep, gone): (Vec<Shown>, Vec<Shown>) = std::mem::take(shown).into_iter().partition(|s| want.contains(&(s.display, s.size)));
+    let (keep, gone): (Vec<Shown>, Vec<Shown>) = std::mem::take(shown).into_iter().partition(|s| want.iter().any(|(display, _)| *display == s.display));
     *shown = keep;
     for s in gone {
         close(s.open, cx);
+    }
+    for s in shown.iter_mut() {
+        let Some(&(_, size)) = want.iter().find(|(display, _)| *display == s.display) else { continue };
+        if size != s.size {
+            resize(&s.open, LOCK, (size.0 as f32, size.1 as f32), cx);
+            s.size = size;
+        }
     }
     for (display, size) in want.iter().copied() {
         if shown.iter().any(|s| s.display == display) {
