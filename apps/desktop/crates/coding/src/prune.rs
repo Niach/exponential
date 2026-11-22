@@ -1026,7 +1026,27 @@ mod tests {
     fn age_head_log(worktree: &Path, by: Duration) {
         let link = fs::read_to_string(worktree.join(".git")).unwrap();
         let git_dir = PathBuf::from(link.trim().strip_prefix("gitdir:").unwrap().trim());
-        if let Ok(file) = fs::OpenOptions::new().write(true).open(git_dir.join("logs/HEAD")) {
+        // #EXP-2038: the in-use shield reads the reflog's entry times.
+        let log = git_dir.join("logs/HEAD");
+        if let Ok(text) = fs::read_to_string(&log) {
+            let at = (SystemTime::now() - by).duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+            let aged: String = text
+                .lines()
+                .map(|line| {
+                    // A worktree's first entry carries no message (no tab).
+                    let (head, message) = line.split_once('\t').map_or((line, None), |(h, m)| (h, Some(m)));
+                    let message = message.map(|m| format!("\t{m}")).unwrap_or_default();
+                    let parts: Vec<&str> = head.rsplitn(3, ' ').collect();
+                    if parts.len() == 3 {
+                        format!("{} {at} {}{message}\n", parts[2], parts[0])
+                    } else {
+                        format!("{line}\n")
+                    }
+                })
+                .collect();
+            fs::write(&log, aged).unwrap();
+        }
+        if let Ok(file) = fs::OpenOptions::new().write(true).open(git_dir.join("HEAD")) {
             file.set_modified(SystemTime::now() - by).unwrap();
         }
     }

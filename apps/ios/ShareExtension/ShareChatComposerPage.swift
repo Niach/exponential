@@ -70,6 +70,12 @@ struct ShareChatComposerPage: View {
         return .newChat(teamId: teamId, deviceId: device.deviceId, rowIds: device.rowIds)
     }
 
+    /// #EXP-2031: an agent pick sends into that agent's own chat, so the
+    /// page carries its name; only Temporary session is a new chat.
+    private var title: String {
+        context.chat?.title ?? rowState.agent?.name ?? ShareTargets.Copy.newChat
+    }
+
     private var hasContent: Bool {
         !strip.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !strip.attachments.isEmpty
     }
@@ -103,7 +109,7 @@ struct ShareChatComposerPage: View {
             .padding(16)
         }
         .background(DesignTokens.Palette.background)
-        .navigationTitle(context.chat?.title ?? ShareTargets.Copy.newChat)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPlus) {
             ShareComposerPlusSheet(devices: context.devices, deviceId: $deviceId)

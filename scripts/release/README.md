@@ -21,7 +21,7 @@ host, `gh` and `git`; nothing here holds a secret or a host.
 
 | script | does |
 |---|---|
-| `webdeploy.sh <sha7>` | device-shares on both DBs, staging (revision + health + boot log; prod and its tag untouched on any failure), prod, revision on both; `STAGING_ONLY=1` for a soak, `PRE_PROD_HOOK=…`. Exit 1 = failed/duplicates, 2 = shares check could not run, 3 = revision mismatch |
+| `webdeploy.sh <sha7>` | device-shares on both DBs, the host pulls the image, staging (one retry on a failed deployment; revision + health + boot log; prod and its tag untouched on any failure), prod, revision on both, prune at the end (#EXP-1974); `STAGING_ONLY=1` for a soak, `PRE_PROD_HOOK=…`. Exit 1 = failed/duplicates, 2 = shares check could not run, 3 = revision mismatch |
 | `land-deploy.sh <PR> <mig 0/1> <relay 0/1>` | waits for `(#PR)` on master, then the above (a migrations-only suite first when asked), then the push relay; one deploy at a time; `WAIT_EXACT=1` = that PR's own image only |
 | `hotfix-web.sh` | after a `release-suite -f only=migrations` dispatch: migrations job, image, `webdeploy.sh` |
 | `advert.sh KEY=VER…` | sets prod's `CLIENT_LATEST_VERSION_*`, redeploys prod's current image |

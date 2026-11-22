@@ -108,6 +108,24 @@ impl Repo {
         Ok(out.status.success().then_some(out.stdout))
     }
 
+    /// `file` as every commit with exactly `subject` left it, newest first
+    /// (#EDE-202: each factory copy the directory ever had).
+    pub fn show_all_at(&self, file: &str, subject: &str) -> io::Result<Vec<Vec<u8>>> {
+        let out = self.ok(&["log", "--format=%H%x09%s", "--", file], "log")?;
+        let ids: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| line.split_once('\t').filter(|(_, s)| *s == subject).map(|(id, _)| id.to_string()))
+            .collect();
+        let mut all = Vec::new();
+        for id in ids {
+            let out = self.git(&["show", &format!("{id}:{file}")])?;
+            if out.status.success() {
+                all.push(out.stdout);
+            }
+        }
+        Ok(all)
+    }
+
     /// The newest commit that touched `file`, `None` when none did.
     pub fn newest_of(&self, file: &str) -> io::Result<Option<Commit>> {
         let out = self.ok(&["log", "-1", "--format=%H%x09%ct%x09%s", "--", file], "log")?;

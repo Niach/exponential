@@ -318,7 +318,30 @@ jobs:
           EUI_REQUIRE_COLOUR_EMOJI: "1"
         # #EXP-1870: --no-fail-fast: a failing lib test hid every integration
         # test after it (#2875's variable_fonts.rs never ran).
-        run: cargo test --locked -p eui-gpui --no-fail-fast
+        # #EXP-1967: the log names a test binary a signal killed (below).
+        run: |
+          set -o pipefail
+          cargo test --locked -p eui-gpui --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/gpui-painter-tests.log"
+      # #EXP-1967: a test binary killed by a signal (one SIGILL so far) is kept
+      # with its log: the crash report it printed (tests/support/crash_report.rs:
+      # rip, stack, maps) names the frame with `addr2line -e <binary>`.
+      - name: Keep a test binary a signal killed
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/gpui-crashed"
+          grep -oE "process didn't exit successfully: \`[^\`]+\` \(signal: [0-9]+" "$RUNNER_TEMP/gpui-painter-tests.log" 2>/dev/null \
+            | sed -E 's/^[^`]*`([^` ]+).*/\1/' | sort -u | while read -r bin; do
+              [ -f "$bin" ] && cp "$bin" "$RUNNER_TEMP/gpui-crashed/" && echo "::warning title=gpui painter tests::kept $(basename "$bin"), killed by a signal (#EXP-1967)"
+            done || true
+          if [ -n "$(ls -A "$RUNNER_TEMP/gpui-crashed")" ]; then cp "$RUNNER_TEMP/gpui-painter-tests.log" "$RUNNER_TEMP/gpui-crashed/"; fi
+      - name: Upload the killed test binary
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpui-crashed-test-binaries
+          path: ${{ runner.temp }}/gpui-crashed
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: ./.github/actions/setup-bun
       - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)
         if: ${{ !inputs.conformance_only }}

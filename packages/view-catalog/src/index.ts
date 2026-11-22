@@ -348,3 +348,29 @@ export function captureFor(
 export function shotPath(viewId: string, platform: Platform): string {
   return `${STORE_DIR}/${viewId}/${platform}.webp`
 }
+
+/**
+ * Does this desktop capture wait for the steer feed's first replay
+ * (`apps/desktop/crates/ui/src/dev_ready.rs`)? A `session:` screen always
+ * does; any other view that pictures a transcript (a chat's Chat tab, an
+ * agent's or app's chat pane) sets `EXP_DEV_WAIT_FEED`. #EXP-1886: a chat
+ * view without it photographed "No live transcript" before the feed joined.
+ * Such a view needs the relay stub, or its capture waits forever.
+ */
+export function desktopWaitsForFeed(desktop: DesktopCapture): boolean {
+  if (desktop.drive.kind === `screen` && desktop.drive.value?.startsWith(`session:`)) return true
+  return desktop.env?.EXP_DEV_WAIT_FEED === `1`
+}
+
+/**
+ * #EXP-1891: does this view's WEB capture wait for the feed (a transcript
+ * row drawn, `[data-testid=transcript-feed][data-feed=rows]`) before its
+ * recipe and anchor? Every view on a session's Chat tab (a `/sessions/$x`
+ * route with no `tab`) whose desktop capture waits for the feed: the same
+ * transcript, so the same wait (the anchor alone fired before the relay
+ * stub's feed landed and pictured "No live transcript").
+ */
+export function webWaitsForFeed(view: View): boolean {
+  if (!view.web || !view.desktop || !desktopWaitsForFeed(view.desktop)) return false
+  return /\/sessions\/\$[A-Za-z]+$/.test(view.web.route)
+}

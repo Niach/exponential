@@ -229,6 +229,7 @@ struct AgentPageView: View {
         // #EXP-1638: the `new-chat` app shortcut lands here, composer focused.
         .onChange(of: deps.deepLinkBus.pendingComposerFocus, initial: true) { _, _ in focusComposerIfAsked() }
         .onChange(of: composer.map(ObjectIdentifier.init)) { _, _ in focusComposerIfAsked() }
+        .onChange(of: composerTeamId) { _, _ in focusComposerIfAsked() }
         // S-3: the viewer's Assistant exists once the page mounts (once per
         // account + team per app run).
         .task(id: "\(accountId)/\(composerTeamId ?? "")") {
@@ -406,13 +407,20 @@ struct AgentPageView: View {
     }
 
     /// #EXP-1638: the Home root focuses its composer when a shortcut asked.
+    /// #EXP-2004: only a composer bound to the page's team spends it (a cold
+    /// start rebuilds the first one once the team resolves).
     private func focusComposerIfAsked() {
-        guard isTabRoot, deps.deepLinkBus.pendingComposerFocus, let composer else { return }
+        guard let composer, ComposerFocusRequest.shouldSpend(
+            pending: deps.deepLinkBus.pendingComposerFocus,
+            isTabRoot: isTabRoot,
+            composerTeamId: composer.teamId,
+            pageTeamId: composerTeamId
+        ) else { return }
         deps.deepLinkBus.pendingComposerFocus = false
         // A beat later: the page is still landing (a root swap, a cold start).
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(350))
-            composer.draftEditor.focusEnd()
+            self.composer?.draftEditor.focusEnd()
         }
     }
 

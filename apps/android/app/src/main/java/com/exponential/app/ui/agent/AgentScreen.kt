@@ -187,6 +187,9 @@ fun AgentScreen(
     /** EXP-1291: an accepted send LANDS on its chat (the new root IS the
      *  chat), replacing this page when it was pushed; default = [onOpenChat]. */
     onLandInChat: (chatId: String) -> Unit = onOpenChat,
+    /** The New chat shortcut asked for the composer focused (app-shortcuts.json). */
+    pendingComposerFocus: Boolean = false,
+    onComposerFocused: () -> Unit = {},
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
@@ -476,6 +479,22 @@ fun AgentScreen(
             keyboard?.show()
         },
     )
+
+    // The New chat shortcut (app-shortcuts.json `new-chat` = THE composer):
+    // focus the field once it is attached; a cold start mounts it a few
+    // frames after the tab (the requester throws until then).
+    LaunchedEffect(pendingComposerFocus) {
+        if (!pendingComposerFocus) return@LaunchedEffect
+        repeat(COMPOSER_FOCUS_TRIES) {
+            if (runCatching { composerFocus.requestFocus(androidx.compose.ui.focus.FocusDirection.Enter) }.getOrDefault(false)) {
+                keyboard?.show()
+                onComposerFocused()
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(COMPOSER_FOCUS_STEP_MS)
+        }
+        onComposerFocused()
+    }
 
     // ── Feedback (FEED-79, EXP-1271): a refused start and a start that never
     // landed are toasts; Retry re-submits the kept draft ────────────────────
@@ -1043,6 +1062,9 @@ internal fun AgentPageFrame(
  *  shows its upper half), the gap under the title, the column's spacing the
  *  dawn swallows to stand on the card. */
 private const val DAWN_MARK = 240
+/** The New chat shortcut's focus wait for a cold start's composer: 40 × 100 ms. */
+private const val COMPOSER_FOCUS_TRIES = 40
+private const val COMPOSER_FOCUS_STEP_MS = 100L
 private const val DAWN_TOP = 16
 private const val COLUMN_SPACING = 6
 

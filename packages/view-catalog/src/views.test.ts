@@ -35,6 +35,7 @@ import {
   shotPath,
   viewById,
   viewsFor,
+  webWaitsForFeed,
   type Platform,
   type View,
   type WebCapture,
@@ -647,6 +648,31 @@ describe(`recipes`, () => {
 
   test(`the pinned registry has no duplicates`, () => {
     expect(new Set(PINNED_RECIPES).size).toBe(PINNED_RECIPES.length)
+  })
+})
+
+// #EXP-1891: a web view on a session's Chat tab waits for the feed like
+// its desktop twin (the anchor alone pictured "No live transcript").
+describe(`web feed wait`, () => {
+  const chatTab = VIEWS.filter((view) => view.web && /\/sessions\/\$[A-Za-z]+$/.test(view.web.route))
+
+  test(`chat-screen waits for the feed on web`, () => {
+    expect(webWaitsForFeed(viewById(`chat-screen`)!)).toBe(true)
+  })
+
+  test(`every Chat-tab view whose desktop capture waits for the feed waits on web too`, () => {
+    const desktopWaits = chatTab.filter(
+      (view) =>
+        view.desktop !== undefined &&
+        ((view.desktop.drive.kind === `screen` && view.desktop.drive.value?.startsWith(`session:`)) ||
+          view.desktop.env?.EXP_DEV_WAIT_FEED === `1`)
+    )
+    expect(desktopWaits.length).toBeGreaterThan(0)
+    expect(desktopWaits.filter((view) => !webWaitsForFeed(view)).map((view) => view.id)).toEqual([])
+  })
+
+  test(`another tab (results) never waits`, () => {
+    expect(webWaitsForFeed(viewById(`chat-results`)!)).toBe(false)
   })
 })
 

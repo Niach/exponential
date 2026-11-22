@@ -94,6 +94,10 @@ private final class DeepLinkViewport {
     /// The target row's frame as last reported: a deferred step reads it
     /// here, never from the copy of the modifier that scheduled it.
     var target: CGRect?
+    /// #EXP-2048: the link `target` was reported for: a new link never reads
+    /// the previous target's frame (a row it never laid out would read as
+    /// already centred, and the link rang without scrolling).
+    var targetKey: String?
     /// #EXP-1998: the row the link last landed on, and when: the keyboard
     /// raised by the find field resizes the list just after a FIRST landing
     /// (it keeps its top, so the row slid under the keyboard); it is
@@ -162,6 +166,7 @@ struct DeepLinkScroll: ViewModifier {
             }
             .onChange(of: targetFrame, initial: true) { _, frame in
                 viewport.target = frame
+                viewport.targetKey = link?.target
                 schedule()
             }
             // The scroll geometry reports CHANGES only: a list that never
@@ -218,6 +223,7 @@ struct DeepLinkScroll: ViewModifier {
     private func take(_ focus: WaitingFocus?) {
         guard let focus, focus != taken, Date().timeIntervalSince(focus.at) < WaitingFocus.freshness else { return }
         taken = focus
+        if viewport.targetKey != focus.id { viewport.target = nil }
         link = WaitingCards.DeepLink(target: focus.id, takenAtMs: Self.nowMs())
         onTake()
         schedule()

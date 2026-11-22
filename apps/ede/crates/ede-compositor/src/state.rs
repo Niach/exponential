@@ -226,7 +226,7 @@ impl Ede {
         crate::popup_namespace::create_global(&dh);
         let idle_notifier = smithay::wayland::idle_notify::IdleNotifierState::new(&dh, loop_handle.clone());
         crate::idle::start_timer(&loop_handle);
-        let helpers = crate::helpers::Helpers::new(config.session.helpers == crate::config::Helpers::Compositor);
+        let helpers = crate::helpers::Helpers::new(config.session.helpers() == crate::config::Helpers::Compositor);
 
         Self {
             start_time: Instant::now(),

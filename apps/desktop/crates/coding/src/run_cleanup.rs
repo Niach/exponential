@@ -339,6 +339,11 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, pu
             "could not count the unpushed commits".to_string(),
         ));
     };
+    // #EXP-2036: the landed checks below read origin's CURRENT base and
+    // default branch, never the clone's last fetch of them.
+    if unpushed > 0 {
+        refresh_landed_bases(cleanup);
+    }
     // #EXP-1622: an ending session's own branch is the agent's to push
     // (it may carry an open PR, whose CI a device push would restart):
     // unpushed work is parked on the leftover branch, never on it.
@@ -412,26 +417,64 @@ fn unpushed_count(worktree: &Path) -> Option<usize> {
     .and_then(|out| out.trim().parse::<usize>().ok())
 }
 
-/// Whether the worktree's `HEAD` work is contained in `origin/<base>` (a
-/// squash or cherry-pick counts).
+/// Whether the worktree's `HEAD` work is contained in `origin/<base>` or
+/// the repo's default branch (a squash or cherry-pick counts).
 fn head_landed(cleanup: &RunCleanup) -> bool {
     rev_landed(cleanup, "HEAD")
+}
+
+/// #EXP-2036: the branches a landed check compares against, the run's base
+/// first, then the clone's default branch (`origin/HEAD`, else the trunk's
+/// checkout): a child's base is its PARENT's branch, which may never reach
+/// origin (a release shepherd's local branch) or lag behind the default
+/// its work landed on.
+fn landed_bases(cleanup: &RunCleanup) -> Vec<String> {
+    let mut bases = vec![cleanup.base_branch.clone()];
+    if let Some(default) = crate::prune::effective_default_branch(&cleanup.clone, None) {
+        if !bases.contains(&default) {
+            bases.push(default);
+        }
+    }
+    bases
+}
+
+/// #EXP-2036: fetch every [`landed_bases`] branch origin has (best-effort,
+/// network-bounded): a squash merged minutes ago is on origin, not yet in
+/// the clone's tracking ref.
+fn refresh_landed_bases(cleanup: &RunCleanup) {
+    for base in landed_bases(cleanup) {
+        if validate_branch_arg(&base, "landed base").is_err() {
+            continue;
+        }
+        let refspec = format!("+refs/heads/{base}:refs/remotes/origin/{base}");
+        if let Err(err) = run_git(
+            Some(&cleanup.clone),
+            &["fetch", "--quiet", "--no-tags", "origin", &refspec],
+            None,
+            &format!("git fetch origin {base}"),
+        ) {
+            log::info!("run finish {}: origin/{base} not refreshed: {}", cleanup.branch, err.detail);
+        }
+    }
 }
 
 /// [`head_landed`] for any revision of the worktree (EXP-1542: the session
 /// branch's own ref when `HEAD` is elsewhere).
 fn rev_landed(cleanup: &RunCleanup, rev: &str) -> bool {
-    let origin_base = format!("origin/{}", cleanup.base_branch);
-    run_git(
-        Some(&cleanup.clone),
-        &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{origin_base}")],
-        None,
-        "git rev-parse origin base",
-    )
-    .is_ok()
-        && rev_commit(&cleanup.worktree, rev).is_some_and(|commit| {
-            crate::prune::branch_landed(&cleanup.clone, &commit, &origin_base, &Default::default())
-        })
+    let Some(commit) = rev_commit(&cleanup.worktree, rev) else {
+        return false;
+    };
+    landed_bases(cleanup).iter().any(|base| {
+        let origin_base = format!("origin/{base}");
+        run_git(
+            Some(&cleanup.clone),
+            &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{origin_base}")],
+            None,
+            "git rev-parse origin base",
+        )
+        .is_ok()
+            && crate::prune::branch_landed(&cleanup.clone, &commit, &origin_base, &Default::default())
+    })
 }
 
 /// S-4: [`finish_worktree`] would take NOTHING off the machine — the tree is
@@ -758,6 +801,66 @@ pub fn finish_session_worktree(
     // EXP-1542: a moved session's branch goes to origin first, and the
     // move's record hears it (the pickup reports a move it had no id for).
     let moved = take_moved(session_id);
+    finish_session_worktree_as(trpc, session_id, cleanup, live, &moved)
+}
+
+/// #EXP-2038: a finish the clone's launch gate refused tries again every
+/// this long ...
+pub const GATE_RETRY_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// ... this many times (5 minutes), instead of waiting days for the sweep.
+pub const GATE_RETRY_TRIES: u32 = 10;
+
+/// #EXP-2038: [`finish_session_worktree`], tried again while the clone's
+/// launch gate is held ([`GATE_RETRY_EVERY`], [`GATE_RETRY_TRIES`]). Each
+/// retry re-reads the run registry of `data_dir` for live holders and
+/// gives up once a run of the session itself is live again (a revive: the
+/// worktree is its). Blocking for up to minutes: the host's finish thread.
+pub fn finish_session_worktree_retrying(
+    trpc: &api::trpc::TrpcClient,
+    session_id: &str,
+    cleanup: &RunCleanup,
+    live: &LiveHolders,
+    data_dir: &Path,
+) -> FinishOutcome {
+    let moved = take_moved(session_id);
+    retry_gate_held(data_dir, session_id, live, GATE_RETRY_EVERY, GATE_RETRY_TRIES, |live| {
+        finish_session_worktree_as(trpc, session_id, cleanup, live, &moved)
+    })
+}
+
+/// #EXP-2038: `finish` until it is no [`SkipReason::GateHeld`], `tries`
+/// more times at most, `every` apart; stops early when a run of
+/// `session_id` is live on this host again.
+fn retry_gate_held(
+    data_dir: &Path,
+    session_id: &str,
+    live: &LiveHolders,
+    every: std::time::Duration,
+    tries: u32,
+    mut finish: impl FnMut(&LiveHolders) -> FinishOutcome,
+) -> FinishOutcome {
+    let mut outcome = finish(live);
+    for _ in 0..tries {
+        if outcome != FinishOutcome::Skipped(SkipReason::GateHeld) {
+            break;
+        }
+        std::thread::sleep(every);
+        if crate::run_registry::live_host_runs(data_dir).iter().any(|(session, _)| session == session_id) {
+            log::info!("run cleanup [{session_id}]: live again, its worktree stays for the run");
+            break;
+        }
+        outcome = finish(&live.clone().with_registry(data_dir, session_id));
+    }
+    outcome
+}
+
+fn finish_session_worktree_as(
+    trpc: &api::trpc::TrpcClient,
+    session_id: &str,
+    cleanup: &RunCleanup,
+    live: &LiveHolders,
+    moved: &Option<Option<String>>,
+) -> FinishOutcome {
     let outcome = if moved.is_some() {
         finish_moved_worktree(cleanup, live, &session_id8(session_id))
     } else {
@@ -766,7 +869,7 @@ pub fn finish_session_worktree(
     if let FinishOutcome::Removed { leftover: Some(branch) } = &outcome {
         post_leftover_note(trpc, session_id, branch);
     }
-    if let (Some(Some(move_id)), FinishOutcome::Removed { leftover }) = (&moved, &outcome) {
+    if let (Some(Some(move_id)), FinishOutcome::Removed { leftover }) = (moved, &outcome) {
         let handed = leftover.clone().map_or(HandOff::Pushed, HandOff::Parked);
         report_hand_off(trpc, move_id, &handed);
     }
@@ -1410,6 +1513,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// #EXP-2036 (the release shepherd's children): a child's base is its
+    /// parent's branch, which never reached origin, and its work landed on
+    /// the default branch (patch-identical, `git cherry` `-`) AFTER the
+    /// clone's last fetch: no leftover is parked, the worktree goes.
+    #[test]
+    fn work_landed_on_the_default_branch_needs_no_leftover_whatever_the_base() {
+        let (root, mut cleanup) = fixture("finish-landed-default");
+        cleanup.base_branch = "exp/ede-smoke-arch".to_string();
+        commit_in(&cleanup.worktree, "release.txt", "0.14.163\n");
+        let head = run_git(Some(&cleanup.worktree), &["rev-parse", "HEAD"], None, "head").unwrap();
+        // Another clone lands it on origin's main; this clone's
+        // `origin/main` stays stale.
+        let other = root.join("other");
+        git(&root, &["clone", "-q", origin_of(&cleanup).to_str().unwrap(), other.to_str().unwrap()]);
+        git(&other, &["fetch", "-q", cleanup.clone.to_str().unwrap(), &cleanup.branch]);
+        git(&other, &["cherry-pick", head.trim()]);
+        git(&other, &["push", "-q", "origin", "main"]);
+        assert_eq!(
+            finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #EXP-2036: work that is on no origin branch is still parked.
+    #[test]
+    fn unlanded_work_off_an_unpushed_base_is_still_parked() {
+        let (root, mut cleanup) = fixture("finish-unlanded-base");
+        cleanup.base_branch = "exp/ede-smoke-arch".to_string();
+        commit_in(&cleanup.worktree, "work.txt", "real work\n");
+        assert_eq!(
+            finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: Some("exp/leftover-1a2b3c4d".to_string()) }
+        );
+        assert!(origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn finish_respects_the_gate_live_holders_and_bad_names() {
         let (root, cleanup) = fixture("finish-shields");
@@ -1431,6 +1573,69 @@ mod tests {
         );
         assert!(cleanup.worktree.exists());
         assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #EXP-2038: the end-time finish hit a held launch gate (another
+    /// launch on the clone) and nothing retried it: the worktree waited days
+    /// for the sweep. Now it is tried again once the gate frees up.
+    #[test]
+    fn a_finish_refused_by_the_launch_gate_is_tried_again() {
+        let (root, cleanup) = fixture("finish-gate-retry");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let hold = crate::launch_gate::hold(&cleanup.clone);
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            drop(hold);
+        });
+        let mut attempts = 0;
+        let outcome = retry_gate_held(
+            &data_dir,
+            "1a2b3c4d-0000",
+            &LiveHolders::default(),
+            std::time::Duration::from_millis(100),
+            50,
+            |live| {
+                attempts += 1;
+                finish_worktree(&cleanup, live, "1a2b3c4d")
+            },
+        );
+        releaser.join().unwrap();
+        assert_eq!(outcome, FinishOutcome::Removed { leftover: None });
+        assert!(attempts > 1, "the first try met the held gate");
+        assert!(!cleanup.worktree.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #EXP-2038: a session live here again (revived) stops the retries:
+    /// its worktree is the new run's.
+    #[test]
+    fn a_revived_session_stops_the_gate_retries() {
+        let (root, cleanup) = fixture("finish-gate-revived");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let session = "1a2b3c4d-1111-4111-8111-111111111111";
+        let mut record = crate::run_registry::sample_record(session);
+        record.cwd = cleanup.worktree.clone();
+        record.host_pid = Some(std::process::id());
+        crate::run_registry::record(&data_dir, record);
+        let _hold = crate::launch_gate::hold(&cleanup.clone);
+        let mut attempts = 0;
+        let outcome = retry_gate_held(
+            &data_dir,
+            session,
+            &LiveHolders::default(),
+            std::time::Duration::from_millis(10),
+            50,
+            |live| {
+                attempts += 1;
+                finish_worktree(&cleanup, live, "1a2b3c4d")
+            },
+        );
+        assert_eq!(outcome, FinishOutcome::Skipped(SkipReason::GateHeld));
+        assert_eq!(attempts, 1);
+        assert!(cleanup.worktree.exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 

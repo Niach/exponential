@@ -11,6 +11,7 @@ description: "For agents: the shell document format, the surface header, the dat
 | `~/.config/exponential-desktop/ui/theme.json` | The look, in the [genUI theme format](/docs/sdk/genui/guides/themes/); `extends` may name a built-in theme. |
 | `/usr/share/exponential-desktop/ui/` | The factory documents. |
 | `~/.config/exponential-desktop/compositor.toml` | Compositor settings: keyboard, windows, lock, idle, protected apps, outputs, theme bridge. A broken file is logged and ignored. |
+| `/etc/exponential-desktop/control.toml` | Programs that may use the desktop's control token without asking (`[[allow]]` with `path` and `principal = "root"` or `"computer-use"`). The only file that can switch the token check off (`[control] consent = false`) or give the shell and the other session programs back to their systemd units (`[session] helpers = "units"`); `compositor.toml` cannot. Root-owned and writable by root only, or it is ignored. |
 
 A document name is lowercase letters, digits, `-` and `_`.
 
@@ -139,6 +140,10 @@ exponential-ctl pointer X Y [--click] [--bindings]             # move, optionall
 ```
 
 `--bindings` sends the input as the person's, so it reaches the desktop's own keys (Alt+Tab, Super, the media keys). Protected windows are black in captures and refuse input.
+
+Each `exponential-ctl` process asks the person once whether it may control the desktop. `exponential-ctl session` runs commands from stdin, one per line, and asks once for all of them. A VM or CI machine lists `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml` with `principal = "root"` and is never asked; `--bindings` needs that.
+
+The Exponential app and CLI ask once per login, the first time they use the screen. Any other program that presents the control token is refused.
 
 ## exponential-ui
 

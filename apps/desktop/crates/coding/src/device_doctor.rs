@@ -47,6 +47,9 @@ pub const KEY_CARGO_SWEEP: &str = "cargo_sweep";
 /// #EXP-1868: the storage row of a memory-throttled slice (see
 /// [`add_memory`]).
 pub const KEY_MEMORY: &str = "memory";
+/// #EXP-1892: the storage row of writers a full disk refuses (see
+/// [`add_disk_writes`]).
+pub const KEY_DISK_WRITES: &str = "disk_writes";
 /// #EXP-1514: the row under the computer-use switch that says whether this
 /// desktop gives a run an agent space (see [`ComputerState::Supported`]).
 pub const KEY_AGENT_SPACE: &str = "agent_space";
@@ -620,6 +623,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     add_store_conflicts(&mut doctor, crate::agent_profiles::claude_store_conflicts(data_dir));
     add_cargo_sweep(&mut doctor, crate::cargo_target_gc::last_sweep(data_dir).as_ref());
     add_memory(&mut doctor, crate::memory_pressure::throttled_slice().as_ref());
+    add_disk_writes(&mut doctor, eagent::disk_health::failing());
     // NEW-59: the displays ride every doctor (register + heartbeat), so the
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
@@ -697,25 +701,66 @@ pub fn add_store_conflicts(doctor: &mut DeviceDoctor, count: usize) {
 /// #EXP-1865: the `Build cache` row under `disk`: what the last shared cargo
 /// target sweep freed (or, dry, found) and when, device-local time (grey,
 /// never a problem). No sweep yet, or no `disk` row to hang off = no row.
+/// #EXP-1892: a later sweep that freed nothing adds when it ran
+/// (`cargoSweepChecked`), so a sweep that stopped shows as an old one.
 pub fn add_cargo_sweep(doctor: &mut DeviceDoctor, last: Option<&crate::cargo_target_gc::SweepRecord>) {
     let Some(last) = last else { return };
-    let when = chrono::DateTime::from_timestamp(last.at, 0)
-        .map(|at| at.with_timezone(&chrono::Local).format("%-d %b %H:%M").to_string())
-        .unwrap_or_default();
-    add_cargo_sweep_at(doctor, last.freed_bytes, last.dry_run, &when);
+    let when = local_time(last.at);
+    let checked = last.checked_at.filter(|checked| *checked > last.at + 60).map(local_time);
+    add_cargo_sweep_at(doctor, last.freed_bytes, last.dry_run, &when, checked.as_deref());
 }
 
-/// [`add_cargo_sweep`] with the time already formatted (pure).
-pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: bool, when: &str) {
+/// Unix seconds as the doctor's device-local `16 Nov 08:14`.
+fn local_time(secs: i64) -> String {
+    chrono::DateTime::from_timestamp(secs, 0)
+        .map(|at| at.with_timezone(&chrono::Local).format("%-d %b %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// [`add_cargo_sweep`] with the times already formatted (pure).
+pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: bool, when: &str, checked: Option<&str>) {
     if !doctor.items.iter().any(|item| item.key == KEY_DISK) {
         return;
     }
     let size = crate::worktree_lifecycle::format_free(freed_bytes);
+    let mut detail = cargo_sweep(&size, dry_run, when);
+    if let Some(checked) = checked {
+        detail = cargo_sweep_checked(&detail, checked);
+    }
     let mut row = item(KEY_CARGO_SWEEP, DoctorGroup::Storage, DoctorState::Off)
         .parent(KEY_DISK)
-        .detail(cargo_sweep(&size, dry_run, when));
+        .detail(detail);
     row.label = Some(CARGO_SWEEP_LABEL.to_string());
     doctor.items.push(row);
+}
+
+/// #EXP-1892: the row of the writers a full disk refuses (a warning, no
+/// pill, never a blocker): the log, the journal, the state files are
+/// skipped while it lasts, the device keeps beating. None = no row.
+pub fn add_disk_writes(doctor: &mut DeviceDoctor, failing: Option<(Vec<&'static str>, std::time::SystemTime)>) {
+    let Some((writers, since)) = failing else { return };
+    let since = since.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+    add_disk_writes_at(doctor, &writers.join(", "), &local_time(since));
+}
+
+/// [`add_disk_writes`] with the time already formatted (pure).
+pub fn add_disk_writes_at(doctor: &mut DeviceDoctor, writers: &str, since: &str) {
+    let mut row = item(KEY_DISK_WRITES, DoctorGroup::Storage, DoctorState::Action).detail(disk_writes_failing(writers, since));
+    row.label = Some(DISK_WRITES_LABEL.to_string());
+    doctor.items.push(row);
+}
+
+/// The fixture's `diskWritesLabel`.
+pub const DISK_WRITES_LABEL: &str = "Disk writes";
+
+/// The fixture's `diskWritesFailing` template.
+pub fn disk_writes_failing(writers: &str, since: &str) -> String {
+    format!("No space left · {writers} skipped since {since}")
+}
+
+/// The fixture's `cargoSweepChecked` template.
+pub fn cargo_sweep_checked(sweep: &str, when: &str) -> String {
+    format!("{sweep} · checked {when}")
 }
 
 /// #EXP-1868: the row of a slice over its `memory.high` (a warning, no pill,
@@ -1153,7 +1198,7 @@ mod tests {
             }
             // #EXP-1865: the low-disk case's machine also swept its build cache.
             if index == 14 {
-                add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02");
+                add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02", None);
             }
             add_key_holder(&mut doctor, index != 12, None);
             assert_eq!(
@@ -1297,6 +1342,7 @@ mod tests {
             freed_bytes: 31_234_000_000,
             dry_run: false,
             target: "/repos/acme/web.cargo-target".into(),
+            checked_at: None,
         };
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_cargo_sweep(&mut doctor, Some(&last));
@@ -1314,6 +1360,31 @@ mod tests {
         let fill = |template: &str| template.replace("{size}", "S").replace("{when}", "W");
         assert_eq!(cargo_sweep("S", false, "W"), fill(copy["cargoSweepFreed"].as_str().unwrap()));
         assert_eq!(cargo_sweep("S", true, "W"), fill(copy["cargoSweepDryRun"].as_str().unwrap()));
+        // #EXP-1892: a later sweep that freed nothing says when it ran; one
+        // within the minute of the freeing one says nothing more.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_storage(&mut doctor, Some(50_000_000_000), &[]);
+        add_cargo_sweep(&mut doctor, Some(&crate::cargo_target_gc::SweepRecord { checked_at: Some(last.at + 30), ..last.clone() }));
+        add_cargo_sweep(&mut doctor, Some(&crate::cargo_target_gc::SweepRecord { checked_at: Some(last.at + 3_600), ..last.clone() }));
+        assert!(!doctor.items[1].detail.as_deref().unwrap().contains("checked"));
+        assert!(doctor.items[2].detail.as_deref().unwrap().contains(" · checked "), "{:?}", doctor.items[2].detail);
+        assert_eq!(
+            cargo_sweep_checked("S", "W"),
+            copy["cargoSweepChecked"].as_str().unwrap().replace("{sweep}", "S").replace("{when}", "W")
+        );
+        // #EXP-1892: writers the full disk refuses = the Disk writes warning.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_disk_writes(&mut doctor, None);
+        assert!(doctor.items.is_empty(), "every write lands, no row");
+        add_disk_writes_at(&mut doctor, "log, state", "16 Nov 18:45");
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_DISK_WRITES, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!((row.action, row.parent.as_deref()), (None, None));
+        assert_eq!(row.label.as_deref(), copy["diskWritesLabel"].as_str());
+        assert_eq!(
+            row.detail.as_deref(),
+            Some(copy["diskWritesFailing"].as_str().unwrap().replace("{writers}", "log, state").replace("{when}", "16 Nov 18:45").as_str())
+        );
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()

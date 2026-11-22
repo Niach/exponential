@@ -77,6 +77,9 @@ pub enum NoFeedState {
     Starting,
     /// Idle or waiting on a question: never "starting".
     Idle,
+    /// #EXP-2000 (NEVER HELD): a row no device picked up yet (`startedAt`
+    /// null): the placeholder says nothing, only sent inputs + the own tail.
+    Waiting,
 }
 
 /// EXP-1487 (TS `steerNoFeedState` with the device online).
@@ -87,10 +90,18 @@ pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
 /// EXP-1487 / #EXP-1703 (TS `steerNoFeedState`): ended first, then a host
 /// device offline in presence (`away`), then busy = starting, else idle.
 pub fn no_feed_state_on(ended: bool, busy: bool, device_offline: bool) -> NoFeedState {
+    no_feed_state_held(ended, busy, device_offline, true)
+}
+
+/// #EXP-2000 (TS `steerNoFeedState` with `started`): as [`no_feed_state_on`],
+/// but an idle row no device picked up yet (`started` false = `startedAt`
+/// null) is [`NoFeedState::Waiting`], never the idle copy.
+pub fn no_feed_state_held(ended: bool, busy: bool, device_offline: bool, started: bool) -> NoFeedState {
     match (ended, device_offline, busy) {
         (true, _, _) => NoFeedState::Offline,
         (false, true, _) => NoFeedState::Away,
         (false, false, true) => NoFeedState::Starting,
+        (false, false, false) if !started => NoFeedState::Waiting,
         (false, false, false) => NoFeedState::Idle,
     }
 }
@@ -1297,13 +1308,19 @@ mod tests {
                 "away" => NoFeedState::Away,
                 "starting" => NoFeedState::Starting,
                 "idle" => NoFeedState::Idle,
+                "waiting" => NoFeedState::Waiting,
                 other => panic!("unknown state {other}"),
             };
             let (ended, busy) = (case["ended"].as_bool().unwrap(), case["busy"].as_bool().unwrap());
             // #EXP-1703: `deviceOffline` absent = false.
             let device_offline = case["deviceOffline"].as_bool().unwrap_or(false);
-            assert_eq!(no_feed_state_on(ended, busy, device_offline), state, "{}", case["name"]);
-            if !device_offline {
+            // #EXP-2000: `started` absent = true.
+            let started = case["started"].as_bool().unwrap_or(true);
+            assert_eq!(no_feed_state_held(ended, busy, device_offline, started), state, "{}", case["name"]);
+            if started {
+                assert_eq!(no_feed_state_on(ended, busy, device_offline), state, "{}", case["name"]);
+            }
+            if !device_offline && started {
                 assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
             }
         }

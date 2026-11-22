@@ -126,13 +126,13 @@ pub use activity::{
     normalize_agent_title, AgentTitleForwarder, AgentTitleHook, AgentTitleSignal, AGENT_TITLE_MAX,
     AGENT_TITLE_RETRY_INTERVAL,
     ConfigChange, ConfigLink,
-    BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
+    BlockedForwarder, BlockedHook, DiffPace, DiffSlots, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, SessionBlockedReport, StatusForwarder, StatusHook, blocked_wall_expired,
     iso_from_unix_millis,
     now_unix_millis,
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
     CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
-    CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
+    CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_CONCURRENCY, DIFF_IDLE_INTERVAL, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
     STOP_GRACE, TRUNCATION_MARKER, RESUMED_IDLE_CAPTION,
 };
 pub use feed::{
