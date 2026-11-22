@@ -12,6 +12,8 @@
 //!   stdin (`EDE_TOKEN_FD=0`; never its environment, which `/proc` shows).
 //!   A lock client that dies, or shows nothing, keeps the session locked
 //!   and is started again; it ends with the lock and with the compositor.
+//!   One that cannot start is tried again every second, and logged once,
+//!   then every [`STILL_FAILING_EVERY`] with its count (#EDE-210).
 //! - **Sealed surfaces**: a layer surface from a process whose executable
 //!   is the installed `exponential-sealed` (the polkit prompt, consent) is
 //!   protected: black in captures, never driven by an agent, no input
@@ -53,6 +55,35 @@ pub const MAX_RESPAWNS: u32 = 5;
 pub const HEALTHY: Duration = Duration::from_secs(30);
 /// A running lock client with no surface for this long is started again.
 pub const NO_SURFACE: Duration = Duration::from_secs(10);
+/// #EDE-210: a lock client that still cannot start is logged again (with
+/// the count of tries) this often, not on every try.
+pub const STILL_FAILING_EVERY: Duration = Duration::from_secs(30);
+
+/// #EDE-210: the lock client's starts that failed in a row while locked,
+/// and when that was last logged.
+#[derive(Debug, Default)]
+pub struct FailedStarts {
+    pub tries: u32,
+    logged: Option<Instant>,
+}
+
+impl FailedStarts {
+    /// One more start failed at `now`; whether to log it: the first at
+    /// once, the ones after it every [`STILL_FAILING_EVERY`].
+    pub fn failed(&mut self, now: Instant) -> bool {
+        self.tries += 1;
+        let due = self.logged.is_none_or(|at| now.saturating_duration_since(at) >= STILL_FAILING_EVERY);
+        if due {
+            self.logged = Some(now);
+        }
+        due
+    }
+
+    /// A start worked: how many failed before it.
+    pub fn started(&mut self) -> u32 {
+        std::mem::take(self).tries
+    }
+}
 
 /// A layer surface's origin, decided once when it maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +118,8 @@ pub struct Sealed {
     pub shown_on: Vec<Output>,
     /// Lock surfaces whose output went away, until the next output comes.
     pub homeless: Vec<LayerSurface>,
+    /// #EDE-210: starts that failed since the client last ran.
+    pub failed_starts: FailedStarts,
 }
 
 impl Drop for Sealed {
@@ -168,19 +201,19 @@ impl Ede {
         } else {
             let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
             let child = self.spawn_lock_client(&argv, &grant.token);
-            if child.is_none() {
+            if child.is_err() {
                 self.ipc.grants.retain(|g| g.token != grant.token);
             }
             child.map(|child| (child, None, grant.token))
         };
         match started {
-            Some((child, conn, token)) => {
+            Ok((child, conn, token)) => {
                 let pid = child.id();
                 tracing::info!(pid, channel = conn.is_some(), "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token, conn, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token, conn, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new(), failed_starts: FailedStarts::default() });
             }
-            None => {
-                tracing::error!("exponential-sealed could not start: the session stays unlocked");
+            Err(e) => {
+                tracing::error!("exponential-sealed could not start ({e}): the session stays unlocked");
                 return;
             }
         }
@@ -191,13 +224,13 @@ impl Ede {
     /// #EDE-172 (P4): starts the lock client with a grant of its own on a
     /// channel at fd 3 (bound: it ends with the client's connection) and a
     /// Wayland connection the compositor made, in the pinned environment;
-    /// the client, its channel's connection and the grant.
-    fn spawn_lock_on_channel(&mut self, argv: &[String]) -> Option<(Child, Option<u64>, ede_protocol::Token)> {
+    /// the client, its channel's connection and the grant; else why not.
+    fn spawn_lock_on_channel(&mut self, argv: &[String]) -> Result<(Child, Option<u64>, ede_protocol::Token), String> {
         let channel = Channel::Child { session: SEALED_SESSION.into(), capabilities: vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui] };
-        let (conn, fd, grant) = self.ipc_helper_channel(&channel)?;
+        let (conn, fd, grant) = self.ipc_helper_channel(&channel).ok_or("no channel for the lock client")?;
         let Some(grant) = grant else {
             self.ipc_end_channel(conn, None);
-            return None;
+            return Err("no grant for the lock client".into());
         };
         let (client, wayland_fd) = match self.helper_wayland_client(Kind::Sealed) {
             Some((client, fd)) => (Some(client), Some(fd)),
@@ -212,34 +245,33 @@ impl Ede {
                 if let Some(state) = client.as_ref().and_then(|client| client.get_data::<ClientState>()) {
                     state.helper_pid.store(child.id(), std::sync::atomic::Ordering::Relaxed);
                 }
-                Some((child, Some(conn), grant))
+                Ok((child, Some(conn), grant))
             }
             Err(e) => {
-                tracing::warn!("{}: {e}", argv.first().map(String::as_str).unwrap_or("the lock client"));
                 if let Some(client) = client {
                     self.display_handle.backend_handle().kill_client(client.id(), smithay::reexports::wayland_server::backend::DisconnectReason::ConnectionClosed);
                 }
                 self.ipc_end_channel(conn, Some(&grant));
-                None
+                Err(format!("{}: {e}", argv.first().map(String::as_str).unwrap_or("the lock client")))
             }
         }
     }
 
-    /// Starts the lock client with the unlock grant on its stdin.
-    fn spawn_lock_client(&self, argv: &[String], token: &ede_protocol::Token) -> Option<Child> {
-        let mut command = self.client_command(argv)?;
-        let mut child = command.env("EDE_TOKEN_FD", "0").stdin(Stdio::piped()).spawn().map_err(|e| tracing::warn!("{}: {e}", argv[0])).ok()?;
+    /// Starts the lock client with the unlock grant on its stdin; else why not.
+    fn spawn_lock_client(&self, argv: &[String], token: &ede_protocol::Token) -> Result<Child, String> {
+        let mut command = self.client_command(argv).ok_or("no lock client to start")?;
+        let mut child = command.env("EDE_TOKEN_FD", "0").stdin(Stdio::piped()).spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
         if let Some(mut stdin) = child.stdin.take() {
             // A client that already ended reads nothing: the tick sees it.
             let _ = writeln!(stdin, "{}", token.as_str());
         }
-        Some(child)
+        Ok(child)
     }
 
     /// A test's lock: the test's own process plays the lock client.
     pub fn begin_sealed_lock_as(&mut self, pid: u32) -> ede_protocol::Token {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), conn: None, respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), conn: None, respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new(), failed_starts: FailedStarts::default() });
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         grant.token
@@ -344,7 +376,9 @@ impl Ede {
     /// [`NO_SURFACE`], is started again (the session stays locked
     /// meanwhile), and one that could not start is tried again. After
     /// [`MAX_RESPAWNS`] deaths in a row, none of them after [`HEALTHY`],
-    /// the next starts wait: 5 s, doubling up to a minute.
+    /// the next starts wait: 5 s, doubling up to a minute. #EDE-210: a
+    /// start that fails is logged the first time, then every
+    /// [`STILL_FAILING_EVERY`] with the count of tries.
     pub fn sealed_tick(&mut self) {
         // With no output there is nowhere to show: nothing is missing.
         let shows = self.desk.space.outputs().next().is_none() || !self.sealed_lock_surfaces().is_empty();
@@ -388,8 +422,13 @@ impl Ede {
             self.ipc_end_channel(old, Some(&token));
         }
         let started = if self.helpers.on { self.spawn_lock_on_channel(&argv) } else { self.spawn_lock_client(&argv, &token).map(|child| (child, None, token)) };
-        if let Some((child, conn, token)) = started {
-            if let LockState::Sealed(s) = &mut self.lock {
+        let LockState::Sealed(s) = &mut self.lock else { return };
+        match started {
+            Ok((child, conn, token)) => {
+                let failed = s.failed_starts.started();
+                if failed > 0 {
+                    tracing::info!(pid = child.id(), "the lock client started after {failed} failed tries");
+                }
                 s.pid = child.id();
                 s.child = Some(child);
                 s.conn = conn;
@@ -397,6 +436,14 @@ impl Ede {
                 s.started = Instant::now();
                 s.seen = s.started;
             }
+            // The session stays locked (black, nothing unlocks it) and the
+            // next tick tries again; the journal hears it once, then every
+            // STILL_FAILING_EVERY.
+            Err(e) if s.failed_starts.failed(Instant::now()) => match s.failed_starts.tries {
+                1 => tracing::warn!("the lock client cannot start: {e}; the session stays locked and it is tried again every second"),
+                tries => tracing::warn!("the lock client still cannot start ({tries} tries): {e}"),
+            },
+            Err(_) => {}
         }
     }
 
@@ -410,5 +457,24 @@ impl Ede {
         if keyboard.current_focus() != target {
             keyboard.set_focus(self, target, SERIAL_COUNTER.next_serial());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EDE-210: a start failing once a second is logged at the first try,
+    /// then every 30 s with its count; one that works starts the count anew.
+    #[test]
+    fn a_start_that_keeps_failing_is_logged_once_then_every_thirty_seconds() {
+        let mut starts = FailedStarts::default();
+        let t0 = Instant::now();
+        let logged: Vec<u32> = (0..95).filter_map(|s| starts.failed(t0 + Duration::from_secs(s)).then_some(starts.tries)).collect();
+        assert_eq!(logged, [1, 31, 61, 91]);
+        assert_eq!(starts.started(), 95);
+        assert_eq!(starts.started(), 0, "a start resets the count");
+        assert!(starts.failed(t0 + Duration::from_secs(96)), "the next failure after a start is logged at once");
+        assert_eq!(starts.tries, 1);
     }
 }
