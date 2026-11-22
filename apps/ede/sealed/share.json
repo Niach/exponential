@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's sealed screen-share chooser (#EDE-15, Tier B): compiled into exponential-sealed, run by the portal (`exponential-sealed share`) when an app asks to capture the screen or drive it. The app's name, what it asks for, the outputs and windows to pick from; the choice is printed for the portal (output:NAME / window:ID lines, `allow` when remote control was granted). Never a document on disk. #EDE-181: the card lies on `backing`, the theme's background (what a card lies on in the app): the dark theme's card is translucent, and nothing under the prompt may show through it.",
+  "$comment": "Exponential Desktop's sealed screen-share chooser (#EDE-15, Tier B): compiled into exponential-sealed, run by the portal (`exponential-sealed share`) when an app asks to capture the screen or drive it. The app's name, what it asks for, the outputs and windows to pick from; the choice is printed for the portal (output:NAME / window:ID lines, `allow` when remote control was granted). Never a document on disk. #EDE-181: the card lies on `backing`, the theme's background (what a card lies on in the app): the dark theme's card is translucent, and nothing under the prompt may show through it. #EDE-203: Share passes the remote-control switch (`/allow`) in its `sealed_answer` args; a Switch sends its host no input event.",
   "root": {
     "id": "share",
     "component": "Box",
@@ -264,7 +264,10 @@
                         "functionCall": {
                           "@call": "sealed_answer",
                           "args": {
-                            "answer": "share"
+                            "answer": "share",
+                            "allow": {
+                              "@path": "/allow"
+                            }
                           }
                         }
                       }
